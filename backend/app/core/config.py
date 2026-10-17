@@ -370,18 +370,17 @@ class Settings(BaseSettings):
     # ── CROSS-PORTAL ARTISAN IDENTITY (C27; docs/ENVIRONMENT.md) ────────────────────────────────
     #
     # OFF BY DEFAULT, AND OFF UNTIL BOTH PORTALS HAVE IT. The lookup works only when the flag is on
-    # AND both secrets are set (32 characters or more) on BOTH servers. Anything missing and
-    # the routes answer 404 and neither client draws a single element. The token authenticates each
-    # server to the other (a bearer on the request, an HMAC of the body on the answer); the HMAC key
-    # turns an Aadhaar number into a code both servers can compare, so the number itself never leaves
-    # either system. Both values are the SAME on the two servers. Never commit either.
+    # AND CROSS_PORTAL_TOKEN and AADHAAR_FINGERPRINT_KEY are set (32 characters or more) on BOTH
+    # servers. Anything missing and the routes answer 404 and neither client draws a single element.
+    # The token authenticates each server to the other (a bearer on the request, an HMAC of the body
+    # on the answer). The Aadhaar code a lookup carries is the artisan's stored fingerprint, under the
+    # fingerprint key both registers already share (services/aadhaar_fingerprint.py), so the number
+    # itself never leaves either system and there is no separate Aadhaar key. Both values are the
+    # SAME on the two servers. Never commit either.
     cross_portal_identity_enabled: bool = Field(
         default=False, alias="CROSS_PORTAL_IDENTITY_ENABLED"
     )
     cross_portal_token: str | None = Field(default=None, alias="CROSS_PORTAL_TOKEN")
-    cross_portal_aadhaar_hmac_key: str | None = Field(
-        default=None, alias="CROSS_PORTAL_AADHAAR_HMAC_KEY"
-    )
 
     model_config = SettingsConfigDict(
         env_file=".env",

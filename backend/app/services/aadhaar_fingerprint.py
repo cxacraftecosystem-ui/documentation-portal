@@ -12,9 +12,10 @@ The fingerprint is an HMAC and not a plain hash because there are only 10^12 Aad
 plain SHA-256 of each could be tabulated in hours. Without the key the fingerprint is useless.
 
 ONE KEY FOR BOTH PORTALS. The designer portal and the Field Repository use the same key, so the
-cross-portal artisan link (C27, ``services/cross_portal.py``) can compare a stored fingerprint with
-the other portal's directly. The formula is byte-for-byte ``cross_portal.aadhaar_code``: the key's
-text stripped and UTF-8 encoded, the 12 ASCII digits as the message, hex digest.
+cross-portal artisan link (C27, ``services/cross_portal.py``) compares a stored fingerprint with the
+other portal's directly: ``cross_portal.aadhaar_code`` IS :func:`fingerprint` (the key's text
+stripped and UTF-8 encoded, the 12 ASCII digits as the message, hex digest), and the link needs this
+key and no other.
 
 THE LEGACY COLUMN. ``Artisan.aadhaarNumber`` held the full number until this change. It is never
 written again (``seal`` sets it to NULL whenever the number is touched), is read only to mask and to

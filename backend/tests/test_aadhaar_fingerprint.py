@@ -70,6 +70,22 @@ def test_the_fingerprint_is_hmac_sha256_of_the_twelve_digits_and_the_cross_porta
     assert fp.fingerprint(number, KEY + "x") != expected
 
 
+def test_the_cross_portal_code_is_this_fingerprint_byte_for_byte() -> None:
+    """Computed BY ``services/cross_portal.aadhaar_code`` itself, not re-implemented here, so the
+    two cannot drift apart: a stored fingerprint IS the code the designer portal sends."""
+    from types import SimpleNamespace
+
+    from app.services import cross_portal
+
+    number = _fresh_aadhaar()
+    for key in (KEY, f"  {KEY}\n"):
+        assert cross_portal.aadhaar_code(number, key) == fp.fingerprint(number, KEY)
+    settings = SimpleNamespace(
+        cross_portal_identity_enabled=True, cross_portal_token="t" * 40, aadhaar_fingerprint_key=None
+    )
+    assert not cross_portal.active(settings), "no fingerprint key, no link"
+
+
 @pytest.mark.parametrize("spelling", ["{a} {b} {c}", "{a}-{b}-{c}", " {a}{b}{c} "])
 def test_every_spelling_of_one_number_is_one_fingerprint(spelling: str) -> None:
     number = _fresh_aadhaar()

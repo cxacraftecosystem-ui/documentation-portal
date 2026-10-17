@@ -11,19 +11,24 @@ record is refreshed FROM it, never the other way round.
 
 ── THE THREE RULES, AND WHERE EACH LIVES ────────────────────────────────────────────────────────
 
-1. **The raw Aadhaar number never leaves either system.** The designer portal sends
-   ``HMAC-SHA256(key, the 12 digits)``; the documentation portal computes the same code over the
-   artisans whose consent it holds and compares. The key is a secret both servers share
-   (``CROSS_PORTAL_AADHAAR_HMAC_KEY``) and nothing else knows, so the code cannot be reversed by
-   hashing all 10^12 numbers — that is why it is an HMAC and not a plain hash. :func:`aadhaar_code`.
+1. **The raw Aadhaar number never leaves either system.** The code a lookup carries IS the
+   artisan's stored Aadhaar fingerprint: ``HMAC-SHA256(AADHAAR_FINGERPRINT_KEY, the 12 digits)``
+   (``services/aadhaar_fingerprint.py``), under the one key both portals already share. The designer
+   portal sends the fingerprint it stores (or makes it from a number typed on the form); the
+   documentation portal compares it with its own ``Artisan.aadhaarFingerprint`` column. Neither
+   register holds the number any more, so there is nothing else to compare. The key never leaves
+   the two servers, so the code cannot be reversed by hashing all 10^12 numbers — that is why it is
+   an HMAC and not a plain hash. It cannot be rotated: every stored fingerprint depends on it.
+   :func:`aadhaar_code`.
 2. **Both servers prove who they are.** The caller sends ``Authorization: Bearer <token>`` and a
    fresh ``X-Cross-Portal-Nonce``; the answer carries ``X-Cross-Portal-Signature``, an HMAC under the
    same token of the REQUEST (method, peer path, the nonce) and the exact body bytes, which the
    caller checks before it reads a word. A man in the middle holding neither can neither ask nor
    answer, and a captured answer cannot be replayed against another request: its nonce is not the
    one the caller just sent. :func:`bearer_matches`, :func:`sign`, :func:`signature_matches`.
-3. **Nothing works until both servers are configured.** :func:`active` is the flag AND both secrets
-   (32 characters or more each); the designer portal adds its URL for the other server. A server
+3. **Nothing works until both servers are configured.** :func:`active` is the flag AND the
+   cross-portal token AND the Aadhaar fingerprint key (32 characters or more each); the designer
+   portal adds its URL for the other server. A server
    that is not active answers 404 on every route here, so a half-configured pair fails closed.
 
 What a lookup shares is :data:`SHARED_FIELDS` plus the craft and the stated address, and the words
@@ -41,6 +46,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 from typing import Any
+
+from app.services import aadhaar_fingerprint
 
 #: Shortest secret either server accepts. A shorter one leaves the feature off.
 MIN_SECRET_LENGTH = 32
@@ -130,7 +137,8 @@ def active(settings: Any, *, needs_url: bool = False) -> bool:
         return False
     if not _secret_ok(getattr(settings, "cross_portal_token", None)):
         return False
-    if not _secret_ok(getattr(settings, "cross_portal_aadhaar_hmac_key", None)):
+    # The Aadhaar code is the stored fingerprint, so the fingerprint key is what both sides need.
+    if not _secret_ok(getattr(settings, "aadhaar_fingerprint_key", None)):
         return False
     if needs_url and not (getattr(settings, "field_repository_api_url", None) or "").strip():
         return False
@@ -138,9 +146,11 @@ def active(settings: Any, *, needs_url: bool = False) -> bool:
 
 
 def aadhaar_code(number: str, key: str) -> str:
-    """``HMAC-SHA256(key, the 12 digits)`` as lower-case hex. ``number`` must already be normalised."""
+    """The code for a typed number: exactly :func:`aadhaar_fingerprint.fingerprint`, so it equals the
+    ``Artisan.aadhaarFingerprint`` either register stores for that number. ``number`` must already
+    be normalised (``artisan_identity.validate_aadhaar``); spacing is ignored."""
     digits = "".join(ch for ch in number if ch.isdigit())
-    return hmac.new(key.strip().encode("utf-8"), digits.encode("ascii"), hashlib.sha256).hexdigest()
+    return aadhaar_fingerprint.fingerprint(digits, key)
 
 
 def peer_path(path: str) -> str:

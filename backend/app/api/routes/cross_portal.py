@@ -29,7 +29,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.core.config import get_settings
 from app.core.db import db
 from app.core.deps import get_current_user, get_value
-from app.services import cross_portal
+from app.services import aadhaar_fingerprint, cross_portal
 from app.services.access import record_edit_privilege, record_revision
 from app.services.artisan_identity import normalize_pehchan
 
@@ -160,6 +160,37 @@ def _answer(artisan: Any, matched_by: str) -> dict[str, Any]:
     }
 
 
+async def _legacy_aadhaar_matches(code: str, settings: Any) -> list[Any]:
+    """Consenting artisans the fingerprint backfill has not reached yet, whose code is ``code``.
+
+    Only artisans who agreed are compared at all, and only while any row still holds the legacy
+    number without its fingerprint (``aadhaar_fingerprint.legacy_pending``).
+    """
+    if not aadhaar_fingerprint.LEGACY_COLUMN_PRESENT or not await aadhaar_fingerprint.legacy_pending(db):
+        return []
+    consents = await db.artisansharingconsent.find_many(where={"granted": True})
+    ids = [c.artisanId for c in consents]
+    if not ids:
+        return []
+    rows = await db.artisan.find_many(
+        where={
+            "id": {"in": ids},
+            aadhaar_fingerprint.NUMBER_FIELD: {"not": None},
+            aadhaar_fingerprint.FINGERPRINT_FIELD: None,
+        }
+    )
+    key = aadhaar_fingerprint.configured_key(settings)
+    out = []
+    for row in rows:
+        try:
+            mine = cross_portal.aadhaar_code(getattr(row, aadhaar_fingerprint.NUMBER_FIELD), key)
+        except ValueError:
+            continue
+        if cross_portal.codes_match(mine, code):
+            out.append(row)
+    return out
+
+
 @router.post("/peer/artisans/lookup")
 async def peer_lookup(
     payload: PeerLookup, request: Request, settings: Any = Depends(require_peer)
@@ -185,22 +216,16 @@ async def peer_lookup(
                 return _signed(
                     settings, request, {"match": _answer(artisan, cross_portal.MATCHED_BY_PEHCHAN)}
                 )
-    if payload.aadhaarCode:
-        # Only artisans who agreed are hashed at all: the set is small, and an artisan without
-        # consent is never even compared.
-        consents = await db.artisansharingconsent.find_many(where={"granted": True})
-        ids = [c.artisanId for c in consents]
-        rows = (
-            await db.artisan.find_many(where={"id": {"in": ids}, "aadhaarNumber": {"not": None}})
-            if ids
-            else []
-        )
-        key = settings.cross_portal_aadhaar_hmac_key
+    code = (payload.aadhaarCode or "").strip().lower()
+    if aadhaar_fingerprint.is_fingerprint(code):
+        # THE CODE IS A STORED FINGERPRINT. Both registers keep HMAC-SHA256(AADHAAR_FINGERPRINT_KEY,
+        # the 12 digits) and no number, and the designer portal sends exactly that, so this is one
+        # lookup on the unique column. Consent is still checked before anything is answered.
+        rows = await db.artisan.find_many(where={aadhaar_fingerprint.FINGERPRINT_FIELD: code})
+        if not rows:
+            rows = await _legacy_aadhaar_matches(code, settings)
         for row in rows:
-            code = cross_portal.aadhaar_code(row.aadhaarNumber, key)
-            if cross_portal.codes_match(code, payload.aadhaarCode) and (
-                getattr(row, "status", None) != "REJECTED"
-            ):
+            if getattr(row, "status", None) != "REJECTED":
                 artisan = await _consenting(row.id)
                 if artisan is not None:
                     await _log_access(

@@ -234,16 +234,18 @@ One artisan across the two portals. A designer types the Aadhaar or Pehchan numb
 artisan agreed, and the designer portal's server asks the documentation portal's server for the
 artisan; the form is filled and the records linked. The documentation portal is the source of truth
 for name, local name, gender, date of birth and the Pehchan pair; a linked record is refreshed from
-it. The raw Aadhaar number never leaves either server: the designer portal sends
-`HMAC-SHA256(CROSS_PORTAL_AADHAAR_HMAC_KEY, digits)`. Each server proves itself to the other with
+it. The raw Aadhaar number never leaves either server: the designer portal sends the artisan's
+Aadhaar fingerprint, `HMAC-SHA256(AADHAAR_FINGERPRINT_KEY, digits)` — the value both registers store
+in `Artisan.aadhaarFingerprint` — and this portal compares it with its own column. There is no
+separate Aadhaar key for this link. Each server proves itself to the other with
 `CROSS_PORTAL_TOKEN` (a bearer on the request, an HMAC of the body on the answer). The documentation
 portal answers only for an artisan whose "Share with the Designer Portal" consent is recorded.
 Every answer is signed over the request it answers (method, path and a fresh nonce), every peer
 request is written to `CrossPortalAccessLog` (which designer-portal account asked and which artisan
 it reached, never a number), and every consent change is a revision in the artisan's history.
 
-**Nothing works until all of it is set on BOTH servers** — the flag, both secrets (32 characters or
-more, the same values on the two servers). Anything missing and every `/api/cross-portal/*`
+**Nothing works until all of it is set on BOTH servers** — the flag, `CROSS_PORTAL_TOKEN` and
+`AADHAAR_FINGERPRINT_KEY` (32 characters or more, the same values on the two servers). Anything missing and every `/api/cross-portal/*`
 route answers 404 and no client draws anything. Secrets go to the GitHub Actions secrets **and** the
 box `.env`; none is created by this repository.
 
@@ -251,7 +253,7 @@ box `.env`; none is created by this repository.
 |---|---|---|---|---|
 | `CROSS_PORTAL_IDENTITY_ENABLED` | No | **`false`** | No | The switch. Off: the feature does not exist. |
 | `CROSS_PORTAL_TOKEN` | With the flag on | — | **Yes** | Shared by both servers. Authenticates requests and signs answers. 32+ characters. |
-| `CROSS_PORTAL_AADHAAR_HMAC_KEY` | With the flag on | — | **Yes** | Shared by both servers. Turns an Aadhaar number into a comparable code. 32+ characters. Rotating it needs both servers changed together; nothing stored depends on it. |
+| `AADHAAR_FINGERPRINT_KEY` | Yes (see above) | — | **Yes** | Also what the link compares Aadhaar by: the code is the stored fingerprint. Must be the same on both servers. It cannot be rotated: every stored fingerprint depends on it. |
 
 ### AI-drafted interview answers (C28) — shipped OFF
 

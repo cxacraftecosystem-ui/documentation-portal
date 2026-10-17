@@ -15,7 +15,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.routes import cross_portal as routes
-from app.services import cross_portal
+from app.services import aadhaar_fingerprint, cross_portal
 
 pytestmark = pytest.mark.anyio
 
@@ -81,7 +81,7 @@ def _settings(**over):
     base = {
         "cross_portal_identity_enabled": True,
         "cross_portal_token": TOKEN,
-        "cross_portal_aadhaar_hmac_key": KEY,
+        "aadhaar_fingerprint_key": KEY,
     }
     base.update(over)
     return SimpleNamespace(**base)
@@ -118,7 +118,10 @@ def world(monkeypatch):
                 "experienceMonths": None,
                 "phone": "9999999999",
                 "place": "Bhuj",
-                "aadhaarNumber": AADHAAR,
+                # As this release stores it: the fingerprint and the last four, never the number.
+                "aadhaarNumber": None,
+                "aadhaarFingerprint": aadhaar_fingerprint.fingerprint(AADHAAR, KEY),
+                "aadhaarLast4": AADHAAR[-4:],
                 "status": "APPROVED",
                 "craft": craft,
                 "location": SimpleNamespace(state="Gujarat", district="Kachchh", village="Nirona"),
@@ -128,7 +131,9 @@ def world(monkeypatch):
                 "id": "a2",
                 "name": "No Consent",
                 "pehchanCardNumber": "PEH99999",
-                "aadhaarNumber": "987698769876",
+                "aadhaarNumber": None,
+                "aadhaarFingerprint": aadhaar_fingerprint.fingerprint("987698769876", KEY),
+                "aadhaarLast4": "9876",
                 "status": "APPROVED",
                 "createdById": "u1",
             },
@@ -173,7 +178,8 @@ def test_active_needs_the_flag_and_both_long_secrets():
     assert not cross_portal.active(_settings(cross_portal_identity_enabled=False))
     assert not cross_portal.active(_settings(cross_portal_token=None))
     assert not cross_portal.active(_settings(cross_portal_token="short"))
-    assert not cross_portal.active(_settings(cross_portal_aadhaar_hmac_key=""))
+    assert not cross_portal.active(_settings(aadhaar_fingerprint_key=""))
+    assert not cross_portal.active(_settings(aadhaar_fingerprint_key="short"))
     assert not cross_portal.active(_settings(), needs_url=True)
     assert cross_portal.active(_settings(field_repository_api_url="https://x/api"), needs_url=True)
 
@@ -298,6 +304,30 @@ async def test_lookup_by_aadhaar_code_compares_only_consenting_artisans(world):
         await routes.peer_lookup(routes.PeerLookup(aadhaarCode=other), _req(), _settings())
     ) == {"match": None}
     assert code not in json.dumps(world.crossportalaccesslog.rows, default=str)
+
+
+async def test_the_code_is_the_stored_fingerprint(world):
+    """The register holds no number: the lookup compares the code with the fingerprint column, which
+    under the one shared key is exactly what the designer portal stores and sends."""
+    stored = world.artisan.rows[0]["aadhaarFingerprint"]
+    assert cross_portal.aadhaar_code(AADHAAR, KEY) == stored
+    found = _body(await routes.peer_lookup(routes.PeerLookup(aadhaarCode=stored.upper()), _req(), _settings()))
+    assert found["match"]["artisanId"] == "a1"
+
+
+async def test_a_consenting_row_the_backfill_has_not_reached_still_matches(world):
+    row = world.artisan.rows[0]
+    row.update(aadhaarNumber=AADHAAR, aadhaarFingerprint=None, aadhaarLast4=None)
+    code = cross_portal.aadhaar_code(AADHAAR, KEY)
+    found = _body(await routes.peer_lookup(routes.PeerLookup(aadhaarCode=code), _req(), _settings()))
+    assert found["match"]["artisanId"] == "a1"
+    # A legacy row WITHOUT consent is never compared.
+    other = world.artisan.rows[1]
+    other.update(aadhaarNumber="987698769876", aadhaarFingerprint=None)
+    miss = cross_portal.aadhaar_code("987698769876", KEY)
+    assert _body(
+        await routes.peer_lookup(routes.PeerLookup(aadhaarCode=miss), _req(), _settings())
+    ) == {"match": None}
 
 
 async def test_links_need_consent_and_withdrawal_removes_them(world, monkeypatch):
