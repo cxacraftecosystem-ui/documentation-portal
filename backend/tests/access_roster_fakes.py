@@ -173,13 +173,6 @@ def _matches(row: Any, where: dict[str, Any] | None) -> bool:
     return True
 
 
-def _unwrap_set(value: Any) -> Any:
-    """``{"set": [...]}`` is how a scalar-list column is written on an update; store the list."""
-    if isinstance(value, dict) and set(value) == {"set"}:
-        return value["set"]
-    return value
-
-
 class FakeTable:
     """One table. Rows are ``SimpleNamespace`` so handler code reads them by attribute, as it does
     with prisma models."""
@@ -291,7 +284,6 @@ class FakeTable:
         row = await self.find_unique(where)
         if row is None:
             return None
-        data = {field: _unwrap_set(value) for field, value in data.items()}
         candidate = {**vars(row), **data}
         self._refuse_duplicate(candidate, exclude_id=getattr(row, "id", None))
         for field, value in data.items():
@@ -308,7 +300,6 @@ class FakeTable:
                     value = (getattr(row, field, 0) or 0) + value["increment"]
                 elif isinstance(value, dict) and "decrement" in value:
                     value = (getattr(row, field, 0) or 0) - value["decrement"]
-                value = _unwrap_set(value)
                 setattr(row, field, value)
             row.updatedAt = _now()
         self.writes.append(("update_many", dict(data)))

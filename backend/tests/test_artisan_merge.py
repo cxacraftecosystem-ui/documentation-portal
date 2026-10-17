@@ -35,6 +35,22 @@ RESEARCHER = "u-researcher"
 QNR = "qnr-2"
 
 
+def _unwrap_set(value: Any) -> Any:
+    """``{"set": [...]}`` is how a scalar-list column is written on an update; Postgres stores the
+    list. Local to this module: the shared fake records the raw shape, and other suites assert it."""
+    if isinstance(value, dict) and set(value) == {"set"}:
+        return value["set"]
+    return value
+
+
+class _Table(FakeTable):
+    async def update(self, where: dict[str, Any], data: dict[str, Any], **kwargs: Any) -> Any:
+        return await super().update(where, {k: _unwrap_set(v) for k, v in data.items()}, **kwargs)
+
+    async def update_many(self, where: dict[str, Any], data: dict[str, Any], **kwargs: Any) -> int:
+        return await super().update_many(where, {k: _unwrap_set(v) for k, v in data.items()}, **kwargs)
+
+
 class _Db:
     UNIQUE_KEYS: dict[str, tuple[tuple[str, ...], ...]] = {
         "artisan": (("aadhaarNumber",), ("pehchanCardNumber",)),
@@ -49,12 +65,12 @@ class _Db:
     def __init__(self, **seeds: list[dict[str, Any]]) -> None:
         object.__setattr__(self, "_tables", {})
         for name, rows in seeds.items():
-            self._tables[name] = FakeTable({}, rows, self.UNIQUE_KEYS.get(name, ()))
+            self._tables[name] = _Table({}, rows, self.UNIQUE_KEYS.get(name, ()))
 
     def __getattr__(self, name: str) -> Any:
         tables = object.__getattribute__(self, "_tables")
         if name not in tables:
-            tables[name] = FakeTable({}, [], type(self).UNIQUE_KEYS.get(name, ()))
+            tables[name] = _Table({}, [], type(self).UNIQUE_KEYS.get(name, ()))
         return tables[name]
 
 
