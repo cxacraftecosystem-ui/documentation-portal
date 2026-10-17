@@ -150,9 +150,10 @@ own hard-won craft knowledge: the part of the archive that cannot be reconstruct
 
 Record one thing this artisan makes, with its measurements, economics and photographs.
 
-**What the screen asks for:** Product name *(required)*, Local name, Workshop, Product type, Linked
-craft (fills craft name), Craft name *(required)*, Linked artisan (fills artisan + place), Artisan
-name *(required)*, Place *(required)*, Time taken to complete, Size, Length (inches), Breadth
+**What the screen asks for:** Product name *(required)*, Local name, Workshop, Product type, Artisan
+*(required)* — picking one fills the craft, name and place — or, with **Artisan not on record**
+switched on, Linked craft (fills craft name), Craft name *(required)*, Artisan name *(required)* and
+Place *(required)*; then Time taken to complete, Size, Length (inches), Breadth
 (inches), Height (inches), Cost of making, Selling price, Market demand, Raw materials used, Main
 tools used, Function or use, Remarks, Product media, Location (GPS fix or map pin).
 
@@ -177,8 +178,8 @@ making, selling price and market demand are the fields researchers compare acros
 Walk through how that product is made, one step at a time, filming each step as it happens.
 
 **What the screen asks for:** Name of the process *(required)*, Artisan *(required)*, Product
-*(required)*, then per step: Name of the step *(required)*, optional additional context notes, and
-attached media.
+*(required)*, then per step: Name of the step (a step saved without one is marked "Unnamed step"),
+optional additional context notes, and attached media.
 
 **Why it exists.** The process is the craft itself. A product photograph shows the result; the
 step-by-step record with per-step media shows the *knowledge* — the sequence, the hand movements,
@@ -228,7 +229,7 @@ record whether the toolchain behind the craft is still alive.
 
 Sit down with the artisan and work through the interview sections, recording each answer as audio.
 
-**What the screen asks for:** Interview title *(required)*, Place, Language, **Workshop**,
+**What the screen asks for:** Interview title (left blank, it is named for you), Place, Language, **Workshop**,
 **Questionnaire**, **Status**, Artisans interviewed, then per question either a **"Record this
 question"** audio clip or a typed answer, and Interview notes at the foot of the form.
 
