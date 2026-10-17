@@ -15,6 +15,7 @@ import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Explore
@@ -242,6 +243,8 @@ enum class NavDestination {
      */
     ACCESS_ROSTER,
     MANAGE_USERS,
+    /** The in-app activity list (C25), kept offline; the web's /notifications. */
+    NOTIFICATIONS,
     SETTINGS,
     GIVE_FEEDBACK
 }
@@ -332,6 +335,9 @@ val FIELD_NAV_ITEMS: List<NavEntry> = listOf(
     // accessibility screen: the web's /settings is two columns in one page, and the master admin's
     // global column is the Android admin hub's own tool. Gating this would leave every non-admin with
     // NO route to their own accessibility switches, and PUT /preferences/me asks for nothing but a login.
+    // The activity list (C25): every notice the server sends, mail or no mail. The web's bell opens
+    // the same list; the unread count is this row's badge.
+    NavEntry(NavDestination.NOTIFICATIONS, "Notifications", Icons.Filled.Notifications, NavGroup.ACCOUNT, everyone, "get_current_user (GET /notifications)"),
     NavEntry(NavDestination.SETTINGS, "Settings", Icons.Filled.Settings, NavGroup.ACCOUNT, everyone, "get_current_user (PUT /preferences/me)"),
     NavEntry(NavDestination.GIVE_FEEDBACK, "Give app feedback", Icons.Filled.RateReview, NavGroup.ACCOUNT, everyone, "get_current_user (PUT /feedback/me)")
 )
