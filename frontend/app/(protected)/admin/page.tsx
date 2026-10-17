@@ -7,6 +7,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   FileSpreadsheet,
+  GitMerge,
   KeyRound,
   Lock,
   MessageSquare,
@@ -154,6 +155,14 @@ export default function AdminHubPage() {
       description: "Read the feedback users sent from the apps.",
       href: "/feedback",
       icon: MessageSquare
+    },
+    {
+      // C24. Beside the tool assignment because both are about one artisan's record; the merge
+      // itself is admin-only on the server (`require_admin`), as the hub is.
+      label: "Merge duplicate artisans",
+      description: "Combine two records of one person.",
+      href: "/admin/artisan-merge",
+      icon: GitMerge
     },
     {
       label: "Assign tools to artisans",
