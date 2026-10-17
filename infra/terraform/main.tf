@@ -67,13 +67,28 @@ resource "aws_s3_bucket_policy" "media_public_read" {
   depends_on = [aws_s3_bucket_public_access_block.media]
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Sid       = "PublicReadMedia"
-      Effect    = "Allow"
-      Principal = "*"
-      Action    = "s3:GetObject"
-      Resource  = "${aws_s3_bucket.media.arn}/media/*"
-    }]
+    Statement = [
+      {
+        Sid       = "PublicReadMedia"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.media.arn}/media/*"
+      },
+      # Added 2026-10-17. The API's key holds no grant on backups/ (see
+      # aws_iam_user_policy.media); this deny keeps it that way even if somebody
+      # widens that policy later. The backup job runs as aws_iam_user.backup_writer.
+      {
+        Sid       = "ApiKeyNeverTouchesBackupsOrState"
+        Effect    = "Deny"
+        Principal = { AWS = aws_iam_user.media.arn }
+        Action    = "s3:*"
+        Resource = [
+          "${aws_s3_bucket.media.arn}/backups/*",
+          "${aws_s3_bucket.media.arn}/tfstate/*"
+        ]
+      }
+    ]
   })
 }
 
@@ -109,8 +124,13 @@ resource "aws_s3_bucket_cors_configuration" "media" {
 # THE FILTER IS THE WHOLE SAFETY PROPERTY. `prefix = "backups/"` scopes the rule to the dumps.
 # Without a filter — or with an empty one — this rule expires EVERY OBJECT IN THIS BUCKET after
 # thirty days, which is 1,071 objects and 11.5 GB of artisan photographs, audio and video as of
-# 2026-09-13. There is no undo for that and no versioning on this bucket to fall back on. Any edit
-# to this resource must be read with that sentence in mind.
+# 2026-09-13. Versioning (backups.tf, 2026-10-17) would turn that into delete markers that can be
+# undone, but only for 90 days and only if somebody notices. Any edit to this resource must be read
+# with that sentence in mind.
+#
+# The second rule is the one place an empty filter is safe, because it names no current-version
+# expiry. It removes versions 90 days after they stop being current (an overwritten or deleted
+# file, an expired dump) and delete markers with nothing left behind them.
 #
 # `abort_incomplete_multipart_upload` is here because `aws s3 cp` uses multipart for larger objects
 # and a run killed mid-upload leaves parts that are invisible to `ls` and billable forever. The
@@ -135,6 +155,21 @@ resource "aws_s3_bucket_lifecycle_configuration" "media" {
       days_after_initiation = 7
     }
   }
+
+  rule {
+    id     = "noncurrent-versions"
+    status = "Enabled"
+    filter {}
+
+    noncurrent_version_expiration {
+      noncurrent_days = var.noncurrent_version_days
+    }
+    expiration {
+      expired_object_delete_marker = true
+    }
+  }
+
+  depends_on = [aws_s3_bucket_versioning.media]
 }
 
 ####################### IAM user for the API (S3 access) ######################
@@ -143,7 +178,15 @@ resource "aws_iam_user" "media" {
   name = "${var.project}-media"
 }
 
-# ─── WHY THIS POLICY IS THREE STATEMENTS AND NOT ONE ──────────────────────────────────────
+# ─── ONE STATEMENT SINCE 2026-10-17 ───────────────────────────────────────────────────────
+#
+# The restore drill of 2026-10-17 found that the write-only grant on `backups/` still let this
+# key OVERWRITE a dump. `BackupWriteOnlyDropBox` and `BackupVerifyByListingOnly` were removed that
+# day and moved, narrowed to `backups/documentation-portal/*`, to `aws_iam_user.backup_writer`
+# (backups.tf), which backup-db.yml now uses. The bucket policy also denies this user `backups/*`
+# outright. The history below explains why the split existed; only `AppMediaObjects` is live.
+#
+# ─── WHY THIS POLICY WAS THREE STATEMENTS AND NOT ONE (2026-09-13) ───────────────────────
 #
 # It was one statement — Put/Get/Delete on `${bucket}/*` — from the day the bucket was created
 # until 2026-09-13. That is the whole bucket, and the reason it stopped being acceptable is that
@@ -198,23 +241,6 @@ resource "aws_iam_user_policy" "media" {
           "s3:AbortMultipartUpload"
         ]
         Resource = "${aws_s3_bucket.media.arn}/media/*"
-      },
-      {
-        Sid      = "BackupWriteOnlyDropBox"
-        Effect   = "Allow"
-        Action   = "s3:PutObject"
-        Resource = "${aws_s3_bucket.media.arn}/backups/*"
-      },
-      {
-        Sid      = "BackupVerifyByListingOnly"
-        Effect   = "Allow"
-        Action   = "s3:ListBucket"
-        Resource = aws_s3_bucket.media.arn
-        Condition = {
-          StringLike = {
-            "s3:prefix" = ["backups/*"]
-          }
-        }
       }
     ]
   })

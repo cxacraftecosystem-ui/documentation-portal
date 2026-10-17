@@ -58,3 +58,81 @@ import {
   to = aws_iam_user_policy.ci_sg
   id = "fieldrepo-ci-sg:DeploySshWindow"
 }
+
+# ─── ADDED 2026-10-17: MEDIA AND BACKUP PROTECTION (backups.tf) ──────────────────────────────────
+# Created live with the AWS CLI that day. The backup user's access key is left out for the same
+# reason as the media key: its secret lives in SSM and the Actions secrets, never in state.
+import {
+  to = aws_s3_bucket_versioning.media
+  id = "fieldrepo-media-626159998512"
+}
+import {
+  to = aws_s3_bucket_replication_configuration.media
+  id = "fieldrepo-media-626159998512"
+}
+import {
+  to       = aws_kms_key.offsite
+  id       = "b81118fd-e26a-4608-b868-86d516334e12"
+  provider = aws.offsite
+}
+import {
+  to       = aws_kms_alias.offsite
+  id       = "alias/fieldrepo-offsite"
+  provider = aws.offsite
+}
+import {
+  to       = aws_s3_bucket.offsite
+  id       = "fieldrepo-offsite-626159998512"
+  provider = aws.offsite
+}
+import {
+  to       = aws_s3_bucket_versioning.offsite
+  id       = "fieldrepo-offsite-626159998512"
+  provider = aws.offsite
+}
+import {
+  to       = aws_s3_bucket_object_lock_configuration.offsite
+  id       = "fieldrepo-offsite-626159998512"
+  provider = aws.offsite
+}
+import {
+  to       = aws_s3_bucket_server_side_encryption_configuration.offsite
+  id       = "fieldrepo-offsite-626159998512"
+  provider = aws.offsite
+}
+import {
+  to       = aws_s3_bucket_public_access_block.offsite
+  id       = "fieldrepo-offsite-626159998512"
+  provider = aws.offsite
+}
+import {
+  to       = aws_s3_bucket_ownership_controls.offsite
+  id       = "fieldrepo-offsite-626159998512"
+  provider = aws.offsite
+}
+import {
+  to       = aws_s3_bucket_policy.offsite
+  id       = "fieldrepo-offsite-626159998512"
+  provider = aws.offsite
+}
+import {
+  to       = aws_s3_bucket_lifecycle_configuration.offsite
+  id       = "fieldrepo-offsite-626159998512"
+  provider = aws.offsite
+}
+import {
+  to = aws_iam_role.replication
+  id = "fieldrepo-s3-replication"
+}
+import {
+  to = aws_iam_role_policy.replication
+  id = "fieldrepo-s3-replication:fieldrepo-s3-replication"
+}
+import {
+  to = aws_iam_user.backup_writer
+  id = "fieldrepo-backup-writer"
+}
+import {
+  to = aws_iam_user_policy.backup_writer
+  id = "fieldrepo-backup-writer:fieldrepo-backup-writer"
+}

@@ -14,8 +14,16 @@ name: Nightly database backup
 # Supabase's own point-in-time recovery is a paid add-on this project does not carry
 # (`selected_addons: []`, checked 2026-09-13) and would not be a substitute anyway: it is a copy
 # held by the same vendor whose failure it is meant to survive. This workflow puts a plain,
-# portable `pg_dump` in an S3 bucket in a different account boundary, on a schedule, and FAILS
-# LOUDLY when it does not. Restoring from it needs nothing but `psql`.
+# portable `pg_dump` in S3, outside the database provider, on a schedule, and FAILS LOUDLY when it
+# does not. Restoring from it needs nothing but `psql`.
+#
+# WHERE THAT IS, PRECISELY (corrected 2026-10-17; this said "a different account boundary", which
+# was never true). The dump lands in this portal's own media bucket, in the SAME AWS account
+# (626159998512) and region (ap-south-1) as production media. Since 2026-10-17 that bucket is
+# versioned and replicates to `fieldrepo-offsite-626159998512` in ap-south-2 (Hyderabad), where
+# Object Lock keeps every version for at least 35 days. So a dump survives a Supabase failure, an
+# overwrite, a deletion and a regional outage. It does not survive the loss of the AWS account.
+# infra/terraform/backups.tf declares all of it.
 #
 # ─── WHY 03:30 UTC ────────────────────────────────────────────────────────────────────────
 # Deliberately off 20:00, which is when keep-supabase-active.yml pings the database to stop the
@@ -34,16 +42,18 @@ name: Nightly database backup
 #                               6543). pg_dump holds one connection open across the whole dump and
 #                               sets session state; the transaction pooler multiplexes statements
 #                               across backends and will corrupt or refuse the dump.
-#   AWS_MEDIA_ACCESS_KEY_ID     ─┐ Created 2026-09-13 as a SECOND access key on the existing
-#   AWS_MEDIA_SECRET_ACCESS_KEY ─┘ `fieldrepo-media` IAM user, so this workflow and the API box
-#                               can be revoked independently of each other.
+#   AWS_BACKUP_ACCESS_KEY_ID     ─┐ The `fieldrepo-backup-writer` user (`aws_iam_user.backup_writer`
+#   AWS_BACKUP_SECRET_ACCESS_KEY ─┘ in infra/terraform/backups.tf), used by this workflow and by
+#                               nothing else. It may `PutObject` under
+#                               `backups/documentation-portal/` and `ListBucket` under that
+#                               prefix. It cannot read a dump, delete one, or touch `media/`. Its
+#                               key is backed up in SSM at /iit/documentation-portal/backup-writer-*.
 #
-#                               THE UNDERLYING IDENTITY IS SHARED WITH THE PRODUCTION API BOX,
-#                               which is why `aws_iam_user_policy.media` was narrowed in the same
-#                               change (infra/terraform/main.tf). It is WRITE-ONLY over
-#                               `backups/`: this workflow CANNOT read back a dump and CANNOT
-#                               delete one. The verification step below is written the way it is
-#                               precisely to avoid needing GetObject.
+#                               UNTIL 2026-10-17 THIS JOB RAN UNDER A SECOND KEY OF THE API'S OWN
+#                               USER, `fieldrepo-media` (`AWS_MEDIA_*`), whose first key sits on
+#                               the internet-facing box. That identity could overwrite any dump.
+#                               It now has no grant on `backups/` at all, the bucket policy denies
+#                               it there explicitly, and the second key was deactivated.
 #
 # ─── WHERE THE DUMPS GO, AND WHAT ACTUALLY KEEPS THEM PRIVATE ─────────────────────────────
 # s3://fieldrepo-media-626159998512/backups/documentation-portal/YYYY-MM-DD.sql.gz
@@ -54,21 +64,20 @@ name: Nightly database backup
 #      nothing else, so an object under `backups/` is not public even though this bucket holds
 #      public objects. Do not move these under `media/`, and do not widen that policy to `*`: a
 #      full database dump answering an anonymous GET is the worst object this account could hold.
-#   2. `aws_iam_user_policy.media` — the credential THIS WORKFLOW USES, which also lives on the
-#      production API box. Until 2026-09-13 it allowed Put/Get/Delete on the WHOLE bucket, which
-#      would have meant that from the day the first dump landed here, anything holding the API's
-#      `.env` could read and delete every backup. It is now split: Put/Get/Delete/Abort confined
-#      to `media/*`, `PutObject` alone on `backups/*`, and a `ListBucket` conditioned on the
-#      `backups/` prefix so the proof step below can measure an object it cannot read.
+#   2. The IAM policies. The API's key (`aws_iam_user_policy.media`) is confined to `media/*` and
+#      the bucket policy denies it `backups/*`. This job's key (`aws_iam_user_policy.backup_writer`)
+#      can add a dump and list `backups/documentation-portal/`, so the proof step below can
+#      measure an object it cannot read.
 #
 # The prefix is the SHAPE of the boundary; those two policies ARE the boundary. A third prefix in
 # this bucket is a change to both of them, not a change to a path string.
 #
 # RETENTION IS NOT SET HERE, AND CANNOT BE. A workflow can write an object; it cannot express
 # "expire it in thirty days" without holding a delete right, and this job holds none anywhere in
-# the account — deliberately, since the same identity sits on a public box. Expiry belongs to the
-# bucket and is declared in infra/terraform/main.tf as an
-# `aws_s3_bucket_lifecycle_configuration` scoped to the `backups/` prefix (30 days). If that rule
+# the account — deliberately. Expiry belongs to the bucket and is declared in
+# infra/terraform/main.tf as an `aws_s3_bucket_lifecycle_configuration` scoped to the `backups/`
+# prefix (30 days). With versioning on, an expired or overwritten dump stays as a noncurrent
+# version for 90 more days, and the Hyderabad copy keeps its own 35-day expiry. If that rule
 # is ever removed this job keeps working and the bucket grows forever — a cost problem, not a
 # data-loss one, which is the right way round.
 #
@@ -183,12 +192,12 @@ jobs:
 
       - name: Upload to S3
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_MEDIA_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_MEDIA_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_BACKUP_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_BACKUP_SECRET_ACCESS_KEY }}
         run: |
           set -euo pipefail
           if [ -z "${AWS_ACCESS_KEY_ID:-}" ] || [ -z "${AWS_SECRET_ACCESS_KEY:-}" ]; then
-            echo "::error::AWS_MEDIA_ACCESS_KEY_ID / AWS_MEDIA_SECRET_ACCESS_KEY are not set. These are the fieldrepo-media user's keys, NOT the deploy keys — see this file's header."
+            echo "::error::AWS_BACKUP_ACCESS_KEY_ID / AWS_BACKUP_SECRET_ACCESS_KEY are not set. They are the fieldrepo-backup-writer user's keys, NOT the deploy keys; SSM holds a copy at /iit/documentation-portal/backup-writer-*."
             exit 1
           fi
           aws s3 cp "backup-${stamp}.sql.gz" \
@@ -206,11 +215,11 @@ jobs:
         # ─── list-objects-v2 AND NOT head-object, AND THE REASON IS THE CREDENTIAL ───────────
         # `head-object` is the obvious call and needs `s3:GetObject` ON THE KEY. There is no
         # HEAD-only permission in S3 — granting the HEAD grants the GET — so a head-object proof
-        # step would force "can read every database dump" onto a key that also sits in
-        # BACKEND_ENV on an internet-facing box. `list-objects-v2` needs `s3:ListBucket` instead,
-        # which `aws_iam_user_policy.media` grants under a `StringLike s3:prefix = backups/*`
-        # condition: this job can learn the NAME and SIZE of the dumps it wrote and can read the
-        # bytes of none of them, its own included.
+        # step would force "can read every database dump" onto this job's key. `list-objects-v2`
+        # needs `s3:ListBucket` instead, which `aws_iam_user_policy.backup_writer` grants under a
+        # `StringLike s3:prefix = backups/documentation-portal/*` condition: this job can learn the
+        # NAME and SIZE of the dumps it wrote and can read the bytes of none of them, its own
+        # included.
         #
         # It is not a weaker check. Size is the entire thing the assert ever used, and S3 LIST has
         # been strongly read-after-write consistent since 2020 — an object PUT a second ago is in
@@ -221,9 +230,16 @@ jobs:
         # `Contents` is ABSENT (not empty) when nothing matches, so the query answers the literal
         # string `None` and the digits check below is what turns "the object is not there" into a
         # red run with a sentence on it, instead of a bare "integer expression expected".
+        #
+        # ─── THE PRINTED RESTORE COMMAND (added 2026-10-17) ───────────────────────────────────
+        # The dump opens with `CREATE SCHEMA public`, which every new database already has, so a
+        # plain restore under ON_ERROR_STOP stops there. Dropping that one line lets the whole dump
+        # run as one transaction with no error (tested 2026-10-17 on PostgreSQL 17.11: 66 tables,
+        # 60 migrations). TARGET_DSN must be a new, empty PostgreSQL 17+ database, never
+        # production; against a non-empty one it fails and, being one transaction, changes nothing.
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_MEDIA_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_MEDIA_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_BACKUP_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_BACKUP_SECRET_ACCESS_KEY }}
         run: |
           set -euo pipefail
           key="${BACKUP_PREFIX}/${stamp}.sql.gz"
@@ -244,3 +260,16 @@ jobs:
             exit 1
           fi
           echo "backup verified: s3://${BACKUP_BUCKET}/${key} (${size} bytes)"
+          {
+            echo "### Database backup"
+            echo ""
+            echo "\`s3://${BACKUP_BUCKET}/${key}\` — ${size} bytes"
+            echo ""
+            echo "Restore into a new, empty PostgreSQL 17+ database (never production):"
+            echo ""
+            echo "\`\`\`"
+            echo "aws s3 cp s3://${BACKUP_BUCKET}/${key} - | gunzip | sed '/^CREATE SCHEMA public;\$/d' | psql \"\$TARGET_DSN\" -v ON_ERROR_STOP=1 -1"
+            echo "\`\`\`"
+            echo ""
+            echo "Reading it back needs operator credentials, not this workflow's — the key it runs under can write to \`backups/\` and list it, and nothing else."
+          } >> "$GITHUB_STEP_SUMMARY"
