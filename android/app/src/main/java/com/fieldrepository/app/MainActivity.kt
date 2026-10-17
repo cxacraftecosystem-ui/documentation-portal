@@ -510,6 +510,8 @@ import androidx.compose.runtime.mutableStateListOf
 import com.fieldrepository.app.ui.ArtisanQuestionnairePanel
 import com.fieldrepository.app.ui.LocationFieldsSection
 import com.fieldrepository.app.ui.artisanLocationRequirementError
+import com.fieldrepository.app.ui.ARTISAN_LOCATION_HEADING
+import com.fieldrepository.app.ui.InheritedPlace
 import com.fieldrepository.app.ui.MediaThumb
 import com.fieldrepository.app.ui.MediaViewerDialog
 import com.fieldrepository.app.ui.ProvenanceSection
@@ -4226,8 +4228,30 @@ private fun locationForBody(isEdit: Boolean, current: LocationRequest?, original
  * correct a phone number must be able to save it without inventing a district from a desk. The card
  * flags the gap and invites them to close it; refusing the save would close it by guesswork.
  */
-private fun newRecordLocationError(isEdit: Boolean, current: LocationRequest?): String? =
-    if (isEdit) null else artisanLocationRequirementError(current)
+private fun newRecordLocationError(
+    isEdit: Boolean,
+    current: LocationRequest?,
+    heading: String = ARTISAN_LOCATION_HEADING
+): String? = if (isEdit) null else artisanLocationRequirementError(current, heading)
+
+/**
+ * C17: the picked artisan's stated address, for a NEW child record's location card. Null on an edit
+ * (a saved record keeps what it says) and when the artisan's record carries no address.
+ */
+private fun ArtisanDto?.inheritedPlace(isEdit: Boolean): InheritedPlace? {
+    val artisan = this ?: return null
+    if (isEdit) return null
+    val loc = artisan.location
+    val village = loc?.village?.takeIf { it.isNotBlank() } ?: artisan.place.takeIf { it.isNotBlank() }
+    if (loc?.state.isNullOrBlank() && loc?.district.isNullOrBlank() && village == null) return null
+    return InheritedPlace(
+        fromName = artisan.name,
+        sourceId = artisan.id,
+        state = loc?.state,
+        district = loc?.district,
+        village = village
+    )
+}
 
 /**
  * Convert a read-model location into the request payload used by create/update calls.
@@ -4334,7 +4358,9 @@ private fun LocationAddressEditor(
     onMessage: (String) -> Unit = {},
     required: Boolean = true,
     isEdit: Boolean = false,
-    showRequirementError: Boolean = false
+    showRequirementError: Boolean = false,
+    heading: String = ARTISAN_LOCATION_HEADING,
+    inherit: InheritedPlace? = null
 ) {
     LocationFieldsSection(
         repository = repository,
@@ -4343,7 +4369,9 @@ private fun LocationAddressEditor(
         required = required,
         isEdit = isEdit,
         showRequirementError = showRequirementError,
-        onMessage = onMessage
+        onMessage = onMessage,
+        heading = heading,
+        inherit = inherit
     )
 }
 
@@ -5618,6 +5646,10 @@ private fun MediaCaptureSection(
     // Optional content rendered between the media controls and the location editor (used by process
     // steps for the "record additional information" notes box).
     beforeLocation: (@Composable () -> Unit)? = null,
+    /** The location card's heading: "Craft location" on a craft, "Workshop location" on a workshop. */
+    locationHeading: String = ARTISAN_LOCATION_HEADING,
+    /** C17: the artisan's address, offered into the card's empty boxes. */
+    inheritPlace: InheritedPlace? = null,
     onMessage: (String) -> Unit,
     onError: (String) -> Unit
 ) {
@@ -5808,7 +5840,9 @@ private fun MediaCaptureSection(
                 readLastKnownLocation(context)
             },
             onChange = { media.location = it },
-            onMessage = onMessage
+            onMessage = onMessage,
+            heading = locationHeading,
+            inherit = inheritPlace
         )
         if (enableMeasurement) {
             HorizontalDivider()
@@ -6757,7 +6791,7 @@ private fun CraftForm(
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "craft", recordId = editing!!.id, onError = onError)
         }
-        MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
+        MediaCaptureSection(repository = repository, media = media, locationHeading = "Craft location", onMessage = onError, onError = onError)
         SaveButtons(
             state = if (saving) SaveState.SAVING else SaveState.IDLE,
             idleLabel = if (isEdit) "Update craft" else "Save craft",
@@ -7398,7 +7432,7 @@ private fun WorkshopForm(
                 RequiredCheck(title.isBlank(), { titleError = it }, titleFocus),
                 RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
             ))) { onError("Fill in the highlighted field."); return }
-        newRecordLocationError(isEdit, media.location)?.let { onError(it); return }
+        newRecordLocationError(isEdit, media.location, "Workshop location")?.let { onError(it); return }
         scope.launch {
             saving = true
             val start = (startDate ?: LocalDate.now()).toIsoInstant()
@@ -7519,7 +7553,7 @@ private fun WorkshopForm(
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "workshop", recordId = editing!!.id, onError = onError)
         }
-        MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
+        MediaCaptureSection(repository = repository, media = media, locationHeading = "Workshop location", onMessage = onError, onError = onError)
         SaveButton(
             state = if (saving) SaveState.SAVING else SaveState.IDLE,
             idleLabel = if (isEdit) "Update workshop" else "Save workshop"
@@ -7997,7 +8031,7 @@ private fun ProductForm(
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "product", recordId = editing!!.id, onError = onError)
         }
-        MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
+        MediaCaptureSection(repository = repository, media = media, inheritPlace = picker.options.firstOrNull { it.id == artisanId }.inheritedPlace(isEdit), onMessage = onError, onError = onError)
         SaveButtons(
             state = if (saving) SaveState.SAVING else SaveState.IDLE,
             idleLabel = if (isEdit) "Update product" else "Save product",
@@ -9076,7 +9110,7 @@ private fun ToolForm(
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "tool", recordId = editing!!.id, onError = onError)
         }
-        MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
+        MediaCaptureSection(repository = repository, media = media, inheritPlace = picker.options.firstOrNull { it.id == artisanIds.firstOrNull() }.inheritedPlace(isEdit), onMessage = onError, onError = onError)
         SaveButtons(
             state = if (saving) SaveState.SAVING else SaveState.IDLE,
             idleLabel = if (isEdit) "Update tool" else "Save tool",
@@ -14611,7 +14645,9 @@ private fun QuestionnaireForm(
             value = capturedLocation,
             onUseGps = { readLastKnownLocation(context) },
             onChange = { capturedLocation = it },
-            onMessage = onError
+            onMessage = onError,
+            // C17: the first interviewed artisan's address, into the empty boxes of a new sitting.
+            inherit = artisans.firstOrNull { it.id in selectedArtisans }.inheritedPlace(isEdit)
         )
         Text("Tap a section to answer it.", color = Muted, fontSize = 12.sp)
         sections.forEach { section ->
