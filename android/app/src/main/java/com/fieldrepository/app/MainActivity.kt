@@ -1278,6 +1278,12 @@ private fun RepositoryApp(
                             repository.retryRefused(appContext, entryId)
                             runCatching { repository.syncOutbox(appContext) }
                             pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
+                        },
+                        validateAadhaar = { aadhaarValidationError(it) },
+                        onRetypeAadhaar = { entryId, number ->
+                            repository.retypeOutboxAadhaar(appContext, entryId, number)
+                            runCatching { repository.syncOutbox(appContext) }
+                            pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
                         }
                     )
                 }

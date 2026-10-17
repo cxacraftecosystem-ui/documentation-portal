@@ -90,15 +90,51 @@ class AadhaarAtRestTest {
         assertFalse(stored.contains(number))
         assertTrue(AadhaarAtRest.numberWithheld(stored))
         assertTrue(stored.contains("\"${AadhaarAtRest.WITHHELD_FIELD}\":\"0124\""))
-        // Sent without the number, so the server asks for it again rather than receiving a guess.
-        assertEquals("""{"name":"Kalu Ram","place":"Bagru","formContract":2}""", AadhaarAtRest.openPayload(stored))
+        // Read back still MARKED, so the sync pass holds it for the number to be typed again rather
+        // than sending the rest as though nothing had been typed.
+        val opened = AadhaarAtRest.openPayload(stored)
+        assertFalse(opened.contains("\"aadhaarNumber\""))
+        assertTrue(AadhaarAtRest.numberWithheld(opened))
+        assertEquals("0124", AadhaarAtRest.withheldLast4(opened))
     }
 
     @Test
-    fun a_sealed_number_whose_key_is_gone_is_left_out_rather_than_sent_wrong() {
+    fun a_sealed_number_whose_key_is_gone_is_marked_withheld_rather_than_dropped() {
         val stored = AadhaarAtRest.sealPayload(body(number))
         AadhaarAtRest.sealerForTests = SoftwareSealer() // a different key: the old one is gone
-        assertFalse(AadhaarAtRest.openPayload(stored).contains("aadhaarNumber"))
+        val opened = AadhaarAtRest.openPayload(stored)
+        assertFalse(opened.contains("\"aadhaarNumber\""))
+        assertTrue("an unopenable number must hold the entry, not vanish", AadhaarAtRest.numberWithheld(opened))
+        assertEquals(null, AadhaarAtRest.withheldLast4(opened))
+    }
+
+    @Test
+    fun a_held_entry_stays_held_on_disk_until_the_number_is_typed_again_and_is_then_sealed() {
+        val file = File(folder.root, "queue.json")
+        AadhaarAtRest.sealerForTests = BrokenKeystore
+        val entry = PendingEntry(
+            id = "e1",
+            type = "artisan",
+            payloadJson = body(number),
+            label = "Kalu Ram",
+            createdAt = "2026-10-18T00:00:00Z",
+            kind = OutboxKind.UPDATE,
+            targetId = "artisan-1",
+        )
+        OfflineQueueFile.write(file, listOf(entry))
+        val held = OfflineQueueFile.read(file) {}.single()
+        assertTrue(AadhaarAtRest.numberWithheld(held.payloadJson))
+        // Written back (a failure recorded, say), it is still held: the marker survives the round trip.
+        OfflineQueueFile.write(file, listOf(held.copy(failure = AadhaarAtRest.RETYPE_REASON)))
+        assertTrue(AadhaarAtRest.numberWithheld(OfflineQueueFile.read(file) {}.single().payloadJson))
+
+        AadhaarAtRest.sealerForTests = SoftwareSealer() // the Keystore answers again
+        assertTrue(AadhaarAtRest.canSeal())
+        val retyped = AadhaarAtRest.retype(OfflineQueueFile.read(file) {}.single().payloadJson, number)!!
+        assertEquals(body(number), retyped)
+        OfflineQueueFile.write(file, listOf(held.copy(payloadJson = retyped, failure = null)))
+        assertFalse("the retyped number is written sealed", file.readText().contains(number))
+        assertEquals(body(number), OfflineQueueFile.read(file) {}.single().payloadJson)
     }
 
     @Test

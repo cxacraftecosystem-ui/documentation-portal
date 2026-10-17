@@ -30,7 +30,11 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Text
 import androidx.compose.ui.semantics.contentDescription
@@ -57,7 +61,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import com.fieldrepository.app.data.AadhaarAtRest
 import com.fieldrepository.app.data.OfflineOutbox
+import com.fieldrepository.app.data.userMessage
 import com.fieldrepository.app.data.PendingEntry
 import com.fieldrepository.app.data.PendingMedia
 import kotlinx.coroutines.Dispatchers
@@ -422,13 +428,20 @@ fun MediaDownloadButton(
  *
  * [entries] is the signed-in account's queue; another account's entries on a shared handset are
  * not shown here.
+ *
+ * An entry this phone is HOLDING because it could not keep the Aadhaar number typed into it
+ * (`AadhaarAtRest.numberWithheld`, 2026-10-18) gets "Type it again" in place of "Try again": a retry
+ * would hold it again for the same reason. [validateAadhaar] is the form's own rule (the sentence, or
+ * null when the number is fine); [onRetypeAadhaar] stores it sealed and sends the entry.
  */
 @Composable
 fun OutboxPendingBanner(
     pendingUploads: Int,
     modifier: Modifier = Modifier,
     entries: suspend () -> List<PendingEntry>,
-    onRetry: suspend (entryId: String) -> Unit
+    onRetry: suspend (entryId: String) -> Unit,
+    validateAadhaar: (String) -> String? = { null },
+    onRetypeAadhaar: (suspend (entryId: String, number: String) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -437,6 +450,25 @@ fun OutboxPendingBanner(
     var files by remember { mutableStateOf<List<PendingMedia>>(emptyList()) }
     var refused by remember { mutableStateOf<List<PendingEntry>>(emptyList()) }
     var reload by remember { mutableStateOf(0) }
+    // The held entry whose Aadhaar number is being typed again, or null.
+    var retyping by remember { mutableStateOf<PendingEntry?>(null) }
+    retyping?.let { entry ->
+        RetypeAadhaarDialog(
+            entry = entry,
+            validate = validateAadhaar,
+            onDismiss = { retyping = null },
+            onTyped = { number ->
+                retyping = null
+                scope.launch {
+                    runCatching { onRetypeAadhaar?.invoke(entry.id, number) }
+                        .onFailure { error ->
+                            Toast.makeText(context, error.userMessage("That didn't work. Try again."), Toast.LENGTH_LONG).show()
+                        }
+                    reload++
+                }
+            },
+        )
+    }
     LaunchedEffect(expanded, pendingUploads, reload) {
         if (!expanded) return@LaunchedEffect
         val queue = runCatching { entries() }.getOrDefault(emptyList())
@@ -468,19 +500,32 @@ fun OutboxPendingBanner(
         }
         if (expanded) {
             refused.forEach { entry ->
+                val needsAadhaar = onRetypeAadhaar != null && entry.createdId == null &&
+                    AadhaarAtRest.numberWithheld(entry.payloadJson)
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        if (entry.needsReview) "Review “${entry.label}”: ${entry.failure}"
-                        else "“${entry.label}” couldn't upload: ${entry.failure}",
+                        when {
+                            needsAadhaar -> "“${entry.label}”: ${entry.failure}"
+                            entry.needsReview -> "Review “${entry.label}”: ${entry.failure}"
+                            else -> "“${entry.label}” couldn't upload: ${entry.failure}"
+                        },
                         color = ink,
                         fontSize = 12.sp,
                         modifier = Modifier.weight(1f)
                     )
-                    MediaActionButton(
-                        action = MediaAction.RETRY,
-                        text = if (entry.needsReview) "Send again" else "Try again",
-                        onClick = { scope.launch { onRetry(entry.id); reload++ } }
-                    )
+                    if (needsAadhaar) {
+                        MediaActionButton(
+                            action = MediaAction.RETRY,
+                            text = "Type it again",
+                            onClick = { retyping = entry }
+                        )
+                    } else {
+                        MediaActionButton(
+                            action = MediaAction.RETRY,
+                            text = if (entry.needsReview) "Send again" else "Try again",
+                            onClick = { scope.launch { onRetry(entry.id); reload++ } }
+                        )
+                    }
                 }
             }
             if (files.isEmpty()) {
@@ -503,4 +548,60 @@ fun OutboxPendingBanner(
             }
         }
     }
+}
+
+/**
+ * Type the Aadhaar number again for a queued artisan whose typed number this phone could not keep,
+ * then send it. Checked here by the form's own rule ([validate]), so a mistyped digit is said in the
+ * box rather than after a send; when the last four were kept, the number must end in them.
+ */
+@Composable
+private fun RetypeAadhaarDialog(
+    entry: PendingEntry,
+    validate: (String) -> String?,
+    onDismiss: () -> Unit,
+    onTyped: (String) -> Unit
+) {
+    val last4 = remember(entry.id) { AadhaarAtRest.withheldLast4(entry.payloadJson) }
+    var typed by remember(entry.id) { mutableStateOf("") }
+    var error by remember(entry.id) { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Type the Aadhaar number again", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    last4?.let { "“${entry.label}” is safe. Type the number ending $it to send it." }
+                        ?: "“${entry.label}” is safe. Type the artisan's Aadhaar number to send it.",
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp
+                )
+                OutlinedTextField(
+                    value = typed,
+                    onValueChange = { input ->
+                        typed = input.filter { it in '0'..'9' }.take(12)
+                        error = null
+                    },
+                    label = { Text("Aadhaar number") },
+                    isError = error != null,
+                    supportingText = { error?.let { Text(it) } },
+                    singleLine = true,
+                    // NumberPassword: the digit pad, and no keyboard learning a regulated identifier.
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = typed.length == 12,
+                onClick = {
+                    val problem = validate(typed)
+                        ?: last4?.takeIf { !typed.endsWith(it) }?.let { "That number doesn't end in $it. Check the card." }
+                    if (problem != null) error = problem else onTyped(typed)
+                }
+            ) { Text("Send it", fontSize = 13.sp) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Not now", fontSize = 13.sp) } }
+    )
 }
