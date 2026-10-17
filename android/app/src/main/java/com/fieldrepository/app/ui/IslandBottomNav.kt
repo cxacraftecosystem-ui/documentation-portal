@@ -71,6 +71,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
@@ -82,7 +83,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
@@ -137,6 +140,65 @@ const val ISLAND_MAX_VISIBLE = 5
 
 /** The overflow slot's label — also its accessible name. */
 const val ISLAND_MORE_LABEL = "More"
+
+/**
+ * THE WORDS THE BAR PRINTS (2026-10-17). The bar's labels used to be the menu's own, and "Walkthrough"
+ * is wide enough that on a phone narrower than about 380dp the bar dropped EVERY label and drew bare
+ * glyphs. The bar now prints a short word for the long names and keeps the full name as the slot's
+ * accessible name, so a screen reader still says "Walkthrough" and "Dashboard". A label not in this
+ * map is printed as it is. The drawer, the dropdowns and the "More" sheet keep the full names.
+ */
+val ISLAND_SHORT_LABELS: Map<String, String> = mapOf(
+    "Dashboard" to "Home",
+    "Walkthrough" to "Tour",
+    "Record" to "Record",
+    "Browse" to "Browse",
+    "Admin" to "Admin",
+    "Account" to "Account",
+)
+
+/** The word the bar prints for [label]. */
+fun islandShortLabel(label: String): String = ISLAND_SHORT_LABELS[label] ?: label
+
+/**
+ * The bar's label size, and the smallest it shrinks to before it gives up words for glyphs. The
+ * largest is the theme's labelSmall (11sp, the size the bar always used), so where the words fit the
+ * bar looks exactly as it did; on a narrow phone they shrink to 10sp first.
+ */
+const val ISLAND_LABEL_MAX_SP = 11f
+const val ISLAND_LABEL_MIN_SP = 10f
+private const val ISLAND_LABEL_STEP_SP = 0.5f
+
+/**
+ * The largest label size, from [maxSp] down to [minSp] in half-point steps, at which the widest
+ * label fits [available] (both in dp, [widestAt] measuring at a size in sp) — or null, and the bar
+ * draws glyphs only, when even [minSp] does not fit. Every slot uses the one size: a bar whose words
+ * are three different sizes reads as three kinds of thing. Pure; pinned by `IslandBottomNavTest`.
+ */
+fun islandLabelSize(
+    available: Float,
+    widestAt: (Float) -> Float,
+    maxSp: Float = ISLAND_LABEL_MAX_SP,
+    minSp: Float = ISLAND_LABEL_MIN_SP,
+): Float? {
+    var size = maxSp
+    while (size >= minSp - 0.001f) {
+        if (widestAt(size) <= available) return size
+        size -= ISLAND_LABEL_STEP_SP
+    }
+    return null
+}
+
+/**
+ * The room, in dp, a slot's word has on a bar [barWidth] dp wide carrying [slotCount] slots: the bar
+ * less its padding, the menu button and its divider, split evenly, less each slot's own padding.
+ * The same sum [FieldIslandNav] lays out; pure so `IslandBottomNavTest` can check narrow phones.
+ */
+fun islandLabelRoom(barWidth: Float, slotCount: Int): Float {
+    val fixed = ISLAND_BAR_PADDING.value * 2 + ISLAND_TOUCH_TARGET.value + ISLAND_DIVIDER_GAP.value * 2 + 1f
+    return (barWidth.coerceAtMost(ISLAND_MAX_WIDTH.value) - fixed) / slotCount.coerceAtLeast(1) -
+        ISLAND_SLOT_PADDING.value * 2
+}
 
 /** One destination in the island: what it says, what it looks like, what it does. */
 class IslandEntry(val label: String, val icon: ImageVector, val onClick: () -> Unit)
@@ -354,15 +416,14 @@ fun FieldIslandNav(
     var openGroup by remember { mutableStateOf<String?>(null) }
     var moreOpen by remember { mutableStateOf(false) }
 
-    // The labels each slot must fit, "More" included, measured in the face and font scale in force —
-    // never estimated per character, which is the guess the old top bar spent five tiers undoing.
-    val slotLabels = split.shown.map { it.label } + if (split.hasMore) listOf(ISLAND_MORE_LABEL) else emptyList()
+    // The words each slot must fit, "More" included — the SHORT ones the bar prints — measured in the
+    // face and font scale in force, never estimated per character, which is the guess the old top
+    // bar spent five tiers undoing.
+    val slotLabels = split.shown.map { islandShortLabel(it.label) } +
+        if (split.hasMore) listOf(ISLAND_MORE_LABEL) else emptyList()
     val measurer = rememberTextMeasurer()
     val labelStyle = MaterialTheme.typography.labelSmall
     val density = LocalDensity.current
-    val widestLabel = remember(slotLabels, labelStyle, density, measurer) {
-        slotLabels.maxOfOrNull { label -> with(density) { measurer.measure(label, labelStyle).size.width.toDp() } } ?: 0.dp
-    }
 
     AnimatedVisibility(
         visible = visible && !imeOpen,
@@ -396,12 +457,20 @@ fun FieldIslandNav(
             ) {
                 BoxWithConstraints {
                     val slotCount = slotLabels.size.coerceAtLeast(1)
-                    val slotWidth = (maxWidth - ISLAND_BAR_PADDING * 2 - ISLAND_TOUCH_TARGET -
-                        ISLAND_DIVIDER_GAP * 2 - 1.dp) / slotCount
                     // Every slot carries its word, or none does: a bar where three slots are named
-                    // and two are bare glyphs reads as two different kinds of thing. Where the words
-                    // go, each label becomes its slot's accessible name.
-                    val showLabels = widestLabel <= slotWidth - ISLAND_SLOT_PADDING * 2
+                    // and two are bare glyphs reads as two different kinds of thing. The words shrink
+                    // to ISLAND_LABEL_MIN_SP before the bar gives them up; the full name is the
+                    // slot's accessible name either way.
+                    val available = islandLabelRoom(maxWidth.value, slotCount).dp
+                    val labelSp = remember(slotLabels, labelStyle, density, measurer, available) {
+                        islandLabelSize(available.value, { size ->
+                            val style = labelStyle.copy(fontSize = size.sp)
+                            slotLabels.maxOfOrNull { label ->
+                                with(density) { measurer.measure(label, style).size.width.toDp() }.value
+                            } ?: 0f
+                        })
+                    }
+                    val labelSize: TextUnit? = labelSp?.sp
 
                     Row(
                         modifier = Modifier.padding(ISLAND_BAR_PADDING),
@@ -414,7 +483,7 @@ fun FieldIslandNav(
                                         label = slot.label,
                                         icon = slot.icon,
                                         selected = isIslandSlotActive(slot, currentLabel),
-                                        showLabel = showLabels,
+                                        labelSize = labelSize,
                                         stillness = stillness,
                                         role = Role.Tab,
                                         onClick = slot.entry.onClick
@@ -425,7 +494,7 @@ fun FieldIslandNav(
                                             label = slot.label,
                                             icon = slot.icon,
                                             selected = isIslandSlotActive(slot, currentLabel),
-                                            showLabel = showLabels,
+                                            labelSize = labelSize,
                                             stillness = stillness,
                                             role = Role.Button,
                                             onClick = { openGroup = slot.label }
@@ -466,7 +535,7 @@ fun FieldIslandNav(
                                     label = ISLAND_MORE_LABEL,
                                     icon = Icons.Filled.MoreHoriz,
                                     selected = moreActive,
-                                    showLabel = showLabels,
+                                    labelSize = labelSize,
                                     stillness = stillness,
                                     role = Role.Button,
                                     onClick = { moreOpen = true }
@@ -527,11 +596,13 @@ private fun IslandSlotButton(
     label: String,
     icon: ImageVector,
     selected: Boolean,
-    showLabel: Boolean,
+    /** The bar's label size, or null for the glyph alone. See [islandLabelSize]. */
+    labelSize: TextUnit?,
     stillness: Boolean,
     role: Role,
     onClick: () -> Unit
 ) {
+    val showLabel = labelSize != null
     val background by animateColorAsState(
         targetValue = if (selected) MaterialTheme.field.surface100 else Color.Transparent,
         animationSpec = if (stillness) snap() else tween(ISLAND_TWEEN_MS),
@@ -549,8 +620,9 @@ private fun IslandSlotButton(
             .clip(RoundedCornerShape(20.dp))
             .background(background)
             .selectable(selected = selected, onClick = onClick, role = role)
-            // Without its word the slot is a bare image, so it has to say what it is out loud.
-            .then(if (showLabel) Modifier else Modifier.semantics { contentDescription = label })
+            // The FULL name, always: the word printed may be the short one ("Tour" for Walkthrough),
+            // and without a word the slot is a bare image that has to say what it is out loud.
+            .semantics { contentDescription = label }
             .padding(horizontal = ISLAND_SLOT_PADDING, vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
@@ -562,12 +634,14 @@ private fun IslandSlotButton(
             tint = tint,
             modifier = Modifier.size(if (showLabel) ISLAND_SLOT_ICON else ISLAND_SLOT_ICON_GLYPH)
         )
-        if (showLabel) {
+        if (labelSize != null) {
             Text(
-                label,
-                style = MaterialTheme.typography.labelSmall,
+                islandShortLabel(label),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = labelSize),
                 color = tint,
-                maxLines = 1
+                maxLines = 1,
+                // The slot already says the full name; the short word read too would stutter.
+                modifier = Modifier.clearAndSetSemantics {}
             )
         }
     }

@@ -92,6 +92,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.request.allowHardware
 import com.fieldrepository.app.data.DataCrumbDto
 import com.fieldrepository.app.data.DataFolderInfoDto
 import com.fieldrepository.app.data.DataManifestFileDto
@@ -800,6 +801,8 @@ fun DataBrowserScreen(
                         }
                     }
                 },
+                // The preview kept on this device, for when the link has expired or there is no signal.
+                offlinePreview = entry.mediaId?.let { rememberOfflinePreview(it) }?.file,
                 onDismiss = { viewing = null }
             )
         }
@@ -1350,9 +1353,20 @@ private fun FileRow(
             ) {
                 // An image previews itself; everything else gets its type glyph.
                 if (entry.mediaType == "IMAGE" && !entry.url.isNullOrBlank()) {
+                    // Kept on this device once it loads, and drawn from there when the link has
+                    // expired or there is no signal — the same store the record views use.
+                    val offline = entry.mediaId?.let { rememberOfflinePreview(it) }
+                    val context = LocalContext.current
+                    val request = remember(entry.url, offline != null) {
+                        coil3.request.ImageRequest.Builder(context).data(entry.url)
+                            .apply { if (offline != null) allowHardware(false) }
+                            .build()
+                    }
                     AsyncImage(
-                        model = entry.url,
+                        model = request,
                         contentDescription = entry.name,
+                        error = offline?.file?.let { coil3.compose.rememberAsyncImagePainter(it) },
+                        onSuccess = { state -> offline?.keep?.invoke(state.result.image) },
                         modifier = Modifier
                             .size(44.dp)
                             .background(MaterialTheme.field.surface100, MaterialTheme.shapes.small)

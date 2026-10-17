@@ -23,6 +23,7 @@ import { expect, test } from "@playwright/test";
 import {
   createdSentence,
   creatableRoles,
+  firstSignInRecorded,
   linkOffered,
   newAccountBody,
   passwordHasEdgeSpace,
@@ -296,4 +297,12 @@ test("the set-password App Link is verified by an assetlinks.json naming the rel
   ]);
   const manifest = readFileSync(join(root, "..", "android", "app", "src", "main", "AndroidManifest.xml"), "utf8");
   expect(manifest).toMatch(/<intent-filter android:autoVerify="true">[\s\S]*?android:path="\/set-password"/);
+});
+
+test("a first sign-in the server filled from the creation date is not shown as a date", () => {
+  const created = "2026-03-01T10:00:00.000Z";
+  expect(firstSignInRecorded({ firstLoginAt: created, createdAt: "2026-03-01T10:00:00Z" })).toBe(false);
+  expect(firstSignInRecorded({ firstLoginAt: "2026-03-04T09:12:00.000Z", createdAt: created })).toBe(true);
+  expect(firstSignInRecorded({ firstLoginAt: "2026-03-04T09:12:00.000Z" })).toBe(true);
+  expect(firstSignInRecorded({ firstLoginAt: null, createdAt: created })).toBe(false);
 });

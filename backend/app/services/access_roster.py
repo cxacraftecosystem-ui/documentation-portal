@@ -217,6 +217,9 @@ async def mark_first_seen(email: Any) -> None:
     overwriting it. Silent when there is no row (the master admin's exemption means they can sign in
     without one); an ``update_many`` that matches nothing is cheaper than deciding beforehand whether
     to ask, on a path a person takes once a week.
+
+    ``User.lastLoginAt`` (the users screen's "Last signed in") is not written here: it lives on the
+    account, and ``auth.session_response`` stamps it by id, in the same write as ``firstLoginAt``.
     """
     address = normalise_email(email)
     if not address:

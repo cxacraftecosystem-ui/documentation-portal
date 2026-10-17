@@ -541,6 +541,9 @@ class MainActivity : ComponentActivity() {
         takePasswordLink(intent, restored = savedInstanceState != null)
         val tokenStore = TokenStore(applicationContext)
         val repository = FieldRepository(ApiClient.create(tokenStore, OutboxSyncWorker.readCacheDir(applicationContext)), tokenStore)
+        com.fieldrepository.app.data.PreviewCache.install(java.io.File(applicationContext.noBackupFilesDir, "media-previews")) {
+            repository.cachedUser()?.id
+        }
         val googleAuthClient = GoogleAuthClient(this)
         // Microsoft and Yahoo. Created with the activity because AppAuth binds the browser's
         // custom-tab service to it; the client disposes of that binding when the activity goes.
@@ -13256,6 +13259,8 @@ private fun AndroidSavedMediaPreview(
     val uri = remember(media.url) { media.url?.let(Uri::parse) }
     var showViewer by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    // The preview kept on this device, for when the file's link has expired or there is no signal.
+    val offlinePreview = com.fieldrepository.app.ui.rememberOfflinePreview(media.id)
 
     if (uri == null) {
         // No preview URL (e.g. an old/broken row) — still offer removal when allowed.
@@ -13276,6 +13281,8 @@ private fun AndroidSavedMediaPreview(
             onOpen = {
                 if (media.mediaType in IN_APP_PLAYABLE) showViewer = true else openUri(context, uri, media.mimeType)
             },
+            offlinePreview = offlinePreview.file,
+            onPreviewLoaded = offlinePreview.keep,
             trailing = if (onDelete != null) {
                 {
                     DiscardBadge(
@@ -13306,6 +13313,7 @@ private fun AndroidSavedMediaPreview(
                 uri = uri,
                 mediaType = media.mediaType,
                 onSave = { saveMediaToDevice(context, media.url, media.originalFilename, media.mimeType) },
+                offlinePreview = offlinePreview.file,
                 onDismiss = { showViewer = false }
             )
         }
@@ -15590,6 +15598,8 @@ private fun UserManagementForm(
                         UserSummaryLine("Download entire dataset", if (targetIsProfessorPlus || appUser.canDownloadDataset) "Granted" else "Not granted")
                         UserSummaryLine("Password", if (accountHasPassword(appUser)) "Set" else "No password yet")
                         UserSummaryLine("Two-step verification", if (appUser.twoFactorEnabled) "On" else "Off")
+                        com.fieldrepository.app.ui.signInStatusLabel(appUser.lastLoginAt, appUser.firstLoginAt, appUser.createdAt)
+                            ?.let { UserSummaryLine("Signed in", it) }
                         if (mayUpdate) {
                             OutlinedButton(
                                 onClick = { updatingUsers = updatingUsers + appUser.id },

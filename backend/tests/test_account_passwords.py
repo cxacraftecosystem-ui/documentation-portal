@@ -722,3 +722,48 @@ def test_this_repository_keeps_no_per_role_list() -> None:
     from app.api.routes import users as users_routes
 
     assert users_routes.ROLE_LISTS == {}
+
+
+# --- how long a link lasts: an account that never signed in gets the invitation ------------------
+
+
+def _issued_purpose(monkeypatch, **extra: Any) -> tuple[str, float]:
+    _fake(
+        monkeypatch,
+        [_account("admin@example.org", "ADMIN"), _account("r@example.org", **extra)],
+        _admitted("admin@example.org", "r@example.org"),
+    )
+    issued = _call("POST", "/api/auth/password-links", {"userId": "id-r@example.org"}, _session("id-admin@example.org"))
+    assert issued.status_code == 201, issued.text
+    body = issued.json()
+    lasts = datetime.fromisoformat(body["expiresAt"]) - datetime.now(UTC)
+    return body["purpose"], lasts.total_seconds() / 3600
+
+
+def test_a_password_account_that_never_signed_in_gets_a_72_hour_invitation_whenever_it_was_made(monkeypatch) -> None:
+    for created in (datetime(2026, 9, 1, tzinfo=UTC), datetime(2026, 11, 1, tzinfo=UTC), None):
+        extra = {"createdAt": created} if created else {}
+        purpose, hours = _issued_purpose(monkeypatch, firstLoginAt=None, **extra)
+        assert purpose == "INVITE" and 71 < hours <= 72, (created, purpose, hours)
+
+
+def test_an_account_that_has_signed_in_gets_a_two_hour_reset(monkeypatch) -> None:
+    purpose, hours = _issued_purpose(
+        monkeypatch, firstLoginAt=datetime(2026, 9, 2, tzinfo=UTC), createdAt=datetime(2026, 9, 1, tzinfo=UTC)
+    )
+    assert purpose == "RESET" and 1 < hours <= 2
+
+
+def test_every_sign_in_moves_the_last_sign_in_and_the_users_screen_receives_it(monkeypatch) -> None:
+    earlier = datetime(2026, 9, 2, tzinfo=UTC)
+    fake = _fake(
+        monkeypatch,
+        [_account("admin@example.org", "ADMIN"), _account("r@example.org", firstLoginAt=earlier, lastLoginAt=earlier)],
+        _admitted("admin@example.org", "r@example.org"),
+    )
+    assert _call("POST", "/api/auth/login", {"email": "r@example.org", "password": PASSWORD}).status_code == 200
+    account = _row(fake, "r@example.org")
+    assert account.firstLoginAt == earlier and account.lastLoginAt > earlier
+    listed = _call("GET", "/api/users/id-r@example.org", token=_session("id-admin@example.org"))
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["lastLoginAt"] and listed.json()["firstLoginAt"]

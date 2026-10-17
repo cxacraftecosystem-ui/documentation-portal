@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -45,6 +46,18 @@ IDLE_LOAD_FACTOR = 0.6
 # Single elected worker (see main.py), so module-level cooldown state is safe.
 _rate_limit_cooldown_until: datetime | None = None
 _consecutive_rate_limits = 0
+
+
+logger = logging.getLogger(__name__)
+
+#: What the job panel says about a failure nobody anticipated. The exception itself goes to the log.
+UNEXPECTED_JOB_FAILURE = "This file couldn't be processed. Try again."
+
+
+class JobFailure(RuntimeError):
+    """A failure whose message is already a sentence for the person reading the job panel: a
+    provider's own refusal, or an unsupported job type. Anything else is logged and stored as
+    :data:`UNEXPECTED_JOB_FAILURE`, so developer text never reaches a screen."""
 
 
 class RateLimited(Exception):
@@ -406,7 +419,7 @@ async def _process_job(job: Any, settings: Settings) -> None:
         )
         await _apply_measurement_result(job, result)
         return
-    raise RuntimeError(f"Unsupported media processing job type: {job.jobType}")
+    raise JobFailure(f"Unsupported media processing job type: {job.jobType}")
 
 
 async def _apply_transcription_result(job: Any, result: dict[str, Any]) -> None:
@@ -427,7 +440,7 @@ async def _apply_transcription_result(job: Any, result: dict[str, Any]) -> None:
     elif status == UNAVAILABLE:
         await _finalize_unavailable_job(job.id, result, message)
     else:
-        raise RuntimeError(message or "Transcription failed")
+        raise JobFailure(message or "Transcription failed")
 
 
 async def _apply_measurement_result(job: Any, result: dict[str, Any]) -> None:
@@ -447,7 +460,7 @@ async def _apply_measurement_result(job: Any, result: dict[str, Any]) -> None:
     elif status == UNAVAILABLE:
         await _finalize_unavailable_job(job.id, result, message)
     else:
-        raise RuntimeError(message or "Measurement analysis failed")
+        raise JobFailure(message or "Measurement analysis failed")
 
 
 def _merge_measurement_metadata(existing: Any, result: dict[str, Any]) -> dict[str, Any]:
@@ -569,7 +582,11 @@ async def _handle_job_failure(job_id: str, exc: Exception) -> None:
     # This column is served with the job, and the exception reaching it is ANY exception the job
     # raised — including one built by a library out of a URL that carried a credential. services/ai
     # keeps its own results clean; this is the guard for everything else that can fail in here.
-    error = redact_secrets(str(exc))[:2000]
+    if isinstance(exc, JobFailure):
+        error = redact_secrets(str(exc))[:2000]
+    else:
+        logger.error("media job %s failed unexpectedly: %s", job_id, redact_secrets(repr(exc)))
+        error = UNEXPECTED_JOB_FAILURE
     exhausted = job.attempts >= job.maxAttempts
     retry_delay = timedelta(minutes=min(60, 2 ** max(job.attempts - 1, 0)))
     await db.mediaprocessingjob.update(

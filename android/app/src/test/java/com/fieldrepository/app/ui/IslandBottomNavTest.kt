@@ -5,6 +5,7 @@ import androidx.compose.material.icons.filled.Star
 import com.fieldrepository.app.data.UserDto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -173,5 +174,81 @@ class IslandBottomNavTest {
                 assertTrue("$role/$adminMode", visibleLabels.containsAll(behindMore))
             }
         }
+    }
+
+    // ── The bar's words (2026-10-17) ───────────────────────────────────────────────────────────
+
+    @Test
+    fun `the long names print short and every other label prints as it is`() {
+        assertEquals("Home", islandShortLabel("Dashboard"))
+        assertEquals("Tour", islandShortLabel("Walkthrough"))
+        assertEquals("Record", islandShortLabel("Record"))
+        assertEquals("Browse", islandShortLabel("Browse"))
+        assertEquals("Admin", islandShortLabel("Admin"))
+        assertEquals("Account", islandShortLabel("Account"))
+        assertEquals("More", islandShortLabel(ISLAND_MORE_LABEL))
+        assertEquals("Something new", islandShortLabel("Something new"))
+    }
+
+    @Test
+    fun `every short word is no longer than the longest group name`() {
+        val longest = NavGroup.entries.maxOf { it.label.length }
+        ISLAND_SHORT_LABELS.values.forEach { assertTrue(it, it.length <= longest) }
+    }
+
+    /** A measurer whose widest label is [perSp] dp for every sp of text size. */
+    private fun widest(perSp: Float): (Float) -> Float = { sp -> sp * perSp }
+
+    @Test
+    fun `labels stay at full size where they fit`() {
+        assertEquals(ISLAND_LABEL_MAX_SP, islandLabelSize(available = 60f, widestAt = widest(4f)))
+    }
+
+    @Test
+    fun `labels shrink in half points before they are given up`() {
+        // 11sp needs 44dp, 10.5sp needs 42dp: 43dp of room takes 10.5sp.
+        assertEquals(10.5f, islandLabelSize(available = 43f, widestAt = widest(4f)))
+        assertEquals(ISLAND_LABEL_MIN_SP, islandLabelSize(available = 40f, widestAt = widest(4f)))
+    }
+
+    @Test
+    fun `below the smallest size the bar draws glyphs only`() {
+        assertNull(islandLabelSize(available = 39.9f, widestAt = widest(4f)))
+    }
+
+    @Test
+    fun `the bar never prints larger than labelSmall and shrinks to ten points`() {
+        assertEquals(11f, ISLAND_LABEL_MAX_SP)
+        assertEquals(10f, ISLAND_LABEL_MIN_SP)
+    }
+
+    /**
+     * The widest short word ("Account") in the app's Medium face is about 3.85em — an estimate, as a
+     * JVM test has no text measurer; the bar itself measures. A full bar is [ISLAND_MAX_VISIBLE] slots,
+     * "More" included.
+     */
+    private fun accountAt(sp: Float) = 3.85f * sp
+
+    @Test
+    fun `on 360dp and 320dp phones a full bar prints its words at full size`() {
+        listOf(360f, 320f).forEach { width ->
+            val room = islandLabelRoom(barWidth = width, slotCount = ISLAND_MAX_VISIBLE)
+            assertEquals("at ${width}dp", ISLAND_LABEL_MAX_SP, islandLabelSize(room, ::accountAt))
+        }
+    }
+
+    @Test
+    fun `on a phone too narrow for the words they shrink or give way to glyphs, never overflow`() {
+        listOf(300f, 280f, 240f).forEach { width ->
+            val room = islandLabelRoom(barWidth = width, slotCount = ISLAND_MAX_VISIBLE)
+            val size = islandLabelSize(room, ::accountAt)
+            if (size != null) assertTrue("at ${width}dp", accountAt(size) <= room)
+        }
+    }
+
+    @Test
+    fun `the room a slot has grows with the phone and is capped with the bar`() {
+        assertTrue(islandLabelRoom(360f, 6) > islandLabelRoom(320f, 6))
+        assertEquals(islandLabelRoom(560f, 6), islandLabelRoom(900f, 6))
     }
 }

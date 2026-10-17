@@ -647,6 +647,8 @@ class FieldRepository(
         // The read cache holds this account's records; the next person to sign in must not be shown
         // them offline. The outbox is NOT cleared: its entries carry their owner and wait for them.
         OfflineReadCache.clear()
+        // Photo previews kept for offline viewing are this account's pictures too.
+        PreviewCache.clear()
     }
 
     /** The signed-in account's id, from the cached profile (works offline). */

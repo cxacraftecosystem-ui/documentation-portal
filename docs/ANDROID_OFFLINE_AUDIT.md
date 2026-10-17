@@ -26,19 +26,20 @@ Line citations below use the short file name. The full paths are:
 - `android/app/src/main/java/com/fieldrepository/app/data/StagedJournal.kt`
 - `android/app/src/main/java/com/fieldrepository/app/ui/MediaDownloads.kt`
 - `android/app/src/main/java/com/fieldrepository/app/ui/AppearanceScreen.kt`
+- `android/app/src/main/java/com/fieldrepository/app/data/PreviewCache.kt` (new, 2026-10-17)
+- `android/app/src/main/java/com/fieldrepository/app/ui/OfflinePreviews.kt` (new, 2026-10-17)
 
 ## Summary
 
 | | Before | After this change |
 |---|---|---|
-| OK | 10 | 38 |
-| GAP | 18 | 1 (media previews offline; see its row) |
+| OK | 10 | 39 |
+| GAP | 18 | 0 |
 | RISK | 11 | 0 |
 
-There are 39 rows and 28 were fixed. One of those is the administration row, which is now OK by
-decision: its reads are cached and its writes stay online-only (see below). The one remaining GAP,
-media previews, is a limitation of signed media URLs rather than missing code. It is described in
-its row and is not a finding.
+There are 39 rows and 29 were fixed. One of those is the administration row, which is now OK by
+decision: its reads are cached and its writes stay online-only (see below). The last GAP, media
+previews offline, was closed on 2026-10-17 by a device cache of preview images (see its row).
 
 ## How offline storage works now
 
@@ -174,7 +175,7 @@ it survives process death, reboot, sign-out and update. **Sync**, how and when i
 | View Data and record detail (`ViewDataScreen` `:11160`, `ViewDataDetail` `:12445`) | — | — | — | — | was: error | now: cached | GAP | **Fixed** |
 | Comments on a record (`RecordCollabSection`, `:12664`) | a comment | was: the text box | was: no | now: outbox `action`, queued when offline before sending | "Saved on this device…" | cached | GAP | **Fixed** |
 | Search (`SearchScreen.kt`), Map (`MapScreen.kt`), Data Browser (`DataBrowserScreen.kt`), Consolidated questionnaire (`ConsolidatedQuestionnaireScreen.kt`), My Activity (`MyActivityScreen`, `:9712`) | — | — | — | — | was: error | now: cached (Data Browser downloads are not; they need a connection) | GAP | **Fixed** |
-| Media previews of saved records | — | — | — | — | Coil's own image cache. A signed URL that has expired, or an image never viewed, cannot load offline | Coil disk cache | GAP | Remains. A limitation of signed media URLs, not a finding |
+| Media previews of saved records | — | — | — | — | was: Coil's own image cache, keyed by a signed URL that expires; now: each photo or video tile that loads online is also kept as a small JPEG keyed by the media id (`PreviewCache`, `noBackupFilesDir/media-previews/<account>/`, least recently shown evicted past 150 MB, every account's folder deleted at sign-out) and drawn when the link fails, in record views and in the Data Browser's image rows; the full-screen viewer falls back to it too. A write is filed under the account signed in when the image loaded and is dropped if a sign-out came first | device preview cache | GAP | **Fixed**. A file never looked at online still has no preview offline |
 | My tasks: progress and status (`MyTasksScreen`, `:16450`) | task update | was: nothing | was: no | now: outbox `action`; also on a dropped connection (the update is idempotent) | list shows the change at once, with "Saved on this device…" | cached | GAP | **Fixed** |
 | App feedback (`FeedbackScreen`, `:10559`) | feedback upsert | was: form memory | was: no | now: outbox `action`; also on a dropped connection (upsert) | "Saved on this device…" | cached | GAP | **Fixed** |
 | Appearance (`AppearanceScreen.kt`) | preferences | device copy, plus a queued-change time (`AppPreferencesStore.pendingSince`) | yes | PUT when online; otherwise at reconnect or the next sign-in, where the later write wins by timestamp (`localPreferencesWin`) | applied locally, "Saved on this device…" | never cached (on purpose) | RISK | **Fixed** |
