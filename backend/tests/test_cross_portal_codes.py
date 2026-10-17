@@ -378,3 +378,62 @@ async def test_an_admins_mapping_is_written_to_the_audit_ledger(monkeypatch):
     out = await routes.assign_craft_code("c1", routes.CraftCodeAssign(code="ikat"), admin)
     assert out["craftCode"] == "ikat"
     assert ledger == [("c1", None, {"craftCode": "ikat"}, "craft", "admin1")]
+
+
+async def test_every_craft_a_remembered_spelling_maps_gets_its_own_audit_entry(monkeypatch):
+    """Remember each spelling maps the picked craft's twins too, and each one is a change to a
+    craft, so each gets a ledger row of its own — not only the craft the admin picked. A craft the
+    call did not change (another spelling, or one already coded) gets none."""
+    from app.api.routes import craft_codes as routes
+
+    client = _client(
+        craft=_Table(
+            "id",
+            [
+                {"id": "c1", "name": "Kota Doria", "craftCode": None},
+                {"id": "c2", "name": "kota-doria", "craftCode": None},
+                {"id": "c3", "name": "KOTA DORIA", "craftCode": "patola"},
+                {"id": "c4", "name": "Something else", "craftCode": None},
+            ],
+        )
+    )
+    monkeypatch.setattr(routes, "db", client)
+    ledger: list[Any] = []
+
+    async def record_revision(record, user, data, record_type, **_k):
+        ledger.append((record.id, record.craftCode, data, record_type, user.id))
+
+    monkeypatch.setattr(routes, "record_revision", record_revision)
+    admin = SimpleNamespace(id="admin1", role="ADMIN")
+    out = await routes.assign_craft_code("c1", routes.CraftCodeAssign(code="ikat"), admin)
+    assert out["alsoMapped"] == 1
+    assert ledger == [
+        ("c1", None, {"craftCode": "ikat"}, "craft", "admin1"),
+        ("c2", None, {"craftCode": "ikat"}, "craft", "admin1"),
+    ]
+
+    # Without remembering, the twins are left alone and so is the ledger.
+    ledger.clear()
+    await routes.assign_craft_code(
+        "c4", routes.CraftCodeAssign(code="ikat", rememberSpelling=False), admin
+    )
+    assert ledger == [("c4", None, {"craftCode": "ikat"}, "craft", "admin1")]
+
+
+async def test_mapping_reports_each_changed_craft_as_it_was_before():
+    client = _client(
+        craft=_Table(
+            "id",
+            [
+                {"id": "c1", "name": "Kota Doria", "craftCode": "ikat"},
+                {"id": "c2", "name": "kota-doria", "craftCode": None},
+            ],
+        )
+    )
+    changed: list[Any] = []
+    # c1 already carries the code: re-mapping it changes nothing on c1, but still maps its twin.
+    craft = SimpleNamespace(id="c1", name="Kota Doria", craftCode="ikat")
+    await cpc.map_craft(
+        client, craft=craft, code="ikat", remember_spelling=True, user_id="u1", changed=changed
+    )
+    assert [(c.id, c.craftCode) for c in changed] == [("c2", None)]

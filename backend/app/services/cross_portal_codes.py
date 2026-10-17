@@ -198,7 +198,13 @@ async def code_for_new_craft(client: Any, name: str | None) -> str | None:
 
 
 async def map_craft(
-    client: Any, *, craft: Any, code: str | None, remember_spelling: bool, user_id: str | None
+    client: Any,
+    *,
+    craft: Any,
+    code: str | None,
+    remember_spelling: bool,
+    user_id: str | None,
+    changed: list[Any] | None = None,
 ) -> dict[str, Any]:
     """An administrator's mapping of one craft to a code (or clearing it).
 
@@ -207,12 +213,18 @@ async def map_craft(
     that way with no code is mapped now. A spelling the SHARED file already holds is never
     overwritten: the file is the agreement between the two portals, and a local row cannot vote
     against it.
+
+    ``changed``, when given, receives every craft whose code this call actually changed, as the row
+    was BEFORE the write — the picked craft and each twin mapped with it — so the caller can write
+    one audit entry per craft rather than one for the craft it was asked about.
     """
     if code is not None and not is_known_code(code):
         raise ValueError("unknown craft code")
     if code is not None:
         await ensure_code_row(client, code)
     await client.craft.update(where={"id": craft.id}, data={"craftCode": code})
+    if changed is not None and getattr(craft, "craftCode", None) != code:
+        changed.append(craft)
     also_mapped = 0
     key = normalise(getattr(craft, "name", None))
     if code is not None and remember_spelling and key and shared_craft_code(craft.name) is None:
@@ -234,6 +246,8 @@ async def map_craft(
             if other.id != craft.id and normalise(other.name) == key:
                 await client.craft.update(where={"id": other.id}, data={"craftCode": code})
                 also_mapped += 1
+                if changed is not None:
+                    changed.append(other)
     return {"craftId": craft.id, "craftCode": code, "alsoMapped": also_mapped}
 
 
