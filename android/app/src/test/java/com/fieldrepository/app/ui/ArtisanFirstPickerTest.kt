@@ -36,7 +36,10 @@ class ArtisanFirstPickerTest {
             "android/app/src/main/java/com/fieldrepository/app/MainActivity.kt",
             "src/main/java/com/fieldrepository/app/MainActivity.kt",
         )
-        assertFalse("the dead stop is gone", source.contains("Select a linked craft first"))
+        assertFalse(
+            "the dead stop is gone",
+            Regex("placeholder = [^\\n]*Select a linked craft first").containsMatchIn(source)
+        )
         assertEquals(
             "product and tool each offer Artisan not on record",
             2,

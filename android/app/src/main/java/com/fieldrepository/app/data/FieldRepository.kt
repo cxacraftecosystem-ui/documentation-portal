@@ -152,8 +152,48 @@ data class ApiFailure(
      * that have nothing beyond their sentence. Readers are the typed extensions below; nothing
      * outside this file should be poking at raw JSON.
      */
-    val detail: JsonObject? = null
+    val detail: JsonObject? = null,
+    /**
+     * The body fields the refusal named — a 422's `loc` paths, or an object detail's `field` — so a
+     * refused outbox entry can open with them highlighted (B1). Empty when nothing was named.
+     */
+    val fields: List<String> = emptyList()
 )
+
+/**
+ * A refusal read ONCE for the outbox (B1): the sentence [userMessage] would show, plus what the
+ * tray needs to offer more than Try again — the named fields, the code, and on an artisan clash the
+ * artisan already on the register.
+ */
+data class OutboxRefusal(
+    val reason: String,
+    val fields: List<String> = emptyList(),
+    val code: String? = null,
+    val existingId: String? = null,
+    val existingLabel: String? = null
+)
+
+/** The artisan identity clash's code — `_identity_conflict` in `backend/app/api/routes/artisans.py`. */
+const val ARTISAN_IDENTITY_CONFLICT_CODE = "artisan_identity_conflict"
+
+fun Throwable.outboxRefusal(fallback: String): OutboxRefusal {
+    val failure = apiFailure(fallback)
+    val said = failure.message
+    val reason = if (this is HttpException && (said == fallback || said.isBareReasonPhrase())) {
+        statusSentence(code()) ?: fallback
+    } else {
+        said
+    }
+    val existing = if (failure.code == ARTISAN_IDENTITY_CONFLICT_CODE) failure.detail?.get("existingArtisan") as? JsonObject else null
+    fun text(key: String) = (existing?.get(key) as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+    return OutboxRefusal(
+        reason = reason,
+        fields = failure.fields,
+        code = failure.code,
+        existingId = text("id"),
+        existingLabel = listOfNotNull(text("name"), text("place")).joinToString(", ").ifBlank { null }
+    )
+}
 
 /**
  * The 409 code a PATCH raises when another interview already covers this exact set of artisans —
@@ -277,7 +317,7 @@ fun Throwable.apiFailure(fallback: String): ApiFailure {
         ?.takeIf { it.isNotEmpty() }
     // FastAPI's own 404/405 body is the literal reason phrase; that is protocol, not a sentence.
     val said = detailMessage(detail)?.takeUnless { looksLikeProtocolText(it) }
-    return ApiFailure(code, said ?: plain, detail as? JsonObject)
+    return ApiFailure(code, said ?: plain, detail as? JsonObject, refusalFieldPaths(detail))
 }
 
 /** Pull the human-readable text out of whichever `detail` shape FastAPI returned. */
@@ -2853,6 +2893,23 @@ class FieldRepository(
         OutboxSyncWorker.schedule(context)
     }
 
+    /** "Fix and send" (B1): the corrected body replaces the refused one and is sent on the next pass. */
+    suspend fun fixRefused(context: Context, entryId: String, payloadJson: String): Boolean {
+        val ok = OfflineOutbox.fixAndResend(context, entryId, payloadJson)
+        if (ok) OutboxSyncWorker.schedule(context)
+        return ok
+    }
+
+    /** "Use existing artisan" (B1): drop this copy; its files go to the artisan already recorded. */
+    suspend fun useExistingForRefused(context: Context, entryId: String): Boolean {
+        val ok = OfflineOutbox.useExisting(context, entryId)
+        if (ok) OutboxSyncWorker.schedule(context)
+        return ok
+    }
+
+    /** Discard (B1), after the person has confirmed it. Deletes this phone's copy and its files. */
+    suspend fun discardRefused(context: Context, entryId: String): Boolean = OfflineOutbox.discard(context, entryId)
+
     /**
      * Save a new record to the local outbox (no network). Copies the attached media into app storage so
      * nothing is lost, then enqueues the serialized create request. [payloadJson] is the record's
@@ -3015,7 +3072,15 @@ class FieldRepository(
                         synced++
                     }
                     is ReplayOutcome.Rejected -> {
-                        OfflineOutbox.markFailure(context, queued.id, outcome.reason)
+                        OfflineOutbox.markFailure(
+                            context,
+                            queued.id,
+                            outcome.reason,
+                            fields = outcome.refusal?.fields.orEmpty(),
+                            code = outcome.refusal?.code,
+                            existingId = outcome.refusal?.existingId,
+                            existingLabel = outcome.refusal?.existingLabel
+                        )
                         notifyUser(context, "\"${queued.label}\" could not be uploaded. ${outcome.reason}")
                     }
                     is ReplayOutcome.Review -> {
@@ -3040,7 +3105,7 @@ class FieldRepository(
         data object Retry : ReplayOutcome
 
         /** The server's final answer. Keep the entry AND its files; tell the researcher. */
-        data class Rejected(val reason: String) : ReplayOutcome
+        data class Rejected(val reason: String, val refusal: OutboxRefusal? = null) : ReplayOutcome
 
         /**
          * The server says this entry's Idempotency-Key was used for a different request. The record
@@ -3076,9 +3141,12 @@ class FieldRepository(
                     throw e
                 } catch (e: Throwable) {
                     return if (isTransient(e)) ReplayOutcome.Retry
-                    else ReplayOutcome.Rejected(
-                        "Step ${index + 1} of ${entry.steps.size}: " + e.apiErrorMessage("This change couldn't be saved.")
-                    )
+                    else e.outboxRefusal("This change couldn't be saved.").let { refusal ->
+                        ReplayOutcome.Rejected(
+                            "Step ${index + 1} of ${entry.steps.size}: " + refusal.reason,
+                            refusal
+                        )
+                    }
                 }
                 entry = entry.copy(completedSteps = index + 1)
                 OfflineOutbox.update(context, entry)
@@ -3102,7 +3170,7 @@ class FieldRepository(
                     isKeyReused(e) -> ReplayOutcome.Review(
                         "This may already be saved. Check the list; if it isn't there, tap Send again. Photos stay on this phone."
                     )
-                    else -> ReplayOutcome.Rejected(e.apiErrorMessage("This record couldn't be saved."))
+                    else -> e.outboxRefusal("This record couldn't be saved.").let { ReplayOutcome.Rejected(it.reason, it) }
                 }
             }
             entry = entry.copy(createdId = created.id, createdStepIds = created.stepIds)

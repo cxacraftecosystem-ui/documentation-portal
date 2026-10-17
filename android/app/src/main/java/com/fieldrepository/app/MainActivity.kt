@@ -1303,6 +1303,24 @@ private fun RepositoryApp(
                             repository.retryRefused(appContext, entryId)
                             runCatching { repository.syncOutbox(appContext) }
                             pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
+                        },
+                        // B1: Fix and send, Use existing artisan, and a confirmed Discard.
+                        onFix = { entryId, body ->
+                            val ok = repository.fixRefused(appContext, entryId, body)
+                            if (ok) runCatching { repository.syncOutbox(appContext) }
+                            pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
+                            ok
+                        },
+                        onUseExisting = { entryId ->
+                            val ok = repository.useExistingForRefused(appContext, entryId)
+                            if (ok) runCatching { repository.syncOutbox(appContext) }
+                            pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
+                            ok
+                        },
+                        onDiscard = { entryId ->
+                            val ok = repository.discardRefused(appContext, entryId)
+                            pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
+                            ok
                         }
                     )
                 }

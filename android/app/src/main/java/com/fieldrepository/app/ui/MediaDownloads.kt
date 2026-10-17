@@ -428,7 +428,12 @@ fun OutboxPendingBanner(
     pendingUploads: Int,
     modifier: Modifier = Modifier,
     entries: suspend () -> List<PendingEntry>,
-    onRetry: suspend (entryId: String) -> Unit
+    onRetry: suspend (entryId: String) -> Unit,
+    /** B1: the refused-saves tray's three other doors. See [OfflineOutboxTray]. */
+    onFix: suspend (entryId: String, payloadJson: String) -> Boolean = { _, _ -> false },
+    onUseExisting: suspend (entryId: String) -> Boolean = { false },
+    onDiscard: suspend (entryId: String) -> Boolean = { false },
+    onChanged: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -437,6 +442,22 @@ fun OutboxPendingBanner(
     var files by remember { mutableStateOf<List<PendingMedia>>(emptyList()) }
     var refused by remember { mutableStateOf<List<PendingEntry>>(emptyList()) }
     var reload by remember { mutableStateOf(0) }
+    var trayOpen by remember { mutableStateOf(false) }
+    // Read whether anything is refused even while folded, so the banner can say so without a tap.
+    LaunchedEffect(pendingUploads, reload) {
+        refused = runCatching { entries() }.getOrDefault(emptyList()).filter { it.failure != null }
+    }
+    if (trayOpen) {
+        OfflineOutboxTray(
+            entries = entries,
+            onRetry = onRetry,
+            onFix = onFix,
+            onUseExisting = onUseExisting,
+            onDiscard = onDiscard,
+            onChanged = { reload++; onChanged() },
+            onClose = { trayOpen = false; reload++ }
+        )
+    }
     LaunchedEffect(expanded, pendingUploads, reload) {
         if (!expanded) return@LaunchedEffect
         val queue = runCatching { entries() }.getOrDefault(emptyList())
@@ -466,19 +487,37 @@ fun OutboxPendingBanner(
             )
             Text(if (expanded) "Hide files ▲" else "Files ▼", color = ink, fontSize = 12.sp)
         }
+        // B1: refused saves are named on the banner itself, with the one way into fixing them.
+        val refusedOnly = refused.filterNot { it.needsReview }
+        if (refusedOnly.isNotEmpty()) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (refusedOnly.size == 1) "1 save was refused and needs you." else "${refusedOnly.size} saves were refused and need you.",
+                    color = ink,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+                MediaActionButton(
+                    action = MediaAction.RETRY,
+                    text = "Fix",
+                    onClick = { trayOpen = true },
+                    onTile = ink
+                )
+            }
+        }
         if (expanded) {
-            refused.forEach { entry ->
+            refused.filter { it.needsReview }.forEach { entry ->
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        if (entry.needsReview) "Review “${entry.label}”: ${entry.failure}"
-                        else "“${entry.label}” couldn't upload: ${entry.failure}",
+                        "Review “${entry.label}”: ${entry.failure}",
                         color = ink,
                         fontSize = 12.sp,
                         modifier = Modifier.weight(1f)
                     )
                     MediaActionButton(
                         action = MediaAction.RETRY,
-                        text = if (entry.needsReview) "Send again" else "Try again",
+                        text = "Send again",
                         onClick = { scope.launch { onRetry(entry.id); reload++ } }
                     )
                 }
