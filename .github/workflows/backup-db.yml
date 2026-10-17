@@ -65,9 +65,9 @@ name: Nightly database backup
 #      public objects. Do not move these under `media/`, and do not widen that policy to `*`: a
 #      full database dump answering an anonymous GET is the worst object this account could hold.
 #   2. The IAM policies. The API's key (`aws_iam_user_policy.media`) is confined to `media/*` and
-#      the bucket policy denies it `backups/*`. This job's key (`aws_iam_user_policy.backup_writer`)
-#      can add a dump and list `backups/documentation-portal/`, so the proof step below can
-#      measure an object it cannot read.
+#      the bucket policy denies it `backups/*` and `tfstate/*`. This job's key
+#      (`aws_iam_user_policy.backup_writer`) can add a dump and list `backups/documentation-portal/`,
+#      so the proof step below can measure an object it cannot read.
 #
 # The prefix is the SHAPE of the boundary; those two policies ARE the boundary. A third prefix in
 # this bucket is a change to both of them, not a change to a path string.

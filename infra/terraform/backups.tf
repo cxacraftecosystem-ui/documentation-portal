@@ -7,8 +7,11 @@
 #      a noncurrent version and stays recoverable for 90 days.
 #   2. An off-site copy. Everything in the media bucket (media/ and backups/)
 #      replicates to a bucket in ap-south-2 (Hyderabad), which keeps the data
-#      in India. That bucket has its own KMS key as default encryption and
-#      Object Lock: no version can be deleted for 35 days after it lands.
+#      in India. It has Object Lock: no version can be deleted for 35 days
+#      after it lands. Its own KMS key is the default encryption, but the
+#      replicas are SSE-S3 (AES-256), not KMS: S3 only puts a replica under
+#      the replica key when the source object is SSE-KMS, and this media
+#      bucket is SSE-S3 throughout. See "Open points" in the hardening report.
 #   3. The API's key can no longer write to backups/. The nightly dump runs
 #      under its own user, `backup_writer`, which can add a dump and list
 #      backups/documentation-portal/ and do nothing else.
@@ -301,8 +304,9 @@ resource "aws_s3_bucket_replication_configuration" "media" {
 
     # S3 refuses a replica KMS key without this block. Nothing in the media
     # bucket is KMS-encrypted (it is SSE-S3), so it changes nothing today.
-    # Replicas do not inherit the destination's default encryption: the
-    # replica key below is what puts them under the off-site KMS key.
+    # Replicas do not inherit the destination's default encryption, and the
+    # replica key below applies only to SSE-KMS source objects. So today every
+    # replica is SSE-S3 (AES-256). Checked with head-object on 2026-10-17.
     source_selection_criteria {
       sse_kms_encrypted_objects {
         status = "Enabled"
