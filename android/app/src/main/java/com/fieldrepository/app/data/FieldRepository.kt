@@ -228,6 +228,23 @@ fun ApiFailure.mergeAnswerConflicts(): List<MergeAnswerConflict> {
  */
 const val CONNECTION_FAILED_SENTENCE = "Could not connect. Check your connection and try again."
 
+/** What became of a review decision sent from this phone. */
+sealed interface ReviewSend {
+    /** The server decided. [mediaApproved] files went with an approval; [status] is the record's now. */
+    data class Sent(val status: String? = null, val mediaApproved: Int = 0) : ReviewSend
+
+    /** No answer: kept in the outbox, sent once the connection returns. */
+    data object Queued : ReviewSend
+}
+
+/**
+ * Whether a review decision got NO answer, so it may wait in the outbox: no signal, a dropped socket,
+ * or the gateway giving up on the slow box. Any answer from the API itself (a 403, a 422) is final.
+ */
+internal fun isUnanswered(error: Throwable): Boolean =
+    error is IOException || error.isTransportFailure() ||
+        (error is HttpException && error.code() in setOf(502, 503, 504))
+
 /**
  * Did this request fail on the way, with nobody answering it? The platform's own network exception
  * types, plus OkHttp's plain `IOException` that wraps a stream cut off mid-answer — and, for an
@@ -1292,9 +1309,62 @@ class FieldRepository(
     suspend fun bulkApprove(items: List<PendingReviewDto>): BulkApproveResponse =
         api.bulkApprove(BulkApproveRequest(items = items.map { BulkApproveItem(it.recordType, it.id) }))
 
-    /** Approve a pending record (admins, or users granted the review permission). */
-    suspend fun approveRecord(recordType: String, recordId: String) {
-        api.approveRecord(recordType, recordId, ReviewActionRequest())
+    /**
+     * Approve a pending record (admins, or users granted the review permission). The server approves
+     * its still-pending files with it, in the same transaction, and says how many.
+     *
+     * WITH NO SIGNAL THE APPROVAL IS KEPT, NOT LOST: a request that got no answer goes to the outbox
+     * under the Idempotency-Key it was sent with, so if it did land, the replay is answered with the
+     * first answer rather than approving twice (and approving files uploaded in between).
+     */
+    suspend fun approveRecord(context: Context, recordType: String, recordId: String, label: String): ReviewSend =
+        sendReviewDecision(context, "review-approve", QueuedReviewDecision(recordType, recordId), label)
+
+    /**
+     * Reject ONE file, pending or already approved with its record (C21). A fixable [reason] sends it
+     * back instead. Queued like an approval when there is no signal.
+     */
+    suspend fun rejectMedia(context: Context, mediaId: String, label: String, reason: String?, notes: String?): ReviewSend =
+        sendReviewDecision(
+            context, "review-reject", QueuedReviewDecision("media", mediaId, notes?.blankToNull(), reason), label
+        )
+
+    /** What this reviewer may do with a record's files: the approval's count and each file's Reject. */
+    suspend fun recordMediaReview(recordType: String, recordId: String): RecordMediaReviewDto =
+        api.recordMediaReview(recordType, recordId)
+
+    private suspend fun postReviewDecision(type: String, decision: QueuedReviewDecision, key: String?): JsonElement {
+        val body = ReviewActionRequest(notes = decision.notes, reason = decision.reason)
+        return when (type) {
+            "review-approve" -> api.approveRecord(decision.recordType, decision.recordId, body, key)
+            "review-reject" -> api.rejectRecord(decision.recordType, decision.recordId, body, key)
+            else -> throw SerializationException("Unknown review decision: $type")
+        }
+    }
+
+    private suspend fun sendReviewDecision(
+        context: Context,
+        type: String,
+        decision: QueuedReviewDecision,
+        label: String
+    ): ReviewSend {
+        val key = java.util.UUID.randomUUID().toString()
+        return try {
+            val answer = postReviewDecision(type, decision, key) as? JsonObject
+            ReviewSend.Sent(
+                status = (answer?.get("status") as? JsonPrimitive)?.contentOrNull,
+                mediaApproved = (answer?.get("mediaApproved") as? JsonPrimitive)?.contentOrNull?.toIntOrNull() ?: 0
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            if (!isUnanswered(e)) throw e
+            queueOfflineEntry(
+                context, type, offlineJson.encodeToString(QueuedReviewDecision.serializer(), decision), label,
+                emptyList(), kind = OutboxKind.ACTION, targetId = decision.recordId, idempotencyKey = key
+            )
+            ReviewSend.Queued
+        }
     }
 
     /**
@@ -3435,6 +3505,11 @@ class FieldRepository(
                 offlineJson.decodeFromString<TaskUpdateBody>(entry.payloadJson)
             ).id
         )
+        "review-approve", "review-reject" -> {
+            val decision = offlineJson.decodeFromString<QueuedReviewDecision>(entry.payloadJson)
+            postReviewDecision(entry.type, decision, entry.idempotencyKey)
+            CreatedRecord(decision.recordId)
+        }
         else -> throw SerializationException("Unknown offline action: ${entry.type}")
     }
 

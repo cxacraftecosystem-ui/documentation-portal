@@ -79,6 +79,9 @@ import com.fieldrepository.app.ui.ActionRow
 import com.fieldrepository.app.ui.ReviewFeedbackCopy
 import com.fieldrepository.app.ui.ReviewNoteBanner
 import com.fieldrepository.app.ui.RecordReviewBar
+import com.fieldrepository.app.ui.LocalMediaReview
+import com.fieldrepository.app.ui.MediaRejectAction
+import com.fieldrepository.app.ui.MediaReviewScope
 import com.fieldrepository.app.ui.ReviewReasonPicker
 import com.fieldrepository.app.ui.SentBackCard
 import com.fieldrepository.app.ui.AppToggle
@@ -10091,6 +10094,8 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
             fontSize = 12.sp
         )
     }
+    // A reviewer's Reject on this one file, on a record's page only (see [LocalMediaReview]).
+    MediaRejectAction(mediaId = media.id, label = media.caption?.takeIf { it.isNotBlank() } ?: media.originalFilename)
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
     val isAudio = media.mediaType.equals("AUDIO", ignoreCase = true)
@@ -11612,6 +11617,8 @@ private fun ReviewApprovalCard(
      */
     val selected = remember { mutableStateMapOf<String, PendingReviewDto>() }
     var bulkBusy by remember { mutableStateOf(false) }
+    /** Ticked rows carry files: the bulk approval says how many before it runs. */
+    var confirmBulk by remember { mutableStateOf(false) }
     /** The queue narrowed to one workshop (A13), as the web's queue is; empty is every workshop. */
     var workshopId by remember { mutableStateOf("") }
     val workshopSearch = rememberServerSearch(
@@ -11649,6 +11656,38 @@ private fun ReviewApprovalCard(
         }
     }
     LaunchedEffect(page, workshopId) { refresh() }
+
+    /** Approve every ticked row in one request (B9). */
+    fun approveTicked() {
+        scope.launch {
+            bulkBusy = true
+            val rows = selected.values.toList()
+            runCatching { repository.bulkApprove(rows) }
+                .onSuccess { answer ->
+                    val done = answer.results.filter { it.outcome == "APPROVED" }
+                        .map { "${it.recordType}:${it.id}" }.toSet()
+                    done.forEach { selected.remove(it) }
+                    pending = pending.filterNot { "${it.recordType}:${it.id}" in done }
+                    total = (total - done.size).coerceAtLeast(0)
+                    info = ReviewFeedbackCopy.bulkReceipt(answer.approved, answer.failed)
+                }
+                .onFailure {
+                    if (it is kotlinx.coroutines.CancellationException) throw it
+                    onError(it.apiErrorMessage("Couldn't approve these records."))
+                }
+            bulkBusy = false
+        }
+    }
+
+    if (confirmBulk) {
+        AlertDialog(
+            onDismissRequest = { confirmBulk = false },
+            title = { Text("Approve ${selected.size} record${if (selected.size == 1) "" else "s"}?") },
+            text = { Text(ReviewFeedbackCopy.alsoApproves(selected.values.sumOf { it.pendingMediaCount }).orEmpty()) },
+            confirmButton = { TextButton(onClick = { confirmBulk = false; approveTicked() }) { Text(ReviewFeedbackCopy.approveLabel(selected.size)) } },
+            dismissButton = { TextButton(onClick = { confirmBulk = false }) { Text("Cancel") } }
+        )
+    }
 
     RecordCard(title = "Reviews & approvals") {
         Text(
@@ -11701,24 +11740,7 @@ private fun ReviewApprovalCard(
                         ) { Text("Clear") }
                         Button(
                             onClick = {
-                                scope.launch {
-                                    bulkBusy = true
-                                    val rows = selected.values.toList()
-                                    runCatching { repository.bulkApprove(rows) }
-                                        .onSuccess { answer ->
-                                            val done = answer.results.filter { it.outcome == "APPROVED" }
-                                                .map { "${it.recordType}:${it.id}" }.toSet()
-                                            done.forEach { selected.remove(it) }
-                                            pending = pending.filterNot { "${it.recordType}:${it.id}" in done }
-                                            total = (total - done.size).coerceAtLeast(0)
-                                            info = ReviewFeedbackCopy.bulkReceipt(answer.approved, answer.failed)
-                                        }
-                                        .onFailure {
-                                            if (it is kotlinx.coroutines.CancellationException) throw it
-                                            onError(it.apiErrorMessage("Couldn't approve these records."))
-                                        }
-                                    bulkBusy = false
-                                }
+                                if (selected.values.sumOf { it.pendingMediaCount } > 0) confirmBulk = true else approveTicked()
                             },
                             enabled = !bulkBusy,
                             modifier = Modifier.heightIn(min = 48.dp)
@@ -11815,6 +11837,23 @@ private fun PendingReviewRow(
             runCatching { block() }
                 .onSuccess { if (resolves) onResolved(ok) else onInfo(ok) }
                 .onFailure { onError(it.apiErrorMessage("That review action didn't go through")) }
+            busy = false
+        }
+    }
+
+    // Approving takes the record's pending files with it; with any, it asks first and says how many.
+    // With no signal it is kept in the outbox and the row still leaves the queue.
+    val context = LocalContext.current
+    var confirmApprove by remember { mutableStateOf(false) }
+    fun approve() {
+        scope.launch {
+            busy = true
+            runCatching { repository.approveRecord(context, item.recordType, item.id, item.label) }
+                .onSuccess { onResolved(ReviewFeedbackCopy.approvalOutcome(item.label, it)) }
+                .onFailure {
+                    if (it is kotlinx.coroutines.CancellationException) throw it
+                    onError(it.apiErrorMessage("That review action didn't go through"))
+                }
             busy = false
         }
     }
@@ -11921,7 +11960,7 @@ private fun PendingReviewRow(
                 }
             ) {
                 Button(
-                    onClick = { act("Approved ${item.label}", resolves = true) { repository.approveRecord(item.recordType, item.id) } },
+                    onClick = { if (item.pendingMediaCount > 0) confirmApprove = true else approve() },
                     enabled = !busy,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
                 ) { Text(if (busy) "Working…" else "Approve", maxLines = 1, fontSize = 13.sp) }
@@ -12076,6 +12115,16 @@ private fun PendingReviewRow(
                 }
             }
         }
+    }
+
+    if (confirmApprove) {
+        AlertDialog(
+            onDismissRequest = { confirmApprove = false },
+            title = { Text("Approve ${item.label}?") },
+            text = { Text(ReviewFeedbackCopy.alsoApproves(item.pendingMediaCount).orEmpty()) },
+            confirmButton = { TextButton(onClick = { confirmApprove = false; approve() }) { Text("Approve") } },
+            dismissButton = { TextButton(onClick = { confirmApprove = false }) { Text("Cancel") } }
+        )
     }
 
     // Word for word the web review page's rejection confirmation, including the pointer at the softer
@@ -12569,17 +12618,41 @@ private fun RecordViewScreen(
             Text(RECORD_UPDATE_LABEL)
         }
     }
+    /*
+     * Each file card's Reject (owner decision 2026-10-18: approving a record approves its pending
+     * files, and a reviewer can still reject one file — before or after). The server lists the files
+     * this reader may reject; a card not on the list draws no button.
+     */
+    var mediaReview by remember(mode, recordId) { mutableStateOf<MediaReviewScope?>(null) }
+    val reviewType = ReviewFeedbackCopy.recordTypeFor(mode.name)
+    LaunchedEffect(reviewType, recordId, mayReview, refresh) {
+        if (!mayReview || reviewType == null) {
+            mediaReview = null
+            return@LaunchedEffect
+        }
+        val reasons = runCatching { repository.reviewReasons() }.getOrDefault(emptyList())
+        runCatching { repository.recordMediaReview(reviewType, recordId) }
+            .onSuccess { answer ->
+                mediaReview = MediaReviewScope(repository, answer.rejectable.toSet(), reasons) { message ->
+                    onMessage(message)
+                    refresh += 1
+                }
+            }
+            .onFailure { mediaReview = null }
+    }
     // A decision re-reads the record, so its status line and the bar above agree with the server.
     key(refresh) {
-        ViewDataDetail(
-            repository = repository,
-            mode = mode,
-            recordId = recordId,
-            onStatus = { status = it },
-            canOverrideCompletion = canOverrideCompletion,
-            showProvenance = showProvenance,
-            onError = onError
-        )
+        CompositionLocalProvider(LocalMediaReview provides mediaReview) {
+            ViewDataDetail(
+                repository = repository,
+                mode = mode,
+                recordId = recordId,
+                onStatus = { status = it },
+                canOverrideCompletion = canOverrideCompletion,
+                showProvenance = showProvenance,
+                onError = onError
+            )
+        }
     }
 }
 

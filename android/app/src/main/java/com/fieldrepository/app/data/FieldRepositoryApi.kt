@@ -210,19 +210,27 @@ interface FieldRepositoryApi {
     @POST("review/bulk-approve")
     suspend fun bulkApprove(@Body body: BulkApproveRequest): BulkApproveResponse
 
+    // Both take an Idempotency-Key: the outbox replays an approval or a file's rejection made with no
+    // signal, and the server answers a repeat with the first answer instead of deciding twice.
     @POST("review/{type}/{id}/approve")
     suspend fun approveRecord(
         @Path("type") type: String,
         @Path("id") id: String,
-        @Body body: ReviewActionRequest
+        @Body body: ReviewActionRequest,
+        @Header("Idempotency-Key") idempotencyKey: String? = null
     ): JsonElement
 
     @POST("review/{type}/{id}/reject")
     suspend fun rejectRecord(
         @Path("type") type: String,
         @Path("id") id: String,
-        @Body body: ReviewActionRequest
+        @Body body: ReviewActionRequest,
+        @Header("Idempotency-Key") idempotencyKey: String? = null
     ): JsonElement
+
+    /** What this reviewer may do with a record's files: the approval's count and each file's Reject. */
+    @GET("review/{type}/{id}/media")
+    suspend fun recordMediaReview(@Path("type") type: String, @Path("id") id: String): RecordMediaReviewDto
 
     // Send back to the creator with mandatory comments (status NEEDS_REVISION). A blank `notes` is a
     // 422 — the whole point is that the creator is told what to fix.

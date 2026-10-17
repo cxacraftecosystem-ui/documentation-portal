@@ -507,7 +507,9 @@ data class PendingReviewDto(
     val submittedAt: String? = null,
     /** Sent back or rejected before and fixed since; [previousReview] is what was asked last time. */
     val resubmitted: Boolean = false,
-    val previousReview: PreviousReviewDto? = null
+    val previousReview: PreviousReviewDto? = null,
+    /** Files still pending that approving this record approves with it (owner decision 2026-10-18). */
+    val pendingMediaCount: Int = 0
 )
 
 /** The last send-back or rejection of a resubmitted queue row. */
@@ -579,7 +581,32 @@ data class BulkApproveResultDto(val recordType: String, val id: String, val outc
 data class BulkApproveResponse(
     val results: List<BulkApproveResultDto> = emptyList(),
     val approved: Int = 0,
-    val failed: Int = 0
+    val failed: Int = 0,
+    /** Files approved with those records. */
+    val mediaApproved: Int = 0
+)
+
+/**
+ * `GET /review/{type}/{id}/media`: what a reviewer may do with one record's files. [approvesWith] is
+ * how many files approving the record now approves with it; [rejectable] the files this reader may
+ * still reject one by one — pending, or approved with their record.
+ */
+@Serializable
+data class RecordMediaReviewDto(
+    val approvesWith: Int = 0,
+    val rejectable: List<String> = emptyList()
+)
+
+/**
+ * A review decision kept in the outbox while there is no signal (`review-approve`, `review-reject`):
+ * replayed with the Idempotency-Key the online attempt sent, so it lands exactly once.
+ */
+@Serializable
+data class QueuedReviewDecision(
+    val recordType: String,
+    val recordId: String,
+    val notes: String? = null,
+    val reason: String? = null
 )
 
 @Serializable

@@ -34,7 +34,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.platform.LocalContext
 import com.fieldrepository.app.data.FieldRepository
+import com.fieldrepository.app.data.ReviewSend
 import com.fieldrepository.app.data.LatestReviewDto
 import com.fieldrepository.app.data.ReturnedRecordDto
 import com.fieldrepository.app.data.ReviewReasonDto
@@ -107,6 +110,132 @@ object ReviewFeedbackCopy {
 
     /** The record page's review bar asks the server only for a PENDING record and a reviewer. */
     fun barNeedsFetch(status: String?, mayReview: Boolean): Boolean = mayReview && status == "PENDING"
+
+    // --- Files approved with their record (owner decision 2026-10-18), the web's words ---
+
+    private fun files(count: Int): String = "$count file${if (count == 1) "" else "s"}"
+
+    /** The approval's confirmation line, or null when no file goes with it (and nothing is asked). */
+    fun alsoApproves(count: Int): String? = if (count > 0) "Also approves ${files(count)}." else null
+
+    /** The receipt after approving one record; [label] is null where the page already names it. */
+    fun approvedReceipt(label: String?, mediaApproved: Int): String {
+        val what = label?.let { "Approved $it" } ?: "Approved"
+        return if (mediaApproved > 0) "$what, with ${files(mediaApproved)}." else "$what."
+    }
+
+    /** What a sent decision says: the receipt, or that it waits on this phone. */
+    fun approvalOutcome(label: String?, sent: ReviewSend): String = when (sent) {
+        is ReviewSend.Queued -> QUEUED
+        is ReviewSend.Sent -> approvedReceipt(label, sent.mediaApproved)
+    }
+
+    /** A decision made with no signal: it waits in the outbox and sends itself. */
+    const val QUEUED = "Saved on this phone. It sends when you reconnect."
+
+    /** One file's Reject panel: the confirm button for the picked reason. */
+    fun fileRefusalLabel(reason: ReviewReasonDto?): String =
+        if (refusalOutcome(reason) == "NEEDS_REVISION") "Send for revision" else "Reject file"
+}
+
+/**
+ * The reviewer's one decision on a single file, handed to the file cards of a record's page.
+ * Approving a record approves its pending files with it, so a reviewer who disagrees about ONE
+ * photograph rejects that file here — before the record is decided or after it was approved.
+ * Null (every screen but the record view) draws nothing on the cards.
+ */
+data class MediaReviewScope(
+    val repository: FieldRepository,
+    val rejectable: Set<String>,
+    val reasons: List<ReviewReasonDto>,
+    val onRejected: (String) -> Unit
+)
+
+val LocalMediaReview = staticCompositionLocalOf<MediaReviewScope?> { null }
+
+/** Reject on one file card, with the reasons a record is rejected with; queued with no signal. */
+@Composable
+fun MediaRejectAction(mediaId: String, label: String) {
+    val review = LocalMediaReview.current ?: return
+    if (mediaId !in review.rejectable) return
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var open by remember(mediaId) { mutableStateOf(false) }
+    var reasonCode by remember(mediaId) { mutableStateOf("") }
+    var note by remember(mediaId) { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var confirm by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val reason = review.reasons.firstOrNull { it.code == reasonCode }
+
+    fun send() {
+        scope.launch {
+            busy = true
+            error = null
+            runCatching { review.repository.rejectMedia(context, mediaId, label, reason?.code, note) }
+                .onSuccess { sent ->
+                    open = false
+                    review.onRejected(
+                        when {
+                            sent is ReviewSend.Queued -> ReviewFeedbackCopy.QUEUED
+                            (sent as ReviewSend.Sent).status == "NEEDS_REVISION" -> "File sent back for revision."
+                            else -> "File rejected."
+                        }
+                    )
+                }
+                .onFailure {
+                    if (it is kotlinx.coroutines.CancellationException) throw it
+                    error = it.apiErrorMessage("That file wasn't rejected.")
+                }
+            busy = false
+        }
+    }
+
+    if (!open) {
+        ActionRow {
+            OutlinedButton(
+                onClick = { reasonCode = ""; open = true },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) { Text("Reject", maxLines = 1) }
+        }
+        return
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        ReviewReasonPicker(panel = "reject", reasons = review.reasons, reasonCode = reasonCode) { reasonCode = it }
+        OutlinedTextField(
+            value = note,
+            onValueChange = { note = it },
+            label = { Text(if (reason?.needsNote == true) "Note for the uploader (required)" else "Note for the uploader") },
+            minLines = 2,
+            modifier = Modifier.fillMaxWidth()
+        )
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
+        val ready = review.reasons.isEmpty() || ReviewFeedbackCopy.refusalReady(reason, note)
+        ActionRow {
+            Button(
+                onClick = { if (ReviewFeedbackCopy.refusalOutcome(reason) == "REJECTED") confirm = true else send() },
+                enabled = !busy && ready,
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) { Text(if (busy) "Saving…" else ReviewFeedbackCopy.fileRefusalLabel(reason), maxLines = 1) }
+            OutlinedButton(onClick = { open = false }, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text("Cancel", maxLines = 1)
+            }
+        }
+    }
+    if (confirm) {
+        AlertDialog(
+            onDismissRequest = { confirm = false },
+            title = { Text("Reject this file?") },
+            text = { Text("$label. Its record keeps its own decision.") },
+            confirmButton = {
+                TextButton(onClick = { confirm = false; send() }) {
+                    Text("Reject file", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } }
+        )
+    }
 }
 
 /**
@@ -290,6 +419,10 @@ fun RecordReviewBar(
     var error by remember { mutableStateOf<String?>(null) }
     var confirmReject by remember { mutableStateOf(false) }
     var decided by remember(recordType, recordId) { mutableStateOf(false) }
+    /** Files approving this record approves with it; with any, Approve asks first and says how many. */
+    var approvesWith by remember(recordType, recordId) { mutableStateOf(0) }
+    var confirmApprove by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     LaunchedEffect(recordType, recordId, knownStatus, mayReview) {
         if (!ReviewFeedbackCopy.barNeedsFetch(knownStatus, mayReview)) {
             canReview = false
@@ -299,6 +432,7 @@ fun RecordReviewBar(
             .onSuccess { canReview = it.canReview && it.status == "PENDING"; late = it.needsAdminApproval }
             .onFailure { canReview = false }
         runCatching { repository.reviewReasons() }.onSuccess { reasons = it }
+        runCatching { repository.recordMediaReview(recordType, recordId) }.onSuccess { approvesWith = it.approvesWith }
     }
     if (!canReview || decided) return
     val reason = reasons.firstOrNull { it.code == reasonCode }
@@ -309,7 +443,9 @@ fun RecordReviewBar(
             error = null
             runCatching {
                 when (action) {
-                    "approve" -> { repository.approveRecord(recordType, recordId); "Approved." }
+                    "approve" -> ReviewFeedbackCopy.approvalOutcome(
+                        null, repository.approveRecord(context, recordType, recordId, "Approval")
+                    )
                     "revise" -> {
                         repository.reviseRecord(recordType, recordId, note.trim(), reason?.takeIf { it.fixable }?.code)
                         "Sent back for revision."
@@ -351,7 +487,10 @@ fun RecordReviewBar(
                     ) { Text("Reject", maxLines = 1) }
                 }
             ) {
-                Button(onClick = { decide("approve") }, enabled = !busy) { Text(if (busy && panel == null) "Saving…" else "Approve", maxLines = 1) }
+                Button(
+                    onClick = { if (approvesWith > 0) confirmApprove = true else decide("approve") },
+                    enabled = !busy
+                ) { Text(if (busy && panel == null) "Saving…" else "Approve", maxLines = 1) }
                 OutlinedButton(
                     onClick = { reasonCode = ""; panel = if (panel == "revise") null else "revise" },
                     enabled = !busy
@@ -391,6 +530,15 @@ fun RecordReviewBar(
                 }
             }
         }
+    }
+    if (confirmApprove) {
+        AlertDialog(
+            onDismissRequest = { confirmApprove = false },
+            title = { Text("Approve this record?") },
+            text = { Text(ReviewFeedbackCopy.alsoApproves(approvesWith).orEmpty()) },
+            confirmButton = { TextButton(onClick = { confirmApprove = false; decide("approve") }) { Text("Approve") } },
+            dismissButton = { TextButton(onClick = { confirmApprove = false }) { Text("Cancel") } }
+        )
     }
     if (confirmReject) {
         AlertDialog(

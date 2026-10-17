@@ -19,8 +19,8 @@ With ``--apply`` it writes in batches of ``--batch-size`` records, one transacti
 SAFE TO RE-RUN. It only ever looks at PENDING files, so a second ``--apply`` finds nothing to do and
 says so; a run stopped part-way resumes where it stopped.
 
-RUN IT AFTER THE RELEASE, on the box, against the live database (see docs/DEPLOYMENT.md). Never from a
-laptop and never as part of a test run.
+RUN IT AFTER THE RELEASE, on the box, against the live database (backend/DEPLOY_AWS.md, section
+11). Never from a laptop and never as part of a test run.
 
     cd backend
     python scripts/approve_media_of_approved_records.py            # dry run: counts only
