@@ -3,10 +3,12 @@ package com.fieldrepository.app.data
 import android.content.Context
 import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.util.Log
 import java.security.KeyStore
 import java.util.Base64
+import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -41,14 +43,25 @@ class TokenStore internal constructor(
      * Robolectric), the token is kept exactly as before rather than lost — being signed out in a
      * village with no signal is the worse failure. A sealed token that no longer opens (the key was
      * wiped with a lock-screen reset) reads as signed out, which is the truth: it cannot be used.
+     *
+     * "WILL NEVER OPEN" IS NOT "COULD NOT OPEN JUST NOW" (2026-10-18). Only an [OpenResult.Unreadable]
+     * answer deletes the sealed value: the key is gone, the GCM check failed, or the value is not one
+     * this code wrote. A Keystore that cannot be asked at this moment (it can be slow to come up after
+     * a boot) answers [OpenResult.Unavailable]: this read is signed out, the sealed token stays, and
+     * the next read tries again. Deleting it then would sign out a person whose token was fine.
      */
     fun getToken(): String? {
         preferences.getString(KEY_SEALED_TOKEN, null)?.let { sealed ->
             // Every API call reads the token; open each sealed value once per process.
             opened?.let { (seal, plain) -> if (seal == sealed) return plain }
-            val plain = sealer.open(sealed)
-            if (plain == null) preferences.edit().remove(KEY_SEALED_TOKEN).apply() else opened = sealed to plain
-            return plain
+            return when (val result = sealer.open(sealed)) {
+                is OpenResult.Opened -> result.plain.also { opened = sealed to it }
+                OpenResult.Unavailable -> null
+                OpenResult.Unreadable -> {
+                    preferences.edit().remove(KEY_SEALED_TOKEN).apply()
+                    null
+                }
+            }
         }
         val legacy = preferences.getString(KEY_TOKEN, null) ?: return null
         val sealed = sealer.seal(legacy)
@@ -106,10 +119,21 @@ class TokenStore internal constructor(
     }
 }
 
-/** Seals a short secret for storage and opens it again; null from either means "could not". */
+/** Seals a short secret for storage and opens it again. A null seal means "could not". */
 interface TokenSealer {
     fun seal(plain: String): String?
-    fun open(sealed: String): String?
+    fun open(sealed: String): OpenResult
+}
+
+/** What opening a sealed value came to. Only [Unreadable] is a reason to delete it. */
+sealed interface OpenResult {
+    data class Opened(val plain: String) : OpenResult
+
+    /** It will never open: no key under the alias, the GCM check failed, or not a value this code wrote. */
+    data object Unreadable : OpenResult
+
+    /** The Keystore could not be asked just now. The value may be fine; keep it and try again later. */
+    data object Unavailable : OpenResult
 }
 
 /**
@@ -140,16 +164,39 @@ class KeystoreTokenSealer(private val alias: String = "session_token_key") : Tok
         }.getOrNull()
     }
 
-    override fun open(sealed: String): String? {
+    /**
+     * Never generates a key, unlike [key]: a missing key cannot open what an earlier one sealed, and
+     * making a new one under the same alias would only hide that.
+     */
+    override fun open(sealed: String): OpenResult {
         val parts = sealed.split(":")
-        if (parts.size != 3 || parts[0] != "v1") return null
-        val key = key() ?: return null
-        return runCatching {
-            val cipher = Cipher.getInstance(TRANSFORMATION).apply {
-                init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, Base64.getDecoder().decode(parts[1])))
-            }
-            String(cipher.doFinal(Base64.getDecoder().decode(parts[2])), Charsets.UTF_8)
-        }.getOrNull()
+        if (parts.size != 3 || parts[0] != "v1") return OpenResult.Unreadable
+        val iv: ByteArray
+        val body: ByteArray
+        try {
+            iv = Base64.getDecoder().decode(parts[1])
+            body = Base64.getDecoder().decode(parts[2])
+        } catch (_: IllegalArgumentException) {
+            return OpenResult.Unreadable
+        }
+        val key = try {
+            val store = KeyStore.getInstance(PROVIDER).apply { load(null) }
+            store.getKey(alias, null) as? SecretKey ?: return OpenResult.Unreadable
+        } catch (e: Exception) {
+            runCatching { Log.w(TAG, "Keystore unavailable; the sealed session token is kept for the next read", e) }
+            return OpenResult.Unavailable
+        }
+        return try {
+            val cipher = Cipher.getInstance(TRANSFORMATION).apply { init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, iv)) }
+            OpenResult.Opened(String(cipher.doFinal(body), Charsets.UTF_8))
+        } catch (_: AEADBadTagException) {
+            OpenResult.Unreadable
+        } catch (_: KeyPermanentlyInvalidatedException) {
+            OpenResult.Unreadable
+        } catch (e: Exception) {
+            runCatching { Log.w(TAG, "Keystore could not open the session token just now; it is kept", e) }
+            OpenResult.Unavailable
+        }
     }
 
     companion object {

@@ -367,6 +367,71 @@ test("the cookie becomes the bearer; a caller's own Authorization is kept only w
   expect(upstreamHeaders(datasetScript, null).get("authorization")).toBe("Bearer dataset-token");
 });
 
+test("only the headers the API has a use for travel on; Vercel's own, its OIDC token and Next's never do", () => {
+  const request = siteRequest("/api/artisans", {
+    method: "GET",
+    cookie: `${SESSION_COOKIE}=from-cookie`,
+    headers: {
+      "x-vercel-oidc-token": "eyJ.oidc.credential",
+      "x-vercel-id": "bom1::abc",
+      "x-vercel-proxy-signature": "Bearer sig",
+      "x-vercel-deployment-url": "preview-abc.vercel.app",
+      "x-vercel-ip-country": "IN",
+      "x-middleware-subrequest": "proxy",
+      "x-middleware-invoke": "1",
+      forwarded: "for=203.0.113.7;proto=https",
+      "x-forwarded-host": "field-repository.vercel.app",
+      "sec-fetch-mode": "cors",
+      referer: `${SITE}/dashboard`,
+      "x-something-new": "1",
+      accept: "application/json",
+      "accept-language": "hi-IN",
+      range: "bytes=0-99",
+      "if-none-match": '"etag-1"',
+      "if-modified-since": "Sat, 17 Oct 2026 00:00:00 GMT",
+      "user-agent": "Mozilla/5.0 test",
+      "idempotency-key": "k-12345678",
+      "x-client-app": "web",
+      "x-forwarded-for": "203.0.113.7"
+    }
+  });
+  const sent = upstreamHeaders(request, "from-cookie");
+  for (const name of [
+    "x-vercel-oidc-token",
+    "x-vercel-id",
+    "x-vercel-proxy-signature",
+    "x-vercel-deployment-url",
+    "x-vercel-ip-country",
+    "x-middleware-subrequest",
+    "x-middleware-invoke",
+    "forwarded",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "sec-fetch-site",
+    "sec-fetch-mode",
+    "referer",
+    "host",
+    "cookie",
+    "x-something-new"
+  ]) {
+    expect(sent.get(name), `${name} stops at this site`).toBeNull();
+  }
+  expect(sent.get("accept")).toBe("application/json");
+  expect(sent.get("accept-language")).toBe("hi-IN");
+  expect(sent.get("content-type")).toBe("application/json");
+  expect(sent.get("range")).toBe("bytes=0-99");
+  expect(sent.get("if-none-match")).toBe('"etag-1"');
+  expect(sent.get("if-modified-since")).toBe("Sat, 17 Oct 2026 00:00:00 GMT");
+  expect(sent.get("user-agent")).toBe("Mozilla/5.0 test");
+  expect(sent.get("origin")).toBe(SITE);
+  expect(sent.get("idempotency-key")).toBe("k-12345678");
+  expect(sent.get("x-client-app")).toBe("web");
+  expect(sent.get("x-forwarded-for")).toBe("203.0.113.7");
+  expect(sent.get("authorization")).toBe("Bearer from-cookie");
+  expect(sent.get(PROXY_SECRET_HEADER)).toBe("s3cret-for-tests-only");
+  expect(sent.get(VIEWER_ADDRESS_HEADER)).toBe("203.0.113.7");
+});
+
 test("a production build with no API address answers 503 instead of calling localhost", async () => {
   expect(apiOrigin({ NODE_ENV: "production" })).toBeNull();
   expect(apiOrigin({ NODE_ENV: "development" })).toBe("http://localhost:8000");

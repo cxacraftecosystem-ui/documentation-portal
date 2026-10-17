@@ -57,23 +57,49 @@ export const CROSS_SITE_DETAIL = "This request didn't come from this site, so it
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 /**
- * Headers never copied from the browser's request onto the API call. `cookie` because the API reads
- * no cookie and the session cookie must not travel further than this site; `authorization` because
- * it is rebuilt from the cookie; the two proxy headers because only this code may set them; the rest
- * are about the connection to this site, not the one to the API.
+ * THE ONLY HEADERS OF THE BROWSER'S REQUEST THAT TRAVEL ON TO THE API (an allowlist, 2026-10-18).
+ *
+ * It was a short denylist until review pointed out what that let through. By the time this code runs
+ * the request has crossed Vercel's network, which adds headers of its own: `x-vercel-id`,
+ * `x-vercel-deployment-url`, `x-vercel-proxy-signature`, `x-vercel-ip-*` and, on a project with OIDC
+ * federation, `x-vercel-oidc-token` — a bearer credential for this project. Next.js adds
+ * `x-middleware-*`, and `forwarded` names the hops. Before the cookie session none of these left
+ * Vercel, because the browser called the API itself; a denylist would have to be kept in step with
+ * every header Vercel ever invents, and one missed is a credential sent to another system.
+ *
+ * So every name here is one a person can point to a reason for:
+ * - what the body is and what answer is wanted: `content-type`, `accept*`;
+ * - conditional and partial reads, which the media and workshop endpoints answer: `range`, `if-*`;
+ * - `user-agent` (the sign-in history names the device) and `origin` (CORS on the API);
+ * - `x-forwarded-for`, which Vercel writes rather than the visitor, kept exactly as before so the
+ *   API's hop-count fallback reads what it always read where there is no proxy secret;
+ * - the app's own request headers: `idempotency-key` (a create that lands twice writes once),
+ *   `x-client-app` (usage counts by app) and the sign-in confirmations the API asks for.
+ *
+ * `authorization` is rebuilt from the cookie (or kept from a caller with no cookie — see
+ * `upstreamHeaders`), and the two proxy headers are set only by this code. A header that is not on
+ * this list does not reach the API; add it here, with its reason, before a client sends it.
  */
-const DROPPED_REQUEST_HEADERS = [
-  "cookie",
-  "host",
-  "connection",
-  "keep-alive",
-  "content-length",
-  "transfer-encoding",
-  "upgrade",
-  "proxy-authorization",
-  PROXY_SECRET_HEADER,
-  VIEWER_ADDRESS_HEADER
-];
+const FORWARDED_REQUEST_HEADERS = new Set([
+  "accept",
+  "accept-encoding",
+  "accept-language",
+  "content-type",
+  "range",
+  "if-range",
+  "if-match",
+  "if-none-match",
+  "if-modified-since",
+  "if-unmodified-since",
+  "user-agent",
+  "origin",
+  "x-forwarded-for",
+  "idempotency-key",
+  "x-client-app",
+  "x-confirm-provider",
+  "x-confirm-sign-in",
+  "x-sign-in-proof"
+]);
 
 /**
  * Headers never copied from the API's answer onto this site's. `fetch` has already decoded the body,
@@ -215,18 +241,20 @@ export function viewerAddress(headers: Headers): string | null {
 }
 
 /**
- * The headers the API call goes out with: the browser's own, minus the ones in
- * `DROPPED_REQUEST_HEADERS`, plus the bearer token and the two proxy headers.
+ * The headers the API call goes out with: the browser's own that `FORWARDED_REQUEST_HEADERS` names,
+ * plus the bearer token and the two proxy headers. Nothing else — not the cookie, not a header Vercel
+ * or Next.js added on the way in.
  *
  * WITHOUT A SESSION COOKIE, an `Authorization` header the caller set itself is passed on untouched: a
  * script that holds a dataset token of its own may still use it through this site. With one, the
  * cookie wins.
  */
 export function upstreamHeaders(request: Request, token: string | null, source: Env = env()): Headers {
-  const headers = new Headers(request.headers);
-  const callerAuthorization = headers.get("authorization");
-  for (const name of DROPPED_REQUEST_HEADERS) headers.delete(name);
-  headers.delete("authorization");
+  const headers = new Headers();
+  request.headers.forEach((value, name) => {
+    if (FORWARDED_REQUEST_HEADERS.has(name.toLowerCase())) headers.set(name, value);
+  });
+  const callerAuthorization = request.headers.get("authorization");
   if (token) headers.set("authorization", `Bearer ${token}`);
   else if (callerAuthorization) headers.set("authorization", callerAuthorization);
   const secret = proxySecret(source);
