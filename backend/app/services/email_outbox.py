@@ -19,6 +19,11 @@ only.
 
 The task notices honour ``UserPreference.emailTaskUpdates`` (opt-out: no row reads as yes). The
 access e-mail is sent only when the administrator who admitted the address asked for it.
+
+So do the review and sharing notices (2026-10-20): a reviewer's decision goes to the person who
+recorded the record, with the reviewer's note in it; a request to share data or to join a workshop
+goes to whoever decides it, and the decision goes back; a comment goes to the person who recorded
+the record. Nobody is ever told about their own act, and a bulk approval is one e-mail per person.
 """
 
 from __future__ import annotations
@@ -338,3 +343,255 @@ async def notify_access_granted(email: str, *, name: str | None) -> bool:
     except Exception:  # see the docstring
         logger.exception("mail: could not queue an access e-mail")
         return False
+
+
+# --------------------------------------------------------------------------------------
+# Review and sharing notices
+# --------------------------------------------------------------------------------------
+
+#: What a record is called in a sentence ("your product record ...").
+RECORD_NOUNS = {
+    "artisan": "artisan record",
+    "workshop": "workshop",
+    "product": "product record",
+    "tool": "tool record",
+    "process": "process",
+    "questionnaire": "interview",
+    "media": "file",
+}
+
+#: Where the record opens read-only in the web app (``frontend/lib/recordView.ts``).
+RECORD_PATHS = {
+    "artisan": "/artisans/{id}",
+    "workshop": "/workshops/{id}",
+    "product": "/products/{id}",
+    "tool": "/tools/{id}",
+    "process": "/processes/{id}",
+    "questionnaire": "/questionnaire/interviews/{id}",
+    "media": "/media/{id}",
+}
+
+_DECISION_KINDS = {
+    "NEEDS_REVISION": mailer.RECORD_SENT_BACK,
+    "REJECTED": mailer.RECORD_REJECTED,
+    "APPROVED": mailer.RECORD_APPROVED,
+}
+
+
+def record_path(record_type: str, record_id: str | None) -> str:
+    template = RECORD_PATHS.get((record_type or "").lower())
+    if not template or not record_id:
+        return "/activity"
+    return template.format(id=record_id)
+
+
+async def _reachable(user_id: Any, actor: Any) -> Any | None:
+    """The account to tell, or None: no id, the actor themselves, no address, or opted out."""
+    if not user_id or str(user_id) == str(_value(actor, "id") or ""):
+        return None
+    person = await db.user.find_unique(where={"id": str(user_id)})
+    if person is None or not person.email or not await wants_task_updates(person.id):
+        return None
+    return person
+
+
+async def notify_review_decision(
+    *,
+    record_type: str,
+    record_id: str,
+    record_label: str,
+    creator_id: str | None,
+    decision: str,
+    actor: Any,
+    note: str | None = None,
+    reason_label: str | None = None,
+) -> int:
+    """Tell a record's creator what a reviewer decided, with the note. NEVER RAISES."""
+    if not mailer.mail_configured():
+        return 0
+    try:
+        kind = _DECISION_KINDS.get(decision)
+        if kind is None:
+            return 0
+        person = await _reachable(creator_id, actor)
+        if person is None:
+            return 0
+        key = (record_type or "").lower()
+        path = "/sent-back" if kind == mailer.RECORD_SENT_BACK else record_path(key, record_id)
+        params = {
+            "recipientName": person.name,
+            "recordLabel": record_label,
+            "recordNoun": RECORD_NOUNS.get(key, "record"),
+            "actorName": _value(actor, "name"),
+            "note": note or None,
+            "reasonLabel": reason_label or None,
+            "path": path,
+        }
+        row = await enqueue(kind, to_address=person.email, recipient_id=person.id, params=params)
+        return 1 if row is not None else 0
+    except Exception:  # the decision is already saved
+        logger.exception("mail: could not queue a review notice for %s %s", record_type, record_id)
+        return 0
+
+
+async def notify_bulk_approvals(approved: list[dict[str, Any]], *, actor: Any) -> int:
+    """One "approved" e-mail per creator for a bulk approval, never one per record. NEVER RAISES.
+
+    ``approved`` items carry ``recordType``, ``id``, ``label`` and ``creatorId``."""
+    if not mailer.mail_configured() or not approved:
+        return 0
+    sent = 0
+    by_creator: dict[str, list[dict[str, Any]]] = {}
+    for item in approved:
+        creator = item.get("creatorId")
+        if creator:
+            by_creator.setdefault(str(creator), []).append(item)
+    for creator_id, items in by_creator.items():
+        try:
+            person = await _reachable(creator_id, actor)
+            if person is None:
+                continue
+            first = items[0]
+            key = str(first.get("recordType") or "").lower()
+            params = {
+                "recipientName": person.name,
+                "recordLabel": first.get("label"),
+                "recordNoun": RECORD_NOUNS.get(key, "record"),
+                "actorName": _value(actor, "name"),
+                "count": len(items),
+                "path": record_path(key, first.get("id")) if len(items) == 1 else "/activity",
+            }
+            row = await enqueue(mailer.RECORD_APPROVED, to_address=person.email, recipient_id=person.id, params=params)
+            sent += 1 if row is not None else 0
+        except Exception:
+            logger.exception("mail: could not queue a bulk approval notice for account %s", creator_id)
+    return sent
+
+
+async def notify_comment(
+    *, record_type: str, record_id: str, record_label: str, owner_id: str | None, actor: Any, body: str
+) -> int:
+    """Tell a record's creator that somebody commented on it. NEVER RAISES."""
+    if not mailer.mail_configured():
+        return 0
+    try:
+        person = await _reachable(owner_id, actor)
+        if person is None:
+            return 0
+        key = (record_type or "").lower()
+        params = {
+            "recipientName": person.name,
+            "recordLabel": record_label,
+            "recordNoun": RECORD_NOUNS.get(key, "record"),
+            "actorName": _value(actor, "name"),
+            "note": body,
+            "path": record_path(key, record_id),
+        }
+        row = await enqueue(mailer.RECORD_COMMENT, to_address=person.email, recipient_id=person.id, params=params)
+        return 1 if row is not None else 0
+    except Exception:
+        logger.exception("mail: could not queue a comment notice for %s %s", record_type, record_id)
+        return 0
+
+
+TIER_WORDS = {"DOWNLOAD": "download", "COMMENT": "comment", "EDIT": "edit"}
+
+
+async def notify_access_request(*, owner_id: str, requester: Any, tier: str, note: str | None) -> int:
+    """Tell a data owner that somebody asked for access to their records. NEVER RAISES."""
+    if not mailer.mail_configured():
+        return 0
+    try:
+        person = await _reachable(owner_id, requester)
+        if person is None:
+            return 0
+        params = {
+            "recipientName": person.name,
+            "requesterName": _value(requester, "name"),
+            "tierLabel": TIER_WORDS.get(str(tier), "access"),
+            "note": note or None,
+        }
+        row = await enqueue(mailer.ACCESS_REQUESTED, to_address=person.email, recipient_id=person.id, params=params)
+        return 1 if row is not None else 0
+    except Exception:
+        logger.exception("mail: could not queue a data-access request notice")
+        return 0
+
+
+async def notify_access_decision(*, grantee_id: str, owner: Any, decision: str, note: str | None) -> int:
+    """Tell the person who asked how their data-access request was decided. NEVER RAISES."""
+    if not mailer.mail_configured():
+        return 0
+    try:
+        person = await _reachable(grantee_id, owner)
+        if person is None:
+            return 0
+        params = {
+            "recipientName": person.name,
+            "ownerName": _value(owner, "name"),
+            "decision": decision,
+            "note": note or None,
+        }
+        row = await enqueue(mailer.ACCESS_DECIDED, to_address=person.email, recipient_id=person.id, params=params)
+        return 1 if row is not None else 0
+    except Exception:
+        logger.exception("mail: could not queue a data-access decision notice")
+        return 0
+
+
+ADMIN_ROLES = ("ADMIN", "MASTER_ADMIN")
+
+
+async def notify_workshop_access_request(*, requester: Any, workshop_titles: list[str], note: str | None) -> int:
+    """Tell every administrator (who decides workshop access) about a new request. NEVER RAISES."""
+    if not mailer.mail_configured() or not workshop_titles:
+        return 0
+    sent = 0
+    try:
+        admins = await db.user.find_many(where={"role": {"in": list(ADMIN_ROLES)}})
+    except Exception:
+        logger.exception("mail: could not read the administrators for a workshop-access notice")
+        return 0
+    for admin in admins:
+        try:
+            person = await _reachable(admin.id, requester)
+            if person is None:
+                continue
+            params = {
+                "recipientName": person.name,
+                "requesterName": _value(requester, "name"),
+                "workshopTitles": workshop_titles[:20],
+                "note": note or None,
+            }
+            row = await enqueue(
+                mailer.WORKSHOP_ACCESS_REQUESTED, to_address=person.email, recipient_id=person.id, params=params
+            )
+            sent += 1 if row is not None else 0
+        except Exception:
+            logger.exception("mail: could not queue a workshop-access notice for account %s", admin.id)
+    return sent
+
+
+async def notify_workshop_access_decision(
+    *, user_id: str, actor: Any, workshop_title: str | None, decision: str, note: str | None
+) -> int:
+    """Tell the person who asked to join a workshop how it was decided. NEVER RAISES."""
+    if not mailer.mail_configured():
+        return 0
+    try:
+        person = await _reachable(user_id, actor)
+        if person is None:
+            return 0
+        params = {
+            "recipientName": person.name,
+            "workshopTitle": workshop_title,
+            "decision": decision,
+            "note": note or None,
+        }
+        row = await enqueue(
+            mailer.WORKSHOP_ACCESS_DECIDED, to_address=person.email, recipient_id=person.id, params=params
+        )
+        return 1 if row is not None else 0
+    except Exception:
+        logger.exception("mail: could not queue a workshop-access decision notice")
+        return 0
