@@ -550,6 +550,23 @@ fun artisanSelectOption(artisan: ArtisanDto): SelectOption =
     SelectOption(artisan.id, "${artisan.name} · ${artisan.place}")
 
 /**
+ * The ARTISAN-FIRST picker's row (B5): "Ramesh Chhipa · Block printing · Bagru" — name, craft and
+ * place on one line, because picking the artisan is now what sets the other two. Blanks are dropped
+ * rather than printed, so an artisan with no craft reads "Ramesh Chhipa · Bagru".
+ */
+fun artisanFirstOption(artisan: ArtisanDto): SelectOption =
+    SelectOption(
+        artisan.id,
+        listOf(artisan.name, artisan.craft?.name.orEmpty(), artisan.place)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .joinToString(" · ")
+    )
+
+/** What an artisan-first form says when it is saved with no artisan picked and none typed. */
+const val ARTISAN_PICK_SENTENCE = "Pick the artisan, or turn on Artisan not on record."
+
+/**
  * The two follow-up requests that close the ceiling defect, held for one form.
  *
  * 1. **The chosen crafts' own roster**, asked for with the `craftIds` the endpoint gained on

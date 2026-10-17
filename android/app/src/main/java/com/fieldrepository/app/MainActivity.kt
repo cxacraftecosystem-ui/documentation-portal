@@ -361,6 +361,8 @@ import com.fieldrepository.app.ui.rememberServerSearch
 import com.fieldrepository.app.ui.ServerSearch
 import com.fieldrepository.app.ui.ServerSearchState
 import com.fieldrepository.app.ui.artisanSelectOption
+import com.fieldrepository.app.ui.artisanFirstOption
+import com.fieldrepository.app.ui.ARTISAN_PICK_SENTENCE
 import com.fieldrepository.app.ui.artisanSearchText
 import com.fieldrepository.app.ui.craftSearchText
 import com.fieldrepository.app.ui.carryScopeStateFor
@@ -7580,7 +7582,12 @@ private fun ProductForm(
      */
     val craftPicker = rememberCraftPicker(repository, crafts, craftId, seed = craftSeed)
     val craftOptions = craftPicker.options
-    val picker = rememberArtisanPicker(repository, artisans, craftId, artisanId, seed = artisanSeed)
+    // ARTISAN FIRST (B5): the picker searches every artisan, not one craft's roster, because the
+    // artisan is what sets the craft and the place. Craft-scoped only when typing a record by hand.
+    var notOnRecord by remember(editing) {
+        mutableStateOf(editing != null && editing.artisanId.isNullOrBlank() && editing.artisanName.isNotBlank())
+    }.drafted(draft, "notOnRecord")
+    val picker = rememberArtisanPicker(repository, artisans, if (notOnRecord) craftId else "", artisanId, seed = artisanSeed)
 
     var productType by remember(editing) { mutableStateOf(editing?.productType ?: "OTHER") }.drafted(draft, "productType")
     var marketDemand by remember(editing) { mutableStateOf(editing?.marketDemand ?: "UNKNOWN") }.drafted(draft, "marketDemand")
@@ -7650,6 +7657,7 @@ private fun ProductForm(
     var craftNameError by remember { mutableStateOf<String?>(null) }
     var artisanNameError by remember { mutableStateOf<String?>(null) }
     var placeError by remember { mutableStateOf<String?>(null) }
+    var artisanPickError by remember { mutableStateOf<String?>(null) }
     val productNameFocus = remember { FocusRequester() }
     val craftNameFocus = remember { FocusRequester() }
     val artisanNameFocus = remember { FocusRequester() }
@@ -7680,12 +7688,14 @@ private fun ProductForm(
     }
 
     fun submit() {
-        if (!validateRequired(listOf(
+        artisanPickError = if (!notOnRecord && artisanId.isBlank()) ARTISAN_PICK_SENTENCE else null
+        val typedOk = validateRequired(listOf(
                 RequiredCheck(productName.isBlank(), { productNameError = it }, productNameFocus),
                 RequiredCheck(craftName.isBlank(), { craftNameError = it }, craftNameFocus),
-                RequiredCheck(artisanName.isBlank(), { artisanNameError = it }, artisanNameFocus),
+                RequiredCheck(artisanName.isBlank() && notOnRecord, { artisanNameError = it }, artisanNameFocus),
                 RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
-            ))) { onError("Fill in the highlighted field."); return }
+            ))
+        if (!typedOk || artisanPickError != null) { onError("Fill in the highlighted field."); return }
         newRecordLocationError(isEdit, media.location)?.let { onError(it); return }
         scope.launch {
             if (!workshop.confirmSubmission()) return@launch
@@ -7815,52 +7825,28 @@ private fun ProductForm(
         RequiredInput("Product name", productName, productNameError, productNameFocus, titleCased = true, dictate = dictates("productName")) { productName = it }
         TextInput("Local name", localName, dictate = dictates("localName")) { localName = it }
         DropdownField("Product type", productTypeOptions.map { it to it }, productType, includeNone = false) { productType = it }
+        /*
+         * ARTISAN FIRST (B5, 2026-10-17). One searchable artisan picker sets the artisan, their craft
+         * and their place, and reads "Ramesh Chhipa · Block printing · Bagru". It used to be a craft
+         * dropdown first, then the artisan dropdown ("Select a linked craft first" was a dead stop),
+         * then three required boxes repeating both picks. The typed boxes are still here, behind
+         * "Artisan not on record", for the artisan who has no record yet.
+         */
         DropdownField(
-            // `craftOptions`, not `crafts`: the placeholder below is also what the control falls
-            // back to when the selected id matches no entry, so on the raw page it doubled as
-            // "linked to a craft that is not on page one" — see `rememberCraftOptions`.
-            label = "Linked craft (fills craft name)",
-            options = craftOptions.map { it.id to it.name },
-            selectedValue = craftId,
-            placeholder = "Unlinked / type below",
-            server = craftPicker.search.asServerSearch { SelectOption(it.id, it.name) }
-        ) { id ->
-            craftId = id
-            craftOptions.firstOrNull { it.id == id }?.let { craftName = it.name }
-            // Drop the artisan ONLY when this form actually knows they practise a different craft —
-            // never merely because it cannot see them. The predecessor of this line asked
-            // `artisans.none { it.id == artisanId && it.craftId == id }`, which is true for two
-            // unrelated reasons, and the second one (not on the loaded page) was the ordinary case on
-            // any older record. `artisanId` is in the backend's CLEARABLE_KEYS, so the blank was
-            // written through as a real unlink: opening a record to correct its CRAFT destroyed its
-            // artisan link under a 200, silently. Argued in full in `ui/RecordPickers.kt`.
-            if (craftChangeClearsArtisan(id, artisanId, picker.options)) {
-                artisanId = ""
-            }
-        }
-        RequiredInput("Craft name", craftName, craftNameError, craftNameFocus, titleCased = true, dictate = dictates("craftName")) { craftName = it }
-        // Task 6: the artisan dropdown is gated on a linked craft and only lists that craft's
-        // artisans. Filtered from `picker.options` — the startup page PLUS the craft's server-side
-        // roster PLUS this record's own artisan — because filtering the startup page alone gives the
-        // intersection of one craft with the newest hundred artisans overall, which is what made
-        // this dropdown empty for crafts whose people were documented first.
-        val artisanOptionsForCraft = if (craftId.isNotBlank()) {
-            picker.options.filter { it.craftId == craftId || it.id == artisanId }
-        } else {
-            picker.options
-        }
-        DropdownField(
-            label = "Linked artisan (fills artisan + place)",
-            options = artisanOptionsForCraft.map { it.id to "${it.name} · ${it.place}" },
+            label = "Artisan",
+            options = picker.options.map { it.id to artisanFirstOption(it).label },
             selectedValue = artisanId,
-            placeholder = if (craftId.isBlank()) "Select a linked craft first" else "Unlinked / type below",
-            enabled = craftId.isNotBlank(),
-            server = picker.search.asServerSearch(::artisanSelectOption)
+            placeholder = "Search artisans",
+            enabled = !notOnRecord,
+            server = picker.search.asServerSearch(::artisanFirstOption)
         ) { id ->
             artisanId = id
+            artisanPickError = null
             picker.options.firstOrNull { it.id == id }?.let {
                 artisanName = it.name
                 place = it.place
+                craftId = it.craftId.orEmpty()
+                craftName = it.craft?.name ?: craftOptions.firstOrNull { c -> c.id == it.craftId }?.name.orEmpty()
                 // An explicit pick replaces the remembered context and retires the banner: from here
                 // on the artisan on screen is the researcher's own choice, not a suggestion.
                 carry.remember(
@@ -7868,22 +7854,60 @@ private fun ProductForm(
                         artisanId = it.id,
                         artisanName = it.name,
                         place = it.place,
-                        craftId = craftId.ifBlank { null },
+                        craftId = it.craftId,
                         craftName = craftName.blankToNull()
                     ),
                     explicit = true
                 )
             }
         }
-        // A claim about the REPOSITORY, so it waits for the repository's answer about THIS craft.
-        // Printed off a stale roster it said "no artisans are linked to this craft yet" over a craft
-        // with a dozen of them — which is why `loadedForCraft` records WHICH craft the loaded rows
-        // belong to instead of being a bare boolean.
-        if (craftId.isNotBlank() && picker.loadedForCraft == craftId && artisanOptionsForCraft.isEmpty()) {
-            Text("No artisans are linked to this craft yet.", color = Muted, fontSize = 12.sp)
+        artisanPickError?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
+        AppToggle(
+            label = "Artisan not on record",
+            description = "Type the craft, artisan and place yourself.",
+            checked = notOnRecord,
+            onCheckedChange = { on ->
+                notOnRecord = on
+                artisanPickError = null
+                if (on) artisanId = ""
+            }
+        )
+        // A picked artisan with no craft (or no place) on record still needs one named for this
+        // product. Read off the ARTISAN, never off the box, so the box does not vanish mid-typing.
+        val pickedArtisan = picker.options.firstOrNull { it.id == artisanId }
+        val needsCraft = notOnRecord || (pickedArtisan != null && pickedArtisan.craftId.isNullOrBlank()) || craftNameError != null
+        if (needsCraft) {
+            DropdownField(
+                // `craftOptions`, not `crafts`: the placeholder below is also what the control falls
+                // back to when the selected id matches no entry, so on the raw page it doubled as
+                // "linked to a craft that is not on page one" — see `rememberCraftOptions`.
+                label = "Linked craft (fills craft name)",
+                options = craftOptions.map { it.id to it.name },
+                selectedValue = craftId,
+                placeholder = "Unlinked / type below",
+                server = craftPicker.search.asServerSearch { SelectOption(it.id, it.name) }
+            ) { id ->
+                craftId = id
+                craftOptions.firstOrNull { it.id == id }?.let { craftName = it.name }
+                // Drop the artisan ONLY when this form actually knows they practise a different craft —
+                // never merely because it cannot see them. The predecessor of this line asked
+                // `artisans.none { it.id == artisanId && it.craftId == id }`, which is true for two
+                // unrelated reasons, and the second one (not on the loaded page) was the ordinary case on
+                // any older record. `artisanId` is in the backend's CLEARABLE_KEYS, so the blank was
+                // written through as a real unlink: opening a record to correct its CRAFT destroyed its
+                // artisan link under a 200, silently. Argued in full in `ui/RecordPickers.kt`.
+                if (notOnRecord && craftChangeClearsArtisan(id, artisanId, picker.options)) {
+                    artisanId = ""
+                }
+            }
+            RequiredInput("Craft name", craftName, craftNameError, craftNameFocus, titleCased = true, dictate = dictates("craftName")) { craftName = it }
         }
-        RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus, titleCased = true, dictate = dictates("artisanName")) { artisanName = it }
-        RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
+        if (notOnRecord) {
+            RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus, titleCased = true, dictate = dictates("artisanName")) { artisanName = it }
+        }
+        if (notOnRecord || (pickedArtisan != null && pickedArtisan.place.isBlank()) || placeError != null) {
+            RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
+        }
         TextInput("Time taken to complete", timeTaken, dictate = dictates("timeTakenToCompleteProduct")) { timeTaken = it }
         TextInput("Size", size, dictate = dictates("size")) { size = it }
         /*
@@ -8149,10 +8173,15 @@ private fun ToolForm(
         seed = craftSeed
     )
     val craftOptions = craftPicker.options
+    // ARTISAN FIRST (B5): the artisan sheet searches every artisan, and picking one ticks their craft.
+    // Narrowed to the ticked crafts' roster only when the researcher is typing the record by hand.
+    var notOnRecord by remember(editing) {
+        mutableStateOf(editing != null && seededArtisanIds.isEmpty() && editing.artisanName.isNotBlank())
+    }.drafted(draft, "notOnRecord")
     val picker = rememberArtisanPicker(
         repository,
         artisans,
-        craftIds,
+        if (notOnRecord) craftIds else emptyList(),
         artisanIds,
         hydrated = editing?.artisanLinks?.mapNotNull { it.artisan }.orEmpty(),
         seed = artisanSeed
@@ -8437,6 +8466,16 @@ private fun ToolForm(
         val previousHead = artisanIds.firstOrNull()
         val next = reorderSelection(artisanIds, selection)
         artisanIds = next
+        // Each newly picked artisan's craft is ticked for them, in pick order (B5). Never un-ticks:
+        // a craft the researcher chose stays chosen.
+        val theirCrafts = next.mapNotNull { id -> picker.options.firstOrNull { it.id == id }?.craftId?.ifBlank { null } }
+        val added = theirCrafts.filterNot { it in craftIds }.distinct()
+        if (added.isNotEmpty()) {
+            craftIds = craftIds + added
+            val joined = craftIds.mapNotNull { cid -> craftOptions.firstOrNull { it.id == cid }?.name ?: picker.options.firstOrNull { it.craftId == cid }?.craft?.name }
+                .joinToString(", ")
+            if (joined.isNotEmpty()) craftName = joined
+        }
         syncArtisanHead(previousHead, next)
     }
     val canSetStatus = remember { canSetRecordStatus(repository.cachedUser()?.role) }
@@ -8446,6 +8485,7 @@ private fun ToolForm(
     var craftNameError by remember { mutableStateOf<String?>(null) }
     var artisanNameError by remember { mutableStateOf<String?>(null) }
     var placeError by remember { mutableStateOf<String?>(null) }
+    var artisanPickError by remember { mutableStateOf<String?>(null) }
     val toolkitNameFocus = remember { FocusRequester() }
     val craftNameFocus = remember { FocusRequester() }
     val artisanNameFocus = remember { FocusRequester() }
@@ -8475,12 +8515,14 @@ private fun ToolForm(
     }
 
     fun submit() {
-        if (!validateRequired(listOf(
+        artisanPickError = if (!notOnRecord && artisanIds.isEmpty()) ARTISAN_PICK_SENTENCE else null
+        val typedOk = validateRequired(listOf(
                 RequiredCheck(toolkitName.isBlank(), { toolkitNameError = it }, toolkitNameFocus),
                 RequiredCheck(craftName.isBlank(), { craftNameError = it }, craftNameFocus),
-                RequiredCheck(artisanName.isBlank(), { artisanNameError = it }, artisanNameFocus),
+                RequiredCheck(artisanName.isBlank() && notOnRecord, { artisanNameError = it }, artisanNameFocus),
                 RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
-            ))) { onError("Fill in the highlighted field."); return }
+            ))
+        if (!typedOk || artisanPickError != null) { onError("Fill in the highlighted field."); return }
         newRecordLocationError(isEdit, media.location)?.let { onError(it); return }
         scope.launch {
             if (!workshop.confirmSubmission()) return@launch
@@ -8764,34 +8806,11 @@ private fun ToolForm(
         // Clearing by hand is an explicit edit like any other: the box stays empty and the toolkit
         // name stops writing into it. There is no re-arming gesture and there must not be one.
         TextInput("English name", englishName, titleCased = true, dictate = dictates("englishName")) { englishName = it; mirrorArmed = false }
-        // A MANY-OF-MANY SINCE 2026-09-15 — one documented toolkit can belong to several crafts.
-        // `CheckboxMultiSelectField`, never a wall of checkboxes painted straight into the form (the
-        // old `ArtisanMultiSelectField`, removed 2026-10-17 when the workshop form, its last caller,
-        // moved): a craft register runs to the hundreds. This one is a summary trigger, the
-        // chosen rows as chips, and a searchable sheet with Select all.
-        //
-        // `craftOptions`, not `crafts`: the page is 100 rows of a NAME-ordered list, so a craft whose
-        // name sorts past the cut is missing on every device on every day — `rememberCraftOptions`
-        // fetches every ticked craft that is not on the page so the sheet can draw it ticked rather
-        // than silently short.
-        //
-        // The old single-select's placeholder, "Unlinked / type below", has no home on a multi-select
-        // and is not missed: the trigger reads "Nothing selected" and the craft-name box below is
-        // still there to type into.
-        //
-        // IT TAKES THE WHOLE SELECTION AND NOT ONE ID AT A TIME, which is why these rows are built as
-        // `SelectOption`s: that overload passes the sheet's answer straight through, and the `Pair`
-        // one replays it as toggles. `onCraftsChanged` decides which artisan links a deselection
-        // deletes, and that question has no honest answer about a half-applied craft list.
-        CheckboxMultiSelectField(
-            label = "Linked crafts (fills craft name)",
-            options = craftOptions.map { SelectOption(value = it.id, label = it.name) },
-            selectedIds = craftIds.toSet(),
-            emptyMessage = "No crafts available yet.",
-            server = craftPicker.search.asServerSearch { SelectOption(value = it.id, label = it.name) },
-            onSelectedChange = { selection -> onCraftsChanged(selection) }
-        )
-        RequiredInput("Craft name", craftName, craftNameError, craftNameFocus, titleCased = true, dictate = dictates("craftName")) { craftName = it }
+        /*
+         * ARTISAN FIRST (B5, 2026-10-17). The artisans come first and need no craft ticked: picking
+         * one fills the artisan name and place and ticks their craft. The craft sheet stays (a toolkit
+         * can serve several crafts), and the three typed boxes are behind "Artisan not on record".
+         */
         // Task 6, now plural: the artisan picker is still gated on a linked craft, and lists the
         // artisans of ALL the ticked crafts. Filtered from `picker.options` — the startup page PLUS
         // those crafts' server-side roster PLUS every selected artisan — because filtering the
@@ -8805,7 +8824,7 @@ private fun ToolForm(
         // single tap. Keeping every selected id in the options is what makes that unreachable — and
         // it is also how an artisan assigned from "Assign tools to artisans", who may practise a
         // craft that is not ticked here, survives an ordinary edit of this form.
-        val artisanOptionsForCraft = if (craftIds.isNotEmpty()) {
+        val artisanOptionsForCraft = if (notOnRecord && craftIds.isNotEmpty()) {
             picker.options.filter { it.craftId in craftIds || it.id in artisanIds }
         } else {
             picker.options
@@ -8834,12 +8853,12 @@ private fun ToolForm(
             }
         val artisanRows = toolArtisanRows(artisanOptionsForCraft)
         CheckboxMultiSelectField(
-            label = "Linked artisans (fills artisan + place)",
+            label = "Artisans",
             options = artisanRows,
             selectedIds = artisanIds.toSet(),
-            placeholder = if (craftIds.isEmpty()) "Select a linked craft first" else "Select",
-            emptyMessage = "No artisans available for the crafts selected above.",
-            enabled = craftIds.isNotEmpty(),
+            placeholder = "Search artisans",
+            emptyMessage = "No artisans recorded yet.",
+            enabled = !notOnRecord,
             // The sheet lists the crafts' roster as the server pages and searches it, in the same
             // craft-then-name order as the rows above.
             server = picker.search.asServerSearchRows(countsRows = true) { toolArtisanRows(it) },
@@ -8852,7 +8871,7 @@ private fun ToolForm(
         // Printed off a stale roster it said "no artisans are linked to this craft yet" over a craft
         // with a dozen of them — which is why the picker records WHICH crafts the loaded rows belong
         // to instead of holding a bare boolean, and why the test is `isLoadedFor` and not `!= null`.
-        if (craftIds.isNotEmpty() && picker.isLoadedFor(craftIds) && artisanOptionsForCraft.isEmpty()) {
+        if (notOnRecord && craftIds.isNotEmpty() && picker.isLoadedFor(craftIds) && artisanOptionsForCraft.isEmpty()) {
             Text(
                 if (craftIds.size == 1) "No artisans are linked to this craft yet."
                 else "No artisans are linked to these crafts yet.",
@@ -8860,8 +8879,55 @@ private fun ToolForm(
                 fontSize = 12.sp
             )
         }
-        RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus, titleCased = true, dictate = dictates("artisanName")) { artisanName = it }
-        RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
+        artisanPickError?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
+        AppToggle(
+            label = "Artisan not on record",
+            description = "Type the craft, artisan and place yourself.",
+            checked = notOnRecord,
+            onCheckedChange = { on ->
+                notOnRecord = on
+                artisanPickError = null
+                if (on) artisanIds = emptyList()
+            }
+        )
+        // A MANY-OF-MANY SINCE 2026-09-15 — one documented toolkit can belong to several crafts.
+        // `CheckboxMultiSelectField`, never a wall of checkboxes painted straight into the form (the
+        // old `ArtisanMultiSelectField`, removed 2026-10-17 when the workshop form, its last caller,
+        // moved): a craft register runs to the hundreds. This one is a summary trigger, the
+        // chosen rows as chips, and a searchable sheet with Select all.
+        //
+        // `craftOptions`, not `crafts`: the page is 100 rows of a NAME-ordered list, so a craft whose
+        // name sorts past the cut is missing on every device on every day — `rememberCraftOptions`
+        // fetches every ticked craft that is not on the page so the sheet can draw it ticked rather
+        // than silently short.
+        //
+        // The old single-select's placeholder, "Unlinked / type below", has no home on a multi-select
+        // and is not missed: the trigger reads "Nothing selected" and the craft-name box below is
+        // still there to type into.
+        //
+        // IT TAKES THE WHOLE SELECTION AND NOT ONE ID AT A TIME, which is why these rows are built as
+        // `SelectOption`s: that overload passes the sheet's answer straight through, and the `Pair`
+        // one replays it as toggles. `onCraftsChanged` decides which artisan links a deselection
+        // deletes, and that question has no honest answer about a half-applied craft list.
+        CheckboxMultiSelectField(
+            label = "Linked crafts (fills craft name)",
+            options = craftOptions.map { SelectOption(value = it.id, label = it.name) },
+            selectedIds = craftIds.toSet(),
+            emptyMessage = "No crafts available yet.",
+            server = craftPicker.search.asServerSearch { SelectOption(value = it.id, label = it.name) },
+            onSelectedChange = { selection -> onCraftsChanged(selection) }
+        )
+        // Read off the selection, never off the box, so a box does not vanish mid-typing.
+        val headArtisan = picker.options.firstOrNull { it.id == artisanIds.firstOrNull() }
+        if (notOnRecord || (artisanIds.isNotEmpty() && craftIds.isEmpty()) || craftNameError != null) {
+            RequiredInput("Craft name", craftName, craftNameError, craftNameFocus, titleCased = true, dictate = dictates("craftName")) { craftName = it }
+        }
+        if (notOnRecord || artisanNameError != null) {
+            RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus, titleCased = true, dictate = dictates("artisanName")) { artisanName = it }
+        }
+        if (notOnRecord || (headArtisan != null && headArtisan.place.isBlank()) || placeError != null) {
+            RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
+        }
         TextInput("Process used in", processUsedIn, dictate = dictates("processUsedIn")) { processUsedIn = it }
         TextInput("Material", material, dictate = dictates("material")) { material = it }
         TextInput("Years in use", yearsInUse, keyboardType = KeyboardType.Number, dictate = dictates("yearsInUse")) { yearsInUse = it }
