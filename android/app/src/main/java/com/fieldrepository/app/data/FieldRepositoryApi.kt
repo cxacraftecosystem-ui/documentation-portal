@@ -193,6 +193,18 @@ interface FieldRepositoryApi {
     @GET("feedback")
     suspend fun allFeedback(): List<FeedbackDto>
 
+    /** The last review decision on one record — the note shown above its edit form (A1). */
+    @GET("review/{type}/{id}/latest")
+    suspend fun latestReview(@Path("type") type: String, @Path("id") id: String): LatestReviewAnswerDto
+
+    /** The caller's own records a reviewer sent back or rejected, with each note (A2). */
+    @GET("review/mine")
+    suspend fun myReturnedRecords(): ReturnedListDto
+
+    /** Approve every ticked row in one request (B9); each item comes back with its own outcome. */
+    @POST("review/bulk-approve")
+    suspend fun bulkApprove(@Body body: BulkApproveRequest): BulkApproveResponse
+
     @POST("review/{type}/{id}/approve")
     suspend fun approveRecord(
         @Path("type") type: String,

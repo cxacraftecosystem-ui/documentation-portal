@@ -112,7 +112,10 @@ data class DashboardStatsMine(
     val totalProductRecords: Int = 0,
     val totalToolRecords: Int = 0,
     val totalMediaFiles: Int = 0,
-    val pendingSubmissions: Int = 0
+    val pendingSubmissions: Int = 0,
+    /** This account's records a reviewer sent back, and the rejected ones its own edit reopens (A2). */
+    val sentBack: Int = 0,
+    val rejected: Int = 0
 )
 
 /**
@@ -499,7 +502,84 @@ data class PendingReviewDto(
     val createdBy: ReviewCreatorDto? = null,
     // Submitted after its workshop ended: only an admin/master admin may edit or approve it, so the
     // queue warns before the reviewer discovers it as a 403.
-    val needsAdminApproval: Boolean = false
+    val needsAdminApproval: Boolean = false,
+    /** When it entered (or came back into) the queue; the queue is served longest-waiting first. */
+    val submittedAt: String? = null,
+    /** Sent back or rejected before and fixed since; [previousReview] is what was asked last time. */
+    val resubmitted: Boolean = false,
+    val previousReview: PreviousReviewDto? = null
+)
+
+/** The last send-back or rejection of a resubmitted queue row. */
+@Serializable
+data class PreviousReviewDto(
+    val notes: String? = null,
+    val reviewerName: String? = null,
+    val reviewedAt: String? = null,
+    val reasonLabel: String? = null
+)
+
+/** `GET /review/{type}/{id}/latest`: the last review decision on one record (A1). */
+@Serializable
+data class LatestReviewDto(
+    val status: String = "",
+    val notes: String? = null,
+    val reason: String? = null,
+    val reasonLabel: String? = null,
+    val reviewerName: String? = null,
+    val reviewedAt: String? = null
+)
+
+@Serializable
+data class LatestReviewAnswerDto(
+    val status: String = "",
+    val canReview: Boolean = false,
+    val needsAdminApproval: Boolean = false,
+    val review: LatestReviewDto? = null
+)
+
+/** One of the caller's own records a reviewer returned — the "Sent back to you" list (A2). */
+@Serializable
+data class ReturnedRecordDto(
+    val recordType: String,
+    val id: String,
+    val label: String = "",
+    val place: String? = null,
+    val status: String = "",
+    val reviewNotes: String? = null,
+    val reasonLabel: String? = null,
+    val reviewerName: String? = null,
+    val reviewedAt: String? = null
+)
+
+@Serializable
+data class ReturnedCountsDto(
+    @SerialName("NEEDS_REVISION") val needsRevision: Int = 0,
+    @SerialName("REJECTED") val rejected: Int = 0
+)
+
+@Serializable
+data class ReturnedListDto(
+    val items: List<ReturnedRecordDto> = emptyList(),
+    val total: Int = 0,
+    val counts: ReturnedCountsDto = ReturnedCountsDto()
+)
+
+/** `POST /review/bulk-approve` (B9): one request for every ticked row. */
+@Serializable
+data class BulkApproveItem(val recordType: String, val id: String)
+
+@Serializable
+data class BulkApproveRequest(val items: List<BulkApproveItem>, val notes: String? = null)
+
+@Serializable
+data class BulkApproveResultDto(val recordType: String, val id: String, val outcome: String = "")
+
+@Serializable
+data class BulkApproveResponse(
+    val results: List<BulkApproveResultDto> = emptyList(),
+    val approved: Int = 0,
+    val failed: Int = 0
 )
 
 @Serializable

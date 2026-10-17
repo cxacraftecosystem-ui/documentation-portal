@@ -1266,6 +1266,17 @@ class FieldRepository(
     suspend fun pendingReviewsPage(page: Int, pageSize: Int = REVIEW_PAGE_SIZE): PendingReviewListDto =
         api.pendingReviews(page = page, pageSize = pageSize)
 
+    /** The last review decision on a record, for the note above its edit form (A1). */
+    suspend fun latestReview(recordType: String, recordId: String): LatestReviewAnswerDto =
+        api.latestReview(recordType, recordId)
+
+    /** What reviewers sent back to this account, each with its note (A2). */
+    suspend fun myReturnedRecords(): ReturnedListDto = api.myReturnedRecords()
+
+    /** Approve many queue rows in one request (B9). */
+    suspend fun bulkApprove(items: List<PendingReviewDto>): BulkApproveResponse =
+        api.bulkApprove(BulkApproveRequest(items = items.map { BulkApproveItem(it.recordType, it.id) }))
+
     /** Approve a pending record (admins, or users granted the review permission). */
     suspend fun approveRecord(recordType: String, recordId: String) {
         api.approveRecord(recordType, recordId, ReviewActionRequest())

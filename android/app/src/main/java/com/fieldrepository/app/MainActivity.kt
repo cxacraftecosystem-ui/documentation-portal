@@ -68,6 +68,7 @@ import com.fieldrepository.app.ui.FieldProgressDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
@@ -75,6 +76,9 @@ import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Timeline
 import com.fieldrepository.app.ui.trace.TracePanel
 import com.fieldrepository.app.ui.ActionRow
+import com.fieldrepository.app.ui.ReviewFeedbackCopy
+import com.fieldrepository.app.ui.ReviewNoteBanner
+import com.fieldrepository.app.ui.SentBackCard
 import com.fieldrepository.app.ui.AppToggle
 import com.fieldrepository.app.ui.MediaAction
 import com.fieldrepository.app.ui.MediaActionButton
@@ -2369,7 +2373,20 @@ private fun HomeScreen(
                     onOpenMyActivity = { message = null; screen = Screen.MyActivity },
                     // A tap READS the record; its view carries "Update" (`ui/RecordOpen.kt`).
                     onOpenRecord = { mode, recordId -> openRecordView(mode, recordId) },
-                    onOpenArtisan = { artisanId -> openRecordView(EntryMode.ARTISAN, artisanId) }
+                    onOpenArtisan = { artisanId -> openRecordView(EntryMode.ARTISAN, artisanId) },
+                    sentBackSlot = {
+                        val mine = stats?.mine
+                        if (mine != null) {
+                            SentBackCard(
+                                repository = repository,
+                                sentBack = mine.sentBack,
+                                rejected = mine.rejected,
+                                onOpen = { type, id ->
+                                    recentSubmissionEntryMode(type)?.let { mode -> message = null; openRecordView(mode, id) }
+                                }
+                            )
+                        }
+                    }
                 )
             }
 
@@ -3204,7 +3221,9 @@ private fun DashboardScreen(
     onOpenMyActivity: () -> Unit,
     /** A recent-submission row opens the record it names. Types with no route are not tappable. */
     onOpenRecord: (EntryMode, String) -> Unit,
-    onOpenArtisan: (String) -> Unit
+    onOpenArtisan: (String) -> Unit,
+    /** "Sent back to you (N)" (A2), drawn under the heading; empty on a server that sends no count. */
+    sentBackSlot: @Composable () -> Unit = {}
 ) {
     val configuration = LocalConfiguration.current
     val columns = when {
@@ -3242,6 +3261,7 @@ private fun DashboardScreen(
     }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth()) {
         Text("What would you like to do?", display = true, fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
+        sentBackSlot()
         tiles.chunked(columns).forEach { rowItems ->
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -6332,6 +6352,11 @@ private fun EditScreen(
                 currentWorkshopId = currentWorkshopId
             )
         }
+    }
+
+    // The reviewer's note, when this record was sent back or not accepted (A1).
+    ReviewFeedbackCopy.recordTypeFor(mode.name)?.let { type ->
+        ReviewNoteBanner(repository = repository, recordType = type, recordId = recordId)
     }
 
     when (mode) {
@@ -11573,6 +11598,13 @@ private fun ReviewApprovalCard(
     var total by remember { mutableIntStateOf(0) }
     var loadError by remember { mutableStateOf<String?>(null) }
     val pages = maxOf(1, (total + REVIEW_PAGE_SIZE - 1) / REVIEW_PAGE_SIZE)
+    /*
+     * ROWS TICKED FOR ONE APPROVAL (B9), by type and id — the web's bulk approve, one request for the
+     * lot. A row the server refuses (a late submission, for a non-admin) comes back named and stays
+     * ticked; the approved ones leave the list.
+     */
+    val selected = remember { mutableStateMapOf<String, PendingReviewDto>() }
+    var bulkBusy by remember { mutableStateOf(false) }
 
     fun refresh() {
         scope.launch {
@@ -11621,6 +11653,44 @@ private fun ReviewApprovalCard(
                     fontWeight = FontWeight.SemiBold
                 )
                 info?.let { Text(it, color = MaterialTheme.field.success, fontSize = 13.sp) }
+                if (selected.isNotEmpty()) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("${selected.size} selected", color = Body, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        OutlinedButton(
+                            onClick = { selected.clear() },
+                            enabled = !bulkBusy,
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) { Text("Clear") }
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    bulkBusy = true
+                                    val rows = selected.values.toList()
+                                    runCatching { repository.bulkApprove(rows) }
+                                        .onSuccess { answer ->
+                                            val done = answer.results.filter { it.outcome == "APPROVED" }
+                                                .map { "${it.recordType}:${it.id}" }.toSet()
+                                            done.forEach { selected.remove(it) }
+                                            pending = pending.filterNot { "${it.recordType}:${it.id}" in done }
+                                            total = (total - done.size).coerceAtLeast(0)
+                                            info = ReviewFeedbackCopy.bulkReceipt(answer.approved, answer.failed)
+                                        }
+                                        .onFailure {
+                                            if (it is kotlinx.coroutines.CancellationException) throw it
+                                            onError(it.apiErrorMessage("Couldn't approve these records."))
+                                        }
+                                    bulkBusy = false
+                                }
+                            },
+                            enabled = !bulkBusy,
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) { Text(if (bulkBusy) "Approving…" else ReviewFeedbackCopy.approveLabel(selected.size)) }
+                    }
+                }
                 if (pending.isEmpty()) {
                     // Every row on this page was decided: fetch the next rows into it.
                     LaunchedEffect(Unit) { refresh() }
@@ -11633,9 +11703,14 @@ private fun ReviewApprovalCard(
                     // slot. A reviewer could finish typing a comment about one submission and send it
                     // against another.
                     key(item.recordType, item.id) {
+                        val selectionKey = "${item.recordType}:${item.id}"
                         PendingReviewRow(
                             repository = repository,
                             item = item,
+                            checked = selectionKey in selected,
+                            onCheckedChange = { on ->
+                                if (on) selected[selectionKey] = item else selected.remove(selectionKey)
+                            },
                             onOpenRecord = onOpenRecord,
                             onResolved = { message ->
                                 // Approve / reject / revise all move the record out of PENDING, so drop
@@ -11644,6 +11719,7 @@ private fun ReviewApprovalCard(
                                 // row here: the queue is several tables concatenated, so dropping by id
                                 // could take an unreviewed record of another type off the screen with it.
                                 pending = pending.filterNot { it.recordType == item.recordType && it.id == item.id }
+                                selected.remove(selectionKey)
                                 total = (total - 1).coerceAtLeast(0)
                                 info = message
                             },
@@ -11673,6 +11749,9 @@ private fun ReviewApprovalCard(
 private fun PendingReviewRow(
     repository: FieldRepository,
     item: PendingReviewDto,
+    /** Ticked for the bulk approval above the list (B9). */
+    checked: Boolean = false,
+    onCheckedChange: (Boolean) -> Unit = {},
     onOpenRecord: ((EntryMode, String) -> Unit)? = null,
     onResolved: (String) -> Unit,
     onInfo: (String) -> Unit,
@@ -11727,10 +11806,19 @@ private fun PendingReviewRow(
             // typing a comment never leaves the queue by accident.
             val openMode = recentSubmissionEntryMode(item.recordType)
             val open = onOpenRecord
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            // A checkbox CHOOSES ROWS here (select these three records), which is the one job a
+            // checkbox keeps under the form-primitives rule — it is not a setting.
+            Checkbox(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                enabled = !busy,
+                modifier = Modifier.semantics { contentDescription = "Select ${item.label}" }
+            )
             Column(
                 verticalArrangement = Arrangement.spacedBy(2.dp),
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .weight(1f)
                     .heightIn(min = 48.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .then(
@@ -11744,11 +11832,23 @@ private fun PendingReviewRow(
                         item.recordType.replaceFirstChar { it.uppercase() },
                         item.place?.takeIf { it.isNotBlank() },
                         item.createdBy?.name?.takeIf { it.isNotBlank() }?.let { "by $it" },
-                        formatIsoDate(item.createdAt)
+                        formatIsoDate(item.submittedAt ?: item.createdAt)
                     ).joinToString(" · "),
                     color = Muted,
                     fontSize = 12.sp
                 )
+            }
+            }
+            if (item.resubmitted) {
+                // Sent back before and fixed since: what was asked last time, beside the fix (A3).
+                Text("Resubmitted", color = Coral, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                item.previousReview?.notes?.takeIf { it.isNotBlank() }?.let { note ->
+                    Text(
+                        "Last time" + (item.previousReview.reviewerName?.let { " ($it)" } ?: "") + ": " + note,
+                        color = Muted,
+                        fontSize = 12.sp
+                    )
+                }
             }
             if (item.needsAdminApproval) {
                 Text(
@@ -12372,6 +12472,9 @@ private fun RecordViewScreen(
     showProvenance: Boolean,
     onError: (String) -> Unit
 ) {
+    ReviewFeedbackCopy.recordTypeFor(mode.name)?.let { type ->
+        ReviewNoteBanner(repository = repository, recordType = type, recordId = recordId)
+    }
     if (canUpdate) {
         Button(onClick = onUpdate, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
             Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
