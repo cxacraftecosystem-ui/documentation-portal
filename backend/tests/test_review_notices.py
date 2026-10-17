@@ -208,3 +208,23 @@ def test_a_stored_path_can_only_point_inside_the_app() -> None:
     assert "evil.example" not in rendered.text
     rendered = mailer.render(mailer.RECORD_APPROVED, {"recordLabel": "x", "path": "https://evil.example"})
     assert "evil.example" not in rendered.text
+
+
+def test_a_reason_with_no_note_of_its_own_is_said_once(world: Any) -> None:
+    # A fixable reason with no note stores the reason's label as the note (review._resolve_refusal).
+    assert _decision(world, "NEEDS_REVISION", note="Missing details", reason_label="Missing details") == 1
+    (row,) = world.db.emailmessage.rows
+    text = mailer.render(row.kind, row.params).text
+    assert text.count("Missing details") == 1 and "Their note" not in text
+
+
+def test_a_file_decision_opens_the_media_page_never_a_missing_route(world: Any) -> None:
+    for decision in ("APPROVED", "REJECTED", "NEEDS_REVISION"):
+        asyncio.run(
+            email_outbox.notify_review_decision(
+                record_type="media", record_id="m1", record_label="photo.jpg", creator_id="creator",
+                decision=decision, actor=world.people["reviewer"], note="Blurred",
+            )
+        )
+    assert [row.params["path"] for row in world.db.emailmessage.rows] == ["/media", "/media", "/media"]
+    assert email_outbox.record_path("media", "m1") == "/media"

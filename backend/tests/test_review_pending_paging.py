@@ -10,8 +10,8 @@ ONE key query across the tables (``pending_page_keys``) and then by id, and it c
 workshop, a creator and record types.
 
 NOTHING HERE TOUCHES A DATABASE: ``_PENDING_SOURCES`` is replaced by in-memory delegates and the key
-query by an in-memory equivalent. ``pending_keys_sql`` is checked as text here and run against a real
-Postgres when the migration is validated.
+query by an in-memory equivalent. ``pending_keys_sql`` is checked as text here; ``test_review_pending_sql_db.py`` runs it against a
+real Postgres.
 """
 
 import asyncio
@@ -239,3 +239,20 @@ def test_the_key_query_is_one_ordered_union_with_its_ids_as_parameters() -> None
     assert '"WorkshopArtisan"' in sql  # an artisan reaches a workshop through the roster too
     newest, _ = review.pending_keys_sql(review.PendingFilters(newest_first=True), limit=5, offset=0)
     assert 'q."submittedAt" DESC' in newest and "JOIN" not in newest
+
+
+def test_a_tasks_artisans_narrow_every_type_and_travel_as_parameters() -> None:
+    filters = review.PendingFilters(artisan_ids=("A1", "A2"), created_by="U1")
+    sql, params = review.pending_keys_sql(filters, limit=20, offset=0)
+    assert params == ["U1", "A1", "A2"] and "A1" not in sql
+    assert 't."id" IN ($2, $3)' in sql and 't."artisanId" IN ($2, $3)' in sql
+    assert '"QuestionnaireInterviewArtisan"' in sql and '"ProductDocumentation" p' in sql
+    assert " AND FALSE" in sql  # a workshop record has no artisan
+    assert review.pending_where("process", filters)["AND"][1] == {"product": {"is": {"artisanId": {"in": ["A1", "A2"]}}}}
+    assert review.pending_where("workshop", filters)["AND"][1] == {"id": {"in": []}}
+
+
+def test_the_artisan_filter_reaches_the_queue(sources) -> None:
+    _get("/pending?page=1&artisanId=a4,a2")
+    (call,) = sources.calls
+    assert call["filters"].artisan_ids == ("a2", "a4")

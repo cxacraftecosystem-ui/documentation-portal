@@ -423,8 +423,11 @@ def _notice_lines(kind: str, params: dict[str, Any]) -> tuple[str, list[str], st
     record = str(params.get("recordLabel") or "your record")
     noun = str(params.get("recordNoun") or "record")
     actor = str(params.get("actorName") or "A reviewer")
-    note = _quoted(params.get("note"))
     reason = str(params.get("reasonLabel") or "").strip()
+    # A fixable reason with no note of its own carries the reason's label as its note; saying it
+    # twice ("Reason: Missing details." then "Their note: “Missing details”") is noise.
+    raw_note = " ".join(str(params.get("note") or "").split())
+    note = None if reason and raw_note.casefold() == reason.casefold() else _quoted(params.get("note"))
     extra: list[str] = []
     if kind == RECORD_SENT_BACK:
         lead = f"{actor} sent your {noun} “{record}” back for changes."

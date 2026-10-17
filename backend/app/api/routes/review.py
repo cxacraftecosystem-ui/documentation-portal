@@ -162,6 +162,8 @@ class PendingFilters:
     created_by: str | None = None
     record_types: tuple[str, ...] | None = None
     newest_first: bool = False
+    #: A task's artisans (B12): only records about these artisans. A workshop record has none.
+    artisan_ids: tuple[str, ...] | None = None
 
     def sources(self) -> list[tuple[str, Any, tuple[str, ...]]]:
         if not self.record_types:
@@ -185,6 +187,21 @@ def pending_where(record_type: str, filters: PendingFilters) -> dict[str, Any]:
             where["OR"] = [{"workshopId": workshop}, {"workshops": {"some": {"workshopId": workshop}}}]
         else:
             where["workshopId"] = workshop
+    artisans = list(filters.artisan_ids or [])
+    if artisans:
+        scope: dict[str, Any]
+        if record_type == "artisan":
+            scope = {"id": {"in": artisans}}
+        elif record_type in {"product", "tool"}:
+            scope = {"artisanId": {"in": artisans}}
+        elif record_type == "process":
+            # A process has no artisan of its own; it inherits one through its parent product.
+            scope = {"product": {"is": {"artisanId": {"in": artisans}}}}
+        elif record_type == "questionnaire":
+            scope = {"artisans": {"some": {"artisanId": {"in": artisans}}}}
+        else:
+            scope = {"id": {"in": []}}
+        where = {"AND": [where, scope]}
     return where
 
 
@@ -210,6 +227,7 @@ def pending_keys_sql(filters: PendingFilters, *, limit: int, offset: int) -> tup
         role_clause = f' AND u."role"::text IN ({quoted})'
     creator = f' AND t."createdById" = {param(filters.created_by)}' if filters.created_by else ""
     workshop_ref = param(filters.workshop_id) if filters.workshop_id else None
+    artisan_refs = ", ".join(param(artisan_id) for artisan_id in (filters.artisan_ids or ()))
 
     parts: list[str] = []
     for record_type, _delegate, _labels in filters.sources():
@@ -225,6 +243,23 @@ def pending_keys_sql(filters: PendingFilters, *, limit: int, offset: int) -> tup
                 )
             else:
                 clause = f' AND t."workshopId" = {workshop_ref}'
+        if artisan_refs:
+            if record_type == "artisan":
+                clause += f' AND t."id" IN ({artisan_refs})'
+            elif record_type in {"product", "tool"}:
+                clause += f' AND t."artisanId" IN ({artisan_refs})'
+            elif record_type == "process":
+                clause += (
+                    ' AND EXISTS (SELECT 1 FROM "ProductDocumentation" p'
+                    f' WHERE p."id" = t."productId" AND p."artisanId" IN ({artisan_refs}))'
+                )
+            elif record_type == "questionnaire":
+                clause += (
+                    ' AND EXISTS (SELECT 1 FROM "QuestionnaireInterviewArtisan" qa'
+                    f' WHERE qa."interviewId" = t."id" AND qa."artisanId" IN ({artisan_refs}))'
+                )
+            else:
+                clause += " AND FALSE"
         join = ' JOIN "User" u ON u."id" = t."createdById"' if role_clause else ""
         parts.append(
             f"SELECT '{record_type}' AS \"recordType\", t.\"id\" AS \"id\", t.\"submittedAt\" AS \"submittedAt\""
@@ -330,6 +365,7 @@ async def list_pending_reviews(
     created_by: str | None = Query(default=None, alias="createdById"),
     record_type: str | None = Query(default=None, alias="recordType"),
     order: str = Query(default="oldest", pattern="^(oldest|newest)$"),
+    artisan_id: str | None = Query(default=None, alias="artisanId"),
 ) -> dict[str, Any]:
     """Records awaiting review (status == PENDING) across record types, LONGEST-WAITING FIRST.
 
@@ -340,7 +376,7 @@ async def list_pending_reviews(
 
     Filtered by the peer-review ladder IN THE QUERY (only creators ranked strictly below the viewer;
     the master admin sees everyone), and optionally by ``workshopId``, ``createdById`` (a task's
-    assignee, from Tasks) and ``recordType``. ``needsAdminApproval`` marks a record submitted outside
+    assignee, from Tasks), ``recordType`` and ``artisanId`` (comma-separated: a task's artisans). ``needsAdminApproval`` marks a record submitted outside
     its workshop's dates, which only an admin may approve.
 
     TWO SHAPES, the second additive (UX audit 2026-10-16):
@@ -374,6 +410,7 @@ async def list_pending_reviews(
         created_by=created_by or None,
         record_types=types,
         newest_first=order == "newest",
+        artisan_ids=tuple(sorted({part.strip() for part in (artisan_id or "").split(",") if part.strip()})) or None,
     )
     sources = filters.sources()
     order_by = {"submittedAt": "desc" if filters.newest_first else "asc"}
@@ -464,13 +501,22 @@ async def approve_record_media(record_type: str, record_id: str, reviewer: Any) 
         clauses.append(
             {"linkedRecordType": None, "artisanId": record_id, "productId": None, "toolId": None, "questionnaireInterviewId": None}
         )
-    files = await db.mediafile.find_many(where={"status": "PENDING", "OR": clauses})
+    files = await db.mediafile.find_many(where={"status": "PENDING", "OR": clauses}, include={"uploadedBy": True})
+    # The review ladder applies to each file as it does to a record: a file uploaded by somebody at or
+    # above the reviewer's own rank (an admin's photograph on a volunteer's record) stays pending for
+    # a reviewer who may judge it.
+    files = [
+        f
+        for f in files
+        if can_review_record(reviewer, get_value(get_value(f, "uploadedBy"), "role") if get_value(f, "uploadedBy") else None)
+    ]
     if not files:
         return 0
     admin = is_admin(reviewer)
     now = datetime.now(UTC)
     plain = [str(get_value(f, "id")) for f in files if not record_needs_admin_approval(f)]
     late = [f for f in files if record_needs_admin_approval(f)]
+    approved_ids: list[str] = []
     approved = 0
     if plain:
         approved += int(
@@ -480,6 +526,7 @@ async def approve_record_media(record_type: str, record_id: str, reviewer: Any) 
             )
             or 0
         )
+        approved_ids.extend(plain)
     if admin:
         for media in late:
             extra = get_value(media, "extraMetadata") or {}
@@ -494,6 +541,18 @@ async def approve_record_media(record_type: str, record_id: str, reviewer: Any) 
                 },
             )
             approved += 1
+            approved_ids.append(str(get_value(media, "id")))
+    # Every file approved through its parent leaves the same audit line a file approved alone does.
+    for media_id in approved_ids:
+        await db.reviewlog.create(
+            data={
+                "recordType": "MEDIA",
+                "recordId": media_id,
+                "status": "APPROVED",
+                "notes": f"Approved with its {key} record.",
+                "reviewerId": reviewer.id,
+            }
+        )
     return approved
 
 
@@ -713,9 +772,12 @@ async def my_returned_records(
         )
         for row in rows:
             state = str(enum_or_raw(get_value(row, "status")))
-            counts[state] = counts.get(state, 0) + 1
             if state in wanted:
                 loaded.append((record_type, row, label_fields))
+        # The counts are TRUE totals, not the rows read above (at most PENDING_TAKE per type), so the
+        # dashboard tile and this list agree past the cap.
+        for state in ("NEEDS_REVISION", "REJECTED"):
+            counts[state] += int(await delegate.count(where={"createdById": uid, "status": state}) or 0)
     ids = [str(get_value(row, "id")) for _, row, _ in loaded]
     reviewer_ids = sorted({str(get_value(row, "reviewedById")) for _, row, _ in loaded if get_value(row, "reviewedById")})
     logs = (
@@ -750,7 +812,8 @@ async def my_returned_records(
             }
         )
     items.sort(key=lambda item: str(item.get("reviewedAt") or ""), reverse=True)
-    return {"items": items, "total": len(items), "counts": counts}
+    shown = sum(counts[state] for state in wanted)
+    return {"items": items, "total": len(items), "counts": counts, "truncated": shown > len(items)}
 
 
 @router.get("/{record_type}/{record_id}/latest")

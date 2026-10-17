@@ -274,3 +274,27 @@ def test_the_creators_edit_reopens_a_rejected_record_and_stamps_when() -> None:
     assert "submittedAt" not in unchanged
     approved = resubmit_status(SimpleNamespace(status="APPROVED", createdById="c"), creator, {"name": "x"})
     assert "status" not in approved
+
+
+def test_a_file_approved_with_its_record_obeys_the_ladder_and_is_logged(world: Any) -> None:
+    # m4: an admin's photograph on a researcher's record. A professor approving the record may not
+    # approve a file of somebody ranked above them; it stays pending for an admin.
+    world.db.mediafile.rows.append(
+        SimpleNamespace(id="m4", status="PENDING", linkedRecordType="artisan", linkedRecordId="a1", artisanId="a1",
+                        extraMetadata={}, uploadedBy=world.admin)
+    )
+    assert _call("POST", "/artisan/a1/approve", {"notes": None}).status_code == 200
+    states = {row.id: row.status for row in world.db.mediafile.rows}
+    assert states["m1"] == "APPROVED" and states["m4"] == "PENDING"
+    media_logs = [log for log in world.db.reviewlog.created if log["recordType"] == "MEDIA"]
+    assert [(log["recordId"], log["status"], log["reviewerId"]) for log in media_logs] == [("m1", "APPROVED", "prof")]
+
+
+def test_the_sent_back_counts_are_true_totals_past_the_list_cap(world: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(review, "PENDING_TAKE", 1)
+    for row in world.db.artisan.rows[:2]:
+        row.status, row.reviewedAt = "NEEDS_REVISION", datetime(2026, 10, 5, tzinfo=UTC)
+    _CURRENT["user"] = world.creator
+    body = _call("GET", "/mine").json()
+    assert body["counts"]["NEEDS_REVISION"] == 2
+    assert len(body["items"]) == 1 and body["truncated"] is True

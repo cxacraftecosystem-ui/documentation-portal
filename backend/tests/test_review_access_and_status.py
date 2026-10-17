@@ -225,11 +225,30 @@ def test_a_task_lists_its_records_waiting_for_review_and_the_queue_filter(monkey
     body = _call("GET", "/tasks/t1/pending-records").json()
     assert body["total"] == 1 and body["byType"] == {"product": 1}
     assert body["items"][0]["label"] == "Dupatta"
-    assert body["reviewQuery"] == {"createdById": "u1", "workshopId": "w1", "recordType": "product"}
+    assert body["reviewQuery"] == {"createdById": "u1", "workshopId": "w1", "recordType": "product", "artisanId": "a1"}
     assert products.wheres[0] == {"createdById": "u1", "workshopId": "w1", "artisanId": {"in": ["a1"]}, "status": "PENDING"}
     _CURRENT["user"] = _user("RESEARCHER", "stranger")
     assert _call("GET", "/tasks/t1/pending-records").status_code == 403
     _CURRENT["user"] = None
+
+
+def test_a_task_of_every_kind_still_names_its_kinds_so_the_queue_leaves_workshops_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    task = SimpleNamespace(id="t2", assigneeId="u1", createdById="boss", workshopId=None, recordTypes=[], artisanIds=[])
+
+    async def require(task_id: str) -> Any:
+        return task
+
+    empty = _Pending([])
+    monkeypatch.setattr(tasks, "require_task", require)
+    monkeypatch.setattr(
+        tasks,
+        "db",
+        SimpleNamespace(artisan=empty, productdocumentation=empty, tooldocumentation=empty, process=empty, questionnaireinterview=empty),
+    )
+    _CURRENT["user"] = _user("RESEARCHER", "u1")
+    body = _call("GET", "/tasks/t2/pending-records").json()
+    _CURRENT["user"] = None
+    assert body["reviewQuery"] == {"createdById": "u1", "recordType": "artisan,product,tool,process,questionnaire"}
 
 
 # --- The review-status filter on the data surfaces -----------------------------------------------

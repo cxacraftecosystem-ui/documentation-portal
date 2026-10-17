@@ -368,7 +368,8 @@ RECORD_PATHS = {
     "tool": "/tools/{id}",
     "process": "/processes/{id}",
     "questionnaire": "/questionnaire/interviews/{id}",
-    "media": "/media/{id}",
+    # A file has no page of its own; it is listed, with its review status, on the media page.
+    "media": "/media",
 }
 
 _DECISION_KINDS = {
@@ -417,7 +418,8 @@ async def notify_review_decision(
         if person is None:
             return 0
         key = (record_type or "").lower()
-        path = "/sent-back" if kind == mailer.RECORD_SENT_BACK else record_path(key, record_id)
+        # "Sent back to you" lists records, not files: a file sent back opens the media page instead.
+        path = "/sent-back" if kind == mailer.RECORD_SENT_BACK and key != "media" else record_path(key, record_id)
         params = {
             "recipientName": person.name,
             "recordLabel": record_label,

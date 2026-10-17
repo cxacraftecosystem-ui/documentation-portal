@@ -1683,11 +1683,13 @@ async def task_pending_records(task_id: str, current_user: Any = Depends(get_cur
                 }
             )
     items.sort(key=lambda item: str(item.get("submittedAt") or ""))
-    review_query: dict[str, str] = {"createdById": task.assigneeId}
+    # The queue filter for EXACTLY these records: the assignee, the workshop, the task's kinds (always
+    # sent, so the queue never adds the assignee's pending workshops) and its artisans.
+    review_query: dict[str, str] = {"createdById": task.assigneeId, "recordType": ",".join(kinds)}
     if task.workshopId:
         review_query["workshopId"] = task.workshopId
-    if len(kinds) < len(PENDING_REVIEW_KINDS):
-        review_query["recordType"] = ",".join(kinds)
+    if task.artisanIds:
+        review_query["artisanId"] = ",".join(sorted(str(a) for a in task.artisanIds))
     return {
         "total": sum(by_type.values()),
         "byType": by_type,
