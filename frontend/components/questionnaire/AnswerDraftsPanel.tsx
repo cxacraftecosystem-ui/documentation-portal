@@ -25,7 +25,7 @@ export type AnswerDraft = {
   model: string;
 };
 
-type DraftList = { items: AnswerDraft[]; transcripts: Array<{ id: string; name: string }> };
+type DraftList = { items: AnswerDraft[]; transcripts: Array<{ id: string; name: string }>; mayDraft?: boolean };
 
 let statusPromise: Promise<boolean> | null = null;
 
@@ -90,7 +90,8 @@ export function AnswerDraftsPanel({
       if (cancelled || !on) return;
       try {
         const answer = await apiFetch<DraftList>(`/questionnaire/interviews/${encodeURIComponent(interviewId)}/drafts`);
-        if (cancelled) return;
+        // A reader who may not edit the interview is answered with nothing to show.
+        if (cancelled || answer.mayDraft === false) return;
         setEnabled(true);
         setList(answer);
         if (answer.transcripts[0]) setSource(answer.transcripts[0].id);

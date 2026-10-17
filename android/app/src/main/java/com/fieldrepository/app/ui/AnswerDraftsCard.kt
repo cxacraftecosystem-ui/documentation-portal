@@ -65,6 +65,7 @@ fun AnswerDraftsCard(
         }
     }
     val drafts = list ?: return
+    if (!drafts.mayDraft) return
     val prompts = questions.toMap()
     val pending: List<AnswerDraftDto> =
         drafts.items.filter { it.sectionId == sectionId && it.status == "PENDING" && prompts.containsKey(it.questionId) }

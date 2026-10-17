@@ -124,10 +124,38 @@ class Table:
                 n += 1
         return n
 
+    find_first = find_unique
+
+
+class FakeDb(SimpleNamespace):
+    """Tables, plus ``tx()``: writes go to copies that land only when the block ends cleanly."""
+
+    def tx(self):
+        db = self
+
+        class _Tx:
+            async def __aenter__(self):
+                self.copy = SimpleNamespace(
+                    **{
+                        name: Table([dict(r) for r in table.rows])
+                        for name, table in vars(db).items()
+                        if isinstance(table, Table)
+                    }
+                )
+                return self.copy
+
+            async def __aexit__(self, kind, _value, _tb):
+                if kind is None:
+                    for name, table in vars(self.copy).items():
+                        getattr(db, name).rows = table.rows
+                return False
+
+        return _Tx()
+
 
 @pytest.fixture
 def world(monkeypatch):
-    fake = SimpleNamespace(
+    fake = FakeDb(
         questionnaireinterview=Table([{"id": "i1", "questionnaireId": "qn1", "createdById": "u1"}]),
         questionnairesection=Table([{"id": "s1", "questionnaireId": "qn1", "code": "A"}]),
         questionnairequestion=Table(
@@ -158,6 +186,11 @@ def world(monkeypatch):
         return row
 
     monkeypatch.setattr(routes, "record_edit_privilege", may_edit)
+
+    async def read_all(_user, *_a, **_k):
+        return {}
+
+    monkeypatch.setattr(routes, "viewable_where", read_all)
     monkeypatch.setattr(routes, "require_record", required)
     asked: list[Any] = []
 
@@ -246,3 +279,116 @@ async def test_dismiss_marks_the_sections_pending_drafts(world):
     out = await routes.dismiss_section("i1", routes.DismissIn(sectionId="s1"), USER)
     assert out["dismissed"] == 2
     assert {d["status"] for d in world.db.questionnaireanswerdraft.rows} == {"DISMISSED"}
+
+
+# ── the read scope, the section check, the transaction ──────────────────────────────────────────
+
+
+async def test_only_someone_who_may_edit_reads_the_drafts(world, monkeypatch):
+    await routes.draft_section("i1", routes.DraftIn(sectionId="s1", mediaId="m1"), USER)
+    mine = await routes.list_drafts("i1", USER)
+    assert mine["mayDraft"] is True and len(mine["items"]) == 2
+    assert mine["transcripts"] == [{"id": "m1", "name": "a.webm"}]
+
+    async def no(*_a, **_k):
+        return False
+
+    monkeypatch.setattr(routes, "record_edit_privilege", no)
+    theirs = await routes.list_drafts("i1", SimpleNamespace(id="u9", role="RESEARCHER"))
+    assert theirs == {"items": [], "transcripts": [], "mayDraft": False}
+    with pytest.raises(HTTPException) as exc:
+        await routes.list_drafts("nope", USER)
+    assert exc.value.status_code == 404
+
+
+async def test_accept_refuses_a_question_outside_the_section(world):
+    world.db.questionnairequestion.rows.append(
+        {"id": "qx", "sectionId": "s2", "isActive": True, "prompt": "Elsewhere", "sortOrder": 1}
+    )
+    await routes.draft_section("i1", routes.DraftIn(sectionId="s1", mediaId="m1"), USER)
+    with pytest.raises(HTTPException) as exc:
+        await routes.accept_section(
+            "i1",
+            routes.AcceptIn(sectionId="s1", answers=[routes.AcceptedAnswer(questionId="qx", answerText="x")]),
+            USER,
+        )
+    assert exc.value.status_code == 422
+    with pytest.raises(HTTPException) as exc:
+        await routes.accept_section("i1", routes.AcceptIn(sectionId="no-such-section", answers=[]), USER)
+    assert exc.value.status_code == 404
+    assert [r["questionId"] for r in world.db.questionnaireresponse.rows] == ["q3"]
+
+
+async def test_a_half_failed_accept_writes_nothing(world, monkeypatch):
+    await routes.draft_section("i1", routes.DraftIn(sectionId="s1", mediaId="m1"), USER)
+    calls = {"n": 0}
+    original = Table.create
+
+    async def flaky(self, data):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("connection dropped")
+        return await original(self, data)
+
+    monkeypatch.setattr(Table, "create", flaky)
+    with pytest.raises(RuntimeError):
+        await routes.accept_section(
+            "i1",
+            routes.AcceptIn(
+                sectionId="s1",
+                answers=[
+                    routes.AcceptedAnswer(questionId="q1", answerText="Since my grandfather"),
+                    routes.AcceptedAnswer(questionId="q2", answerText="My mother"),
+                ],
+            ),
+            USER,
+        )
+    assert [r["questionId"] for r in world.db.questionnaireresponse.rows] == ["q3"]
+    assert {d["status"] for d in world.db.questionnaireanswerdraft.rows} == {"PENDING"}
+
+
+# ── the label leaves the system with the answer ─────────────────────────────────────────────────
+
+
+def test_exports_mark_a_machine_suggested_answer():
+    assert ad.origin_label(None) == ""
+    assert ad.origin_label(ad.ORIGIN_MACHINE) == "machine-suggested"
+    assert ad.origin_label(ad.ORIGIN_MACHINE_EDITED) == "machine-suggested, edited"
+    assert ad.marked_answer("Since 1950", ad.ORIGIN_MACHINE) == "Since 1950 (machine-suggested)"
+    assert ad.marked_answer("Typed", None) == "Typed"
+    assert ad.marked_answer("", ad.ORIGIN_MACHINE) == ""
+
+
+def test_the_text_export_and_the_answer_sheet_carry_the_origin():
+    from app.api.routes import data_browser
+
+    question = SimpleNamespace(prompt="History?", sectionCode="A", sectionTitle="Origin", sortOrder=1)
+    interview = SimpleNamespace(
+        responses=[
+            SimpleNamespace(questionId="q1", question=question, answerText="Since 1950", notes=None, answerOrigin=ad.ORIGIN_MACHINE),
+            SimpleNamespace(questionId="q2", question=question, answerText="Typed", notes=None, answerOrigin=None),
+        ],
+    )
+    text = data_browser._interview_answers(interview, {})
+    assert "-> Since 1950 (machine-suggested)" in text
+    assert "-> Typed\n" in text
+    source = (BACKEND / "app/api/routes/data_browser.py").read_text(encoding="utf-8")
+    assert '"Answer", "Notes", "Origin"]' in source
+    export = (BACKEND / "app/api/routes/export.py").read_text(encoding="utf-8")
+    assert "answer_drafts.marked_answer(" in export
+
+
+def test_the_consolidated_csv_carries_the_origin_in_its_last_column():
+    from app.services import questionnaire_consolidation as qc
+
+    assert qc.CSV_COLUMNS[-1] == "Answer origin"
+    row = qc._csv_row("Q", "A", "Origin", "History?", False, {"kind": "TYPED", "answerText": "x", "answerOrigin": ad.ORIGIN_MACHINE_EDITED})
+    assert len(row) == len(qc.CSV_COLUMNS)
+    assert row[-1] == "machine-suggested, edited"
+    typed = qc._csv_row("Q", "A", "Origin", "History?", False, {"kind": "TYPED", "answerText": "x"})
+    assert typed[-1] == ""
+
+
+def test_a_merge_fill_keeps_the_answers_origin():
+    source = (BACKEND / "app/api/routes/questionnaire.py").read_text(encoding="utf-8")
+    assert 'fill["answerOrigin"] = get_value(row, "answerOrigin")' in source

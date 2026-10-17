@@ -184,6 +184,25 @@ async def draft_answers(
     return parse_answers(result.get("text"), len(questions)), result["provider"], result["model"]
 
 
+#: How an export names an answer's origin. Empty for an answer a person typed.
+ORIGIN_LABELS = {
+    ORIGIN_MACHINE: "machine-suggested",
+    ORIGIN_MACHINE_EDITED: "machine-suggested, edited",
+}
+
+
+def origin_label(origin: str | None) -> str:
+    """"machine-suggested", "machine-suggested, edited", or "" for a typed answer."""
+    return ORIGIN_LABELS.get(origin or "", "")
+
+
+def marked_answer(text: str | None, origin: str | None) -> str:
+    """The answer as a text export prints it: the words, then "(machine-suggested)" when drafted."""
+    label = origin_label(origin)
+    body = text or ""
+    return f"{body} ({label})" if label and body.strip() else body
+
+
 def origin_after_edit(current_origin: str | None, old_text: str | None, new_text: str | None) -> str | None:
     """The ``answerOrigin`` a person's edit leaves behind (rule 2)."""
     if not (new_text or "").strip():

@@ -34,6 +34,8 @@ data class TranscriptSourceDto(val id: String, val name: String = "")
 data class AnswerDraftListDto(
     val items: List<AnswerDraftDto> = emptyList(),
     val transcripts: List<TranscriptSourceDto> = emptyList(),
+    /** False for a reader who may not edit the interview: the card then draws nothing. */
+    val mayDraft: Boolean = true,
 )
 
 @Serializable

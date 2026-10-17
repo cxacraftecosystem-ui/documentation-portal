@@ -1662,6 +1662,9 @@ async def merge_interview_into(
             for field in _RESPONSE_TEXT_FIELDS
             if not is_empty_value(get_value(row, field)) and is_empty_value(get_value(twin, field))
         }
+        if "answerText" in fill:
+            # C28: the words travel with their origin, or a drafted answer would land unlabelled.
+            fill["answerOrigin"] = get_value(row, "answerOrigin")
         if fill:
             fills.append((get_value(twin, "id"), fill))
         stale.append(get_value(row, "id"))
