@@ -28,7 +28,8 @@ import javax.crypto.spec.GCMParameterSpec
  * opens it as it reads, so the plaintext lives only in memory while a sync sends it; a sent entry is
  * removed from the queue, and what remains on flash of it was ciphertext. The draft is cleared on
  * save. If the Keystore cannot be used, the number is NOT written at all: the outbox keeps the last
- * four digits under [WITHHELD_FIELD] (the server then asks for the number again), the draft drops it.
+ * four digits under [WITHHELD_FIELD] and the entry is held in the outbox tray as "needs the Aadhaar
+ * number again" until it is typed ([numberWithheld], [retype]); the draft drops it.
  *
  * Nothing here logs.
  */
@@ -41,6 +42,8 @@ object AadhaarAtRest {
     const val WITHHELD_FIELD = "aadhaarLast4Withheld"
     /** The artisan form's draft key for the typed number. */
     const val DRAFT_FIELD = "aadhaar"
+    /** The outbox refusal for an entry held by [numberWithheld]. Said by this phone, not the server. */
+    const val RETYPE_REASON = "Needs the Aadhaar number again. This phone can't read the one typed, so nothing was sent."
 
     private const val PREFIX = "ks1:"
     private val json = Json { ignoreUnknownKeys = true }
@@ -97,7 +100,17 @@ object AadhaarAtRest {
         return json.encodeToString(JsonObject.serializer(), JsonObject(out))
     }
 
-    /** An outbox body as it is SENT: the sealed number opened back into [FIELD]. */
+    /**
+     * An outbox body as it is READ: the sealed number opened back into [FIELD].
+     *
+     * A number that was withheld, or whose seal can no longer be opened (the Keystore key is gone
+     * after a restore or on a new device), is NOT silently dropped: the body keeps [WITHHELD_FIELD]
+     * (the last four, or empty when even those are unknown), so [numberWithheld] stays true and the
+     * sync pass holds the entry for the number to be typed again ([retype]). Dropping the field would
+     * replay a correction as "keep the number on record" — answered 200, the new number lost — and a
+     * create as a bare 422. The marker never reaches the wire: the replay decodes the body into a
+     * typed request that has no such field.
+     */
     fun openPayload(stored: String): String {
         if (!stored.contains(SEALED_FIELD) && !stored.contains(WITHHELD_FIELD)) return stored
         val body = parseObject(stored) ?: return stored
@@ -105,20 +118,49 @@ object AadhaarAtRest {
         for ((key, value) in body) {
             when (key) {
                 SEALED_FIELD -> {
-                    // Unopenable (the Keystore key is gone): the field is left out and the server
-                    // asks for the number again, which is the honest answer.
                     val plain = (value as? JsonPrimitive)?.contentOrNull?.let(::openValue)
-                    if (plain != null) out[FIELD] = JsonPrimitive(plain)
+                    if (plain != null) {
+                        out[FIELD] = JsonPrimitive(plain)
+                    } else if (WITHHELD_FIELD !in body) {
+                        out[WITHHELD_FIELD] = JsonPrimitive("")
+                    }
                 }
-                WITHHELD_FIELD -> Unit
                 else -> out[key] = value
             }
         }
         return json.encodeToString(JsonObject.serializer(), JsonObject(out))
     }
 
-    /** True when a stored body is waiting for the number to be typed again. */
+    /** True when a body is waiting for the number to be typed again. Never sent while true. */
     fun numberWithheld(payloadJson: String): Boolean = payloadJson.contains(WITHHELD_FIELD)
+
+    /** The last four digits of a withheld number, when they were kept; null otherwise. */
+    fun withheldLast4(payloadJson: String): String? {
+        if (!numberWithheld(payloadJson)) return null
+        val digits = (parseObject(payloadJson)?.get(WITHHELD_FIELD) as? JsonPrimitive)?.contentOrNull
+        return digits?.takeIf { it.length == 4 && it.all(Char::isDigit) }
+    }
+
+    /**
+     * The body with the number typed again in place of the withheld marker, or null when [payloadJson]
+     * is not a JSON object. In memory only: the outbox seals it again as it writes ([sealPayload]).
+     */
+    fun retype(payloadJson: String, number: String): String? {
+        val body = parseObject(payloadJson) ?: return null
+        val out = LinkedHashMap<String, JsonElement>()
+        // In the marker's place, so the body reads as it did when it was typed.
+        for ((key, value) in body) {
+            when (key) {
+                WITHHELD_FIELD, SEALED_FIELD, FIELD -> out[FIELD] = JsonPrimitive(number)
+                else -> out[key] = value
+            }
+        }
+        if (FIELD !in out) out[FIELD] = JsonPrimitive(number)
+        return json.encodeToString(JsonObject.serializer(), JsonObject(out))
+    }
+
+    /** Whether this phone can keep a typed number sealed right now (the Keystore answers). */
+    fun canSeal(): Boolean = sealValue("000000000000") != null
 
     /**
      * A form draft as it may be WRITTEN: the typed number sealed, or left out. Draft values are

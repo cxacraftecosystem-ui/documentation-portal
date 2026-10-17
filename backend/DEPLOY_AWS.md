@@ -688,8 +688,36 @@ box, in this order:
    holds a value; if it refuses, run step 2, then
    `npx prisma migrate resolve --rolled-back 20261029090000_drop_aadhaar_number` and deploy again.
    Afterwards run `VACUUM FULL "Artisan"; VACUUM FULL "RecordRevision";` in the SQL editor so the old
-   row versions holding numbers are gone from the data files, and note that nightly dumps taken
-   before the drop still hold them until they age out (30 days).
+   row versions holding numbers are gone from the data files. Copies taken before the drop still hold
+   the numbers for a while, and for longer than the dumps' own 30 days:
+   - the nightly dumps in `fieldrepo-media-626159998512/backups/`: 30 days as the current version, then
+     90 more as noncurrent versions (the bucket is versioned), so about 120 days;
+   - their replica in `fieldrepo-offsite-626159998512` (ap-south-2): 35 days under Object Lock
+     (GOVERNANCE), then 90 more as noncurrent versions, so about 125 days;
+   - Supabase's own backups and point-in-time recovery (WAL), for as long as the project's plan keeps
+     them (Database → Backups in the dashboard).
 
-Rollback: steps 1 and 2 are additive; rolling the release back leaves the new columns unused and the
-legacy column intact. Step 3 is not reversible: the numbers are gone, which is its purpose.
+   So a number is gone from every copy about 125 days after the drop, plus the Supabase window. To
+   end it sooner (an erasure request), an admin deletes the older dump versions in both buckets
+   (`--bypass-governance-retention` in ap-south-2).
+
+**Rollback: do not roll the backend back past step 1 once it has taken an artisan write. Fix
+forward.** The migration is additive, but the data written after it is not something older code can
+read. From step 1 on, every artisan created or edited with an Aadhaar holds only the fingerprint and
+the last four, with `aadhaarNumber` NULL. A release older than this one, put back by the symlink flip
+or any other way, would:
+
+- show those artisans as having no Aadhaar;
+- let the same person be registered again, because its duplicate check reads `aadhaarNumber` only;
+- start writing full numbers again on every create and edit.
+
+None of that is visible as an error, so an easy rollback is the dangerous one here. If this release
+misbehaves, ship a hotfix release on top of it. A rollback is safe only while this query, in the
+SQL editor, still answers 0 (rows only this release writes; the backfill leaves `aadhaarNumber` set):
+
+```sql
+SELECT count(*) FROM "Artisan" WHERE "aadhaarFingerprint" IS NOT NULL AND "aadhaarNumber" IS NULL;
+```
+
+Step 2 changes nothing older code reads, so it does not change this. Step 3 is not reversible: the
+numbers are gone, which is its purpose.
