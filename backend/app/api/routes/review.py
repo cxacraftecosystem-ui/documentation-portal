@@ -1,3 +1,6 @@
+import logging
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -8,9 +11,11 @@ from pydantic import Field, ValidationError
 from app.core.db import db
 from app.core.deps import (
     ROLE_RANK,
+    can_access_review,
     can_edit_others_record,
     can_review_record,
     enum_or_raw,
+    get_current_user,
     get_value,
     is_admin,
     is_master_admin,
@@ -28,11 +33,15 @@ from app.schemas.records import (
     WorkshopUpdate,
     drop_masked_identity_numbers,
 )
+from app.services import email_outbox, review_reasons
 from app.services.access import record_revision
 from app.services.records import clean_data, decimal_to_string, jsonify_metadata, merge_field_provenance
 from app.services.records import review_update
 from app.services.records import public_encode
+from app.services.review_reasons import reason_label
 from app.services.workshop_access import record_needs_admin_approval, stamp_workshop_submission
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/review", tags=["review"])
 
@@ -81,25 +90,18 @@ _PENDING_SOURCES: list[tuple[str, Any, tuple[str, ...]]] = [
 ]
 
 
-# Per-record-type row cap on the queue. It is a cap on REVIEWABLE rows (see
-# _reviewable_creator_roles), not on pending rows in general.
+# Per-record-type row cap on the UNPAGED queue (the answer older clients in the field still read). It
+# is a cap on REVIEWABLE rows (see _reviewable_creator_roles), not on pending rows in general.
 PENDING_TAKE = 200
 
 
 def _reviewable_creator_roles(reviewer: Any) -> list[str] | None:
     """The creator roles this reviewer may act on, or None for "everyone" (the master admin).
 
-    The peer-review ladder as DATA, so it can go into the query. The queue used to read the newest
-    200 pending rows per record type and drop the unreviewable ones in Python afterwards: a
-    professor whose researchers' submissions all sat behind 200 newer admin-created rows opened an
-    EMPTY queue, and ``total`` counted rows they had no authority to touch. Filtering in the
-    database makes the take apply to rows the caller can actually review.
-
-    Same comparison ``can_review_record`` makes — ranks STRICTLY below the reviewer — expressed
-    against the creator's role column. The two cannot drift apart over a missing role either: every
-    reviewable model has a required ``createdById``, and ``UserRole`` is NOT NULL with a default, so
-    the "no creator role on file" case ``can_review_record`` defends against does not exist in the
-    rows this query walks.
+    The peer-review ladder as DATA, so it can go into the query: the same comparison
+    ``can_review_record`` makes — ranks STRICTLY below the reviewer — against the creator's role
+    column. Every reviewable model has a required ``createdById`` and ``UserRole`` is NOT NULL, so the
+    "no creator role on file" case ``can_review_record`` defends against does not arise here.
     """
     if is_master_admin(reviewer):
         return None
@@ -128,17 +130,195 @@ def _creator_summary(creator: Any) -> dict[str, Any] | None:
 # Largest page a caller may ask for. The queue is read by people, twenty rows at a time on the web.
 PENDING_MAX_PAGE_SIZE = 100
 
+# The table behind each queue record type, for the one-page key query (B13). Model names are the
+# table names in this schema (no @@map anywhere).
+_PENDING_TABLES: dict[str, str] = {
+    "artisan": '"Artisan"',
+    "workshop": '"Workshop"',
+    "product": '"ProductDocumentation"',
+    "tool": '"ToolDocumentation"',
+    "process": '"Process"',
+    "questionnaire": '"QuestionnaireInterview"',
+}
 
-def _pending_item(record_type: str, row: Any, label_fields: tuple[str, ...]) -> dict[str, Any]:
+# ReviewLog's enum value per queue record type.
+_LOG_TYPES = {
+    "artisan": "ARTISAN",
+    "workshop": "WORKSHOP",
+    "product": "PRODUCT",
+    "tool": "TOOL",
+    "process": "PROCESS",
+    "questionnaire": "QUESTIONNAIRE",
+    "media": "MEDIA",
+}
+
+
+@dataclass(frozen=True)
+class PendingFilters:
+    """What narrows the queue. ``roles`` None = every creator (the master admin)."""
+
+    roles: list[str] | None = None
+    workshop_id: str | None = None
+    created_by: str | None = None
+    record_types: tuple[str, ...] | None = None
+    newest_first: bool = False
+
+    def sources(self) -> list[tuple[str, Any, tuple[str, ...]]]:
+        if not self.record_types:
+            return list(_PENDING_SOURCES)
+        return [source for source in _PENDING_SOURCES if source[0] in self.record_types]
+
+
+def pending_where(record_type: str, filters: PendingFilters) -> dict[str, Any]:
+    """The Prisma filter for one record type's slice of the queue."""
+    where: dict[str, Any] = {"status": "PENDING"}
+    if filters.roles is not None:
+        where["createdBy"] = {"is": {"role": {"in": filters.roles}}}
+    if filters.created_by:
+        where["createdById"] = filters.created_by
+    workshop = filters.workshop_id
+    if workshop:
+        if record_type == "workshop":
+            where["id"] = workshop
+        elif record_type == "artisan":
+            # An artisan reaches a workshop through the column or the roster join; both count.
+            where["OR"] = [{"workshopId": workshop}, {"workshops": {"some": {"workshopId": workshop}}}]
+        else:
+            where["workshopId"] = workshop
+    return where
+
+
+def pending_keys_sql(filters: PendingFilters, *, limit: int, offset: int) -> tuple[str, list[Any]]:
+    """ONE page of queue keys across every record type, longest-waiting first, as one SQL statement.
+
+    The queue spans six tables, so "page 10" used to mean reading the newest 200 rows of each and
+    sorting them in Python (1,200 rows to show 20). This asks Postgres for exactly the page:
+    ``(recordType, id, submittedAt)`` from a UNION ALL, ordered and cut there. The rows themselves
+    are then read by id. Roles come from ``ROLE_RANK`` (validated, never from the request) and are
+    inlined; the workshop and creator ids travel as parameters.
+    """
+    params: list[Any] = []
+
+    def param(value: Any) -> str:
+        params.append(value)
+        return f"${len(params)}"
+
+    role_clause = ""
+    if filters.roles is not None:
+        roles = [role for role in filters.roles if role in ROLE_RANK]
+        quoted = ", ".join(f"'{role}'" for role in roles) or "NULL"
+        role_clause = f' AND u."role"::text IN ({quoted})'
+    creator = f' AND t."createdById" = {param(filters.created_by)}' if filters.created_by else ""
+    workshop_ref = param(filters.workshop_id) if filters.workshop_id else None
+
+    parts: list[str] = []
+    for record_type, _delegate, _labels in filters.sources():
+        table = _PENDING_TABLES[record_type]
+        clause = ""
+        if workshop_ref:
+            if record_type == "workshop":
+                clause = f' AND t."id" = {workshop_ref}'
+            elif record_type == "artisan":
+                clause = (
+                    f' AND (t."workshopId" = {workshop_ref} OR EXISTS (SELECT 1 FROM "WorkshopArtisan" wa'
+                    f' WHERE wa."artisanId" = t."id" AND wa."workshopId" = {workshop_ref}))'
+                )
+            else:
+                clause = f' AND t."workshopId" = {workshop_ref}'
+        join = ' JOIN "User" u ON u."id" = t."createdById"' if role_clause else ""
+        parts.append(
+            f"SELECT '{record_type}' AS \"recordType\", t.\"id\" AS \"id\", t.\"submittedAt\" AS \"submittedAt\""
+            f" FROM {table} t{join} WHERE t.\"status\" = 'PENDING'{role_clause}{creator}{clause}"
+        )
+    direction = "DESC" if filters.newest_first else "ASC"
+    sql = (
+        "SELECT q.\"recordType\", q.\"id\" FROM (" + " UNION ALL ".join(parts) + ") q"
+        f' ORDER BY q."submittedAt" {direction}, q."recordType" ASC, q."id" ASC'
+        f" LIMIT {int(limit)} OFFSET {int(offset)}"
+    )
+    return sql, params
+
+
+async def pending_page_keys(filters: PendingFilters, *, limit: int, offset: int) -> list[tuple[str, str]]:
+    """The (recordType, id) pairs on one page, in queue order. A seam the tests replace."""
+    if not filters.sources():
+        return []
+    sql, params = pending_keys_sql(filters, limit=limit, offset=offset)
+    rows = await db.query_raw(sql, *params)
+    return [(str(row["recordType"]), str(row["id"])) for row in rows]
+
+
+def _sort_moment(item: dict[str, Any]) -> str:
+    return str(item.get("submittedAt") or item.get("createdAt") or "")
+
+
+async def _previous_reviews(rows: list[tuple[str, Any]]) -> dict[tuple[str, str], dict[str, Any]]:
+    """The last send-back or rejection for each RESUBMITTED pending row, keyed (recordType, id).
+
+    A pending record with a ``reviewedAt`` was reviewed before and came back: the reviewer sees what
+    was asked last time beside it, instead of reviewing the fix blind.
+    """
+    reviewed = [(record_type, row) for record_type, row in rows if get_value(row, "reviewedAt")]
+    if not reviewed:
+        return {}
+    ids = [str(get_value(row, "id")) for _, row in reviewed]
+    reviewer_ids = {str(get_value(row, "reviewedById")) for _, row in reviewed if get_value(row, "reviewedById")}
+    logs: list[Any] = []
+    reviewers: list[Any] = []
+    try:
+        logs = await db.reviewlog.find_many(
+            where={"recordId": {"in": ids}, "status": {"in": ["NEEDS_REVISION", "REJECTED"]}},
+            order={"createdAt": "desc"},
+        )
+        if reviewer_ids:
+            reviewers = await db.user.find_many(where={"id": {"in": sorted(reviewer_ids)}})
+    except Exception:  # the queue must still load; the flag is a help, not the record
+        logs, reviewers = [], []
+    names = {str(get_value(user, "id")): get_value(user, "name") for user in reviewers}
+    latest_reason: dict[str, Any] = {}
+    for log in logs:
+        latest_reason.setdefault(str(get_value(log, "recordId")), log)
+    out: dict[tuple[str, str], dict[str, Any]] = {}
+    for record_type, row in reviewed:
+        row_id = str(get_value(row, "id"))
+        log = latest_reason.get(row_id)
+        reason = get_value(log, "reason") if log is not None else None
+        out[(record_type, row_id)] = {
+            "notes": get_value(row, "reviewNotes"),
+            "reviewerName": names.get(str(get_value(row, "reviewedById") or "")),
+            "reviewedAt": jsonable_encoder(get_value(row, "reviewedAt")),
+            "status": str(enum_or_raw(get_value(log, "status"))) if log is not None else None,
+            "reason": reason,
+            "reasonLabel": reason_label(reason),
+        }
+    return out
+
+
+def _pending_item(
+    record_type: str, row: Any, label_fields: tuple[str, ...], previous: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    submitted = get_value(row, "submittedAt") or get_value(row, "createdAt")
     return {
         "recordType": record_type,
         "id": get_value(row, "id"),
         "label": _label_for(row, label_fields),
         "place": get_value(row, "place"),
+        "status": "PENDING",
+        "workshopId": get_value(row, "workshopId") if record_type != "workshop" else get_value(row, "id"),
         "createdAt": jsonable_encoder(get_value(row, "createdAt")),
+        # When it (re-)entered the queue — the order the queue is served in.
+        "submittedAt": jsonable_encoder(submitted),
         "createdBy": _creator_summary(get_value(row, "createdBy")),
         "needsAdminApproval": record_needs_admin_approval(row),
+        "resubmitted": previous is not None,
+        "previousReview": previous,
     }
+
+
+@router.get("/reasons")
+async def list_review_reasons(_: Any = Depends(require_reviewer)) -> list[dict[str, Any]]:
+    """The short list of reasons for not accepting a record. ``fixable`` reasons send it back."""
+    return review_reasons.as_payload()
 
 
 @router.get("/pending")
@@ -146,26 +326,41 @@ async def list_pending_reviews(
     reviewer: Any = Depends(require_reviewer),
     page: int | None = Query(default=None, ge=1),
     page_size: int = Query(default=20, ge=1, le=PENDING_MAX_PAGE_SIZE, alias="pageSize"),
+    workshop_id: str | None = Query(default=None, alias="workshopId"),
+    created_by: str | None = Query(default=None, alias="createdById"),
+    record_type: str | None = Query(default=None, alias="recordType"),
+    order: str = Query(default="oldest", pattern="^(oldest|newest)$"),
 ) -> dict[str, Any]:
-    """Records still awaiting review (status == PENDING), newest first, across record types.
+    """Records awaiting review (status == PENDING) across record types, LONGEST-WAITING FIRST.
 
-    Filtered by the peer-review hierarchy IN THE QUERY: only records whose creator ranks strictly
-    below the viewer show up (the master admin sees everything), so the per-type cap holds the
-    newest rows this reviewer can act on rather than the newest rows overall. Each item carries
-    ``needsAdminApproval``: true means it was submitted outside its workshop's dates, so only an
-    admin can approve it.
+    The order is by ``submittedAt`` — when the record entered the queue, or came back into it after
+    being sent back — so a fixed record goes to the front rather than sinking behind newer work.
+    ``order=newest`` reverses it. Each item says whether it is a ``resubmitted`` record and carries
+    the ``previousReview`` (the note and reason it was sent back with).
 
-    TWO SHAPES, and the second is additive (UX audit 2026-10-16):
+    Filtered by the peer-review ladder IN THE QUERY (only creators ranked strictly below the viewer;
+    the master admin sees everyone), and optionally by ``workshopId``, ``createdById`` (a task's
+    assignee, from Tasks) and ``recordType``. ``needsAdminApproval`` marks a record submitted outside
+    its workshop's dates, which only an admin may approve.
 
-    - **No ``page``** — the original answer, for clients already in the field: up to
-      ``PENDING_TAKE`` rows per record type, merged. ``truncated`` is true when any type hit that
-      take, so a client can say the list is not the whole queue instead of letting it stop quietly.
-    - **``page`` given** — one page of the WHOLE queue, newest first across types. ``total`` is the
-      true count of reviewable pending rows (a ``count`` per type with the same filter), never the
-      length of what was read, and there is no per-type ceiling: page N reads at most
-      ``page * pageSize`` rows from each type, which is exactly enough to know the newest
-      ``page * pageSize`` overall."""
+    TWO SHAPES, the second additive (UX audit 2026-10-16):
+
+    - **No ``page``** — the original answer for clients already in the field: up to ``PENDING_TAKE``
+      rows per record type, merged; ``truncated`` says when a type hit that take.
+    - **``page`` given** — exactly one page of the whole queue, read as one page (one key query
+      across the six tables, then the page's rows by id), with the true ``total``.
+    """
     paged = page is not None
+    types: tuple[str, ...] | None = None
+    if record_type:
+        wanted = {part.strip().lower() for part in record_type.split(",") if part.strip()}
+        unknown = wanted - set(_PENDING_TABLES)
+        if unknown:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"Unknown record type: {', '.join(sorted(unknown))}",
+            )
+        types = tuple(sorted(wanted))
     roles = _reviewable_creator_roles(reviewer)
     if roles is not None and not roles:
         # Review access with nobody beneath them on the ladder — a granted ``canReview`` on the
@@ -173,31 +368,133 @@ async def list_pending_reviews(
         if paged:
             return {"items": [], "total": 0, "page": page, "pageSize": page_size}
         return {"items": [], "total": 0, "truncated": False}
-    where: dict[str, Any] = {"status": "PENDING"}
-    if roles is not None:
-        where["createdBy"] = {"is": {"role": {"in": roles}}}
+    filters = PendingFilters(
+        roles=roles,
+        workshop_id=workshop_id or None,
+        created_by=created_by or None,
+        record_types=types,
+        newest_first=order == "newest",
+    )
+    sources = filters.sources()
+    order_by = {"submittedAt": "desc" if filters.newest_first else "asc"}
 
-    take = page * page_size if paged else PENDING_TAKE
-    items: list[dict[str, Any]] = []
-    truncated = False
+    if not paged:
+        loaded: list[tuple[str, Any, tuple[str, ...]]] = []
+        truncated = False
+        for source_type, delegate, label_fields in sources:
+            rows = await delegate.find_many(
+                where=pending_where(source_type, filters),
+                include={"createdBy": True},
+                order=order_by,
+                take=PENDING_TAKE,
+            )
+            if len(rows) >= PENDING_TAKE:
+                truncated = True
+            loaded.extend((source_type, row, label_fields) for row in rows)
+        previous = await _previous_reviews([(t, row) for t, row, _ in loaded])
+        items = [
+            _pending_item(t, row, labels, previous.get((t, str(get_value(row, "id")))))
+            for t, row, labels in loaded
+        ]
+        items.sort(key=_sort_moment, reverse=filters.newest_first)
+        return {"items": items, "total": len(items), "truncated": truncated}
+
     total = 0
-    for record_type, delegate, label_fields in _PENDING_SOURCES:
-        rows = await delegate.find_many(
-            where=where,
-            include={"createdBy": True},
-            order={"createdAt": "desc"},
-            take=take,
+    for source_type, delegate, _labels in sources:
+        total += await delegate.count(where=pending_where(source_type, filters))
+    keys = await pending_page_keys(filters, limit=page_size, offset=(page - 1) * page_size)
+    wanted_ids: dict[str, list[str]] = {}
+    for key_type, key_id in keys:
+        wanted_ids.setdefault(key_type, []).append(key_id)
+    by_key: dict[tuple[str, str], tuple[Any, tuple[str, ...]]] = {}
+    for source_type, delegate, label_fields in sources:
+        ids = wanted_ids.get(source_type)
+        if not ids:
+            continue
+        rows = await delegate.find_many(where={"id": {"in": ids}}, include={"createdBy": True})
+        for row in rows:
+            by_key[(source_type, str(get_value(row, "id")))] = (row, label_fields)
+    ordered = [(key, by_key[key]) for key in keys if key in by_key]
+    previous = await _previous_reviews([(key[0], row) for key, (row, _) in ordered])
+    items = [_pending_item(key[0], row, labels, previous.get(key)) for key, (row, labels) in ordered]
+    return {"items": items, "total": total, "page": page, "pageSize": page_size}
+
+
+# Media hangs off its record through a tag pair (linkedRecordType/linkedRecordId) and, on older rows,
+# only through a typed column. Approving the record approves the files that hang off it (C21).
+_MEDIA_TAGS: dict[str, tuple[str, ...]] = {
+    "artisan": ("artisan",),
+    "workshop": ("workshop",),
+    "product": ("product",),
+    "tool": ("tool",),
+    "process": ("process",),
+    "questionnaire": ("questionnaire", "questionnaireinterview"),
+}
+_MEDIA_COLUMNS: dict[str, str] = {
+    "product": "productId",
+    "tool": "toolId",
+    "questionnaire": "questionnaireInterviewId",
+}
+
+
+async def approve_record_media(record_type: str, record_id: str, reviewer: Any) -> int:
+    """Approve the still-pending files of a record that was just approved. Returns how many.
+
+    A file submitted outside its workshop's dates waits for an admin exactly as a record does: a
+    non-admin's approval of the parent leaves it pending, and an admin's clears its flag too.
+    """
+    key = record_type.lower()
+    tags = _MEDIA_TAGS.get(key)
+    if not tags:
+        return 0
+    clauses: list[dict[str, Any]] = [
+        {"linkedRecordType": {"equals": tag, "mode": "insensitive"}, "linkedRecordId": record_id} for tag in tags
+    ]
+    if key == "process":
+        steps = await db.processstep.find_many(where={"processId": record_id})
+        step_ids = [str(get_value(step, "id")) for step in steps]
+        if step_ids:
+            clauses.append(
+                {"linkedRecordType": {"equals": "processstep", "mode": "insensitive"}, "linkedRecordId": {"in": step_ids}}
+            )
+    column = _MEDIA_COLUMNS.get(key)
+    if column:
+        clauses.append({"linkedRecordType": None, column: record_id})
+    if key == "artisan":
+        clauses.append(
+            {"linkedRecordType": None, "artisanId": record_id, "productId": None, "toolId": None, "questionnaireInterviewId": None}
         )
-        if paged:
-            total += await delegate.count(where=where)
-        elif len(rows) >= PENDING_TAKE:
-            truncated = True
-        items.extend(_pending_item(record_type, row, label_fields) for row in rows)
-    items.sort(key=lambda item: item.get("createdAt") or "", reverse=True)
-    if paged:
-        start = (page - 1) * page_size
-        return {"items": items[start : start + page_size], "total": total, "page": page, "pageSize": page_size}
-    return {"items": items, "total": len(items), "truncated": truncated}
+    files = await db.mediafile.find_many(where={"status": "PENDING", "OR": clauses})
+    if not files:
+        return 0
+    admin = is_admin(reviewer)
+    now = datetime.now(UTC)
+    plain = [str(get_value(f, "id")) for f in files if not record_needs_admin_approval(f)]
+    late = [f for f in files if record_needs_admin_approval(f)]
+    approved = 0
+    if plain:
+        approved += int(
+            await db.mediafile.update_many(
+                where={"id": {"in": plain}, "status": "PENDING"},
+                data={"status": "APPROVED", "reviewedById": reviewer.id, "reviewedAt": now},
+            )
+            or 0
+        )
+    if admin:
+        for media in late:
+            extra = get_value(media, "extraMetadata") or {}
+            submission = extra.get("workshopSubmission") or {}
+            await db.mediafile.update(
+                where={"id": str(get_value(media, "id"))},
+                data={
+                    "status": "APPROVED",
+                    "reviewedById": reviewer.id,
+                    "reviewedAt": now,
+                    "extraMetadata": Json({**extra, "workshopSubmission": {**submission, "needsAdminApproval": False}}),
+                },
+            )
+            approved += 1
+    return approved
 
 
 async def set_review_status(
@@ -206,6 +503,8 @@ async def set_review_status(
     new_status: str,
     payload: ReviewAction,
     reviewer: Any,
+    *,
+    notify: bool = True,
 ) -> dict[str, Any]:
     delegate, log_type, creator_relation = delegate_for(record_type)
     record = await delegate.find_unique(where={"id": record_id}, include={creator_relation: True})
@@ -230,6 +529,7 @@ async def set_review_status(
                 "admin can approve a late submission."
             ),
         )
+    reason = review_reasons.reason_for(getattr(payload, "reason", None)) if new_status != "APPROVED" else None
     data = review_update(new_status, payload.notes, reviewer.id)
     log_notes = payload.notes
     if new_status == "APPROVED" and late:
@@ -243,15 +543,33 @@ async def set_review_status(
         notes = (payload.notes or "").strip()
         log_notes = f"{notes}\n\n{LATE_SUBMISSION_LOG_NOTE}" if notes else LATE_SUBMISSION_LOG_NOTE
     updated = await delegate.update(where={"id": record_id}, data=data)
-    await db.reviewlog.create(
-        data={
-            "recordType": log_type,
-            "recordId": record_id,
-            "status": new_status,
-            "notes": log_notes,
-            "reviewerId": reviewer.id,
-        }
-    )
+    log_data: dict[str, Any] = {
+        "recordType": log_type,
+        "recordId": record_id,
+        "status": new_status,
+        "notes": log_notes,
+        "reviewerId": reviewer.id,
+    }
+    if reason is not None:
+        log_data["reason"] = reason.code
+    await db.reviewlog.create(data=log_data)
+    if new_status == "APPROVED" and record_type.lower() != "media":
+        try:
+            await approve_record_media(record_type, record_id, reviewer)
+        except Exception:  # the record's own approval is saved; a file left pending is reviewable alone
+            logger.exception("review: could not approve the files of %s %s", record_type, record_id)
+    if notify:
+        label_fields = next((labels for t, _d, labels in _PENDING_SOURCES if t == record_type.lower()), ("name", "title"))
+        await email_outbox.notify_review_decision(
+            record_type=record_type.lower(),
+            record_id=record_id,
+            record_label=_label_for(record, (*label_fields, "originalFilename")),
+            creator_id=get_value(creator, "id") if creator else None,
+            decision=new_status,
+            actor=reviewer,
+            note=payload.notes,
+            reason_label=reason.label if reason else None,
+        )
     return public_encode(updated)
 
 
@@ -265,6 +583,32 @@ async def approve_record(
     return await set_review_status(record_type, record_id, "APPROVED", payload, reviewer)
 
 
+def _resolve_refusal(payload: ReviewAction) -> tuple[str, ReviewAction]:
+    """Which status a "Reject" with this reason really means, and the note it carries.
+
+    No reason (an older client): a plain rejection, as before. A FIXABLE reason sends the record
+    back for revision instead — the creator is told what to fix and the record is not a dead end.
+    "Other" needs the reviewer's own words.
+    """
+    code = getattr(payload, "reason", None)
+    if not code:
+        return "REJECTED", payload
+    reason = review_reasons.reason_for(code)
+    if reason is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Pick a reason from the list.",
+        )
+    notes = (payload.notes or "").strip()
+    if reason.needs_note and not notes:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Say what is wrong when the reason is Other.",
+        )
+    carried = ReviewAction(notes=notes or reason.label, reason=reason.code)
+    return ("NEEDS_REVISION" if reason.fixable else "REJECTED"), carried
+
+
 @router.post("/{record_type}/{record_id}/reject")
 async def reject_record(
     record_type: str,
@@ -272,7 +616,196 @@ async def reject_record(
     payload: ReviewAction,
     reviewer: Any = Depends(require_reviewer),
 ) -> dict[str, Any]:
-    return await set_review_status(record_type, record_id, "REJECTED", payload, reviewer)
+    """Reject a record. With a FIXABLE ``reason`` it is sent back for revision instead (C19); the
+    answer's ``status`` says which happened."""
+    new_status, carried = _resolve_refusal(payload)
+    return await set_review_status(record_type, record_id, new_status, carried, reviewer)
+
+
+class BulkItem(APIModel):
+    recordType: str
+    id: str
+
+
+class BulkApproval(APIModel):
+    items: list[BulkItem] = Field(default_factory=list, max_length=200)
+    notes: str | None = None
+
+
+@router.post("/bulk-approve")
+async def bulk_approve(payload: BulkApproval, reviewer: Any = Depends(require_reviewer)) -> dict[str, Any]:
+    """Approve many records in one request (B9).
+
+    Each record passes exactly the checks a single approval does — the review ladder and the
+    admin-only gate for a late submission — and a refusal of one never stops the rest: every item
+    comes back with its own ``outcome`` (``APPROVED`` or ``FAILED`` with the reason). The creators
+    hear about it in ONE e-mail each, not one per record.
+    """
+    if not payload.items:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Choose at least one record.")
+    results: list[dict[str, Any]] = []
+    approved: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in payload.items:
+        key = (item.recordType.lower(), item.id)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            updated = await set_review_status(
+                key[0], item.id, "APPROVED", ReviewAction(notes=payload.notes), reviewer, notify=False
+            )
+        except HTTPException as exc:
+            results.append(
+                {"recordType": key[0], "id": item.id, "outcome": "FAILED", "detail": jsonable_encoder(exc.detail)}
+            )
+            continue
+        results.append({"recordType": key[0], "id": item.id, "outcome": "APPROVED"})
+        label_fields = next((labels for t, _d, labels in _PENDING_SOURCES if t == key[0]), ("name", "title"))
+        approved.append(
+            {
+                "recordType": key[0],
+                "id": item.id,
+                "label": _label_for(updated, (*label_fields, "originalFilename")),
+                "creatorId": updated.get("createdById") or updated.get("uploadedById"),
+            }
+        )
+    await email_outbox.notify_bulk_approvals(approved, actor=reviewer)
+    return {
+        "results": results,
+        "approved": sum(1 for r in results if r["outcome"] == "APPROVED"),
+        "failed": sum(1 for r in results if r["outcome"] == "FAILED"),
+    }
+
+
+# The record types a creator's own "sent back" list covers, with the label fields of each.
+_MINE_SOURCES = _PENDING_SOURCES
+
+
+@router.get("/mine")
+async def my_returned_records(
+    current_user: Any = Depends(get_current_user),
+    status_filter: str | None = Query(default=None, alias="status"),
+) -> dict[str, Any]:
+    """The caller's OWN records a reviewer sent back (``NEEDS_REVISION``) or rejected, across record
+    types, each with the reviewer's note and reason — the uploader's "Sent back to you" list (A2).
+
+    ``status`` narrows to one of the two; omitted, both come back, newest decision first.
+    ``counts`` gives each, so a tile can say "Sent back to you (3)" without a second request.
+    """
+    wanted = ["NEEDS_REVISION", "REJECTED"]
+    if status_filter:
+        value = status_filter.strip().upper()
+        if value not in wanted:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="status must be NEEDS_REVISION or REJECTED",
+            )
+        wanted = [value]
+    uid = get_value(current_user, "id")
+    loaded: list[tuple[str, Any, tuple[str, ...]]] = []
+    counts = {"NEEDS_REVISION": 0, "REJECTED": 0}
+    for record_type, delegate, label_fields in _MINE_SOURCES:
+        rows = await delegate.find_many(
+            where={"createdById": uid, "status": {"in": ["NEEDS_REVISION", "REJECTED"]}},
+            order={"reviewedAt": "desc"},
+            take=PENDING_TAKE,
+        )
+        for row in rows:
+            state = str(enum_or_raw(get_value(row, "status")))
+            counts[state] = counts.get(state, 0) + 1
+            if state in wanted:
+                loaded.append((record_type, row, label_fields))
+    ids = [str(get_value(row, "id")) for _, row, _ in loaded]
+    reviewer_ids = sorted({str(get_value(row, "reviewedById")) for _, row, _ in loaded if get_value(row, "reviewedById")})
+    logs = (
+        await db.reviewlog.find_many(
+            where={"recordId": {"in": ids}, "status": {"in": ["NEEDS_REVISION", "REJECTED"]}},
+            order={"createdAt": "desc"},
+        )
+        if ids
+        else []
+    )
+    reviewers = await db.user.find_many(where={"id": {"in": reviewer_ids}}) if reviewer_ids else []
+    names = {str(get_value(u, "id")): get_value(u, "name") for u in reviewers}
+    reasons: dict[str, Any] = {}
+    for log in logs:
+        reasons.setdefault(str(get_value(log, "recordId")), get_value(log, "reason"))
+    items = []
+    for record_type, row, label_fields in loaded:
+        row_id = str(get_value(row, "id"))
+        reason = reasons.get(row_id)
+        items.append(
+            {
+                "recordType": record_type,
+                "id": row_id,
+                "label": _label_for(row, label_fields),
+                "place": get_value(row, "place"),
+                "status": str(enum_or_raw(get_value(row, "status"))),
+                "reviewNotes": get_value(row, "reviewNotes"),
+                "reason": reason,
+                "reasonLabel": reason_label(reason),
+                "reviewerName": names.get(str(get_value(row, "reviewedById") or "")),
+                "reviewedAt": jsonable_encoder(get_value(row, "reviewedAt")),
+            }
+        )
+    items.sort(key=lambda item: str(item.get("reviewedAt") or ""), reverse=True)
+    return {"items": items, "total": len(items), "counts": counts}
+
+
+@router.get("/{record_type}/{record_id}/latest")
+async def latest_review(
+    record_type: str, record_id: str, current_user: Any = Depends(get_current_user)
+) -> dict[str, Any]:
+    """The last review decision on one record — what its edit form and its read-only page show.
+
+    For the record's creator, an admin, and anyone who may review it. Answers ``{"review": null}``
+    when nobody has decided anything yet.
+    """
+    delegate, log_type, creator_relation = delegate_for(record_type)
+    record = await delegate.find_unique(where={"id": record_id}, include={creator_relation: True})
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
+    creator = get_value(record, creator_relation)
+    uid = get_value(current_user, "id")
+    allowed = (
+        (creator is not None and get_value(creator, "id") == uid)
+        or is_admin(current_user)
+        or (can_access_review(current_user) and can_review_record(current_user, get_value(creator, "role") if creator else None))
+    )
+    if not allowed:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only its creator or a reviewer can see this")
+    state = str(enum_or_raw(get_value(record, "status")))
+    may_review = bool(
+        can_access_review(current_user)
+        and can_review_record(current_user, get_value(creator, "role") if creator else None)
+        and (creator is None or get_value(creator, "id") != uid or is_master_admin(current_user))
+    )
+    base = {
+        "status": state,
+        "canReview": may_review,
+        "needsAdminApproval": record_needs_admin_approval(record),
+    }
+    if not get_value(record, "reviewedAt"):
+        return {**base, "review": None}
+    log = await db.reviewlog.find_first(
+        where={"recordType": log_type, "recordId": record_id, "status": {"in": ["NEEDS_REVISION", "REJECTED", "APPROVED"]}},
+        order={"createdAt": "desc"},
+    )
+    reviewer_id = get_value(record, "reviewedById")
+    reviewer = await db.user.find_unique(where={"id": reviewer_id}) if reviewer_id else None
+    reason = get_value(log, "reason") if log is not None else None
+    return {
+        **base,
+        "review": {
+            "status": str(enum_or_raw(get_value(log, "status"))) if log is not None else state,
+            "notes": get_value(record, "reviewNotes"),
+            "reason": reason,
+            "reasonLabel": reason_label(reason),
+            "reviewerName": get_value(reviewer, "name") if reviewer else None,
+            "reviewedAt": jsonable_encoder(get_value(record, "reviewedAt")),
+        },
+    }
 
 
 class MediaReviewEdit(APIModel):
@@ -487,10 +1020,16 @@ async def send_record_for_revision(
 ) -> dict[str, Any]:
     """Send the record back to its creator with mandatory comments (status NEEDS_REVISION).
 
-    When the creator next edits the record it returns to PENDING for a fresh review pass."""
+    When the creator next edits the record it returns to PENDING for a fresh review pass. An
+    optional ``reason`` from ``GET /review/reasons`` is recorded with it."""
     if not payload.notes or not payload.notes.strip():
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Comments are required when sending a record back for revision",
+        )
+    if payload.reason and review_reasons.reason_for(payload.reason) is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Pick a reason from the list.",
         )
     return await set_review_status(record_type, record_id, "NEEDS_REVISION", payload, reviewer)

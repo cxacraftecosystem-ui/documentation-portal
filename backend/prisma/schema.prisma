@@ -800,6 +800,9 @@ model Artisan {
   reviewNotes   String?
   reviewedById  String?
   reviewedAt    DateTime?
+  /// When the record last entered the review queue: its creation, or the creator's edit that
+  /// resubmitted it after it was sent back or rejected. The queue is served oldest first by this.
+  submittedAt   DateTime     @default(now())
   extraMetadata Json?
   recordedAt    DateTime     @default(now())
   recordedTimezone String    @default("Asia/Kolkata")
@@ -838,6 +841,7 @@ model Artisan {
   // workshop. The bare [createdAt] serves the same list unfiltered, which is what an admin sees.
   @@index([workshopId, createdAt])
   @@index([createdAt])
+  @@index([status, submittedAt])
 }
 
 model Workshop {
@@ -855,6 +859,9 @@ model Workshop {
   reviewNotes   String?
   reviewedById  String?
   reviewedAt    DateTime?
+  /// When the record last entered the review queue: its creation, or the creator's edit that
+  /// resubmitted it after it was sent back or rejected. The queue is served oldest first by this.
+  submittedAt   DateTime     @default(now())
   extraMetadata Json?
   recordedAt    DateTime     @default(now())
   recordedTimezone String    @default("Asia/Kolkata")
@@ -952,6 +959,7 @@ model Workshop {
   // Not the list order (that is startDate) — this is for the review queue and the dashboard's
   // "recent submissions", which order workshops by createdAt like every other record type.
   @@index([createdAt])
+  @@index([status, submittedAt])
 }
 
 model WorkshopArtisan {
@@ -1006,6 +1014,9 @@ model ProductDocumentation {
   reviewNotes                String?
   reviewedById               String?
   reviewedAt                 DateTime?
+  /// When the record last entered the review queue: its creation, or the creator's edit that
+  /// resubmitted it after it was sent back or rejected. The queue is served oldest first by this.
+  submittedAt                DateTime     @default(now())
   extraMetadata              Json?
   recordedAt                 DateTime     @default(now())
   recordedTimezone           String       @default("Asia/Kolkata")
@@ -1034,6 +1045,7 @@ model ProductDocumentation {
   @@index([status])
   @@index([workshopId, createdAt])
   @@index([createdAt])
+  @@index([status, submittedAt])
 }
 
 model ToolDocumentation {
@@ -1084,6 +1096,9 @@ model ToolDocumentation {
   reviewNotes                   String?
   reviewedById                  String?
   reviewedAt                    DateTime?
+  /// When the record last entered the review queue: its creation, or the creator's edit that
+  /// resubmitted it after it was sent back or rejected. The queue is served oldest first by this.
+  submittedAt                   DateTime     @default(now())
   extraMetadata                 Json?
   recordedAt                    DateTime      @default(now())
   recordedTimezone              String        @default("Asia/Kolkata")
@@ -1116,6 +1131,7 @@ model ToolDocumentation {
   @@index([status])
   @@index([workshopId, createdAt])
   @@index([createdAt])
+  @@index([status, submittedAt])
 }
 
 // Many-to-many between a tool and the artisans who use it. Lets one documented tool be assigned to
@@ -1526,6 +1542,9 @@ model QuestionnaireInterview {
   reviewNotes   String?
   reviewedById  String?
   reviewedAt    DateTime?
+  /// When the record last entered the review queue: its creation, or the creator's edit that
+  /// resubmitted it after it was sent back or rejected. The queue is served oldest first by this.
+  submittedAt   DateTime     @default(now())
   extraMetadata Json?
   recordedAt    DateTime     @default(now())
   recordedTimezone String    @default("Asia/Kolkata")
@@ -1573,6 +1592,7 @@ model QuestionnaireInterview {
   @@index([workshopId, createdAt])
   @@index([createdAt])
   @@index([questionnaireId, createdAt])
+  @@index([status, submittedAt])
 }
 
 model QuestionnaireInterviewArtisan {
@@ -1615,6 +1635,9 @@ model Process {
   reviewNotes         String?
   reviewedById        String?
   reviewedAt          DateTime?
+  /// When the record last entered the review queue: its creation, or the creator's edit that
+  /// resubmitted it after it was sent back or rejected. The queue is served oldest first by this.
+  submittedAt         DateTime     @default(now())
   extraMetadata       Json?
   recordedAt          DateTime     @default(now())
   recordedTimezone    String       @default("Asia/Kolkata")
@@ -1650,6 +1673,7 @@ model Process {
   @@index([status])
   @@index([workshopId, createdAt])
   @@index([createdAt])
+  @@index([status, submittedAt])
 }
 
 model ProcessStep {
@@ -1672,6 +1696,9 @@ model ReviewLog {
   recordType ReviewRecordType
   recordId   String
   status     RecordStatus
+  /// The short-list reason a reviewer picked (``review_reasons.REASONS``), on a rejection or a
+  /// send-back. Null on older rows and on approvals.
+  reason     String?
   notes      String?
   reviewerId String
   createdAt  DateTime         @default(now())

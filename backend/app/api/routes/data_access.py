@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.db import db
-from app.core.deps import get_current_user, get_value, is_admin
+from app.core.deps import can_access_review, can_review_record, get_current_user, get_value, is_admin
 from app.schemas.access import (
     TIERS,
     CommentIn,
@@ -23,6 +23,7 @@ from app.services.access import (
     effective_tier_for_record,
     tier_at_least,
 )
+from app.services import email_outbox, mailer
 from app.services.records import public_encode
 
 router = APIRouter(prefix="/data-access", tags=["data-access"])
@@ -48,7 +49,8 @@ def _validate_tier(tier: str | None) -> None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Invalid access tier")
 
 
-async def _resolve_record_owner(record_type: str, record_id: str) -> str | None:
+async def _resolve_record(record_type: str, record_id: str) -> tuple[Any, str | None]:
+    """The record and its owner's id (404 when it does not exist)."""
     entry = RECORD_DELEGATES.get(record_type.lower())
     if entry is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported record type")
@@ -56,7 +58,44 @@ async def _resolve_record_owner(record_type: str, record_id: str) -> str | None:
     record = await delegate.find_unique(where={"id": record_id})
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
-    return get_value(record, owner_field)
+    return record, get_value(record, owner_field)
+
+
+async def _resolve_record_owner(record_type: str, record_id: str) -> str | None:
+    _record, owner_id = await _resolve_record(record_type, record_id)
+    return owner_id
+
+
+async def _reviews_owner(user: Any, owner_id: str | None) -> bool:
+    """May ``user`` review this owner's work? (C20) A reviewer reads a record's edit history and
+    comments on it as part of reviewing it, without asking its owner for a grant first. Same ladder
+    as the review queue: review access, and an owner ranked strictly below them."""
+    if not owner_id or not can_access_review(user):
+        return False
+    owner = await db.user.find_unique(where={"id": owner_id})
+    return owner is not None and can_review_record(user, get_value(owner, "role"))
+
+
+_LABEL_FIELDS = ("name", "title", "productName", "toolkitName", "englishName", "originalFilename")
+
+
+def _record_label(record: Any) -> str:
+    for field in _LABEL_FIELDS:
+        value = get_value(record, field)
+        if value:
+            return str(value)
+    return "a record"
+
+
+async def _comment_label(record_type: str, record_id: str) -> str:
+    """What the comment e-mail calls the record. Read only when mail is on, and never fatal."""
+    if not mailer.mail_configured():
+        return "a record"
+    try:
+        record, _owner = await _resolve_record(record_type, record_id)
+    except Exception:  # the comment is saved; a plainer e-mail is fine
+        return "a record"
+    return _record_label(record)
 
 
 def _scope_create(scope_items: list[Any] | None) -> list[dict[str, Any]]:
@@ -169,6 +208,9 @@ async def request_access(payload: DataAccessRequestIn, current_user: Any = Depen
         requested_by=uid,
         decided_by=None,
     )
+    await email_outbox.notify_access_request(
+        owner_id=payload.ownerId, requester=current_user, tier=payload.tier, note=request_note
+    )
     return public_encode(grant)
 
 
@@ -229,6 +271,12 @@ async def decide_request(grant_id: str, payload: DataAccessDecisionIn, current_u
         decision_note=payload.decisionNote,
         requested_by=None,
         decided_by=get_value(current_user, "id"),
+    )
+    await email_outbox.notify_access_decision(
+        grantee_id=get_value(grant, "granteeId"),
+        owner=current_user,
+        decision=payload.status,
+        note=payload.decisionNote,
     )
     return public_encode(grant)
 
@@ -293,7 +341,7 @@ async def list_comments(
     _: Any = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
     """Comments on a record. Readable by any authenticated user (all records are viewable); posting
-    requires COMMENT tier (or owner/admin)."""
+    requires COMMENT tier (or owner/admin), or being somebody who may review the owner's work."""
     rows = await db.entrycomment.find_many(
         where={"recordType": recordType.lower(), "recordId": recordId},
         include={"author": True},
@@ -306,7 +354,7 @@ async def list_comments(
 async def add_comment(payload: CommentIn, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     owner_id = await _resolve_record_owner(payload.recordType, payload.recordId)
     tier = await effective_tier_for_record(current_user, owner_id, payload.recordType, payload.recordId)
-    if not tier_at_least(tier, "COMMENT"):
+    if not tier_at_least(tier, "COMMENT") and not await _reviews_owner(current_user, owner_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You need comment access to this researcher's data. Request it from them.",
@@ -319,6 +367,14 @@ async def add_comment(payload: CommentIn, current_user: Any = Depends(get_curren
             "body": payload.body,
         },
         include={"author": True},
+    )
+    await email_outbox.notify_comment(
+        record_type=payload.recordType.lower(),
+        record_id=payload.recordId,
+        record_label=await _comment_label(payload.recordType, payload.recordId),
+        owner_id=owner_id,
+        actor=current_user,
+        body=payload.body,
     )
     return public_encode(created)
 
@@ -342,11 +398,19 @@ async def list_revisions(
     current_user: Any = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
     """The edit history of a record (original values are reconstructable from the first edit's `old`).
-    Visible to admins and the record's owner so the original and every subsequent edit can be reviewed.
+    Visible to admins, the record's owner, and anyone who may review the owner's work (C20), so the
+    original and every subsequent edit can be reviewed.
     """
     owner_id = await _resolve_record_owner(recordType, recordId)
-    if not is_admin(current_user) and owner_id != get_value(current_user, "id"):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the owner or an admin can view edit history")
+    if (
+        not is_admin(current_user)
+        and owner_id != get_value(current_user, "id")
+        and not await _reviews_owner(current_user, owner_id)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the owner, a reviewer or an admin can view edit history",
+        )
     rows = await db.recordrevision.find_many(
         where={"recordType": recordType.lower(), "recordId": recordId},
         include={"editedBy": True},

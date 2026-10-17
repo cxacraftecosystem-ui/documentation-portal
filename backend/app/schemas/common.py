@@ -212,6 +212,9 @@ def forbid_clearing_location(model: Any) -> Any:
 
 class ReviewAction(APIModel):
     notes: str | None = None
+    #: A code from ``GET /review/reasons``, on a rejection or a send-back. Optional: older clients
+    #: send none, and their rejection stays a plain rejection.
+    reason: str | None = None
 
 
 class ExtraMetadataMixin(APIModel):

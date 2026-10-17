@@ -39,6 +39,7 @@ from app.schemas.access import (
 from app.schemas.questionnaire import WorkshopQuestionnaireUpdate
 from app.schemas.records import WORKSHOP_TYPES, WorkshopCreate, WorkshopUpdate
 from app.services.questionnaire_instruments import require_questionnaire
+from app.services import email_outbox
 from app.services.access import guard_record_edit, record_revision
 from app.services.concurrency import gather_reads
 from app.services.pagination import normalize_pagination, page_payload
@@ -586,6 +587,17 @@ async def request_workshop_access(
     rows = await db.workshopassignment.find_many(
         where={"workshopId": {"in": wanted}, "userId": uid}, include=REQUEST_INCLUDE
     )
+    asked = set(to_create) | {row.workshopId for row in existing_rows if row.id in set(to_rerequest)}
+    if asked:
+        # A request used to wait until an admin happened to open the queue (A5).
+        titles = [
+            str(getattr(getattr(row, "workshop", None), "title", None) or "a workshop")
+            for row in rows
+            if row.workshopId in asked
+        ]
+        await email_outbox.notify_workshop_access_request(
+            requester=current_user, workshop_titles=titles, note=payload.note
+        )
     return {"outcomes": outcomes, "requests": public_encode(rows)}
 
 
@@ -657,6 +669,14 @@ async def decide_workshop_access_request(
             "decidedAt": datetime.now(UTC),
             "decisionNote": payload.note,
         },
+    )
+    workshop = await db.workshop.find_unique(where={"id": row.workshopId})
+    await email_outbox.notify_workshop_access_decision(
+        user_id=row.userId,
+        actor=current_user,
+        workshop_title=getattr(workshop, "title", None),
+        decision=decision,
+        note=payload.note,
     )
     return await _hydrate_assignment(row.id)
 

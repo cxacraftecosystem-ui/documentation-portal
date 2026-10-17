@@ -1092,6 +1092,7 @@ PROVENANCE_SKIP_FIELDS = {
     "reviewedById",
     "reviewNotes",
     "reviewedAt",
+    "submittedAt",
     "recordedAt",
     "recordedTimezone",
     "measurementAnalysis",
@@ -1200,23 +1201,35 @@ def merge_field_provenance(new_data: dict[str, Any], user: Any, previous: Any | 
         new_data.pop("extraMetadata", None)
 
 
+#: The states a creator's own edit reopens. A REJECTED record is not a dead end (C19): the person
+#: who recorded it fixes it and it goes back to the queue, instead of being re-keyed as a duplicate.
+REOPENED_BY_CREATOR_EDIT = frozenset({"NEEDS_REVISION", "REJECTED"})
+
+
 def resubmit_status(record: Any, user: Any, data: dict[str, Any]) -> dict[str, Any]:
-    """When the CREATOR edits a record a reviewer sent back (NEEDS_REVISION), the edit IS the
-    resubmission: flip it back to PENDING so it re-enters the review queue. An explicit status in
-    the payload always wins, and other editors (admins tidying up, contributors filling gaps)
-    never flip the status. Call after guard_record_edit, before the prisma update. Mutates and
-    returns ``data``; a no-op for records without a status column."""
+    """When the CREATOR edits a record a reviewer sent back (NEEDS_REVISION) or rejected, the edit
+    IS the resubmission: flip it back to PENDING so it re-enters the review queue, stamped with
+    ``submittedAt`` so the queue serves it in the order it came back. An explicit status in the
+    payload always wins (and an explicit move into PENDING is stamped the same way), and other
+    editors (admins tidying up, contributors filling gaps) never flip the status. Call after
+    guard_record_edit, before the prisma update. Mutates and returns ``data``; a no-op for records
+    without a status column."""
     from app.core.deps import get_value
 
-    if "status" in data:
-        return data
     current = get_value(record, "status")
-    if str(getattr(current, "value", current)) != "NEEDS_REVISION":
+    current_value = str(getattr(current, "value", current)) if current is not None else None
+    if "status" in data:
+        wanted = data["status"]
+        if str(getattr(wanted, "value", wanted)) == "PENDING" and current_value not in (None, "PENDING"):
+            data["submittedAt"] = datetime.now(UTC)
+        return data
+    if current_value not in REOPENED_BY_CREATOR_EDIT:
         return data
     creator_id = get_value(record, "createdById")
     if creator_id is None or creator_id != get_value(user, "id"):
         return data
     data["status"] = "PENDING"
+    data["submittedAt"] = datetime.now(UTC)
     return data
 
 
