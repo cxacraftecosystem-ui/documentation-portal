@@ -1,5 +1,6 @@
 package com.fieldrepository.app
 
+import com.fieldrepository.app.ui.SharingConsentRow
 import android.Manifest
 import android.app.DownloadManager
 import android.content.ContentValues
@@ -7218,6 +7219,8 @@ private fun ArtisanForm(
                 .fillMaxWidth()
                 .focusRequester(pehchanFocus)
         )
+        // C27: the artisan's agreement to be looked up from the Designer Portal (drawn only while on).
+        if (isEdit) SharingConsentRow(artisanId = editing!!.id)
         NumberedListInput(
             label = "Do's",
             items = dosItems,

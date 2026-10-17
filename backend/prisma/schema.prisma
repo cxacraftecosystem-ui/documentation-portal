@@ -619,6 +619,38 @@ model CraftSpelling {
   @@index([craftCode])
 }
 
+/// C27: this artisan's agreement that the designer portal may look up their identity fields. ONE
+/// row per artisan, written by somebody who may edit the artisan, and changed rather than deleted
+/// when the artisan withdraws (``granted`` false), so the record of who recorded what survives. A
+/// lookup answers only for an artisan whose row says ``granted``. Read only while the cross-portal
+/// feature is on (``services/cross_portal.active``).
+model ArtisanSharingConsent {
+  artisanId    String   @id
+  granted      Boolean
+  note         String?
+  recordedById String?
+  recordedAt   DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  artisan Artisan @relation(fields: [artisanId], references: [id], onDelete: Cascade)
+}
+
+/// C27: a designer-portal artisan record linked to this one. Written when the designer portal links
+/// (it tells this server), removed when it unlinks or when this artisan's consent is withdrawn.
+/// ``remoteArtisanId`` is the designer portal's id; nothing else about that record is stored here.
+model CrossPortalArtisanLink {
+  id              String   @id @default(cuid())
+  artisanId       String
+  remoteArtisanId String
+  matchedBy       String
+  createdAt       DateTime @default(now())
+
+  artisan Artisan @relation(fields: [artisanId], references: [id], onDelete: Cascade)
+
+  @@unique([artisanId, remoteArtisanId])
+  @@index([remoteArtisanId])
+}
+
 /// TWO ANSWERS TO TWO DIFFERENT QUESTIONS, and reading one as the other is what this model was
 /// changed to stop.
 ///
@@ -863,6 +895,8 @@ model Artisan {
   media     MediaFile[]
   questionnaireInterviews QuestionnaireInterviewArtisan[]
   sectionStatuses QuestionnaireSectionStatus[]
+  sharingConsent  ArtisanSharingConsent?
+  crossPortalLinks CrossPortalArtisanLink[]
 
   // `name` earns its index by being the sort key of the artisan pickers, not by the search box:
   // every text search in this app is a case-insensitive `contains`, which Postgres runs as ILIKE

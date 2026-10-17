@@ -40,6 +40,7 @@ import { saveOrQueue } from "@/lib/offline";
 import { hasRank } from "@/lib/permissions";
 import type { AadhaarLookupResult, Artisan, ArtisanIdentityConflict, ArtisanIdentityMatch, Craft, RecordStatus } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
+import { SharingConsentToggle } from "@/components/forms/SharingConsentToggle";
 
 // Android parity (MainActivity.kt genderOptions).
 const genderOptions = ["Male", "Female", "Transgender", "Other"];
@@ -1136,6 +1137,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
               initialNumber={initial?.pehchanCardNumber}
               onDirty={markDirty}
             />
+            {initial?.id ? <SharingConsentToggle artisanId={initial.id} /> : null}
           </div>
           <DosDontsField
             name="dos"
