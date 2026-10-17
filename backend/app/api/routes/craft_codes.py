@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.core.db import db
 from app.core.deps import get_current_user, require_admin
 from app.services import cross_portal_codes
+from app.services.access import record_revision
 
 router = APIRouter(prefix="/craft-codes", tags=["craft-codes"])
 
@@ -86,10 +87,14 @@ async def assign_craft_code(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"“{code}” is not a shared craft code. Pick one from the list.",
         )
-    return await cross_portal_codes.map_craft(
+    result = await cross_portal_codes.map_craft(
         db,
         craft=craft,
         code=code,
         remember_spelling=payload.rememberSpelling,
         user_id=getattr(current_user, "id", None),
     )
+    # THE AUDIT LEDGER: a code joins this craft to the other portal's, so who mapped it, from what
+    # to what, is kept like any other edit to the craft. ``craft`` is the row as it was before.
+    await record_revision(craft, current_user, {"craftCode": code}, "craft")
+    return result

@@ -360,3 +360,21 @@ def test_every_public_site_craft_slug_is_a_shared_code():
     assert len(slugs) >= 40
     codes = {c.code for c in cpc.shared().crafts}
     assert [s for s in slugs if s not in codes] == []
+
+
+async def test_an_admins_mapping_is_written_to_the_audit_ledger(monkeypatch):
+    """C26: a code joins two portals' crafts, so the route records who mapped it, from what to what."""
+    from app.api.routes import craft_codes as routes
+
+    client = _client(craft=_Table("id", [{"id": "c1", "name": "Kota Doria", "craftCode": None}]))
+    monkeypatch.setattr(routes, "db", client)
+    ledger: list[Any] = []
+
+    async def record_revision(record, user, data, record_type, **_k):
+        ledger.append((record.id, record.craftCode, data, record_type, user.id))
+
+    monkeypatch.setattr(routes, "record_revision", record_revision)
+    admin = SimpleNamespace(id="admin1", role="ADMIN")
+    out = await routes.assign_craft_code("c1", routes.CraftCodeAssign(code="ikat"), admin)
+    assert out["craftCode"] == "ikat"
+    assert ledger == [("c1", None, {"craftCode": "ikat"}, "craft", "admin1")]
