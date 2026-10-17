@@ -48,6 +48,9 @@ import { hasRank } from "@/lib/permissions";
 import type { Artisan, Craft, RecordStatus, ToolDocumentation } from "@/lib/types";
 import { makerOptions, traditionOptions } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
+import { CarryForwardCards } from "@/components/CarryForwardCards";
+import { artisanStatedSource } from "@/components/forms/statedPrefill";
+import { failedFilesOf, RetryFailedUploads, type FailedUpload } from "@/components/media/RetryFailedUploads";
 
 /**
  * Dropdown label for a linked artisan: "Craft · Name · Place", craft FIRST.
@@ -269,7 +272,99 @@ function StatusField({
  * `DictationUnavailableNotice` sits once at the top. Eleven microphones down one form is eleven
  * copies of the Firefox paragraph, which is how a true sentence becomes wallpaper.
  */
+/** B7: the files of a saved tool that did not upload, and how to send them again. */
+type ToolRetry = { files: File[]; upload: (files: File[]) => Promise<{ failed: FailedUpload[] }> };
+
+/**
+ * A8 — WHAT FOLLOWS A SAVED TOOL. A new tool is followed by a next-step panel (another tool, a
+ * product, the interview) instead of the list; "Add another tool" remounts a blank form, which the
+ * carry-forward bag fills with the same artisan. B7: files that did not upload are offered for one
+ * tap retry, on create and on edit.
+ */
 export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
+  const router = useRouter();
+  const [run, setRun] = useState(0);
+  const [saved, setSaved] = useState<ToolDocumentation | null>(null);
+  const [retry, setRetry] = useState<ToolRetry | null>(null);
+  const leaveForList = () => {
+    router.push("/tools");
+    router.refresh();
+  };
+  if (saved && !initial) {
+    return (
+      <div className="grid gap-6">
+        {retry ? <RetryFailedUploads files={retry.files} upload={retry.upload} onDone={() => setRetry(null)} /> : null}
+        <div className="panel p-4">
+          <p className="text-sm font-medium text-ink">Saved &ldquo;{saved.toolkitName}&rdquo;.</p>
+          <ButtonRow align="start" className="mt-3">
+            <button
+              type="button"
+              className="field-button"
+              onClick={() => {
+                setSaved(null);
+                setRetry(null);
+                setRun((value) => value + 1);
+              }}
+            >
+              Add another tool
+            </button>
+            <button type="button" className="field-button-secondary" onClick={leaveForList}>
+              Back to tools
+            </button>
+          </ButtonRow>
+        </div>
+        <CarryForwardCards
+          heading="Next"
+          context={{
+            artisanId: saved.artisanId ?? null,
+            artisanName: saved.artisanName,
+            place: saved.place,
+            craftId: saved.craftId ?? null,
+            craftName: saved.craftName,
+            toolId: saved.id,
+            toolName: saved.toolkitName,
+            workshopId: saved.workshopId ?? null
+          }}
+        />
+      </div>
+    );
+  }
+  return (
+    <>
+      {retry && initial ? (
+        <RetryFailedUploads
+          files={retry.files}
+          upload={retry.upload}
+          onDone={() => {
+            setRetry(null);
+            leaveForList();
+          }}
+        />
+      ) : null}
+      <ToolFormBody
+        key={run}
+        initial={initial}
+        onSaved={(record, failedRetry) => {
+          setRetry(failedRetry);
+          if (initial) {
+            if (!failedRetry) leaveForList();
+            return;
+          }
+          setSaved(record);
+          if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
+      />
+    </>
+  );
+}
+
+function ToolFormBody({
+  initial,
+  onSaved
+}: {
+  initial?: ToolDocumentation;
+  onSaved: (saved: ToolDocumentation, retry: ToolRetry | null) => void;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuth();
@@ -1120,27 +1215,30 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
         return;
       }
       if (mediaFiles.length) {
-        const { failed } = await uploadMediaBatch({
-          files: mediaFiles,
-          linkedRecordType: "tool",
-          linkedRecordId: saved.id,
-          caption: `Field media for ${saved.toolkitName}`,
-          location,
-          recordedAt,
-          recordedTimezone,
-          extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined,
-          onProgress: setUploadProgress
-        });
+        const uploadTo = (files: File[]) =>
+          uploadMediaBatch({
+            files,
+            linkedRecordType: "tool",
+            linkedRecordId: saved.id,
+            caption: `Field media for ${saved.toolkitName}`,
+            location,
+            recordedAt,
+            recordedTimezone,
+            extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined,
+            onProgress: setUploadProgress
+          });
+        const { failed } = await uploadTo(mediaFiles);
         setUploadProgress(null);
         if (failed.length) {
-          setError(`Saved, but ${failed.length} of ${mediaFiles.length} file(s) didn’t upload: ${failed.map((f) => f.name).join(", ")}. Reopen to retry.`);
+          // B7: the tool is saved; only the files that failed are kept, for one-tap retry.
+          resetDirty();
+          onSaved(saved, { files: failedFilesOf(mediaFiles, failed), upload: uploadTo });
           setSaving(false);
           return;
         }
       }
       resetDirty();
-      router.push("/tools");
-      router.refresh();
+      onSaved(saved, null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save tool record");
     } finally {
@@ -1749,7 +1847,12 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
           title="Tool media"
           description="Photos, video, audio and documents."
         />
-        <LocationFields initial={initialLocation} onDirty={markDirty} />
+        {/* C17: a new tool opens with its first artisan's stated address, marked and editable. */}
+        <LocationFields
+          initial={initialLocation}
+          onDirty={markDirty}
+          prefillFrom={initial ? null : artisanStatedSource(artisans.find((artisan) => artisan.id === artisanIds[0]))}
+        />
         {uploadProgress ? <UploadProgress progress={uploadProgress} /> : null}
         <ButtonRow align="end">
           <button type="button" className="field-button-secondary" onClick={handleBack}>
