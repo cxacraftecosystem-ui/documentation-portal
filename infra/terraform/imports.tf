@@ -1,10 +1,10 @@
 # ─── ADOPT THE LIVE RESOURCES, DON'T DUPLICATE THEM ─────────────────────────────────────────────
-# Nobody holds Terraform state for the live account: the box was built by hand and rebuilt with the
-# AWS CLI (backend/DEPLOY_AWS.md §10). Without these blocks a first `apply` would launch a second
-# instance and fail on every name that already exists. With them, `terraform plan` reads the live
-# resources into state first and shows only real differences (checked read-only on 2026-10-17).
-# The media access key is left out on purpose: its secret cannot be imported, so an apply would try
-# to mint a third key (the user already has two, the limit) and fail there. Read the whole plan
+# APPLIED 2026-10-18: every block below was imported into the S3 state (main.tf's backend) by an
+# apply whose plan read "27 to import, 0 to add, 0 to change, 0 to destroy", and the next plan read
+# "No changes". The blocks stay as the record of what was adopted; once in state they are no-ops.
+# The resources were built by hand and with the AWS CLI (backend/DEPLOY_AWS.md §10), which is why
+# they were imported rather than created. No access key is declared at all (see the note where
+# `aws_iam_access_key.media` used to be in main.tf), so no plan can mint one. Read the whole plan
 # before any apply; the AMI filter and instance settings in main.tf can force a rebuild.
 import {
   to = aws_s3_bucket.media

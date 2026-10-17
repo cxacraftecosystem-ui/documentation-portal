@@ -274,8 +274,8 @@ and `fieldrepo-queue` systemd units. The DB stays on Supabase.
 > on the next `apply`.** `main.tf` moved from the
 > 24.04 (noble) filter to 26.04 (resolute) on 2026-10-09 without anything being applied, and the box
 > running that day is still the noble one; the t3.small and the encrypted root followed the same
-> evening, also unapplied. The approved rebuild is done with the AWS CLI instead, blue/green, because
-> this repository holds no state: §10 has the exact launch. Either way it is a production rebuild —
+> evening, also unapplied. The approved rebuild is done with the AWS CLI instead, blue/green: §10 has
+> the exact launch (written before this module had state; it has since 2026-10-18, see below). Either way it is a production rebuild —
 > the box is stateless and the Elastic IP is reattached — so do it after a
 > deploy has run the API on the pinned interpreter (§9), and re-create nginx/TLS and the `.env` afterwards.
 > A read-only `terraform plan` against the live resources on 2026-10-09 (import blocks in a scratch
@@ -289,24 +289,27 @@ and `fieldrepo-queue` systemd units. The DB stays on Supabase.
 > email+password. Create an IAM admin user in the console first, then:
 > `export AWS_ACCESS_KEY_ID=… AWS_SECRET_ACCESS_KEY=…` (do **not** use root keys).
 
+**Since 2026-10-18 the live account is in Terraform state**, in S3 at
+`s3://fieldrepo-media-626159998512/tfstate/documentation-portal.tfstate` (S3-native locking), the same
+pattern as designer-portal. `infra/terraform/imports.tf` adopted all 27 live resources; the apply read
+"27 imported, 0 added, 0 changed, 0 destroyed" and the next plan "No changes". `fieldrepo.auto.tfvars`
+(committed) supplies the names, so no `-var` flags:
+
 ```bash
 cd infra/terraform
 terraform init
-terraform apply \
-  -var="aws_region=ap-south-1" \
-  -var="bucket_name=YOUR-GLOBALLY-UNIQUE-BUCKET" \
-  -var="ssh_key_name=your-ec2-keypair" \
-  -var='cors_allowed_origins=["https://your-app.vercel.app"]'
+terraform plan                            # read it in full before any apply
 
 terraform output api_public_ip            # -> EC2_HOST
 terraform output s3_bucket                # -> AWS_S3_BUCKET
 terraform output s3_public_base_url       # -> AWS_S3_PUBLIC_BASE_URL
-terraform output media_access_key_id      # -> AWS_ACCESS_KEY_ID
-terraform output -raw media_secret_access_key   # -> AWS_SECRET_ACCESS_KEY (sensitive)
 ```
 
-`terraform.tfstate` and `*.tfvars` are gitignored — they hold the generated
-secret key; never commit them.
+No access key is managed by Terraform. The API's key on `fieldrepo-media` was made by hand and its
+secret cannot be imported, so `aws_iam_access_key.media` was removed rather than letting a plan mint
+a third key with its secret in state. A new key is an `aws iam create-access-key` call, pasted into
+`BACKEND_ENV` and the box `.env`. Local `terraform.tfstate` files and every other `*.tfvars` stay
+gitignored.
 
 ### 8.2 GitHub Actions secrets (auto-deploy on push)
 
@@ -599,8 +602,10 @@ ls -l /opt/cpython && cat /opt/cpython/*/INSTALLED_FROM
 
 The owner approved rebuilding this box on Ubuntu 26.04 as a **t3.small** with an **encrypted** gp3
 root, blue/green: build the new box, deploy to it, verify it, move the Elastic IP, stop (not
-terminate) the old one. This repository holds no Terraform state, so the launch is an AWS CLI call;
-`infra/terraform/main.tf` describes the same instance. Everything else below was read, read-only,
+terminate) the old one. The launch is an AWS CLI call, planned before this module had state;
+`infra/terraform/main.tf` describes the same instance. Since 2026-10-18 the instance is in state, so
+after the rebuild move state to the new box (`terraform state rm aws_instance.api`, then an `import`
+block with the new instance id) and confirm the plan reads "No changes". Everything else below was read, read-only,
 from i-06f177db5c4e3b0af on 2026-10-09, and the new box takes the same values:
 
 | | The live box (i-06f177db5c4e3b0af) | The rebuild |

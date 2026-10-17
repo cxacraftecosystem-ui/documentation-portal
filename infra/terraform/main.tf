@@ -7,16 +7,15 @@
 # Usage:
 #   cd infra/terraform
 #   terraform init
-#   terraform apply \
-#     -var="aws_region=ap-south-1" \
-#     -var="bucket_name=YOUR-GLOBALLY-UNIQUE-BUCKET" \
-#     -var="ssh_key_name=your-ec2-keypair"
+#   terraform plan
+# fieldrepo.auto.tfvars (committed) supplies the project, bucket and key-pair names.
 #
-# THERE IS NO STATE FOR THE LIVE ACCOUNT YET. imports.tf adopts the live resources a first `apply`
-# would otherwise duplicate; read `terraform plan` in full before any apply.
+# THE STATE IS IN S3 SINCE 2026-10-18: s3://fieldrepo-media-626159998512/tfstate/documentation-portal.tfstate,
+# the same pattern as designer-portal. imports.tf adopted every live resource that day, and the
+# first plan read "27 to import, 0 to add, 0 to change, 0 to destroy". Read every plan in full before an apply.
 #
-# NEVER commit terraform.tfstate or *.tfvars (already gitignored): state can
-# contain the generated IAM secret key. DO commit .terraform.lock.hcl: it is what
+# NEVER commit terraform.tfstate or any other *.tfvars (gitignored). The state holds no secret: no
+# access key is managed here (see `aws_iam_user.media`). DO commit .terraform.lock.hcl: it is what
 # makes every `init` resolve the same provider build, and it holds no secrets.
 ###############################################################################
 
@@ -34,7 +33,22 @@
 # .env reaches the box through the deploy workflow, never through this file — so that is acceptable,
 # and it must stay that way.
 terraform {
-  required_version = ">= 1.16"
+  # 1.16.5 is the floor, as in designer-portal: the state is shared in S3, so a binary older than
+  # the one that last wrote it should not be the next to write it. `use_lockfile` needs >= 1.10.
+  required_version = ">= 1.16.5"
+
+  # The state lives in this portal's own media bucket under tfstate/, like designer-portal's.
+  # Two policies keep it private: the public-read grant covers `media/*` only, and the bucket
+  # policy denies the API's user `tfstate/*` outright. It also replicates to Hyderabad with the
+  # rest of the bucket, so a lost or corrupted state can be restored from a version there.
+  backend "s3" {
+    bucket = "fieldrepo-media-626159998512"
+    key    = "tfstate/documentation-portal.tfstate"
+    region = "ap-south-1"
+    # S3-native locking: a `.tflock` object beside the state, no DynamoDB table.
+    use_lockfile = true
+  }
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -246,9 +260,10 @@ resource "aws_iam_user_policy" "media" {
   })
 }
 
-resource "aws_iam_access_key" "media" {
-  user = aws_iam_user.media.name
-}
+# NO `aws_iam_access_key` HERE, ON PURPOSE (removed 2026-10-18). The box's key was made by hand and
+# cannot be imported with its secret, so a declared key could only ever be a NEW one: a third key
+# on a user that already holds two (the limit), with its secret in state in plaintext. Keys for
+# this user are minted with the AWS CLI and go to BACKEND_ENV and the box `.env`, never to state.
 
 ############################### EC2 (API server) ##############################
 
@@ -334,8 +349,9 @@ resource "aws_security_group" "cloudfront_origin" {
 # rebuild. The t3.micro this replaces had 909 MB, ran the API and the queue with 122 MB available and
 # 215 MB in swap that day, and its root volume was never encrypted (nor is EBS encryption on by
 # default in this account). Both change the instance on an `apply`, as the AMI filter above does. The
-# rebuild itself is done with the AWS CLI, because this repository holds no state:
-# backend/DEPLOY_AWS.md §10 has the exact run-instances call, with the same values as this resource.
+# rebuild itself was planned with the AWS CLI, from before this module had state (it has since
+# 2026-10-18): backend/DEPLOY_AWS.md §10 has the exact run-instances call, with the same values as
+# this resource.
 resource "aws_instance" "api" {
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = "t3.small"

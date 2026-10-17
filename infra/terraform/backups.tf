@@ -17,9 +17,9 @@
 #      under its own user, `backup_writer`, which can add a dump and list
 #      backups/documentation-portal/ and do nothing else.
 #
-# CREATED LIVE WITH THE AWS CLI ON 2026-10-17, NOT BY TERRAFORM. This
-# directory still holds no state for the live account, so every resource
-# below has an import block in imports.tf. The configuration mirrors
+# CREATED LIVE WITH THE AWS CLI ON 2026-10-17, NOT BY TERRAFORM, and
+# imported into the S3 state on 2026-10-18 through the blocks in imports.tf
+# (27 imported, 0 added, 0 changed, 0 destroyed). The configuration mirrors
 # designer-portal/infra/terraform/backups.tf, which was applied through
 # Terraform the same day. docs/ops/BACKUPS_HARDENING_2026-10-17.md holds the
 # rollback for each resource and the restore runbook.
