@@ -44,10 +44,21 @@ def _call(method: str, path: str, body: dict[str, Any] | None = None) -> httpx.R
 
 
 def _matches(row: Any, where: dict[str, Any]) -> bool:
+    """Prisma's ``where`` for what the routes send: equality, ``in``, ``lt``, ``AND`` and ``OR``."""
     for key, expected in where.items():
+        if key == "AND":
+            if not all(_matches(row, part) for part in expected):
+                return False
+            continue
+        if key == "OR":
+            if not any(_matches(row, part) for part in expected):
+                return False
+            continue
         actual = getattr(row, key)
         if isinstance(expected, dict):
             if "in" in expected and actual not in expected["in"]:
+                return False
+            if "lt" in expected and not actual < expected["lt"]:
                 return False
         elif actual != expected:
             return False
@@ -76,12 +87,9 @@ class _Table:
     async def find_unique(self, where: dict[str, Any]) -> Any:
         return next((r for r in self.rows if r.id == where["id"]), None)
 
-    async def find_many(self, where: dict[str, Any], order: Any, take: int, cursor: Any = None, skip: int = 0) -> list[Any]:
+    async def find_many(self, where: dict[str, Any], order: Any, take: int) -> list[Any]:
         found = sorted((r for r in self.rows if _matches(r, where)), key=lambda r: (r.createdAt, r.id), reverse=True)
-        if cursor is not None:
-            ids = [r.id for r in found]
-            found = found[ids.index(cursor["id"]):] if cursor["id"] in ids else []
-        return found[skip: skip + take]
+        return found[:take]
 
     async def update_many(self, where: dict[str, Any], data: dict[str, Any]) -> int:
         hits = [r for r in self.rows if _matches(r, where)]
@@ -129,6 +137,26 @@ def test_pages_follow_the_last_id_shown(table: Any) -> None:
     # Somebody else's id is no anchor: the list starts from the top.
     other = table.add("bina", "not hers", 100)
     assert _call("GET", f"/api/notifications?limit=2&before={other.id}").json()["items"][0]["title"] == "notice 0"
+
+
+def test_unread_paging_survives_opening_the_last_notice_shown(table: Any) -> None:
+    # "Show older" with unreadOnly sends the last row's id; the person has just opened that row, so it
+    # is read and outside the filter. The next page must still start right after it.
+    for minutes in range(5):
+        table.add("asha", f"notice {minutes}", minutes)
+    first = _call("GET", "/api/notifications?limit=2&unreadOnly=true").json()
+    assert [item["title"] for item in first["items"]] == ["notice 0", "notice 1"]
+    assert _call("POST", f"/api/notifications/{first['items'][-1]['id']}/read").status_code == 200
+    second = _call("GET", f"/api/notifications?limit=2&unreadOnly=true&before={first['items'][-1]['id']}").json()
+    assert [item["title"] for item in second["items"]] == ["notice 2", "notice 3"] and second["hasMore"] is True
+
+
+def test_notices_written_in_the_same_instant_page_by_id(table: Any) -> None:
+    rows = [table.add("asha", f"same {n}", 0) for n in range(3)]
+    first = _call("GET", "/api/notifications?limit=2").json()
+    assert [item["id"] for item in first["items"]] == [rows[2].id, rows[1].id]
+    second = _call("GET", f"/api/notifications?limit=2&before={rows[1].id}").json()
+    assert [item["id"] for item in second["items"]] == [rows[0].id] and second["hasMore"] is False
 
 
 def test_marking_one_read_is_idempotent_and_keeps_the_first_moment(table: Any) -> None:

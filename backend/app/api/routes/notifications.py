@@ -54,21 +54,29 @@ async def list_notifications(
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Newest first. ``before`` is the id of the last notice already shown (the next page starts
-    after it); an id that is not the caller's, or no longer exists, starts from the top."""
+    after it); an id that is not the caller's, or no longer exists, starts from the top.
+
+    The next page is found from the anchor's OWN ``createdAt`` and ``id`` (keyset), not with a
+    Prisma cursor and ``skip=1``. With ``unreadOnly`` the anchor is often the notice the person just
+    opened, so it no longer matches the filter; a cursor would then skip the first real older notice."""
     where: dict[str, Any] = {"userId": current_user.id}
     if unreadOnly:
         where["readAt"] = None
-    query: dict[str, Any] = {
-        "where": where,
-        "order": [{"createdAt": "desc"}, {"id": "desc"}],
-        "take": limit + 1,
-    }
     if before:
         anchor = await db.notification.find_first(where={"id": before, "userId": current_user.id})
         if anchor is not None:
-            query["cursor"] = {"id": anchor.id}
-            query["skip"] = 1
-    rows = await db.notification.find_many(**query)
+            older = {
+                "OR": [
+                    {"createdAt": {"lt": anchor.createdAt}},
+                    {"createdAt": anchor.createdAt, "id": {"lt": anchor.id}},
+                ]
+            }
+            where = {"AND": [where, older]}
+    rows = await db.notification.find_many(
+        where=where,
+        order=[{"createdAt": "desc"}, {"id": "desc"}],
+        take=limit + 1,
+    )
     return {
         "items": [serialize(row) for row in rows[:limit]],
         "unreadCount": await _unread(current_user.id),
