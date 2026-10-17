@@ -454,7 +454,8 @@ class RecordProseTest {
         RecordFormKind.CRAFT to (5 to 1),
         // 2026-09-14: 13 → 15. `craftStartDate` and `experienceMonths` reached the wire with the
         // record-parity work; both are excluded, so no dictated total moves anywhere below.
-        RecordFormKind.ARTISAN to (6 to 15),
+        // 16 since 2026-10-17: `aadhaarNotShared`, the C18 "Not shared by artisan" switch.
+        RecordFormKind.ARTISAN to (6 to 16),
         // 2026-09-14: 6 → 7 for `workshopType`.
         RecordFormKind.WORKSHOP to (4 to 7),
         // 2026-09-14: 11 → 12 for `measurementMethods`, which the measurement-provenance work put on

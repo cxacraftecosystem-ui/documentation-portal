@@ -681,6 +681,12 @@ data class ArtisanCreateRequest(
     val experienceMonths: Int? = null,
     val pehchanCardAvailable: Boolean? = null,
     val pehchanCardNumber: String? = null,
+    /**
+     * C18 (owner decision 2026-10-17): the explicit "Not shared by artisan" outcome — the one way a
+     * NEW artisan saves without an Aadhaar, and it flags the record for follow-up. Null (absent) on
+     * every other save, so an older server and every queued entry see the body they always did.
+     */
+    val aadhaarNotShared: Boolean? = null,
     // Newline-separated, numbered Do's and Don'ts. Required on the
     // form; the backend requires them on create (nullable here so an update PATCH stays flexible).
     val dos: String? = null,
@@ -1175,6 +1181,8 @@ data class ArtisanDetailDto(
     // .xlsx report, exports — gets the "XXXX XXXX 9012" mask), because the edit form has to show the
     // researcher what is stored before they change it.
     val aadhaarNumber: String? = null,
+    /** C18: the artisan declined to share their Aadhaar; flagged for follow-up until a number is added. */
+    val aadhaarNotShared: Boolean = false,
     val dateOfBirth: String? = null,
     /** The day this artisan began practising. See [ArtisanCreateRequest.craftStartDate]. */
     val craftStartDate: String? = null,

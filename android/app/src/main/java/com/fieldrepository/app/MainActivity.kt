@@ -158,6 +158,7 @@ import com.fieldrepository.app.ui.questionTranscripts
 import com.fieldrepository.app.ui.transcriptOffer
 import com.fieldrepository.app.ui.TRANSCRIPT_SOURCE
 import com.fieldrepository.app.ui.ARTISAN_FIELD_OPTIONS
+import com.fieldrepository.app.ui.ArtisanLookupCard
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.material3.Surface
@@ -2479,6 +2480,7 @@ private fun HomeScreen(
                     craftSeed = craftSeed,
                     prefill = s.prefill,
                     adminView = adminView,
+                    onOpenExisting = { id -> message = null; openRecordView(EntryMode.ARTISAN, id) },
                     onArtisanCreated = { prefill, another ->
                         refreshLookups()
                         afterCreate(EntryMode.ARTISAN, prefill.artisanName, prefill, another)
@@ -6839,6 +6841,8 @@ private fun ArtisanForm(
     adminView: Boolean = false,
     /** A create landed: the sitting, and whether "Save and add another" was pressed (A8). */
     onArtisanCreated: ((Prefill, Boolean) -> Unit)? = null,
+    /** C18: the lookup found this artisan already recorded; open them instead of a second record. */
+    onOpenExisting: ((String) -> Unit)? = null,
     onDone: () -> Unit,
     onError: (String) -> Unit
 ) {
@@ -6861,7 +6865,13 @@ private fun ArtisanForm(
     // field, never part of the value. The Pehchan card defaults to "available", matching the API's
     // default and the common case, which is why its number is effectively required on create.
     var aadhaar by remember(editing) { mutableStateOf(editing?.aadhaarNumber.orEmpty()) }.drafted(draft, "aadhaar")
-    var pehchanAvailable by remember(editing) { mutableStateOf(editing?.pehchanCardAvailable ?: true) }.drafted(draft, "pehchanAvailable")
+    // C18: a NEW artisan's Pehchan card starts UNANSWERED. "Yes" used to be pre-answered, which made
+    // the card number silently required for somebody nobody had asked.
+    var pehchanAvailable by remember(editing) { mutableStateOf<Boolean?>(editing?.pehchanCardAvailable) }.drafted(draft, "pehchanAvailable")
+    // C18: "Not shared by artisan" — saves without an Aadhaar, flagged for follow-up.
+    var aadhaarNotShared by remember(editing) { mutableStateOf(editing?.aadhaarNotShared ?: false) }.drafted(draft, "aadhaarNotShared")
+    // C18: a new artisan opens on the lookup, until it is answered or a draft says it already was.
+    var lookupSettled by remember(editing) { mutableStateOf(editing != null) }.drafted(draft, "lookupSettled")
     var pehchanNumber by remember(editing) { mutableStateOf(editing?.pehchanCardNumber.orEmpty()) }.drafted(draft, "pehchanNumber")
     /*
      * ── THE TWO FACTS THE DESIGN WORKSHOP ASKS OF EVERY ARTISAN ─────────────────────────────
@@ -6970,7 +6980,7 @@ private fun ArtisanForm(
      * an Aadhaar. Once a record HAS a number, clearing it is still refused: that is data loss rather
      * than a legacy gap. Mirrors `aadhaarRequired` in components/forms/ArtisanForm.tsx.
      */
-    val aadhaarRequired = !isEdit || !editing?.aadhaarNumber.isNullOrBlank()
+    val aadhaarRequired = (!isEdit || !editing?.aadhaarNumber.isNullOrBlank()) && !aadhaarNotShared
     val nameFocus = remember { FocusRequester() }
     val placeFocus = remember { FocusRequester() }
     val craftFocus = remember { FocusRequester() }
@@ -6990,9 +7000,9 @@ private fun ArtisanForm(
     // person" while the form is still half empty, rather than as a 409 after filling all of it. The
     // short delay keeps this to one request per number instead of one per keystroke, and a failed
     // lookup is swallowed: this is a courtesy, and the unique index remains the real guarantee.
-    LaunchedEffect(aadhaar, editing?.id) {
+    LaunchedEffect(aadhaar, editing?.id, aadhaarNotShared) {
         aadhaarDuplicate = null
-        if (aadhaar.isBlank() || aadhaarValidationError(aadhaar) != null) return@LaunchedEffect
+        if (aadhaarNotShared || aadhaar.isBlank() || aadhaarValidationError(aadhaar) != null) return@LaunchedEffect
         delay(400)
         val match = runCatching { repository.lookupArtisanByAadhaar(aadhaar) }.getOrNull()?.artisan
         // Editing the very artisan who holds the number is not a duplicate.
@@ -7062,14 +7072,20 @@ private fun ArtisanForm(
         }
         // ...and it must be a genuine number when present — the same three checks the API runs,
         // applied here so a bad digit is caught with the card still in hand.
-        aadhaarValidationError(aadhaar)?.let { msg ->
+        if (!aadhaarNotShared) aadhaarValidationError(aadhaar)?.let { msg ->
             aadhaarError = msg
             runCatching { aadhaarFocus.requestFocus() }
             onError("Fix the Aadhaar number highlighted above."); return
         }
         aadhaarError = null
+        // C18: the card question has to be answered, one way or the other, on a new artisan.
+        if (pehchanAvailable == null && !isEdit) {
+            pehchanError = "Answer whether the artisan has a Pehchan card."
+            runCatching { pehchanFocus.requestFocus() }
+            onError("Answer the Pehchan card question."); return
+        }
         // "Card available = Yes" without a number is the one combination the API refuses outright.
-        if (pehchanAvailable && pehchanNumber.isBlank()) {
+        if (pehchanAvailable == true && pehchanNumber.isBlank()) {
             pehchanError = "Enter the Pehchan Card number, or set the card to 'No'."
             runCatching { pehchanFocus.requestFocus() }
             onError("Fix the Pehchan Card details."); return
@@ -7094,11 +7110,13 @@ private fun ArtisanForm(
                 // omitted key means "leave it alone" to a PATCH — which would make a wrongly entered
                 // Aadhaar impossible to retract from the app. The API normalises "" to null, and the
                 // column is one it deliberately allows a client to clear.
-                aadhaarNumber = aadhaar.trim(),
+                aadhaarNumber = if (aadhaarNotShared) "" else aadhaar.trim(),
+                // C18: sent only when it is the answer, or when it is being taken back on an edit.
+                aadhaarNotShared = if (aadhaarNotShared || editing?.aadhaarNotShared == true) aadhaarNotShared else null,
                 // Always sent explicitly, both ways: the API clears a stale card number when this is
                 // false, and only an explicit true can move a record back off "No".
                 pehchanCardAvailable = pehchanAvailable,
-                pehchanCardNumber = if (pehchanAvailable) pehchanNumber.blankToNull() else null,
+                pehchanCardNumber = if (pehchanAvailable == true) pehchanNumber.blankToNull() else null,
                 dateOfBirth = dateOfBirth?.toString(),
                 craftStartDate = craftStartDate?.toString(),
                 experienceYears = experienceYears.toIntOrNull(),
@@ -7183,6 +7201,20 @@ private fun ArtisanForm(
     val dictates = recordDictationFor(RecordFormKind.ARTISAN)
     RecordCard(title = if (isEdit) recordUpdateTitle("artisan") else "Add artisan") {
         DraftOfferCard(draft)
+        // C18: find before typing. Nothing below is drawn until the lookup is answered.
+        if (!lookupSettled) {
+            ArtisanLookupCard(
+                repository = repository,
+                onOpen = { id -> onOpenExisting?.invoke(id) },
+                onStart = { start ->
+                    if (start.name.isNotBlank() && name.isBlank()) name = start.name
+                    if (start.aadhaar.isNotBlank() && aadhaar.isBlank()) aadhaar = start.aadhaar
+                    lookupSettled = true
+                },
+                aadhaarProblem = { aadhaarValidationError(it) }
+            )
+            return@RecordCard
+        }
         RegisterUnsavedGuard(dirty = dirty) { another = false; submit() }
         media.draftInto(draft, "media")
         workshop.draftInto(draft)
@@ -7327,36 +7359,51 @@ private fun ArtisanForm(
             color = Muted,
             fontSize = 12.sp
         )
-        ArtisanAadhaarField(
-            value = aadhaar,
-            error = aadhaarError,
-            warning = aadhaarDuplicate,
-            required = aadhaarRequired,
-            focusRequester = aadhaarFocus
-        ) { aadhaar = it; aadhaarError = null }
+        if (!aadhaarNotShared) {
+            ArtisanAadhaarField(
+                value = aadhaar,
+                error = aadhaarError,
+                warning = aadhaarDuplicate,
+                required = aadhaarRequired,
+                focusRequester = aadhaarFocus
+            ) { aadhaar = it; aadhaarError = null }
+        }
+        // C18: the explicit outcome, clearly labelled. Never inferred from an empty box.
+        AppToggle(
+            label = "Not shared by artisan",
+            description = if (aadhaarNotShared) "Saved without an Aadhaar and flagged for follow-up." else "The artisan declined to give their Aadhaar.",
+            checked = aadhaarNotShared,
+            onCheckedChange = { on ->
+                aadhaarNotShared = on
+                aadhaarError = null
+                if (on) aadhaar = ""
+            }
+        )
         DropdownField(
-            label = "Artisan Pehchan Card available",
+            label = "Artisan Pehchan Card available *",
             options = listOf("yes" to "Yes", "no" to "No"),
-            selectedValue = if (pehchanAvailable) "yes" else "no",
+            selectedValue = when (pehchanAvailable) { true -> "yes"; false -> "no"; null -> "" },
+            placeholder = "Has the artisan a Pehchan card?",
             includeNone = false
         ) { choice ->
             pehchanAvailable = choice == "yes"
+            pehchanError = null
             // Answering No retires the number with the answer, so a disabled box can never leave a
             // card number stranded on a record that says the artisan holds no card.
-            if (!pehchanAvailable) { pehchanNumber = ""; pehchanError = null }
+            if (pehchanAvailable == false) pehchanNumber = ""
         }
         OutlinedTextField(
             value = pehchanNumber,
             // The API stores card numbers upper-cased; showing that as it is typed keeps the box
             // honest about what will actually be saved (web parity).
             onValueChange = { pehchanNumber = it.uppercase(); pehchanError = null },
-            label = { Text(if (pehchanAvailable) "Artisan Pehchan Card number *" else "Artisan Pehchan Card number") },
-            placeholder = { Text(if (pehchanAvailable) "As printed on the card" else "No card on record") },
-            enabled = pehchanAvailable,
+            label = { Text(if (pehchanAvailable == true) "Artisan Pehchan Card number *" else "Artisan Pehchan Card number") },
+            placeholder = { Text(if (pehchanAvailable == true) "As printed on the card" else "No card on record") },
+            enabled = pehchanAvailable == true,
             isError = pehchanError != null,
             supportingText = {
                 val hint = pehchanError
-                    ?: if (pehchanAvailable) {
+                    ?: if (pehchanAvailable == true) {
                         "The PM Vishwakarma artisan ID printed on the card."
                     } else {
                         "Set \"available\" to Yes to enter a number."
@@ -12730,7 +12777,11 @@ private fun ViewDataDetail(
                 DetailRow("Notes", v.notes)
                 // Browsing is a shared surface, so the Aadhaar is masked here even though the edit
                 // form (same record, same DTO) shows it in full to the person about to correct it.
-                DetailRow("Aadhaar number", maskAadhaar(v.aadhaarNumber))
+                DetailRow(
+                    "Aadhaar number",
+                    // C18: the explicit outcome reads as itself, and as the follow-up it is.
+                    if (v.aadhaarNotShared && v.aadhaarNumber.isNullOrBlank()) "Not shared by artisan — follow up" else maskAadhaar(v.aadhaarNumber)
+                )
                 DetailRow("Pehchan card", if (v.pehchanCardAvailable) "Yes" else "No")
                 DetailRow("Pehchan card number", v.pehchanCardNumber)
                 NumberedListDisplay("Do's", v.dos)
