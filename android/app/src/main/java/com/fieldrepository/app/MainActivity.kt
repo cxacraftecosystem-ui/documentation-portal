@@ -149,6 +149,8 @@ import com.fieldrepository.app.ui.holdsLocation
 import com.fieldrepository.app.ui.rememberPermissionGate
 import com.fieldrepository.app.ui.rememberKeepShootingCamera
 import com.fieldrepository.app.ui.KeepShootingToggle
+import com.fieldrepository.app.ui.nextStepChoices
+import com.fieldrepository.app.ui.nextStepHeading
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.material3.Surface
@@ -663,7 +665,9 @@ private sealed interface Screen {
          * figure counted. Carried on the destination alongside [prefill] because the search screen
          * owns its own filter state and takes no initial record type.
          */
-        val searchFocus: String? = null
+        val searchFocus: String? = null,
+        /** Makes a re-opened form a NEW screen, so it starts empty — see `createNonce`. */
+        val fresh: Int = 0
     ) : Screen
     data class Browse(val mode: EntryMode) : Screen
     /**
@@ -700,14 +704,27 @@ private sealed interface Screen {
     data class AdminHub(val section: AdminHubEntry? = null) : Screen
 }
 
-/** Context carried forward from a just-saved artisan into a follow-up record. */
+/** Context carried forward from a just-saved record into a follow-up record. */
 private data class Prefill(
     val artisanId: String? = null,
     val artisanName: String? = null,
     val place: String? = null,
     val craftId: String? = null,
-    val craftName: String? = null
+    val craftName: String? = null,
+    /** The product just saved, so "Document how it's made" opens the process form on it (A8). */
+    val productId: String? = null,
+    val productName: String? = null
 )
+
+/** The sitting minus the record itself: what "add another" of the same type starts from. */
+private fun Prefill.forAnother(mode: EntryMode): Prefill = when (mode) {
+    EntryMode.ARTISAN -> Prefill(craftId = craftId, craftName = craftName)
+    EntryMode.CRAFT -> Prefill()
+    else -> copy(productId = null, productName = null)
+}
+
+/** What was just created, for the dashboard's next-step panel (A8). */
+private data class NextStep(val saved: EntryMode, val name: String?, val prefill: Prefill)
 
 /**
  * The same handoff as a carry-context bag, so the in-memory route and the stored one describe the
@@ -722,14 +739,16 @@ private fun Prefill.toCarryContext(): CarryContext = CarryContext(
     artisanName = artisanName,
     place = place,
     craftId = craftId,
-    craftName = craftName
+    craftName = craftName,
+    productId = productId,
+    productName = productName
 )
 
 /**
  * [rememberCarryPrefill] with the two things every record form would otherwise repeat: where the bag
  * lives, and whose it is.
  *
- * [handoff] is the [Prefill] a tap on [CarryForwardPanel] carried across in memory. It is seconds
+ * [handoff] is the [Prefill] a tap on [NextStepPanel] carried across in memory. It is seconds
  * old, so it beats anything in storage — and it is banked on arrival, which is what lets a
  * researcher who leaves via the dashboard and comes back an hour later still be offered it.
  */
@@ -1488,7 +1507,10 @@ private fun HomeScreen(
     // The same memory for the pages whose list is their scroller (`ui/LazyPage.kt`): an item and its
     // offset, because a lazy list has no pixel position for rows it has not measured.
     val lazyScrollMemory = remember { mutableMapOf<Screen, LazyScrollMark>() }
-    var carryForward by remember { mutableStateOf<Prefill?>(null) }
+    var nextStep by remember { mutableStateOf<NextStep?>(null) }
+    // Bumped by every "Save and add another", so the same form opens again EMPTY: two equal
+    // Screen.Create values would otherwise keep the composition, and the form, of the first.
+    var createNonce by remember { mutableIntStateOf(0) }
     // "I can no longer see this record" and "there is no signal" are different answers, and the
     // carry prefill treats them differently: only a list that actually arrived is entitled to
     // disown a carried id. Held here because the two lookups below feed every create form.
@@ -1791,6 +1813,22 @@ private fun HomeScreen(
     fun goDashboard() {
         message = null
         screen = Screen.Dashboard
+    }
+
+    /**
+     * Where a create lands (A8). "Save and add another" re-opens the same form, empty but for the
+     * sitting; a plain save goes to the dashboard with the next-step panel for what was just saved.
+     */
+    fun afterCreate(mode: EntryMode, name: String?, prefill: Prefill, another: Boolean) {
+        refresh()
+        if (another) {
+            screen = Screen.Create(mode, prefill.forAnother(mode), fresh = ++createNonce)
+            message = "${mode.label} saved"
+        } else {
+            nextStep = NextStep(mode, name, prefill)
+            goDashboard()
+            message = "${mode.label} saved"
+        }
     }
 
     /**
@@ -2326,13 +2364,17 @@ private fun HomeScreen(
 
         when (val s = screen) {
             is Screen.Dashboard -> {
-                carryForward?.let { prefill ->
-                    CarryForwardPanel(
+                nextStep?.let { step ->
+                    NextStepPanel(
                         repository = repository,
-                        prefill = prefill,
-                        canCreateTool = canCreate(EntryMode.TOOL),
-                        onSelect = { mode -> screen = Screen.Create(mode, prefill); carryForward = null },
-                        onDismiss = { carryForward = null }
+                        step = step,
+                        canCreate = { canCreate(it) },
+                        onSelect = { mode ->
+                            val prefill = if (mode == step.saved) step.prefill.forAnother(mode) else step.prefill
+                            screen = Screen.Create(mode, prefill, fresh = ++createNonce)
+                            nextStep = null
+                        },
+                        onDismiss = { nextStep = null }
                     )
                 }
                 DashboardScreen(
@@ -2393,9 +2435,11 @@ private fun HomeScreen(
                 onError = { showMessage(it) }
             )
 
-            is Screen.Create -> when (s.mode) {
+            // Keyed on the screen itself, so a form re-opened by "Save and add another" starts empty.
+            is Screen.Create -> key(s) { when (s.mode) {
                 EntryMode.CRAFT -> CraftForm(
                     repository = repository,
+                    onCreated = { prefill, name, another -> refreshLookups(); afterCreate(EntryMode.CRAFT, name, prefill, another) },
                     onDone = { message = "Craft saved"; refresh(); refreshLookups(); goDashboard() },
                     onError = { showMessage(it) }
                 )
@@ -2406,11 +2450,9 @@ private fun HomeScreen(
                     craftSeed = craftSeed,
                     prefill = s.prefill,
                     adminView = adminView,
-                    onArtisanCreated = { prefill ->
-                        message = "Artisan saved"
-                        refresh(); refreshLookups()
-                        carryForward = prefill
-                        goDashboard()
+                    onArtisanCreated = { prefill, another ->
+                        refreshLookups()
+                        afterCreate(EntryMode.ARTISAN, prefill.artisanName, prefill, another)
                     },
                     onDone = { message = "Artisan saved"; refresh(); refreshLookups(); goDashboard() },
                     onError = { showMessage(it) }
@@ -2433,12 +2475,15 @@ private fun HomeScreen(
                     artisanSeed = artisanSeed,
                     prefill = s.prefill,
                     adminView = adminView,
+                    onCreated = { prefill, name, another -> afterCreate(EntryMode.PRODUCT, name, prefill, another) },
                     onDone = { message = "Product saved"; refresh(); goDashboard() },
                     onError = { showMessage(it) }
                 )
                 EntryMode.PROCESS -> ProcessForm(
                     repository = repository,
                     adminView = adminView,
+                    prefill = s.prefill,
+                    onCreated = { prefill, name, another -> afterCreate(EntryMode.PROCESS, name, prefill, another) },
                     onDone = { message = "Process saved"; refresh(); goDashboard() },
                     onError = { showMessage(it) }
                 )
@@ -2507,6 +2552,7 @@ private fun HomeScreen(
                     artisanSeed = artisanSeed,
                     prefill = s.prefill,
                     adminView = adminView,
+                    onCreated = { prefill, name, another -> afterCreate(EntryMode.TOOL, name, prefill, another) },
                     onDone = { message = "Tool saved"; refresh(); goDashboard() },
                     onError = { showMessage(it) }
                 )
@@ -2592,7 +2638,7 @@ private fun HomeScreen(
                         onEnable = { requestAdminView(true) }
                     )
                 }
-            }
+            } }
 
             is Screen.Edit -> if (s.mode == EntryMode.QUESTIONNAIRE) {
                 InterviewEditLoader(
@@ -3137,40 +3183,52 @@ private fun TimePickerField(label: String, value: String, onChange: (String) -> 
     }
 }
 
-/** Post-save shortcuts that carry the just-saved artisan into a follow-up record. */
+/**
+ * The next-step panel (A8): after any create, the forms a researcher usually opens next, each
+ * pre-filled with the sitting — artisan, craft, place, and the product itself for a process.
+ */
 @Composable
-private fun CarryForwardPanel(
+private fun NextStepPanel(
     repository: FieldRepository,
-    prefill: Prefill,
-    canCreateTool: Boolean,
+    step: NextStep,
+    canCreate: (EntryMode) -> Boolean,
     onSelect: (EntryMode) -> Unit,
     onDismiss: () -> Unit
 ) {
     val appContext = LocalContext.current.applicationContext
-    // These shortcuts hand the artisan on in memory, which only survives a tap made from this panel
+    // These shortcuts hand the sitting on in memory, which only survives a tap made from this panel
     // — and the panel dies on dismissal, on navigating away, and whenever Android reclaims a
     // backgrounded app. Banking the same bag covers the route researchers actually take: out via the
     // dashboard, back into a product form later. Web parity — CarryForwardCards remembers on mount.
-    LaunchedEffect(prefill) {
-        CarryContextStore(appContext).remember(repository.cachedUser()?.id, prefill.toCarryContext())
+    LaunchedEffect(step) {
+        CarryContextStore(appContext).remember(repository.cachedUser()?.id, step.prefill.toCarryContext())
     }
+    val choices = nextStepChoices(step.saved.name, hasProduct = step.prefill.productId != null)
+        .mapNotNull { choice ->
+            runCatching { EntryMode.valueOf(choice.modeName) }.getOrNull()
+                ?.takeIf(canCreate)
+                ?.let { it to choice.label }
+        }
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Saved ${prefill.artisanName ?: "artisan"} ✓", display = true, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
-            Text("Keep going for the same artisan — details are pre-filled.", color = Muted, fontSize = 12.sp)
-            ActionRow {
-                Button(onClick = { onSelect(EntryMode.PRODUCT) }) { Text("Add product") }
-                if (canCreateTool) {
-                    Button(onClick = { onSelect(EntryMode.TOOL) }) { Text("Add tool") }
-                }
+            Text(nextStepHeading(step.saved.label, step.name), display = true, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
+            if (choices.isNotEmpty()) {
+                Text(
+                    step.prefill.artisanName?.let { "Next, for $it. Details are filled in." } ?: "Next. Details are filled in.",
+                    color = Muted,
+                    fontSize = 12.sp
+                )
             }
             ActionRow {
-                OutlinedButton(onClick = { onSelect(EntryMode.QUESTIONNAIRE) }) { Text("Take interview") }
-                OutlinedButton(onClick = onDismiss) { Text("Dismiss") }
+                choices.forEachIndexed { index, (mode, label) ->
+                    if (index == 0) Button(onClick = { onSelect(mode) }) { Text(label) }
+                    else OutlinedButton(onClick = { onSelect(mode) }) { Text(label) }
+                }
+                TextButton(onClick = onDismiss) { Text("Done") }
             }
         }
     }
@@ -6591,6 +6649,8 @@ private fun CraftForm(
     repository: FieldRepository,
     editing: CraftDto? = null,
     adminView: Boolean = false,
+    /** A create landed: the sitting, the record's name, and whether "Save and add another" was pressed. */
+    onCreated: ((Prefill, String?, Boolean) -> Unit)? = null,
     onDone: () -> Unit,
     onError: (String) -> Unit
 ) {
@@ -6609,6 +6669,13 @@ private fun CraftForm(
     var saving by remember { mutableStateOf(false) }
     var nameError by remember { mutableStateOf<String?>(null) }
     val nameFocus = remember { FocusRequester() }
+    var another by remember { mutableStateOf(false) }
+    /** Where a finished save goes: the next-step panel or another form for a create, else [onDone]. */
+    fun finish(craftId: String?, queued: Boolean) {
+        val created = onCreated
+        if (isEdit || created == null || (queued && !another)) { onDone(); return }
+        created(Prefill(craftId = craftId, craftName = name.trim()), name.trim(), another)
+    }
 
     fun submit() {
         if (!validateRequired(listOf(
@@ -6635,7 +6702,7 @@ private fun CraftForm(
             if (queuedOffline) {
                 media.reset()
                 onError("Saved offline. Uploads when you're online.")
-                draft.clear(); onDone()
+                draft.clear(); finish(null, queued = true)
                 saving = false
                 return@launch
             }
@@ -6647,10 +6714,11 @@ private fun CraftForm(
                         { media.offlineSpecs(name.trim(), "Field media for ${name.trim()}") }) { key -> repository.createCraft(body, key) }.id
                 }
                 uploadAttachments(repository, context, media, "craft", craftId, name, "Field media for ${name.trim()}")
-            }.onSuccess {
+                craftId
+            }.onSuccess { craftId ->
                 media.reset()
-                draft.clear(); onDone()
-            }.onFailure { if (it is KeptOnDevice) { media.reset(); draft.clear(); onError(it.message!!); onDone() } else onError(it.apiErrorMessage("Unable to save craft")) }
+                draft.clear(); finish(craftId, queued = false)
+            }.onFailure { if (it is KeptOnDevice) { media.reset(); draft.clear(); onError(it.message!!); finish(null, queued = true) } else onError(it.apiErrorMessage("Unable to save craft")) }
             saving = false
         }
     }
@@ -6666,7 +6734,7 @@ private fun CraftForm(
     val dictates = recordDictationFor(RecordFormKind.CRAFT)
     RecordCard(title = if (isEdit) recordUpdateTitle("craft") else "Add craft") {
         DraftOfferCard(draft)
-        RegisterUnsavedGuard(dirty = dirty) { submit() }
+        RegisterUnsavedGuard(dirty = dirty) { another = false; submit() }
         media.draftInto(draft, "media")
         workshop.draftInto(draft)
         FormDraftAutosave(draft, dirty, label = name)
@@ -6688,10 +6756,12 @@ private fun CraftForm(
             RecordMediaSection(repository = repository, context = context, linkedType = "craft", recordId = editing!!.id, onError = onError)
         }
         MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
-        SaveButton(
+        SaveButtons(
             state = if (saving) SaveState.SAVING else SaveState.IDLE,
-            idleLabel = if (isEdit) "Update craft" else "Save craft"
-        ) { submit() }
+            idleLabel = if (isEdit) "Update craft" else "Save craft",
+            onSave = { another = false; submit() },
+            onSaveAnother = if (!isEdit && onCreated != null) ({ another = true; submit() }) else null
+        )
     }
 }
 
@@ -6706,7 +6776,8 @@ private fun ArtisanForm(
     editing: ArtisanDetailDto? = null,
     prefill: Prefill? = null,
     adminView: Boolean = false,
-    onArtisanCreated: (Prefill) -> Unit = {},
+    /** A create landed: the sitting, and whether "Save and add another" was pressed (A8). */
+    onArtisanCreated: ((Prefill, Boolean) -> Unit)? = null,
     onDone: () -> Unit,
     onError: (String) -> Unit
 ) {
@@ -6877,6 +6948,20 @@ private fun ArtisanForm(
         }
     }
 
+    var another by remember { mutableStateOf(false) }
+    /**
+     * A save that went to the outbox. The artisan has no id yet, so there is nothing to carry on to a
+     * product; only "Save and add another" re-opens the form, keeping the craft.
+     */
+    fun finishQueued() {
+        val created = onArtisanCreated
+        if (isEdit || created == null || !another) { onDone(); return }
+        created(
+            Prefill(craftId = craftId.ifBlank { null }, craftName = craftOptions.firstOrNull { it.id == craftId }?.name ?: newCraftName.blankToNull()),
+            true
+        )
+    }
+
     fun submit() {
         val dosText = joinNumbered(dosItems)
         val dontsText = joinNumbered(dontsItems)
@@ -6976,7 +7061,7 @@ private fun ArtisanForm(
             if (queuedOffline) {
                 media.reset()
                 onError("Saved offline. Uploads when you're online.")
-                draft.clear(); onDone()
+                draft.clear(); finishQueued()
                 saving = false
                 return@launch
             }
@@ -7003,13 +7088,14 @@ private fun ArtisanForm(
                         craftName = resolvedCraftName
                     )
                     media.reset()
-                    draft.clear(); onArtisanCreated(prefillOut)
+                    draft.clear()
+                    onArtisanCreated?.invoke(prefillOut, another) ?: onDone()
                 }
             }.onFailure {
                 // A duplicate Aadhaar/Pehchan number comes back as a structured 409 whose message
                 // names the artisan already holding it — far more use than "HTTP 409 Conflict", which
                 // is all the exception itself says.
-                if (it is KeptOnDevice) { media.reset(); draft.clear(); onError(it.message!!); onDone() } else onError(it.apiErrorMessage("Unable to save artisan"))
+                if (it is KeptOnDevice) { media.reset(); draft.clear(); onError(it.message!!); finishQueued() } else onError(it.apiErrorMessage("Unable to save artisan"))
             }
             saving = false
         }
@@ -7036,7 +7122,7 @@ private fun ArtisanForm(
     val dictates = recordDictationFor(RecordFormKind.ARTISAN)
     RecordCard(title = if (isEdit) recordUpdateTitle("artisan") else "Add artisan") {
         DraftOfferCard(draft)
-        RegisterUnsavedGuard(dirty = dirty) { submit() }
+        RegisterUnsavedGuard(dirty = dirty) { another = false; submit() }
         media.draftInto(draft, "media")
         workshop.draftInto(draft)
         FormDraftAutosave(draft, dirty, label = name)
@@ -7240,10 +7326,12 @@ private fun ArtisanForm(
             RecordMediaSection(repository = repository, context = context, linkedType = "artisan", recordId = editing!!.id, onError = onError)
         }
         MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
-        SaveButton(
+        SaveButtons(
             state = if (saving) SaveState.SAVING else SaveState.IDLE,
-            idleLabel = if (isEdit) "Update artisan" else "Save artisan"
-        ) { submit() }
+            idleLabel = if (isEdit) "Update artisan" else "Save artisan",
+            onSave = { another = false; submit() },
+            onSaveAnother = if (!isEdit && onArtisanCreated != null) ({ another = true; submit() }) else null
+        )
     }
 }
 
@@ -7455,6 +7543,8 @@ private fun ProductForm(
     editing: ProductDetailDto? = null,
     prefill: Prefill? = null,
     adminView: Boolean = false,
+    /** A create landed: the sitting, the record's name, and whether "Save and add another" was pressed. */
+    onCreated: ((Prefill, String?, Boolean) -> Unit)? = null,
     onDone: () -> Unit,
     onError: (String) -> Unit
 ) {
@@ -7564,6 +7654,25 @@ private fun ProductForm(
     val craftNameFocus = remember { FocusRequester() }
     val artisanNameFocus = remember { FocusRequester() }
     val placeFocus = remember { FocusRequester() }
+    var another by remember { mutableStateOf(false) }
+    /** Where a finished save goes: the next-step panel or another form for a create, else [onDone]. */
+    fun finish(productId: String?, queued: Boolean) {
+        val created = onCreated
+        if (isEdit || created == null || (queued && !another)) { onDone(); return }
+        created(
+            Prefill(
+                artisanId = artisanId.ifBlank { null },
+                artisanName = artisanName.blankToNull(),
+                place = place.blankToNull(),
+                craftId = craftId.ifBlank { null },
+                craftName = craftName.blankToNull(),
+                productId = productId,
+                productName = productName.trim()
+            ),
+            productName.trim(),
+            another
+        )
+    }
 
     LaunchedEffect(editing) {
         val existing = editing?.location
@@ -7648,7 +7757,7 @@ private fun ProductForm(
                 carry.remember(sitting)
                 media.reset()
                 onError("Saved offline. Uploads when you're online.")
-                draft.clear(); onDone()
+                draft.clear(); finish(null, queued = true)
                 saving = false
                 return@launch
             }
@@ -7666,8 +7775,8 @@ private fun ProductForm(
                 // the process form should be offering this one rather than making them find it again.
                 carry.remember(sitting.copy(productId = productId, productName = productName.trim()))
                 media.reset()
-                draft.clear(); onDone()
-            }.onFailure { if (it is KeptOnDevice) { carry.prune(CarryNode.PRODUCT); carry.remember(sitting); media.reset(); draft.clear(); onError(it.message!!); onDone() } else onError(it.apiErrorMessage("Unable to save product")) }
+                draft.clear(); finish(productId, queued = false)
+            }.onFailure { if (it is KeptOnDevice) { carry.prune(CarryNode.PRODUCT); carry.remember(sitting); media.reset(); draft.clear(); onError(it.message!!); finish(null, queued = true) } else onError(it.apiErrorMessage("Unable to save product")) }
             saving = false
         }
     }
@@ -7693,7 +7802,7 @@ private fun ProductForm(
     val dictates = recordDictationFor(RecordFormKind.PRODUCT)
     RecordCard(title = if (isEdit) recordUpdateTitle("product") else "Add product") {
         DraftOfferCard(draft)
-        RegisterUnsavedGuard(dirty = dirty) { submit() }
+        RegisterUnsavedGuard(dirty = dirty) { another = false; submit() }
         media.draftInto(draft, "media")
         workshop.draftInto(draft)
         FormDraftAutosave(draft, dirty, label = productName)
@@ -7865,10 +7974,12 @@ private fun ProductForm(
             RecordMediaSection(repository = repository, context = context, linkedType = "product", recordId = editing!!.id, onError = onError)
         }
         MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
-        SaveButton(
+        SaveButtons(
             state = if (saving) SaveState.SAVING else SaveState.IDLE,
-            idleLabel = if (isEdit) "Update product" else "Save product"
-        ) { submit() }
+            idleLabel = if (isEdit) "Update product" else "Save product",
+            onSave = { another = false; submit() },
+            onSaveAnother = if (!isEdit && onCreated != null) ({ another = true; submit() }) else null
+        )
     }
 }
 
@@ -7885,6 +7996,8 @@ private fun ToolForm(
     editing: ToolDetailDto? = null,
     prefill: Prefill? = null,
     adminView: Boolean = false,
+    /** A create landed: the sitting, the record's name, and whether "Save and add another" was pressed. */
+    onCreated: ((Prefill, String?, Boolean) -> Unit)? = null,
     onDone: () -> Unit,
     onError: (String) -> Unit
 ) {
@@ -8343,6 +8456,24 @@ private fun ToolForm(
         if (existing != null && media.location == null) media.location = existing.toRequest()
     }
 
+    var another by remember { mutableStateOf(false) }
+    /** Where a finished save goes: the next-step panel or another form for a create, else [onDone]. */
+    fun finish(queued: Boolean) {
+        val created = onCreated
+        if (isEdit || created == null || (queued && !another)) { onDone(); return }
+        created(
+            Prefill(
+                artisanId = artisanId.ifBlank { null },
+                artisanName = artisanName.blankToNull(),
+                place = place.blankToNull(),
+                craftId = craftId.ifBlank { null },
+                craftName = carriedCraftName()
+            ),
+            toolkitName.trim(),
+            another
+        )
+    }
+
     fun submit() {
         if (!validateRequired(listOf(
                 RequiredCheck(toolkitName.isBlank(), { toolkitNameError = it }, toolkitNameFocus),
@@ -8527,7 +8658,7 @@ private fun ToolForm(
                     }
                     media.reset(); stages.reset()
                     onError("Saved offline. Uploads when you're online.")
-                    draft.clear(); onDone(); saving = false; return@launch
+                    draft.clear(); finish(queued = true); saving = false; return@launch
                 } else onError("Couldn't save offline")
                 saving = false; return@launch
             }
@@ -8578,8 +8709,8 @@ private fun ToolForm(
                 carry.remember(sitting.copy(toolId = toolId, toolName = toolkitName.trim()))
                 media.reset()
                 stages.reset()
-                draft.clear(); onDone()
-            }.onFailure { if (it is KeptOnDevice) { carry.prune(CarryNode.TOOL); carry.remember(sitting); media.reset(); stages.reset(); draft.clear(); onError(it.message!!); onDone() } else onError(it.apiErrorMessage("Unable to save tool")) }
+                draft.clear(); finish(queued = false)
+            }.onFailure { if (it is KeptOnDevice) { carry.prune(CarryNode.TOOL); carry.remember(sitting); media.reset(); stages.reset(); draft.clear(); onError(it.message!!); finish(queued = true) } else onError(it.apiErrorMessage("Unable to save tool")) }
             saving = false
         }
     }
@@ -8612,7 +8743,7 @@ private fun ToolForm(
     val dictates = recordDictationFor(RecordFormKind.TOOL)
     RecordCard(title = if (isEdit) recordUpdateTitle("tool") else "Add tool") {
         DraftOfferCard(draft)
-        RegisterUnsavedGuard(dirty = dirty) { submit() }
+        RegisterUnsavedGuard(dirty = dirty) { another = false; submit() }
         media.draftInto(draft, "media")
         stages.draftInto(draft, "stages")
         workshop.draftInto(draft)
@@ -8880,10 +9011,12 @@ private fun ToolForm(
             RecordMediaSection(repository = repository, context = context, linkedType = "tool", recordId = editing!!.id, onError = onError)
         }
         MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
-        SaveButton(
+        SaveButtons(
             state = if (saving) SaveState.SAVING else SaveState.IDLE,
-            idleLabel = if (isEdit) "Update tool" else "Save tool"
-        ) { submit() }
+            idleLabel = if (isEdit) "Update tool" else "Save tool",
+            onSave = { another = false; submit() },
+            onSaveAnother = if (!isEdit && onCreated != null) ({ another = true; submit() }) else null
+        )
     }
 }
 
@@ -9025,6 +9158,10 @@ private fun ProcessForm(
     repository: FieldRepository,
     editing: ProcessDetailDto? = null,
     adminView: Boolean = false,
+    /** The sitting a next-step tap carried in — the product "Document how it's made" was pressed on. */
+    prefill: Prefill? = null,
+    /** A create landed: the sitting, the record's name, and whether "Save and add another" was pressed. */
+    onCreated: ((Prefill, String?, Boolean) -> Unit)? = null,
     onDone: () -> Unit,
     onError: (String) -> Unit
 ) {
@@ -9058,6 +9195,7 @@ private fun ProcessForm(
     var existingPreMedia by remember(editing) { mutableStateOf(editing?.media ?: emptyList()) }
     val nameFocus = remember { FocusRequester() }
     var addMenu by remember { mutableStateOf(false) }
+    var another by remember { mutableStateOf(false) }
 
     val steps = remember(editing) {
         mutableStateListOf<ProcessStepUi>().apply {
@@ -9113,7 +9251,8 @@ private fun ProcessForm(
         // is merely off page one was FETCHED by id, which is proof they exist, and pruning them would
         // drop a good link for the "absent from page one" reason this change set exists to stop
         // conflating with "absent from the repository".
-        scopes = listOf(carryScope(CarryNode.ARTISAN, artisanListState, artisanOptions) { it.id })
+        scopes = listOf(carryScope(CarryNode.ARTISAN, artisanListState, artisanOptions) { it.id }),
+        handoff = prefill
     ) { carried ->
         carried.artisanId?.let { artisanId = it }
         carried.productId?.let { carriedProduct.value = it }
@@ -9175,6 +9314,25 @@ private fun ProcessForm(
             artisanProducts = emptyList()
             productLoadError = "${it.apiErrorMessage("Couldn't load this artisan's products.")} Tap the artisan again to retry."
         }
+    }
+
+    /** Where a finished save goes: the next-step panel or another form for a create, else [onDone]. */
+    fun finishProcess(sitting: CarryContext, queued: Boolean) {
+        val created = onCreated
+        if (isEdit || created == null || (queued && !another)) { onDone(); return }
+        created(
+            Prefill(
+                artisanId = sitting.artisanId,
+                artisanName = sitting.artisanName,
+                place = sitting.place,
+                craftId = sitting.craftId,
+                craftName = sitting.craftName,
+                productId = sitting.productId,
+                productName = sitting.productName
+            ),
+            name.trim(),
+            another
+        )
     }
 
     fun submit() {
@@ -9271,7 +9429,7 @@ private fun ProcessForm(
                     carry.remember(sitting)
                     preMedia.reset(); steps.forEach { it.media.reset() }
                     onError("Saved offline. Uploads when you're online.")
-                    draft.clear(); onDone()
+                    draft.clear(); finishProcess(sitting, queued = true)
                 } else onError("Couldn't save offline")
                 saving = false
                 return@launch
@@ -9333,8 +9491,8 @@ private fun ProcessForm(
                 carry.remember(sitting)
                 preMedia.reset()
                 steps.forEach { it.media.reset() }
-                draft.clear(); onDone()
-            }.onFailure { if (it is KeptOnDevice) { carry.remember(sitting); preMedia.reset(); steps.forEach { s -> s.media.reset() }; draft.clear(); onError(it.message!!); onDone() } else onError(it.apiErrorMessage("Unable to save process")) }
+                draft.clear(); finishProcess(sitting, queued = false)
+            }.onFailure { if (it is KeptOnDevice) { carry.remember(sitting); preMedia.reset(); steps.forEach { s -> s.media.reset() }; draft.clear(); onError(it.message!!); finishProcess(sitting, queued = true) } else onError(it.apiErrorMessage("Unable to save process")) }
             saving = false
         }
     }
@@ -9359,7 +9517,7 @@ private fun ProcessForm(
     val dictates = recordDictationFor(RecordFormKind.PROCESS)
     RecordCard(title = if (isEdit) recordUpdateTitle("process") else "Document process") {
         DraftOfferCard(draft)
-        RegisterUnsavedGuard(dirty = dirty) { submit() }
+        RegisterUnsavedGuard(dirty = dirty) { another = false; submit() }
         preMedia.draftInto(draft, "preMedia")
         workshop.draftInto(draft)
         bindProcessSteps(draft, steps) { id -> editing?.steps?.firstOrNull { it.id == id }?.media.orEmpty() }
@@ -9566,10 +9724,12 @@ private fun ProcessForm(
             )
         }
 
-        SaveButton(
+        SaveButtons(
             state = if (saving) SaveState.SAVING else SaveState.IDLE,
-            idleLabel = if (isEdit) "Update process" else "Save process"
-        ) { submit() }
+            idleLabel = if (isEdit) "Update process" else "Save process",
+            onSave = { another = false; submit() },
+            onSaveAnother = if (!isEdit && onCreated != null) ({ another = true; submit() }) else null
+        )
     }
 }
 
@@ -17176,6 +17336,28 @@ private fun SaveButton(
             }
             SaveState.IDLE -> Text(idleLabel)
         }
+    }
+}
+
+/**
+ * The save control of a create form (A8): the form's own save and, beside it, "Save and add another",
+ * which saves and opens the same form again with the sitting kept. [onSaveAnother] null (an edit, or
+ * a host with nowhere to re-open the form) draws the single full-width button it always was.
+ */
+@Composable
+private fun SaveButtons(
+    state: SaveState,
+    idleLabel: String,
+    onSave: () -> Unit,
+    onSaveAnother: (() -> Unit)?
+) {
+    if (onSaveAnother == null) {
+        SaveButton(state = state, idleLabel = idleLabel, onClick = onSave)
+        return
+    }
+    ActionRow {
+        SaveButton(state = state, idleLabel = idleLabel, modifier = Modifier, onClick = onSave)
+        OutlinedButton(onClick = onSaveAnother, enabled = state == SaveState.IDLE) { Text("Save and add another") }
     }
 }
 
