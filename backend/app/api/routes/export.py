@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response, StreamingResponse
 
 # _seg (filesystem-safe segment) and _uniq (collision-free path) are SHARED with the data browser
@@ -14,6 +14,7 @@ from fastapi.responses import Response, StreamingResponse
 # (FieldRepository.readManifest on Android) would need two parsers, which is how the two manifests
 # drifted apart the last time they were written separately.
 from app.api.routes.data_browser import (
+    data_status,
     _seg,
     _uniq,
     manifest_ndjson_response,
@@ -442,16 +443,28 @@ def _require_dataset_download(current_user: Any) -> None:
         )
 
 
+def _with_status(where: dict[str, Any], status_value: str | None) -> dict[str, Any]:
+    """Narrow an export to one review status (C21: an export means "approved"). ALL or absent keeps
+    every row, which is what an older client asking without the parameter has always had."""
+    wanted = data_status(status_value)
+    if not wanted:
+        return where
+    return {"AND": [where, {"status": wanted}]} if where else {"status": wanted}
+
+
 # createdBy feeds the "Created by" provenance column the registry appends to every row; media and
 # workshop feed the media columns and the row's workshop title.
 _CSV_INCLUDE = {"media": True, "createdBy": True, "workshop": True}
 
 
 @router.get("/products.csv")
-async def export_products(current_user: Any = Depends(get_current_user)) -> Response:
+async def export_products(
+    current_user: Any = Depends(get_current_user),
+    status_value: str | None = Query(None, alias="status"),
+) -> Response:
     _require_dataset_download(current_user)
     records = await db.productdocumentation.find_many(
-        where=await owned_or_granted_where(current_user),
+        where=_with_status(await owned_or_granted_where(current_user), status_value),
         include=_CSV_INCLUDE,
         take=EXPORT_TAKE,
         order={"createdAt": "desc"},
@@ -461,10 +474,13 @@ async def export_products(current_user: Any = Depends(get_current_user)) -> Resp
 
 
 @router.get("/tools.csv")
-async def export_tools(current_user: Any = Depends(get_current_user)) -> Response:
+async def export_tools(
+    current_user: Any = Depends(get_current_user),
+    status_value: str | None = Query(None, alias="status"),
+) -> Response:
     _require_dataset_download(current_user)
     records = await db.tooldocumentation.find_many(
-        where=await owned_or_granted_where(current_user),
+        where=_with_status(await owned_or_granted_where(current_user), status_value),
         include=_CSV_INCLUDE,
         take=EXPORT_TAKE,
         order={"createdAt": "desc"},

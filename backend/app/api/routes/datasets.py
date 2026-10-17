@@ -124,6 +124,7 @@ class Dataset:
         owner_field: str = "createdById",
         workshop_filter: str = "column",
         media_tags: tuple[str, ...] = (),
+        has_status: bool = True,
     ) -> None:
         self.name = name
         #: Attribute on the Prisma client — the model name lowercased, e.g. ``productdocumentation``.
@@ -147,6 +148,9 @@ class Dataset:
         #: ``MediaFile.linkedRecordType`` values that attach a file to a row of THIS table, for a
         #: model with no ``media`` back-relation to load. Empty for every table that has one.
         self.media_tags = media_tags
+        #: Whether rows carry a review ``status`` the ``status`` filter can narrow. Craft has none:
+        #: the vocabulary is not reviewed, so a status filter leaves that table whole.
+        self.has_status = has_status
 
     @property
     def model(self) -> Any:
@@ -191,6 +195,7 @@ DATASETS: dict[str, Dataset] = {
             "media": True,
         },
         workshop_filter="craft",
+        has_status=False,
     ),
     "artisans": Dataset(
         name="artisans",
@@ -289,6 +294,7 @@ def _build_where(
     created_by: str | None,
     updated_since: datetime | None,
     created_since: datetime | None,
+    status_filter: str | None = None,
 ) -> dict[str, Any]:
     """The row filter for one dataset, composed the way every other list route composes one.
 
@@ -323,8 +329,27 @@ def _build_where(
         # For an incremental mirror: "everything that changed since my last run". updatedAt is
         # maintained by Prisma's @updatedAt on every model in this registry.
         clauses.append({"updatedAt": {"gte": updated_since}})
+    if status_filter and dataset.has_status:
+        # C21: "approved" is what a published export means. Optional on this API so mirrors that
+        # take every row keep working; the web's Data page asks for APPROVED by default.
+        clauses.append({"status": status_filter})
 
     return {"AND": clauses} if clauses else {}
+
+
+RECORD_STATUSES = ("DRAFT", "PENDING", "APPROVED", "REJECTED", "NEEDS_REVISION")
+
+
+def _status_or_422(value: str | None) -> str | None:
+    if value is None or not value.strip() or value.strip().upper() == "ALL":
+        return None
+    wanted = value.strip().upper()
+    if wanted not in RECORD_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"status must be one of {', '.join(RECORD_STATUSES)} or ALL",
+        )
+    return wanted
 
 
 def _presign_media_row(row: Any) -> dict[str, Any] | None:
@@ -696,6 +721,7 @@ async def stream_dataset_ndjson(
     createdBy: str | None = None,
     updatedSince: datetime | None = None,
     createdSince: datetime | None = None,
+    status_value: str | None = Query(None, alias="status"),
     presign: bool = False,
     includeIdentityNumbers: bool = False,
     current_user: Any = Depends(require_dataset_admin),
@@ -715,6 +741,7 @@ async def stream_dataset_ndjson(
         created_by=createdBy,
         updated_since=updatedSince,
         created_since=createdSince,
+        status_filter=_status_or_422(status_value),
     )
     sign = presign and dataset.name == "media"
     total = await dataset.model.count(where=where)
@@ -741,6 +768,7 @@ async def stream_dataset_csv(
     createdBy: str | None = None,
     updatedSince: datetime | None = None,
     createdSince: datetime | None = None,
+    status_value: str | None = Query(None, alias="status"),
     current_user: Any = Depends(require_dataset_admin),
 ) -> StreamingResponse:
     """The whole dataset as CSV, streamed, with no row cap.
@@ -762,6 +790,7 @@ async def stream_dataset_csv(
         created_by=createdBy,
         updated_since=updatedSince,
         created_since=createdSince,
+        status_filter=_status_or_422(status_value),
     )
     total = await dataset.model.count(where=where)
 
@@ -810,6 +839,7 @@ async def read_dataset_page(
     createdBy: str | None = None,
     updatedSince: datetime | None = None,
     createdSince: datetime | None = None,
+    status_value: str | None = Query(None, alias="status"),
     presign: bool = False,
     includeIdentityNumbers: bool = False,
     page: int = Query(1, ge=1),
@@ -833,6 +863,7 @@ async def read_dataset_page(
         created_by=createdBy,
         updated_since=updatedSince,
         created_since=createdSince,
+        status_filter=_status_or_422(status_value),
     )
     total, rows = await gather_reads(
         dataset.model.count(where=where),

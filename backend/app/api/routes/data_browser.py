@@ -377,11 +377,36 @@ class Scope:
         return bool(self.records or self.media)
 
 
-async def _scope_for(user: Any) -> Scope:
-    return Scope(
-        records=await owned_or_granted_where(user),
-        media=await owned_or_granted_where(user, owner_field="uploadedById"),
-    )
+#: The review states the Data page can narrow to (C21). "APPROVED" is what an export means.
+DATA_STATUSES = ("APPROVED", "PENDING", "NEEDS_REVISION", "REJECTED")
+
+
+def data_status(value: str | None) -> str | None:
+    """The ``status`` query parameter, checked. Absent or ``ALL`` is every status."""
+    if value is None or not value.strip() or value.strip().upper() == "ALL":
+        return None
+    wanted = value.strip().upper()
+    if wanted not in DATA_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"status must be one of {', '.join(DATA_STATUSES)} or ALL",
+        )
+    return wanted
+
+
+async def _scope_for(user: Any, status_filter: str | None = None) -> Scope:
+    """Visibility, and optionally one review status, for every record table and the media table.
+
+    The status narrows rows the same way visibility does — ANDed into both filters, which every
+    lister already composes — and never touches crafts, which carry no status. Media inherits its
+    record's approval (``review.approve_record_media``), so "approved" reads the same on both.
+    """
+    records = await owned_or_granted_where(user)
+    media = await owned_or_granted_where(user, owner_field="uploadedById")
+    if status_filter:
+        records = _and(records, {"status": status_filter})
+        media = _and(media, {"status": status_filter})
+    return Scope(records=records, media=media)
 
 
 def _and(where: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
@@ -1735,6 +1760,7 @@ async def _locate_path(record_type: str, record_id: str, scope: Scope) -> str | 
 async def data_locate(
     type: str = Query(..., description="workshop | craft | artisan | product | tool | process | interview | media"),
     id: str = Query(..., min_length=1),
+    status_value: str | None = Query(None, alias="status"),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, str | None]:
     """The tree path that holds this record, or ``{"path": null}`` when nothing files it yet.
@@ -1742,22 +1768,25 @@ async def data_locate(
     A null is not an error: a product whose artisan has never been attached to a workshop genuinely
     has no folder, and the caller should say so rather than open the wrong one.
     """
-    scope = await _scope_for(current_user)
+    scope = await _scope_for(current_user, data_status(status_value))
     return {"path": await _locate_path(type, id, scope)}
 
 
 @router.get("/tree")
 async def data_tree(
-    path: str = "", current_user: Any = Depends(require_dataset_downloader)
+    path: str = "",
+    status_value: str | None = Query(None, alias="status"),
+    current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, Any]:
     """One level of the virtual data tree (lazy: only this level's queries run).
 
     Response: {path, crumbs:[{name,path}], entries:[...], info:{title,fields}|null, truncated}.
     Crumbs cover every ancestor including the requested path itself, with clean names; info is
     populated on record folders (workshop/artisan/product/tool/process/interview). Everything
-    listed is filtered by the caller's row visibility (see :class:`Scope`).
+    listed is filtered by the caller's row visibility (see :class:`Scope`), and by ``status`` when
+    one is given.
     """
-    scope = await _scope_for(current_user)
+    scope = await _scope_for(current_user, data_status(status_value))
     norm = _norm(path)
     entries, info = await _list_level(norm, scope)
     crumbs = await _resolve_crumbs(norm)
@@ -1988,6 +2017,7 @@ async def data_manifest(
     path: str = "",
     include: str | None = None,
     stream: bool = False,
+    status_value: str | None = Query(None, alias="status"),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, Any] | StreamingResponse:
     """Flattened manifest of the subtree below ``path`` — same shape as /export/dataset
@@ -2001,7 +2031,7 @@ async def data_manifest(
     include_set: set[str] | None = None
     if include is not None and include.strip():
         include_set = {t.strip().lower() for t in include.split(",") if t.strip()}
-    scope = await _scope_for(current_user)
+    scope = await _scope_for(current_user, data_status(status_value))
     norm = _norm(path)
     files: list[dict[str, Any]] = []
     state = {"truncated": False}
@@ -2977,6 +3007,7 @@ def _rendered(sheets: list[dict[str, Any]]) -> list[dict[str, Any]]:
 async def data_report(
     path: str = "",
     format: str | None = None,
+    status_value: str | None = Query(None, alias="status"),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> Response:
     """Relational report of the subtree at ``path``: one sheet per record type, rows carrying
@@ -2989,7 +3020,7 @@ async def data_report(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="format must be 'json' or 'xlsx'",
         )
-    scope = await _scope_for(current_user)
+    scope = await _scope_for(current_user, data_status(status_value))
     norm = _norm(path)
     segs = [s for s in norm.split("/") if s]
     records = await _report_records(segs, scope)

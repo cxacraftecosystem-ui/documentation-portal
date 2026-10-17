@@ -36,6 +36,13 @@ is not even expressible. And measured against production on 2026-07-27, all 925 
 PENDING and none are APPROVED — an approved census would publish "0 media files" for a repository
 that holds 925. The name carries the meaning so a UI cannot relabel the number without changing
 the key it reads: there is one word, in one place, and rendering the figure requires typing it.
+
+``recordsPublished`` BESIDE IT (owner decision C21, 2026-10-20): public counts use "approved", and an
+approved record is a published one — the word avoids naming a review state on a public URL. Media
+now inherits its record's approval, which answers the "0 media files" objection above, and the
+landing page prints this figure. Crafts have no status, so their approved figure is the held one.
+``recordsHeld`` stays for the web build already deployed and is to be dropped once the new one is
+live, because the difference between the two is the review backlog.
 """
 
 import asyncio
@@ -188,14 +195,29 @@ async def _count_everything() -> dict[str, int]:
     a fact about the collection.
     """
     delegates = [getattr(db, attribute) for _, attribute in _CENSUS_TABLES]
+    reviewed = [(name, attribute) for name, attribute in _CENSUS_TABLES if attribute not in _UNREVIEWED]
     async with asyncio.timeout(_COUNT_TIMEOUT_SECONDS):
-        # No `where`. The absence of a filter here is what makes `recordsHeld` an honest name; adding
-        # a status filter without renaming the field is the exact drift this route is built against.
-        totals = await gather_reads(*(delegate.count() for delegate in delegates))
-    return {name: int(total) for (name, _), total in zip(_CENSUS_TABLES, totals, strict=True)}
+        # The held counts carry no `where`: that absence is what makes `recordsHeld` an honest name.
+        # The approved ones are their own reads with their own key, never a filter slipped into those.
+        totals = await gather_reads(
+            *(delegate.count() for delegate in delegates),
+            *(getattr(db, attribute).count(where={"status": "APPROVED"}) for _, attribute in reviewed),
+        )
+    held_totals, approved_totals = totals[: len(delegates)], totals[len(delegates) :]
+    held = {name: int(total) for (name, _), total in zip(_CENSUS_TABLES, held_totals, strict=True)}
+    approved_by_name = {name: int(total) for (name, _), total in zip(reviewed, approved_totals, strict=True)}
+    approved = {
+        name: (held[name] if attribute in _UNREVIEWED else approved_by_name[name])
+        for name, attribute in _CENSUS_TABLES
+    }
+    return {"held": held, "approved": approved}
 
 
-def _body(counts: dict[str, int] | None, taken_at: datetime | None, *, stale: bool) -> dict:
+#: The census tables with no review status, whose "approved" figure is simply what is held.
+_UNREVIEWED = frozenset({"craft"})
+
+
+def _body(counts: dict[str, dict[str, int]] | None, taken_at: datetime | None, *, stale: bool) -> dict:
     """The wire shape, in one place so the three response paths cannot disagree about it.
 
     ``counted`` is the discriminator a client needs and could not otherwise reconstruct: an empty
@@ -213,7 +235,8 @@ def _body(counts: dict[str, int] | None, taken_at: datetime | None, *, stale: bo
         # disagree on the rendered day. Both fields are IST and `asOf` carries the offset, so the
         # date here is the one the instant above falls on — they cannot drift by a day.
         "asOfDate": taken_at.strftime("%Y-%m-%d") if taken_at else None,
-        "recordsHeld": counts,
+        "recordsHeld": counts["held"] if counts is not None else None,
+        "recordsPublished": counts["approved"] if counts is not None else None,
     }
 
 
