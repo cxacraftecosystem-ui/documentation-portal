@@ -201,15 +201,14 @@ fun TraceExportCard(
         Text(
             "Save this drawing",
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 14.sp,
+            style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold,
         )
         Text(
             // THE COUNT IS READ, NEVER TYPED. See TRACE_EXPORT_FORMAT_COUNT.
             "$TRACE_EXPORT_FORMAT_COUNT formats of the same drawing.",
             color = MaterialTheme.field.muted,
-            fontSize = 11.sp,
-            lineHeight = 16.sp,
+            style = MaterialTheme.typography.bodySmall,
         )
 
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -222,7 +221,7 @@ fun TraceExportCard(
                         saved = null
                         savedNote = ""
                     },
-                    label = { Text(row.label, fontSize = 13.sp) },
+                    label = { Text(row.label, style = MaterialTheme.typography.labelLarge) },
                     modifier = Modifier.heightIn48(),
                 )
             }
@@ -234,8 +233,7 @@ fun TraceExportCard(
         Text(
             format.hint,
             color = MaterialTheme.field.body,
-            fontSize = 11.sp,
-            lineHeight = 16.sp,
+            style = MaterialTheme.typography.bodySmall,
         )
 
         HorizontalDivider(color = MaterialTheme.field.hairline)
@@ -252,7 +250,7 @@ fun TraceExportCard(
         Text(
             "Background",
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 12.sp,
+            style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.SemiBold,
         )
         if (onBackgroundChange != null) {
@@ -267,7 +265,7 @@ fun TraceExportCard(
                             savedNote = ""
                             onBackgroundChange(option)
                         },
-                        label = { Text(if (option) "White" else "Transparent", fontSize = 13.sp) },
+                        label = { Text(if (option) "White" else "Transparent", style = MaterialTheme.typography.labelLarge) },
                         modifier = Modifier.heightIn48(),
                     )
                 }
@@ -275,8 +273,7 @@ fun TraceExportCard(
             Text(
                 TRACE_BACKGROUND_RETRACE_SENTENCE,
                 color = MaterialTheme.field.muted,
-                fontSize = 11.sp,
-                lineHeight = 16.sp,
+                style = MaterialTheme.typography.bodySmall,
             )
         } else {
             // NO CONTROL WIRED, SO THIS IS A FACT AND NOT A CHOICE. Drawn anyway, because the losses
@@ -284,7 +281,7 @@ fun TraceExportCard(
             Text(
                 traceBackgroundLabel(documentBackground),
                 color = MaterialTheme.field.body,
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.bodySmall,
             )
         }
 
@@ -300,8 +297,7 @@ fun TraceExportCard(
             Text(
                 "· $line",
                 color = MaterialTheme.field.warning,
-                fontSize = 11.sp,
-                lineHeight = 16.sp,
+                style = MaterialTheme.typography.bodySmall,
             )
         }
 
@@ -310,7 +306,7 @@ fun TraceExportCard(
                 Text(
                     TRACE_EXPORT_PREVIEW_SENTENCE,
                     color = MaterialTheme.field.warning,
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     lineHeight = 17.sp,
                 )
                 if (onNeedFullResolution != null) {
@@ -319,7 +315,7 @@ fun TraceExportCard(
                         enabled = !busy,
                         modifier = Modifier.fillMaxWidth().heightIn48(),
                     ) {
-                        Text("Trace it at full size", fontSize = 13.sp)
+                        Text("Trace it at full size", style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }
@@ -332,7 +328,7 @@ fun TraceExportCard(
                 Text(
                     plan.reason,
                     color = MaterialTheme.field.warning,
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     lineHeight = 17.sp,
                 )
             }
@@ -399,7 +395,7 @@ fun TraceExportCard(
                         )
                     }
                     Spacer(Modifier.width(6.dp))
-                    Text(if (working) "Writing the file…" else format.save, fontSize = 13.sp)
+                    Text(if (working) "Writing the file…" else format.save, style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
@@ -426,13 +422,13 @@ fun TraceExportCard(
                     Text(
                         "Saved",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 13.sp,
+                        style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
                     // WHERE IT WENT, IN THE NAME MediaProvider ACTUALLY USED. A colliding DISPLAY_NAME
                     // is silently uniquified to `name (1).ext`, and printing the requested name would
                     // name a file that is not on disk.
-                    Text(file.savedTo, color = MaterialTheme.field.body, fontSize = 11.sp)
+                    Text(file.savedTo, color = MaterialTheme.field.body, style = MaterialTheme.typography.bodySmall)
 
                     // WHAT WAS DECIDED WHILE THIS FILE WAS BEING WRITTEN, in the past tense and with the
                     // real numbers in it. Inside the live region above rather than beside it, so a
@@ -442,8 +438,7 @@ fun TraceExportCard(
                         Text(
                             savedNote,
                             color = MaterialTheme.field.warning,
-                            fontSize = 11.sp,
-                            lineHeight = 16.sp,
+                            style = MaterialTheme.typography.bodySmall,
                         )
                     }
 
@@ -477,15 +472,13 @@ fun TraceExportCard(
                         Text(
                             TRACE_EXPORT_SHARE_CAVEAT,
                             color = MaterialTheme.field.muted,
-                            fontSize = 11.sp,
-                            lineHeight = 16.sp,
+                            style = MaterialTheme.typography.bodySmall,
                         )
                     } else {
                         Text(
                             TRACE_EXPORT_NO_SHARE_SENTENCE,
                             color = MaterialTheme.field.muted,
-                            fontSize = 11.sp,
-                            lineHeight = 16.sp,
+                            style = MaterialTheme.typography.bodySmall,
                         )
                     }
                 }

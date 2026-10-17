@@ -54,7 +54,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.fieldrepository.app.data.OfflineOutbox
@@ -316,7 +315,7 @@ private fun MediaActionLabel(action: MediaAction, text: String?) {
     Spacer(Modifier.width(8.dp))
     Text(
         text ?: if (action == MediaAction.DOWNLOAD) "Download" else "Retry",
-        fontSize = 14.sp,
+        style = MaterialTheme.typography.bodyMedium,
         fontWeight = FontWeight.SemiBold,
         maxLines = 1
     )
@@ -461,10 +460,10 @@ fun OutboxPendingBanner(
             Text(
                 "$pendingUploads entr${if (pendingUploads == 1) "y" else "ies"} waiting to upload.",
                 color = ink,
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.weight(1f)
             )
-            Text(if (expanded) "Hide files ▲" else "Files ▼", color = ink, fontSize = 12.sp)
+            Text(if (expanded) "Hide files ▲" else "Files ▼", color = ink, style = MaterialTheme.typography.bodySmall)
         }
         if (expanded) {
             refused.forEach { entry ->
@@ -473,7 +472,7 @@ fun OutboxPendingBanner(
                         if (entry.needsReview) "Review “${entry.label}”: ${entry.failure}"
                         else "“${entry.label}” couldn't upload: ${entry.failure}",
                         color = ink,
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.weight(1f)
                     )
                     MediaActionButton(
@@ -484,7 +483,7 @@ fun OutboxPendingBanner(
                 }
             }
             if (files.isEmpty()) {
-                Text("No files are queued with these entries.", color = ink, fontSize = 12.sp)
+                Text("No files are queued with these entries.", color = ink, style = MaterialTheme.typography.bodySmall)
             }
             files.forEach { media ->
                 val file = File(media.localPath)
@@ -493,7 +492,7 @@ fun OutboxPendingBanner(
                     Text(
                         label,
                         color = ink,
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)

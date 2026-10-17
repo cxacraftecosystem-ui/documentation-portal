@@ -748,7 +748,7 @@ private fun IslandMoreSheet(
                         )
                         Text(
                             ISLAND_MORE_LABEL,
-                            style = MaterialTheme.typography.titleSmall,
+                            style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 12.dp, bottom = 4.dp)
                         )

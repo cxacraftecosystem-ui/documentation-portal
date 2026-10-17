@@ -512,7 +512,7 @@ private fun ApiKeysLiveBanner() {
     ) {
         Text(
             "Saved keys take effect immediately, for everyone.",
-            style = MaterialTheme.typography.titleSmall,
+            style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onPrimaryContainer
         )
         Text(

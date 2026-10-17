@@ -483,8 +483,7 @@ fun TraceCompare(
                 // nobody uses — and this one is the reason the strip can afford to be below the frame.
                 "Drag to compare. Hold to see the photo.",
                 color = MaterialTheme.field.muted,
-                fontSize = 11.sp,
-                lineHeight = 16.sp,
+                style = MaterialTheme.typography.bodySmall,
             )
         }
 
@@ -504,8 +503,7 @@ fun TraceCompare(
             Text(
                 TRACE_DIFFERENCE_NOTE,
                 color = MaterialTheme.field.muted,
-                fontSize = 11.sp,
-                lineHeight = 16.sp,
+                style = MaterialTheme.typography.bodySmall,
             )
         }
 
@@ -531,8 +529,7 @@ fun TraceCompare(
         Text(
             if (reduction.isEmpty()) TRACE_COMPARE_WHITE_NOTE else "$TRACE_COMPARE_WHITE_NOTE $reduction",
             color = MaterialTheme.field.muted,
-            fontSize = 11.sp,
-            lineHeight = 16.sp,
+            style = MaterialTheme.typography.bodySmall,
         )
     }
 }

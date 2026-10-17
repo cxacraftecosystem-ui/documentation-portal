@@ -36,7 +36,7 @@ import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, listResource } from "@/lib/api";
-import { formatDate, formatDateTime } from "@/lib/format";
+import { countNoun, formatDate, formatDateTime } from "@/lib/format";
 import { locationFromForm, requiredText, sameIdSet, textValue } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
 import { uploadMediaBatch, type BatchProgress } from "@/lib/media";
@@ -463,7 +463,7 @@ function WorkshopsPageBody() {
         addCompleted(MEDIA_SECTION, MEDIA_SECTION_LABEL, uploaded);
         if (failed.length) {
           setError(
-            `Saved, but ${failed.length} of ${mediaFiles.length} file(s) didn’t upload: ${failed.map((item) => item.name).join(", ")}. Reopen to retry.`
+            `Saved, but ${failed.length} of ${countNoun(mediaFiles.length, "file")} didn’t upload: ${failed.map((item) => item.name).join(", ")}. Reopen to retry.`
           );
           setSaving(false);
           return;

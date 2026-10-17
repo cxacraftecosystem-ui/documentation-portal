@@ -588,7 +588,7 @@ fun DataBrowserScreen(
                         )
                         Text(
                             "Data tables",
-                            style = MaterialTheme.typography.titleSmall,
+                            style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                     }
@@ -733,7 +733,7 @@ fun DataBrowserScreen(
                     BrowserPanel {
                         Text(
                             "Empty folder",
-                            style = MaterialTheme.typography.titleSmall,
+                            style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
@@ -970,7 +970,7 @@ private fun JumpToRecordPanel(
             )
             Text(
                 "Jump to a record",
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
         }
@@ -1056,7 +1056,7 @@ private fun TaxonomySwitcher(
             )
             Text(
                 "Organise by",
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
         }
@@ -1120,7 +1120,7 @@ private fun Breadcrumbs(crumbs: List<DataCrumbDto>, onOpen: (String) -> Unit) {
             if (index == crumbs.lastIndex) {
                 Text(
                     crumb.name,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.align(Alignment.CenterVertically)
                 )
@@ -1296,7 +1296,7 @@ private fun FolderRow(folder: DataTreeEntryDto, onOpen: () -> Unit) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     folder.name,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 folder.recordType?.takeIf { it.isNotBlank() }?.let { type ->
@@ -1511,7 +1511,7 @@ private fun TranscriptBody(markdown: String) {
                     val level = line.takeWhile { it == '#' }.length
                     Text(
                         inlineMarkdown(line.drop(level).trim()),
-                        style = if (level <= 2) MaterialTheme.typography.titleSmall else MaterialTheme.typography.labelLarge,
+                        style = if (level <= 2) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }

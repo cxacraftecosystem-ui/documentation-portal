@@ -41,7 +41,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.fieldrepository.app.data.LocationRequest
 import kotlinx.coroutines.delay
@@ -275,7 +274,7 @@ private fun CaptureNotice(warn: Boolean, text: String, action: (@Composable () -
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Text(text, color = ink, fontSize = 12.sp)
+        Text(text, color = ink, style = MaterialTheme.typography.bodySmall)
         action?.invoke()
     }
 }
@@ -597,7 +596,7 @@ fun LocationCaptureCard(
                 "Where this was documented."
             },
             color = Muted,
-            fontSize = 12.sp
+            style = MaterialTheme.typography.bodySmall
         )
 
         when (status) {
@@ -681,7 +680,7 @@ fun LocationCaptureCard(
                 } else {
                     MaterialTheme.field.onWarningContainer
                 },
-                fontSize = 12.sp
+                style = MaterialTheme.typography.bodySmall
             )
         }
 

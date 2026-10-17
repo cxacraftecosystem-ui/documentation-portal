@@ -30,6 +30,7 @@ import type { Artisan, ExtraMetadata, MediaFile, ProductDocumentation, RecordSta
 import { useConfirm } from "@/components/dialogs";
 import { Toggle } from "@/components/ui/Toggle";
 import { ButtonRow } from "@/components/ui/ButtonRow";
+import { countNoun } from "@/lib/format";
 
 // ---------------------------------------------------------------------------
 // Types for the /processes endpoints (hydrated detail: media on the process =
@@ -782,7 +783,7 @@ export function ProcessForm({
       setUploadNote(null);
       if (failures.length) {
         setError(
-          `Saved, but ${failures.length} file(s) didn’t upload: ${failures.join(", ")}. Reopen to retry.`
+          `Saved, but ${countNoun(failures.length, "file")} didn’t upload: ${failures.join(", ")}. Reopen to retry.`
         );
         setGuardOpen(false);
         return;
@@ -967,7 +968,7 @@ export function ProcessForm({
           <p className="mt-1 text-xs text-ink-500">No products found for this artisan yet. Create a product for them first, then return here.</p>
         ) : null}
         {!productsLoading && !productLoadError && artisanId && artisanProducts.length > 0 ? (
-          <p className="mt-1 text-xs text-ink-500">{artisanProducts.length} product(s) available for this artisan.</p>
+          <p className="mt-1 text-xs text-ink-500">{countNoun(artisanProducts.length, "product")} available for this artisan.</p>
         ) : null}
         {/* The count above says how many are OFFERED. This says whether that is all of them — the
             two sentences answer different questions and a reader given only the first will read it

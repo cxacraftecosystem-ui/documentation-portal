@@ -71,10 +71,10 @@ fun AppToggle(
                 label,
                 color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.field.placeholder,
                 fontWeight = FontWeight.Medium,
-                fontSize = 15.sp
+                style = MaterialTheme.typography.bodyLarge
             )
             if (!description.isNullOrBlank()) {
-                Text(description, color = MaterialTheme.field.muted, fontSize = 13.sp, lineHeight = 18.sp)
+                Text(description, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodyMedium, lineHeight = 18.sp)
             }
         }
         Switch(

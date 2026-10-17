@@ -48,6 +48,7 @@ import { hasRank } from "@/lib/permissions";
 import type { Artisan, Craft, RecordStatus, ToolDocumentation } from "@/lib/types";
 import { makerOptions, traditionOptions } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
+import { countNoun } from "@/lib/format";
 
 /**
  * Dropdown label for a linked artisan: "Craft · Name · Place", craft FIRST.
@@ -1114,7 +1115,7 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
       }
       if (stageFailed.length) {
         setError(
-          `Saved, but ${stageFailed.length} stage file(s) didn’t upload: ${stageFailed.join(", ")}. Reopen to retry.`
+          `Saved, but ${countNoun(stageFailed.length, "stage file")} didn’t upload: ${stageFailed.join(", ")}. Reopen to retry.`
         );
         setSaving(false);
         return;
@@ -1133,7 +1134,7 @@ export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
         });
         setUploadProgress(null);
         if (failed.length) {
-          setError(`Saved, but ${failed.length} of ${mediaFiles.length} file(s) didn’t upload: ${failed.map((f) => f.name).join(", ")}. Reopen to retry.`);
+          setError(`Saved, but ${failed.length} of ${countNoun(mediaFiles.length, "file")} didn’t upload: ${failed.map((f) => f.name).join(", ")}. Reopen to retry.`);
           setSaving(false);
           return;
         }

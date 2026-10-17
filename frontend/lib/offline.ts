@@ -56,6 +56,7 @@
 
 import { ApiError, apiFetch } from "@/lib/api";
 import { uploadMediaBatch } from "@/lib/media";
+import { countNoun } from "@/lib/format";
 
 const DB_NAME = "field-repo-outbox";
 const DB_VERSION = 1;
@@ -368,7 +369,7 @@ async function runSync(): Promise<SyncResult> {
             const files = pendingFileCount(progress);
             await markFailure(
               progress,
-              `Couldn’t confirm this save. Kept on this device${files ? ` with ${files} file(s)` : ""} — check the record arrived before discarding.`
+              `Couldn’t confirm this save. Kept on this device${files ? ` with ${countNoun(files, "file")}` : ""} — check the record arrived before discarding.`
             );
             failed += 1;
             continue;
@@ -386,7 +387,7 @@ async function runSync(): Promise<SyncResult> {
             const files = pendingFileCount(progress);
             await markFailure(
               progress,
-              `Possible duplicate. ${error.message} Kept on this device${files ? ` with ${files} file(s)` : ""}.`
+              `Possible duplicate. ${error.message} Kept on this device${files ? ` with ${countNoun(files, "file")}` : ""}.`
             );
             failed += 1;
             continue;
@@ -437,7 +438,7 @@ async function runSync(): Promise<SyncResult> {
       if (mediaFailed.length) {
         await markFailure(
           progress,
-          `Saved, but ${mediaFailed.length} file(s) didn’t upload: ${mediaFailed.map((f) => f.name).join(", ")}. Re-attach them.`
+          `Saved, but ${countNoun(mediaFailed.length, "file")} didn’t upload: ${mediaFailed.map((f) => f.name).join(", ")}. Re-attach them.`
         );
         failed += 1;
         await refreshOutbox();

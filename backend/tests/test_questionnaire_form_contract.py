@@ -312,10 +312,10 @@ def _strip_kotlin_comments(source: str) -> str:
 def _balanced(source: str, start: int, opener: str, closer: str) -> str:
     """The text from ``source[start]`` (an opener) to its matching closer, inclusive.
 
-    Skips string literals, so a bracket inside a label cannot close the block early — "Involved
-    artisan(s)" on the browse screen is exactly that entry, and it is one of the strings this file
-    reads. Ported from the sibling portal, where a parenthesised label is why it is a scanner and not
-    a `.index(")")`.
+    Skips string literals, so a bracket inside a label cannot close the block early — the browse
+    screen's filter read "Involved artisan(s)" until its plural was spelled out, and any label this
+    file reads may carry one again. Ported from the sibling portal, where a parenthesised label is
+    why it is a scanner and not a `.index(")")`.
     """
     assert source[start] == opener, (
         f"internal: _balanced was handed {source[start]!r} where {opener!r} was expected"
@@ -936,7 +936,7 @@ def test_the_artisan_control_is_a_searchable_multiselect_and_never_a_checkbox_wa
 def test_every_deliberately_different_label_still_exists_and_still_says_it():
     """`distinctLabels` — the sites that use another word on purpose, held so they cannot go stale.
 
-    ONE ENTRY TODAY: the browse screen's artisan filter says "Involved artisan(s)" while the capture
+    ONE ENTRY TODAY: the browse screen's artisan filter says "Involved artisans" while the capture
     form says "Artisans interviewed". That is a decision with a reason written out in the contract —
     the filter narrows a list of interviews that already exist and ticking somebody there asserts
     nothing about any record, whereas the capture form's label is a claim about the interview being

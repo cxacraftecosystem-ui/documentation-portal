@@ -38,7 +38,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.fieldrepository.app.ui.LocalAppPreferences
 // The two-typeface `Text`, shadowing androidx.compose.material3.Text — see ui/FieldText.kt for why a
 // bare Material `Text` here would quietly set this panel's headings in the body face.
@@ -66,7 +65,7 @@ import com.fieldrepository.app.ui.field
 /** The small caption above a group of controls. */
 @Composable
 internal fun TracePanelLabel(text: String) {
-    Text(text, color = MaterialTheme.field.muted, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+    Text(text, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
 }
 
 /**
@@ -114,11 +113,11 @@ internal fun TracePanelChip(
         .then(announce)
     if (selected) {
         Button(onClick = onClick, enabled = enabled, modifier = shape) {
-            Text(label, fontSize = 12.sp)
+            Text(label, style = MaterialTheme.typography.labelMedium)
         }
     } else {
         OutlinedButton(onClick = onClick, enabled = enabled, modifier = shape) {
-            Text(label, fontSize = 12.sp)
+            Text(label, style = MaterialTheme.typography.labelMedium)
         }
     }
 }
@@ -160,8 +159,7 @@ internal fun TracePanelNote(warning: Boolean, text: String, polite: Boolean = fa
         Text(
             text,
             color = if (warning) MaterialTheme.field.onWarningContainer else MaterialTheme.field.body,
-            fontSize = 11.sp,
-            lineHeight = 16.sp,
+            style = MaterialTheme.typography.bodySmall,
         )
     }
 }
@@ -244,7 +242,7 @@ internal fun TracePanelDisclosureHeader(
             // and the close button stay on it rather than being pushed off the edge.
             modifier = Modifier.weight(1f),
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 13.sp,
+            style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold,
         )
         // THE HEADER'S DOOR. A button is a merging semantics node of its own, so it stays a separate
@@ -291,7 +289,7 @@ internal fun TracePanelCollapseButton(prominent: Boolean, title: String, onClick
         Spacer(Modifier.width(4.dp))
         Text(
             if (prominent) "$TRACE_PANEL_COLLAPSE_WORD “$title”" else TRACE_PANEL_COLLAPSE_WORD,
-            fontSize = 12.sp,
+            style = MaterialTheme.typography.bodySmall,
         )
     }
     if (prominent) {

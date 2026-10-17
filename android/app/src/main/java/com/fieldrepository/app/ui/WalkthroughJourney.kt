@@ -1481,14 +1481,13 @@ private fun WalkthroughHeader(
                             "Page ${index + 1} of ${steps.size}"
                         },
                         color = MaterialTheme.field.muted,
-                        fontSize = 12.sp,
-                        lineHeight = 16.sp,
+                        style = MaterialTheme.typography.bodySmall,
                     )
                     Text(
                         step.title,
                         display = true,
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 15.sp,
+                        style = MaterialTheme.typography.titleMedium,
                         lineHeight = 20.sp,
                         // Two lines and then an ellipsis, and the full title is never only here — it
                         // is the heading of the card the reader is looking at while this is on
@@ -1602,7 +1601,7 @@ private fun WalkthroughProgressRing(percent: () -> Int) {
         Text(
             "$reading%",
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 12.sp,
+            style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
         )
@@ -1919,7 +1918,7 @@ private fun WalkthroughStepCard(
                     Text(
                         facets.summary,
                         color = MaterialTheme.field.body,
-                        fontSize = 14.sp,
+                        style = MaterialTheme.typography.bodyMedium,
                         lineHeight = 21.sp,
                     )
                 }
@@ -1995,7 +1994,7 @@ private fun WalkthroughStepCard(
                                 Text(
                                     facets.detail,
                                     color = MaterialTheme.field.body,
-                                    fontSize = 14.sp,
+                                    style = MaterialTheme.typography.bodyMedium,
                                     lineHeight = 21.sp,
                                 )
                             }
@@ -2040,7 +2039,7 @@ private fun WalkthroughStepCard(
                                         Text(
                                             label,
                                             color = MaterialTheme.field.body,
-                                            fontSize = 12.sp,
+                                            style = MaterialTheme.typography.bodySmall,
                                             lineHeight = 17.sp,
                                             modifier = Modifier
                                                 .background(chipFill, chip)
@@ -2072,7 +2071,7 @@ private fun WalkthroughStepCard(
                                             Text(
                                                 note,
                                                 color = MaterialTheme.field.body,
-                                                fontSize = 14.sp,
+                                                style = MaterialTheme.typography.bodyMedium,
                                                 lineHeight = 21.sp,
                                             )
                                         }
@@ -2115,7 +2114,7 @@ private fun WalkthroughPanelSection(
                 heading,
                 display = true,
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 14.sp,
+                style = MaterialTheme.typography.bodyMedium,
                 lineHeight = 19.sp,
                 fontWeight = FontWeight.Bold,
             )
@@ -2183,7 +2182,7 @@ private fun WalkthroughHeroCard(
                 step.title,
                 display = true,
                 color = MaterialTheme.field.onBrandTile,
-                fontSize = 22.sp,
+                style = MaterialTheme.typography.headlineSmall,
                 lineHeight = 28.sp,
             )
             Text(
@@ -2191,7 +2190,7 @@ private fun WalkthroughHeroCard(
                 // is rendered whole rather than cut at a seam it does not have.
                 step.body,
                 color = MaterialTheme.field.onBrandTileMuted,
-                fontSize = 14.sp,
+                style = MaterialTheme.typography.bodyMedium,
                 lineHeight = 21.sp,
             )
             ActionRow {
@@ -2242,7 +2241,7 @@ private fun WalkthroughHeroCard(
                             Text(
                                 other.audience,
                                 color = MaterialTheme.field.onBrandTileMuted,
-                                fontSize = 11.sp,
+                                style = MaterialTheme.typography.bodySmall,
                                 lineHeight = 15.sp,
                             )
                         }
@@ -2316,7 +2315,7 @@ private fun WalkthroughOutroCard(
             Text(
                 step.body,
                 color = MaterialTheme.field.body,
-                fontSize = 14.sp,
+                style = MaterialTheme.typography.bodyMedium,
                 lineHeight = 21.sp,
             )
 
@@ -2335,8 +2334,7 @@ private fun WalkthroughOutroCard(
                     Text(
                         "${index + 1} ${walkthroughTitleParts(journeyStep.title).first}",
                         color = MaterialTheme.field.body,
-                        fontSize = 12.sp,
-                        lineHeight = 16.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier
                             .background(MaterialTheme.field.surface100, CircleShape)
                             .padding(horizontal = 9.dp, vertical = 4.dp),

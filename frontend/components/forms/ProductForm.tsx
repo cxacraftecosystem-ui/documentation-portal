@@ -39,6 +39,7 @@ import { hasRank } from "@/lib/permissions";
 import type { Artisan, Craft, ProductDocumentation, RecordStatus } from "@/lib/types";
 import { marketDemandOptions, productTypes } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
+import { countNoun } from "@/lib/format";
 
 /** Dropdown label for a linked artisan: always "Name · Place" (name alone if no place), never ids. */
 function artisanOptionLabel(artisan: Artisan) {
@@ -559,7 +560,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
         });
         setUploadProgress(null);
         if (failed.length) {
-          setError(`Saved, but ${failed.length} of ${mediaFiles.length} file(s) didn’t upload: ${failed.map((f) => f.name).join(", ")}. Reopen to retry.`);
+          setError(`Saved, but ${failed.length} of ${countNoun(mediaFiles.length, "file")} didn’t upload: ${failed.map((f) => f.name).join(", ")}. Reopen to retry.`);
           setSaving(false);
           return;
         }

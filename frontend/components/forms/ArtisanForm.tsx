@@ -39,6 +39,7 @@ import { saveOrQueue } from "@/lib/offline";
 import { hasRank } from "@/lib/permissions";
 import type { AadhaarLookupResult, Artisan, ArtisanIdentityConflict, ArtisanIdentityMatch, Craft, RecordStatus } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
+import { countNoun } from "@/lib/format";
 
 // Android parity (MainActivity.kt genderOptions).
 const genderOptions = ["Male", "Female", "Transgender", "Other"];
@@ -716,7 +717,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         setUploadProgress(null);
         if (failed.length) {
           setError(
-            `Saved, but ${failed.length} of ${mediaFiles.length} file(s) didn’t upload: ${failed.map((f) => f.name).join(", ")}. Reopen to retry.`
+            `Saved, but ${failed.length} of ${countNoun(mediaFiles.length, "file")} didn’t upload: ${failed.map((f) => f.name).join(", ")}. Reopen to retry.`
           );
           setSaving(false);
           return;

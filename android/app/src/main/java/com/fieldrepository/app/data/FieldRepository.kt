@@ -4167,6 +4167,6 @@ private fun literalBaseName(base: String, extension: String): String {
  */
 internal fun replayRefusedFilesSentence(refused: List<String>, unlinked: Boolean): String {
     val reasons = refused.distinct().joinToString(" ")
-    return if (unlinked) "${refused.size} file(s) didn't upload: $reasons"
-    else "Saved, but ${refused.size} file(s) didn't upload: $reasons Attach them again."
+    return if (unlinked) "${countNoun(refused.size, "file")} didn't upload: $reasons"
+    else "Saved, but ${countNoun(refused.size, "file")} didn't upload: $reasons Attach them again."
 }

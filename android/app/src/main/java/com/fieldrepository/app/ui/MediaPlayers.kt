@@ -48,7 +48,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -256,7 +255,7 @@ fun AudioPlayer(uri: Uri, modifier: Modifier = Modifier) {
                 // unplayed track used to be 1.00:1 against it — the voice note with no bar at all.
                 colors = FieldProgressDefaults.sliderColors()
             )
-            Text("${formatMs(positionMs)} / ${formatMs(durationMs)}", color = Body, fontSize = 12.sp)
+            Text("${formatMs(positionMs)} / ${formatMs(durationMs)}", color = Body, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -330,10 +329,10 @@ fun RecordingIndicator(getAmplitude: () -> Int, modifier: Modifier = Modifier, p
         )
         if (paused) {
             // "Paused" is never faded: text that blinks to 10% is text nobody can read. The dot blinks.
-            Text("Paused", color = Body, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            Text(formatMs(elapsedMs.toInt()), color = Body, fontSize = 12.sp)
+            Text("Paused", color = Body, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+            Text(formatMs(elapsedMs.toInt()), color = Body, style = MaterialTheme.typography.bodySmall)
         } else {
-            Text("Recording  ${formatMs(elapsedMs.toInt())}", color = Body, fontSize = 12.sp)
+            Text("Recording  ${formatMs(elapsedMs.toInt())}", color = Body, style = MaterialTheme.typography.bodySmall)
         }
         // The action colour, themed — it was the logo's terracotta, which did not invert.
         val waveColor = MaterialTheme.colorScheme.primary
@@ -421,12 +420,12 @@ fun MediaThumb(
                     )
                     Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White)
                 }
-                else -> Text(mediaType.take(3).uppercase(), color = Body, fontSize = 12.sp)
+                else -> Text(mediaType.take(3).uppercase(), color = Body, style = MaterialTheme.typography.bodySmall)
             }
         }
         Column(modifier = Modifier.weight(1f)) {
-            Text(title, color = MaterialTheme.field.onBrandTile, fontSize = 13.sp, maxLines = 1)
-            subtitle?.let { Text(it, color = MaterialTheme.field.onBrandTileMuted, fontSize = 12.sp, maxLines = 1) }
+            Text(title, color = MaterialTheme.field.onBrandTile, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+            subtitle?.let { Text(it, color = MaterialTheme.field.onBrandTileMuted, style = MaterialTheme.typography.bodySmall, maxLines = 1) }
         }
         TextButton(onClick = onOpen, modifier = Modifier.heightIn(min = 48.dp)) {
             Text("Open", color = MaterialTheme.field.accentOnBrandTile, fontWeight = FontWeight.SemiBold)

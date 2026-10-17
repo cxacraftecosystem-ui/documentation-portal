@@ -597,7 +597,7 @@
     {
       "site": "android/app/src/main/java/com/fieldrepository/app/MainActivity.kt",
       "symbol": "ViewDataScreen",
-      "label": "Involved artisan(s)",
+      "label": "Involved artisans",
       "control": "searchable-multiselect",
       "why": [
         "THE BROWSE SCREEN'S ARTISAN FILTER KEEPS ITS OWN WORD, DELIBERATELY. It is a different control",

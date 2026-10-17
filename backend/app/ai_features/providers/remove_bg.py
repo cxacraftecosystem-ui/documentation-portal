@@ -115,5 +115,5 @@ class RemoveBgProvider(BackgroundRemovalProvider, ForegroundSeparationProvider):
         if charged:
             # Persisted with the result so the spend is auditable from the job record rather than
             # only from the vendor's dashboard.
-            notes.append(f"remove.bg charged {charged} credit(s)")
+            notes.append(f"remove.bg charged {charged} {'credit' if charged.strip() == '1' else 'credits'}")
         return body, tuple(notes)

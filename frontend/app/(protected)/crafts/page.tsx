@@ -31,7 +31,7 @@ import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, listResource } from "@/lib/api";
-import { formatDate } from "@/lib/format";
+import { countNoun, formatDate } from "@/lib/format";
 import { requiredText, textValue } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
 import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, type BatchProgress } from "@/lib/media";
@@ -310,7 +310,7 @@ function CraftsPageBody() {
         addCompleted(MEDIA_SECTION, MEDIA_SECTION_LABEL, uploaded);
         if (failed.length) {
           setError(
-            `${failed.length} of ${mediaFiles.length} file(s) failed to upload: ${failed.map((item) => item.name).join(", ")}. ` +
+            `${failed.length} of ${countNoun(mediaFiles.length, "file")} failed to upload: ${failed.map((item) => item.name).join(", ")}. ` +
               "The craft was saved; re-open it to retry those files."
           );
           setSaving(false);

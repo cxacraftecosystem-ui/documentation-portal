@@ -26,7 +26,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.fieldrepository.app.data.DraftStore
 import com.fieldrepository.app.data.DraftValues
@@ -299,7 +298,7 @@ fun DraftOfferCard(draft: FormDraft) {
                 (offer.label.takeIf { it.isNotBlank() }?.let { " (“$it”)" } ?: "") +
                 (if (savedAt.isNotBlank()) ", last changed $savedAt." else "."),
             color = MaterialTheme.colorScheme.onSecondaryContainer,
-            fontSize = 13.sp
+            style = MaterialTheme.typography.bodyMedium
         )
         ActionRow {
             Button(onClick = {

@@ -45,7 +45,6 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
 
 /**
@@ -138,17 +137,15 @@ fun OtpCodeField(
         )
     }
 
-    val digitStyle = TextStyle(
-        fontFamily = FieldDisplayFontFamily,
+    val digitStyle = MaterialTheme.typography.headlineSmall.copy(
         fontWeight = FontWeight.SemiBold,
-        fontSize = 28.sp,
         fontFeatureSettings = "tnum",
         textAlign = TextAlign.Center,
         color = MaterialTheme.colorScheme.onSurface
     )
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(label, color = MaterialTheme.field.muted, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        Text(label, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
         BasicTextField(
             value = TextFieldValue(value, selection = TextRange(value.length)),
             onValueChange = { next ->

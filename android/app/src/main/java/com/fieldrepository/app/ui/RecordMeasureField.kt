@@ -717,8 +717,7 @@ internal fun RecordMeasureField(
                 Text(
                     "Mark the object against something of known size in the same photo.",
                     color = MaterialTheme.field.muted,
-                    fontSize = 11.sp,
-                    lineHeight = 16.sp,
+                    style = MaterialTheme.typography.bodySmall,
                 )
             }
             TextButton(
@@ -753,7 +752,7 @@ internal fun RecordMeasureField(
                 rectWidth = config.rectWidth,
                 rectHeight = config.rectHeight,
                 rectUnit = config.rectUnit,
-            )?.let { Text(it, color = MaterialTheme.field.muted, fontSize = 11.sp) }
+            )?.let { Text(it, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall) }
         }
     }
 }
@@ -879,7 +878,7 @@ private fun MeasurePanelOpen(
                             config.columnNote = null
                         }
                     },
-                    label = { Text(recordPhotoLabel(position, photoCount), fontSize = 11.sp) },
+                    label = { Text(recordPhotoLabel(position, photoCount), style = MaterialTheme.typography.labelMedium) },
                 )
             }
         }
@@ -890,12 +889,12 @@ private fun MeasurePanelOpen(
         FilterChip(
             selected = config.mode == MeasureMode.SCALE,
             onClick = { config.mode = MeasureMode.SCALE; config.selected = firstMark(MeasureMode.SCALE) },
-            label = { Text("Same plane, two marks", fontSize = 11.sp) },
+            label = { Text("Same plane, two marks", style = MaterialTheme.typography.labelMedium) },
         )
         FilterChip(
             selected = config.mode == MeasureMode.RECTIFY,
             onClick = { config.mode = MeasureMode.RECTIFY; config.selected = firstMark(MeasureMode.RECTIFY) },
-            label = { Text("Four corners", fontSize = 11.sp) },
+            label = { Text("Four corners", style = MaterialTheme.typography.labelMedium) },
         )
     }
     // THE AMBER CARD THE GEOMETRY MODULE REQUIRES ITS CALLER TO RENDER. `measureBySameScale` is only
@@ -1018,7 +1017,7 @@ private fun MeasurePanelOpen(
                     else -> "Opening the photograph…"
                 },
                 color = MaterialTheme.field.muted,
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.align(Alignment.Center).padding(12.dp),
             )
         }
@@ -1043,8 +1042,7 @@ private fun MeasurePanelOpen(
     Text(
         "Zoom ${String.format(Locale.ROOT, "%.1f", zoom)}× — zoom in for more precise marks.",
         color = MaterialTheme.field.muted,
-        fontSize = 11.sp,
-        lineHeight = 16.sp,
+        style = MaterialTheme.typography.bodySmall,
     )
 
     PanelLabel("Tap the photograph to place")
@@ -1057,11 +1055,11 @@ private fun MeasurePanelOpen(
             FilterChip(
                 selected = id == config.selected,
                 onClick = { config.selected = id },
-                label = { Text(MARK_BADGE.getValue(id) + if (placed) "" else " ·", fontSize = 11.sp) },
+                label = { Text(MARK_BADGE.getValue(id) + if (placed) "" else " ·", style = MaterialTheme.typography.labelMedium) },
             )
         }
     }
-    Text(MARK_NAME.getValue(config.selected), color = MaterialTheme.field.muted, fontSize = 11.sp)
+    Text(MARK_NAME.getValue(config.selected), color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
 
     // The nudge pad moves the selected mark by ONE IMAGE PIXEL a press — the finest step the working
     // copy holds. It is what makes a mark placeable at all where the edge being aimed at is under the
@@ -1076,7 +1074,7 @@ private fun MeasurePanelOpen(
         Text(
             "Nudge ${MARK_BADGE.getValue(config.selected)}",
             color = MaterialTheme.field.muted,
-            fontSize = 11.sp,
+            style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.weight(1f),
         )
         NudgeButton(Icons.Filled.ChevronLeft, "left", enabled) { nudge(config, -1.0, 0.0, imgW, imgH, zoom) }
@@ -1096,7 +1094,7 @@ private fun MeasurePanelOpen(
                     onClick = { config.referenceLength = trimNumber(preset.length); config.referenceUnit = preset.unit },
                     enabled = enabled,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                ) { Text(preset.label, fontSize = 10.sp, maxLines = 1) }
+                ) { Text(preset.label, style = MaterialTheme.typography.labelMedium, maxLines = 1) }
             }
         }
         OutlinedTextField(
@@ -1124,7 +1122,7 @@ private fun MeasurePanelOpen(
                     },
                     enabled = enabled,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                ) { Text(preset.label, fontSize = 10.sp, maxLines = 1) }
+                ) { Text(preset.label, style = MaterialTheme.typography.labelMedium, maxLines = 1) }
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -1171,7 +1169,7 @@ private fun MeasurePanelOpen(
         },
     )
     config.columnNote?.let { note ->
-        Text(note, color = MaterialTheme.field.onWarningContainer, fontSize = 11.sp, lineHeight = 16.sp)
+        Text(note, color = MaterialTheme.field.onWarningContainer, style = MaterialTheme.typography.bodySmall)
     }
     // A second door at the foot, where the work actually ends. The one in the header is a photograph, a
     // nudge pad, two text fields and a readout away by the time anybody wants it, and a collapse that
@@ -1257,8 +1255,7 @@ private fun MeasurementReadout(
         Text(
             "${remaining.size} of ${config.needed.size} marks left to place (${remaining.joinToString(", ") { MARK_BADGE.getValue(it) }}).",
             color = MaterialTheme.field.muted,
-            fontSize = 11.sp,
-            lineHeight = 16.sp,
+            style = MaterialTheme.typography.bodySmall,
         )
         return
     }
@@ -1271,7 +1268,7 @@ private fun MeasurementReadout(
                 "Enter the rectangle size."
             },
             color = MaterialTheme.field.muted,
-            fontSize = 11.sp,
+            style = MaterialTheme.typography.bodySmall,
         )
         return
     }
@@ -1299,21 +1296,20 @@ private fun MeasurementReadout(
         Text(
             "Measured — not saved yet",
             color = MaterialTheme.field.muted,
-            fontSize = 11.sp,
+            style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.Medium,
         )
         Text(
             "${formatRounded(shown)} ± ${formatRounded(doubt)} ${measurement.unit}",
             display = true,
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 22.sp,
+            style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
         )
         Text(
             "±${String.format(Locale.ROOT, "%.1f", measurement.relativeUncertainty * 100)}% (reference ${measurement.referencePixels.roundToInt()} px, object ${measurement.targetPixels.roundToInt()} px).",
             color = MaterialTheme.field.muted,
-            fontSize = 11.sp,
-            lineHeight = 16.sp,
+            style = MaterialTheme.typography.bodySmall,
         )
 
         measurement.tiltCorrection?.let { tilt ->
@@ -1338,8 +1334,7 @@ private fun MeasurementReadout(
                     )
                 },
                 color = MaterialTheme.field.muted,
-                fontSize = 11.sp,
-                lineHeight = 16.sp,
+                style = MaterialTheme.typography.bodySmall,
             )
         }
 
@@ -1354,7 +1349,7 @@ private fun MeasurementReadout(
                 Text(
                     "Can't convert to ${dimension.unit}.",
                     color = MaterialTheme.field.muted,
-                    fontSize = 11.sp,
+                    style = MaterialTheme.typography.bodySmall,
                 )
                 return@forEach
             }
@@ -1367,22 +1362,21 @@ private fun MeasurementReadout(
             ) {
                 Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("${dimension.label}: $offered ${dimension.unit}", fontSize = 13.sp)
+                Text("${dimension.label}: $offered ${dimension.unit}", style = MaterialTheme.typography.labelLarge)
             }
             // The warning stays a line under the button it belongs to, in the warning colour, rather
             // than a bordered box: this card has one button PER dimension, and three bordered boxes
             // interleaved with three buttons would break the list of destinations into six things a
             // researcher has to re-read as a list.
             panelReplaceWarning(current[dimension.column])?.let {
-                Text(it, color = MaterialTheme.field.onWarningContainer, fontSize = 11.sp, lineHeight = 16.sp)
+                Text(it, color = MaterialTheme.field.onWarningContainer, style = MaterialTheme.typography.bodySmall)
             }
         }
 
         Text(
             "Rounded to its measured precision.",
             color = MaterialTheme.field.muted,
-            fontSize = 11.sp,
-            lineHeight = 16.sp,
+            style = MaterialTheme.typography.bodySmall,
         )
     }
 }
@@ -1444,7 +1438,7 @@ private fun MarkHandle(
 
 @Composable
 private fun PanelLabel(text: String) {
-    Text(text, color = MaterialTheme.field.body, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+    Text(text, color = MaterialTheme.field.body, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
 }
 
 @Composable
@@ -1452,8 +1446,7 @@ private fun PanelNote(warning: Boolean, text: String) {
     Text(
         text,
         color = if (warning) MaterialTheme.field.onWarningContainer else MaterialTheme.field.muted,
-        fontSize = 11.sp,
-        lineHeight = 16.sp,
+        style = MaterialTheme.typography.bodySmall,
         modifier = Modifier
             .fillMaxWidth()
             .background(
@@ -1475,7 +1468,7 @@ private fun UnitChips(selected: String, enabled: Boolean, onSelect: (String) -> 
                 selected = unit == selected,
                 onClick = { onSelect(unit) },
                 enabled = enabled,
-                label = { Text(unit, fontSize = 11.sp) },
+                label = { Text(unit, style = MaterialTheme.typography.labelMedium) },
             )
         }
     }

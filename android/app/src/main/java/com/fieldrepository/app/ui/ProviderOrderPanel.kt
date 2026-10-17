@@ -491,7 +491,7 @@ private fun ProviderRow(provider: SttProviderDto, index: Int, state: ProviderOrd
                     Text(
                         provider.name,
                         display = true,
-                        style = MaterialTheme.typography.titleSmall,
+                        style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     if (index == 0 && provider.configured && live) {

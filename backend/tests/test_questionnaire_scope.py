@@ -536,7 +536,7 @@ def test_rebinding_a_workshop_with_open_section_tasks_is_a_409(rebindable: _Db) 
     response = _call("PUT", "/workshops/w-1/questionnaire", {"questionnaireId": W3})
 
     assert response.status_code == 409, response.text
-    assert "open task(s)" in response.json()["detail"]
+    assert "open task" in response.json()["detail"]
     # The binding did NOT move: a refusal that had already written would be worse than no refusal.
     assert rebindable.workshop.rows[0].questionnaireId == W2
 

@@ -24,7 +24,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.WorkshopDetailDto
 import com.fieldrepository.app.data.apiErrorMessage
@@ -258,11 +257,11 @@ fun WorkshopScopeSelect(
                 leadingIcon = {
                     Icon(Icons.Filled.DateRange, contentDescription = null, modifier = Modifier.size(16.dp))
                 },
-                label = { Text("All records", fontSize = 12.sp) }
+                label = { Text("All records", style = MaterialTheme.typography.labelMedium) }
             )
             if (!all && scope.workshops.isNotEmpty()) {
                 TextButton(onClick = { scope.selectMostRecent() }) {
-                    Text("Most recent only", fontSize = 12.sp)
+                    Text("Most recent only", style = MaterialTheme.typography.labelMedium)
                 }
             }
         }
@@ -278,7 +277,7 @@ fun WorkshopScopeSelect(
                 Text(
                     scope.summary,
                     color = MaterialTheme.field.muted,
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.weight(1f)
                 )
             }

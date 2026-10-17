@@ -68,7 +68,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 
 // ---------------------------------------------------------------------------------------------
@@ -222,7 +221,7 @@ fun SearchableSelectField(
     val searchable = searchable ?: (options.size >= SEARCH_THRESHOLD)
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, color = MaterialTheme.field.muted, fontSize = 12.sp)
+        Text(label, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(modifier = Modifier.weight(1f)) {
             SelectTrigger(
@@ -335,10 +334,10 @@ fun SearchableMultiSelectField(
         Text(
             "$label (${chosen.size} selected)",
             color = MaterialTheme.field.muted,
-            fontSize = 12.sp
+            style = MaterialTheme.typography.bodySmall
         )
         if (options.isEmpty()) {
-            Text(emptyMessage, color = MaterialTheme.field.muted, fontSize = 12.sp)
+            Text(emptyMessage, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
         } else {
             SelectTrigger(
                 speech = "$label. " + if (chosen.isEmpty()) {
@@ -372,7 +371,7 @@ fun SearchableMultiSelectField(
                             Text(
                                 option.label,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                fontSize = 13.sp,
+                                style = MaterialTheme.typography.bodyMedium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f, fill = false)
@@ -616,7 +615,7 @@ private fun SearchablePickerSheet(
                 Text(
                     title,
                     display = true,
-                    fontSize = 18.sp,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.semantics { heading() }
@@ -670,7 +669,7 @@ private fun SearchablePickerSheet(
                     Text(
                         countLine(filtered.size, options.size, searching),
                         color = MaterialTheme.field.muted,
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier
                             .align(Alignment.CenterVertically)
                             // Polite, not Assertive: it fires on every keystroke, and a screen
@@ -692,11 +691,11 @@ private fun SearchablePickerSheet(
                         TextButton(
                             onClick = { draft = draft + filtered.map { it.value } },
                             enabled = visibleUnselected > 0
-                        ) { Text("Select all ${filtered.size} shown", fontSize = 12.sp) }
+                        ) { Text("Select all ${filtered.size} shown", style = MaterialTheme.typography.labelMedium) }
                         TextButton(
                             onClick = { draft = emptySet() },
                             enabled = draft.isNotEmpty()
-                        ) { Text("Clear all", fontSize = 12.sp) }
+                        ) { Text("Clear all", style = MaterialTheme.typography.labelMedium) }
                     }
                 }
             }
@@ -756,7 +755,7 @@ private fun SearchablePickerSheet(
                             Text(
                                 "Nothing matches “${query.trim()}”.",
                                 color = MaterialTheme.field.muted,
-                                fontSize = 13.sp
+                                style = MaterialTheme.typography.bodyMedium
                             )
                             TextButton(onClick = { setQuery("") }) { Text("Clear search") }
                         }
@@ -851,11 +850,11 @@ private fun PickerRow(
                     selected && !multiple -> MaterialTheme.colorScheme.primary
                     else -> MaterialTheme.field.body
                 },
-                fontSize = 14.sp,
+                style = MaterialTheme.typography.bodyMedium,
                 fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal
             )
             hint?.let {
-                Text(it, color = MaterialTheme.field.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(it, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         if (isHighlighted) {

@@ -23,7 +23,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { useAdminView } from "@/components/AdminViewProvider";
 import { ComboBox, Dropdown } from "@/components/ui/Dropdown";
 import { apiFetch, listResource } from "@/lib/api";
-import { bytes, formatDateTime } from "@/lib/format";
+import { bytes, countNoun, formatDateTime } from "@/lib/format";
 import { rowClickOpensRecord } from "@/lib/recordView";
 import { locationFromForm, textValue } from "@/lib/forms";
 import { inferMediaType, uploadMediaBatch, type BatchProgress } from "@/lib/media";
@@ -319,7 +319,7 @@ function MediaPageBody() {
       load(page, search);
       if (failed.length) {
         setError(
-          `${failed.length} of ${selectedFiles.length} file(s) didn’t upload: ${failed.map((item) => item.name).join(", ")}. The rest were saved.`
+          `${failed.length} of ${countNoun(selectedFiles.length, "file")} didn’t upload: ${failed.map((item) => item.name).join(", ")}. The rest were saved.`
         );
         return;
       }
