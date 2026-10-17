@@ -2635,22 +2635,26 @@ private fun HomeScreen(
                                 "You have unsaved changes, including new recordings or media. Save or discard?"
                             )
                         },
+                        // Three actions, so one ActionRow in the confirm slot: stacked on a phone, one
+                        // row on a wider window, Discard last — the web's FieldDialog does the same.
                         confirmButton = {
-                            TextButton(onClick = {
-                                pendingExit = null
-                                // The form validates and, on success, saves and navigates itself. On a missing
-                                // required field it stays put with the field highlighted.
-                                unsavedGuard.onSave?.invoke()
-                            }) { Text("Save") }
-                        },
-                        dismissButton = {
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                TextButton(onClick = { pendingExit = null }) { Text("Keep editing") }
+                            ActionRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                destructive = {
+                                    TextButton(onClick = {
+                                        pendingExit = null
+                                        unsavedGuard.clear()
+                                        exit()
+                                    }) { Text("Discard", color = MaterialTheme.colorScheme.error) }
+                                }
+                            ) {
                                 TextButton(onClick = {
                                     pendingExit = null
-                                    unsavedGuard.clear()
-                                    exit()
-                                }) { Text("Discard", color = MaterialTheme.colorScheme.error) }
+                                    // The form validates and, on success, saves and navigates itself. On a
+                                    // missing required field it stays put with the field highlighted.
+                                    unsavedGuard.onSave?.invoke()
+                                }) { Text("Save") }
+                                TextButton(onClick = { pendingExit = null }) { Text("Keep editing") }
                             }
                         }
                     )
@@ -10147,15 +10151,14 @@ private fun WalkthroughDialog(onDismiss: () -> Unit) {
             }
         },
         text = { Text(current.body, fontSize = 14.sp, color = Body) },
+        // Up to three actions, so one ActionRow in the confirm slot (see ActionRow.kt).
         confirmButton = {
-            TextButton(onClick = { if (isLast) onDismiss() else step++ }) {
-                Text(if (isLast) "Done" else "Next")
-            }
-        },
-        dismissButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            ActionRow(modifier = Modifier.fillMaxWidth()) {
                 if (step > 0) TextButton(onClick = { step-- }) { Text("Back") }
                 TextButton(onClick = onDismiss) { Text("Skip") }
+                TextButton(onClick = { if (isLast) onDismiss() else step++ }) {
+                    Text(if (isLast) "Done" else "Next")
+                }
             }
         }
     )
@@ -11700,7 +11703,21 @@ private fun PendingReviewRow(
                     fontSize = 12.sp
                 )
             }
-            ActionRow {
+            ActionRow(
+                destructive = {
+                    OutlinedButton(
+                        // Asks first, as the web's review page does. Rejection is the end of the road for a
+                        // submission and it sits one tap away from "Send for revision", the recoverable
+                        // action with almost the same meaning; on a phone, where the two buttons are a
+                        // thumb-width apart, doing it on the first tap was a mis-tap away from telling a
+                        // contributor their work was thrown out.
+                        onClick = { confirmReject = true },
+                        enabled = !busy,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                    ) { Text("Reject", maxLines = 1, fontSize = 13.sp) }
+                }
+            ) {
                 Button(
                     onClick = { act("Approved ${item.label}", resolves = true) { repository.approveRecord(item.recordType, item.id) } },
                     enabled = !busy,
@@ -11720,18 +11737,6 @@ private fun PendingReviewRow(
                     enabled = !busy,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
                 ) { Text(if (panel == "revise") "Close" else "Send for revision", maxLines = 1, fontSize = 12.sp) }
-                // Destructive, so last in the group.
-                OutlinedButton(
-                    // Asks first, as the web's review page does. Rejection is the end of the road for a
-                    // submission and it sits one tap away from "Send for revision", the recoverable
-                    // action with almost the same meaning; on a phone, where the two buttons are a
-                    // thumb-width apart, doing it on the first tap was a mis-tap away from telling a
-                    // contributor their work was thrown out.
-                    onClick = { confirmReject = true },
-                    enabled = !busy,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
-                ) { Text("Reject", maxLines = 1, fontSize = 13.sp) }
             }
 
             when (panel) {

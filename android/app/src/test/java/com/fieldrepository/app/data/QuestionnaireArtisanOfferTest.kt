@@ -298,6 +298,8 @@ class QuestionnaireArtisanOfferTest {
         val line = outOfWorkshopNotice(listOf("Ramesh Kumar"))
         assertNotNull(line)
         assertTrue(line!!.contains("Ramesh Kumar is not yet linked to this workshop"))
+        // They stay ticked: the notice offers to untick, it does not untick for them.
+        assertTrue(line.contains("untick anyone who shouldn't be here"))
         // The whole point of the rule: saving is what creates the link, so the sentence says so rather
         // than telling a researcher they have made a mistake they have not made.
         assertTrue(line.contains("Saving links them"))

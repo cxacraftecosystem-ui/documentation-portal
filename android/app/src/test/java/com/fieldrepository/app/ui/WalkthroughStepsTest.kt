@@ -349,15 +349,14 @@ class WalkthroughStepsTest {
  */
 private val WATCH_REWRITTEN: Map<Pair<String, Int>, String> = mapOf(
     /*
-     * The web ends this one "use Search to find records instead" (steps.ts:321). There is no row
+     * The web ends this one "use Search instead". There is no row
      * called "Search" in this menu: the same capability is `NavDestination.BROWSE_RECORDS`, labelled
      * "Browse records" (AppNavigation.kt:349) and ungated. Sending a researcher who has just been
      * refused the dataset to a name the drawer does not use turns a working fallback into a dead end
      * at the exact moment they need it.
      */
     ("view-data" to 2) to
-        "Dataset download is a granted permission. If your role does not have it the browser " +
-        "shows a restricted notice — use Browse records to find records instead.",
+        "Without dataset access, use Browse records instead.",
 )
 
 /**
@@ -375,7 +374,7 @@ private val BODY_EXTENDED: Map<String, String> = mapOf(
      * would conclude is that they cannot find it rather than that it is not there.
      */
     "review" to
-        " On the phone, \"Review\" opens the record browser, where you read a submission and act on it.",
+        " On the phone, \"Review\" opens the record browser.",
 )
 
 // ── Reading the web's own step list ─────────────────────────────────────────────────────────────

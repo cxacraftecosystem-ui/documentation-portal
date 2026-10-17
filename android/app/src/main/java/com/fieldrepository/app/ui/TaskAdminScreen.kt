@@ -644,8 +644,8 @@ fun taskDueSentence(summary: TaskSummaryDto): String? {
  */
 fun taskAwaitingReviewSentence(count: Int): String? = when {
     count <= 0 -> null
-    count == 1 -> "One task is under review — nothing more to do."
-    else -> "$count tasks are under review — nothing more to do."
+    count == 1 -> "1 task awaiting approval."
+    else -> "$count tasks awaiting approval."
 }
 
 /** The six-tier ladder, highest first — the display order the web uses for role pickers. */

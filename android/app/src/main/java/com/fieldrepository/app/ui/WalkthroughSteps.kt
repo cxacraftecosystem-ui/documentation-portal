@@ -262,12 +262,7 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         title = "Workshop · Record workshop",
         icon = Icons.Filled.Groups,
         destination = NavDestination.RECORD_WORKSHOP,
-        body = "Open the workshop you are documenting under — or create it — before you record " +
-            "anything else. Every record you make is scoped to a workshop. Products, tools and " +
-            "interviews all carry a linked workshop, and the Data Browser opens on \"By workshop\", " +
-            "which files every record under the workshop it was recorded in. On a create " +
-            "form the most recent workshop you have access to is preselected, so getting this right " +
-            "once saves you picking it on every screen afterwards.",
+        body = "Open or create the workshop first. Every record belongs to a workshop, and new forms preselect your latest one.",
         // One string literal per line, and never a `+` concatenation inside an entry: these are
         // compared one-for-one against `steps.ts`, and a label split across two literals reads as one
         // entry to Kotlin and as two to anybody skimming the diff.
@@ -283,10 +278,8 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
             "Location (GPS fix or map pin)",
         ),
         watch = listOf(
-            "Create the workshop before you leave for the field — it is the container everything " +
-                "else drops into.",
-            "Records created outside a workshop's date window are flagged as out-of-window and need " +
-                "a reviewer's approval.",
+            "Create it before you leave for the field.",
+            "Records outside its dates need approval.",
         ),
     ),
     WalkStep(
@@ -294,11 +287,7 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         title = "Craft · Add craft",
         icon = Icons.Filled.Brush,
         destination = NavDestination.ADD_CRAFT,
-        body = "Add the craft being documented so artisans, products and tools have something to " +
-            "hang off. Craft is the shared vocabulary everyone uses: artisans link to a craft, " +
-            "products and tools inherit the craft name from it, and the Data Browser groups every " +
-            "workshop's contents by craft. Adding it once keeps spellings consistent across " +
-            "everyone's records.",
+        body = "Add the craft being documented. Artisans, products and tools link to it, keeping spellings consistent.",
         fields = listOf(
             "Craft name (required)",
             "Local name",
@@ -308,10 +297,8 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
             "Craft media",
         ),
         watch = listOf(
-            "Check the list first — if the craft already exists, reuse it instead of creating a " +
-                "near-duplicate spelling.",
-            "The local name matters as much as the English one; record what the community actually " +
-                "calls it.",
+            "Reuse an existing craft rather than adding a near-duplicate.",
+            "Record the local name the community uses.",
         ),
     ),
     WalkStep(
@@ -319,11 +306,7 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         title = "Artisan · Record artisan",
         icon = Icons.Filled.Person,
         destination = NavDestination.RECORD_ARTISAN,
-        body = "Record the person: who they are, where they work, how to reach them, and what they " +
-            "have learnt. The artisan is the anchor of the dataset. Products, processes, tools and " +
-            "questionnaire interviews all link back to an artisan record, and the Do's and Don'ts " +
-            "are the artisan's own hard-won craft knowledge — the part of the archive that cannot " +
-            "be reconstructed later.",
+        body = "Who they are, where they work and what they’ve learnt. Everything links back to the artisan. Their Do’s and Don’ts can’t be recovered later.",
         fields = listOf(
             "Name (required)",
             "Local name",
@@ -342,11 +325,9 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
             "Location (GPS fix or map pin)",
         ),
         watch = listOf(
-            "Do's and Don'ts are required. Press Enter for each new point — one lesson per line.",
-            "You must either select an existing craft or type a new craft name; the form will not " +
-                "save with neither.",
-            "Photo details (date, place, camera) are kept and summarised into the notes automatically — you do not need " +
-                "to transcribe camera details by hand.",
+            "Do’s and Don’ts are required — one point per line.",
+            "Choose a craft or type a new one.",
+            "Photo details are added to the notes automatically.",
         ),
     ),
     WalkStep(
@@ -354,11 +335,7 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         title = "Product · Record product",
         icon = Icons.Filled.Inventory2,
         destination = NavDestination.RECORD_PRODUCT,
-        body = "Record one thing this artisan makes, with its measurements, economics and " +
-            "photographs. The product record is where the craft becomes measurable: dimensions, " +
-            "cost of making, selling price and market demand are the fields researchers compare " +
-            "across regions. Link it to the artisan and the craft and the whole chain stays " +
-            "navigable.",
+        body = "One thing they make — size, cost and photos. Dimensions, cost and price are what researchers compare across regions.",
         fields = listOf(
             "Product name (required)",
             "Local name",
@@ -385,16 +362,9 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
             "Location (GPS fix or map pin)",
         ),
         watch = listOf(
-            "Pick the linked craft first — the artisan dropdown stays disabled until a craft is " +
-                "chosen, then only lists that craft's artisans.",
-            // "Document using grid" is this handset's own control, not only the web's:
-            // MainActivity.kt:3589 draws the label and FieldRepository.kt:2405 is the auto-fill it
-            // feeds. Verbatim from the web is also correct here, which is why it is not in
-            // WATCH_REWRITTEN.
-            "Use \"Document using grid\" to photograph the piece against the measuring grid: it " +
-                "fills length, breadth and height for you and stores the photo as evidence.",
-            "Choosing a linked artisan fills the artisan name and place; choosing a linked craft " +
-                "fills the craft name.",
+            "Pick the craft first; it filters the artisans.",
+            "\"Document using grid\" measures the piece from a photo.",
+            "Linked craft and artisan fill their names for you.",
         ),
     ),
     WalkStep(
@@ -402,10 +372,7 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         title = "Process · Document process",
         icon = Icons.Filled.AccountTree,
         destination = NavDestination.DOCUMENT_PROCESS,
-        body = "Walk through how that product is made, one step at a time, filming each step as it " +
-            "happens. The process is the craft itself. A product photograph shows the result; the " +
-            "step-by-step record with per-step media shows the knowledge — the sequence, the hand " +
-            "movements, the judgement calls that a text description always loses.",
+        body = "How the product is made, step by step, on video. The steps on video capture knowledge a photo or description loses.",
         fields = listOf(
             "Name of the process (required)",
             "Artisan (required)",
@@ -415,13 +382,9 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
             "Per step: attached media",
         ),
         watch = listOf(
-            // "Add Another Step" is the handset's own button too — MainActivity.kt:7280 — so the
-            // web's sentence is true here word for word.
-            "Add a step with \"Add Another Step\" and pick Sequential for an ordered stage, or " +
-                "Group of activities for things done together.",
-            "Video is the preferred format for steps — capture the action as it happens rather " +
-                "than posing the result.",
-            "Document the process against the product you already recorded, so the two stay linked.",
+            "Use Sequential for ordered steps, Group for parallel ones.",
+            "Film the action, not the result.",
+            "Link it to the product you recorded.",
         ),
     ),
     WalkStep(
@@ -429,11 +392,7 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         title = "Tool · Record tool",
         icon = Icons.Filled.Build,
         destination = NavDestination.RECORD_TOOL,
-        body = "Record the toolkit the artisan uses: what it is made of, how big it is, who made " +
-            "it, what it costs to replace. Tools are the most quietly endangered part of a craft — " +
-            "the maker of a tool often disappears before the craft does. Replacement cost, maker " +
-            "and tradition type are the fields that record whether the toolchain behind the craft " +
-            "is still alive.",
+        body = "Material, size, maker and replacement cost. Tool makers often vanish before the craft does — record who makes them.",
         fields = listOf(
             "Toolkit name (required)",
             "Local name",
@@ -465,25 +424,11 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
             "Location (GPS fix or map pin)",
         ),
         watch = listOf(
-            "Fill only the dimensions that make sense for the tool — a blade has a length and " +
-                "thickness, a wheel has a radius.",
-            // The centimetre pairing, 2026-09-15. Verbatim from the web, because the behaviour is
-            // identical on both clients — the same conversion, the same two pairs, the same
-            // standalone length.
-            "Height (cm) and Height (inches) are one measurement: fill either and the other fills " +
-                "itself. Width (cm) pairs with Breadth (inches) the same way; Length (inches) has " +
-                "no centimetre box.",
-            // The two multi-selects, 2026-09-15. Verbatim too: "tick" is the right word for the
-            // handset's sheet as well as for the browser's dropdown.
-            "A tool can be linked to several crafts and several artisans at once — tick as many as " +
-                "apply, and the craft name box fills with all of them in the order you picked.",
-            "\"Process stages\" keeps your captures in the order you take them, so shoot them in " +
-                "sequence.",
-            // "Assign tools to artisans" is this handset's own menu row, at AppNavigation.kt:364,
-            // with the identical label. Verbatim holds.
-            "You can also hand tools to specific artisans later from \"Assign tools to artisans\" " +
-                "— for your own artisans, ones shared with you for editing, or any artisan if you " +
-                "are an admin.",
+            "Fill only the dimensions that apply.",
+            "cm and inch boxes fill each other.",
+            "Link several crafts and artisans at once.",
+            "Shoot process stages in order.",
+            "Assign tools to artisans later from \"Assign tools to artisans\".",
         ),
     ),
     WalkStep(
@@ -491,10 +436,7 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         title = "Questionnaire · Take interview",
         icon = Icons.Filled.Quiz,
         destination = NavDestination.TAKE_INTERVIEW,
-        body = "Sit down with the artisan and work through the interview sections, recording each " +
-            "answer as audio. The questionnaire is the artisan speaking in their own voice and " +
-            "their own language. Recorded audio is transcribed automatically, so you get both " +
-            "the original recording and searchable text without typing during the interview.",
+        body = "Work through the sections, recording each answer. Audio is transcribed, so you keep their voice and searchable text.",
         // REGENERATED AGAINST THE FORM ON 2026-09-16, and now held to it rather than to the other
         // register: `shared/questionnaire-form-contract.json` declares this form's boxes once and
         // `backend/tests/test_questionnaire_form_contract.py` measures this list, `steps.ts` and
@@ -525,16 +467,10 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
             "Interview notes",
         ),
         watch = listOf(
-            "There is one interview per exact set of artisans. If an entry already exists for that " +
-                "set, saving adds your answers to it — it never creates a duplicate.",
-            "Answer only the questions actually asked; empty questions stay open for whoever picks " +
-                "the interview up next.",
-            "Questions already answered by someone else can only be changed by that contributor or " +
-                "an admin.",
-            // The completion matrix is on the handset form too — MainActivity.kt:1717 carries the
-            // admin-view state into it by that name.
-            "Use \"Check completion\" at the top of the screen to see the artisans × sections " +
-                "matrix and find the gaps.",
+            "One interview per set of artisans; saving adds to an existing one.",
+            "Answer only what was asked.",
+            "Others’ answers can only be changed by them or an admin.",
+            "\"Check completion\" shows the gaps.",
         ),
     ),
     WalkStep(
@@ -542,10 +478,7 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         title = "Miscellaneous Media · Upload media",
         icon = Icons.Filled.PermMedia,
         destination = NavDestination.UPLOAD_MEDIA,
-        body = "Upload the photographs, video, audio and files that do not belong to any single " +
-            "record. Field work produces context that no form has a slot for: the road into the " +
-            "village, the market, an unplanned conversation. Miscellaneous Media keeps that " +
-            "material with your records instead of on a phone that gets wiped.",
+        body = "Files that don’t belong to one record. Keeps field context with your records, not on a phone.",
         fields = listOf(
             "Capture media — images, video, audio and documents",
             "Media title / object name",
@@ -555,12 +488,9 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
             "Location (GPS fix or map pin)",
         ),
         watch = listOf(
-            "Upload stays disabled until you pick a Linked record type. If the file belongs to " +
-                "nothing in particular, pick \"Miscellaneous Media\" and leave the entry blank.",
-            "Audio uploaded here is queued for transcription after upload, exactly like interview " +
-                "audio.",
-            "If the file does turn out to belong to a record, link it — misc media can be attached " +
-                "to a record afterwards.",
+            "Pick a record type first, or \"Miscellaneous Media\".",
+            "Audio is transcribed.",
+            "You can link it to a record later.",
         ),
     ),
     WalkStep(
@@ -583,11 +513,7 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
          * not there. The added sentence is marked in `WalkthroughStepsTest.WATCH_REWRITTEN`'s sibling
          * register for the body, `BODY_EXTENDED`, so it cannot be mistaken for drift.
          */
-        body = "Everything you submit goes into the review queue and comes back Approved, " +
-            "Rejected, or Sent for revision. Review is what turns a pile of field notes into a " +
-            "dataset anyone can cite. It also means you are never the last check on your own work " +
-            "— a reviewer above your tier reads every record before it counts as final. On the " +
-            "phone, \"Review\" opens the record browser, where you read a submission and act on it.",
+        body = "Submissions come back Approved, Rejected or Sent for revision. A reviewer above you checks every record before it counts. On the phone, \"Review\" opens the record browser.",
         fields = listOf(
             "Pending — submitted, waiting for a reviewer",
             "Approved — final, counted in the dataset",
@@ -595,12 +521,9 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
             "Rejected — not going into the dataset",
         ),
         watch = listOf(
-            "Below Professor the status chip is locked: whatever you create is submitted as " +
-                "Pending. That is normal, not an error.",
-            "\"Send for revision\" always carries mandatory comments — read them, fix the record, " +
-                "and saving resubmits it as Pending.",
-            "Reviewers only see submissions from contributors ranked strictly below them; the " +
-                "master admin sees everyone.",
+            "Below Professor, everything is submitted as Pending.",
+            "Fix what the comments say; saving resubmits it.",
+            "Reviewers see work from those below them.",
         ),
     ),
     WalkStep(
@@ -608,10 +531,7 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         title = "View Data · Browse records",
         icon = Icons.Filled.Storage,
         destination = NavDestination.VIEW_DATA,
-        body = "Browse every record as folders and export a report of any " +
-            "folder. This is where the documentation stops being data entry and starts being " +
-            "research material: the same records, filed three different ways, previewable in place " +
-            "and downloadable as a spreadsheet.",
+        body = "Browse records as folders and export any of them. The same records, filed three ways, ready to preview and download.",
         fields = listOf(
             "By workshop — every record filed under the workshop it was made in (the view it opens on)",
             "By uploader — a workshop's records filed under the researcher who uploaded them",
@@ -620,20 +540,9 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
             "Download any folder as a zip, with content-type filters",
         ),
         watch = listOf(
-            "Pick a folder, then use the breadcrumb to move back up — each folder loads when you " +
-                "open it.",
-            "Transcripts and AI text render as formatted Markdown in the preview pane, not raw text.",
-            /*
-             * ⚠ THE LAST FIVE WORDS ARE NOT THE WEB'S. The web ends "use Search to find records
-             * instead" (steps.ts:321). There is no row called "Search" in this menu — the same
-             * capability is `NavDestination.BROWSE_RECORDS`, labelled "Browse records"
-             * (AppNavigation.kt:349) and ungated (`everyone`), which is precisely why it is the
-             * right thing to point a refused researcher at. Sending them to a name the drawer does
-             * not use would turn a working fallback into a dead end at the exact moment they have
-             * just been told no. Declared in `WalkthroughStepsTest.WATCH_REWRITTEN`.
-             */
-            "Dataset download is a granted permission. If your role does not have it the browser " +
-                "shows a restricted notice — use Browse records to find records instead.",
+            "Use the breadcrumb to go back up.",
+            "Transcripts preview as formatted text.",
+            "Without dataset access, use Browse records instead.",
         ),
     ),
 )

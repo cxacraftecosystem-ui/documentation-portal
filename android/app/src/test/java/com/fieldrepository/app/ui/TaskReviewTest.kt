@@ -638,11 +638,11 @@ class TaskReviewTest {
     fun `the under-review sentence is worded exactly as the web words it`() {
         // `frontend/components/tasks/AssigneeProgressCard.tsx`, singular and plural both.
         assertEquals(
-            "One task is under review — nothing more to do.",
+            "1 task awaiting approval.",
             taskAwaitingReviewSentence(1)
         )
         assertEquals(
-            "3 tasks are under review — nothing more to do.",
+            "3 tasks awaiting approval.",
             taskAwaitingReviewSentence(3)
         )
     }
@@ -770,7 +770,7 @@ class TaskReviewTest {
         val due = taskDueSentence(decoded)!!
         assertTrue(due.startsWith("1 task is past its due date · 2 due within the next two days · next due 20 Sep"))
         assertTrue(due.endsWith("2026."))
-        assertTrue(taskAwaitingReviewSentence(decoded.awaitingReviewCount)!!.startsWith("3 tasks are under review"))
+        assertTrue(taskAwaitingReviewSentence(decoded.awaitingReviewCount)!!.startsWith("3 tasks awaiting approval"))
     }
 
     @Test

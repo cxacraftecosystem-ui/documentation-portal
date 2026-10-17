@@ -492,7 +492,8 @@ internal fun walkthroughFacets(step: WalkStep): WalkthroughFacets {
 /** The index just past the first sentence of [prose], or its whole length if it has only one. */
 private fun walkthroughFirstSentenceEnd(prose: String): Int {
     // Below this a "sentence" is a fragment, and a two-word collapsed line teaches nobody anything.
-    val floor = 40
+    // 16, not more: the web's summaries are now one short sentence ("Add the craft being documented.").
+    val floor = 16
     var index = floor
     while (index < prose.length - 1) {
         val here = prose[index]
