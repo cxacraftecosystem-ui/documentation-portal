@@ -30,6 +30,7 @@ from fastapi import FastAPI
 import app.core.db as core_db
 from app.api.router import api_router
 from app.core import deps
+from review_tx_fakes import with_tx
 
 ALL_ROLES = (
     "CROWDSOURCE_VOLUNTEER",
@@ -128,6 +129,7 @@ class _Queue:
             recordrevision=self.recordrevision,
             user=_Delegate(),
         )
+        with_tx(fake_db)
         real_db = core_db.db
         monkeypatch.setattr(core_db, "db", fake_db)
         for module in list(sys.modules.values()):

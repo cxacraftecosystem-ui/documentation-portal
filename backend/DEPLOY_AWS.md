@@ -651,3 +651,29 @@ EC2* from the Actions tab (a dispatch deploys without waiting for Checks), and c
 --allocation-id eipalloc-03a87f17914bfa85d --instance-id <new id> --allow-reassociation`, set
 `EC2_HOST` back to `15.207.145.174`, check the API through CloudFront, retag both boxes, and **stop**
 the old one (`aws ec2 stop-instances`), so going back is a start and an `associate-address`.
+
+---
+
+## 11. After a release: one-off scripts
+
+Some releases change a rule that existing rows predate. Their script runs ONCE, on the box, after the
+deploy has finished and `/health` answers, against the live database the box already points at.
+Never from a laptop, and never as part of a test run. Each one is dry by default and safe to re-run.
+
+### 11.1 Files approved with their record (the release that cascades approvals)
+
+From this release, approving a record also approves its files that are still PENDING (a reviewer can
+still reject any one file). Records approved earlier left their files pending; this brings them into
+line with the same rules: only PENDING files, the record's reviewer and review time, one ReviewLog
+line per file, the review ladder and the late-submission rule kept. The last dry run expected about
+**895** files.
+
+```bash
+cd /home/ubuntu/app/backend
+.venv/bin/python scripts/approve_media_of_approved_records.py           # dry run: counts per type
+.venv/bin/python scripts/approve_media_of_approved_records.py --apply   # write, 200 records a batch
+.venv/bin/python scripts/approve_media_of_approved_records.py           # again: expect 0
+```
+
+Check the dry run's total against the number above before passing `--apply`; a total far from it is a
+reason to stop and look, not to proceed.

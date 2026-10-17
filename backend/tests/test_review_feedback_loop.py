@@ -21,6 +21,7 @@ from app.api.routes import review
 from app.core import deps
 from app.services import email_outbox
 from app.services.records import resubmit_status
+from review_tx_fakes import with_tx
 
 
 def _user(role: str, user_id: str) -> SimpleNamespace:
@@ -70,7 +71,7 @@ class _Table:
     async def update_many(self, where: dict[str, Any], data: dict[str, Any]) -> int:
         hits = [row for row in self.rows if _matches(row, where)]
         for row in hits:
-            vars(row).update(data)
+            vars(row).update({k: getattr(v, "data", v) for k, v in data.items()})
         return len(hits)
 
     async def create(self, data: dict[str, Any]) -> Any:
@@ -128,7 +129,7 @@ def world(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         workshop=_Table(), productdocumentation=_Table(), tooldocumentation=_Table(), process=_Table(),
         questionnaireinterview=_Table(),
     )
-    monkeypatch.setattr(review, "db", fake)
+    monkeypatch.setattr(review, "db", with_tx(fake))
     empty = _Table()
     monkeypatch.setattr(
         review,

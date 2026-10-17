@@ -89,6 +89,27 @@ available on this phone… The trace still works." and hides those settings.
 
 **To close it.** Re-vendor the two engines from the same upstream release.
 
+### Review decisions with no signal on Android, beyond approving — S
+
+**What is missing.** Approving a record and rejecting one file wait in the Android outbox when there
+is no signal, and replay under their Idempotency-Key (the server accepts one on every review
+decision). Rejecting a record, sending it back, and the bulk approval still need a connection.
+
+**What users see.** The error a failed request always shows; nothing is queued for those three.
+
+**To close it.** Route `rejectRecord`, `reviseRecord` and `bulkApprove` in
+`data/FieldRepository.kt` through `sendReviewDecision`, as `approveRecord` and `rejectMedia` are.
+
+### A file's own decision on a record's page — S
+
+**What is missing.** A record's page offers Reject on each file a reviewer may still reject, but
+does not say which files are already rejected or approved with their record.
+
+**What users see.** A rejected file simply has no Reject button.
+
+**To close it.** Return each file's status from `GET /review/{type}/{id}/media` and show it as a
+small badge on the file card on both clients.
+
 ## Known defects
 
 ### Rich-text formatting is lost in exports — M

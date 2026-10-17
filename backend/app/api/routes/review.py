@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -58,24 +58,28 @@ LATE_SUBMISSION_LOG_NOTE = "Late workshop submission — approved by an admin."
 EDIT_LOG_PREFIX = "EDITED"
 
 
-def delegate_for(record_type: str) -> tuple[Any, str, str]:
+# The client attribute of each reviewable type, so a decision can run on a transaction's client.
+_DELEGATE_ATTRS: dict[str, tuple[str, str, str]] = {
+    "artisan": ("artisan", "ARTISAN", "createdBy"),
+    "workshop": ("workshop", "WORKSHOP", "createdBy"),
+    "product": ("productdocumentation", "PRODUCT", "createdBy"),
+    "tool": ("tooldocumentation", "TOOL", "createdBy"),
+    # Processes and interviews carry a status and can be pinned PENDING by the late-submission
+    # gate, so they must be reviewable — without these a late process or interview was
+    # unapprovable by anyone and sat in PENDING forever.
+    "process": ("process", "PROCESS", "createdBy"),
+    "questionnaire": ("questionnaireinterview", "QUESTIONNAIRE", "createdBy"),
+    "media": ("mediafile", "MEDIA", "uploadedBy"),
+}
+
+
+def delegate_for(record_type: str, client: Any = None) -> tuple[Any, str, str]:
     """Delegate, ReviewLog record type, and the name of the relation pointing at the creator."""
-    mapping = {
-        "artisan": (db.artisan, "ARTISAN", "createdBy"),
-        "workshop": (db.workshop, "WORKSHOP", "createdBy"),
-        "product": (db.productdocumentation, "PRODUCT", "createdBy"),
-        "tool": (db.tooldocumentation, "TOOL", "createdBy"),
-        # Processes and interviews carry a status and can be pinned PENDING by the late-submission
-        # gate, so they must be reviewable — without these a late process or interview was
-        # unapprovable by anyone and sat in PENDING forever.
-        "process": (db.process, "PROCESS", "createdBy"),
-        "questionnaire": (db.questionnaireinterview, "QUESTIONNAIRE", "createdBy"),
-        "media": (db.mediafile, "MEDIA", "uploadedBy"),
-    }
     key = record_type.lower()
-    if key not in mapping:
+    if key not in _DELEGATE_ATTRS:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unsupported review record type")
-    return mapping[key]
+    attr, log_type, creator_relation = _DELEGATE_ATTRS[key]
+    return getattr(client or db, attr), log_type, creator_relation
 
 
 # Record types surfaced in the review queue, with the field used as a human label. Media is
@@ -454,11 +458,18 @@ async def list_pending_reviews(
     ordered = [(key, by_key[key]) for key in keys if key in by_key]
     previous = await _previous_reviews([(key[0], row) for key, (row, _) in ordered])
     items = [_pending_item(key[0], row, labels, previous.get(key)) for key, (row, labels) in ordered]
+    # How many files approving each row would approve with it — the confirmation's "Also approves
+    # 4 files." One query for the page, never one per row.
+    counts = await pending_media_counts([key for key, _ in ordered], reviewer)
+    for item, (key, _) in zip(items, ordered, strict=True):
+        item["pendingMediaCount"] = counts.get(key, 0)
     return {"items": items, "total": total, "page": page, "pageSize": page_size}
 
 
 # Media hangs off its record through a tag pair (linkedRecordType/linkedRecordId) and, on older rows,
-# only through a typed column. Approving the record approves the files that hang off it (C21).
+# only through a typed column. Approving the record approves the files that hang off it (C21): the
+# owner's decision is that a record and its still-pending files are approved together, while a
+# reviewer can still reject any one file on its own, before or after.
 _MEDIA_TAGS: dict[str, tuple[str, ...]] = {
     "artisan": ("artisan",),
     "workshop": ("workshop",),
@@ -472,28 +483,22 @@ _MEDIA_COLUMNS: dict[str, str] = {
     "tool": "toolId",
     "questionnaire": "questionnaireInterviewId",
 }
+# The audit line every file approved through its parent carries, so its history says why.
+MEDIA_WITH_RECORD_NOTE = "Approved with its {kind} record."
+# A file judged on its own after its record was approved (C21): the decisions it can still take.
+MEDIA_REJECTABLE_STATUSES = ("PENDING", "APPROVED")
 
 
-async def approve_record_media(record_type: str, record_id: str, reviewer: Any) -> int:
-    """Approve the still-pending files of a record that was just approved. Returns how many.
-
-    A file submitted outside its workshop's dates waits for an admin exactly as a record does: a
-    non-admin's approval of the parent leaves it pending, and an admin's clears its flag too.
-    """
-    key = record_type.lower()
-    tags = _MEDIA_TAGS.get(key)
-    if not tags:
-        return 0
+def _media_clauses(key: str, record_id: str, step_ids: list[str]) -> list[dict[str, Any]]:
+    """The Prisma ``OR`` clauses naming the files of one record. ``step_ids`` are a process's steps."""
     clauses: list[dict[str, Any]] = [
-        {"linkedRecordType": {"equals": tag, "mode": "insensitive"}, "linkedRecordId": record_id} for tag in tags
+        {"linkedRecordType": {"equals": tag, "mode": "insensitive"}, "linkedRecordId": record_id}
+        for tag in _MEDIA_TAGS.get(key, ())
     ]
-    if key == "process":
-        steps = await db.processstep.find_many(where={"processId": record_id})
-        step_ids = [str(get_value(step, "id")) for step in steps]
-        if step_ids:
-            clauses.append(
-                {"linkedRecordType": {"equals": "processstep", "mode": "insensitive"}, "linkedRecordId": {"in": step_ids}}
-            )
+    if key == "process" and step_ids:
+        clauses.append(
+            {"linkedRecordType": {"equals": "processstep", "mode": "insensitive"}, "linkedRecordId": {"in": step_ids}}
+        )
     column = _MEDIA_COLUMNS.get(key)
     if column:
         clauses.append({"linkedRecordType": None, column: record_id})
@@ -501,59 +506,139 @@ async def approve_record_media(record_type: str, record_id: str, reviewer: Any) 
         clauses.append(
             {"linkedRecordType": None, "artisanId": record_id, "productId": None, "toolId": None, "questionnaireInterviewId": None}
         )
-    files = await db.mediafile.find_many(where={"status": "PENDING", "OR": clauses}, include={"uploadedBy": True})
-    # The review ladder applies to each file as it does to a record: a file uploaded by somebody at or
-    # above the reviewer's own rank (an admin's photograph on a volunteer's record) stays pending for
-    # a reviewer who may judge it.
-    files = [
-        f
-        for f in files
-        if can_review_record(reviewer, get_value(get_value(f, "uploadedBy"), "role") if get_value(f, "uploadedBy") else None)
-    ]
-    if not files:
-        return 0
+    return clauses
+
+
+def _media_belongs(media: Any, key: str, record_id: str, step_ids: list[str]) -> bool:
+    """``_media_clauses`` read in Python, to share one query between several records.
+
+    Kept beside the clauses on purpose: the two say the same thing and must change together.
+    """
+    tag = str(get_value(media, "linkedRecordType") or "").lower()
+    linked = get_value(media, "linkedRecordId")
+    if tag:
+        if tag in _MEDIA_TAGS.get(key, ()) and linked == record_id:
+            return True
+        return key == "process" and tag == "processstep" and linked in step_ids
+    column = _MEDIA_COLUMNS.get(key)
+    if column and get_value(media, column) == record_id:
+        return True
+    return key == "artisan" and get_value(media, "artisanId") == record_id and not any(
+        get_value(media, other) for other in ("productId", "toolId", "questionnaireInterviewId")
+    )
+
+
+async def _process_steps(process_ids: list[str], client: Any = None) -> dict[str, list[str]]:
+    if not process_ids:
+        return {}
+    steps = await (client or db).processstep.find_many(where={"processId": {"in": process_ids}})
+    by_process: dict[str, list[str]] = {pid: [] for pid in process_ids}
+    for step in steps:
+        by_process.setdefault(str(get_value(step, "processId")), []).append(str(get_value(step, "id")))
+    return by_process
+
+
+async def media_of_records(
+    keys: list[tuple[str, str]], statuses: tuple[str, ...] = ("PENDING",), client: Any = None
+) -> dict[tuple[str, str], list[Any]]:
+    """The files of several records in ONE query, grouped by record. Only types that carry media."""
+    wanted = [(t.lower(), rid) for t, rid in keys if t.lower() in _MEDIA_TAGS]
+    found: dict[tuple[str, str], list[Any]] = {key: [] for key in wanted}
+    if not wanted:
+        return found
+    steps = await _process_steps([rid for t, rid in wanted if t == "process"], client)
+    clauses = [clause for t, rid in wanted for clause in _media_clauses(t, rid, steps.get(rid, []))]
+    files = await (client or db).mediafile.find_many(
+        where={"status": {"in": list(statuses)}, "OR": clauses}, include={"uploadedBy": True}
+    )
+    for media in files:
+        for t, rid in wanted:
+            if _media_belongs(media, t, rid, steps.get(rid, [])):
+                found[(t, rid)].append(media)
+    return found
+
+
+def _uploader_role(media: Any) -> Any:
+    uploader = get_value(media, "uploadedBy")
+    return get_value(uploader, "role") if uploader else None
+
+
+def cascade_eligible(files: list[Any], reviewer: Any) -> list[Any]:
+    """Which pending files approving their record would approve too, for this reviewer.
+
+    The review ladder applies to each file as it does to a record: a file uploaded by somebody at or
+    above the reviewer's own rank (an admin's photograph on a volunteer's record) stays pending for
+    a reviewer who may judge it. A file submitted outside its workshop's dates waits for an admin
+    exactly as a record does.
+    """
     admin = is_admin(reviewer)
-    now = datetime.now(UTC)
-    plain = [str(get_value(f, "id")) for f in files if not record_needs_admin_approval(f)]
-    late = [f for f in files if record_needs_admin_approval(f)]
-    approved_ids: list[str] = []
+    return [
+        media
+        for media in files
+        if can_review_record(reviewer, _uploader_role(media)) and (admin or not record_needs_admin_approval(media))
+    ]
+
+
+async def pending_media_counts(keys: list[tuple[str, str]], reviewer: Any) -> dict[tuple[str, str], int]:
+    """How many files approving each record would approve with it — what the confirmation says."""
+    grouped = await media_of_records(keys)
+    return {key: len(cascade_eligible(files, reviewer)) for key, files in grouped.items()}
+
+
+async def approve_media_with_record(
+    client: Any, kind: str, files: list[Any], reviewer_id: str, reviewed_at: datetime, *, note: str | None = None
+) -> int:
+    """Approve these files as their record was approved: same reviewer, same moment, one audit line
+    each. Runs on ``client`` — the approval's own transaction — so the record and its files land
+    together or not at all. A file decided meanwhile (``status`` no longer PENDING) is left alone.
+    """
     approved = 0
-    if plain:
-        approved += int(
-            await db.mediafile.update_many(
-                where={"id": {"in": plain}, "status": "PENDING"},
-                data={"status": "APPROVED", "reviewedById": reviewer.id, "reviewedAt": now},
-            )
-            or 0
-        )
-        approved_ids.extend(plain)
-    if admin:
-        for media in late:
+    for media in files:
+        data: dict[str, Any] = {"status": "APPROVED", "reviewedById": reviewer_id, "reviewedAt": reviewed_at}
+        if record_needs_admin_approval(media):
             extra = get_value(media, "extraMetadata") or {}
             submission = extra.get("workshopSubmission") or {}
-            await db.mediafile.update(
-                where={"id": str(get_value(media, "id"))},
-                data={
-                    "status": "APPROVED",
-                    "reviewedById": reviewer.id,
-                    "reviewedAt": now,
-                    "extraMetadata": Json({**extra, "workshopSubmission": {**submission, "needsAdminApproval": False}}),
-                },
-            )
-            approved += 1
-            approved_ids.append(str(get_value(media, "id")))
-    # Every file approved through its parent leaves the same audit line a file approved alone does.
-    for media_id in approved_ids:
-        await db.reviewlog.create(
+            data["extraMetadata"] = Json({**extra, "workshopSubmission": {**submission, "needsAdminApproval": False}})
+        media_id = str(get_value(media, "id"))
+        changed = await client.mediafile.update_many(where={"id": media_id, "status": "PENDING"}, data=data)
+        if not changed:
+            continue
+        approved += 1
+        await client.reviewlog.create(
             data={
                 "recordType": "MEDIA",
                 "recordId": media_id,
                 "status": "APPROVED",
-                "notes": f"Approved with its {key} record.",
-                "reviewerId": reviewer.id,
+                "notes": note or MEDIA_WITH_RECORD_NOTE.format(kind=kind),
+                "reviewerId": reviewer_id,
             }
         )
     return approved
+
+
+async def approve_record_media(
+    record_type: str, record_id: str, reviewer: Any, *, client: Any = None, reviewed_at: datetime | None = None
+) -> int:
+    """Approve the still-pending files of a record that was just approved. Returns how many.
+
+    Only PENDING files move: a REJECTED file, or one already approved, keeps its decision. A
+    non-admin's approval leaves a late file pending; an admin's clears its flag too.
+    """
+    key = record_type.lower()
+    if key not in _MEDIA_TAGS:
+        return 0
+    grouped = await media_of_records([(key, record_id)], client=client)
+    files = cascade_eligible(grouped.get((key, record_id), []), reviewer)
+    if not files:
+        return 0
+    return await approve_media_with_record(
+        client or db, key, files, reviewer.id, reviewed_at or datetime.now(UTC)
+    )
+
+
+# How long one approval's transaction may run: the record, its log line, and a write and a log line
+# per file. An interview with forty recordings is ~80 statements; the slow box needs the headroom.
+REVIEW_TX_TIMEOUT = timedelta(seconds=30)
 
 
 async def set_review_status(
@@ -601,7 +686,6 @@ async def set_review_status(
         )
         notes = (payload.notes or "").strip()
         log_notes = f"{notes}\n\n{LATE_SUBMISSION_LOG_NOTE}" if notes else LATE_SUBMISSION_LOG_NOTE
-    updated = await delegate.update(where={"id": record_id}, data=data)
     log_data: dict[str, Any] = {
         "recordType": log_type,
         "recordId": record_id,
@@ -611,12 +695,19 @@ async def set_review_status(
     }
     if reason is not None:
         log_data["reason"] = reason.code
-    await db.reviewlog.create(data=log_data)
-    if new_status == "APPROVED" and record_type.lower() != "media":
-        try:
-            await approve_record_media(record_type, record_id, reviewer)
-        except Exception:  # the record's own approval is saved; a file left pending is reviewable alone
-            logger.exception("review: could not approve the files of %s %s", record_type, record_id)
+    # ONE TRANSACTION: the record, its audit line and — on an approval — every still-pending file it
+    # carries, with the same reviewer and moment. A failure part-way leaves all of them as they were,
+    # never a record approved over files that silently stayed pending. Rejecting or sending a record
+    # back does not touch its files; each file keeps its own Reject.
+    media_approved = 0
+    async with db.tx(timeout=REVIEW_TX_TIMEOUT) as tx:
+        tx_delegate, _log_type, _relation = delegate_for(record_type, tx)
+        updated = await tx_delegate.update(where={"id": record_id}, data=data)
+        await tx.reviewlog.create(data=log_data)
+        if new_status == "APPROVED" and record_type.lower() != "media":
+            media_approved = await approve_record_media(
+                record_type, record_id, reviewer, client=tx, reviewed_at=data["reviewedAt"]
+            )
     if notify:
         label_fields = next((labels for t, _d, labels in _PENDING_SOURCES if t == record_type.lower()), ("name", "title"))
         await email_outbox.notify_review_decision(
@@ -629,7 +720,10 @@ async def set_review_status(
             note=payload.notes,
             reason_label=reason.label if reason else None,
         )
-    return public_encode(updated)
+    answer = public_encode(updated)
+    if new_status == "APPROVED" and record_type.lower() != "media":
+        answer["mediaApproved"] = media_approved
+    return answer
 
 
 @router.post("/{record_type}/{record_id}/approve")
@@ -704,6 +798,7 @@ async def bulk_approve(payload: BulkApproval, reviewer: Any = Depends(require_re
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Choose at least one record.")
     results: list[dict[str, Any]] = []
     approved: list[dict[str, Any]] = []
+    media_approved = 0
     seen: set[tuple[str, str]] = set()
     for item in payload.items:
         key = (item.recordType.lower(), item.id)
@@ -720,6 +815,7 @@ async def bulk_approve(payload: BulkApproval, reviewer: Any = Depends(require_re
             )
             continue
         results.append({"recordType": key[0], "id": item.id, "outcome": "APPROVED"})
+        media_approved += int(updated.get("mediaApproved") or 0)
         label_fields = next((labels for t, _d, labels in _PENDING_SOURCES if t == key[0]), ("name", "title"))
         approved.append(
             {
@@ -734,6 +830,35 @@ async def bulk_approve(payload: BulkApproval, reviewer: Any = Depends(require_re
         "results": results,
         "approved": sum(1 for r in results if r["outcome"] == "APPROVED"),
         "failed": sum(1 for r in results if r["outcome"] == "FAILED"),
+        "mediaApproved": media_approved,
+    }
+
+
+@router.get("/{record_type}/{record_id}/media")
+async def record_media_review(
+    record_type: str, record_id: str, reviewer: Any = Depends(require_reviewer)
+) -> dict[str, Any]:
+    """What a reviewer may do with the files of one record, for its read-only page (C21).
+
+    ``approvesWith`` — how many files approving the record now would approve with it (zero once it
+    is decided). ``rejectable`` — the files this reviewer may still reject one by one: pending, or
+    approved (with their record or alone), uploaded by somebody below them on the ladder.
+    """
+    key = record_type.lower()
+    delegate, _log_type, _relation = delegate_for(key)
+    if key == "media":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="A file has no files of its own")
+    record = await delegate.find_unique(where={"id": record_id})
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
+    files = (await media_of_records([(key, record_id)], MEDIA_REJECTABLE_STATUSES)).get((key, record_id), [])
+    pending = [media for media in files if str(enum_or_raw(get_value(media, "status"))) == "PENDING"]
+    record_pending = str(enum_or_raw(get_value(record, "status"))) == "PENDING"
+    return {
+        "approvesWith": len(cascade_eligible(pending, reviewer)) if record_pending else 0,
+        "rejectable": [
+            str(get_value(media, "id")) for media in files if can_review_record(reviewer, _uploader_role(media))
+        ],
     }
 
 

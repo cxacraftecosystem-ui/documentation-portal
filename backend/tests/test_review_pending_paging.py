@@ -122,6 +122,11 @@ def sources(monkeypatch: pytest.MonkeyPatch):
         return [(record_type, row_id) for _, record_type, row_id in merged[offset : offset + limit]]
 
     monkeypatch.setattr(review, "pending_page_keys", keys)
+
+    async def no_files(keys: list[tuple[str, str]], reviewer: Any) -> dict[tuple[str, str], int]:
+        return {}
+
+    monkeypatch.setattr(review, "pending_media_counts", no_files)
     _CURRENT["user"] = _user("MASTER_ADMIN", "reviewer")
     yield SimpleNamespace(artisans=artisans, workshops=workshops, calls=calls)
     _CURRENT["user"] = None

@@ -78,8 +78,18 @@ CREATE_ROUTES = frozenset(
 )
 
 
+# Review decisions, which the Android outbox replays exactly as it replays a create: an approval
+# whose answer was lost must not run twice (a second pass would re-stamp the record and approve any
+# file uploaded since), and a file rejected offline must land once.
+REVIEW_DECISION_ROUTE = re.compile(
+    r"^/api/review/(?:artisan|workshop|product|tool|process|questionnaire|media)/[^/]+/(?:approve|reject|revise)$"
+)
+REVIEW_BULK_ROUTE = "/api/review/bulk-approve"
+
+
 def is_create_route(path: str) -> bool:
-    return path.rstrip("/") in CREATE_ROUTES
+    trimmed = path.rstrip("/")
+    return trimmed in CREATE_ROUTES or trimmed == REVIEW_BULK_ROUTE or bool(REVIEW_DECISION_ROUTE.match(trimmed))
 _KEY_RE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 # Creates answer small JSON. A body larger than this is passed through and not stored.
 MAX_STORED_BODY = 256 * 1024
