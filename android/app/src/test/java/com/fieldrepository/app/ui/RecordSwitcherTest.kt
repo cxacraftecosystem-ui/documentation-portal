@@ -319,6 +319,15 @@ class RecordSwitcherTest {
      * membership: these two lists are compared elsewhere by index, and a set comparison would pass a
      * reordering that quietly changes which kind a positional read resolves to.
      */
+    /** The "All workshops" row and its two sentences (release smoke test 2026-10-17, doc/70). */
+    @Test
+    fun `the web opens on the same All workshops row and says the same two sentences`() {
+        val web = webSwitcher()
+        assertTrue(web.contains("ALL_WORKSHOPS_LABEL = \"$ALL_WORKSHOPS_LABEL\""))
+        assertTrue(web.contains("`Loading \${recordPlural(kind)}…`"))
+        assertTrue(web.contains("`No \${recordPlural(kind)} yet.`"))
+    }
+
     @Test
     fun `the web declares the same record kinds in the same order`() {
         val expected = RecordSwitchKind.values().joinToString(", ") { "\"${it.singular}\"" }

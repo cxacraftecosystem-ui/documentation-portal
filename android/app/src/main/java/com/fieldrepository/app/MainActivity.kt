@@ -122,6 +122,7 @@ import com.fieldrepository.app.ui.Text
 import com.fieldrepository.app.ui.AppMessageBanner
 import com.fieldrepository.app.ui.BANNER_STACK_GAP
 import com.fieldrepository.app.ui.LocalBannerClearance
+import com.fieldrepository.app.ui.bannerDrawn
 import com.fieldrepository.app.ui.bannerAlreadySays
 import com.fieldrepository.app.ui.bannerClearance
 import com.fieldrepository.app.ui.readAdminView
@@ -1161,8 +1162,11 @@ private fun RepositoryApp(
                 }
             )
             // The account owes a new password: between sign-in and the product, with "Sign out
-            // instead" as the only other way off it. See ui/PasswordGate.kt.
-            mustChangePasswordBlocks(user) -> PasswordGateScreen(
+            // instead" as the only other way off it. See ui/PasswordGate.kt. The banners show here too,
+            // so the gate's last button scrolls clear of them like any page's.
+            mustChangePasswordBlocks(user) -> CompositionLocalProvider(
+                LocalBannerClearance provides bannerReserve
+            ) { PasswordGateScreen(
                 repository = repository,
                 user = user!!,
                 doorPassword = doorPassword,
@@ -1188,7 +1192,7 @@ private fun RepositoryApp(
                         user = null
                     }
                 }
-            )
+            ) }
             else -> CompositionLocalProvider(
                 LocalIslandClearance provides islandClearance,
                 LocalBannerClearance provides bannerReserve
@@ -1475,7 +1479,8 @@ private fun HomeScreen(
     // The designer portal's AppMessageState: `message = "…"` is a success, showMessage an error.
     val appMessage = remember { AppMessageState() }
     // The offline / outbox banners' footprint, measured by the root (ui/BannerClearance.kt).
-    val bannerReserve = LocalBannerClearance.current?.value ?: 0.dp
+    val bannerClearanceState = LocalBannerClearance.current
+    val bannerReserve = bannerClearanceState?.value ?: 0.dp
     var message by appMessage
     // Every gate below mirrors one backend dependency (see the capability block near ROLE_RANK).
     // Do not re-derive a rule inline here: this screen used to hard-code admin-only variants of half
@@ -1626,8 +1631,9 @@ private fun HomeScreen(
         val lower = text.lowercase()
         if ("left the composition" in lower || "was cancelled" in lower || "job was cancelled" in lower) return
         // Offline, the banner at the foot of the screen already says so; a second card would not.
-        val bannerShowing = !repository.isOnline(context) ||
-            com.fieldrepository.app.data.ServerReachability.unreachable.value
+        // Only while a banner is DRAWN: with the keyboard up they stand down, and the error is all
+        // the reader would see.
+        val bannerShowing = bannerDrawn(bannerClearanceState?.value ?: 0.dp)
         if (bannerAlreadySays(text, tone, bannerShowing)) return
         appMessage.show(text, tone, onRetry)
     }
@@ -2422,7 +2428,10 @@ private fun HomeScreen(
                         message = "$count media file${if (count == 1) "" else "s"} uploaded and queued"
                         refresh()
                     },
-                    onQueued = { count -> message = queuedMediaSentence(count) },
+                    onQueued = { queued, uploaded ->
+                        message = queuedMediaSentence(queued, uploaded)
+                        if (uploaded > 0) refresh()
+                    },
                     onError = { showMessage(it) }
                 )
                 EntryMode.QUESTIONNAIRE -> QuestionnaireForm(
@@ -12660,8 +12669,8 @@ private val mediaLinkModes = listOf(
 private fun AndroidMediaForm(
     repository: FieldRepository,
     onUploaded: (Int) -> Unit,
-    /** The batch went to the outbox (no signal): how many files it holds. */
-    onQueued: (Int) -> Unit = {},
+    /** Files went to the outbox (no signal): how many it holds, and how many uploaded before that. */
+    onQueued: (queued: Int, uploaded: Int) -> Unit = { _, _ -> },
     onError: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -12689,7 +12698,9 @@ private fun AndroidMediaForm(
     var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
     var savedMedia by remember { mutableStateOf<List<com.fieldrepository.app.data.MediaFileDto>>(emptyList()) }
     var localMessage by remember { mutableStateOf<String?>(null) }
-    AutoResetStatus(uploadStatus) { uploadStatus = ActionStatus.IDLE }
+    // Set with SUCCESS when files went to the outbox: the button says "saved", not "uploaded".
+    var batchQueued by remember { mutableStateOf(false) }
+    AutoResetStatus(uploadStatus) { uploadStatus = ActionStatus.IDLE; batchQueued = false }
 
     fun refreshMedia() {
         scope.launch {
@@ -12925,7 +12936,7 @@ private fun AndroidMediaForm(
                     val uris = selectedUris
                     // Copy [files] into the outbox, to upload (and attach, when an entry is picked)
                     // once the connection returns; the form is cleared as after an upload.
-                    suspend fun queueBatch(files: List<Uri>): Boolean {
+                    suspend fun queueBatch(files: List<Uri>, uploaded: Int = 0): Boolean {
                         val mode = linkedMode ?: return false
                         val title = mediaTitle.ifBlank { caption }
                         val queued = runCatching {
@@ -12947,7 +12958,8 @@ private fun AndroidMediaForm(
                             caption = ""
                             localMessage = null
                             uploadStatus = ActionStatus.SUCCESS
-                            onQueued(files.size)
+                            batchQueued = true
+                            onQueued(files.size, uploaded)
                         }
                         return queued
                     }
@@ -13033,10 +13045,13 @@ private fun AndroidMediaForm(
                             caption = ""
                             localMessage = null
                             uploadStatus = ActionStatus.SUCCESS
+                            batchQueued = true
                             if (success > 0) refreshMedia()
                         }
-                        // No entry to attach to, and the signal went part-way: the rest wait unlinked.
-                        linkedEntryId.isBlank() && !repository.isOnline(context) && queueBatch(failedUris.toList()) -> {
+                        // No entry to attach to, and the signal went part-way: the rest wait unlinked,
+                        // and the message counts the ones that did go up as well.
+                        linkedEntryId.isBlank() && !repository.isOnline(context) &&
+                            queueBatch(failedUris.toList(), uploaded = success) -> {
                             if (success > 0) refreshMedia()
                         }
                         else -> {
@@ -13067,13 +13082,13 @@ private fun AndroidMediaForm(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(
-                when {
-                    uploading -> "Uploading..."
-                    uploadStatus == ActionStatus.SUCCESS -> "Uploaded ✓"
-                    uploadStatus == ActionStatus.ERROR -> "Upload failed — tap to retry"
-                    linkedMode == null -> "Choose a record type"
-                    else -> "Upload batch"
-                }
+                mediaUploadButtonLabel(
+                    uploading = uploading,
+                    succeeded = uploadStatus == ActionStatus.SUCCESS,
+                    failed = uploadStatus == ActionStatus.ERROR,
+                    queued = batchQueued,
+                    hasRecordType = linkedMode != null
+                )
             )
         }
         if (savedMedia.isNotEmpty()) {
@@ -17763,10 +17778,32 @@ private fun moveIds(ids: List<String>, index: Int, direction: Int): List<String>
 private fun String.blankToNull(): String? = trim().takeIf { it.isNotEmpty() }
 
 
-/** Upload media's batch went to the outbox; the banner below carries the count from here on. */
-internal fun queuedMediaSentence(count: Int): String =
-    if (count == 1) "1 file saved on this device. It uploads when you're back online."
-    else "$count files saved on this device. They upload when you're back online."
+/**
+ * Upload media's batch went to the outbox; the banner below carries the count from here on. When the
+ * signal went part-way, [uploaded] files made it first, and the sentence says so.
+ */
+internal fun queuedMediaSentence(count: Int, uploaded: Int = 0): String {
+    val rest = if (count == 1) "It uploads when you're back online." else "They upload when you're back online."
+    return if (uploaded > 0) "$uploaded uploaded, $count saved on this device. $rest"
+    else if (count == 1) "1 file saved on this device. $rest"
+    else "$count files saved on this device. $rest"
+}
+
+/** Upload media's submit button. A batch that went to the outbox reads "saved", never "uploaded". */
+internal fun mediaUploadButtonLabel(
+    uploading: Boolean,
+    succeeded: Boolean,
+    failed: Boolean,
+    queued: Boolean,
+    hasRecordType: Boolean
+): String = when {
+    uploading -> "Uploading..."
+    succeeded && queued -> "Saved on device ✓"
+    succeeded -> "Uploaded ✓"
+    failed -> "Upload failed — tap to retry"
+    !hasRecordType -> "Choose a record type"
+    else -> "Upload batch"
+}
 
 /** Under a batch whose remaining files all failed: nothing is uploading, so say what happens next. */
 private fun uploadStalledSentence(failed: Int): String =

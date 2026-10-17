@@ -16,44 +16,24 @@
  * and `useCraftAndArtisanOptions` together — and it is what makes this file the one-to-one twin of
  * Android's `ui/RecordSwitcher.kt`, which is a single file for the same reason.
  *
- * ── WHY THE WORKSHOP DROPDOWN IS `useWorkshopSelection` AND NOT A NEW LOADER ────────────────────
+ * ── WHY THE WORKSHOP DROPDOWN OPENS ON "ALL WORKSHOPS" ─────────────────────────────────────────
  *
- * The requirement is that the primary dropdown default to the most recent workshop THIS USER HAS
- * ACCESS TO, and that behaviour already exists, argued and paid for, in
- * `forms/WorkshopSelect.useWorkshopSelection`: it loads the list in occurrence order and then walks
- * DOWN that order probing `GET /workshops/{id}/submission-check`, stopping at the first workshop the
- * account may actually submit to, and settling on the most recent one anyway when every recent
- * workshop belongs to somebody else. Taking the head of the list outright — which is what
- * `FunnelFilters` does, deliberately, for a different job — lands a researcher on a workshop that is
- * not theirs whenever the newest one is not.
+ * It used to open on the most recent workshop the account could submit to (`useWorkshopSelection`'s
+ * default). That workshop is usually not the one the open record is filed under, so the switcher
+ * pre-selected a stranger and announced it had no records (release smoke test 2026-10-17, doc/70).
+ * Now the first row is "All workshops" — the blank id, which the five list routes read as "no
+ * filter" — and the switcher moves to the record's own workshop once that is known
+ * (`recordSwitchWorkshopFor`). A reader who picks a workshop is never moved off it by a late load.
  *
- * TWO THINGS ABOUT REUSING IT ARE WORTH SAYING OUT LOUD, because both look like oversights:
- *
- *  1. **`isEdit` is false even though this is an edit page.** That flag does not mean "is the user
- *     editing"; it means "is this picker bound to a stored column that must not be clobbered". On a
- *     record form it is, and the default is suppressed so opening a record never rewrites its
- *     workshop link. Here the picker is bound to NOTHING — it is a filter over a list — so there is
- *     no link to protect and the default is the whole point. Passing true would leave the dropdown
- *     empty and the control useless.
- *
- *  2. **`<WorkshopSelect>` is NOT rendered, only its hook.** That component draws the window notice
- *     ("This workshop ended on 23 Sept 2026. Saving now is recorded as a late submission.") and
- *     hosts the late-submission dialog. Both are true things to say about a workshop you are about
- *     to SAVE INTO and nonsense over one you are merely browsing: nothing here writes anything, so
- *     there is no submission to be late. A filter that warned about late submissions would be
- *     teaching the researcher to ignore that warning in the one place it matters.
- *
- * `canSubmit` is admittedly a proxy for "has access to" rather than the thing itself — it is the
- * strictest question this API can answer about a workshop and a user, and it is the question the
- * record forms already ask. It only ever chooses a DEFAULT: every workshop the account can see stays
- * selectable in the dropdown, and what comes back under one is decided by `viewable_where` on the
- * server, not here.
+ * The workshop list is loaded here rather than through `useWorkshopSelection`: that hook's default
+ * probe walks `submission-check` across workshops to choose a default this control no longer wants,
+ * and `<WorkshopSelect>`'s late-submission notice is nonsense over a filter that saves nothing.
  *
  * ── ANDROID PARITY ─────────────────────────────────────────────────────────────────────────────
  *
  * `android/app/src/main/java/com/fieldrepository/app/ui/RecordSwitcher.kt` is this control, composed
- * out of `rememberWorkshopPicker` and `SearchableSelectField` the way this one is composed out of
- * `useWorkshopSelection` and `ComboBox`. Change a rule here and change it there.
+ * out of `rememberWorkshopPicker` and `SearchableSelectField` the way this one is composed out of a
+ * workshop `Dropdown` and `ComboBox`. Change a rule here and change it there.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -62,11 +42,12 @@ import { CalendarRange, PencilLine } from "lucide-react";
 
 import { cutOf, LIST_PAGE_CEILING, mergeById, type ListCut } from "@/components/data/cappedList";
 import { CappedListNotice } from "@/components/data/CappedListNotice";
-import { useWorkshopSelection } from "@/components/forms/WorkshopSelect";
+import { sortWorkshopsByOccurrence } from "@/components/forms/WorkshopSelect";
 import { workshopScopeLabel } from "@/components/WorkshopScopeSelect";
 import { ComboBox, Dropdown } from "@/components/ui/Dropdown";
 import { useLeaveInterceptor } from "@/components/UnsavedChangesGuard";
 import { listResource } from "@/lib/api";
+import type { Workshop } from "@/lib/types";
 
 
 /**
@@ -277,6 +258,43 @@ export function recordNoun(kind: RecordKind): string {
   return RECORD_KIND_SPECS[kind].noun;
 }
 
+/** {@link recordNoun} for the workshop selected, or the bare plural under "All workshops" (a blank id). */
+export function recordNounFor(kind: RecordKind, workshopId: string): string {
+  return workshopId.trim() ? recordNoun(kind) : recordPlural(kind);
+}
+
+/**
+ * THE FIRST ROW OF THE WORKSHOP DROPDOWN: no filter at all.
+ *
+ * Its value is the blank id, which the five list routes read as "no workshop filter" — every record
+ * the account may see, unfiled ones included. The switcher OPENS here unless the record on screen
+ * names its own workshop (see the header). Kotlin twin: `ALL_WORKSHOPS_LABEL`.
+ */
+export const ALL_WORKSHOPS_LABEL = "All workshops";
+
+/** The workshop dropdown's rows: {@link ALL_WORKSHOPS_LABEL} first, then every workshop. */
+export function recordSwitchWorkshopOptions(
+  workshops: readonly { value: string; label: string }[]
+): { value: string; label: string }[] {
+  return [{ value: "", label: ALL_WORKSHOPS_LABEL }, ...workshops.filter((option) => option.value.trim() !== "")];
+}
+
+/**
+ * Where the switcher should stand once the open record's workshop is known: that workshop when it is
+ * one of the options, else wherever it already stands. Only ever moves it off "All workshops", so a
+ * reader who chose a workshop is never moved off it by a late load.
+ */
+export function recordSwitchWorkshopFor(
+  selectedId: string,
+  recordWorkshopId: string | null | undefined,
+  available: readonly string[]
+): string {
+  if (!selectedId.trim() && recordWorkshopId && recordWorkshopId.trim() && available.includes(recordWorkshopId)) {
+    return recordWorkshopId;
+  }
+  return selectedId;
+}
+
 export function recordPlural(kind: RecordKind): string {
   return RECORD_KIND_SPECS[kind].plural;
 }
@@ -434,6 +452,11 @@ export function recordListMessage({
     // the question they are actually asking at that moment is whether their work is still there.
     return `These ${recordPlural(kind)} could not be loaded. The record open below is unaffected.`;
   }
+  if (!workshopId.trim()) {
+    // Under "All workshops" there is no workshop to talk about.
+    if (state === "pending" || loadedForWorkshop !== workshopId) return `Loading ${recordPlural(kind)}…`;
+    return shown === 0 ? `No ${recordPlural(kind)} yet.` : null;
+  }
   if (state === "pending" || !recordsAreForWorkshop(loadedForWorkshop, workshopId)) {
     // Covers both "the first request has not answered yet" and "the workshop changed a frame ago and
     // these are still the previous one's rows". Neither is a fact about the workshop now selected.
@@ -453,8 +476,9 @@ export function recordListMessage({
  * two screens come to describe one cut in two sentences, which `cappedList.ts` argues at length
  * teaches a reader that neither of them means much.
  */
-export function recordListCut(kind: RecordKind, loaded: number, total: number): ListCut | null {
-  return cutOf(loaded, total, recordNoun(kind));
+export function recordListCut(kind: RecordKind, loaded: number, total: number, workshopId?: string): ListCut | null {
+  // No workshop given is a workshop's list; a blank one is "All workshops".
+  return cutOf(loaded, total, workshopId === undefined ? recordNoun(kind) : recordNounFor(kind, workshopId));
 }
 
 /**
@@ -507,9 +531,9 @@ export function RecordSwitcher({
   /** The record the page is editing right now, so the picker can show what it is pointing at. */
   currentId: string;
   /**
-   * The workshop that record is linked to, when the page knows it. Powers the one affordance that
-   * makes the "most recent workshop" default liveable — see `canJumpToRecordWorkshop` below. Leave it out
-   * and the control simply does not offer that shortcut; nothing else changes.
+   * The workshop that record is linked to, when the page knows it. The switcher moves to it from
+   * "All workshops" once known, and offers the way back to it — see `canJumpToRecordWorkshop` below.
+   * Leave it out and the control stays on "All workshops"; nothing else changes.
    */
   currentWorkshopId?: string | null;
   /**
@@ -537,10 +561,32 @@ export function RecordSwitcher({
    */
   const intercept = useLeaveInterceptor();
 
-  // The workshop list plus the access-aware default. See the header for why `isEdit` is false here
-  // and why the matching component is deliberately not rendered.
-  const workshop = useWorkshopSelection();
-  const workshopId = workshop.workshopId;
+  // The workshop list, in occurrence order. The selection opens on "All workshops" (the blank id)
+  // and moves to the record's own workshop once known — see the header.
+  const [workshops, setWorkshops] = useState<Workshop[]>([]);
+  const [workshopsLoading, setWorkshopsLoading] = useState(true);
+  const [workshopId, setWorkshopId] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    listResource<Workshop>("/workshops", { pageSize: 100 })
+      .then((result) => {
+        if (!cancelled) setWorkshops(sortWorkshopsByOccurrence(result.items));
+      })
+      .catch(() => {
+        if (!cancelled) setWorkshops([]);
+      })
+      .finally(() => {
+        if (!cancelled) setWorkshopsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  useEffect(() => {
+    setWorkshopId((selected) =>
+      recordSwitchWorkshopFor(selected, currentWorkshopId, workshops.map((row) => row.id))
+    );
+  }, [currentWorkshopId, workshops]);
 
   const [records, setRecords] = useState<SwitchableRecord[]>([]);
   const [state, setState] = useState<RecordListState>("pending");
@@ -568,7 +614,7 @@ export function RecordSwitcher({
    * them. A workshop change is the one moment the list is REPLACED rather than added to.
    */
   useEffect(() => {
-    if (!workshopId) return;
+    // A blank id is "All workshops": the same request with no filter.
     let cancelled = false;
     setState("pending");
     setRecords([]);
@@ -580,7 +626,7 @@ export function RecordSwitcher({
         setRecords(result.items);
         // The envelope, not just the items. `total` is what says whether typing needs to reach the
         // server at all, and it is the number the sentence under the control prints.
-        setCut(recordListCut(kind, result.items.length, result.total));
+        setCut(recordListCut(kind, result.items.length, result.total, workshopId));
         setLoadedForWorkshop(workshopId);
         setState("loaded");
       })
@@ -633,7 +679,7 @@ export function RecordSwitcher({
    * this device holds.
    */
   useEffect(() => {
-    if (!workshopId || !applied) return;
+    if (!applied) return;
     let cancelled = false;
     listResource<SwitchableRecord>(endpoint, { workshopId, search: applied, pageSize: LIST_PAGE_CEILING })
       .then((result) => {
@@ -648,8 +694,8 @@ export function RecordSwitcher({
   }, [endpoint, workshopId, applied]);
 
   const workshopOptions = useMemo(
-    () => workshop.workshops.map((row) => ({ value: row.id, label: workshopScopeLabel(row) })),
-    [workshop.workshops]
+    () => recordSwitchWorkshopOptions(workshops.map((row) => ({ value: row.id, label: workshopScopeLabel(row) }))),
+    [workshops]
   );
 
   const recordOptions = useMemo(
@@ -714,16 +760,12 @@ export function RecordSwitcher({
   );
 
   const singular = recordSingular(kind);
-  const noWorkshops = !workshop.loading && workshop.workshops.length === 0;
 
   /**
    * "The one this record is filed under" — the escape hatch for the default.
    *
-   * The primary dropdown defaults to the most recent workshop the account may submit to, which is
-   * the right default for a researcher who has just come off a day in the field and is the behaviour
-   * asked for. It is however NOT usually the workshop of the record already open, and without a way
-   * back to that one the control would answer "which other record can I edit" while quietly refusing
-   * to answer "which of this record's siblings". One button, only when there is somewhere to go.
+   * The dropdown moves to the record's own workshop once known; after the reader picks another one,
+   * this is the way back to the record's siblings. One button, only when there is somewhere to go.
    */
   const canJumpToRecordWorkshop = Boolean(
     currentWorkshopId && currentWorkshopId !== workshopId && workshopOptions.some((o) => o.value === currentWorkshopId)
@@ -760,21 +802,16 @@ export function RecordSwitcher({
         */}
         <Dropdown
           value={workshopId}
-          onChange={workshop.setWorkshopId}
+          onChange={setWorkshopId}
           options={workshopOptions}
           ariaLabel="Workshop to list records from"
-          placeholder={workshop.loading ? "Loading workshops…" : "Select a workshop"}
+          placeholder={workshopsLoading ? "Loading workshops…" : ALL_WORKSHOPS_LABEL}
           advanceOnSelect={false}
         />
-        {noWorkshops ? (
-          <p className="text-xs leading-5 text-ink-500">
-            No workshops are recorded yet, so there is nothing to list records from.
-          </p>
-        ) : null}
         {canJumpToRecordWorkshop ? (
           <button
             type="button"
-            onClick={() => workshop.setWorkshopId(currentWorkshopId as string)}
+            onClick={() => setWorkshopId(currentWorkshopId as string)}
             className="justify-self-start text-[11px] font-semibold text-purple-700 dark:text-purple-300 hover:underline"
           >
             Show this {singular}&apos;s own workshop
@@ -797,9 +834,9 @@ export function RecordSwitcher({
           options={recordOptions}
           ariaLabel={`${singular} to open for editing`}
           placeholder={`Search ${singular} records…`}
-          emptyLabel={`No ${singular} records in this workshop`}
+          emptyLabel={workshopId ? `No ${singular} records in this workshop` : `No ${singular} records`}
           advanceOnSelect={false}
-          disabled={!workshopId || state === "unavailable"}
+          disabled={state === "unavailable"}
         />
         {message ? <p className="text-xs leading-5 text-ink-500">{message}</p> : null}
         {/*

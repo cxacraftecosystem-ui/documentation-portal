@@ -607,7 +607,8 @@ fun AppSearchPanel(
 
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)
+            // The offline / outbox banners float over the panel too: the last result scrolls clear.
+            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp + (LocalBannerClearance.current?.value ?: 0.dp))
         ) {
             if (query.isBlank()) {
                 if (recents.isNotEmpty()) {

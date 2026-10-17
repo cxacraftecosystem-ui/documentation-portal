@@ -41,6 +41,13 @@ fun pageBottomReserve(islandReserve: Dp, bannerClearance: Dp): Dp = islandReserv
 val LocalBannerClearance = staticCompositionLocalOf<State<Dp>?> { null }
 
 /**
+ * Whether a banner is on screen right now, read off its clearance: the root reserves nothing while
+ * no banner is drawn — none to show, or the keyboard is up and they have stood down. The "Could not
+ * connect" error is only redundant while this is true; otherwise it is the only thing saying so.
+ */
+fun bannerDrawn(clearance: Dp): Boolean = clearance > 0.dp
+
+/**
  * Whether an error is only the banner's own news: "Could not connect" while the offline (or
  * server-unreachable) banner is already on screen. Raising it anyway stacked a second card saying
  * the same thing, and on the Upload media form it sat behind the banner (smoke test, doc/75).

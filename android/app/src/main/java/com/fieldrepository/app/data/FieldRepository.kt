@@ -3082,8 +3082,10 @@ class FieldRepository(
             // The record IS saved, so the entry must never be replayed — but its files are still only
             // here, so it must not be deleted either. Kept, with the reason, exactly as the web does.
             return ReplayOutcome.Rejected(
-                "It was saved, but ${refused.size} file(s) couldn't be uploaded: " +
-                    "${refused.distinct().joinToString(" ")} Attach them again on the record."
+                replayRefusedFilesSentence(
+                    refused,
+                    unlinked = entry.kind == OutboxKind.ATTACH && entry.targetId.isNullOrBlank()
+                )
             )
         }
         return ReplayOutcome.Synced
@@ -4145,4 +4147,15 @@ private fun trimRedundantTail(recordName: String, descriptor: String): String {
 private fun literalBaseName(base: String, extension: String): String {
     val room = MAX_NAME_BYTES - extension.toByteArray(Charsets.UTF_8).size
     return clipWords(hyphenate(base), MAX_NAME_CHARS, room).ifBlank { "Recording" } + extension
+}
+
+/**
+ * Why a replayed entry's files were kept back. A record or an attach-to-record entry names the
+ * record they belong on; a batch queued from Upload media with no entry picked has none, so it only
+ * says which files and why.
+ */
+internal fun replayRefusedFilesSentence(refused: List<String>, unlinked: Boolean): String {
+    val reasons = refused.distinct().joinToString(" ")
+    return if (unlinked) "${refused.size} file(s) couldn't be uploaded: $reasons"
+    else "It was saved, but ${refused.size} file(s) couldn't be uploaded: $reasons Attach them again on the record."
 }
