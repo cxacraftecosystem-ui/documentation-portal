@@ -142,7 +142,7 @@ function DashboardView() {
     { label: "Tool", icon: Wrench, newHref: "/tools/new", updateHref: "/tools", visible: creator },
     // Answering an interview and uploading media are open to every signed-in user — they are how a
     // volunteer contributes.
-    { label: "Questionnaire", icon: ClipboardList, newHref: "/questionnaire?new=1", updateHref: "/questionnaire", newLabel: "New interview" },
+    { label: "Questionnaire", icon: ClipboardList, newHref: "/questionnaire?new=1", updateHref: "/questionnaire", newLabel: "New" },
     { label: "Miscellaneous Media", icon: Images, newHref: "/media", newLabel: "Upload" },
     // Reading is never gated: without dataset access the tile leads to Browse records instead.
     { label: "View Data", icon: Eye, newHref: canDownloadDataset(user) ? "/data" : "/search", newLabel: "Open" },

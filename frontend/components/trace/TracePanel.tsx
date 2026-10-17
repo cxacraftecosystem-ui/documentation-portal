@@ -1815,21 +1815,6 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
         Full-resolution copies for you — not saved to the record. Closing this panel discards the trace.
       </p>
       {/*
-        WHAT IS WRITTEN INSIDE THE FILE ABOUT WHO MADE IT, SCOPED TO THE TWO FORMATS IT IS ACTUALLY
-        TRUE OF. `exportVectorFile` passes `includeMetadata: true`, so `pdfWriter` emits
-        `/Producer (Offline Tracer) /Creator (Offline Tracer)` and `epsWriter` emits
-        `%%Creator: Offline Tracer`. The SVG is NOT among them: this page writes its own through
-        `geometryToSvg.buildSvg` rather than through the engine's writer, and that function emits no
-        producer line at all. Re-check with
-        `grep -rn "Offline Tracer" frontend/lib/trace frontend/components/trace`.
-      */}
-      <p className="mt-1 max-w-prose text-xs leading-5 text-ink-500">
-        The PDF and the EPS record that they were made by the Offline Tracer engine, which is the
-        tracing library this app uses on the device. That is a note about the software — not about the
-        drawing, and not about you. The SVG this page writes carries no such line, because this page
-        writes it rather than the engine.
-      </p>
-      {/*
         THE SAME GAP AS THE ATTACH'S, SAID IN THE OTHER HALF OF THE PANEL.
 
         `provenanceFor` reaches every format that has somewhere to put it, and three of the five do:
@@ -1842,10 +1827,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
       */}
       {edited !== null ? (
         <p className="mt-2 max-w-prose text-xs leading-5 text-amber-800 dark:text-amber-200">
-          The frame you chose is written into the SVG&apos;s provenance note, the PDF&apos;s title and
-          the EPS&apos;s header, so those three say how they were made. The PNG and the DXF have
-          nowhere to carry it: saved on their own, neither records that the drawing was cropped or
-          sharpened.
+          PNG and DXF don&apos;t record the crop or sharpening.
         </p>
       ) : null}
       {/* Mounted whether or not anything has been saved, so the sentence is a CHANGE to a region

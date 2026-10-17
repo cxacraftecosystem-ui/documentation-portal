@@ -958,13 +958,7 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
             own three. The keyboard half is here because it exists: the handles are real buttons and
             answer to the arrow keys. */}
         <p className="mt-2 text-xs leading-5 text-ink-500">
-          Drag across the photograph to draw a frame. Once there is one, drag inside it to move it and
-          drag a corner to resize it. Each corner is also a button: focus it and the arrow keys move it
-          {" "}
-          {nudgeStep}
-          {nudgeStep === 1 ? " pixel" : " pixels"} of the photograph at a time — one pixel of the
-          picture as it is drawn here — or {nudgeStep * 10} with Shift held. The four boxes below take
-          the numbers directly, and the row above jumps to a common shape.
+          Drag to draw a frame; drag a corner to resize. Arrow keys nudge {nudgeStep}px (Shift ×10).
         </p>
 
         {/* THE NUMBERS ARE THE PRIMARY ROUTE, NOT A FALLBACK. Every one is a real labelled input, so
@@ -1035,9 +1029,7 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
             ? `The whole photograph, ${pixels.width}x${pixels.height}.`
             : `${crop.width}x${crop.height} of ${pixels.width}x${pixels.height} — ${Math.round(
                 (cropped / (pixels.width * pixels.height)) * 100
-              )}% of the frame. Everything outside it is absent from the drawing.`}{" "}
-          The engine may still narrow the frame further on its own when it finds a subject it is
-          confident about; the notes under the traced result say when it did.
+              )}% of the frame.`}
         </p>
       </div>
 
@@ -1096,9 +1088,7 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
         */}
         {sharpen.amount > 0 ? (
           <p className="mt-3 text-xs leading-5 text-ink-500">
-            Sharpening {(cropped / 1_000_000).toFixed(1)} megapixels takes under a second on a laptop; on a
-            phone a full-size photograph can take several seconds. The page stays usable while it runs,
-            and nothing is recomputed until you press the button below.
+            {(cropped / 1_000_000).toFixed(1)} MP — may take a few seconds on a phone.
           </p>
         ) : null}
 
@@ -1109,11 +1099,7 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
           >
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
             <span>
-              Sharpening runs on frames up to {(SHARPEN_MAX_PIXELS / 1_000_000).toFixed(1)} megapixels
-              on this device, and this frame is {(cropped / 1_000_000).toFixed(1)}. Crop it smaller —
-              the frame above is what does that — or leave this at 0 and use the “Sharpen amount”
-              control in the Sharpening group, which works on the smaller plane the trace itself runs
-              at.
+              Too large to sharpen ({(cropped / 1_000_000).toFixed(1)} of {(SHARPEN_MAX_PIXELS / 1_000_000).toFixed(1)} MP max). Crop smaller, or use “Sharpen amount” instead.
             </span>
           </p>
         ) : null}

@@ -987,8 +987,10 @@ rendered children (fragments unwrapped, `null` dropped) and lays them out by num
 - A row that mixes a button with a note or a status line is two things: the buttons go in
   `ButtonRow`, the sentence goes on its own line below it.
 - **Not** a button row: segmented chips/presets, toolbars (rich-text, find bar, the lightbox
-  header), icon-only arrows in a list row, the nav sheet's account footer, and the dashboard card's
-  stacked New/Update pair (two buttons side by side in a 160px card are cramped).
+  header), icon-only arrows in a list row, and the nav sheet's account footer.
+- The dashboard card's New/Update pair IS a two-button row and shares one line, even in a ~135px
+  phone card: keep the labels to one word and drop the icons below `sm` (`max-sm:hidden`) rather
+  than stacking them.
 - Trap: the 2-button case is a `grid` below `sm`. A child with `w-fit`/`inline-flex` sizing still
   fills its cell (`[&>*]:w-full`); do not add `shrink-0` or a fixed width to a button inside it.
 

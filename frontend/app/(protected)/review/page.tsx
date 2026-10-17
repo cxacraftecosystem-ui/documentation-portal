@@ -464,10 +464,10 @@ export default function ReviewPage() {
                 {chosen.length} record{chosen.length === 1 ? "" : "s"} selected
                 {bulkProgress ? ` · approving ${bulkProgress.done + 1} of ${bulkProgress.total}…` : ""}
               </span>
-              <div className="flex items-center gap-3">
+              <ButtonRow size="sm" align="end" className="w-full sm:w-auto">
                 <button
                   type="button"
-                  className="text-xs font-semibold text-ink-500 pointer-coarse:min-h-11"
+                  className="field-button-secondary h-9 min-h-0 px-3 text-xs pointer-coarse:h-11"
                   onClick={() => setSelected(new Set())}
                 >
                   Clear
@@ -481,7 +481,7 @@ export default function ReviewPage() {
                   <Check className="h-3.5 w-3.5" aria-hidden />
                   Approve {chosen.length}
                 </button>
-              </div>
+              </ButtonRow>
             </div>
           ) : null}
           {/*

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ChevronDown, ExternalLink, KeyRound, Loader2, Trash2 } from "lucide-react";
 
 import { apiFetch } from "@/lib/api";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 /**
  * **A researcher's OWN provider keys.** One card, one row per provider, and an accordion per provider
@@ -87,7 +88,7 @@ function priceLine(model: AiModel, checkedOn: string): string | null {
   // The date travels with the figure, every time it is printed. These go stale — providers
   // re-price, and two of the current rates are introductory — and a stale price shown as current is
   // a small lie told to somebody deciding how to spend their own money.
-  return `About $${model.inputPricePerMTok} in / $${model.outputPricePerMTok} out per million words-ish, checked ${checkedOn}`;
+  return `About $${model.inputPricePerMTok} in / $${model.outputPricePerMTok} out per million tokens · checked ${checkedOn}`;
 }
 
 function StatusPill({ state }: { state: KeyState }) {
@@ -256,7 +257,28 @@ function ProviderRow({
         </p>
       ) : null}
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      <ButtonRow
+        align="start"
+        className="mt-3"
+        destructive={
+          state.configured || state.unreadable ? (
+            <button
+              type="button"
+              disabled={busy !== null}
+              onClick={() =>
+                run(
+                  "remove",
+                  () => apiFetch<KeyState>(`/me/ai-keys/${provider.provider}`, { method: "DELETE" }),
+                  "Removed. Using the standard key."
+                )
+              }
+              className="field-danger disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" aria-hidden /> Remove
+            </button>
+          ) : null
+        }
+      >
         <button
           type="button"
           disabled={busy !== null || (!key.trim() && model === state.model)}
@@ -291,24 +313,8 @@ function ProviderRow({
           {busy === "test" ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden /> : null}
           Test
         </button>
-        {state.configured || state.unreadable ? (
-          <button
-            type="button"
-            disabled={busy !== null}
-            onClick={() =>
-              run(
-                "remove",
-                () => apiFetch<KeyState>(`/me/ai-keys/${provider.provider}`, { method: "DELETE" }),
-                "Removed. The app’s standard key is used again."
-              )
-            }
-            className="inline-flex items-center gap-1.5 text-sm text-ink-500 hover:text-rose-700"
-          >
-            <Trash2 className="h-4 w-4" aria-hidden /> Remove
-          </button>
-        ) : null}
-        {message ? <span className="text-xs text-ink-500">{message}</span> : null}
-      </div>
+      </ButtonRow>
+      {message ? <p className="mt-2 text-xs text-ink-500">{message}</p> : null}
 
       <HowToGetAKey provider={provider} />
     </li>
