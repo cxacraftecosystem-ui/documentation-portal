@@ -86,7 +86,11 @@ export function recordFieldRows(type: RecordViewType, record: Loose): RecordFiel
         { label: "Address", value: text(record.address) },
         { label: "Experience", value: experience(record) },
         // On file or not — never the digits. See the header.
-        { label: "Aadhaar card", value: record.aadhaarNumber ? "On file" : NOT_RECORDED },
+        {
+          label: "Aadhaar card",
+          // C18: the explicit outcome reads as itself, so the follow-up is visible on the record.
+          value: record.aadhaarNumber ? "On file" : record.aadhaarNotShared ? "Not shared by artisan — follow up" : NOT_RECORDED
+        },
         { label: "Pehchan card", value: record.pehchanCardAvailable || record.pehchanCardNumber ? "On file" : "No" },
         { label: "Do's", value: text(record.dos) },
         { label: "Don'ts", value: text(record.donts) },

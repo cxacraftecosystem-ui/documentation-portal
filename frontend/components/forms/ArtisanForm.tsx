@@ -13,6 +13,9 @@ import { AadhaarField, aadhaarValidationError, isMaskedIdentityNumber } from "@/
 import { CarryContextBanner, carryScope, useCarryContext, type CarryScopeState } from "@/components/forms/CarryContextBanner";
 import { DosDontsField } from "@/components/forms/DosDontsField";
 import { DuplicateArtisanDialog } from "@/components/forms/DuplicateArtisanDialog";
+import { ArtisanLookup, type ArtisanLookupStart } from "@/components/forms/ArtisanLookup";
+import { failedFilesOf, RetryFailedUploads } from "@/components/media/RetryFailedUploads";
+import { Toggle } from "@/components/ui/Toggle";
 import { LocationFields, type LocationInitialValues } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { PhoneField } from "@/components/forms/PhoneField";
@@ -172,14 +175,16 @@ function PehchanFields({
   initialNumber,
   onDirty
 }: {
-  initialAvailable: boolean;
+  /** `null` = not answered yet: a NEW artisan starts here (C18), so the answer is always a choice. */
+  initialAvailable: boolean | null;
   initialNumber?: string | null;
   onDirty: () => void;
 }) {
   const baseId = useId();
   const numberId = `${baseId}-pehchan-number`;
   const hintId = `${baseId}-pehchan-hint`;
-  const [available, setAvailable] = useState(initialAvailable);
+  const [answer, setAnswer] = useState<boolean | null>(initialAvailable);
+  const available = answer === true;
   const storedMask = isMaskedIdentityNumber(initialNumber) ? String(initialNumber).trim() : null;
   // Set when the editor chooses to type a new card number over one they were never shown.
   const [replacing, setReplacing] = useState(false);
@@ -195,17 +200,19 @@ function PehchanFields({
         <span className="field-label">Artisan Pehchan Card available</span>
         <Select
           name="pehchanCardAvailable"
-          value={available ? PEHCHAN_YES : PEHCHAN_NO}
+          value={answer === null ? "" : answer ? PEHCHAN_YES : PEHCHAN_NO}
           aria-label="Artisan Pehchan Card available"
+          required
           onChange={(event) => {
             const next = event.target.value === PEHCHAN_YES;
-            setAvailable(next);
+            setAnswer(event.target.value === "" ? null : next);
             if (!next) setNumber("");
             // The themed Dropdown is a button, so it fires no native input event for the form's
             // onInput to catch: the dirty flag has to be raised by hand.
             onDirty();
           }}
         >
+          <option value="">Select…</option>
           <option value={PEHCHAN_YES}>Yes</option>
           <option value={PEHCHAN_NO}>No</option>
         </Select>
@@ -221,7 +228,7 @@ function PehchanFields({
           className="field-input read-only:bg-surface-50 read-only:text-ink-500 disabled:cursor-not-allowed disabled:bg-surface-50 disabled:text-ink-500"
           type="text"
           autoComplete="off"
-          placeholder={available ? "As printed on the card" : "No card on record"}
+          placeholder={available ? "As printed on the card" : answer === null ? "Answer the card question first" : "No card on record"}
           value={keptMask ?? number}
           // A read-only box is exempt from constraint validation, which is the right answer here:
           // `required` must not demand a number the editor is not permitted to read.
@@ -240,7 +247,9 @@ function PehchanFields({
           }}
         />
         <p id={hintId} className="text-xs text-ink-muted">
-          {!available
+          {answer === null
+            ? "Has the artisan a Pehchan card?"
+            : !available
             ? "No Pehchan card."
             : keptMask
               ? "On file and hidden. Saving keeps it."
@@ -407,6 +416,16 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
   // the state living inside the field components — the Aadhaar digits, the Pehchan pair, the notes
   // rows, the Do's/Don'ts lists — which no amount of `form.reset()` can reach.
   const [formKey, setFormKey] = useState(0);
+  /*
+    C18 — FIND BEFORE TYPING. A new artisan opens on a lookup by Aadhaar or name, so a duplicate is
+    found before ten fields are typed, not after. "Record a new artisan" (or a search with no match)
+    opens the form, carrying what was typed into the Name or Aadhaar box.
+  */
+  const [lookup, setLookup] = useState<ArtisanLookupStart | null>(initial ? { name: "", aadhaar: "" } : null);
+  /** C18 — "Not shared by artisan": the explicit outcome that saves without an Aadhaar, flagged. */
+  const [aadhaarNotShared, setAadhaarNotShared] = useState(Boolean(initial?.aadhaarNotShared));
+  /** B7: files of a saved artisan that did not upload, held for one-tap retry. */
+  const [retry, setRetry] = useState<{ files: File[]; upload: (files: File[]) => Promise<{ failed: Array<{ name: string; error?: string }> }> } | null>(null);
   const { dirty, markDirty, resetDirty } = useUnsavedChanges();
   const [backPromptOpen, setBackPromptOpen] = useState(false);
   // Hands the prompt to the round back control in the page header, which is now the only back
@@ -426,7 +445,9 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
    * real number this caller may not read — and AadhaarField satisfies the requirement by posting the
    * mask straight back.
    */
-  const aadhaarRequired = !initial || Boolean(initial.aadhaarNumber?.trim());
+  const aadhaarRequired = (!initial || Boolean(initial.aadhaarNumber?.trim())) && !aadhaarNotShared;
+  /** The outcome is offered only where no number is on file: it never retracts a stored Aadhaar. */
+  const notSharedOffered = !initial?.aadhaarNumber?.trim();
   // The workshop this artisan was documented at: shared picker, shared most-recent defaulting, and
   // the late-submission gate (see components/forms/WorkshopSelect).
   const workshop = useWorkshopSelection({
@@ -543,7 +564,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
     // Ask about a duplicate BEFORE the late-submission prompt: there is no point weighing up a late
     // save that is about to be abandoned anyway.
     setCheckingDuplicate(true);
-    const existing = await findArtisanByAadhaar(textValue(form, "aadhaarNumber"), initial?.id ?? null);
+    const existing = aadhaarNotShared ? null : await findArtisanByAadhaar(textValue(form, "aadhaarNumber"), initial?.id ?? null);
     setCheckingDuplicate(false);
     if (existing) {
       setConflict({
@@ -669,7 +690,9 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         // explicit null, when the artisan holds no card, so an edit that flips the answer to No
         // clears the stored number instead of orphaning it: `aadhaarNumber` and `pehchanCardNumber`
         // are both clearable server-side.
-        aadhaarNumber: textValue(form, "aadhaarNumber"),
+        aadhaarNumber: aadhaarNotShared ? null : textValue(form, "aadhaarNumber"),
+        // C18: sent only when it says something, so a body without the outcome is today's shape.
+        ...(aadhaarNotShared || initial?.aadhaarNotShared ? { aadhaarNotShared } : {}),
         pehchanCardAvailable: pehchanAvailable,
         ...(pehchanUnchanged ? {} : { pehchanCardNumber: pehchanAvailable ? pehchanNumber : null }),
         dos: requiredText(form, "dos"),
@@ -718,22 +741,25 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
       }
       const saved = outcome.saved;
       if (mediaFiles.length) {
-        const { failed } = await uploadMediaBatch({
-          files: mediaFiles,
-          linkedRecordType: "artisan",
-          linkedRecordId: saved.id,
-          caption: `Field media for ${saved.name}`,
-          location,
-          recordedAt,
-          recordedTimezone,
-          extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined,
-          onProgress: setUploadProgress
-        });
+        const uploadTo = (files: File[]) =>
+          uploadMediaBatch({
+            files,
+            linkedRecordType: "artisan",
+            linkedRecordId: saved.id,
+            caption: `Field media for ${saved.name}`,
+            location,
+            recordedAt,
+            recordedTimezone,
+            extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined,
+            onProgress: setUploadProgress
+          });
+        const { failed } = await uploadTo(mediaFiles);
         setUploadProgress(null);
         if (failed.length) {
-          setError(
-            `Saved, but ${failed.length} of ${mediaFiles.length} file(s) didn’t upload: ${failed.map((f) => f.name).join(", ")}. Reopen to retry.`
-          );
+          // B7: the artisan is saved; only the files that failed are kept, for one-tap retry.
+          resetDirty();
+          setRetry({ files: failedFilesOf(mediaFiles, failed), upload: uploadTo });
+          if (!initial) setSavedRecord(saved);
           setSaving(false);
           return;
         }
@@ -770,6 +796,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
   if (savedRecord) {
     return (
       <div className="grid gap-6">
+        {retry ? <RetryFailedUploads files={retry.files} upload={retry.upload} onDone={() => setRetry(null)} /> : null}
         <div className="panel p-4">
           <p className="text-sm font-medium text-ink">
             Saved &ldquo;{savedRecord.name}&rdquo;.
@@ -780,8 +807,12 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
               className="field-button-secondary"
               onClick={() => {
                 setSavedRecord(null);
+                setRetry(null);
                 setMediaFiles([]);
                 setEmail("");
+                setAadhaarNotShared(false);
+                // C18: the next artisan starts on the lookup too.
+                setLookup(null);
                 // Blank literals rather than `initial?.…`: this panel is only ever reached from the
                 // create path, so "what the record said" is by definition nothing. Dismissing it
                 // re-renders the form and the uncontrolled boxes come back blank because the whole
@@ -815,8 +846,30 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
     );
   }
 
+  if (!lookup) {
+    return (
+      <ArtisanLookup
+        onStart={(start) => {
+          setLookup(start);
+          if (start.name) setName(start.name);
+        }}
+      />
+    );
+  }
+
   return (
     <>
+      {retry && initial ? (
+        <RetryFailedUploads
+          files={retry.files}
+          upload={retry.upload}
+          onDone={() => {
+            setRetry(null);
+            router.push("/artisans");
+            router.refresh();
+          }}
+        />
+      ) : null}
       <form
         key={formKey}
         ref={formRef}
@@ -1125,17 +1178,38 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
                 {aadhaarRequired ? "" : " Optional for this older record — add only with the artisan’s consent."}
               </p>
             </div>
-            <AadhaarField
-              defaultValue={initial?.aadhaarNumber}
-              excludeArtisanId={initial?.id ?? null}
-              required={aadhaarRequired}
-              onValueChange={markDirty}
-            />
+            {aadhaarNotShared ? (
+              <div className="grid content-start gap-1">
+                <span className="field-label">Aadhaar number</span>
+                <p className="rounded-md border border-amber-500 bg-amber-100 px-3 py-2 text-xs text-amber-800">
+                  Not shared by artisan — flagged for follow-up.
+                </p>
+              </div>
+            ) : (
+              <AadhaarField
+                defaultValue={initial?.aadhaarNumber ?? (lookup.aadhaar || null)}
+                excludeArtisanId={initial?.id ?? null}
+                required={aadhaarRequired}
+                onValueChange={markDirty}
+              />
+            )}
             <PehchanFields
-              initialAvailable={initial?.pehchanCardAvailable ?? true}
+              initialAvailable={initial ? (initial.pehchanCardAvailable ?? true) : null}
               initialNumber={initial?.pehchanCardNumber}
               onDirty={markDirty}
             />
+            {notSharedOffered ? (
+              <Toggle
+                className="md:col-span-3"
+                label="Not shared by artisan"
+                description="Save without an Aadhaar number. The record is flagged for follow-up."
+                checked={aadhaarNotShared}
+                onChange={(next) => {
+                  setAadhaarNotShared(next);
+                  markDirty();
+                }}
+              />
+            ) : null}
           </div>
           <DosDontsField
             name="dos"
