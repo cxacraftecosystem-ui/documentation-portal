@@ -6,6 +6,7 @@ from app.api.routes import (
     app_release,
     artisans,
     auth,
+    craft_codes,
     crafts,
     dashboard,
     data_access,
@@ -44,6 +45,7 @@ api_router.include_router(users.router)
 api_router.include_router(access_roster.router)
 api_router.include_router(artisans.router)
 api_router.include_router(crafts.router)
+api_router.include_router(craft_codes.router)
 api_router.include_router(workshops.router)
 api_router.include_router(products.router)
 api_router.include_router(processes.router)

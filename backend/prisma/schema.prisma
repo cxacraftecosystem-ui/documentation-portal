@@ -560,8 +560,16 @@ model Craft {
   /// WorkshopCraft join (which every existing query reads through and which is kept in lock-step);
   /// nullable, so every row recorded before this column keeps behaving exactly as before.
   workshopId    String?
+  /// THE SHARED CRAFT CODE (C26, 2026-10-17). One code per craft TRADITION, the same in the
+  /// designer portal, the documentation portal and (where it has the craft) the cxa-cms public
+  /// site, whose slug it is. Seeded from ``app/data/cross_portal_codes.json``, a file that is
+  /// byte-identical in both repositories, and matched through ``CraftSpelling`` — so "Bandhej",
+  /// "Bandhani" and "Bandhani tie-resist dyeing" are three rows here and one code. Nullable: a
+  /// craft nobody has mapped yet keeps working exactly as before, and an admin maps it.
+  craftCode     String?
 
   createdBy User?                  @relation("CraftCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  code      CraftCode?             @relation(fields: [craftCode], references: [code], onDelete: SetNull)
   workshop  Workshop?              @relation("CraftWorkshop", fields: [workshopId], references: [id], onDelete: SetNull)
   artisans  Artisan[]
   products  ProductDocumentation[]
@@ -578,6 +586,37 @@ model Craft {
   // `name` needs no index of its own: @unique already builds one, and that is what the alphabetical
   // craft picker orders by.
   @@index([workshopId])
+  @@index([craftCode])
+}
+
+/// A shared craft code (C26). The canonical list is ``app/data/cross_portal_codes.json``, the
+/// same bytes in both portals; a code is never reused or renumbered once published there. Rows
+/// are written by the backfill migration and, for a code the file gains later, on first use.
+model CraftCode {
+  code      String   @id
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  crafts    Craft[]
+  spellings CraftSpelling[]
+}
+
+/// The spelling mapping table (C26): every way a craft's name has been written, normalised
+/// (lower case, accents and punctuation folded to single spaces), and the code it means.
+/// ``source`` is SHARED for a spelling from the shared file and ADMIN for one an administrator
+/// mapped on this portal; only SHARED spellings travel to the other portal (by editing the file).
+model CraftSpelling {
+  spelling    String   @id
+  label       String
+  craftCode   String
+  source      String   @default("SHARED")
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  code CraftCode @relation(fields: [craftCode], references: [code], onDelete: Cascade)
+
+  @@index([craftCode])
 }
 
 /// TWO ANSWERS TO TWO DIFFERENT QUESTIONS, and reading one as the other is what this model was
@@ -1490,6 +1529,13 @@ model QuestionnaireQuestion {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   sectionId       String?
+  /// THE SHARED QUESTION CODE (C26): ``CTW2.A.01`` and so on, from
+  /// ``app/data/cross_portal_codes.json``. The same question in either portal carries the same code,
+  /// so answers can be read side by side without matching on order or wording. A wording edit that
+  /// supersedes a question does NOT carry the code to the new row ("How many looms?" reworded to "How
+  /// many weavers?" is a different question); the new row has a code only if its wording is in the
+  /// shared file. A question written in the builder that is not in the file has none.
+  questionCode    String?
 
   questionnaire Questionnaire         @relation(fields: [questionnaireId], references: [id], onDelete: Restrict)
   /// Restrict, changed from SetNull on 2026-09-13. Nothing in this app hard-deletes a section —
@@ -1508,6 +1554,7 @@ model QuestionnaireQuestion {
   /// Read by the consolidated document, which walks the supersede chain so a reworded question and
   /// its replacement print as one question rather than two with the answers split between them.
   @@index([supersededById])
+  @@index([questionCode])
 }
 
 model QuestionnaireInterview {

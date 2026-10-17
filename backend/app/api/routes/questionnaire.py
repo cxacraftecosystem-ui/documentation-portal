@@ -61,6 +61,7 @@ from app.services.questionnaire_instruments import (
     require_questionnaire,
     resolve_questionnaire_id,
 )
+from app.services import cross_portal_codes
 from app.services.concurrency import gather_reads
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.record_filters import (
@@ -637,6 +638,7 @@ async def update_section(
             where={"sectionId": section_id},
             data={"sectionCode": updated.code, "sectionTitle": updated.title},
         )
+        await cross_portal_codes.reconcile_question_codes(db, questionnaire_id=updated.questionnaireId)
     return public_encode(updated)
 
 
@@ -700,6 +702,8 @@ async def create_question(
             "questionnaireId": section.questionnaireId,
             **section_question_data(section),
             "prompt": payload.prompt.strip(),
+            # The shared question code (C26), from the section and the wording; None off the file.
+            "questionCode": cross_portal_codes.question_code(section.code, payload.prompt.strip()),
             # NAMED EXPLICITLY, because this handler builds its data dict field by field while
             # `update_question` below uses `model_dump(exclude_unset=True)`. Adding the two fields to
             # the schema and stopping there gives an editor whose PATCH stores help text and whose
@@ -758,6 +762,10 @@ async def update_question(
     elif question.sectionId and ("sectionCode" not in data or "sectionTitle" not in data):
         section = await require_section(question.sectionId)
         data.update({"sectionCode": section.code, "sectionTitle": section.title})
+    # The shared question code follows the section and wording this row will have AFTER the write.
+    data["questionCode"] = cross_portal_codes.question_code(
+        data.get("sectionCode", question.sectionCode), data.get("prompt", question.prompt)
+    )
     updated = await db.questionnairequestion.update(where={"id": question_id}, data=data)
     return public_encode(updated)
 
@@ -2252,6 +2260,7 @@ async def create_from_parsed(
             report["created"] += 1
 
     _note_skipped_answers(parsed, report)
+    await cross_portal_codes.reconcile_question_codes(db, questionnaire_id=questionnaire.id)
     return questionnaire.id, report
 
 
@@ -2673,6 +2682,7 @@ async def apply_parsed_edit(
             if updates:
                 await db.questionnaire.update(where={"id": questionnaire_id}, data=updates)
     report["versionAfter"] = version_before + version_bumps
+    await cross_portal_codes.reconcile_question_codes(db, questionnaire_id=questionnaire_id)
     return report
 
 

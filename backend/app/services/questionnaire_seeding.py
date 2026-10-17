@@ -74,6 +74,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.db import db
+from app.services import cross_portal_codes
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 
@@ -372,6 +373,10 @@ async def seed_instrument(
             f"NOT deactivated; parked at sortOrder {parked}, above the {len(sections)} the corpus "
             f"describes."
         )
+
+    # The shared question codes (C26) for every question this instrument now holds. Not counted:
+    # a code is derived from the wording, so it is not a write the corpus asked for.
+    await cross_portal_codes.reconcile_question_codes(db, questionnaire_id=record.id)
 
     return record.id, counts
 
