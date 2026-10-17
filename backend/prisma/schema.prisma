@@ -1580,6 +1580,7 @@ model QuestionnaireQuestion {
   /// loud and recoverable; an orphan is neither.
   section   QuestionnaireSection? @relation(fields: [sectionId], references: [id], onDelete: Restrict)
   responses QuestionnaireResponse[]
+  answerDrafts QuestionnaireAnswerDraft[]
 
   @@index([sectionCode])
   @@index([sectionId])
@@ -1646,6 +1647,7 @@ model QuestionnaireInterview {
   artisans  QuestionnaireInterviewArtisan[]
   responses QuestionnaireResponse[]
   media     MediaFile[]                      @relation("QuestionnaireMedia")
+  answerDrafts QuestionnaireAnswerDraft[]
 
   @@unique([questionnaireId, artisanSetKey])
   @@index([createdById])
@@ -1677,6 +1679,11 @@ model QuestionnaireResponse {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   answeredById String
+  /// C28. NULL: a person typed it. MACHINE_SUGGESTED: a model drafted it from the transcript and a
+  /// person accepted it unchanged. MACHINE_SUGGESTED_EDITED: drafted, then changed by a person.
+  /// A later edit of a MACHINE_SUGGESTED answer moves it to MACHINE_SUGGESTED_EDITED; it never
+  /// becomes NULL while it has text, because the words started as a machine's.
+  answerOrigin String?
 
   interview  QuestionnaireInterview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
   question   QuestionnaireQuestion  @relation(fields: [questionId], references: [id], onDelete: Restrict)
@@ -1685,6 +1692,36 @@ model QuestionnaireResponse {
   @@unique([interviewId, questionId])
   @@index([questionId])
   @@index([answeredById])
+}
+
+/// C28: an answer a model drafted from an interview's transcript, waiting for a person. INERT: a
+/// draft is never an answer and nothing reads it as one. The researcher accepts or edits a SECTION's
+/// drafts at a time; an accepted draft becomes a ``QuestionnaireResponse`` whose ``answerOrigin`` says
+/// it was machine-suggested, and this row keeps the words the model wrote, the provider and the model,
+/// so what the machine said and what the person kept can always be told apart. Only questions that had
+/// no answer are drafted; a draft never replaces a person's words. Off unless AI_ANSWER_DRAFTS_ENABLED.
+model QuestionnaireAnswerDraft {
+  id            String    @id @default(cuid())
+  interviewId   String
+  questionId    String
+  sectionId     String?
+  draftText     String
+  /// PENDING | ACCEPTED | EDITED | DISMISSED
+  status        String    @default("PENDING")
+  provider      String
+  model         String
+  sourceMediaId String?
+  createdById   String
+  createdAt     DateTime  @default(now())
+  decidedById   String?
+  decidedAt     DateTime?
+
+  interview QuestionnaireInterview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  question  QuestionnaireQuestion  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([interviewId, questionId])
+  @@index([interviewId, status])
+  @@index([questionId])
 }
 
 model Process {

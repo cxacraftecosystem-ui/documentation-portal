@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.routes import (
     ai_keys,
+    answer_drafts,
     access_roster,
     app_release,
     artisans,
@@ -53,6 +54,7 @@ api_router.include_router(products.router)
 api_router.include_router(processes.router)
 api_router.include_router(tools.router)
 api_router.include_router(media.router)
+api_router.include_router(answer_drafts.router)
 api_router.include_router(questionnaire.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(search.router)

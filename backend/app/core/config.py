@@ -355,6 +355,12 @@ class Settings(BaseSettings):
     # a 1 GiB box — so it is worth doing only when a genuine replica exists to point it at.
     database_read_replica_url: str | None = Field(default=None, alias="DATABASE_READ_REPLICA_URL")
 
+    # ── AI-DRAFTED ANSWERS FROM A TRANSCRIPT (C28; docs/ENVIRONMENT.md) ───────────────────────────
+    # OFF BY DEFAULT. On, a researcher may ask a model to draft a section's unanswered questions from
+    # the interview's transcript; drafts are accepted or edited by a person and every accepted answer
+    # is labelled machine-suggested. Runs on the researcher's own AI key or the deployment's.
+    ai_answer_drafts_enabled: bool = Field(default=False, alias="AI_ANSWER_DRAFTS_ENABLED")
+
     # ── CROSS-PORTAL ARTISAN IDENTITY (C27; docs/ENVIRONMENT.md) ────────────────────────────────
     #
     # OFF BY DEFAULT, AND OFF UNTIL BOTH PORTALS HAVE IT. The lookup works only when the flag is on

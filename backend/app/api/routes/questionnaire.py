@@ -61,7 +61,7 @@ from app.services.questionnaire_instruments import (
     require_questionnaire,
     resolve_questionnaire_id,
 )
-from app.services import cross_portal_codes
+from app.services import answer_drafts, cross_portal_codes
 from app.services.concurrency import gather_reads
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.record_filters import (
@@ -496,6 +496,12 @@ async def upsert_responses(
                     "answerText": response.answerText,
                     "notes": response.notes,
                     "answeredById": current_user.id,
+                    # C28: a person's edit of a machine-suggested answer keeps that provenance.
+                    "answerOrigin": answer_drafts.origin_after_edit(
+                        getattr(existing, "answerOrigin", None),
+                        existing.answerText,
+                        response.answerText,
+                    ),
                 },
             )
         )
