@@ -14141,19 +14141,18 @@ private fun QuestionnaireForm(
           the wrong sequence sends the reader two fields down and, finding the wrong box, filling it
           in. The owner ruled the web correct. The workshop keeps its job and loses its place.
         */
-        // NO MICROPHONE HERE, AND IT IS THE SAME DECISION AS THE ONE AT `MultiNoteInput` BELOW.
-        // The questionnaire screens are out of the record-form dictation work by decision (see
-        // `MainActivity.kt:11154-11180` for the argument in full) and the browser's own interview
-        // form has no microphone on this box either, so flipping `TextInput`'s default must not
-        // quietly opt this screen in. The sibling application took the opposite decision on
-        // 2026-08-28; taking it here is a questionnaire-workstream change, not a side effect.
-        RequiredInput("Interview title", title, titleError, titleFocus, titleCased = true, dictate = false) { title = it }
+        // THE FIVE INTERVIEW BOXES DICTATE (owner ruling C23, 2026-10-17). They were held off on the
+        // stated ground that the browser's title box had no microphone; it has one, so the ground was
+        // gone. Title, place, language, each answer and the notes now take the shared default, as the
+        // sibling application's interview form has since 2026-08-28. The section clips are still the
+        // recorded, stored capture; dictation types into a box and keeps nothing.
+        RequiredInput("Interview title", title, titleError, titleFocus, titleCased = true) { title = it }
         // There is deliberately NO date field: the server derives interviewDate from recordedAt,
         // which is when the interview was actually captured. Asking a researcher to confirm today's
         // date was a field to tab past that could only ever be wrong -- and a spoken date is the one
         // thing a recogniser gets wrong in a way that still parses, so no microphone would go on one
         // even if it came back. `absent` in the form contract holds all three guides to that.
-        TextInput("Place", place, titleCased = true, dictate = false) { place = it }
+        TextInput("Place", place, titleCased = true) { place = it }
         /*
           -- LANGUAGE IS FREE TEXT, AND THE DROPDOWN THAT STOOD HERE WAS THE DRIFT -------------------
 
@@ -14171,7 +14170,7 @@ private fun QuestionnaireForm(
           is indistinguishable in the archive from one they did, and this is the column the archive
           reports language BY. The browser opens this box blank. So does this one.
         */
-        TextInput("Language", language, dictate = false) { language = it }
+        TextInput("Language", language) { language = it }
         // The workshop no longer leads the form but still leads everything under it in MEANING: it
         // is the context the interview belongs to, it chooses the instrument in the next field, and
         // it scopes the artisan roster two fields down.
@@ -14490,12 +14489,8 @@ private fun QuestionnaireForm(
                                 val recordedAnswer = editing?.responses
                                     ?.firstOrNull { it.questionId == question.id }?.answerText
                                 if (answerBoxVisible(hideAnswers, recordedAnswer)) {
-                                    // NO MICROPHONE AND NO EDITOR, BY DECISION — see the comment on
-                                    // this screen's `MultiNoteInput` below. This section already has
-                                    // its own audio capture beside it, and a second, differently
-                                    // shaped one in the answer box is the confusion that decision
-                                    // exists to prevent. It is skipped, not missed.
-                                    TextInput("Answer", answers[question.id]?.value.orEmpty(), minLines = 3, dictate = false) { value ->
+                                    // Dictates (C23); no rich editor — an answer is plain text.
+                                    TextInput("Answer", answers[question.id]?.value.orEmpty(), minLines = 3) { value ->
                                         answers[question.id]?.let { state -> state.value = value }
                                         lastEditedSectionId = section.id
                                     }
@@ -14566,31 +14561,10 @@ private fun QuestionnaireForm(
         // progress) — the same media array used by every other record form.
         MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
         /*
-         * THE ONE `MultiNoteInput` WITH NO MICROPHONE, AND THE OPT-OUT IS THE POINT OF THE FLAG.
-         *
-         * The questionnaire screens were placed out of scope for this work by decision, not by
-         * oversight: they already have a capture workflow of their own — per-section or per-question
-         * audio recorded as a `MediaFile` and transcribed asynchronously by the queue — which was
-         * designed around how these interviews are actually conducted. Adding a live microphone
-         * anywhere on this screen puts two capture models in front of one researcher, and the two
-         * disagree about something that matters: the questionnaire's clip is stored, listed and
-         * deletable, and the interviewee can be shown it. This one is not recorded at all.
-         *
-         * So this one argument is what keeps the shared control's new default off a screen it was
-         * told to leave alone. Removing it does not "enable a feature here"; it opts this screen into
-         * a decision nobody has taken.
-         *
-         * THE DEFAULT FLIPPED ON 2026-09-13 AND THIS OPT-OUT SURVIVED IT, which is the only reason
-         * it is still worth reading. Three more boxes on this screen now say `dictate` false for
-         * the same reason — the interview title (:10925), the place (:10930) and the per-question
-         * answer (:11084) — because a default is not a decision and this screen has not had one
-         * taken about it. Two more in the builder (:11476, :11518) say it for a different reason: a
-         * section code is not prose. The sibling application DID take the interview decision
-         * (`designer MainActivity.kt:16388` records the reversal and the owner's words) and its
-         * questionnaire notes now dictate. If that decision is taken here, it is taken on all four
-         * interview boxes at once, in the questionnaire workstream, with the web's own interview
-         * form moving in the same commit — `RecordDictationParityTest` does not cover this screen,
-         * so nothing else would catch it.
+         * INTERVIEW NOTES DICTATE (C23, 2026-10-17), with the other four interview boxes. The opt-out
+         * this comment used to defend rested on the browser's interview form having no microphone,
+         * which stopped being true; the decision it asked for has now been taken, on all the boxes at
+         * once. The per-section clips remain the stored, transcribed capture.
          */
         /*
           "Interview notes", WRITTEN AT THE CALL SITE, and not [MultiNoteInput]'s own default.
@@ -14607,7 +14581,7 @@ private fun QuestionnaireForm(
           its blast radius would not resemble each other in a diff, and four forms that say "Notes"
           about notes are not wrong.
         */
-        MultiNoteInput(label = "Interview notes", value = notes, dictate = false) { notes = it }
+        MultiNoteInput(label = "Interview notes", value = notes) { notes = it }
         /*
           ══ FOLDING THIS INTERVIEW INTO THE ONE THAT ALREADY COVERS ITS ARTISAN SET ═══════════════
 
@@ -17452,10 +17426,8 @@ private fun MultiNoteInput(
      * `TextInput` and `RequiredInput` have since followed, so this is no longer the exception.
      *
      * The record forms pass `dictates("notes")` / `dictates("stepNotes")` rather than the default,
-     * so the classification is readable from one place. The opt-OUT still exists for the
-     * questionnaire interview form, which is out of this work's scope by decision and whose
-     * behaviour must not change; see the comment at that call site (`MainActivity.kt:11154-11180`,
-     * the call itself at :11181).
+     * so the classification is readable from one place. The questionnaire interview form took the
+     * default too on 2026-10-17 (owner ruling C23).
      */
     dictate: Boolean = true,
     onValueChange: (String) -> Unit,
