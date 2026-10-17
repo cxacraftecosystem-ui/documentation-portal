@@ -40,7 +40,7 @@ traps — check it before "simplifying" anything that looks redundant.
    dropdown twice.
 10. **Truncation, caps and skipped work must be stated on screen.** A list that quietly stops is
     indistinguishable from a place with no records — the single most repeated bug class in this repo.
-11. **Five shared primitives, no substitutes (§11.10).** Every on/off setting is a `Toggle`, every
+11. **Five shared primitives, no substitutes (§11.11).** Every on/off setting is a `Toggle`, every
     list a `SearchableSelect`/`SearchableMultiSelect`, every date a `CalendarField`, every 6-digit
     code an `OtpCodeInput` (six boxes, digits only, Plus Jakarta Sans). **No plain `<select>`, no
     checkbox-as-setting, no native date input, no single-box code input — on any surface**, here or on
@@ -892,7 +892,7 @@ default offset 6, `CLOSE_ON_SCROLL_GRACE_MS 600`. Data attributes: `data-anchore
   carries the list's callback ref, and the React compiler then flags every field read from it as a ref
   read during render.
 - Single-select `clearable` (a sibling x button, never inside the trigger), `id`/`describedBy` for a
-  sibling label and hint; multi-select removable chips (`showChips`). See §11.10.
+  sibling label and hint; multi-select removable chips (`showChips`). See §11.11.
 - **"Select all" acts on the FILTERED set** and says which (`Select 6 matching` vs `Select all 74`).
   Ctrl/Cmd+A was dropped: inside a text box that chord already means "select the text I typed".
 - `containEvents` stops `keydown`/`input`/`change` propagation: a portal leaves the panel in the React
@@ -969,18 +969,34 @@ break `feImage`. The classes toggled are `lg-active` / `lg-fallback`; the compan
 - **`AudioPlayer`** re-reads duration inside `onTimeUpdate` because fresh WebM streams report
   `Infinity` until played through. Its inline `--audio-range-fill` reads `rgb(var(--progress-fill))` /
   `rgb(var(--progress-track))` (2026-10-17; it hardcoded `#e4e2ef`, 1.28:1 on the white card and never
-  inverting — the voice-note bar that "disappeared"). See §11.10.
+  inverting — the voice-note bar that "disappeared"). See §11.11.
 - **`min-w-0`** appears in `Field`, `Accordion`, `SearchableSelect`'s wrapper and the login buttons and
   is load-bearing every time: a grid/flex item defaults to `min-width: auto` and refuses to shrink below
   its content's intrinsic width, so a long option label widens the column and spills over the field
   beside it. **`truncate` cannot save it** — truncation clips inside a box that has already grown.
 
-### 11.10 The five shared primitives — Toggle, SearchableSelect, SearchableMultiSelect, CalendarField, OtpCodeInput
+### 11.10 (kept free: `useDragReorder` in the designer copy)
+
+This repo has no drag-reorder hook. The number is held so that §11.11 (the five primitives) and
+§11.12 (progress indicators) carry the SAME numbers in both repos' copies of this skill.
+
+### 11.11 The five shared primitives — Toggle, SearchableSelect, SearchableMultiSelect, CalendarField, OtpCodeInput
 
 Owner's ruling, 2026-10-17, for **every surface of both apps** (this repo and the Design Prototype
 Workshop, web and Android). One component per job, the same name on both platforms, and nothing
 hand-rolled beside it. The rule in one line: **no plain `<select>`, no checkbox standing in for a
-setting, no native date input, and no single-box code input — anywhere.**
+setting, no native date input, and no single-box code input — anywhere.** Keep this section in step
+with the designer repo's copy (same numbers, same rules, same leave-setup behaviour).
+
+**Held by tests, repo-wide.** Web `e2e/form-primitives-rule-unit.spec.ts` scans every `.tsx` under
+`app/` and `components/` and fails on a markup line that starts with `<select`, a native date input,
+`autoComplete="one-time-code"` anywhere but `OtpCodeInput`, a `? "On" : "Off"` / `: ON"` state word, or
+a `<DateField` outside `CalendarField`. Android `FormPrimitivesRuleTest` scans every `.kt` and fails on
+a bare `Switch(` outside `AppToggle.kt`, an `"On" else "Off"` / `: ON"` state word, or a
+`FieldDateField(` outside `DateTimeFields.kt`. Comment lines are skipped (they quote the old controls
+on purpose). `e2e/primitives-unit.spec.ts` and `PrimitivesTest.kt` additionally pin each converted
+surface. A checkbox used as a setting cannot be told from one choosing rows by a scan, so that half is
+held by review: **a checkbox chooses ROWS; a switch changes a SETTING.**
 
 | Job | Web (`components/ui/`) | Android (`ui/`) |
 |---|---|---|
@@ -1021,8 +1037,14 @@ every Task-builder picker). Android's hand-rolled `DropdownMenu`/`ExposedDropdow
 - **API (web):** `<Toggle label description? checked onChange />`; `hideLabel` draws the track alone
   (the label becomes `aria-label`) where a visible label already sits beside it; `busy` holds the
   switch still while the server decides; `name` (+ `defaultChecked`) posts `"on"` with a `<form>`,
-  exactly like the checkbox it replaces.
-- **API (Android):** `AppToggle(label, checked, onCheckedChange, description?, enabled, busy)`.
+  exactly like the checkbox it replaces. `<Toggle hideLabel …>` is what the designer copy calls
+  `ToggleSwitch` (the bare track for a row that draws its own label) — same job, one component here.
+- **API (Android):** `AppToggle(label, checked, onCheckedChange, description?, enabled, busy,
+  busyLabel = "Working")`. While `busy`, TalkBack hears `busyLabel` as the state; only the two-step
+  switch passes `"Setting up"`, and only while its setup is open — any other wait is "Working".
+- **Admin view** is a `Toggle` on both clients: the web island nav (`Toggle hideLabel` beside the eye
+  icon) and the Android drawer (`AppToggle(label = "Admin view", …)`) — it used to print "Admin view:
+  ON"/"OFF".
 - **Contract:** web is a `<button role="switch" aria-checked>` — Space and Enter toggle, the global
   focus outline applies, the row shape is named by `aria-labelledby` (label only) and described by
   `aria-describedby`; the bare shape is 44px on a touch screen (`pointer-coarse:`). Android is one
@@ -1102,9 +1124,13 @@ every Task-builder picker). Android's hand-rolled `DropdownMenu`/`ExposedDropdow
    (`twoFactorView` / `TwoStepSwitch.view`).
 3. Leaving setup without a verified code DISCARDS it — `POST /api/auth/two-factor/setup/cancel`
    (idempotent; clears the pending secret; never touches an enabled one) on Cancel, Back, navigating
-   away, `pagehide` (web, `keepalive`), and coming back after more than 5 minutes hidden/backgrounded.
-   A SHORT trip to the authenticator app on the same phone must NOT cancel it — that is how the code is
-   read. The server ignores and clears a pending secret older than 15 minutes, and `GET` reports
+   away, `pagehide` (web, `keepalive`), and coming back after more than 5 minutes hidden/backgrounded
+   (web `visibilitychange`, Android `ON_STOP`/`ON_START`; `AWAY_LIMIT_MS` in `TwoStepVerificationCard.tsx` /
+   `TwoStepSwitch.AWAY_LIMIT_MILLIS`). That last case is the owner's "app backgrounded and returns
+   later" — it is a discard, on BOTH apps. A SHORT trip (under 5 minutes) to the authenticator app on
+   the same phone must NOT cancel it — that is how the code is read. Rotating the phone does not
+   discard it either: MainActivity handles orientation/size/density/uiMode config changes itself, so
+   the screen recomposes rather than being recreated. The server ignores and clears a pending secret older than 15 minutes, and `GET` reports
    `pending: true|false`; a page that finds `pending` without a setup on screen shows Off and cancels it.
 4. Sign-in asks for a code ONLY when `twoFactorEnabled` is true — a pending secret never changes how
    anybody signs in (`test_a_pending_only_account_signs_in_without_a_challenge`).
@@ -1122,7 +1148,7 @@ TextButton or an outline chip.
 
 ---
 
-### 11.10 Progress indicators — one look, from one source
+### 11.12 Progress indicators — one look, from one source
 
 Every progress bar, meter, seek track and progress ring — upload, the upload tray, voice-note
 recording and playback, dictation, transcription, report building, sync, downloads — draws through
@@ -1705,7 +1731,7 @@ Each of these looks wrong and is deliberate. Most were a shipped bug.
 - `aria-controls` only while the panel is mounted.
 - No tilt/parallax/spotlight on the guide cards — it was never there.
 
-**Primitives (§11.10)**
+**Primitives (§11.11)**
 - No `<select>`, no checkbox-as-setting, no `<input type="date">`, no single-box code input, anywhere.
 - A row-SELECTION checkbox (bulk approve, pick records) is not a setting and stays a checkbox.
 - The two-step switch is On only from the server's `enabled`; a pending setup is Off and is cancelled.
@@ -1795,7 +1821,7 @@ Each of these looks wrong and is deliberate. Most were a shipped bug.
 - [ ] uncontrolled `FormData`; `new FormData(...)` first
 - [ ] `Field` for inputs, `FieldBlock` for anything containing a button
 - [ ] on/off → `Toggle`; list → `SearchableSelect`/`SearchableMultiSelect`; date → `CalendarField`;
-      6-digit code → `OtpCodeInput` (+ a separate recovery field behind a `Toggle`) — §11.10
+      6-digit code → `OtpCodeInput` (+ a separate recovery field behind a `Toggle`) — §11.11
 - [ ] every themed control calls `markDirty` by hand
 - [ ] `useLeaveGuard(dirty, …)`; **no** second back control
 - [ ] `LocationFields` — omit `initial` only on create

@@ -277,6 +277,10 @@ fun TwoStepVerificationScreen(
     }
 
     // Away too long with a setup open → discard it. Leaving the screen with one open → discard it.
+    // Rotating or resizing does NOT dispose this: MainActivity declares configChanges for orientation,
+    // screen size, density, font scale and uiMode, so those are recompositions, not recreations, and an
+    // open setup survives them. (A rarer recreation — a locale change, process death — does discard it,
+    // and the screen comes back Off: safe, never On.)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
@@ -401,6 +405,7 @@ fun TwoStepVerificationScreen(
                 description = TwoStepSwitch.statusLine(current, view, ::twoStepDate),
                 checked = view == TwoStepSwitch.View.ON,
                 busy = view == TwoStepSwitch.View.SETTING_UP || busy,
+                busyLabel = if (view == TwoStepSwitch.View.SETTING_UP) "Setting up" else "Working",
                 enabled = step !is TwoStepStep.Codes && step !is TwoStepStep.Confirm,
                 onCheckedChange = { next ->
                     if (next && view == TwoStepSwitch.View.OFF) {

@@ -34,8 +34,9 @@ import androidx.compose.ui.unit.sp
  * Switch itself takes no clicks of its own (`onCheckedChange = null`), so TalkBack hears ONE node:
  * "<label>, <description>, switch, on/off".
  *
- * [busy] keeps the switch where it is and refuses taps — for a change waiting on the server (two-step
- * verification reads Off with "Setting up…" until the code is verified). Off is an outlined track with
+ * [busy] keeps the switch where it is and refuses taps — for a change waiting on the server. While busy,
+ * TalkBack hears [busyLabel] as the state ("Working" unless the caller names the wait: two-step
+ * verification passes "Setting up" only while its setup is open, and stays Off until the code is verified). Off is an outlined track with
  * an ink thumb, on is a filled purple track with a white thumb: the state reads without colour.
  */
 @Composable
@@ -46,7 +47,8 @@ fun AppToggle(
     modifier: Modifier = Modifier,
     description: String? = null,
     enabled: Boolean = true,
-    busy: Boolean = false
+    busy: Boolean = false,
+    busyLabel: String = "Working"
 ) {
     val interactive = enabled && !busy
     Row(
@@ -59,7 +61,7 @@ fun AppToggle(
                 role = Role.Switch,
                 onValueChange = onCheckedChange
             )
-            .semantics { if (busy) stateDescription = "Setting up" }
+            .semantics { if (busy) stateDescription = busyLabel }
             .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp)

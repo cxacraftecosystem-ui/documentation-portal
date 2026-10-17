@@ -157,6 +157,20 @@ class PrimitivesTest {
         assertFalse(main.contains("if (appUser.twoFactorEnabled) \"On\" else \"Off\""))
         assertFalse(source("android/app/src/main/java/com/fieldrepository/app/ui/AddPerson.kt").contains("Checkbox("))
         assertFalse(source("android/app/src/main/java/com/fieldrepository/app/ui/AccessRosterScreen.kt").contains("Checkbox("))
+        // The drawer's Admin view is the shared switch, as the web's island nav is (DynamicIslandNav.tsx).
+        val drawer = source("android/app/src/main/java/com/fieldrepository/app/ui/AppNavigation.kt")
+        assertTrue(drawer.contains("label = \"Admin view\""))
+        assertFalse(drawer.contains("\"Admin view: ON\""))
+        assertFalse(drawer.contains("\"Admin view: OFF\""))
+    }
+
+    @Test
+    fun `a busy toggle names its wait and only two-step setup says Setting up`() {
+        val toggle = source("android/app/src/main/java/com/fieldrepository/app/ui/AppToggle.kt")
+        assertTrue(toggle.contains("busyLabel: String = \"Working\""))
+        assertFalse(toggle.contains("stateDescription = \"Setting up\""))
+        val screen = source("android/app/src/main/java/com/fieldrepository/app/ui/TwoStepVerificationScreen.kt")
+        assertTrue(screen.contains("busyLabel = if (view == TwoStepSwitch.View.SETTING_UP) \"Setting up\" else \"Working\""))
     }
 
     @Test

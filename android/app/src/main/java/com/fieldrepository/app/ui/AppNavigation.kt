@@ -37,7 +37,6 @@ import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -460,22 +459,13 @@ fun AppNavigationDrawerContent(
         }
         // Offered to admins only — and it can merely hide admin chrome, never unlock it.
         if (isAdmin) {
-            NavigationDrawerItem(
-                label = {
-                    Text(
-                        if (adminMode) "Admin view: ON" else "Admin view: OFF",
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                },
-                selected = adminMode,
-                icon = {
-                    Icon(
-                        if (adminMode) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
-                        contentDescription = null
-                    )
-                },
-                onClick = onToggleAdminView,
-                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+            // A setting, so it is the shared switch — never the words ON/OFF printed as its state (owner, 2026-10-17).
+            AppToggle(
+                label = "Admin view",
+                description = if (adminMode) "Admin pages and tools are shown." else "You see the app as a researcher does.",
+                checked = adminMode,
+                onCheckedChange = { onToggleAdminView() },
+                modifier = Modifier.padding(horizontal = 28.dp)
             )
         }
         if (FieldPermissions.isMasterAdmin(user)) {
