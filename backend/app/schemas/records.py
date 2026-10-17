@@ -60,13 +60,14 @@ class ArtisanCreate(APIModel):
     address: str | None = None
     notes: str | None = None
     # Identity. aadhaarNumber is the dedup key (unique in the DB) and is REQUIRED to create an
-    # artisan: an artisan entered without one can never be deduplicated against, which is the whole
-    # job of the column. Typed as a bare `str` so it is required in the OpenAPI schema too, while
-    # `require_aadhaar` handles the blank-string case with a message worth reading — and normalises
-    # the typed spacing away and rejects a mistyped number outright, because a bad number is worse
-    # here than no number at all. The COLUMN stays nullable; see services/artisan_identity.py for
-    # why the existing artisans with no Aadhaar cannot and must not be forced to have one.
-    aadhaarNumber: str
+    # artisan — UNLESS the body carries the explicit outcome ``aadhaarNotShared: true`` (owner
+    # decision C18, 2026-10-17: "Not shared by artisan", flagged for follow-up). It is therefore
+    # optional on the wire and required in effect: ``require_aadhaar_unless_not_shared`` below runs
+    # `require_aadhaar` on every create without that outcome, which handles the blank-string case with
+    # a message worth reading, normalises the typed spacing away and rejects a mistyped number. An
+    # empty box is never the outcome. The COLUMN stays nullable; see services/artisan_identity.py.
+    aadhaarNumber: str | None = None
+    aadhaarNotShared: bool | None = None
     # Deliberately Optional rather than `bool = True`. "Yes by default" is the FORM's default, and
     # both current clients send the answer explicitly. Defaulting it to True server-side would make
     # an OMITTED flag mean "has a card", and the validator below would then demand a number every
@@ -148,7 +149,17 @@ class ArtisanCreate(APIModel):
     # the one moment the researcher is standing at the place.
     _location_required = model_validator(mode="after")(require_location)
 
-    _clean_aadhaar = field_validator("aadhaarNumber")(lambda cls, v: require_aadhaar(v))
+    @model_validator(mode="after")
+    def require_aadhaar_unless_not_shared(self) -> "ArtisanCreate":
+        """A new artisan carries an Aadhaar, or the explicit "Not shared by artisan" outcome, which
+        stores no number and flags the record. A number sent beside that outcome wins."""
+        has_number = bool((self.aadhaarNumber or "").strip())
+        if self.aadhaarNotShared and not has_number:
+            self.aadhaarNumber = None
+            return self
+        self.aadhaarNumber = require_aadhaar(self.aadhaarNumber or "")
+        self.aadhaarNotShared = False
+        return self
     _clean_pehchan = field_validator("pehchanCardNumber")(lambda cls, v: validate_pehchan(v))
 
     @model_validator(mode="after")
@@ -193,6 +204,8 @@ class ArtisanUpdate(APIModel):
     address: str | None = None
     notes: str | None = None
     aadhaarNumber: str | None = None
+    # "Not shared by artisan" (C18): true stores no number and flags the record; a number clears it.
+    aadhaarNotShared: bool | None = None
     pehchanCardAvailable: bool | None = None
     pehchanCardNumber: str | None = None
     dos: str | None = None
@@ -499,9 +512,12 @@ def validate_measurement_methods(model):
 
 
 class ProductCreate(APIModel):
-    craftName: str = Field(min_length=1, max_length=180)
-    place: str = Field(min_length=1, max_length=180)
-    artisanName: str = Field(min_length=1, max_length=180)
+    # OPTIONAL WHEN LINKED (A12). With ``artisanId`` the server fills the artisan's name and place
+    # (and the craft through the artisan); with ``craftId`` it fills the craft's name — see
+    # ``services/linked_names``. Without a link each is still required, as it always was.
+    craftName: str | None = Field(default=None, max_length=180)
+    place: str | None = Field(default=None, max_length=180)
+    artisanName: str | None = Field(default=None, max_length=180)
     productName: str = Field(min_length=1, max_length=220)
     localName: str | None = None
     productType: str = "OTHER"
@@ -572,6 +588,22 @@ class ProductCreate(APIModel):
     _measurement_methods = model_validator(mode="after")(validate_measurement_methods)
 
 
+    @model_validator(mode="after")
+    def require_names_unless_linked(self) -> "ProductCreate":
+        """Each typed name is required unless a linked record supplies it on the server."""
+        missing = []
+        if not self.artisanId:
+            if not (self.artisanName or "").strip():
+                missing.append("artisan name")
+            if not (self.place or "").strip():
+                missing.append("place")
+        if not self.craftId and not self.artisanId and not (self.craftName or "").strip():
+            missing.append("craft name")
+        if missing:
+            raise ValueError(f"Enter the {' and the '.join(missing)}, or pick the artisan.")
+        return self
+
+
 class ProductUpdate(APIModel):
     craftName: str | None = Field(default=None, min_length=1, max_length=180)
     place: str | None = Field(default=None, min_length=1, max_length=180)
@@ -626,7 +658,10 @@ class ProductUpdate(APIModel):
 
 class ProcessStepInput(APIModel):
     id: str | None = None
-    name: str = Field(min_length=1, max_length=220)
+    # MAY BE EMPTY (C22, owner decision 2026-10-17): a step made from a photograph saves before the
+    # researcher names it, and an empty name is FLAGGED on screen ("Unnamed step") rather than
+    # refused. Older clients always send a name, so nothing they do changes.
+    name: str = Field(default="", max_length=220)
     stepType: str = "SEQUENTIAL"
     sortOrder: int = Field(default=0, ge=0)
     notes: str | None = None

@@ -51,6 +51,7 @@ from app.schemas.questionnaire import (
     QuestionnaireQuestionCreate,
     QuestionnaireQuestionReorder,
     QuestionnaireQuestionUpdate,
+    QuestionnaireResponseInput,
     QuestionnaireSectionCreate,
     QuestionnaireSectionReorder,
     QuestionnaireSectionUpdate,
@@ -411,6 +412,11 @@ async def replace_interview_artisans(interview_id: str, artisan_ids: list[str]) 
         )
 
 
+def source_of(response: Any) -> str | None:
+    """The ``answerSource`` a response input carries (A7), or None for a typed answer."""
+    return getattr(response, "answerSource", None) or None
+
+
 async def upsert_responses(
     interview_id: str, responses: list[Any], current_user: Any, questionnaire_id: str
 ) -> None:
@@ -473,6 +479,7 @@ async def upsert_responses(
                     "questionId": response.questionId,
                     "answerText": response.answerText,
                     "notes": response.notes,
+                    "answerSource": source_of(response),
                     "answeredById": current_user.id,
                 }
             )
@@ -494,6 +501,8 @@ async def upsert_responses(
                 {
                     "answerText": response.answerText,
                     "notes": response.notes,
+                    # A changed answer says where its NEW words came from; a typed change is NULL.
+                    "answerSource": source_of(response),
                     "answeredById": current_user.id,
                 },
             )
@@ -707,6 +716,9 @@ async def create_question(
             # error anywhere. `test_a_created_question_keeps_its_help_text_and_required_flag` pins it.
             "helpText": payload.helpText,
             "isRequired": payload.isRequired,
+            # B8: which artisan field answers this question. Named here for the same reason as
+            # helpText — this handler builds its dict field by field.
+            "artisanField": payload.artisanField,
             "sortOrder": sort_order,
             "isActive": payload.isActive,
         }
@@ -736,6 +748,9 @@ async def update_question(
     # `model_fields_set` is the test rather than `data`, because by this line the key is already gone.
     if "helpText" in payload.model_fields_set and payload.helpText is None:
         data["helpText"] = None
+    # The same, for removing a question's artisan-field mapping (B8).
+    if "artisanField" in payload.model_fields_set and payload.artisanField is None:
+        data["artisanField"] = None
     section_id = data.pop("sectionId", None)
     if section_id:
         section = await require_section(section_id)
@@ -1013,6 +1028,34 @@ async def merge_into_interview(
     return public_encode(canonical, current_user)
 
 
+def interview_title_from(
+    artisan_name: str | None, questionnaire_title: str | None, when: datetime | None
+) -> str:
+    """ "Ramesh Chhipa · Craft questionnaire · 17 Oct" — the parts that exist, in that order."""
+    day = when or datetime.now(UTC)
+    parts = [
+        (artisan_name or "").strip(),
+        (questionnaire_title or "").strip(),
+        f"{day.day} {day.strftime('%b')}",
+    ]
+    return " · ".join(part for part in parts if part)[:220]
+
+
+async def automatic_interview_title(
+    artisan_ids: list[str], questionnaire_id: str | None, when: datetime | None
+) -> str:
+    """The title a sitting gets when its creator left the box empty (B8)."""
+    first = next((aid for aid in artisan_ids if aid), None)
+    artisan = await db.artisan.find_unique(where={"id": first}) if first else None
+    instrument = (
+        await db.questionnaire.find_unique(where={"id": questionnaire_id}) if questionnaire_id else None
+    )
+    name = get_value(artisan, "name") if artisan else None
+    if name and len([aid for aid in artisan_ids if aid]) > 1:
+        name = f"{name} and others"
+    return interview_title_from(name, get_value(instrument, "title") if instrument else None, when)
+
+
 @questionnaire_router.post("/interviews", status_code=status.HTTP_201_CREATED)
 async def create_interview(
     payload: QuestionnaireInterviewCreate,
@@ -1074,6 +1117,11 @@ async def create_interview(
     # would take away the contribution path these two tiers exist for.
     assert_can_create_records(current_user)
     data = clean_data(payload.model_dump(exclude={"artisanIds", "responses"}))
+    # B8: a sitting with no title is named for who, what and when — never refused for it.
+    if not (data.get("title") or "").strip():
+        data["title"] = await automatic_interview_title(
+            payload.artisanIds, questionnaire_id, payload.recordedAt
+        )
     # No longer a user-facing field: fall back to when the interview was actually recorded.
     default_interview_date(data)
     data = await attach_location(data)
@@ -1486,6 +1534,97 @@ async def update_interview(
     await hydrate_relations([updated], RELATIONS)
     # The viewer, for the reason `list_interviews` states in full.
     return public_encode(updated, current_user)
+
+
+_MARKDOWN_BOLD = re.compile(r"\*\*(.+?)\*\*")
+_MARKDOWN_RULE = re.compile(r"(?m)^\s*-{3,}\s*$")
+
+
+def transcript_answer_text(transcript: str | None) -> str:
+    """A transcript as answer text: the Markdown bold markers and rules taken out, nothing else.
+
+    Transcripts are stored as Markdown ("**Speaker 1:** …", ``---`` between turns). An answer box is
+    plain text, so the markers would print as asterisks. The words are never changed. The web's
+    ``transcriptAnswerText`` (``lib/transcriptAnswer.ts``) is the same rule, held by the same vectors.
+    """
+    text = _MARKDOWN_BOLD.sub(r"\1", transcript or "")
+    text = _MARKDOWN_RULE.sub("", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+_CLIP_QUESTION_CAPTION = re.compile(r"^question\s+audio:\s*([A-Za-z]{1,3})\s*(\d+)\b", re.IGNORECASE)
+
+
+def clip_question_id(media: Any, question_by_stem: dict[str, str]) -> str | None:
+    """The ONE question a clip was recorded against, or None for a section take or an unfiled clip.
+
+    ``extraMetadata.questionId`` first — both clients write it when a clip is recorded against a
+    question. Then the caption both clients write ("Question audio: D3 - …" on the web, "Question
+    audio: D3 …" on the handset), resolved against THIS instrument's questions by section code and
+    number. A whole-section take answers no single question and is never matched.
+    """
+    extra = get_value(media, "extraMetadata")
+    question_id = extra.get("questionId") if isinstance(extra, dict) else None
+    if isinstance(question_id, str) and question_id in question_by_stem.values():
+        return question_id
+    found = _CLIP_QUESTION_CAPTION.match((get_value(media, "caption") or "").strip())
+    if found:
+        return question_by_stem.get(f"{found.group(1).upper()}{int(found.group(2))}")
+    return None
+
+
+def question_clip_transcripts(media_rows: list[Any], question_by_stem: dict[str, str]) -> dict[str, str]:
+    """question id → the transcript of its NEWEST transcribed clip, for clips filed to one question."""
+    newest: dict[str, tuple[Any, str]] = {}
+    for media in media_rows:
+        question_id = clip_question_id(media, question_by_stem)
+        text = transcript_answer_text(get_value(media, "transcriptText"))
+        if not question_id or not text:
+            continue
+        stamp = get_value(media, "createdAt")
+        held = newest.get(question_id)
+        if held is None or (stamp is not None and (held[0] is None or stamp > held[0])):
+            newest[question_id] = (stamp, text)
+    return {question_id: text for question_id, (_, text) in newest.items()}
+
+
+@questionnaire_router.post("/interviews/{interview_id}/apply-transcripts")
+async def apply_interview_transcripts(
+    interview_id: str, current_user: Any = Depends(get_current_user)
+) -> dict[str, Any]:
+    """Fill every EMPTY answer of a sitting from its question's transcribed clip, in one call (A7).
+
+    A typed answer is never overwritten — an answer with text is skipped, and ``upsert_responses``
+    keeps its own rule that only the original contributor or an admin may change one. Each filled
+    answer is stored with ``answerSource = "TRANSCRIPT"`` so every reader can tell it came from the
+    recording. Answers ``{applied, skipped, interview}``.
+    """
+    interview = await require_record(db.questionnaireinterview, interview_id)
+    questionnaire_id = get_value(interview, "questionnaireId")
+    media_rows, responses, questions = await gather_reads(
+        db.mediafile.find_many(where={"questionnaireInterviewId": interview_id}),
+        db.questionnaireresponse.find_many(where={"interviewId": interview_id}),
+        db.questionnairequestion.find_many(where={"questionnaireId": questionnaire_id, "isActive": True}),
+    )
+    question_by_stem = {
+        f"{(q.sectionCode or '').upper()}{q.sortOrder}": q.id for q in questions if q.sectionCode
+    }
+    transcripts = question_clip_transcripts(media_rows, question_by_stem)
+    answered = {r.questionId for r in responses if (r.answerText or "").strip()}
+    fills = [
+        QuestionnaireResponseInput(questionId=qid, answerText=text, answerSource="TRANSCRIPT")
+        for qid, text in sorted(transcripts.items())
+        if qid not in answered
+    ]
+    if fills:
+        await upsert_responses(interview_id, fills, current_user, questionnaire_id)
+    updated = await db.questionnaireinterview.find_unique(where={"id": interview_id})
+    await hydrate_relations([updated], RELATIONS)
+    return {
+        "applied": len(fills),
+        "skipped": len(transcripts) - len(fills),
+        "interview": public_encode(updated, current_user),
+    }
 
 
 #: The two columns of one answer that hold a researcher's words. A merge may FILL either where the

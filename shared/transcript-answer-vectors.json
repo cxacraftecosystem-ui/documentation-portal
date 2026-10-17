@@ -1,0 +1,12 @@
+{
+  "what": "A transcript as an answer box's text (A7, 'Use as answer'). The server's transcript_answer_text and the web's transcriptAnswerText both run these vectors: Markdown bold markers and --- rules are taken out, the words are never changed.",
+  "vectors": [
+    { "transcript": "Clay comes from the river bank.", "answer": "Clay comes from the river bank." },
+    { "transcript": "**Speaker 1:** We soak it for two days.", "answer": "Speaker 1: We soak it for two days." },
+    { "transcript": "  First line\n\n---\n\nSecond line  ", "answer": "First line\n\nSecond line" },
+    { "transcript": "**A:** one\n\n\n\n**B:** two", "answer": "A: one\n\nB: two" },
+    { "transcript": "Keep *single* stars and 3 - 4 dashes", "answer": "Keep *single* stars and 3 - 4 dashes" },
+    { "transcript": "", "answer": "" },
+    { "transcript": "---", "answer": "" }
+  ]
+}

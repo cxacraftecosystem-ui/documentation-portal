@@ -261,6 +261,21 @@ async def resolve_craft_id(data: dict[str, Any], current_user: Any) -> dict[str,
     return data
 
 
+def reconcile_aadhaar_not_shared(data: dict[str, Any]) -> dict[str, Any]:
+    """Keep the "Not shared by artisan" flag and the number consistent on an edit (C18).
+
+    A number arriving clears the flag — the follow-up is done. The outcome arriving with no number
+    stores no number: on an edit that is a retraction the artisan asked for, written as an explicit
+    NULL. Mutates and returns *data*.
+    """
+    number = data.get("aadhaarNumber")
+    if isinstance(number, str) and number.strip():
+        data["aadhaarNotShared"] = False
+    elif data.get("aadhaarNotShared") is True:
+        data["aadhaarNumber"] = None
+    return data
+
+
 @router.get("")
 async def list_artisans(
     current_user: Any = Depends(get_current_user),
@@ -286,6 +301,8 @@ async def list_artisans(
     # My Activity page had to fetch page 1 of the WHOLE repository and sift it client-side, which
     # silently under-reported the moment the repository outgrew one page.
     createdBy: str | None = None,
+    # "Not shared by artisan" (C18): true lists the artisans flagged for an Aadhaar follow-up.
+    aadhaarNotShared: bool | None = None,
     # The workshop SCOPE, plural, from the shared filter vocabulary — repeatable or comma-joined ids
     # plus the reserved value "none". Distinct from the singular ``workshopId`` above, which stays
     # because every existing form-picker link uses it; when both are sent both narrow.
@@ -341,6 +358,8 @@ async def list_artisans(
         where["status"] = statusFilter
     if createdBy:
         where["createdById"] = createdBy
+    if aadhaarNotShared is not None:
+        where["aadhaarNotShared"] = aadhaarNotShared
     if and_filters:
         where["AND"] = and_filters
     total, items = await count_and_page(
@@ -431,6 +450,7 @@ async def update_artisan(
     # A caller shown a masked number who saves without touching it means "leave it alone" — for the
     # Pehchan card as much as for the Aadhaar, since both are masked on the way out to them.
     data = drop_masked_identity_numbers(data)
+    reconcile_aadhaar_not_shared(data)
     data = await resolve_craft_id(data, current_user)
     data = await attach_location(data)
     # Moving a record into (or between) workshops is a workshop submission too, so the create-time

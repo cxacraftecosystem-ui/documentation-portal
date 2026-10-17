@@ -7,6 +7,7 @@ from app.core.db import db
 from app.core.deps import require_record_creator, assert_can_delete, get_current_user
 from app.schemas.records import ProductCreate, ProductUpdate
 from app.services.access import guard_record_edit
+from app.services.linked_names import fill_product_names
 from app.services.workshop_access import (
     enforce_workshop_submission,
     pin_pending_if_late,
@@ -199,6 +200,8 @@ async def create_product(
     if replayed is not None:
         return public_encode(replayed)
     data = decimal_to_string(clean_data(payload.model_dump()))
+    # The linked artisan and craft name themselves: the typed copies are only for an unlinked product.
+    data = await fill_product_names(data)
     data = await attach_location(data)
     # Workshop entries: enforce assignment, then flag + pin a late submission for admin approval.
     check = await enforce_workshop_submission(current_user, data.get("workshopId"))
@@ -255,6 +258,8 @@ async def update_product(
     # above ``guard_record_edit`` rather than beside the write.
     expected_updated_at = take_expected_updated_at(data)
     assert_expected_updated_at(product, expected_updated_at)
+    # A link this edit SENDS re-derives the names from the linked records (A12).
+    data = await fill_product_names(data, stored=product)
     data = await attach_location(data)
     # Moving a record into (or to a different) workshop is a workshop submission too — re-check
     # assignment + window, so the create-time guard can't be bypassed by PATCHing the workshop in later.

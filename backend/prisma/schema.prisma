@@ -711,6 +711,11 @@ model Artisan {
   /// pehchanCardAvailable is true, and force-cleared to NULL when it is false, so a card number can
   /// never be orphaned on a record that says it has no card.
   pehchanCardNumber String?  @unique
+  /// TRUE WHEN THE ARTISAN DECLINED TO SHARE THEIR AADHAAR (owner decision C18, 2026-10-17).
+  /// Set only by the explicit "Not shared by artisan" outcome on the artisan form, never by an empty
+  /// box; it is the one way a NEW artisan may be saved without an Aadhaar number, and it flags the
+  /// record for follow-up until a number is added (adding one clears it).
+  aadhaarNotShared Boolean   @default(false)
   address       String?
   notes         String?
   /// DATE OF BIRTH, AND DELIBERATELY NOT AN AGE COLUMN.
@@ -1487,6 +1492,12 @@ model QuestionnaireQuestion {
   /// named — a replacement is created active, and an active question carrying an answer cannot be
   /// deleted because QuestionnaireResponse.question is Restrict.
   supersededById  String?
+  /// THE ARTISAN FIELD THIS QUESTION IS ANSWERED FROM (B8): "name", "place", "craft", "gender",
+  /// "phone", "localName", "dateOfBirth", "experienceYears", "address", or the two sitting facts
+  /// "interviewDate" and "interviewer". Set in the question builder; the capture form fills the
+  /// answer from the picked artisan when the box is empty. NULL means no mapping, and the older
+  /// keyword guess on the RESP section stands in for it.
+  artisanField    String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   sectionId       String?
@@ -1593,6 +1604,10 @@ model QuestionnaireResponse {
   questionId  String
   answerText  String?
   notes       String?
+  /// WHERE THE WORDS CAME FROM when a person did not type them: "TRANSCRIPT" for an answer taken
+  /// from the question's own transcribed clip ("Use as answer", A7). NULL for a typed answer, and set
+  /// back to NULL by any later save that changes the text without naming a source.
+  answerSource String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   answeredById String

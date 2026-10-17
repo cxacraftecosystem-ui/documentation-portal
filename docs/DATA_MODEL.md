@@ -232,6 +232,29 @@ client's form to it and compares the two repositories when both checkouts are pr
   box reads *Not stated*. An edit of such a record from the artisan form asks for both dates before
   it saves.
 
+### Web capture fields (2026-10-17)
+
+Three additive columns (migration `20261020121500_web_capture_fields`), each NULL or false on every
+row that already existed, so nothing changes until a client uses them:
+
+- **`Artisan.aadhaarNotShared`** — the explicit outcome *Not shared by artisan* (owner decision C18).
+  It is the only way a NEW artisan is saved without an Aadhaar number (`ArtisanCreate` refuses a
+  create that has neither), and it flags the record for follow-up: `GET /artisans?aadhaarNotShared=true`
+  lists them. Adding a number clears it. An empty box is never the outcome.
+- **`QuestionnaireQuestion.artisanField`** — which artisan field answers the question in an interview
+  (`name`, `place`, `craft`, … and the sitting facts `interviewDate`, `interviewer`; the closed list is
+  `ARTISAN_FIELD_KEYS` in `backend/app/schemas/questionnaire.py`). Set in the question builder.
+- **`QuestionnaireResponse.answerSource`** — `TRANSCRIPT` when the answer was taken from the
+  question's own transcribed clip ("Use as answer"); NULL for a typed answer, and set back to NULL by
+  a later save that changes the words. `POST /questionnaire/interviews/{id}/apply-transcripts` fills
+  every EMPTY answer of a sitting this way in one call and never touches a typed one.
+
+Two rules changed without a column: a linked product's `craftName`, `artisanName` and `place` are
+filled by the server from the linked artisan and craft (`services/linked_names.py`), so the typed
+copies are required only for an unlinked product; and a process step may be saved without a name
+(it is shown as *Unnamed step* until somebody names it). An interview created without a title is
+named "<artisan> · <questionnaire> · <17 Oct>" by the server.
+
 ## 3. Media, and the polymorphic link
 
 `MediaFile` is the one table almost everything points at, and it uses **two different linking
