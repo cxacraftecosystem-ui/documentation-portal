@@ -20,7 +20,7 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, Download, Smartphone } from "lucide-react";
 
-import { API_BASE, apiFetch } from "@/lib/api";
+import { PUBLIC_API_ORIGIN, apiFetch } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 
 type Release = {
@@ -38,7 +38,8 @@ type Release = {
 type Status = "loading" | "published" | "none" | "unchecked";
 
 /** Fixed, versionless, resolved server-side per request. See the file comment. */
-const DOWNLOAD_URL = `${API_BASE}/api/app/download`;
+// Straight to the API, not through this site: a public link to a large file that needs no session.
+const DOWNLOAD_URL = `${PUBLIC_API_ORIGIN}/api/app/download`;
 
 export function GetTheAppPanel() {
   const [release, setRelease] = useState<Release | null>(null);

@@ -14,7 +14,7 @@
  * the comment.
  */
 
-import { API_BASE, ApiError, apiFetch, assertApiConfigured, describeApiDetail, getToken } from "@/lib/api";
+import { API_BASE, ApiError, apiFetch, assertApiConfigured, describeApiDetail } from "@/lib/api";
 import { saveBlobToDevice } from "@/lib/saveToDevice";
 
 export type QWorkbookProblem = {
@@ -97,8 +97,7 @@ async function fetchWorkbook(path: string, fallbackName: string): Promise<QWorkb
   assertApiConfigured();
 
   const headers = new Headers();
-  const token = getToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+  // No Authorization header: the call is same-origin, so the session cookie goes with it.
 
   const response = await fetch(`${API_BASE}/api${path}`, { headers, cache: "no-store" });
   if (!response.ok) {

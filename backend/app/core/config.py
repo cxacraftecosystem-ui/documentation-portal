@@ -142,6 +142,14 @@ class Settings(BaseSettings):
     # The deploy checks that from outside before it pins 2, and pins 1 when the box answers directly.
     # See app.scale.rate_limit.client_address.
     trusted_proxy_hops: int = Field(default=2, ge=1, le=5, alias="TRUSTED_PROXY_HOPS")
+    # THE WEB APP'S PROXY SECRET (2026-10-17). The browser now reaches this API through the web app's
+    # own server (`frontend/proxy.ts`, which keeps the session in an HttpOnly cookie), so every web
+    # request arrives from a Vercel address and CloudFront records THAT as the client. The proxy sends
+    # the visitor's real address in `X-Viewer-Address` beside this secret in `X-Web-Proxy-Secret`, and
+    # ``rate_limit.trusted_viewer_address`` believes the address only when the secret matches.
+    # `X-Origin-Verify` cannot serve: CloudFront sets it on every request it forwards, from anybody.
+    # Unset (a laptop, CI): the header is never believed and nothing changes.
+    web_proxy_secret: str | None = Field(default=None, alias="WEB_PROXY_SECRET")
     # Hard entry ceiling on a 1 GiB box. A cached row is the User model's scalar columns and no
     # relations — order 1 KB — so 512 concurrent identities is well under a megabyte, and the worst
     # case is a number chosen here rather than one decided by how many people log in.

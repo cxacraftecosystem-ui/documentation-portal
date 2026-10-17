@@ -1044,6 +1044,40 @@ jobs:
           REMOTE
           } | ssh ubuntu@$EC2_HOST 'bash -s'
 
+      # The web app's proxy secret (2026-10-17). The web app keeps the sign-in session in an HttpOnly
+      # cookie and relays every browser call through its own server (frontend/proxy.ts), so the API
+      # sees a Vercel address as the client. The proxy names the visitor in X-Viewer-Address beside
+      # this secret, and the rate limits believe the address only when it matches
+      # (backend/app/scale/rate_limit.py::trusted_viewer_address). The same value is the Vercel
+      # server variable WEB_PROXY_SECRET; backup in SSM
+      # /iit/documentation-portal/web-proxy-secret (docs/SECURITY.md).
+      # On ssh's STDIN, never an argument. Unset: the line is left out and the API ignores the header,
+      # which costs per-visitor limits for web callers and nothing else, so it warns and goes on.
+      - name: Pin the web proxy secret
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          WEB_PROXY_SECRET: ${{ secrets.WEB_PROXY_SECRET }}
+        run: |
+          if [ -z "$WEB_PROXY_SECRET" ]; then
+            echo "::warning::WEB_PROXY_SECRET is not set; web visitors share one address for the rate limits"
+            exit 0
+          fi
+          if ! printf '%s' "$WEB_PROXY_SECRET" | grep -qE '^[A-Za-z0-9]{32,}$'; then
+            echo "::error::WEB_PROXY_SECRET is not 32+ letters and digits; nothing was deployed (docs/SECURITY.md)."
+            exit 1
+          fi
+          {
+            printf 'line=WEB_PROXY_SECRET=%s\n' "$WEB_PROXY_SECRET"
+            cat <<'REMOTE'
+          set -euo pipefail
+          ENVFILE=/home/ubuntu/app/backend/.env
+          [ -s "$ENVFILE" ] && [ -n "$(tail -c1 "$ENVFILE")" ] && printf '\n' >> "$ENVFILE"
+          sed -i '/^WEB_PROXY_SECRET=/d' "$ENVFILE"
+          printf '%s\n' "$line" >> "$ENVFILE"
+          echo "web proxy secret pinned: $(grep -c '^WEB_PROXY_SECRET=' "$ENVFILE") line"
+          REMOTE
+          } | ssh ubuntu@$EC2_HOST 'bash -s'
+
       # ─── THE PROJECT, THE PRISMA CLIENT, THE MIGRATION, THE SWITCH ──────────────────────────────
       # Everything up to the switch happens inside the venv the build step chose, while the API is
       # still serving from the old one; the switch happens with both services stopped. The order of

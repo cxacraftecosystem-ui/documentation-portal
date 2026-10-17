@@ -1,4 +1,4 @@
-import { API_BASE, ApiError, apiFetch, getToken } from "@/lib/api";
+import { API_BASE, ApiError, apiFetch, getSessionMarker } from "@/lib/api";
 import type { MediaFile, MediaType } from "@/lib/types";
 
 /**
@@ -897,13 +897,11 @@ async function deleteStagedObject(objectKey: string) {
 
 /** Delete a staged object during page unload, where a normal fetch would be cancelled mid-flight. */
 function beaconDeleteStagedObject(objectKey: string) {
-  const token = getToken();
-  if (!token) return;
+  if (!getSessionMarker()) return;
   liveObjectKeys.delete(objectKey);
   try {
     void fetch(`${API_BASE}/api/media/object?objectKey=${encodeURIComponent(objectKey)}`, {
       method: "DELETE",
-      headers: { Authorization: `Bearer ${token}` },
       keepalive: true
     }).catch(() => undefined);
   } catch {
@@ -918,7 +916,7 @@ function beaconDeleteStagedObject(objectKey: string) {
  * heart-beaten, so only genuinely stale keys are touched.
  */
 export async function sweepStagedObjects(): Promise<number> {
-  if (typeof window === "undefined" || !getToken()) return 0;
+  if (typeof window === "undefined" || !getSessionMarker()) return 0;
   const journal = readJournal();
   const now = Date.now();
   const stale = Object.keys(journal)
@@ -1097,7 +1095,7 @@ function installLifecycleHooks() {
  * them so they can be cleaned up when it goes away.
  */
 export function stageFiles(files: File[], ownerId: string) {
-  if (typeof window === "undefined" || !getToken()) return;
+  if (typeof window === "undefined" || !getSessionMarker()) return;
   cancelStagedOwnerRelease(ownerId);
   installLifecycleHooks();
   scheduleStagedObjectSweep();

@@ -9,10 +9,12 @@ import type { NextConfig } from "next";
  * - No `output: "standalone"`. That mode emits a self-hosted Node server bundle; Vercel's build
  *   pipeline needs the default output and errors out (or silently ships nothing) when it is set.
  *   Only add it if this app is ever moved onto the EC2 box / a container.
- * - No rewrites/proxy to the API. The browser calls the backend origin directly
- *   (`lib/api.ts` -> `${NEXT_PUBLIC_API_URL}/api/...`), so no API traffic passes through a Vercel
- *   Function and signed-S3 uploads stay off Vercel's bandwidth. (The three `[id]/edit` routes still
- *   render on demand — dynamic segment, no generateStaticParams — but fetch nothing server-side.)
+ * - No `rewrites` entry for the API. Since 2026-10-17 the browser calls `/api/*` on THIS site, and
+ *   `proxy.ts` (not this file) rewrites each call to `${NEXT_PUBLIC_API_URL}/api/...` after turning
+ *   the HttpOnly session cookie into a bearer token — a static rewrite cannot read a cookie. Vercel
+ *   forwards those rewrites itself, so no Vercel Function sits in the path of an upload or a download;
+ *   signed-S3 uploads still go straight from the browser to the bucket. See lib/server/apiProxy.ts.
+ *   (The three `[id]/edit` routes still render on demand but fetch nothing server-side.)
  */
 
 const isProduction = process.env.NODE_ENV === "production";
@@ -94,6 +96,18 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  experimental: {
+    /*
+      ONLY FOR A SELF-HOSTED SERVER (`next dev`, `next start`, the e2e stack) — Vercel never buffers
+      the body for `proxy.ts` at all (`skipMiddlewareRequestBody` in vercel.json). Next.js's own server
+      holds a request body in memory up to this size while `proxy.ts` runs and TRUNCATES anything
+      longer, which would quietly cut off an upload the API accepts. 64 MB clears every multipart
+      route the API has; media itself goes to S3 directly.
+    */
+    proxyClientMaxBodySize: "64mb",
+    // The self-hosted server's wait for the API on a rewritten call; Vercel applies its own limit.
+    proxyTimeout: 300_000
+  },
   turbopack: {
     root: __dirname
   },

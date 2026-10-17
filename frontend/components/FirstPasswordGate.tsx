@@ -22,7 +22,6 @@ import { useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, Lock } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { setToken } from "@/lib/api";
 import {
   PASSWORD_CHANGE_PROMPT,
   PASSWORD_CHANGE_SESSIONS,
@@ -67,10 +66,10 @@ export function FirstPasswordGate({
     setSaving(true);
     setError(null);
     try {
-      const fresh = await changeOwnPassword(current, next);
-      // The token this form was sent with is retired by its own success; adopt the fresh one BEFORE
-      // `onDone` re-reads `/me`, or that re-read is refused.
-      if (fresh) setToken(fresh);
+      // The session this form was sent with is retired by its own success; this site's change-password
+      // route has put the fresh one in the session cookie before this resolves, so `onDone`'s re-read
+      // of `/me` already goes out with it.
+      await changeOwnPassword(current, next);
       onDone();
     } catch (err) {
       if (currentPasswordRefused(err)) {

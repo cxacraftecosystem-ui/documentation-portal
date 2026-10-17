@@ -2,7 +2,8 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
-import { ApiError, apiFetch, clearPasswordChangeOwed, onPasswordChangeRequired, setToken } from "@/lib/api";
+import { ApiError, apiFetch, clearPasswordChangeOwed, endSession, onPasswordChangeRequired } from "@/lib/api";
+import { migrateStoredToken } from "@/lib/session";
 import type { loginBody } from "@/lib/oidcSignIn";
 import { isTwoFactorChallenge, type SignInResult, type TwoFactorChallenge } from "@/lib/twoFactor";
 import type { User } from "@/lib/types";
@@ -52,7 +53,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Only discard the stored token when the server explicitly rejected it. On network
       // failures / 5xx the token may still be valid, so keep it for a later retry.
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        setToken(null);
+        endSession();
       }
       setUser(null);
     } finally {
@@ -61,7 +62,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    refreshMe();
+    // A browser signed in before the cookie session shipped still has its token in localStorage:
+    // move it into the cookie (and out of storage) before the first `/me`, so that person stays
+    // signed in. Settles at once for everybody else. See `migrateStoredToken`.
+    void migrateStoredToken().finally(() => refreshMe());
   }, [refreshMe]);
 
   // A request refused because the account must choose a new password: re-read `/me` (which carries
@@ -79,7 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [refreshMe]);
 
   const clearSession = useCallback(() => {
-    setToken(null);
+    endSession();
     setUser(null);
     signInPassword.current = "";
     pendingPassword.current = "";
@@ -95,12 +99,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [refreshMe]);
 
   /**
-   * A sign-in's answer, taken: a session is adopted and its account returned; a TWO-STEP CHALLENGE is
-   * returned untouched, with no token stored — the caller branches on `isTwoFactorChallenge`.
+   * A sign-in's answer, taken: its account is adopted and returned — the session itself is already in
+   * the HttpOnly cookie this site's sign-in route set, and the answer no longer carries the token. A
+   * TWO-STEP CHALLENGE is returned untouched, with no session — the caller branches on
+   * `isTwoFactorChallenge`.
    */
   const open = useCallback((result: SignInResult): User | TwoFactorChallenge => {
     if (isTwoFactorChallenge(result)) return result;
-    setToken(result.accessToken);
     setUser(result.user);
     return result.user;
   }, []);
