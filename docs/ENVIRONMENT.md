@@ -193,6 +193,8 @@ with no restart. Full semantics: [ARCHITECTURE.md §6](ARCHITECTURE.md).
 
 Mail is **on exactly when `MAIL_FROM_ADDRESS` is set**. Unset, nothing is queued, `GET /api/preferences/notifications` answers `available: false`, and the web hides every e-mail control (the Settings switch, the two "E-mail" choices on the access roster) without a sentence about it. Messages are queued as `EmailMessage` rows and sent by the same `fieldrepo-queue` drain as the media queue (`services/email_outbox.py`, `services/mailer.py`). The SES call uses the `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` above, so that IAM user needs `ses:SendEmail` on the verified identity. What is e-mailed is in [SECURITY.md](SECURITY.md) §4B.
 
+**In-app notices (C25).** Every notice also lands in the person's in-app activity list — the web's bell and `/notifications`, Android's Notifications screen (kept offline, with a local alert after each sync; no push service) — whether or not mail is on. One helper does both: `notify(user, kind, title, body, link, email_kind=…, email_params=…, preference=…)` in `backend/app/services/notifications.py` writes the `Notification` row and queues the e-mail beside it, honouring the e-mail opt-out for the e-mail only. New notices go through it; `email_outbox.enqueue` alone is for a password link and for an address with no account. The list is served by `backend/app/api/routes/notifications.py`, the same four routes on both portals.
+
 | Variable | Required | Default | Secret | Notes |
 |---|---|---|---|---|
 | `MAIL_FROM_ADDRESS` | No | unset (mail off) | No | The sender. Must be an SES-verified identity (the address or its domain) in `MAIL_SES_REGION`. |

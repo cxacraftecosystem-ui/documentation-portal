@@ -15,6 +15,7 @@ from app.api.routes import (
     feedback,
     map_points,
     media,
+    notifications,
     preferences,
     processes,
     products,
@@ -61,6 +62,7 @@ api_router.include_router(data_browser.router)
 api_router.include_router(datasets.router)
 api_router.include_router(app_release.router)
 api_router.include_router(feedback.router)
+api_router.include_router(notifications.router)
 api_router.include_router(preferences.router)
 api_router.include_router(settings.router)
 api_router.include_router(secrets.router)

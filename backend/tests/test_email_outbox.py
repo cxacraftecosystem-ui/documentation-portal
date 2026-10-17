@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 
 from app.core.config import get_settings
-from app.services import email_outbox, mailer
+from app.services import email_outbox, mailer, notifications
 
 
 def _matches(row: Any, where: dict[str, Any]) -> bool:
@@ -79,6 +79,18 @@ class _Lookup:
         return self.rows.get(where[self.key])
 
 
+
+class _Notifications:
+    """The in-app list (``app/services/notifications.notify`` writes one row per notice)."""
+
+    def __init__(self) -> None:
+        self.rows: list[SimpleNamespace] = []
+
+    async def create(self, data: dict[str, Any]) -> SimpleNamespace:
+        row = SimpleNamespace(id=f"note_{len(self.rows) + 1}", readAt=None, createdAt=datetime.now(UTC), **data)
+        self.rows.append(row)
+        return row
+
 def _person(uid: str) -> SimpleNamespace:
     return SimpleNamespace(id=uid, name=f"Person {uid}", email=f"{uid}@example.org")
 
@@ -92,7 +104,10 @@ def world(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         userpreference=_Lookup({}, "userId"),
         user=SimpleNamespace(find_unique=lambda where: _find_user(people, where)),
     )
+    fake.notification = _Notifications()
     monkeypatch.setattr(email_outbox, "db", fake)
+    monkeypatch.setattr(notifications, "db", fake)
+    monkeypatch.setattr(notifications, "get_settings", lambda: settings)
     monkeypatch.setattr(email_outbox, "get_settings", lambda: settings)
     monkeypatch.setattr(mailer, "get_settings", lambda: settings)
     sent: list[dict[str, Any]] = []
@@ -229,3 +244,86 @@ def test_the_access_e_mail_reaches_an_address_with_no_account_yet(world: Any) ->
     (row,) = world.db.emailmessage.rows
     assert row.kind == mailer.ACCESS_GRANTED and row.toAddress == "newcomer@example.org"
     assert row.recipientId is None
+
+
+# --------------------------------------------------------------------------------------
+# The in-app half (C25): every notice is written to the activity list by the same call.
+# --------------------------------------------------------------------------------------
+
+
+def test_a_task_notice_lands_in_app_even_with_mail_off(world: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    off = get_settings().model_copy(update={"mail_from_address": None})
+    monkeypatch.setattr(email_outbox, "get_settings", lambda: off)
+    monkeypatch.setattr(notifications, "get_settings", lambda: off)
+    monkeypatch.setattr(mailer, "get_settings", lambda: off)
+    assert _task_notice(world, before="IN_PROGRESS", after="SUBMITTED", actor="assignee", by_manager=False) == 0
+    assert world.db.emailmessage.rows == []
+    (row,) = world.db.notification.rows
+    assert (row.userId, row.kind, row.link) == ("creator", mailer.TASK_SUBMITTED, "/tasks")
+    assert "Photograph the looms" in row.title
+
+
+def test_an_opt_out_stops_only_the_e_mail(world: Any) -> None:
+    world.db.userpreference = _Lookup({"assignee": SimpleNamespace(emailTaskUpdates=False)}, "userId")
+    assert _task_notice(world, before="SUBMITTED", after="DONE", actor="admin", by_manager=True) == 0
+    assert world.db.emailmessage.rows == []
+    (row,) = world.db.notification.rows
+    assert (row.userId, row.kind, row.emailMessageId) == ("assignee", mailer.TASK_APPROVED, None)
+
+
+def test_nobody_hears_in_app_about_their_own_move(world: Any) -> None:
+    assert _task_notice(world, before="SUBMITTED", after="DONE", actor="assignee", by_manager=True) == 0
+    assert world.db.notification.rows == []
+
+
+def test_a_password_notice_lands_in_app_once(world: Any) -> None:
+    user = world.people["assignee"]
+    assert asyncio.run(email_outbox.notify_password_event(user, mailer.PASSWORD_CHANGED))
+    assert asyncio.run(email_outbox.notify_password_event(user, mailer.PASSWORD_CHANGED, to_address="old@example.org"))
+    assert [r.toAddress for r in world.db.emailmessage.rows] == ["assignee@example.org", "old@example.org"]
+    (row,) = world.db.notification.rows
+    assert (row.userId, row.kind, row.link) == ("assignee", mailer.PASSWORD_CHANGED, "/settings")
+
+
+def test_the_access_e_mail_to_an_existing_account_is_in_app_too(world: Any) -> None:
+    assert asyncio.run(email_outbox.notify_access_granted("creator@example.org", name=None))
+    (mail,) = world.db.emailmessage.rows
+    (row,) = world.db.notification.rows
+    assert mail.recipientId == "creator" and row.userId == "creator" and row.emailMessageId == mail.id
+
+
+def test_notify_writes_in_app_when_the_e_mail_fails_and_never_raises(world: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def broken(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("outbox went away")
+
+    monkeypatch.setattr(email_outbox, "enqueue", broken)
+    assert _task_notice(world, before="IN_PROGRESS", after="SUBMITTED", actor="assignee", by_manager=False) == 0
+    assert [r.userId for r in world.db.notification.rows] == ["creator"]
+
+    async def broken_create(data: dict[str, Any]) -> Any:
+        raise RuntimeError("table went away")
+
+    monkeypatch.setattr(world.db.notification, "create", broken_create)
+    delivery = asyncio.run(notifications.notify(world.people["creator"], "X", "A title"))
+    assert not delivery.in_app and not delivery.emailed
+
+
+def test_notify_keeps_only_app_paths_and_clips_long_text(world: Any) -> None:
+    person = world.people["creator"]
+    for link, kept in (("https://evil.example/x", None), ("//evil.example", None), ("/tasks", "/tasks"), (None, None)):
+        assert asyncio.run(notifications.notify(person, "X", "t", None, link)).notification.link == kept
+    delivery = asyncio.run(notifications.notify(person, "X", "t" * 500, "b" * 5000))
+    assert len(delivery.notification.title) == notifications.MAX_TITLE_LENGTH
+    assert len(delivery.notification.body) == notifications.MAX_BODY_LENGTH
+    assert asyncio.run(notifications.notify("creator", "X", "t")).notification.userId == "creator"
+    assert not asyncio.run(notifications.notify("nobody", "X", "t")).in_app
+    assert world.db.emailmessage.rows == []
+
+
+def test_the_serialized_notice_says_read_in_words() -> None:
+    row = SimpleNamespace(
+        id="n1", kind="X", title="t", body=None, link="/tasks", readAt=None,
+        createdAt=datetime(2026, 10, 17, tzinfo=UTC),
+    )
+    out = notifications.serialize(row)
+    assert out["read"] is False and out["readAt"] is None and out["createdAt"].startswith("2026-10-17")

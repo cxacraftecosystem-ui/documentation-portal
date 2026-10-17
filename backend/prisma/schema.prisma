@@ -255,6 +255,7 @@ model User {
   preferences UserPreference? @relation("UserPreferenceUser")
   /// Every e-mail queued for this account. See `EmailMessage`.
   emailMessages EmailMessage[] @relation("EmailMessageRecipient")
+  notifications Notification[] @relation("NotificationUser")
   sectionStatusesSet QuestionnaireSectionStatus[] @relation("SectionStatusSetBy")
   workshopAssignments     WorkshopAssignment[] @relation("WorkshopAssignmentUser")
   workshopAssignmentsMade WorkshopAssignment[] @relation("WorkshopAssignmentAssignedBy")
@@ -2003,4 +2004,28 @@ model IdempotencyKey {
 
   @@unique([userId, key])
   @@index([createdAt])
+}
+
+/// One entry in a person's in-app activity list (the web's bell, the handset's Notifications screen).
+///
+/// Written by `app/services/notifications.notify` — the SAME call that queues the e-mail for the
+/// notice — so every notice lands here even when mail is off or the person opted out of e-mail.
+/// `link` is an app path ("/design-workshops/<id>"), never an absolute URL. `emailMessageId` names
+/// the outbox row queued beside it, when one was (no foreign key: the send log may be pruned).
+model Notification {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation("NotificationUser", fields: [userId], references: [id], onDelete: Cascade)
+  kind           String
+  title          String
+  body           String?
+  link           String?
+  emailMessageId String?
+  readAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  /// The list's read: one person's newest first.
+  @@index([userId, createdAt])
+  /// The badge's read: one person's unread count.
+  @@index([userId, readAt])
 }

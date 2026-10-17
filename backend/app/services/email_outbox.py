@@ -17,6 +17,11 @@ moment the row reaches SENT or FAILED. A link whose expiry passed while it waite
 No log line carries an address, a body or a link: the row id, the kind and the recipient's ACCOUNT id
 only.
 
+IN-APP. Every notice goes through :func:`app.services.notifications.notify`, which writes the
+person's in-app activity list as well as calling :func:`enqueue` — so a notice is never lost to mail
+being off. New notices go through ``notify`` too; :func:`enqueue` alone is for a password link and
+for an address with no account.
+
 The task notices honour ``UserPreference.emailTaskUpdates`` (opt-out: no row reads as yes). The
 access e-mail is sent only when the administrator who admitted the address asked for it.
 """
@@ -272,9 +277,12 @@ def task_notice(before: str | None, after: str | None, *, by_manager: bool) -> s
 async def notify_task_change(
     task: Any, *, before: str | None, after: str | None, actor: Any, by_manager: bool
 ) -> int:
-    """E-mail the other side of a task's status move. NEVER RAISES: the move is already saved."""
-    if not mailer.mail_configured():
-        return 0
+    """Tell the other side of a task's status move: in-app always, by e-mail where mail is on and
+    they have not opted out (``emailTaskUpdates``). Goes through
+    :func:`app.services.notifications.notify`. NEVER RAISES: the move is already saved. Returns how
+    many E-MAILS were queued (0 or 1)."""
+    from app.services.notifications import notify
+
     try:
         kind = task_notice(before, after, by_manager=by_manager)
         if kind is None:
@@ -283,15 +291,24 @@ async def notify_task_change(
         if not recipient_id or recipient_id == _value(actor, "id"):
             return 0
         person = await db.user.find_unique(where={"id": str(recipient_id)})
-        if person is None or not person.email or not await wants_task_updates(person.id):
+        if person is None:
             return 0
         params = {
             "recipientName": person.name,
             "taskTitle": _value(task, "title"),
             "actorName": _value(actor, "name"),
         }
-        row = await enqueue(kind, to_address=person.email, recipient_id=person.id, params=params)
-        return 1 if row is not None else 0
+        delivery = await notify(
+            person,
+            kind,
+            mailer.subject_for(kind, params),
+            None,
+            "/tasks",
+            email_kind=kind,
+            email_params=params,
+            preference="emailTaskUpdates",
+        )
+        return 1 if delivery.emailed else 0
     except Exception:  # see the docstring
         logger.exception("mail: could not queue a task notice for task %s", _value(task, "id"))
         return 0
@@ -306,18 +323,29 @@ async def notify_password_event(
 
     ``to_address`` sends the same notice somewhere other than the address the account holds now —
     the address it held BEFORE an administrator changed it in the same request (security review N4),
-    so the person who owned the account hears of it at the inbox they still read."""
+    so the person who owned the account hears of it at the inbox they still read.
+
+    Also written once to the account's in-app list (:func:`app.services.notifications.notify`), mail
+    or no mail; the copy to a previous address is the same event and writes no second row."""
+    from app.services.notifications import notify
+
     try:
-        row = await enqueue(
+        params = {
+            "recipientName": _value(user, "name"),
+            "changedAt": (when or datetime.now(UTC)).isoformat(),
+        }
+        delivery = await notify(
+            user,
             kind,
-            to_address=to_address or _value(user, "email") or "",
-            recipient_id=_value(user, "id"),
-            params={
-                "recipientName": _value(user, "name"),
-                "changedAt": (when or datetime.now(UTC)).isoformat(),
-            },
+            mailer.subject_for(kind, params),
+            None,
+            "/settings",
+            email_kind=kind,
+            email_params=params,
+            to_address=to_address,
+            in_app=to_address is None,
         )
-        return row is not None
+        return delivery.emailed
     except Exception:  # see the docstring
         logger.exception("mail: could not queue a password notice for %s", _value(user, "id"))
         return False
@@ -328,6 +356,23 @@ async def notify_access_granted(email: str, *, name: str | None) -> bool:
     NEVER RAISES: the admission is already saved."""
     try:
         account = await db.user.find_unique(where={"email": email})
+        if account is not None:
+            # An account already exists: the same notice through ``notify``, so it is in their
+            # in-app list too. Without one there is nobody to hold an in-app row yet.
+            from app.services.notifications import notify
+
+            params = {"recipientName": name or account.name}
+            delivery = await notify(
+                account,
+                mailer.ACCESS_GRANTED,
+                mailer.subject_for(mailer.ACCESS_GRANTED, params),
+                None,
+                "/dashboard",
+                email_kind=mailer.ACCESS_GRANTED,
+                email_params=params,
+                to_address=email,
+            )
+            return delivery.emailed
         row = await enqueue(
             mailer.ACCESS_GRANTED,
             to_address=email,
