@@ -156,14 +156,6 @@ const val LOCATION_META_ARTISAN_LAT: String = "artisanLatitude"
 const val LOCATION_META_ARTISAN_LNG: String = "artisanLongitude"
 
 /**
- * WHERE THE STATED ADDRESS CAME FROM, when it came from the artisan (C17): `"artisan:<id>"`.
- *
- * Written while every box the artisan's record filled still holds what it filled, and dropped the
- * moment a person changes one of them — at which point the address is that person's statement.
- */
-const val LOCATION_META_STATED_FROM: String = "statedFrom"
-
-/**
  * THE ARTISAN'S STATED ADDRESS, offered to a child record's form (C17, owner ruling 2026-10-17).
  *
  * State, district and village were retyped on every product, tool and interview of a sitting —
@@ -174,19 +166,28 @@ const val LOCATION_META_STATED_FROM: String = "statedFrom"
 data class InheritedPlace(
     /** The artisan's name, for the notice. */
     val fromName: String,
-    /** The artisan's id, for [LOCATION_META_STATED_FROM]. */
+    /** The artisan's id: a different artisan picked re-offers their address. */
     val sourceId: String?,
     val state: String?,
     val district: String?,
-    val village: String?
+    val village: String?,
+    val pincode: String? = null
 )
 
-/** What [inheritStatedAddress] wrote: the three boxes after it, and the names of the ones it filled. */
+/**
+ * What [inheritStatedAddress] wrote: the four boxes after it, and the names of the ones it filled.
+ *
+ * THE CONTRACT BOTH CLIENTS KEEP (shared/stated-address-prefill-contract.json): state, district,
+ * village and pincode are offered; the "From …" notice marks them on screen; NO provenance key is
+ * written into the location's metadata. The web's `statedPrefill.ts` writes none, and a sitting
+ * recorded on either client must store the same thing.
+ */
 internal data class InheritResult(
     val state: String,
     val district: String,
     val village: String,
-    val filled: List<String>
+    val filled: List<String>,
+    val pincode: String = ""
 )
 
 /**
@@ -195,7 +196,7 @@ internal data class InheritResult(
  * A district only exists inside its own state, so the artisan's district is taken only when the
  * state box ends up holding the artisan's state — never under a state somebody else chose.
  */
-internal fun inheritStatedAddress(state: String, district: String, village: String, from: InheritedPlace): InheritResult {
+internal fun inheritStatedAddress(state: String, district: String, village: String, from: InheritedPlace, pincode: String = ""): InheritResult {
     val filled = mutableListOf<String>()
     var nextState = state
     val theirState = from.state?.trim().orEmpty()
@@ -215,7 +216,15 @@ internal fun inheritStatedAddress(state: String, district: String, village: Stri
         nextVillage = theirVillage
         filled += "village"
     }
-    return InheritResult(nextState, nextDistrict, nextVillage, filled)
+    // A pincode, like a district, is only true inside its own state. Digits only, six at most: the
+    // web's `statedFromSource`.
+    val theirPincode = from.pincode.orEmpty().filter(Char::isDigit).take(PINCODE_LENGTH)
+    var nextPincode = pincode
+    if (nextPincode.isBlank() && theirPincode.isNotEmpty() && (theirState.isEmpty() || nextState.equals(theirState, ignoreCase = true))) {
+        nextPincode = theirPincode
+        filled += "pincode"
+    }
+    return InheritResult(nextState, nextDistrict, nextVillage, filled, nextPincode)
 }
 
 /** "state, district and village" — the boxes a notice names. */
@@ -748,6 +757,17 @@ fun artisanLocationRequirementError(value: LocationRequest?, heading: String = A
 /** The stated-address group's heading on the artisan and child-record forms. */
 const val ARTISAN_LOCATION_HEADING: String = "Artisan location"
 
+/** The line under the location heading, following it: a craft or workshop card is not "where the artisan works". */
+internal fun locationSubtitle(heading: String): String {
+    val where = when (heading) {
+        ARTISAN_LOCATION_HEADING -> "Where the artisan works. "
+        "Craft location" -> "Where the craft is practised. "
+        "Workshop location" -> "Where the workshop is held. "
+        else -> ""
+    }
+    return where + "A map pin fills in the state, district and pincode."
+}
+
 /**
  * Both groups, in the order a researcher answers them: what they know about the artisan first, what
  * the phone happens to know about itself second and collapsed.
@@ -800,7 +820,7 @@ fun LocationFieldsSection(
     val scope = rememberCoroutineScope()
     val reference = rememberAddressReference(repository)
     var parked by remember { mutableStateOf(StatedPlace()) }
-    // What [inherit] last filled in, for the notice, the Undo and the provenance key.
+    // What [inherit] last filled in, for the notice and the Undo.
     var inherited by remember { mutableStateOf<Pair<InheritedPlace, InheritResult>?>(null) }
     var inheritPrevious by remember { mutableStateOf(StatedPlace()) }
     var expanded by remember { mutableStateOf(false) }
@@ -886,20 +906,6 @@ fun LocationFieldsSection(
     val districtsKnown = reference.districts?.byState?.isNotEmpty() == true
 
     /** Write one edited artisan answer back, wherever the answers currently live. */
-    /** The provenance key, kept exactly while every box the artisan filled still holds its value. */
-    fun LocationRequest.withInheritTag(place: StatedPlace): LocationRequest {
-        val (source, result) = inherited ?: return withMeta(LOCATION_META_STATED_FROM to null)
-        val intact = result.filled.all { field ->
-            when (field) {
-                "state" -> place.state == result.state
-                "district" -> place.district == result.district
-                else -> place.village == result.village
-            }
-        }
-        val tag = if (intact && source.sourceId != null) JsonPrimitive("artisan:${source.sourceId}") else null
-        return withMeta(LOCATION_META_STATED_FROM to tag)
-    }
-
     fun setPlace(next: StatedPlace) {
         // A human has just had their say about these boxes, so there is nothing left to warn about.
         appliedNowStale = false
@@ -914,7 +920,7 @@ fun LocationFieldsSection(
          */
         autofill = null
         val current = latest.value
-        if (current == null) parked = next else onChange(current.withStatedPlace(next).withInheritTag(next))
+        if (current == null) parked = next else onChange(current.withStatedPlace(next))
     }
 
     // C17: the artisan's address into the EMPTY boxes, once per artisan, announced below.
@@ -927,14 +933,15 @@ fun LocationFieldsSection(
             held = held.copy(
                 state = if ("state" in before.filled && held.state == before.state) inheritPrevious.state else held.state,
                 district = if ("district" in before.filled && held.district == before.district) inheritPrevious.district else held.district,
-                village = if ("village" in before.filled && held.village == before.village) inheritPrevious.village else held.village
+                village = if ("village" in before.filled && held.village == before.village) inheritPrevious.village else held.village,
+                pincode = if ("pincode" in before.filled && held.pincode == before.pincode) inheritPrevious.pincode else held.pincode
             )
         }
-        val result = inheritStatedAddress(held.state, held.district, held.village, source)
+        val result = inheritStatedAddress(held.state, held.district, held.village, source, held.pincode)
         if (result.filled.isEmpty()) return@LaunchedEffect
         inheritPrevious = held
         inherited = source to result
-        setPlace(held.copy(state = result.state, district = result.district, village = result.village))
+        setPlace(held.copy(state = result.state, district = result.district, village = result.village, pincode = result.pincode))
         onVillageChange?.let { if ("village" in result.filled) it(result.village) }
     }
 
@@ -962,7 +969,6 @@ fun LocationFieldsSection(
             next
                 .copy(capturedAt = if (moved) isoNow() else value?.capturedAt)
                 .withStatedPlace(place)
-                .withInheritTag(place)
         )
     }
 
@@ -1248,7 +1254,7 @@ fun LocationFieldsSection(
         // ----- Group one: the artisan's location -----
         GroupHeading(
             title = heading,
-            subtitle = "Where the artisan works. A map pin fills in the state, district and pincode."
+            subtitle = locationSubtitle(heading)
         )
 
         // C17: what the artisan's record filled in, named, with the one control that takes it back.
@@ -1274,7 +1280,8 @@ fun LocationFieldsSection(
                                 held.copy(
                                     state = if ("state" in result.filled) inheritPrevious.state else held.state,
                                     district = if ("district" in result.filled) inheritPrevious.district else held.district,
-                                    village = if ("village" in result.filled) inheritPrevious.village else held.village
+                                    village = if ("village" in result.filled) inheritPrevious.village else held.village,
+                                    pincode = if ("pincode" in result.filled) inheritPrevious.pincode else held.pincode
                                 )
                             )
                             if ("village" in result.filled) onVillageChange?.invoke(inheritPrevious.village)

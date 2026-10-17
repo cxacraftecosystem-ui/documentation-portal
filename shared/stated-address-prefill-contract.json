@@ -1,0 +1,32 @@
+{
+  "contract": "stated-address-prefill",
+  "version": 1,
+  "enforcedBy": [
+    "android/app/src/test/java/<package>/ui/InheritedPlaceTest.kt"
+  ],
+  "whatThisIs": [
+    "C17 (owner decision 2026-10-17): a product, tool or interview opens with its artisan's stated",
+    "address filled into the EMPTY boxes of its location card, marked on screen (\"From <name>'s",
+    "record\") and every box the researcher's to change. Both clients fill the same boxes and store",
+    "the same thing, so a sitting recorded on either client cannot be told apart by its data.",
+    "The web's components/forms/statedPrefill.ts is the other half of this contract."
+  ],
+  "fields": ["state", "district", "village", "pincode"],
+  "pincodeDigits": 6,
+  "provenanceMetadataKey": null,
+  "provenanceRule": "The mark is on screen only. Neither client writes a provenance key into location.extraMetadata.",
+  "vectors": [
+    {
+      "name": "empty boxes take all four",
+      "current": { "state": "", "district": "", "village": "", "pincode": "" },
+      "artisan": { "state": "Rajasthan", "district": "Jaipur", "village": "Bagru", "pincode": "303007" },
+      "expect": { "state": "Rajasthan", "district": "Jaipur", "village": "Bagru", "pincode": "303007" }
+    },
+    {
+      "name": "a pincode is digits only, six at most",
+      "current": { "state": "", "district": "", "village": "", "pincode": "" },
+      "artisan": { "state": "Rajasthan", "district": "", "village": "", "pincode": "303 0071" },
+      "expect": { "state": "Rajasthan", "district": "", "village": "", "pincode": "303007" }
+    }
+  ]
+}

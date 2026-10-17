@@ -1,6 +1,7 @@
 package com.fieldrepository.app.ui
 
 import com.fieldrepository.app.data.ArtisanDetailDto
+import com.fieldrepository.app.data.ArtisanDto
 import com.fieldrepository.app.data.MediaFileDto
 import com.fieldrepository.app.data.QuestionnaireQuestionDto
 import java.time.LocalDate
@@ -39,6 +40,21 @@ val ARTISAN_FIELD_OPTIONS: List<Pair<String, String>> = listOf(
     "interviewDate" to "Today's date",
     "interviewer" to "Interviewer",
 )
+
+/**
+ * The `artisanField` a question builder save sends: null (omitted from the body) when the mapping
+ * was not touched, so an ordinary prompt save keeps the body shape servers without B8 accept; the
+ * picked key, or "" to clear, only when it changed.
+ */
+fun artisanFieldUpdate(stored: String?, picked: String): String? =
+    if (picked == stored.orEmpty()) null else picked
+
+/**
+ * The artisan as far as their listed row knows them, for when the detail read fails offline: name,
+ * craft and place fill; every other field reads empty and its question is left for the researcher.
+ */
+fun artisanDetailFromListed(row: ArtisanDto): ArtisanDetailDto =
+    ArtisanDetailDto(id = row.id, name = row.name, place = row.place, craftId = row.craftId, craft = row.craft, status = row.status, location = row.location)
 
 /** What one mapped field reads for this artisan, or "" when their record holds nothing for it. */
 fun artisanFieldValue(field: String, artisan: ArtisanDetailDto, interviewer: String?, today: LocalDate = LocalDate.now()): String =

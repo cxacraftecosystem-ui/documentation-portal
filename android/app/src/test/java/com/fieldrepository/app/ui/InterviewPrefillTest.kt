@@ -1,6 +1,9 @@
 package com.fieldrepository.app.ui
 
 import com.fieldrepository.app.data.ArtisanDetailDto
+import com.fieldrepository.app.data.ArtisanDto
+import com.fieldrepository.app.data.QuestionnaireQuestionUpdateRequest
+import kotlinx.serialization.encodeToString
 import com.fieldrepository.app.data.CraftDto
 import com.fieldrepository.app.data.MediaFileDto
 import com.fieldrepository.app.data.QuestionnaireQuestionDto
@@ -125,5 +128,31 @@ class InterviewPrefillTest {
             ARTISAN_FIELD_OPTIONS.map { it.first }
         )
         assertTrue(ARTISAN_FIELD_OPTIONS.all { it.second.isNotBlank() })
+    }
+
+    @Test
+    fun `an untouched mapping is left out of the builder save, a changed one is sent`() {
+        assertNull(artisanFieldUpdate(null, ""))
+        assertNull(artisanFieldUpdate("craft", "craft"))
+        assertEquals("gender", artisanFieldUpdate(null, "gender"))
+        assertEquals("cleared", "", artisanFieldUpdate("craft", ""))
+        val json = Json { encodeDefaults = false; explicitNulls = false }
+        val body = json.encodeToString(QuestionnaireQuestionUpdateRequest(prompt = "P", isActive = true, artisanField = artisanFieldUpdate(null, "")))
+        assertTrue("a plain prompt save keeps the old body shape", !body.contains("artisanField"))
+    }
+
+    @Test
+    fun `offline, the listed row still fills name, craft and place`() {
+        val row = ArtisanDto(id = "a1", name = "Ramesh Chhipa", place = "Bagru", status = "APPROVED", craft = CraftDto(id = "c1", name = "Block printing"))
+        val fills = artisanPrefill(
+            listOf(
+                q("q1", "B", 1, "Name", field = "name"),
+                q("q2", "B", 2, "Craft", field = "craft"),
+                q("q3", "B", 3, "Place", field = "place"),
+                q("q4", "B", 4, "Phone", field = "phone"),
+            ),
+            artisanDetailFromListed(row), interviewer = "Asha", today = today
+        )
+        assertEquals(mapOf("q1" to "Ramesh Chhipa", "q2" to "Block printing", "q3" to "Bagru"), fills)
     }
 }

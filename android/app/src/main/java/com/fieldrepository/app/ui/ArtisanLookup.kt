@@ -59,6 +59,17 @@ fun lookupStart(query: String): LookupStart = when (lookupKind(query)) {
     LookupKind.EMPTY -> LookupStart()
 }
 
+/**
+ * "Not shared by artisan" is offered only while no Aadhaar is on file. It records a refusal; it
+ * never retracts a stored number, which would be data loss under a 200. The web's
+ * `notSharedOffered` in ArtisanForm.tsx, rule for rule.
+ */
+fun aadhaarNotSharedOffered(storedAadhaar: String?): Boolean = storedAadhaar.isNullOrBlank()
+
+/** The Aadhaar the body sends: blank only for an honoured "not shared" on a record without one. */
+fun aadhaarForBody(typed: String, notShared: Boolean, storedAadhaar: String?): String =
+    if (notShared && aadhaarNotSharedOffered(storedAadhaar)) "" else typed.trim()
+
 private data class LookupMatch(val id: String, val name: String, val detail: String)
 
 @Composable

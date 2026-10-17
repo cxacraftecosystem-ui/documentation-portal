@@ -44,5 +44,8 @@ class KeepShootingCameraTest {
         assertEquals("only the two grid-measurement cameras stay single-shot", 2, singleShot)
         assertTrue(source.contains("rememberKeepShootingCamera("))
         assertEquals(3, Regex("""KeepShootingToggle\(\)""").findAll(source).count())
+        // One switch per screen: the process form's step sections never draw their own.
+        assertTrue(source.contains("if (showKeepShootingToggle) KeepShootingToggle()"))
+        assertTrue(Regex("""media = step\.media,\s+emphasizeVideo = true,\s+showKeepShootingToggle = false,""").containsMatchIn(source))
     }
 }

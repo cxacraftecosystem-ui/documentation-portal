@@ -1,7 +1,14 @@
 package com.fieldrepository.app.ui
 
 import com.fieldrepository.app.data.LocationRequest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -55,5 +62,55 @@ class InheritedPlaceTest {
             "Choose the district under 'Artisan location' before saving.",
             artisanLocationRequirementError(noState.copy(state = "Rajasthan"))
         )
+    }
+
+    @Test
+    fun `the pincode is offered too, but only inside the artisan's own state`() {
+        val withPin = ramesh.copy(pincode = "303007")
+        val empty = inheritStatedAddress("", "", "", withPin)
+        assertEquals("303007", empty.pincode)
+        assertEquals(listOf("state", "district", "village", "pincode"), empty.filled)
+        assertEquals("state, district, village and pincode", inheritedFieldWords(empty.filled))
+        val elsewhere = inheritStatedAddress("Gujarat", "", "", withPin)
+        assertEquals("", elsewhere.pincode)
+        val typed = inheritStatedAddress("", "", "", withPin, pincode = "302001")
+        assertEquals("a typed pincode is never replaced", "302001", typed.pincode)
+    }
+
+    @Test
+    fun `both clients fill the boxes the shared contract names and write no provenance key`() {
+        val contract = Json.parseToJsonElement(repoSource("shared/stated-address-prefill-contract.json", "../shared/stated-address-prefill-contract.json")).jsonObject
+        assertEquals(listOf("state", "district", "village", "pincode"), contract["fields"]!!.jsonArray.map { it.jsonPrimitive.content })
+        assertEquals(JsonNull, contract["provenanceMetadataKey"])
+        for (vector in contract["vectors"]!!.jsonArray.map { it.jsonObject }) {
+            fun JsonObject.text(key: String) = this[key]!!.jsonPrimitive.content
+            val current = vector["current"]!!.jsonObject
+            val artisan = vector["artisan"]!!.jsonObject
+            val expect = vector["expect"]!!.jsonObject
+            val result = inheritStatedAddress(
+                current.text("state"), current.text("district"), current.text("village"),
+                InheritedPlace("A", "a1", artisan.text("state"), artisan.text("district"), artisan.text("village"), artisan.text("pincode")),
+                pincode = current.text("pincode")
+            )
+            val name = vector.text("name")
+            assertEquals(name, expect.text("state"), result.state)
+            assertEquals(name, expect.text("district"), result.district)
+            assertEquals(name, expect.text("village"), result.village)
+            assertEquals(name, expect.text("pincode"), result.pincode)
+        }
+        val source = repoSource(
+            "android/app/src/main/java/com/fieldrepository/app/ui/LocationFields.kt",
+            "src/main/java/com/fieldrepository/app/ui/LocationFields.kt",
+        )
+        assertFalse("the web writes no statedFrom, so Android must not either", source.contains("\"statedFrom\""))
+    }
+
+    @Test
+    fun `the line under the location heading follows the heading`() {
+        assertTrue(locationSubtitle("Artisan location").startsWith("Where the artisan works."))
+        assertTrue(locationSubtitle("Craft location").startsWith("Where the craft is practised."))
+        assertTrue(locationSubtitle("Workshop location").startsWith("Where the workshop is held."))
+        assertFalse(locationSubtitle("Workshop location").contains("artisan"))
+        assertEquals("A map pin fills in the state, district and pincode.", locationSubtitle("Location"))
     }
 }

@@ -46,4 +46,22 @@ class ArtisanLookupTest {
         assertTrue(source.contains("mutableStateOf<Boolean?>(editing?.pehchanCardAvailable)"))
         assertTrue(source.contains("label = \"Not shared by artisan\""))
     }
+
+    @Test
+    fun `an artisan with a stored Aadhaar is never offered not-shared and never sends it blank`() {
+        assertFalse(aadhaarNotSharedOffered("234123412346"))
+        assertTrue(aadhaarNotSharedOffered(null))
+        assertTrue(aadhaarNotSharedOffered("  "))
+        // A stale or forced "not shared" on a record with a number keeps the number.
+        assertEquals("234123412346", aadhaarForBody("234123412346", notShared = true, storedAadhaar = "234123412346"))
+        assertEquals("", aadhaarForBody("", notShared = true, storedAadhaar = null))
+        assertEquals("234123412346", aadhaarForBody(" 234123412346 ", notShared = false, storedAadhaar = null))
+        val source = repoSource(
+            "android/app/src/main/java/com/fieldrepository/app/MainActivity.kt",
+            "src/main/java/com/fieldrepository/app/MainActivity.kt",
+        )
+        assertTrue(source.contains("if (notSharedOffered) AppToggle("))
+        assertTrue(source.contains("aadhaarNumber = aadhaarForBody(aadhaar, aadhaarNotShared, editing?.aadhaarNumber)"))
+        assertFalse(source.contains("aadhaarNumber = if (aadhaarNotShared) \"\" else"))
+    }
 }

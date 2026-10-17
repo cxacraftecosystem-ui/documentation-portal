@@ -153,6 +153,11 @@ import com.fieldrepository.app.ui.nextStepChoices
 import com.fieldrepository.app.ui.nextStepHeading
 import com.fieldrepository.app.ui.plural
 import com.fieldrepository.app.ui.artisanPrefill
+import com.fieldrepository.app.ui.orderByCaptureTime
+import com.fieldrepository.app.ui.artisanDetailFromListed
+import com.fieldrepository.app.ui.artisanFieldUpdate
+import com.fieldrepository.app.ui.aadhaarForBody
+import com.fieldrepository.app.ui.aadhaarNotSharedOffered
 import com.fieldrepository.app.ui.automaticInterviewTitle
 import com.fieldrepository.app.ui.questionTranscripts
 import com.fieldrepository.app.ui.transcriptOffer
@@ -4270,13 +4275,14 @@ private fun ArtisanDto?.inheritedPlace(isEdit: Boolean): InheritedPlace? {
     if (isEdit) return null
     val loc = artisan.location
     val village = loc?.village?.takeIf { it.isNotBlank() } ?: artisan.place.takeIf { it.isNotBlank() }
-    if (loc?.state.isNullOrBlank() && loc?.district.isNullOrBlank() && village == null) return null
+    if (loc?.state.isNullOrBlank() && loc?.district.isNullOrBlank() && village == null && loc?.pincode.isNullOrBlank()) return null
     return InheritedPlace(
         fromName = artisan.name,
         sourceId = artisan.id,
         state = loc?.state,
         district = loc?.district,
-        village = village
+        village = village,
+        pincode = loc?.pincode
     )
 }
 
@@ -5677,6 +5683,11 @@ private fun MediaCaptureSection(
     locationHeading: String = ARTISAN_LOCATION_HEADING,
     /** C17: the artisan's address, offered into the card's empty boxes. */
     inheritPlace: InheritedPlace? = null,
+    /**
+     * A10: draw the device-wide "Keep the camera open" switch here. A process form draws it once, on
+     * its pre-process section, never again under each step — eleven identical switches is clutter.
+     */
+    showKeepShootingToggle: Boolean = true,
     onMessage: (String) -> Unit,
     onError: (String) -> Unit
 ) {
@@ -5756,7 +5767,7 @@ private fun MediaCaptureSection(
                 onClick = { permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) { camera.shoot() } },
             ) { Text("Take photo") }
         }
-        KeepShootingToggle()
+        if (showKeepShootingToggle) KeepShootingToggle()
         if (emphasizeVideo) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Icon(Icons.Filled.Videocam, contentDescription = null, tint = MaterialTheme.field.muted, modifier = Modifier.size(16.dp))
@@ -6870,6 +6881,9 @@ private fun ArtisanForm(
     var pehchanAvailable by remember(editing) { mutableStateOf<Boolean?>(editing?.pehchanCardAvailable) }.drafted(draft, "pehchanAvailable")
     // C18: "Not shared by artisan" — saves without an Aadhaar, flagged for follow-up.
     var aadhaarNotShared by remember(editing) { mutableStateOf(editing?.aadhaarNotShared ?: false) }.drafted(draft, "aadhaarNotShared")
+    // Offered only while no number is on file: the switch records a refusal, never retracts a stored Aadhaar.
+    val notSharedOffered = aadhaarNotSharedOffered(editing?.aadhaarNumber)
+    val notSharedHonoured = aadhaarNotShared && notSharedOffered
     // C18: a new artisan opens on the lookup, until it is answered or a draft says it already was.
     var lookupSettled by remember(editing) { mutableStateOf(editing != null) }.drafted(draft, "lookupSettled")
     var pehchanNumber by remember(editing) { mutableStateOf(editing?.pehchanCardNumber.orEmpty()) }.drafted(draft, "pehchanNumber")
@@ -6980,7 +6994,7 @@ private fun ArtisanForm(
      * an Aadhaar. Once a record HAS a number, clearing it is still refused: that is data loss rather
      * than a legacy gap. Mirrors `aadhaarRequired` in components/forms/ArtisanForm.tsx.
      */
-    val aadhaarRequired = (!isEdit || !editing?.aadhaarNumber.isNullOrBlank()) && !aadhaarNotShared
+    val aadhaarRequired = (!isEdit || !editing?.aadhaarNumber.isNullOrBlank()) && !notSharedHonoured
     val nameFocus = remember { FocusRequester() }
     val placeFocus = remember { FocusRequester() }
     val craftFocus = remember { FocusRequester() }
@@ -7000,9 +7014,9 @@ private fun ArtisanForm(
     // person" while the form is still half empty, rather than as a 409 after filling all of it. The
     // short delay keeps this to one request per number instead of one per keystroke, and a failed
     // lookup is swallowed: this is a courtesy, and the unique index remains the real guarantee.
-    LaunchedEffect(aadhaar, editing?.id, aadhaarNotShared) {
+    LaunchedEffect(aadhaar, editing?.id, notSharedHonoured) {
         aadhaarDuplicate = null
-        if (aadhaarNotShared || aadhaar.isBlank() || aadhaarValidationError(aadhaar) != null) return@LaunchedEffect
+        if (notSharedHonoured || aadhaar.isBlank() || aadhaarValidationError(aadhaar) != null) return@LaunchedEffect
         delay(400)
         val match = runCatching { repository.lookupArtisanByAadhaar(aadhaar) }.getOrNull()?.artisan
         // Editing the very artisan who holds the number is not a duplicate.
@@ -7072,7 +7086,7 @@ private fun ArtisanForm(
         }
         // ...and it must be a genuine number when present — the same three checks the API runs,
         // applied here so a bad digit is caught with the card still in hand.
-        if (!aadhaarNotShared) aadhaarValidationError(aadhaar)?.let { msg ->
+        if (!notSharedHonoured) aadhaarValidationError(aadhaar)?.let { msg ->
             aadhaarError = msg
             runCatching { aadhaarFocus.requestFocus() }
             onError("Fix the Aadhaar number highlighted above."); return
@@ -7110,9 +7124,10 @@ private fun ArtisanForm(
                 // omitted key means "leave it alone" to a PATCH — which would make a wrongly entered
                 // Aadhaar impossible to retract from the app. The API normalises "" to null, and the
                 // column is one it deliberately allows a client to clear.
-                aadhaarNumber = if (aadhaarNotShared) "" else aadhaar.trim(),
+                aadhaarNumber = aadhaarForBody(aadhaar, aadhaarNotShared, editing?.aadhaarNumber),
                 // C18: sent only when it is the answer, or when it is being taken back on an edit.
-                aadhaarNotShared = if (aadhaarNotShared || editing?.aadhaarNotShared == true) aadhaarNotShared else null,
+                // Never true for a record that already holds a number.
+                aadhaarNotShared = if (notSharedHonoured || editing?.aadhaarNotShared == true) notSharedHonoured else null,
                 // Always sent explicitly, both ways: the API clears a stale card number when this is
                 // false, and only an explicit true can move a record back off "No".
                 pehchanCardAvailable = pehchanAvailable,
@@ -7359,7 +7374,7 @@ private fun ArtisanForm(
             color = Muted,
             fontSize = 12.sp
         )
-        if (!aadhaarNotShared) {
+        if (!notSharedHonoured) {
             ArtisanAadhaarField(
                 value = aadhaar,
                 error = aadhaarError,
@@ -7369,7 +7384,7 @@ private fun ArtisanForm(
             ) { aadhaar = it; aadhaarError = null }
         }
         // C18: the explicit outcome, clearly labelled. Never inferred from an empty box.
-        AppToggle(
+        if (notSharedOffered) AppToggle(
             label = "Not shared by artisan",
             description = if (aadhaarNotShared) "Saved without an Aadhaar and flagged for follow-up." else "The artisan declined to give their Aadhaar.",
             checked = aadhaarNotShared,
@@ -9322,22 +9337,6 @@ private class ProcessStepUi(
 private fun ProcessStepUi.stepTypeLabel(): String =
     if (stepType == "SEQUENTIAL") "Sequential" else "Group of activities"
 
-/**
- * C22: photographs in the order they were TAKEN, so "steps from photos" reads as the process ran.
- * The picker hands them back in the order tapped; the capture time comes from the media store when it
- * is there, and a file it cannot date keeps its place after the dated ones.
- */
-private fun orderByCaptureTime(context: Context, uris: List<Uri>): List<Uri> {
-    fun takenAt(uri: Uri): Long? = runCatching {
-        context.contentResolver.query(uri, arrayOf(android.provider.MediaStore.MediaColumns.DATE_TAKEN), null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0).takeIf { it > 0 } else null
-        }
-    }.getOrNull()
-    return uris.withIndex()
-        .sortedWith(compareBy<IndexedValue<Uri>>({ takenAt(it.value) ?: Long.MAX_VALUE }, { it.index }))
-        .map { it.value }
-}
-
 /** Per-file nomenclature segment for a step's media: 1A/1B… for sequential, 1-G1/1-G2… for groups. */
 private fun processStepSegment(stepNumber: Int, stepType: String, fileIndex: Int): String =
     if (stepType == "SEQUENTIAL") "STEP_${stepNumber}${'A' + (fileIndex % 26)}"
@@ -9860,6 +9859,7 @@ private fun ProcessForm(
                         repository = repository,
                         media = step.media,
                         emphasizeVideo = true,
+                        showKeepShootingToggle = false,
                         beforeLocation = {
                             AppToggle(
                                 label = "Record additional information",
@@ -14317,7 +14317,10 @@ private fun QuestionnaireForm(
             return@LaunchedEffect
         }
         val listed = artisanOptions.options.firstOrNull { it.id == headArtisanId }
+        // Offline (the normal case in the field) the detail read fails: the listed row still knows
+        // the name, craft and place, so those mapped answers fill with the same notice and Undo.
         val detail = runCatching { repository.artisan(headArtisanId) }.getOrNull()
+            ?: listed?.let { artisanDetailFromListed(it) }
         val theirPlace = (detail?.place ?: listed?.place).orEmpty().trim()
         if (theirPlace.isNotEmpty() && (place.isBlank() || place == previousPlace)) {
             place = theirPlace
@@ -15821,8 +15824,9 @@ private fun QuestionnaireBuilder(
                                         onClick = {
                                             scope.launch {
                                                 runCatching {
-                                                    // "" clears a mapping (see QuestionnaireQuestionUpdateRequest).
-                                                    repository.updateQuestionnaireQuestion(question.id, QuestionnaireQuestionUpdateRequest(prompt = prompt.trim(), isActive = true, artisanField = mapping))
+                                                    // Sent only when it changed ("" clears it), so an untouched
+                                                    // mapping keeps the body a server without B8 accepts.
+                                                    repository.updateQuestionnaireQuestion(question.id, QuestionnaireQuestionUpdateRequest(prompt = prompt.trim(), isActive = true, artisanField = artisanFieldUpdate(question.artisanField, mapping)))
                                                     onRefresh()
                                                 }.onFailure { onError(it.apiErrorMessage("Unable to update question")) }
                                             }
