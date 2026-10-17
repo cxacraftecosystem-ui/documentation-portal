@@ -226,7 +226,12 @@ import com.fieldrepository.app.ui.SESSION_ENDED_SENTENCE
 import com.fieldrepository.app.ui.SetPasswordLinkScreen
 import com.fieldrepository.app.ui.isSetPasswordLinkAddress
 import com.fieldrepository.app.ui.mustChangePasswordBlocks
+import com.fieldrepository.app.data.ARTISAN_FORM_CONTRACT
 import com.fieldrepository.app.data.ArtisanCreateRequest
+import com.fieldrepository.app.data.EXPERIENCE_MONTH_OPTIONS
+import com.fieldrepository.app.data.EXPERIENCE_NOT_STATED
+import com.fieldrepository.app.data.experienceMonthsLabel
+import com.fieldrepository.app.data.missingArtisanDatesSentence
 import com.fieldrepository.app.data.CarryContext
 import com.fieldrepository.app.data.CarryContextStore
 import com.fieldrepository.app.data.CarryNode
@@ -6723,9 +6728,21 @@ private fun ArtisanForm(
             editing?.dateOfBirth?.take(10)?.let { parseFieldDate(it) }
         )
     }.drafted(draft, "dateOfBirth")
+    // THE DAY THE ARTISAN TOOK UP THE CRAFT, required with the birthday on every new save
+    // (2026-10-17): both portals draw one artisan form, on the web and here, and this box was the web's
+    // alone until then. The record sheet derives the experience figure from it in preference.
+    var craftStartDate by remember(editing) {
+        mutableStateOf<java.time.LocalDate?>(
+            editing?.craftStartDate?.take(10)?.let { parseFieldDate(it) }
+        )
+    }.drafted(draft, "craftStartDate")
     var experienceYears by remember(editing) {
         mutableStateOf(editing?.experienceYears?.toString().orEmpty())
     }.drafted(draft, "experienceYears")
+    // The months on top of the years, 0..11 — a remainder. "" is "Not stated", never 0.
+    var experienceMonths by remember(editing) {
+        mutableStateOf(editing?.experienceMonths?.toString().orEmpty())
+    }.drafted(draft, "experienceMonths")
     var dosItems by remember(editing) { mutableStateOf(splitNumbered(editing?.dos)) }.drafted(draft, "dosItems")
     var dontsItems by remember(editing) { mutableStateOf(splitNumbered(editing?.donts)) }.drafted(draft, "dontsItems")
     var craftId by remember(editing) { mutableStateOf(editing?.craftId ?: prefill?.craftId ?: "") }.drafted(draft, "craftId")
@@ -6785,6 +6802,10 @@ private fun ArtisanForm(
     var emailError by remember { mutableStateOf<String?>(null) }
     var aadhaarError by remember { mutableStateOf<String?>(null) }
     var pehchanError by remember { mutableStateOf<String?>(null) }
+    // The two required dates. A calendar field takes no focus requester, so the sentence goes under
+    // the box and into the banner.
+    var dateOfBirthError by remember { mutableStateOf<String?>(null) }
+    var craftStartDateError by remember { mutableStateOf<String?>(null) }
     // Non-blocking: an artisan already recorded with the Aadhaar number being typed.
     var aadhaarDuplicate by remember(editing) { mutableStateOf<String?>(null) }
     /*
@@ -6848,6 +6869,13 @@ private fun ArtisanForm(
                 RequiredCheck(dosText.isBlank(), { dosError = it }, dosFocus),
                 RequiredCheck(dontsText.isBlank(), { dontsError = it }, dontsFocus)
             ))) { onError("Fill in the highlighted field."); return }
+        // BOTH DATES ARE REQUIRED ON EVERY SAVE FROM THIS FORM (2026-10-17). An edit of a record saved
+        // before the rule asks for them here. The sentence is the server's refusal word for word.
+        dateOfBirthError = if (dateOfBirth == null) "Enter the date of birth." else null
+        craftStartDateError = if (craftStartDate == null) "Enter the craft start date." else null
+        missingArtisanDatesSentence(dateOfBirth?.toString(), craftStartDate?.toString())?.let { sentence ->
+            onError(sentence); return
+        }
         // Phone (optional) must be a valid number for its ISD code when present.
         artisanPhoneValidationError(phone)?.let { msg -> phoneError = msg; onError("Fix the phone number highlighted above."); return }
         phoneError = null
@@ -6908,7 +6936,9 @@ private fun ArtisanForm(
                 pehchanCardAvailable = pehchanAvailable,
                 pehchanCardNumber = if (pehchanAvailable) pehchanNumber.blankToNull() else null,
                 dateOfBirth = dateOfBirth?.toString(),
+                craftStartDate = craftStartDate?.toString(),
                 experienceYears = experienceYears.toIntOrNull(),
+                experienceMonths = experienceMonths.toIntOrNull(),
                 dos = dosText,
                 donts = dontsText,
                 craftId = craftId.ifBlank { null },
@@ -6916,7 +6946,9 @@ private fun ArtisanForm(
                 workshopId = workshop.value(),
                 status = status,
                 recordedAt = if (isEdit) null else Instant.now().toString(),
-                location = locationForBody(isEdit, media.location, editing?.location)
+                location = locationForBody(isEdit, media.location, editing?.location),
+                // The server holds this save to both dates. In the body, so the outbox keeps it.
+                formContract = ARTISAN_FORM_CONTRACT
             )
             // No connection: save to the device and sync on reconnect, instead of failing the upload.
             val queuedOffline = runCatching {
@@ -7054,14 +7086,29 @@ private fun ArtisanForm(
             placeholder = "Select…",
             includeNone = true
         ) { gender = it }
+        /*
+         * ONE ARTISAN FORM IN BOTH PORTALS, ON THE WEB AND HERE (owner decision, 2026-10-17): both
+         * dates required, "Craft start date", and experience as two boxes — "Experience (years)" and
+         * "Experience (months)", whose empty option is "Not stated". `shared/artisan-form-contract.json`
+         * holds both portals and both clients to it.
+         */
         CalendarField(
-            label = "Date of birth",
+            label = "Date of birth *",
             value = dateOfBirth,
-            onValueChange = { dateOfBirth = it },
+            onValueChange = { dateOfBirth = it; dateOfBirthError = null },
             // Nobody is born tomorrow, and a future date would derive a negative age.
             maximum = java.time.LocalDate.now(),
             clearable = true,
-            supportingText = "Shown as an age."
+            supportingText = dateOfBirthError ?: "Shown as an age."
+        )
+        CalendarField(
+            label = "Craft start date *",
+            value = craftStartDate,
+            onValueChange = { craftStartDate = it; craftStartDateError = null },
+            // Nobody took up a craft tomorrow either.
+            maximum = java.time.LocalDate.now(),
+            clearable = true,
+            supportingText = craftStartDateError ?: "Shown as years of experience."
         )
         OutlinedTextField(
             value = experienceYears,
@@ -7074,6 +7121,14 @@ private fun ArtisanForm(
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
+        DropdownField(
+            label = "Experience (months)",
+            options = EXPERIENCE_MONTH_OPTIONS.map { it.toString() to experienceMonthsLabel(it) },
+            selectedValue = experienceMonths,
+            // "Not stated" submits nothing, never 0 — 0 is a real answer.
+            placeholder = EXPERIENCE_NOT_STATED,
+            includeNone = true
+        ) { experienceMonths = it }
         ArtisanPhoneField(value = phone, error = phoneError) { phone = it; phoneError = null }
         OutlinedTextField(
             value = email,

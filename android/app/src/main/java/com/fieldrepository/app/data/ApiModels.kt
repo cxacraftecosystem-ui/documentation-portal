@@ -692,7 +692,17 @@ data class ArtisanCreateRequest(
     val status: String = "PENDING",
     val recordedAt: String? = null,
     val recordedTimezone: String = "Asia/Kolkata",
-    val location: LocationRequest? = null
+    val location: LocationRequest? = null,
+    /**
+     * THE ARTISAN FORM CONTRACT THIS SAVE WAS MADE UNDER — [ARTISAN_FORM_CONTRACT], set by the form
+     * on every save, and the server then requires [dateOfBirth] and [craftStartDate] (2026-10-17).
+     *
+     * NULL BY DEFAULT, AND THAT IS THE OUTBOX'S TRANSITION. A queued entry is decoded back into this
+     * class on replay; one queued by a build that predates the contract has no such key, decodes to
+     * null, is omitted on the wire (`explicitNulls = false`) and lands as the old shape the server
+     * still accepts. A non-null default would stamp every old entry with the new rule on replay.
+     */
+    val formContract: Int? = null
 )
 
 @Serializable

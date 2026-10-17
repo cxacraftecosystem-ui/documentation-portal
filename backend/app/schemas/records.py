@@ -138,6 +138,10 @@ class ArtisanCreate(APIModel):
     experienceMonths: int | None = Field(default=None, ge=0, le=11)
     location: LocationInput | None = None
     extraMetadata: dict[str, Any] | None = None
+    # THE ARTISAN FORM CONTRACT THIS SAVE WAS MADE UNDER — not a column. ``2`` makes both dates above
+    # required (a 422 naming the missing ones); absent is the old shape and is accepted unchanged, so
+    # an outbox entry queued before the contract still replays. See services/artisan_form_contract.
+    formContract: int | None = Field(default=None, ge=1, le=2)
 
     # Mandatory on create. See services/common.require_location for what that does and does not
     # mean — and note it is the ONLY half of the pair the clients cannot omit, because create is
@@ -235,6 +239,9 @@ class ArtisanUpdate(APIModel):
     # See ``records.assert_expected_updated_at`` for the comparison, the one-second tolerance and
     # which of the two possible mistakes that tolerance deliberately makes.
     expectedUpdatedAt: datetime | None = None
+    # The artisan form contract, as on ``ArtisanCreate``. On an edit the two dates are checked against
+    # the row as it will be after the write, so a record saved before the contract must gain them.
+    formContract: int | None = Field(default=None, ge=1, le=2)
 
     # Omit it to keep the stored one (which is how a record that predates the rule stays
     # editable); send one to replace it; you may not send null. See forbid_clearing_location.

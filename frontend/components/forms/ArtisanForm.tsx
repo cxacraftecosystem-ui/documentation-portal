@@ -32,6 +32,7 @@ import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 import { statusLabel } from "@/components/StatusBadge";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { ApiError, apiFetch, buildQuery, listResource } from "@/lib/api";
+import { ARTISAN_FORM_CONTRACT, missingArtisanDatesSentence } from "@/lib/artisanFormContract";
 import { locationFromForm, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue, useUnsavedChanges } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
 import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, type BatchProgress } from "@/lib/media";
@@ -581,6 +582,18 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         setSaving(false);
         return;
       }
+      // Both dates are required on every save from this form (2026-10-17, one artisan form in both
+      // portals). The boxes carry `required`, so the browser stops a normal submit first; this is the
+      // server's own sentence, for a save that reaches here another way (Save in the leave dialog).
+      const missingDates = missingArtisanDatesSentence({
+        dateOfBirth: textValue(form, "dateOfBirth"),
+        craftStartDate: textValue(form, "craftStartDate")
+      });
+      if (missingDates) {
+        setError(missingDates);
+        setSaving(false);
+        return;
+      }
       // The Yes/No dropdown mirrors its option value into FormData; anything other than an explicit
       // "No" means the artisan holds a card, which matches the API's own default of Yes.
       const pehchanAvailable = textValue(form, "pehchanCardAvailable") !== PEHCHAN_NO;
@@ -671,7 +684,10 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         recordedTimezone,
         location,
         // extraMetadata stays programmatic (EXIF etc.) — the raw JSON textarea was removed.
-        extraMetadata: exifItems.length ? { mediaExif: exifItems } : {}
+        extraMetadata: exifItems.length ? { mediaExif: exifItems } : {},
+        // The artisan form contract this save was made under: the server holds it to both dates.
+        // In the BODY, so the outbox stores it with the entry — see `lib/artisanFormContract`.
+        formContract: ARTISAN_FORM_CONTRACT
       };
       // With no connection this queues to the offline outbox instead of failing at the Save button;
       // the media goes with it, because the artisan will have gone home by the time signal returns.
@@ -946,12 +962,17 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
           <div className="grid min-w-0 gap-1">
             <label htmlFor={`${dateFieldsId}-dob`} className="field-label">
               Date of birth
+              <RequiredMark when />
             </label>
+            {/* REQUIRED ON EVERY NEW SAVE (2026-10-17), and on an edit of a record saved before the
+                rule, which asks for it. `clearable` kept, so a wrong date can still be retyped. */}
             <CalendarField
               id={`${dateFieldsId}-dob`}
               name="dateOfBirth"
               defaultValue={initial?.dateOfBirth ? String(initial.dateOfBirth).slice(0, 10) : ""}
               max={toIsoDate(new Date())}
+              required
+              clearable
               onChange={() => markDirty()}
             />
           </div>
@@ -963,12 +984,15 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
           <div className="grid min-w-0 gap-1">
             <label htmlFor={`${dateFieldsId}-craft-start`} className="field-label">
               Craft start date
+              <RequiredMark when />
             </label>
             <CalendarField
               id={`${dateFieldsId}-craft-start`}
               name="craftStartDate"
               defaultValue={initial?.craftStartDate ? String(initial.craftStartDate).slice(0, 10) : ""}
               max={toIsoDate(new Date())}
+              required
+              clearable
               onChange={() => markDirty()}
             />
           </div>
