@@ -24,6 +24,11 @@
  * "approved" would guarantee the page's numbers drop the day it went live. Nothing here may say
  * "approved" about these figures unless it is actually querying approvals — the backend route
  * carries the matching warning on its own `recordsHeld` field.
+ *
+ * SINCE 2026-10-20 THE PAGE PRINTS APPROVED COUNTS (owner decision C21): the API's
+ * `recordsPublished` is a separate field that IS querying approvals, and media now inherits its
+ * record's approval. `basis` says which figure is on screen, so the caption names it truthfully,
+ * and an API that predates the field still gives the held figures under their own caption.
  */
 
 export type CorpusCounts = {
@@ -43,12 +48,15 @@ export type CorpusCensus = {
   counts: CorpusCounts;
   /** Where the numbers came from. Drives nothing visual; it is here so a bug is diagnosable. */
   source: "live" | "snapshot";
+  /** Which figure this is: approved records, or everything held. Names the caption. */
+  basis?: "approved" | "held";
 };
 
 /** The fallback. Counted by hand against the live database on the date stated. */
 export const CORPUS_CENSUS: CorpusCensus = {
   asOf: "2026-07-27",
   source: "snapshot",
+  basis: "held",
   counts: {
     artisans: 16,
     crafts: 9,
@@ -87,6 +95,7 @@ type CensusPayload = {
   stale?: unknown;
   asOfDate?: unknown;
   recordsHeld?: unknown;
+  recordsPublished?: unknown;
 };
 
 /**
@@ -105,7 +114,9 @@ export function parseCensus(payload: unknown): CorpusCensus | null {
   const asOf = body.asOfDate;
   if (typeof asOf !== "string" || !ISO_DATE.test(asOf)) return null;
 
-  const held = body.recordsHeld;
+  const published = body.recordsPublished;
+  const approved = typeof published === "object" && published !== null;
+  const held = approved ? published : body.recordsHeld;
   if (typeof held !== "object" || held === null) return null;
   const source = held as Record<string, unknown>;
 
@@ -115,7 +126,7 @@ export function parseCensus(payload: unknown): CorpusCensus | null {
     if (typeof value !== "number" || !Number.isInteger(value) || value < 0) return null;
     counts[key] = value;
   }
-  return { asOf, counts, source: "live" };
+  return { asOf, counts, source: "live", basis: approved ? "approved" : "held" };
 }
 
 /**
@@ -199,3 +210,8 @@ export const CENSUS_ROWS: ReadonlyArray<{ key: keyof CorpusCounts; one: string; 
   { key: "media", one: "Media file", many: "Media files" },
   { key: "workshops", one: "Workshop", many: "Workshops" }
 ];
+
+/** The ledger's caption for the figure on screen. */
+export function censusCaption(census: Pick<CorpusCensus, "basis">, asOf: string): string {
+  return census.basis === "approved" ? `Approved records, as of ${asOf}.` : `Records held, as of ${asOf}.`;
+}

@@ -61,6 +61,9 @@ import type {
   Workshop
 } from "@/lib/types";
 import { Toggle } from "@/components/ui/Toggle";
+import { ButtonRow } from "@/components/ui/ButtonRow";
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
+import { DATA_STATUS_OPTIONS, DEFAULT_DATA_STATUS, dataStatusLabel, statusQuery } from "@/lib/review";
 
 // ---------------------------------------------------------------------------
 // Local types for the /data browsing endpoints
@@ -292,10 +295,13 @@ function reportFilename(folderName: string) {
 function DataTablesPanel({
   path,
   folderName,
+  status,
   defaultOpen = true
 }: {
   path: string;
   folderName: string;
+  /** The review status the page is narrowed to (`statusQuery`), or undefined for every status. */
+  status?: string;
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -310,7 +316,7 @@ function DataTablesPanel({
     setLoading(true);
     setError(null);
     try {
-      const next = await apiFetch<ReportResponse>(`/data/report${buildQuery({ path, format: "json" })}`);
+      const next = await apiFetch<ReportResponse>(`/data/report${buildQuery({ path, format: "json", status })}`);
       setReport(next);
       setActiveSheet(0);
       setFilter("");
@@ -319,7 +325,7 @@ function DataTablesPanel({
     } finally {
       setLoading(false);
     }
-  }, [path]);
+  }, [path, status]);
 
   // Expanded-by-default means the fetch is driven by the path, not by a click.
   useEffect(() => {
@@ -355,7 +361,7 @@ function DataTablesPanel({
     setError(null);
     try {
       const token = getToken();
-      const response = await fetch(`${API_BASE}/api/data/report${buildQuery({ path, format: "xlsx" })}`, {
+      const response = await fetch(`${API_BASE}/api/data/report${buildQuery({ path, format: "xlsx", status })}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
       if (!response.ok) throw new Error("The report didn’t download. Try again.");
@@ -1366,11 +1372,17 @@ export default function DataBrowserPage() {
   const [transcriptLoading, setTranscriptLoading] = useState<Set<string>>(new Set());
   const [openTranscripts, setOpenTranscripts] = useState<Set<string>>(new Set());
   const [openInline, setOpenInline] = useState<Set<string>>(new Set());
+  /**
+   * WHICH REVIEW STATUS THE PAGE SHOWS (C21). Approved by default, because an export means
+   * approved records; the empty folder says so and offers every status in one tap.
+   */
+  const [reviewStatus, setReviewStatus] = useState<string>(DEFAULT_DATA_STATUS);
+  const statusParam = statusQuery(reviewStatus);
 
   const loadFolder = useCallback(async (path: string) => {
     setLoadingPaths((prev) => new Set(prev).add(path));
     try {
-      const response = await apiFetch<TreeResponse>(`/data/tree${buildQuery({ path })}`);
+      const response = await apiFetch<TreeResponse>(`/data/tree${buildQuery({ path, status: statusParam })}`);
       setTreeByPath((prev) => ({ ...prev, [path]: response }));
       setError(null);
     } catch (err) {
@@ -1382,11 +1394,26 @@ export default function DataBrowserPage() {
         return next;
       });
     }
-  }, []);
+  }, [statusParam]);
 
   useEffect(() => {
     if (!authLoading && permitted) loadFolder("");
   }, [authLoading, permitted, loadFolder]);
+
+  function changeReviewStatus(next: string) {
+    if (next === reviewStatus) return;
+    // Every listed folder answered for the old status; drop them and re-read what is open.
+    setTreeByPath({});
+    setTranscriptsByFolder({});
+    setReviewStatus(next);
+  }
+
+  useEffect(() => {
+    if (!permitted || selectedPath === "") return;
+    loadFolder(selectedPath);
+    // Only on a status change: `loadFolder` changes identity exactly then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadFolder]);
 
   function toggleFolder(path: string) {
     setExpandedPaths((prev) => {
@@ -1478,7 +1505,7 @@ export default function DataBrowserPage() {
     if (!(folder in transcriptsByFolder)) {
       setTranscriptLoading((prev) => new Set(prev).add(folder));
       try {
-        const manifest = await apiFetch<ManifestResponse>(`/data/manifest${buildQuery({ path: folder, include: "transcripts" })}`);
+        const manifest = await apiFetch<ManifestResponse>(`/data/manifest${buildQuery({ path: folder, include: "transcripts", status: statusParam })}`);
         setTranscriptsByFolder((prev) => ({ ...prev, [folder]: manifest.files }));
       } catch (err) {
         if (opening) setError(err instanceof Error ? err.message : "Unable to load transcripts");
@@ -1515,7 +1542,7 @@ export default function DataBrowserPage() {
     setDownloadNote(null);
     setError(null);
     try {
-      const manifest = await apiFetch<ManifestResponse>(`/data/manifest${buildQuery({ path: selectedPath, include })}`);
+      const manifest = await apiFetch<ManifestResponse>(`/data/manifest${buildQuery({ path: selectedPath, include, status: statusParam })}`);
       if (manifest.files.length === 0) {
         setDownloadNote("Nothing matches these filters.");
         setProgress(null);
@@ -1662,6 +1689,17 @@ export default function DataBrowserPage() {
       {/* The same repository, re-rooted three ways. */}
       <TaxonomySwitcher taxonomies={taxonomies} active={activeTaxonomy} onSelect={selectFolder} />
 
+      <div className="mb-5 grid max-w-xs gap-1">
+        <span className="field-label">Review status</span>
+        <SearchableSelect
+          ariaLabel="Review status"
+          value={reviewStatus}
+          onChange={(value) => changeReviewStatus(value || DEFAULT_DATA_STATUS)}
+          options={DATA_STATUS_OPTIONS}
+          advanceOnSelect={false}
+        />
+      </div>
+
       {/* Jump straight to a record type without walking the tree. */}
       <BrowseByTypePanel />
 
@@ -1700,9 +1738,10 @@ export default function DataBrowserPage() {
 
           {/* Every folder level gets a spreadsheet view of its subtree (collapsed by default). */}
           <DataTablesPanel
-            key={selectedPath || "__root"}
+            key={`${selectedPath || "__root"}:${reviewStatus}`}
             path={selectedPath}
             folderName={crumbs[crumbs.length - 1]?.name || "dataset"}
+            status={statusParam}
           />
 
           <section className="panel p-4">
@@ -1788,7 +1827,17 @@ export default function DataBrowserPage() {
               <div className="p-4 text-sm text-ink-500">{folderLoading ? "Loading folder…" : "Select a folder to browse."}</div>
             ) : entries.length === 0 ? (
               <div className="p-4">
-                <EmptyState title="Empty folder" body="This folder has no files or subfolders." />
+                <EmptyState
+                  title="Empty folder"
+                  body={reviewStatus === "ALL" ? "This folder has no files or subfolders." : `Nothing ${dataStatusLabel(reviewStatus).toLowerCase()} here.`}
+                />
+                {reviewStatus !== "ALL" ? (
+                  <ButtonRow size="sm" className="mt-2">
+                    <button type="button" className="field-button-secondary h-9 min-h-0 px-3 text-xs pointer-coarse:h-11" onClick={() => changeReviewStatus("ALL")}>
+                      Show all statuses
+                    </button>
+                  </ButtonRow>
+                ) : null}
               </div>
             ) : (
               <div>

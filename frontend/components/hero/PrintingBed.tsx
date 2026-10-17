@@ -7,6 +7,7 @@ import { BUTI_FILL_RULE, BUTI_PATH, BUTI_VIEWBOX } from "@/components/hero/buti"
 import {
   CENSUS_ROWS,
   CORPUS_CENSUS,
+  censusCaption,
   formatCensusDate,
   type CorpusCensus
 } from "@/components/hero/corpusCensus";
@@ -249,7 +250,7 @@ export default function PrintingBed({ census = CORPUS_CENSUS }: { census?: Corpu
             What the archive holds today.
           </motion.h2>
           <motion.p variants={item} className="mt-4 text-sm leading-relaxed text-white/60">
-            Records held, as of {asOf}.
+            {censusCaption(census, asOf)}
           </motion.p>
 
           {/*
