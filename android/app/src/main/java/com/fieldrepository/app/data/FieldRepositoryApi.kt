@@ -630,7 +630,9 @@ interface FieldRepositoryApi {
          */
         @Query("search") search: String? = null,
         /** Only rows this account created — My Activity asks the SERVER, so nothing past page one is lost. */
-        @Query("createdBy") createdBy: String? = null
+        @Query("createdBy") createdBy: String? = null,
+        /** C22: the processes of one craft (through their product), newest first. */
+        @Query("craftId") craftId: String? = null
     ): PageResponse<ProcessDetailDto>
 
     @GET("processes/{id}")

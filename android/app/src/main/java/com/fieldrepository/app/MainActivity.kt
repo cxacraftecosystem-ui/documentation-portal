@@ -9315,10 +9315,28 @@ private class ProcessStepUi(
     // step that already has notes so the existing text stays visible.
     var recordAdditional by mutableStateOf(!notes.isNullOrBlank())
     var notes by mutableStateOf(notes ?: "")
+    /** C22: the name was copied from another process ("from the craft's last process"), not typed. */
+    var templateName by mutableStateOf<String?>(null)
 }
 
 private fun ProcessStepUi.stepTypeLabel(): String =
     if (stepType == "SEQUENTIAL") "Sequential" else "Group of activities"
+
+/**
+ * C22: photographs in the order they were TAKEN, so "steps from photos" reads as the process ran.
+ * The picker hands them back in the order tapped; the capture time comes from the media store when it
+ * is there, and a file it cannot date keeps its place after the dated ones.
+ */
+private fun orderByCaptureTime(context: Context, uris: List<Uri>): List<Uri> {
+    fun takenAt(uri: Uri): Long? = runCatching {
+        context.contentResolver.query(uri, arrayOf(android.provider.MediaStore.MediaColumns.DATE_TAKEN), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0).takeIf { it > 0 } else null
+        }
+    }.getOrNull()
+    return uris.withIndex()
+        .sortedWith(compareBy<IndexedValue<Uri>>({ takenAt(it.value) ?: Long.MAX_VALUE }, { it.index }))
+        .map { it.value }
+}
 
 /** Per-file nomenclature segment for a step's media: 1A/1B… for sequential, 1-G1/1-G2… for groups. */
 private fun processStepSegment(stepNumber: Int, stepType: String, fileIndex: Int): String =
@@ -9517,15 +9535,11 @@ private fun ProcessForm(
             preMediaError = "Attach the pre-process media or uncheck the box"
         }
         if (steps.isEmpty()) stepsError = "Add at least one step"
-        steps.forEach { step ->
-            step.nameError = null
-            if (step.name.isBlank()) {
-                step.nameError = REQUIRED_FIELD_SENTENCE
-                if (!firstInvalid) { firstInvalid = true; runCatching { step.nameFocus.requestFocus() } }
-            }
-        }
+        // C22 (owner decision 2026-10-17): a step MAY save without a name. It is flagged on its card
+        // ("Unnamed step") instead of refused, so steps made from photographs can be named later.
+        steps.forEach { step -> step.nameError = null }
         val blocked = nameError != null || productError != null || stepsError != null ||
-            preMediaError != null || artisanError != null || steps.any { it.name.isBlank() }
+            preMediaError != null || artisanError != null
         if (blocked) { onError("Fill in the highlighted fields."); return }
 
         scope.launch {
@@ -9580,7 +9594,7 @@ private fun ProcessForm(
                 steps.forEachIndexed { index, local ->
                     local.media.uris.forEachIndexed { fileIndex, uri ->
                         items.add(com.fieldrepository.app.data.OfflineMediaSpec(
-                            uri = uri, caption = "Process step ${local.name.trim()}", recordName = name.trim(),
+                            uri = uri, caption = "Process step ${local.name.trim().ifBlank { "${index + 1}" }}", recordName = name.trim(),
                             customSegment = processStepSegment(index + 1, local.stepType, fileIndex),
                             batchIndex = fileIndex + 1, linkedType = "processstep", stepIndex = index,
                             location = local.media.location))
@@ -9626,7 +9640,7 @@ private fun ProcessForm(
                                 linkedRecordType = "processstep",
                                 linkedRecordId = serverStep.id,
                                 recordName = name,
-                                caption = "Process step ${serverStep.name}",
+                                caption = "Process step ${serverStep.name.ifBlank { "${index + 1}" }}",
                                 location = local.media.location,
                                 batchIndex = fileIndex + 1,
                                 customSegment = segment
@@ -9637,7 +9651,7 @@ private fun ProcessForm(
                                 uri = uri,
                                 linkedRecordType = "processstep",
                                 linkedRecordId = serverStep.id,
-                                caption = "Process step ${serverStep.name}",
+                                caption = "Process step ${serverStep.name.ifBlank { "${index + 1}" }}",
                                 location = local.media.location,
                                 titleHint = name,
                                 batchIndex = fileIndex + 1,
@@ -9647,7 +9661,7 @@ private fun ProcessForm(
                             if (error is kotlinx.coroutines.CancellationException) throw error
                             stepLeft.add(
                                 OfflineMediaSpec(
-                                    uri = uri, caption = "Process step ${serverStep.name}", recordName = name.trim(),
+                                    uri = uri, caption = "Process step ${serverStep.name.ifBlank { "${index + 1}" }}", recordName = name.trim(),
                                     customSegment = segment, batchIndex = fileIndex + 1, location = local.media.location
                                 )
                             )
@@ -9820,7 +9834,12 @@ private fun ProcessForm(
                         Text("Step ${index + 1} · ${step.stepTypeLabel()}", color = Body, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                         TextButton(onClick = { steps.removeAt(index) }) { Text("Remove") }
                     }
-                    RequiredInput("Name of the step", step.name, step.nameError, step.nameFocus, dictate = dictates("stepName")) { step.name = it }
+                    TextInput("Name of the step", step.name, dictate = dictates("stepName")) { step.name = it }
+                    when {
+                        step.name.isBlank() -> Text("Unnamed step. Name it now or later.", color = MaterialTheme.field.warning, fontSize = 12.sp)
+                        step.templateName != null && step.name == step.templateName ->
+                            Text("Copied from the last process. Check it matches.", color = Muted, fontSize = 12.sp)
+                    }
                     if (step.existingMedia.isNotEmpty()) {
                         Text("Already attached:", color = Muted, fontSize = 12.sp)
                         step.existingMedia.forEach { saved ->
@@ -9858,6 +9877,61 @@ private fun ProcessForm(
             }
         }
 
+        /*
+         * C22: FASTER STEPS. One step per photograph — picked, or shot one after another — in the
+         * order they were taken, unnamed until somebody names them; or the step NAMES of this craft's
+         * last process as a starting template. Nothing is named for the researcher without being shown.
+         */
+        val stepsFromPhotos = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+            orderByCaptureTime(context, uris).forEach { uri ->
+                steps.add(ProcessStepUi(java.util.UUID.randomUUID().toString(), null, "", "SEQUENTIAL").also { it.media.uris = listOf(uri) })
+            }
+            if (uris.isNotEmpty()) onError("${plural(uris.size, "step")} added from photos. Name them when you can.")
+        }
+        val stepCamera = rememberKeepShootingCamera(
+            newUri = { createAppFileUri(context, "step-photo-", ".jpg") },
+            onShot = { uri -> steps.add(ProcessStepUi(java.util.UUID.randomUUID().toString(), null, "", "SEQUENTIAL").also { it.media.uris = listOf(uri) }) },
+            onRunEnded = onError
+        )
+        val stepGate = rememberPermissionGate(onRefused = onError)
+        ActionRow {
+            OutlinedButton(onClick = { stepsFromPhotos.launch("image/*") }) { Text("Steps from photos") }
+            OutlinedButton(onClick = { stepGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) { stepCamera.shoot() } }) { Text("Photograph steps") }
+        }
+        val processCraftId = artisanProducts.firstOrNull { it.id == productId }?.craftId
+            ?: artisanOptions.firstOrNull { it.id == artisanId }?.craftId
+        var templateLoading by remember { mutableStateOf(false) }
+        if (!isEdit && processCraftId != null && steps.none { it.name.isNotBlank() }) {
+            ActionRow {
+                OutlinedButton(
+                    enabled = !templateLoading,
+                    onClick = {
+                        scope.launch {
+                            templateLoading = true
+                            runCatching { repository.latestProcessForCraft(processCraftId, editing?.id) }
+                                .onSuccess { last ->
+                                    if (last == null) {
+                                        onError("No earlier process for this craft yet.")
+                                    } else {
+                                        // Names only, never photos or notes: those belong to the other process.
+                                        val unnamed = steps.filter { it.name.isBlank() && it.media.uris.isEmpty() && it.existingMedia.isEmpty() }
+                                        steps.removeAll(unnamed)
+                                        last.steps.sortedBy { it.sortOrder }.forEach { source ->
+                                            steps.add(
+                                                ProcessStepUi(java.util.UUID.randomUUID().toString(), null, source.name, source.stepType)
+                                                    .also { it.templateName = source.name }
+                                            )
+                                        }
+                                        onError("${plural(last.steps.size, "step name")} copied from “${last.name}”. Check each one.")
+                                    }
+                                }
+                                .onFailure { onError(it.apiErrorMessage("Couldn't load the craft's last process.")) }
+                            templateLoading = false
+                        }
+                    }
+                ) { Text(if (templateLoading) "Loading…" else "Start from this craft's last process") }
+            }
+        }
         Box {
             OutlinedButton(onClick = { addMenu = true }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))

@@ -2118,6 +2118,13 @@ class FieldRepository(
 
     suspend fun process(id: String): ProcessDetailDto = api.process(id)
 
+    /**
+     * C22: the newest process documented for [craftId] that has steps, other than [excludeId] — what
+     * "Start from this craft's last process" copies the step names from.
+     */
+    suspend fun latestProcessForCraft(craftId: String, excludeId: String? = null): ProcessDetailDto? =
+        api.processes(pageSize = 10, craftId = craftId).items.firstOrNull { it.id != excludeId && it.steps.isNotEmpty() }
+
     suspend fun createProcess(body: ProcessCreateRequest, idempotencyKey: String? = null): ProcessDetailDto =
         api.createProcess(idempotencyKey, body)
 
