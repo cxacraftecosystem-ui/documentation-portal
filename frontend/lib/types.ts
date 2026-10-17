@@ -220,6 +220,18 @@ export type Artisan = {
   pehchanCardAvailable?: boolean;
   /** Only ever set while `pehchanCardAvailable` is true — the API nulls it whenever the answer is No. */
   pehchanCardNumber?: string | null;
+  /**
+   * "Not shared by artisan" (C18): the artisan declined to give an Aadhaar. Flagged for follow-up
+   * until a number is added. Optional on the wire: an older server never sends it.
+   */
+  aadhaarNotShared?: boolean;
+  /** The artisan's stated address, hydrated with the record (C17 reads it into child forms). */
+  location?: {
+    state?: string | null;
+    district?: string | null;
+    village?: string | null;
+    pincode?: string | null;
+  } | null;
   // Newline-separated, numbered Do's and Don'ts. Required on new
   // records; existing rows may be null until backfilled.
   dos?: string | null;
@@ -584,6 +596,12 @@ export type QuestionnaireQuestion = {
    */
   helpText?: string | null;
   /**
+   * B8: the artisan field this question is answered from ("name", "place", "craft", …, or the two
+   * sitting facts "interviewDate" and "interviewer"). Set in the question builder; null means none.
+   * Optional on the wire, like `helpText`.
+   */
+  artisanField?: string | null;
+  /**
    * THE PRO-FORMA'S "Required" COLUMN — what the INSTRUMENT asks for, never what this form enforces.
    *
    * `RequiredByInstrument` (components/questionnaires/QuestionHelpText.tsx) prints a quiet word and
@@ -644,6 +662,8 @@ export type QuestionnaireResponse = {
   questionId: string;
   answerText?: string | null;
   notes?: string | null;
+  /** "TRANSCRIPT" when the answer was taken from its clip's transcript (A7); null when typed. */
+  answerSource?: string | null;
   question?: QuestionnaireQuestion;
   answeredBy?: User;
 };
