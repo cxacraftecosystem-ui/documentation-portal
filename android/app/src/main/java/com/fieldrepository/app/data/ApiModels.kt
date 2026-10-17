@@ -591,10 +591,24 @@ data class PendingReviewListDto(
     val pageSize: Int? = null
 )
 
-/** Optional reviewer notes sent with approve/reject; MANDATORY on "send for revision" (422 without). */
+/**
+ * Optional reviewer notes sent with approve/reject; MANDATORY on "send for revision" (422 without).
+ * [reason] is a code from `GET /review/reasons`; null is omitted (`explicitNulls = false`), which is
+ * exactly what an older build sent.
+ */
 @Serializable
 data class ReviewActionRequest(
-    val notes: String? = null
+    val notes: String? = null,
+    val reason: String? = null
+)
+
+/** One reason a reviewer may pick (C19). A [fixable] one on Reject sends the record back instead. */
+@Serializable
+data class ReviewReasonDto(
+    val code: String,
+    val label: String,
+    val fixable: Boolean = false,
+    val needsNote: Boolean = false
 )
 
 /**

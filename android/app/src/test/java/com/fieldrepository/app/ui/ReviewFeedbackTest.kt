@@ -5,6 +5,9 @@ import com.fieldrepository.app.data.DashboardStatsMine
 import com.fieldrepository.app.data.LatestReviewAnswerDto
 import com.fieldrepository.app.data.PendingReviewDto
 import com.fieldrepository.app.data.ReturnedListDto
+import com.fieldrepository.app.data.ReviewActionRequest
+import com.fieldrepository.app.data.ReviewReasonDto
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -71,12 +74,75 @@ class ReviewFeedbackTest {
     @Test
     fun `the screens draw the note, the card and the bulk approval`() {
         val main = source("android/app/src/main/java/com/fieldrepository/app/MainActivity.kt")
-        assertTrue(main.contains("ReviewNoteBanner(repository = repository, recordType = type, recordId = recordId)"))
+        assertTrue(main.contains("ReviewNoteBanner(repository = repository, recordType = type, recordId = recordId, knownStatus = currentStatus)"))
         assertTrue(main.contains("SentBackCard("))
         assertTrue(main.contains("repository.bulkApprove(rows)"))
         assertTrue(main.contains("if (item.resubmitted)"))
         val api = source("android/app/src/main/java/com/fieldrepository/app/data/FieldRepositoryApi.kt")
         assertTrue(api.contains("@POST(\"review/bulk-approve\")"))
         assertTrue(api.contains("@GET(\"review/mine\")"))
+    }
+
+    private val missing = ReviewReasonDto("MISSING_DETAILS", "Missing details", fixable = true)
+    private val duplicate = ReviewReasonDto("DUPLICATE", "Duplicate of another record")
+    private val other = ReviewReasonDto("OTHER", "Other", needsNote = true)
+
+    @Test
+    fun `a picked reason decides what Reject does, as on the web`() {
+        assertEquals("NEEDS_REVISION", ReviewFeedbackCopy.refusalOutcome(missing))
+        assertEquals("Send for revision", ReviewFeedbackCopy.refusalButtonLabel(missing))
+        assertEquals("REJECTED", ReviewFeedbackCopy.refusalOutcome(duplicate))
+        assertEquals("Reject record", ReviewFeedbackCopy.refusalButtonLabel(null))
+        assertFalse(ReviewFeedbackCopy.refusalReady(null, "anything"))
+        assertTrue(ReviewFeedbackCopy.refusalReady(duplicate, ""))
+        assertFalse(ReviewFeedbackCopy.refusalReady(other, "  "))
+        assertTrue(ReviewFeedbackCopy.refusalReady(other, "Wrong artisan"))
+        assertEquals(listOf(missing), ReviewFeedbackCopy.reviseReasons(listOf(missing, duplicate, other)))
+    }
+
+    @Test
+    fun `a reason travels only when picked, so an older build's body is unchanged`() {
+        assertEquals("""{"notes":"x"}""", json.encodeToString(ReviewActionRequest(notes = "x")))
+        assertEquals("""{"reason":"MISSING_DETAILS"}""", json.encodeToString(ReviewActionRequest(reason = "MISSING_DETAILS")))
+        val reasons = json.decodeFromString<List<ReviewReasonDto>>(
+            """[{"code":"MISSING_DETAILS","label":"Missing details","fixable":true,"needsNote":false}]"""
+        )
+        assertTrue(reasons.single().fixable)
+    }
+
+    @Test
+    fun `the banner and the bar ask the server only when there is something to show`() {
+        assertTrue(ReviewFeedbackCopy.bannerNeedsFetch("NEEDS_REVISION"))
+        assertTrue(ReviewFeedbackCopy.bannerNeedsFetch("REJECTED"))
+        assertFalse(ReviewFeedbackCopy.bannerNeedsFetch("PENDING"))
+        assertFalse(ReviewFeedbackCopy.bannerNeedsFetch(null))
+        assertTrue(ReviewFeedbackCopy.barNeedsFetch("PENDING", mayReview = true))
+        assertFalse(ReviewFeedbackCopy.barNeedsFetch("PENDING", mayReview = false))
+        assertFalse(ReviewFeedbackCopy.barNeedsFetch("APPROVED", mayReview = true))
+    }
+
+    @Test
+    fun `the data browser asks for approved records unless the reader chose every status`() {
+        assertEquals("APPROVED", DataStatusChoice.param(DataStatusChoice.DEFAULT))
+        assertNull(DataStatusChoice.param(DataStatusChoice.ALL))
+        assertEquals(listOf("Approved", "Pending review", "All statuses"), DataStatusChoice.options.map { it.label })
+        val browser = source("android/app/src/main/java/com/fieldrepository/app/ui/DataBrowserScreen.kt")
+        assertTrue(browser.contains("repository.dataTree(target, statusParam)"))
+        assertTrue(browser.contains("repository.downloadReport(context, path, state.statusParam)"))
+        assertTrue(browser.contains("status = state.statusParam,"))
+        assertTrue(browser.contains("repository.dataManifest(folder, \"transcripts\", statusParam)"))
+    }
+
+    @Test
+    fun `the queue offers the reasons and a workshop filter, and the record page the decisions`() {
+        val main = source("android/app/src/main/java/com/fieldrepository/app/MainActivity.kt")
+        assertTrue(main.contains("ReviewReasonPicker(panel = \"reject\""))
+        assertTrue(main.contains("ReviewReasonPicker(panel = \"revise\""))
+        assertTrue(main.contains("repository.rejectRecord(item.recordType, item.id, reason?.code, rejectNote)"))
+        assertTrue(main.contains("repository.pendingReviewsPage(page, workshopId = workshopId)"))
+        assertTrue(main.contains("RecordReviewBar("))
+        assertTrue(main.contains("mayReview = canReview,"))
+        val api = source("android/app/src/main/java/com/fieldrepository/app/data/FieldRepositoryApi.kt")
+        assertTrue(api.contains("@GET(\"review/reasons\")"))
     }
 }

@@ -78,6 +78,8 @@ import com.fieldrepository.app.ui.trace.TracePanel
 import com.fieldrepository.app.ui.ActionRow
 import com.fieldrepository.app.ui.ReviewFeedbackCopy
 import com.fieldrepository.app.ui.ReviewNoteBanner
+import com.fieldrepository.app.ui.RecordReviewBar
+import com.fieldrepository.app.ui.ReviewReasonPicker
 import com.fieldrepository.app.ui.SentBackCard
 import com.fieldrepository.app.ui.AppToggle
 import com.fieldrepository.app.ui.MediaAction
@@ -480,6 +482,7 @@ import com.fieldrepository.app.data.FeedbackUpsertRequest
 import com.fieldrepository.app.data.MediaFileDto
 import com.fieldrepository.app.data.AppSettingUpdateRequest
 import com.fieldrepository.app.data.PendingReviewDto
+import com.fieldrepository.app.data.ReviewReasonDto
 import com.fieldrepository.app.data.StagedMedia
 import com.fieldrepository.app.data.TaskDto
 import com.fieldrepository.app.data.WorkshopAccessLevelDto
@@ -2405,6 +2408,8 @@ private fun HomeScreen(
                 onUpdate = { message = null; screen = Screen.Edit(s.mode, s.recordId, back = s) },
                 canOverrideCompletion = isAdmin && adminChrome,
                 showProvenance = canViewProvenance,
+                mayReview = canReview,
+                onMessage = { showMessage(it) },
                 onError = { showMessage(it) }
             )
 
@@ -6324,6 +6329,8 @@ private fun EditScreen(
      * first one's workshop behind, which would offer a shortcut to somewhere the record is not.
      */
     var currentWorkshopId by remember(recordId) { mutableStateOf<String?>(null) }
+    /** The record's review status as its branch loaded it: the note banner asks only when it is returned. */
+    var currentStatus by remember(recordId) { mutableStateOf<String?>(null) }
     /** The record's load failed: drawn as a failure with Try again, which bumps [loadAttempt]. */
     var loadError by remember(recordId) { mutableStateOf<String?>(null) }
     var loadAttempt by remember(recordId) { mutableIntStateOf(0) }
@@ -6356,7 +6363,7 @@ private fun EditScreen(
 
     // The reviewer's note, when this record was sent back or not accepted (A1).
     ReviewFeedbackCopy.recordTypeFor(mode.name)?.let { type ->
-        ReviewNoteBanner(repository = repository, recordType = type, recordId = recordId)
+        ReviewNoteBanner(repository = repository, recordType = type, recordId = recordId, knownStatus = currentStatus)
     }
 
     when (mode) {
@@ -6366,7 +6373,7 @@ private fun EditScreen(
             var answersLoading by remember(recordId) { mutableStateOf(true) }
             LaunchedEffect(recordId, loadAttempt) {
                 runCatching { repository.artisan(recordId) }
-                    .onSuccess { detail = it; currentWorkshopId = it.workshopId }
+                    .onSuccess { detail = it; currentWorkshopId = it.workshopId; currentStatus = it.status }
                     .onFailure { loadError = it.apiErrorMessage("Couldn\'t load this artisan.") }
                 runCatching { repository.artisanQuestionnaire(recordId) }
                     .onSuccess { answers = it.answered }
@@ -6392,7 +6399,7 @@ private fun EditScreen(
             var detail by remember(recordId) { mutableStateOf<ProductDetailDto?>(null) }
             LaunchedEffect(recordId, loadAttempt) {
                 runCatching { repository.product(recordId) }
-                    .onSuccess { detail = it; currentWorkshopId = it.workshopId }
+                    .onSuccess { detail = it; currentWorkshopId = it.workshopId; currentStatus = it.status }
                     .onFailure { loadError = it.apiErrorMessage("Couldn\'t load this product.") }
             }
             val d = detail
@@ -6412,7 +6419,7 @@ private fun EditScreen(
             var detail by remember(recordId) { mutableStateOf<ProcessDetailDto?>(null) }
             LaunchedEffect(recordId, loadAttempt) {
                 runCatching { repository.process(recordId) }
-                    .onSuccess { detail = it; currentWorkshopId = it.workshopId }
+                    .onSuccess { detail = it; currentWorkshopId = it.workshopId; currentStatus = it.status }
                     .onFailure { loadError = it.apiErrorMessage("Couldn\'t load this process.") }
             }
             val d = detail
@@ -6428,7 +6435,7 @@ private fun EditScreen(
             var detail by remember(recordId) { mutableStateOf<ToolDetailDto?>(null) }
             LaunchedEffect(recordId, loadAttempt) {
                 runCatching { repository.tool(recordId) }
-                    .onSuccess { detail = it; currentWorkshopId = it.workshopId }
+                    .onSuccess { detail = it; currentWorkshopId = it.workshopId; currentStatus = it.status }
                     .onFailure { loadError = it.apiErrorMessage("Couldn\'t load this tool.") }
             }
             val d = detail
@@ -6448,7 +6455,7 @@ private fun EditScreen(
             var detail by remember(recordId) { mutableStateOf<WorkshopDetailDto?>(null) }
             LaunchedEffect(recordId, loadAttempt) {
                 runCatching { repository.workshop(recordId) }
-                    .onSuccess { detail = it }
+                    .onSuccess { detail = it; currentStatus = it.status }
                     .onFailure { loadError = it.apiErrorMessage("Couldn\'t load this workshop.") }
             }
             val d = detail
@@ -11605,11 +11612,23 @@ private fun ReviewApprovalCard(
      */
     val selected = remember { mutableStateMapOf<String, PendingReviewDto>() }
     var bulkBusy by remember { mutableStateOf(false) }
+    /** The queue narrowed to one workshop (A13), as the web's queue is; empty is every workshop. */
+    var workshopId by remember { mutableStateOf("") }
+    val workshopSearch = rememberServerSearch(
+        key = "review-workshops",
+        cached = emptyList<WorkshopDetailDto>(),
+        seed = null,
+        idOf = { it.id },
+        textOf = { it.title + " " + it.place }
+    ) { term, at -> repository.workshopsSearchPage(term, at) }
+    /** The short list a reviewer picks a reason from (C19), the server's wording. Empty on an older server. */
+    var reasons by remember { mutableStateOf<List<ReviewReasonDto>>(emptyList()) }
+    LaunchedEffect(Unit) { runCatching { repository.reviewReasons() }.onSuccess { reasons = it } }
 
     fun refresh() {
         scope.launch {
             loading = true
-            runCatching { repository.pendingReviewsPage(page) }
+            runCatching { repository.pendingReviewsPage(page, workshopId = workshopId) }
                 .onSuccess { answer ->
                     pending = answer.items
                     total = answer.total
@@ -11629,7 +11648,7 @@ private fun ReviewApprovalCard(
             loading = false
         }
     }
-    LaunchedEffect(page) { refresh() }
+    LaunchedEffect(page, workshopId) { refresh() }
 
     RecordCard(title = "Reviews & approvals") {
         Text(
@@ -11637,6 +11656,21 @@ private fun ReviewApprovalCard(
             color = Muted,
             fontSize = 12.sp
         )
+        SearchableSelectField(
+            label = "Workshop",
+            options = workshopSearch.known.map { SelectOption(it.id, it.title, it.place.ifBlank { null }) },
+            selectedValue = workshopId,
+            placeholder = "All workshops",
+            includeNone = false,
+            clearable = true,
+            server = workshopSearch.asServerSearch { SelectOption(it.id, it.title, it.place.ifBlank { null }) }
+        ) { picked ->
+            if (picked != workshopId) {
+                workshopId = picked
+                page = 1
+                selected.clear()
+            }
+        }
         when {
             loading -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 FieldCircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
@@ -11707,6 +11741,7 @@ private fun ReviewApprovalCard(
                         PendingReviewRow(
                             repository = repository,
                             item = item,
+                            reasons = reasons,
                             checked = selectionKey in selected,
                             onCheckedChange = { on ->
                                 if (on) selected[selectionKey] = item else selected.remove(selectionKey)
@@ -11749,6 +11784,8 @@ private fun ReviewApprovalCard(
 private fun PendingReviewRow(
     repository: FieldRepository,
     item: PendingReviewDto,
+    /** The reasons from `GET /review/reasons`; empty on an older server, which rejects as before. */
+    reasons: List<ReviewReasonDto> = emptyList(),
     /** Ticked for the bulk approval above the list (B9). */
     checked: Boolean = false,
     onCheckedChange: (Boolean) -> Unit = {},
@@ -11759,10 +11796,13 @@ private fun PendingReviewRow(
 ) {
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
-    // null | "edit" | "revise" — at most one panel open, so the row never grows two forms tall.
+    // null | "edit" | "revise" | "reject" — at most one panel open, so the row never grows two forms tall.
     var panel by remember { mutableStateOf<String?>(null) }
     var confirmReject by remember { mutableStateOf(false) }
     var reviseNote by remember { mutableStateOf("") }
+    var rejectNote by remember { mutableStateOf("") }
+    var reasonCode by remember { mutableStateOf("") }
+    val reason = reasons.firstOrNull { it.code == reasonCode }
     var editNote by remember { mutableStateOf("") }
     // Loaded values (the baseline the diff is taken against) and the reviewer's working copy.
     var original by remember { mutableStateOf<Map<String, String>?>(null) }
@@ -11865,7 +11905,15 @@ private fun PendingReviewRow(
                         // action with almost the same meaning; on a phone, where the two buttons are a
                         // thumb-width apart, doing it on the first tap was a mis-tap away from telling a
                         // contributor their work was thrown out.
-                        onClick = { confirmReject = true },
+                        // With the short list on offer the reason is picked first (C19): a fixable one
+                        // sends the record back instead. An older server offers none and rejects as before.
+                        onClick = {
+                            if (reasons.isEmpty()) confirmReject = true
+                            else {
+                                reasonCode = ""
+                                panel = if (panel == "reject") null else "reject"
+                            }
+                        },
                         enabled = !busy,
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
@@ -11887,7 +11935,10 @@ private fun PendingReviewRow(
                     Text(if (panel == "edit") "Close" else RECORD_UPDATE_LABEL, maxLines = 1, fontSize = 13.sp)
                 }
                 OutlinedButton(
-                    onClick = { panel = if (panel == "revise") null else "revise" },
+                    onClick = {
+                        reasonCode = ""
+                        panel = if (panel == "revise") null else "revise"
+                    },
                     enabled = !busy,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
                 ) { Text(if (panel == "revise") "Close" else "Send for revision", maxLines = 1, fontSize = 12.sp) }
@@ -11903,16 +11954,38 @@ private fun PendingReviewRow(
                     // The reviewer's note back to the field. Dictation only: it is read once, as a
                     // message, and never rendered as a document — and the reviewer is usually
                     // dictating a correction while looking at the record rather than composing.
+                    ReviewReasonPicker(panel = "revise", reasons = reasons, reasonCode = reasonCode) { reasonCode = it }
                     TextInput("What needs to change?", reviseNote, minLines = 2) { reviseNote = it }
                     Button(
                         enabled = !busy && reviseNote.isNotBlank(),
                         modifier = Modifier.fillMaxWidth(),
                         onClick = {
                             act("Sent ${item.label} back for revision", resolves = true) {
-                                repository.reviseRecord(item.recordType, item.id, reviseNote.trim())
+                                repository.reviseRecord(
+                                    item.recordType, item.id, reviseNote.trim(), reason?.takeIf { it.fixable }?.code
+                                )
                             }
                         }
                     ) { Text(if (busy) "Sending…" else "Send back with comments") }
+                }
+                "reject" -> {
+                    ReviewReasonPicker(panel = "reject", reasons = reasons, reasonCode = reasonCode) { reasonCode = it }
+                    TextInput(
+                        if (reason?.needsNote == true) "Note for the contributor (required)" else "Note for the contributor (optional)",
+                        rejectNote,
+                        minLines = 2
+                    ) { rejectNote = it }
+                    Button(
+                        enabled = !busy && ReviewFeedbackCopy.refusalReady(reason, rejectNote),
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            // A final rejection still asks first; a fixable reason is a send-back.
+                            if (ReviewFeedbackCopy.refusalOutcome(reason) == "REJECTED") confirmReject = true
+                            else act("Sent ${item.label} back for revision", resolves = true) {
+                                repository.rejectRecord(item.recordType, item.id, reason?.code, rejectNote)
+                            }
+                        }
+                    ) { Text(if (busy) "Sending…" else ReviewFeedbackCopy.refusalButtonLabel(reason)) }
                 }
                 "edit" -> {
                     val baseline = original
@@ -12020,7 +12093,7 @@ private fun PendingReviewRow(
                 TextButton(onClick = {
                     confirmReject = false
                     act("Rejected ${item.label}", resolves = true) {
-                        repository.rejectRecord(item.recordType, item.id)
+                        repository.rejectRecord(item.recordType, item.id, reason?.code, rejectNote)
                     }
                 }) { Text("Reject record", color = MaterialTheme.colorScheme.error) }
             },
@@ -12470,10 +12543,24 @@ private fun RecordViewScreen(
     onUpdate: () -> Unit,
     canOverrideCompletion: Boolean,
     showProvenance: Boolean,
+    /** The account has review access (`canAccessReview`); without it the bar asks nothing. */
+    mayReview: Boolean = false,
+    onMessage: (String) -> Unit = {},
     onError: (String) -> Unit
 ) {
+    var status by remember(mode, recordId) { mutableStateOf<String?>(null) }
+    var refresh by remember(mode, recordId) { mutableIntStateOf(0) }
     ReviewFeedbackCopy.recordTypeFor(mode.name)?.let { type ->
-        ReviewNoteBanner(repository = repository, recordType = type, recordId = recordId)
+        ReviewNoteBanner(repository = repository, recordType = type, recordId = recordId, knownStatus = status)
+        // Approve, send back or reject without going back to the queue (A13), as the web's page does.
+        RecordReviewBar(
+            repository = repository,
+            recordType = type,
+            recordId = recordId,
+            knownStatus = status,
+            mayReview = mayReview,
+            onDecided = { message -> onMessage(message); refresh += 1 }
+        )
     }
     if (canUpdate) {
         Button(onClick = onUpdate, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
@@ -12482,14 +12569,18 @@ private fun RecordViewScreen(
             Text(RECORD_UPDATE_LABEL)
         }
     }
-    ViewDataDetail(
-        repository = repository,
-        mode = mode,
-        recordId = recordId,
-        canOverrideCompletion = canOverrideCompletion,
-        showProvenance = showProvenance,
-        onError = onError
-    )
+    // A decision re-reads the record, so its status line and the bar above agree with the server.
+    key(refresh) {
+        ViewDataDetail(
+            repository = repository,
+            mode = mode,
+            recordId = recordId,
+            onStatus = { status = it },
+            canOverrideCompletion = canOverrideCompletion,
+            showProvenance = showProvenance,
+            onError = onError
+        )
+    }
 }
 
 @Composable
@@ -12500,6 +12591,8 @@ private fun ViewDataDetail(
     /** Admin AND admin view on — the web's `adminMode && isAdmin(user)` for the completion matrix. */
     canOverrideCompletion: Boolean = false,
     showProvenance: Boolean = false,
+    /** The loaded record's review status, for the review note and bar above it. */
+    onStatus: (String?) -> Unit = {},
     onError: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -12511,7 +12604,7 @@ private fun ViewDataDetail(
         EntryMode.PROCESS -> {
             var detail by remember(recordId) { mutableStateOf<ProcessDetailDto?>(null) }
             LaunchedEffect(recordId, loadAttempt) {
-                runCatching { repository.process(recordId) }.onSuccess { detail = it }.onFailure { loadError = it.apiErrorMessage("Couldn't load this process.") }
+                runCatching { repository.process(recordId) }.onSuccess { detail = it; onStatus(it.status) }.onFailure { loadError = it.apiErrorMessage("Couldn't load this process.") }
             }
             val d = detail ?: return run { LoadingCard(mode, loadError, retryLoad) }
             RecordCard(title = d.name.ifBlank { "Process" }) {
@@ -12536,7 +12629,7 @@ private fun ViewDataDetail(
         }
         EntryMode.ARTISAN -> {
             var d by remember(recordId) { mutableStateOf<ArtisanDetailDto?>(null) }
-            LaunchedEffect(recordId, loadAttempt) { runCatching { repository.artisan(recordId) }.onSuccess { d = it }.onFailure { loadError = it.apiErrorMessage("Couldn't load this artisan.") } }
+            LaunchedEffect(recordId, loadAttempt) { runCatching { repository.artisan(recordId) }.onSuccess { d = it; onStatus(it.status) }.onFailure { loadError = it.apiErrorMessage("Couldn't load this artisan.") } }
             val v = d ?: return run { LoadingCard(mode, loadError, retryLoad) }
             RecordCard(title = v.name.ifBlank { "Artisan" }) {
                 if (showProvenance) ProvenanceSection(meta = v.extraMetadata, createdByName = v.createdBy?.name)
@@ -12566,7 +12659,7 @@ private fun ViewDataDetail(
         }
         EntryMode.PRODUCT -> {
             var d by remember(recordId) { mutableStateOf<ProductDetailDto?>(null) }
-            LaunchedEffect(recordId, loadAttempt) { runCatching { repository.product(recordId) }.onSuccess { d = it }.onFailure { loadError = it.apiErrorMessage("Couldn't load this product.") } }
+            LaunchedEffect(recordId, loadAttempt) { runCatching { repository.product(recordId) }.onSuccess { d = it; onStatus(it.status) }.onFailure { loadError = it.apiErrorMessage("Couldn't load this product.") } }
             val v = d ?: return run { LoadingCard(mode, loadError, retryLoad) }
             RecordCard(title = v.productName.ifBlank { "Product" }) {
                 if (showProvenance) ProvenanceSection(meta = v.extraMetadata, createdByName = v.createdBy?.name)
@@ -12585,7 +12678,7 @@ private fun ViewDataDetail(
         }
         EntryMode.TOOL -> {
             var d by remember(recordId) { mutableStateOf<ToolDetailDto?>(null) }
-            LaunchedEffect(recordId, loadAttempt) { runCatching { repository.tool(recordId) }.onSuccess { d = it }.onFailure { loadError = it.apiErrorMessage("Couldn't load this tool.") } }
+            LaunchedEffect(recordId, loadAttempt) { runCatching { repository.tool(recordId) }.onSuccess { d = it; onStatus(it.status) }.onFailure { loadError = it.apiErrorMessage("Couldn't load this tool.") } }
             val v = d ?: return run { LoadingCard(mode, loadError, retryLoad) }
             RecordCard(title = v.toolkitName.ifBlank { "Tool" }) {
                 if (showProvenance) ProvenanceSection(meta = v.extraMetadata, createdByName = v.createdBy?.name)
@@ -12603,7 +12696,7 @@ private fun ViewDataDetail(
         }
         EntryMode.WORKSHOP -> {
             var d by remember(recordId) { mutableStateOf<WorkshopDetailDto?>(null) }
-            LaunchedEffect(recordId, loadAttempt) { runCatching { repository.workshop(recordId) }.onSuccess { d = it }.onFailure { loadError = it.apiErrorMessage("Couldn't load this workshop.") } }
+            LaunchedEffect(recordId, loadAttempt) { runCatching { repository.workshop(recordId) }.onSuccess { d = it; onStatus(it.status) }.onFailure { loadError = it.apiErrorMessage("Couldn't load this workshop.") } }
             val v = d ?: return run { LoadingCard(mode, loadError, retryLoad) }
             RecordCard(title = v.title.ifBlank { "Workshop" }) {
                 if (showProvenance) ProvenanceSection(meta = v.extraMetadata, createdByName = v.createdBy?.name)
@@ -12653,7 +12746,11 @@ private fun ViewDataDetail(
                             .forEach { mediaById[it.id] = it }
                     }
                     group to mediaById.values.toList()
-                }.onSuccess { (g, media) -> members = g; groupMedia = media }
+                }.onSuccess { (g, media) ->
+                    members = g
+                    groupMedia = media
+                    onStatus(g.firstOrNull { it.id == recordId }?.status)
+                }
                     .onFailure { loadError = it.apiErrorMessage("Couldn't load this interview.") }
             }
             val g = members ?: return run { LoadingCard(mode, loadError, retryLoad) }

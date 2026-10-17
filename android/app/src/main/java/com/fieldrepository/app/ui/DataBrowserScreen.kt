@@ -238,6 +238,26 @@ class DataBrowserState(
     var openTranscripts by mutableStateOf<Set<String>>(emptySet())
         private set
 
+    /**
+     * The review status every folder, preview and download is narrowed to (C21): Approved unless the
+     * reader chose otherwise, because an export means approved. The web's Data page, the same three.
+     */
+    var reviewStatus by mutableStateOf(DataStatusChoice.DEFAULT)
+        private set
+
+    /** The `status` the server is asked for; null is every status. */
+    val statusParam: String? get() = DataStatusChoice.param(reviewStatus)
+
+    /** Every listed folder answered for the old status: drop them and re-read the open one. */
+    fun changeReviewStatus(next: String) {
+        if (next == reviewStatus) return
+        reviewStatus = next
+        levels.clear()
+        transcriptsByFolder.clear()
+        openTranscripts = emptySet()
+        open(currentPath)
+    }
+
     private val levels = mutableStateMapOf<String, DataTreeDto>()
     private val transcriptsByFolder = mutableStateMapOf<String, List<DataManifestFileDto>>()
     private var transcriptFolderLoading by mutableStateOf<String?>(null)
@@ -378,7 +398,7 @@ class DataBrowserState(
         scope.launch {
             transcriptFolderLoading = folder
             try {
-                val manifest = repository.dataManifest(folder, "transcripts")
+                val manifest = repository.dataManifest(folder, "transcripts", statusParam)
                 transcriptsByFolder[folder] = manifest.files
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -405,7 +425,7 @@ class DataBrowserState(
     }
 
     private suspend fun fetch(target: String): DataTreeDto? = try {
-        val level = repository.dataTree(target)
+        val level = repository.dataTree(target, statusParam)
         levels[target] = level
         if (currentPath == target) {
             tree = level
@@ -537,6 +557,15 @@ fun DataBrowserScreen(
                 )
             }
 
+            item("review-status") {
+                SegmentedChoice(
+                    label = "Review status",
+                    options = DataStatusChoice.options,
+                    selectedValue = state.reviewStatus,
+                    onSelect = state::changeReviewStatus
+                )
+            }
+
             if (state.taxonomies.isNotEmpty()) {
                 item("taxonomies") {
                     TaxonomySwitcher(
@@ -602,7 +631,7 @@ fun DataBrowserScreen(
                             scope.launch {
                                 reporting = true
                                 val path = state.currentPath
-                                runCatching { repository.downloadReport(context, path) }
+                                runCatching { repository.downloadReport(context, path, state.statusParam) }
                                     .onSuccess { note("Report saved to $it") }
                                     .onFailure {
                                         state.reportError(it.apiErrorMessage("Unable to download the report"))
@@ -651,6 +680,7 @@ fun DataBrowserScreen(
                                         path = path,
                                         include = include,
                                         folderName = name,
+                                        status = state.statusParam,
                                         onProgress = { done, total -> zipDone = done; zipTotal = total }
                                     )
                                 }.onSuccess { result ->

@@ -1237,7 +1237,12 @@ class FieldRepository(
      * Needs the dataset-download permission (403 otherwise) and everything listed is already filtered
      * to what the caller may see.
      */
-    suspend fun dataTree(path: String = ""): DataTreeDto = api.dataTree(path)
+    /**
+     * One level of the tree. [status] narrows every record to one review status: the data browser
+     * sends `APPROVED` unless the reader chose every status (C21, an export means approved). Null is
+     * every status, which is what an older build always asked for.
+     */
+    suspend fun dataTree(path: String = "", status: String? = null): DataTreeDto = api.dataTree(path, status)
 
     /**
      * The tree folder that holds [recordId], or null when nothing files it yet — an artisan who has
@@ -1256,15 +1261,25 @@ class FieldRepository(
      * The flattened subtree below [path]. [include] is a CSV of
      * `text,images,videos,audios,transcripts,documents,other`; null means everything.
      */
-    suspend fun dataManifest(path: String = "", include: String? = null): DataManifestDto =
-        api.dataManifest(path, include?.blankToNull())
+    suspend fun dataManifest(path: String = "", include: String? = null, status: String? = null): DataManifestDto =
+        api.dataManifest(path, include?.blankToNull(), status)
 
     /** Records awaiting review (status PENDING), newest first, across record types. */
     suspend fun pendingReviews(): List<PendingReviewDto> = api.pendingReviews().items
 
     /** One page of the review queue, newest first, with the server's true count of the whole queue. */
-    suspend fun pendingReviewsPage(page: Int, pageSize: Int = REVIEW_PAGE_SIZE): PendingReviewListDto =
-        api.pendingReviews(page = page, pageSize = pageSize)
+    suspend fun pendingReviewsPage(
+        page: Int,
+        pageSize: Int = REVIEW_PAGE_SIZE,
+        workshopId: String? = null
+    ): PendingReviewListDto =
+        api.pendingReviews(page = page, pageSize = pageSize, workshopId = workshopId?.blankToNull())
+
+    private var reasonsCache: List<ReviewReasonDto>? = null
+
+    /** The reasons a reviewer picks from, read once per session (the server's own wording). */
+    suspend fun reviewReasons(): List<ReviewReasonDto> =
+        reasonsCache ?: api.reviewReasons().also { reasonsCache = it }
 
     /** The last review decision on a record, for the note above its edit form (A1). */
     suspend fun latestReview(recordType: String, recordId: String): LatestReviewAnswerDto =
@@ -1282,14 +1297,18 @@ class FieldRepository(
         api.approveRecord(recordType, recordId, ReviewActionRequest())
     }
 
-    /** Reject a pending record (admins, or users granted the review permission). */
-    suspend fun rejectRecord(recordType: String, recordId: String) {
-        api.rejectRecord(recordType, recordId, ReviewActionRequest())
+    /**
+     * Reject a pending record (admins, or users granted the review permission). With a FIXABLE
+     * [reason] the server sends it back for revision instead; the answer's status says which.
+     */
+    suspend fun rejectRecord(recordType: String, recordId: String, reason: String? = null, notes: String? = null): String? {
+        val answer = api.rejectRecord(recordType, recordId, ReviewActionRequest(notes = notes?.blankToNull(), reason = reason))
+        return ((answer as? JsonObject)?.get("status") as? JsonPrimitive)?.contentOrNull
     }
 
     /** Send a record back to its creator. [notes] is mandatory — the API 422s on a blank one. */
-    suspend fun reviseRecord(recordType: String, recordId: String, notes: String) {
-        api.reviseRecord(recordType, recordId, ReviewActionRequest(notes = notes))
+    suspend fun reviseRecord(recordType: String, recordId: String, notes: String, reason: String? = null) {
+        api.reviseRecord(recordType, recordId, ReviewActionRequest(notes = notes, reason = reason))
     }
 
     /**
@@ -1931,8 +1950,8 @@ class FieldRepository(
      * [path] scopes the report to one subtree of the data browser; the default, "", is the whole
      * dataset — which is what every caller before the data browser existed meant.
      */
-    suspend fun downloadReport(context: Context, path: String = ""): String = withContext(Dispatchers.IO) {
-        val response = api.dataReport(format = "xlsx", path = path)
+    suspend fun downloadReport(context: Context, path: String = "", status: String? = null): String = withContext(Dispatchers.IO) {
+        val response = api.dataReport(format = "xlsx", path = path, status = status)
         if (!response.isSuccessful) throw IllegalStateException("The report didn't download. Try again.")
         val body = response.body() ?: throw IllegalStateException("The report didn't download. Try again.")
         val stamp = DateTimeFormatter.ofPattern("ddMMyyyyHHmmss").withZone(ZoneId.systemDefault()).format(Instant.now())
@@ -1966,6 +1985,8 @@ class FieldRepository(
         path: String,
         include: String? = null,
         folderName: String? = null,
+        /** One review status, or null for every status: the data browser's choice (C21). */
+        status: String? = null,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }
     ): DatasetDownloadResult = withContext(Dispatchers.IO) {
         val stamp = DateTimeFormatter.ofPattern("ddMMyyyyHHmmss").withZone(ZoneId.systemDefault()).format(Instant.now())
@@ -1978,9 +1999,9 @@ class FieldRepository(
         var written = 0
         val outcome = ZipOutputStream(BufferedOutputStream(FileOutputStream(tmp))).use { zip ->
             readManifest(
-                streamed = { api.dataManifestStream(path, include?.blankToNull()) },
+                streamed = { api.dataManifestStream(path, include?.blankToNull(), status = status) },
                 buffered = {
-                    val manifest = api.dataManifest(path, include?.blankToNull())
+                    val manifest = api.dataManifest(path, include?.blankToNull(), status)
                     Triple(manifest.files, manifest.files.size, manifest.truncated)
                 },
                 deserializer = DataManifestFileDto.serializer(),

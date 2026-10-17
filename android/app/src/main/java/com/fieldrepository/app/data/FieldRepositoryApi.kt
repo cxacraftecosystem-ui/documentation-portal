@@ -169,8 +169,13 @@ interface FieldRepositoryApi {
     @GET("review/pending")
     suspend fun pendingReviews(
         @Query("page") page: Int? = null,
-        @Query("pageSize") pageSize: Int? = null
+        @Query("pageSize") pageSize: Int? = null,
+        @Query("workshopId") workshopId: String? = null
     ): PendingReviewListDto
+
+    /** The short list a reviewer picks a reason from (C19); `fixable` ones send the record back. */
+    @GET("review/reasons")
+    suspend fun reviewReasons(): List<ReviewReasonDto>
 
     @POST("app/release")
     suspend fun publishAppRelease(@Body body: AppReleasePublishRequest): AppReleaseDto
@@ -587,7 +592,8 @@ interface FieldRepositoryApi {
     @GET("data/report")
     suspend fun dataReport(
         @Query("format") format: String = "xlsx",
-        @Query("path") path: String = ""
+        @Query("path") path: String = "",
+        @Query("status") status: String? = null
     ): Response<ResponseBody>
 
     // Admin-only record deletion (backend enforces is_admin).
@@ -1160,7 +1166,7 @@ interface FieldRepositoryApi {
     // --- Data browser (needs the dataset-download permission; rows are visibility-filtered) ---
     // ONE level of the virtual tree. path="" is the taxonomy chooser, not a folder listing.
     @GET("data/tree")
-    suspend fun dataTree(@Query("path") path: String = ""): DataTreeDto
+    suspend fun dataTree(@Query("path") path: String = "", @Query("status") status: String? = null): DataTreeDto
 
     // Where a record sits in the tree, so a search hit can be turned into a folder to open. Answers
     // `{"path": null}` when nothing files the record yet — that is a fact, not an error.
@@ -1180,13 +1186,15 @@ interface FieldRepositoryApi {
     suspend fun dataManifestStream(
         @Query("path") path: String = "",
         @Query("include") include: String? = null,
-        @Query("stream") stream: Int = 1
+        @Query("stream") stream: Int = 1,
+        @Query("status") status: String? = null
     ): Response<ResponseBody>
 
     @GET("data/manifest")
     suspend fun dataManifest(
         @Query("path") path: String = "",
-        @Query("include") include: String? = null
+        @Query("include") include: String? = null,
+        @Query("status") status: String? = null
     ): DataManifestDto
 
     // One media file. Audio defaults to a server-side .mp4 (AAC) conversion; anything else is
