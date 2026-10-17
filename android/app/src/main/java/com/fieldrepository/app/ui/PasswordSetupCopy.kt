@@ -140,8 +140,7 @@ const val PASSWORD_CHANGE_SESSIONS = "You stay signed in here, and are signed ou
  * know WHICH password to type next. Both of the ways it happens to somebody are named, with the one
  * answer that serves both.
  */
-const val SESSION_ENDED_SENTENCE = "This sign-in has ended. If your password was changed on another " +
-    "device or by an administrator, sign in with the new one."
+const val SESSION_ENDED_SENTENCE = "Signed out. If your password changed, use the new one."
 
 /**
  * Why a new password may not be sent yet, as the sentence to show — or null when it may.
@@ -168,7 +167,7 @@ fun newPasswordRefusal(next: String, confirm: String, current: String = ""): Str
         next != confirm -> "The two passwords do not match."
         // `newPasswordProblem` in `frontend/lib/passwordChange.ts` says the same, word for word.
         current.isNotEmpty() && next == current ->
-            "Your new password must be different from your current one."
+            "Choose a different password from your current one."
         else -> null
     }
 }
@@ -199,24 +198,20 @@ fun passwordGateAsksForCurrentAfter(status: Int?): Boolean = status == 400
  */
 const val PASSWORD_CHANGE_NOT_SENT = "Your new password could not be sent, so nothing has " +
     "changed. Try again."
-const val PASSWORD_CHANGE_NOT_SENT_OFFLINE = "This phone has no connection, so nothing has changed. " +
-    "Try again where there is a signal."
+const val PASSWORD_CHANGE_NOT_SENT_OFFLINE = "No connection — nothing changed. Try again with signal."
 
 /**
  * The change may have landed and this session has since been refused: the gate signs out and the
  * sign-in card says this. Two passwords, in the order to try them, because only the server knows
  * which one it holds.
  */
-const val PASSWORD_MAY_ALREADY_BE_IN_EFFECT = "Your new password may already be in effect. Sign in " +
-    "with it; if it is refused, use the one you were given."
+const val PASSWORD_MAY_ALREADY_BE_IN_EFFECT = "Your new password may already work. Try it; if refused, use the old one."
 
 /**
  * The change's answer was lost and the question asked afterwards went unanswered too. The gate stays
  * up and says so — a retry finds out either way — with the same two passwords for whoever signs out.
  */
-const val PASSWORD_CHANGE_UNCONFIRMED = "This phone could not tell whether your new password was " +
-    "saved. Try again; if you sign out instead, sign in with the new password, and if it is refused, " +
-    "use the one you were given."
+const val PASSWORD_CHANGE_UNCONFIRMED = "Not sure your new password saved. Try again — or sign in with the new one, and the old one if that fails."
 
 /** What the first-password gate does once `POST /auth/change-password` has failed. */
 sealed interface PasswordGateAfterFailure {
@@ -478,11 +473,11 @@ private fun percentDecode(value: String): String {
  * of, from a server newer than the handset. It says only what a bare refusal proves.
  */
 fun passwordLinkRefusal(reason: String?): String = when (reason?.trim()?.lowercase()) {
-    "missing" -> "This link is incomplete. Paste the whole link the administrator sent you."
-    "malformed" -> "This is not a link this app issued. Ask the administrator for another."
-    "expired" -> "This link has expired. Ask the administrator for a new one."
-    "revoked" -> "This link was withdrawn. Ask the administrator for a new one."
-    "spent" -> "This link has already been used. Sign in with the password you set."
+    "missing" -> "This link is incomplete. Paste all of it."
+    "malformed" -> "Not a valid link. Ask for a new one."
+    "expired" -> "This link has expired. Ask for a new one."
+    "revoked" -> "This link was withdrawn. Ask for a new one."
+    "spent" -> "Link already used. Sign in with your password."
     "unknown-account" -> "This link no longer points at an account."
     else -> "This password link is not valid."
 }

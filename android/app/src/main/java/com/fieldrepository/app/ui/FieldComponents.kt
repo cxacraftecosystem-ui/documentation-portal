@@ -106,7 +106,7 @@ fun LocationEditor(
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Location", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
         Text(
-            "Tag where this was documented. Enter coordinates, capture a GPS fix, or drop a pin on the map.",
+            "Where this was documented.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -126,7 +126,7 @@ fun LocationEditor(
                 modifier = Modifier.weight(1f)
             )
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        ActionRow {
             OutlinedButton(
                 onClick = {
                     val loc = onUseGps()
@@ -136,18 +136,19 @@ fun LocationEditor(
                         onChange(loc)
                         onMessage("Location tagged: ${trimCoord(loc.latitude)}, ${trimCoord(loc.longitude)}")
                     } else {
-                        onMessage("No GPS fix yet; try again after location warms up.")
+                        onMessage("No GPS fix yet. Try again shortly.")
                     }
                 },
-                modifier = Modifier.weight(1f)
             ) { Text("Use current GPS") }
-            OutlinedButton(onClick = { showMap = true }, modifier = Modifier.weight(1f)) {
+            OutlinedButton(onClick = { showMap = true }) {
                 Text("Pick on map")
             }
         }
         if (latText.isNotBlank() || lngText.isNotBlank()) {
-            TextButton(onClick = { latText = ""; lngText = ""; onChange(null) }) {
-                Text("Clear location")
+            ActionRow {
+                TextButton(onClick = { latText = ""; lngText = ""; onChange(null) }) {
+                    Text("Clear location")
+                }
             }
         }
     }
@@ -208,7 +209,7 @@ fun MapPickerDialog(
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Drop a pin", fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
-                Text("Tap the map or drag the marker to set the exact location.", color = Muted, fontSize = 12.sp)
+                Text("Tap or drag the marker.", color = Muted, fontSize = 12.sp)
                 AndroidView(
                     modifier = Modifier.fillMaxWidth().height(380.dp).background(SurfaceCard, RoundedCornerShape(12.dp)),
                     factory = { ctx ->
@@ -242,12 +243,11 @@ fun MapPickerDialog(
                 picked?.let { (lat, lng) ->
                     Text("Selected: ${trimCoord(lat)}, ${trimCoord(lng)}", color = Body, fontSize = 12.sp)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
+                ActionRow {
+                    OutlinedButton(onClick = onDismiss) { Text("Cancel") }
                     Button(
                         onClick = { picked?.let { (lat, lng) -> onPick(lat, lng) } },
                         enabled = picked != null,
-                        modifier = Modifier.weight(1f)
                     ) { Text("Use this point") }
                 }
             }
@@ -338,7 +338,7 @@ fun ProvenanceSection(meta: JsonObject?, createdByName: String?) {
                 Text("Record created by $createdByName", color = Muted, fontSize = 12.sp)
             }
             if (rows.isEmpty()) {
-                Text("No per-field attribution recorded yet.", color = Muted, fontSize = 12.sp)
+                Text("No attribution yet.", color = Muted, fontSize = 12.sp)
             } else {
                 HorizontalDivider()
                 rows.forEach { row ->
@@ -371,7 +371,7 @@ fun ArtisanQuestionnairePanel(answers: List<ArtisanAnswerDto>, loading: Boolean)
             Text("Questionnaire answers", fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
             when {
                 loading -> Text("Loading answers...", color = Muted, fontSize = 12.sp)
-                answers.isEmpty() -> Text("No answered questionnaire questions for this artisan yet.", color = Muted, fontSize = 12.sp)
+                answers.isEmpty() -> Text("No answers yet.", color = Muted, fontSize = 12.sp)
                 else -> {
                     val grouped = answers.groupBy { (it.sectionCode ?: "") + " " + (it.sectionTitle ?: "Section") }
                     grouped.forEach { (sectionLabel, sectionAnswers) ->

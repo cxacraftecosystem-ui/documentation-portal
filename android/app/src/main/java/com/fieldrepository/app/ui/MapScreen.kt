@@ -573,9 +573,7 @@ fun MapScreen(
     Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
         MapCard(title = "Where the work comes from", icon = Icons.Filled.Place) {
             Text(
-                "Every documented record placed on the map twice over: where the craft is from, and " +
-                    "where the recording was actually made. The two are not the same place, and the " +
-                    "map says which is which.",
+                "Where each craft is from, and where it was recorded.",
                 color = MaterialTheme.field.muted,
                 fontSize = 12.sp
             )
@@ -607,7 +605,7 @@ fun MapScreen(
 
             current == null -> MapCard(title = "Placing the records…") {
                 Text(
-                    "Reading every record's address and every recorded fix.",
+                    "Loading places…",
                     color = MaterialTheme.field.muted,
                     fontSize = 12.sp
                 )
@@ -619,8 +617,7 @@ fun MapScreen(
                     when {
                         points.isEmpty() -> Text(
                             if (!workshopScope.isAllRecords) {
-                                "No records with a mapped address in the chosen workshops. Widen " +
-                                    "the workshop scope, or choose All records."
+                                "No mapped records in these workshops."
                             } else {
                                 "No records with a mapped address yet."
                             },
@@ -629,9 +626,7 @@ fun MapScreen(
                         )
 
                         geometryFailed -> Text(
-                            "The national outline could not be read from the app, so the picture is " +
-                                "not drawn. Every place is listed below with its counts and its " +
-                                "precision.",
+                            "Map outline unavailable. Places are listed below.",
                             color = MaterialTheme.field.body,
                             fontSize = 13.sp
                         )
@@ -655,7 +650,7 @@ fun MapScreen(
                     }
                     if (points.isNotEmpty()) {
                         Text(
-                            "Tap a pin to read its number and bring its entry in the list below into view.",
+                            "Tap a pin to see it in the list.",
                             color = MaterialTheme.field.muted,
                             fontSize = 11.sp
                         )
@@ -769,15 +764,7 @@ private fun DetailLevelControl(
             Text(hint, color = MaterialTheme.field.muted, fontSize = 11.sp)
         }
         Text(
-            "The outline is the international border, as the Government of India depicts it, and it " +
-                "is the same line at every level: state and district borders are clipped to it, so " +
-                "changing the detail never moves the national boundary. State borders are drawn at " +
-                "State and District; district borders at District. Records stay labelled, sized " +
-                "points per state or district rather than shaded regions — the pin says how many " +
-                "records are there, the border says where the unit ends. 43 of the 795 districts have " +
-                "no border of their own in the published boundary data — most were notified after it " +
-                "was published. Their records are placed and counted exactly like every other, inside " +
-                "the parent district each was carved from, or their state where that is not on record.",
+            "International border as depicted by the Government of India. 43 newer districts have no published border; their records sit in the parent district.",
             color = MaterialTheme.field.muted,
             fontSize = 11.sp
         )
@@ -1179,9 +1166,8 @@ private fun IndiaMapCanvas(
                 // against a corrupt aspect turning the divisor into zero.
                 .aspectRatio(1f / max(0.1f, geometry.aspect))
                 .semantics {
-                    contentDescription = "Map of India showing where the documented records come " +
-                        "from, with ${points.size} " + (if (points.size == 1) "point" else "points") +
-                        ". Every place is listed below with its counts and how precisely it is known."
+                    contentDescription = "Map of India with ${points.size} " + (if (points.size == 1) "point" else "points") +
+                        ". Places are listed below."
                 }
                 .pointerInput(pins, slopPx) {
                     detectTapGestures { tap ->
@@ -1564,8 +1550,7 @@ private fun MapSummaryCard(
             Text(
                 buildString {
                     append(
-                        "The two counts overlap and do not add up: one record can be both from " +
-                            "Bagru and recorded at a workshop in Kharagpur."
+                        "The counts overlap — a record can be from one place and recorded in another."
                     )
                     if (summary.originExcludes.isNotEmpty()) {
                         // The bucket names arrive lower-case from the API and this is the start of a
@@ -1577,15 +1562,14 @@ private fun MapSummaryCard(
                             }
                         )
                         append(
-                            " have no address of their own, so they are placed only by the " +
-                                "address of the location they were captured at."
+                            " are placed where they were captured."
                         )
                     }
                     if (summary.captureTruncated) {
-                        append(" More GPS fixes matched than this map will fold; the busiest are shown.")
+                        append(" Showing the busiest GPS points.")
                     }
                     if (summary.clusterKilometres > 0) {
-                        append(" GPS fixes within ${summary.clusterKilometres} km are drawn as one pin.")
+                        append(" Points within ${summary.clusterKilometres} km share a pin.")
                     }
                 },
                 color = MaterialTheme.field.muted,
@@ -1620,8 +1604,7 @@ private fun MapSummaryCard(
                 )
                 if (address.withDistrict < address.locations) {
                     Text(
-                        "Records with no district are drawn at their state’s seat and say so. " +
-                            "Filling in the district on the record moves the pin.",
+                        "Records without a district sit at the state capital.",
                         color = MaterialTheme.field.muted,
                         fontSize = 11.sp
                     )
@@ -1722,8 +1705,7 @@ private fun MapPlaceListCard(
 ) {
     MapCard(title = "Every place, as a list") {
         Text(
-            "The same information as the map, at the same detail level, numbered to match the pins. " +
-                "Choose a place to see the records there" +
+            "Numbered to match the pins. Choose a place to see its records" +
                 (childLevel?.let { ", or open a row for the ${it.lowercase(Locale.ROOT)}s inside it" } ?: "") +
                 ".",
             color = MaterialTheme.field.muted,
@@ -2059,8 +2041,8 @@ private fun PlaceRow(
                     }
                     if (point.childrenTruncated) {
                         Text(
-                            "The busiest are listed. Switch the detail level to " +
-                                (childLevel ?: "DISTRICT").lowercase(Locale.ROOT) + " to see them all.",
+                            "Showing the busiest. Switch to " +
+                                (childLevel ?: "DISTRICT").lowercase(Locale.ROOT) + " detail for all.",
                             color = MaterialTheme.field.muted,
                             fontSize = 11.sp
                         )
@@ -2124,10 +2106,7 @@ private fun UnplacedBlock(unplaced: List<MapUnplacedDto>) {
             fontWeight = FontWeight.SemiBold
         )
         Text(
-            "These records carry no state on their location and no place name the atlas can " +
-                "resolve, so there is nothing to place them by. They are counted in the totals but " +
-                "have no pin. Adding a state — and ideally a district — to the record puts it on " +
-                "the map.",
+            "No state or recognisable place, so no pin. Add a state to the record to map it.",
             color = MaterialTheme.field.onWarningContainer,
             fontSize = 11.sp
         )
@@ -2221,13 +2200,11 @@ private fun MapPointPanel(
             Text(
                 when {
                     point.pinnedRecords == point.total ->
-                        "Every record here carries a pin on the subject's own place."
+                        "All placed by pin."
                     point.pinnedRecords == 0 ->
-                        "No record here carries a pin on the subject's place — this point comes " +
-                            "from the stated address."
+                        "Placed by address, not a pin."
                     else ->
-                        "${point.pinnedRecords} of ${point.total} records here carry a pin on the " +
-                            "subject's place."
+                        "${point.pinnedRecords} of ${point.total} placed by pin."
                 },
                 color = MaterialTheme.field.muted,
                 fontSize = 11.sp
@@ -2258,7 +2235,7 @@ private fun MapPointPanel(
                 rows.forEach { row -> PointRecordRow(row, onOpenRecord) }
                 if (truncated) {
                     Text(
-                        "Showing the most recent of each type. Open Browse records for the full list.",
+                        "Most recent of each type. See Browse records for all.",
                         color = MaterialTheme.field.muted,
                         fontSize = 11.sp
                     )

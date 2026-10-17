@@ -206,8 +206,7 @@ fun TraceExportCard(
         )
         Text(
             // THE COUNT IS READ, NEVER TYPED. See TRACE_EXPORT_FORMAT_COUNT.
-            "$TRACE_EXPORT_FORMAT_COUNT formats. The drawing is the same in all of them; what " +
-                "changes is which machine can open it.",
+            "$TRACE_EXPORT_FORMAT_COUNT formats of the same drawing.",
             color = MaterialTheme.field.muted,
             fontSize = 11.sp,
             lineHeight = 16.sp,
@@ -461,8 +460,7 @@ fun TraceExportCard(
                                     )
                                 }.onFailure {
                                     onError(
-                                        "Nothing installed on this device offered to send it. It is " +
-                                            "still saved — ${file.savedTo}"
+                                        "No app can send this. It's saved — ${file.savedTo}"
                                     )
                                 }
                             },

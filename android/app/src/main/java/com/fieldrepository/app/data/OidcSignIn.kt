@@ -127,7 +127,7 @@ data class OidcLoginRequest(
 /** What the card says when the provider sent nothing back. `access_denied` is a person's choice. */
 fun oidcCallbackErrorMessage(provider: OidcProviderId, error: String?): String =
     if (error == "access_denied" || error == "cancelled") {
-        "Signing in with ${provider.label} was cancelled. You can try again."
+        "${provider.label} sign-in cancelled."
     } else {
-        "Signing in with ${provider.label} did not complete. Try again, or use another way to sign in."
+        "${provider.label} sign-in didn't finish. Try again."
     }

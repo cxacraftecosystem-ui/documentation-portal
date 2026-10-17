@@ -66,6 +66,7 @@ import androidx.lifecycle.compose.currentStateAsState
 import com.fieldrepository.app.ui.LocalAppPreferences
 // The two-typeface `Text`, shadowing androidx.compose.material3.Text — see ui/FieldText.kt for why a
 // bare Material `Text` here would quietly set this panel's headings in the body face.
+import com.fieldrepository.app.ui.ActionRow
 import com.fieldrepository.app.ui.Text
 import com.fieldrepository.app.ui.field
 import kotlinx.coroutines.CancellationException
@@ -440,10 +441,7 @@ fun TracePanel(
             )
             if (summary == null) {
                 Text(
-                    "Turns the pencil in this photograph into vector line work — the same drawing, as " +
-                        "lines that print at any size without going blocky. The result is added as a " +
-                        "separate file; the photograph itself is never changed. It runs on this " +
-                        "device and needs no connection.",
+                    "Turn the pencil drawing into vector line art. Added as a separate file; works offline.",
                     color = MaterialTheme.field.muted,
                     fontSize = 11.sp,
                     lineHeight = 16.sp,
@@ -460,9 +458,7 @@ fun TracePanel(
                 Text(
                     // SAID PLAINLY. Somebody who reopened expecting the comparator they left would have
                     // been told something specific and false by a card that said nothing.
-                    "The drawing itself is not kept while this is closed — it is two full-size " +
-                        "pictures, and holding them would cost this phone the memory the trace needs. " +
-                        "Opening this again traces afresh; anything already added stays added.",
+                    "Closing discards the trace. Anything added stays added.",
                     color = MaterialTheme.field.muted,
                     fontSize = 11.sp,
                     lineHeight = 16.sp,
@@ -470,17 +466,19 @@ fun TracePanel(
             }
             // KEPT RATHER THAN REPLACED BY THE HEADER: a row that happens to be tappable is not a
             // button anybody can SEE.
-            OutlinedButton(
-                onClick = { open = true },
-                enabled = enabled,
-                modifier = Modifier.heightIn(min = 48.dp),
-            ) {
-                Icon(Icons.Filled.Gesture, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    if (summary == null) "Trace a sketch" else "Open the tracing card again",
-                    fontSize = 13.sp,
-                )
+            ActionRow {
+                OutlinedButton(
+                    onClick = { open = true },
+                    enabled = enabled,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Icon(Icons.Filled.Gesture, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (summary == null) "Trace a sketch" else "Open the tracing card again",
+                        fontSize = 13.sp,
+                    )
+                }
             }
         }
         return
@@ -654,8 +652,7 @@ private fun TracePanelOpen(
             // Named where it is true rather than reported as "this phone cannot trace". The engine is
             // compiled into this APK and every phone has it, so a failure here is this load and not this
             // device, and those are different sentences with different remedies.
-            failure = "The tracing engine did not start on this device. " +
-                "Try again; if it keeps happening, restart the app."
+            failure = "Tracing didn't start. Try again, or restart the app."
         }
         loading = false
     }
@@ -738,9 +735,7 @@ private fun TracePanelOpen(
                         ) {
                             // Measured on THIS phone, said with the number in it. See the constant.
                             autoPreview = false
-                            notice = "That preview took ${traceSeconds(traced.totalMillis)} on this " +
-                                "phone, so the panel has stopped re-tracing by itself. Change what you " +
-                                "like and press “Update the preview” when you are ready."
+                            notice = "That took ${traceSeconds(traced.totalMillis)}, so auto-preview is paused. Tap “Update the preview” when ready."
                         }
                     }
                 }
@@ -756,8 +751,7 @@ private fun TracePanelOpen(
                 if (token != runToken) return@launch
                 result = null
                 resultWire = null
-                failure = "The trace could not be completed. " +
-                    "Try again; if it keeps happening, restart the app."
+                failure = "Trace failed. Try again, or restart the app."
             } finally {
                 running = null
                 stopping = false
@@ -885,8 +879,7 @@ private fun TracePanelOpen(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (t: Throwable) {
-                    failure = "That setting could not be applied. " +
-                        "Try again; if it keeps happening, restart the app."
+                    failure = "Couldn't apply that setting. Try again."
                     return@withLock
                 }
                 params = next
@@ -907,8 +900,7 @@ private fun TracePanelOpen(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (t: Throwable) {
-                    failure = "That style could not be applied. " +
-                        "Try again; if it keeps happening, restart the app."
+                    failure = "Couldn't apply that style. Try again."
                     return@withLock
                 }
                 notice = traceOverwriteNotice("The “$name” style", base, next)
@@ -932,8 +924,7 @@ private fun TracePanelOpen(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (t: Throwable) {
-                    failure = "That adjustment could not be applied. " +
-                        "Try again; if it keeps happening, restart the app."
+                    failure = "Couldn't apply that. Try again."
                     return@withLock
                 }
                 notice = traceOverwriteNotice("The “$name” adjustment", base, next)
@@ -969,7 +960,7 @@ private fun TracePanelOpen(
             memory.recordAttachment(
                 traceExportFileName(sourceName, "svg", TRACE_ATTACH_SUFFIX)
             )
-            onMessage("The line art has been added. The photograph is unchanged.")
+            onMessage("Line art added.")
         }
     }
 
@@ -1073,9 +1064,7 @@ private fun TracePanelOpen(
                     warning = false,
                     // The numbers are in the sentence because "this is a preview" without them does not
                     // say how much coarser.
-                    text = "This is a preview at ${traced.workingWidth}×${traced.workingHeight}, not " +
-                        "the full ${traced.width}×${traced.height}. Press “Trace the sketch” for the " +
-                        "drawing that gets added.",
+                    text = "Preview at ${traced.workingWidth}×${traced.workingHeight}. Tap “Trace the sketch” for full size (${traced.width}×${traced.height}).",
                     polite = true,
                 )
             }
@@ -1089,8 +1078,7 @@ private fun TracePanelOpen(
             if (traced.autoSubjectId.isNotBlank()) {
                 TracePanelNote(
                     warning = false,
-                    text = "The engine applied the “${tracePresetName(tables.subjects, traced.autoSubjectId)}” " +
-                        "subject adjustment on its own.",
+                    text = "Auto-applied “${tracePresetName(tables.subjects, traced.autoSubjectId)}”.",
                 )
             }
             TraceNotes(traced.notes)
@@ -1122,8 +1110,7 @@ private fun TracePanelOpen(
         if (missing.isNotEmpty()) {
             TracePanelNote(
                 warning = true,
-                text = "${missing.size} of ${TRACE_PARAM_COUNT} settings aren't available on this " +
-                    "phone, so they are not shown. The trace still works.",
+                text = "${missing.size} of ${TRACE_PARAM_COUNT} settings aren't available on this phone.",
             )
         }
 
@@ -1145,15 +1132,17 @@ private fun TracePanelOpen(
         if (subjectSeeded) {
             // The seed is a PRE-SELECTION and nothing has been applied yet, which has to be said or the
             // control is claiming a state the tree is not in. One press applies it.
-            OutlinedButton(
-                onClick = { pickSubject(subjectId) },
-                enabled = enabled && running == null,
-                modifier = Modifier.heightIn(min = 48.dp),
-            ) {
-                Text(
-                    "Adjust for ${tracePresetName(tables.subjects, subjectId).lowercase(Locale.ROOT)}",
-                    fontSize = 13.sp,
-                )
+            ActionRow {
+                OutlinedButton(
+                    onClick = { pickSubject(subjectId) },
+                    enabled = enabled && running == null,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text(
+                        "Adjust for ${tracePresetName(tables.subjects, subjectId).lowercase(Locale.ROOT)}",
+                        fontSize = 13.sp,
+                    )
+                }
             }
         }
         traced?.let {
@@ -1229,7 +1218,7 @@ private fun TracePanelOpen(
         AppToggle(
             label = "Re-trace a preview as I change settings",
             description = if (resumed) {
-                "A small, fast trace after each pause. Turn it off to save battery."
+                "Turn off to save battery."
             } else {
                 "Paused while this screen is in the background."
             },
@@ -1237,14 +1226,16 @@ private fun TracePanelOpen(
             enabled = enabled,
             onCheckedChange = { autoPreview = it },
         )
-        OutlinedButton(
-            onClick = { startRun(TraceRunKind.PREVIEW, 0L) },
-            enabled = enabled && running == null,
-            modifier = Modifier.heightIn(min = 48.dp),
-        ) {
-            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("Update the preview", fontSize = 13.sp)
+        ActionRow {
+            OutlinedButton(
+                onClick = { startRun(TraceRunKind.PREVIEW, 0L) },
+                enabled = enabled && running == null,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) {
+                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Update the preview", fontSize = 13.sp)
+            }
         }
 
         /* ── The two full-resolution buttons ────────────────────────────────────────────────── */
@@ -1255,18 +1246,14 @@ private fun TracePanelOpen(
             // AN UNMEASURED CEILING IS A GUESS, AND IT SAYS SO. What has and has not been weighed is
             // written down where it is used.
             Text(
-                "No timing has been measured on this model of phone yet, so the limits above are " +
-                    "cautious estimates rather than readings.",
+                "Limits are estimates for this phone.",
                 color = MaterialTheme.field.muted,
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
             )
         }
 
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
+        ActionRow {
             Button(
                 onClick = { startRun(TraceRunKind.ATTACH, 0L) },
                 enabled = enabled && running == null && bar == null,
@@ -1302,7 +1289,7 @@ private fun TracePanelOpen(
               with the actual sheet in front of them. It needs no explanation and nothing is written.
             */
             TextButton(onClick = onClose, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text("Keep the photograph as it is", fontSize = 12.sp)
+                Text("Keep photo as is", fontSize = 12.sp)
             }
         }
 
@@ -1399,19 +1386,14 @@ internal fun traceCostRefusal(
     // Everything this function refuses is about HOW BIG.
     val longEdge = values.number("preprocess.workingLongEdge")?.toInt() ?: return null
     if (longEdge > availability.maxWorkingLongEdge) {
-        return "This phone has been measured up to ${availability.maxWorkingLongEdge} px and the trace " +
-            "resolution is set to $longEdge px. Choose a lower resolution."
+        return "This phone handles up to ${availability.maxWorkingLongEdge} px. Choose a lower resolution."
     }
     if (values.choice("edge.engine") == "FDOG" && longEdge > availability.fdogMaxWorkingLongEdge) {
         // THE REMEDY NAMES THE PRESS BY ITS CURRENT NAME, and takes that name from the constant both
         // clients share rather than from a copy of it here. A refusal that sends somebody to a control
         // the screen does not have is worse than one that names no control at all, because it reads as
         // the application describing a different version of itself.
-        return "The Flow edge engine at $longEdge px is far slower than this phone can finish in a " +
-            "reasonable time — it has been measured up to ${availability.fdogMaxWorkingLongEdge} px. " +
-            "Either lower the trace resolution, or choose a different edge engine under " +
-            "“$TRACE_DISCLOSURE_ACTION”. The portal will produce the same drawing from whichever " +
-            "you choose."
+        return "The Flow edge engine at $longEdge px is too slow here (max ${availability.fdogMaxWorkingLongEdge} px). Lower the resolution or pick another engine under “$TRACE_DISCLOSURE_ACTION”."
     }
     return null
 }
@@ -1487,7 +1469,7 @@ private fun TraceProgressRow(
                 // The bar is a STAGE COUNT until this device has finished one trace, and a stage count
                 // will visibly stall. Saying so costs one line and stops it reading as a hang.
                 Text(
-                    "The bar counts stages, not time, until this phone has finished one trace.",
+                    "Counts stages until the first trace finishes.",
                     color = MaterialTheme.field.muted,
                     fontSize = 11.sp,
                     lineHeight = 16.sp,
@@ -1495,16 +1477,18 @@ private fun TraceProgressRow(
             }
         }
 
-        TextButton(
-            onClick = onCancel,
-            enabled = enabled && !stopping,
-            modifier = Modifier.heightIn(min = 48.dp),
-        ) {
-            // "Stopping…" and not a button that vanishes. The engine checks cancellation between stages
-            // and inside the long ones, so the worst case is one sub-step — seconds at full resolution.
-            // A control that promised instant would be wrong, and a control that appeared to do nothing
-            // for four seconds is worse.
-            Text(if (stopping) "Stopping…" else "Stop", fontSize = 12.sp)
+        ActionRow {
+            TextButton(
+                onClick = onCancel,
+                enabled = enabled && !stopping,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) {
+                // "Stopping…" and not a button that vanishes. The engine checks cancellation between stages
+                // and inside the long ones, so the worst case is one sub-step — seconds at full resolution.
+                // A control that promised instant would be wrong, and a control that appeared to do nothing
+                // for four seconds is worse.
+                Text(if (stopping) "Stopping…" else "Stop", fontSize = 12.sp)
+            }
         }
     }
 }
@@ -1652,8 +1636,7 @@ private fun TraceAdvancedSection(
             */
             TracePanelLabel("The other settings")
             Text(
-                "None of the other $TRACE_ADVANCED_COUNT settings are available on this phone. " +
-                    "The trace still works with the settings above.",
+                "No other settings are available on this phone.",
                 color = MaterialTheme.field.muted,
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
@@ -2034,10 +2017,7 @@ private fun TraceEmptyState(
             onToggle = onClose,
         )
         Text(
-            "Add a photograph above and this will turn the pencil in it into vector line work — the " +
-                "same drawing, as lines that print at any size without going blocky. The result is " +
-                "added as a separate file; the photograph itself is never changed. It runs on this " +
-                "device and needs no connection.",
+            "Add a photo above to turn its pencil drawing into vector line art.",
             color = MaterialTheme.field.muted,
             fontSize = 11.sp,
             lineHeight = 16.sp,

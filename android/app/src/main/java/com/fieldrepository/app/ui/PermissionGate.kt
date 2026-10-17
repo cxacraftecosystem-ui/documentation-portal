@@ -72,9 +72,9 @@ fun rememberPermissionGate(onRefused: (String) -> Unit): PermissionGate {
 
 /** The sentences a refusal earns, each naming the way forward that does not need the permission. */
 const val CAMERA_REFUSED_SENTENCE =
-    "The camera permission was refused, so nothing can be captured here. Grant it in Settings, or choose a picture already on this phone instead."
+    "Camera access is off. Allow it in Settings, or pick a photo instead."
 const val MICROPHONE_REFUSED_SENTENCE =
-    "The microphone permission was refused, so audio cannot be recorded. Grant it in Settings, or choose a recording already on this phone instead."
+    "Microphone access is off. Allow it in Settings, or pick a recording instead."
 
 const val CAMERA_PERMISSION: String = Manifest.permission.CAMERA
 const val MICROPHONE_PERMISSION: String = Manifest.permission.RECORD_AUDIO

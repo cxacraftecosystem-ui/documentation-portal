@@ -455,7 +455,7 @@ fun TwoStepVerificationScreen(
                         color = Muted,
                         style = MaterialTheme.typography.bodySmall
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ActionRow {
                         Button(
                             modifier = Modifier.heightIn(min = 48.dp),
                             enabled = !busy && OtpCode.isComplete(code),
@@ -483,7 +483,7 @@ fun TwoStepVerificationScreen(
                         now.codes.forEach { Text(it, fontFamily = FontFamily.Monospace) }
                     }
                     val text = recoveryCodesShareText(now.codes, email)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ActionRow {
                         OutlinedButton(modifier = Modifier.heightIn(min = 48.dp), onClick = {
                             clipboard.setText(AnnotatedString(text))
                             saved = true
@@ -540,7 +540,7 @@ fun TwoStepVerificationScreen(
                             }
                         )
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ActionRow {
                         Button(
                             modifier = Modifier.heightIn(min = 48.dp),
                             enabled = !busy && (if (now.disable && useRecovery) code.isNotBlank() else OtpCode.isComplete(code)),

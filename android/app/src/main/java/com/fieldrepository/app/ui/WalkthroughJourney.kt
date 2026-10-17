@@ -816,7 +816,8 @@ internal fun walkthroughFacets(step: WalkStep): WalkthroughFacets {
 /** The index just past the first sentence of [prose], or its whole length if it has only one. */
 private fun walkthroughFirstSentenceEnd(prose: String): Int {
     // Below this a "sentence" is a fragment, and a two-word collapsed line teaches nobody anything.
-    val floor = 40
+    // 16, not more: the web's summaries are now one short sentence ("Add the craft being documented.").
+    val floor = 16
     var index = floor
     while (index < prose.length - 1) {
         val here = prose[index]
@@ -2199,16 +2200,18 @@ private fun WalkthroughHeroCard(
                 fontSize = 14.sp,
                 lineHeight = 21.sp,
             )
-            Button(
-                onClick = onStart,
-                colors = ButtonDefaults.buttonColors(
-                    // Primary is too dark to sit ON the brand tile; this is the role that exists for
-                    // exactly that, and it is why `FieldTokens` carries it separately.
-                    containerColor = MaterialTheme.field.accentOnBrandTile,
-                    contentColor = MaterialTheme.field.brandTile,
-                ),
-                modifier = Modifier.heightIn(min = 48.dp),
-            ) { Text("Start at step 1") }
+            ActionRow {
+                Button(
+                    onClick = onStart,
+                    colors = ButtonDefaults.buttonColors(
+                        // Primary is too dark to sit ON the brand tile; this is the role that exists for
+                        // exactly that, and it is why `FieldTokens` carries it separately (Theme.kt:222).
+                        containerColor = MaterialTheme.field.accentOnBrandTile,
+                        contentColor = MaterialTheme.field.brandTile,
+                    ),
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("Start at step 1") }
+            }
 
             /*
              * THE OTHER DECKS, NAMED AND NOT COUNTED.
@@ -2347,10 +2350,12 @@ private fun WalkthroughOutroCard(
                 }
             }
 
-            Button(
-                onClick = onFinish,
-                modifier = Modifier.heightIn(min = 48.dp),
-            ) { Text("Done") }
+            ActionRow {
+                Button(
+                    onClick = onFinish,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("Done") }
+            }
         }
     }
 }

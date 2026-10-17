@@ -421,7 +421,7 @@ fun SearchScreen(
 
         SearchCard(title = "Search", icon = Icons.Filled.Search) {
             Text(
-                "Search across artisans, workshops, products, tools and media with shared filters.",
+                "Artisans, workshops, products, tools and media.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -487,7 +487,7 @@ fun SearchScreen(
                         onSelect = { filters = filters.copy(mediaType = it) }
                     )
                     Text(
-                        "Craft, artisan and media type narrow only the buckets that carry them.",
+                        "Craft, artisan and media type filter only the types that have them.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -518,9 +518,9 @@ fun SearchScreen(
             data == null && loading -> SearchCard(title = "Searching…") {
                 Text(
                     if (applied.types.isEmpty()) {
-                        "Looking across all five record types."
+                        "All record types."
                     } else {
-                        "Looking in ${applied.types.size} of the five record types."
+                        "${applied.types.size} of 5 record types."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -529,9 +529,7 @@ fun SearchScreen(
 
             data == null -> SearchCard(title = "Nothing searched yet") {
                 Text(
-                    "Type what you are looking for — a name, a place, a filename — and results appear as " +
-                        "you pause. A chip or a date on its own is a question too. Press Search on an " +
-                        "empty form to list the most recent records instead.",
+                    "Search a name, place or filename. Search with nothing entered to see the latest.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -591,7 +589,7 @@ fun SearchScreen(
                         )
                         if (page > 1) {
                             Text(
-                                "Every result type has run out on this page. Go back to see the earlier matches.",
+                                "Go back for earlier results.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -966,20 +964,18 @@ private fun SearchPager(page: Int, shown: Int, hasMore: Boolean, loading: Boolea
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
-                "Page $page · $shown result${if (shown == 1) "" else "s"} on this page · every result type pages together",
+                "Page $page · $shown result${if (shown == 1) "" else "s"}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            ActionRow {
                 OutlinedButton(
                     onClick = { onPage(page - 1) },
                     enabled = !loading && page > 1,
-                    modifier = Modifier.weight(1f)
                 ) { Text("Previous") }
                 OutlinedButton(
                     onClick = { onPage(page + 1) },
                     enabled = !loading && hasMore,
-                    modifier = Modifier.weight(1f)
                 ) { Text("Next") }
             }
         }
@@ -1067,8 +1063,7 @@ internal fun SearchFilterBar(
 
         if (value.types.size > 1) {
             Text(
-                "Searching ${value.types.size} record types. A chip narrows to just that one; " +
-                    "tick more under Filters.",
+                "Searching ${value.types.size} record types.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1159,15 +1154,14 @@ internal fun SearchFilterBar(
                     }
                 )
                 Text(
-                    "The same setting as the chips above. Pick any number; nothing picked " +
-                        "searches everything.",
+                    "Nothing picked searches everything.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 extraFilters?.invoke(this)
 
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                ActionRow {
                     if (value.hasFilters) {
                         // Clears the FILTERS and keeps the query: they are separate questions, and
                         // wiping a typed name to widen a date range would be its own small betrayal.
@@ -1175,7 +1169,6 @@ internal fun SearchFilterBar(
                             Text("Clear all filters")
                         }
                     }
-                    Spacer(Modifier.weight(1f))
                     Button(onClick = { close() }) { Text("Done") }
                 }
             }

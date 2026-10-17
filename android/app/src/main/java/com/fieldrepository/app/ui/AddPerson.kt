@@ -106,7 +106,7 @@ fun AddPersonCard(
                     modifier = Modifier.fillMaxWidth()
                 )
                 Text(ADD_PERSON_TEMPORARY_NOTE, color = MaterialTheme.field.muted, fontSize = 12.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                ActionRow {
                     Button(
                         onClick = {
                             copied = runCatching {
@@ -114,11 +114,9 @@ fun AddPersonCard(
                                 clipboard.setPrimaryClip(ClipData.newPlainText("Temporary password", secret))
                             }.isSuccess
                         },
-                        modifier = Modifier.weight(1f)
                     ) { Text(if (copied) "Copied" else "Copy") }
                     OutlinedButton(
                         onClick = { temporary = null; copied = false; done = null },
-                        modifier = Modifier.weight(1f)
                     ) { Text("Done") }
                 }
             }
@@ -192,7 +190,7 @@ fun AddPersonCard(
                     modifier = Modifier.fillMaxWidth()
                 ) { Text(OPEN_THEIR_ACCOUNT) }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            ActionRow {
                 Button(
                     enabled = !busy,
                     onClick = {
@@ -229,9 +227,8 @@ fun AddPersonCard(
                             busy = false
                         }
                     },
-                    modifier = Modifier.weight(1f)
                 ) { Text(if (busy) "Adding…" else "Add") }
-                TextButton(enabled = !busy, onClick = { open = false; reset() }, modifier = Modifier.weight(1f)) {
+                TextButton(enabled = !busy, onClick = { open = false; reset() }) {
                     Text("Cancel")
                 }
             }

@@ -119,7 +119,9 @@ fun MyAiKeysScreen(
             loadError != null -> Column(Modifier.padding(padding).padding(16.dp)) {
                 Text(loadError!!, color = MaterialTheme.colorScheme.error)
                 Spacer(Modifier.height(12.dp))
-                Button(onClick = { scope.launch { reload() } }) { Text("Try again") }
+                ActionRow {
+                    Button(onClick = { scope.launch { reload() } }) { Text("Try again") }
+                }
             }
 
             else -> LazyColumn(
@@ -130,18 +132,12 @@ fun MyAiKeysScreen(
                 item {
                     Column {
                         Text(
-                            "Bring your own key and the AI work you ask for — proofreading, " +
-                                "expanding, summarising, translating, transcribing and photo " +
-                                "descriptions — runs on your account with your provider, at your " +
-                                "choice of model, and is billed to you.",
+                            "Your AI requests run on your own provider account and model, billed to you.",
                             style = MaterialTheme.typography.bodyMedium
                         )
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "Leave this empty and everything works exactly as it does now, on the " +
-                                "app's own key. Your key is stored encrypted, is " +
-                                "used only for work you personally ask for, and is never shown to " +
-                                "anyone — including administrators.",
+                            "Optional. Stored encrypted, used only for your requests, never shown to anyone.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -251,8 +247,7 @@ private fun ProviderKeyCard(
             if (state.unreadable) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "This key can no longer be read. " +
-                        "Paste it again to fix it. Nothing is using it meanwhile.",
+                    "This key can't be read. Paste it again.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error
                 )
@@ -267,8 +262,7 @@ private fun ProviderKeyCard(
             if (!state.modelKnown) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "The model saved here is not one this app offers any more. Pick another below " +
-                        "— until you do, your key runs whichever current model fits each job.",
+                    "This model is no longer offered. Pick another.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error
                 )
@@ -328,16 +322,14 @@ private fun ProviderKeyCard(
             if (!transcribes) {
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "${provider.label} cannot transcribe audio — none of its models accepts a " +
-                        "sound file — so recordings keep using the app's own key, " +
-                        "whatever you save here.",
+                    "${provider.label} can't transcribe audio, so recordings use the app's key.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
             Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            ActionRow {
                 Button(
                     onClick = {
                         onSave(typedKey.takeIf { it.isNotBlank() }, chosenModel)

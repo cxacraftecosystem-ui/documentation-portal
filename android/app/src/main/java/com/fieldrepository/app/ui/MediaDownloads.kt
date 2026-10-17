@@ -459,7 +459,7 @@ fun OutboxPendingBanner(
         ) {
             Icon(Icons.Filled.CloudOff, contentDescription = null, tint = ink, modifier = Modifier.size(16.dp))
             Text(
-                "$pendingUploads entr${if (pendingUploads == 1) "y" else "ies"} saved on this device — uploading when you're online.",
+                "$pendingUploads entr${if (pendingUploads == 1) "y" else "ies"} waiting to upload.",
                 color = ink,
                 fontSize = 12.sp,
                 modifier = Modifier.weight(1f)

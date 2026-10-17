@@ -177,9 +177,9 @@ object SttProviderClient {
 
 /** Verbatim from the web panel's `BLURBS`. Names and key state come from the server; this does not. */
 val STT_PROVIDER_BLURBS: Map<String, String> = mapOf(
-    "elevenlabs" to "Strongest on Indian-language and accented speech. Slower, and the most expensive per minute.",
-    "deepgram" to "Fastest and cheapest. Very good on clear audio, weaker under heavy background noise.",
-    "whisper" to "The dependable fallback. Handles almost anything, with no diarisation of its own."
+    "elevenlabs" to "Best for Indian languages and accents. Slowest, priciest.",
+    "deepgram" to "Fastest and cheapest. Weaker with background noise.",
+    "whisper" to "Reliable fallback. No speaker separation."
 )
 
 /**
@@ -260,26 +260,22 @@ fun describeSttTrouble(error: Throwable, action: String): SttTrouble {
     return when {
         status == 404 -> SttTrouble(
             headline = "The transcription order couldn't be loaded.",
-            advice = "Nothing is wrong with your account or your recordings, and no setting has been lost. " +
-                "Tap Try again in a little while.",
+            advice = "Nothing is lost. Try again shortly.",
             retryable = true
         )
         status == 403 -> SttTrouble(
-            headline = "Your account is not allowed to see or change this ranking.",
-            advice = "Choosing which engine transcribes recordings needs the Admin role or above. Ask a master " +
-                "admin either to raise your role or to make the change for you — this is a permission, not a " +
-                "fault, so retrying will give the same answer.",
+            headline = "You don't have access to this.",
+            advice = "Needs Admin or above. Ask a master admin.",
             retryable = false
         )
         status == 401 -> SttTrouble(
             headline = "Your session has ended.",
-            advice = "Sign in again and come back to this screen; the ranking itself is untouched.",
+            advice = "Sign in again and come back.",
             retryable = false
         )
         status >= 500 -> SttTrouble(
             headline = "Something went wrong.",
-            advice = "It wasn't anything you did. Give it a minute and tap Try again. If it keeps happening, " +
-                "tell an administrator.",
+            advice = "Try again in a minute.",
             retryable = true
         )
         // No HTTP status at all: a socket that never opened, a DNS failure, a timeout. On a phone in
@@ -287,12 +283,12 @@ fun describeSttTrouble(error: Throwable, action: String): SttTrouble {
         // in with "something went wrong".
         status == 0 -> SttTrouble(
             headline = "Couldn't connect.",
-            advice = "Check you are online — mobile data or Wi-Fi — and tap Try again.",
+            advice = "Check your connection and try again.",
             retryable = true
         )
         else -> SttTrouble(
             headline = "Couldn't $action the transcription order.",
-            advice = sentence ?: "Tap Try again, and tell an administrator if it keeps happening.",
+            advice = sentence ?: "Try again.",
             retryable = true
         )
     }

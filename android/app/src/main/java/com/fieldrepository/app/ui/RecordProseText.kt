@@ -179,17 +179,13 @@ fun recordDictationNothingLeftSentence(conditions: RecordDictationConditions): S
         // engine has already told us it cannot take this language. Nothing on the phone can fix that
         // now, so the sentence names the two things that can: signal, or a different language.
         !conditions.online && conditions.onDeviceEngine ->
-            "This phone's offline recogniser has no $label to work from, and there is no connection " +
-                "to dictate through. Type the answer in, pick a language this phone does have from " +
-                "the control beside the microphone, or dictate the rest where there is signal."
+            "$label isn't available offline. Type, pick another language, or dictate later with signal."
 
         // Offline, and this phone cannot be asked what it has (below API 33) or has no engine of its
         // own. Claiming a pack is missing would be inventing the one fact we do not have. The
         // keyboard is named because on these handsets it is usually the thing that does work.
         !conditions.online ->
-            "Dictation in $label on this phone needs a connection and there is none. Your keyboard's " +
-                "own microphone may have an offline language pack; otherwise type the answer in and " +
-                "dictate the rest later."
+            "$label dictation needs a connection. Try your keyboard's mic, or type."
 
         // Online, and this phone has no speech service of any kind. Common on the budget handsets
         // this app is used on, and the one case where there is genuinely nothing to do here — so it
@@ -200,14 +196,12 @@ fun recordDictationNothingLeftSentence(conditions: RecordDictationConditions): S
         // language. Naming the language is the point: the fix is picking a different one, and that
         // is reachable from the control the reader is looking at.
         conditions.deviceRefusedLanguage ->
-            "This phone's speech recogniser would not take $label. Pick a different dictation " +
-                "language from the control beside the microphone, or type the answer in."
+            "$label isn't supported here. Pick another language or type."
 
         // Everything else. Deliberately vague about the cause, because by here we do not know one,
         // and inventing a cause is how the sentences above lose their credibility.
         else ->
-            "Dictation in $label is not available on this phone just now. Type the answer in, or " +
-                "try a different dictation language."
+            "$label dictation is unavailable right now. Type, or try another language."
     }
 }
 
@@ -224,7 +218,7 @@ fun recordDictationNothingLeftSentence(conditions: RecordDictationConditions): S
  * be told two different things about one handset depending on whether they tapped.
  */
 const val RECORD_DICTATION_UNAVAILABLE: String =
-    "This phone has no speech recogniser installed, so there is no dictation here. Type the answer in."
+    "No speech recogniser on this phone. Type instead."
 
 /**
  * Spoken text joined to what is already in the box.

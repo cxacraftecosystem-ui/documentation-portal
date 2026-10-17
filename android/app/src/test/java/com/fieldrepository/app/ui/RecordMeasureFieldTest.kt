@@ -180,7 +180,7 @@ class RecordMeasureFieldTest {
     fun `a reading finer than the column is rounded to what the column holds`() {
         assertEquals("4.21", recordProposalText("4.213"))
         assertEquals(
-            "“Length (inches)” holds 2 decimal places, so the measured 4.213 in went in as 4.21.",
+            "“Length (inches)” rounded 4.213 in to 4.21.",
             recordProposalNote(PRODUCT_MEASURE_DIMENSIONS.first(), "4.213"),
         )
     }
@@ -204,7 +204,7 @@ class RecordMeasureFieldTest {
         val note = recordProposalNote(PRODUCT_MEASURE_DIMENSIONS.first(), "0.002")
         assertNotNull(note)
         assertTrue("it has to name the box:\n$note", note!!.contains("Length (inches)"))
-        assertTrue("and say that nothing was written:\n$note", note.contains("nothing was put in it"))
+        assertTrue("and say that nothing was written:\n$note", note.contains("left empty"))
     }
 
     /**

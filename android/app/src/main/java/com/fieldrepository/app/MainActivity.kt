@@ -72,6 +72,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Timeline
 import com.fieldrepository.app.ui.trace.TracePanel
+import com.fieldrepository.app.ui.ActionRow
 import com.fieldrepository.app.ui.AppToggle
 import com.fieldrepository.app.ui.MediaAction
 import com.fieldrepository.app.ui.MediaActionButton
@@ -1222,8 +1223,7 @@ private fun RepositoryApp(
                         if (waiting > 0) {
                             Toast.makeText(
                                 appContext,
-                                "$waiting entr${if (waiting == 1) "y is" else "ies are"} still saved on this device. " +
-                                    "They will upload the next time you sign in.",
+                                "$waiting entr${if (waiting == 1) "y" else "ies"} waiting to upload. They'll send when you sign in.",
                                 Toast.LENGTH_LONG
                             ).show()
                         }
@@ -1305,7 +1305,7 @@ private fun LoginScreen(
             color = MaterialTheme.colorScheme.onBackground
         )
         Text(
-            text = "Document field visits, artisan knowledge, craft practices, objects, tools, conversations and locations in one shared archive.",
+            text = "One shared archive for field documentation.",
             color = Body,
             modifier = Modifier.padding(top = 8.dp, bottom = 24.dp)
         )
@@ -1382,15 +1382,12 @@ private fun LoginScreen(
                 ) {
                     Text(if (busy) "Signing in..." else "Login")
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
+                ActionRow {
                     TextButton(enabled = !busy, onClick = onForgotPassword) {
-                        Text("Forgot your password?", fontSize = 13.sp)
+                        Text("Forgot password?", fontSize = 13.sp)
                     }
                     TextButton(enabled = !busy, onClick = onOpenSetPasswordLink) {
-                        Text("I have a set-password link", fontSize = 13.sp)
+                        Text("I have a link", fontSize = 13.sp)
                     }
                 }
                 OutlinedButton(
@@ -1426,7 +1423,7 @@ private fun LoginScreen(
                 // Steer researchers to Google sign-in. Many were typing into the email/password fields
                 // (meant only for admin-issued password accounts) and getting locked out.
                 Text(
-                    "Researchers: please use \"Sign in with Google\" above. The email & password fields are only for special accounts an administrator set up with a password — if you normally use your Google account, do not type a password here.",
+                    "Researchers: use Google above. Email and password are for admin-issued accounts only.",
                     color = Muted,
                     fontSize = 12.sp,
                     modifier = Modifier.padding(top = 2.dp)
@@ -1436,7 +1433,7 @@ private fun LoginScreen(
                 // encounter with that fact is a refusal will read it as the app being broken. The
                 // web sign-in page carries the same sentence — change them together.
                 Text(
-                    "Access is by invitation: an administrator adds your address to the roster. Sign in once and your request reaches them.",
+                    "Invitation only. Sign in once to request access.",
                     color = Muted,
                     fontSize = 12.sp
                 )
@@ -2041,7 +2038,7 @@ private fun HomeScreen(
                                             // until the app is closed and reopened).
                                             Toast.makeText(
                                                 context,
-                                                "Update published (v${rel.versionName}). Everyone else gets it automatically on next open.",
+                                                "Update v${rel.versionName} published.",
                                                 Toast.LENGTH_LONG
                                             ).show()
                                         }
@@ -2379,8 +2376,7 @@ private fun HomeScreen(
                     // listing itself — sitting on an empty form would make the researcher ask twice.
                     s.searchFocus?.let { focus ->
                         Text(
-                            "Every ${searchFocusLabel(focus)} record, newest first. Use the counts above the " +
-                                "results to widen it, or search to narrow it.",
+                            "All ${searchFocusLabel(focus)} records, newest first.",
                             color = Muted,
                             fontSize = 12.sp
                         )
@@ -2510,7 +2506,7 @@ private fun HomeScreen(
                 } else {
                     AdminViewHiddenCard(
                         label = "User management",
-                        blurb = "Roles, promotions, capability grants and account administration live there.",
+                        blurb = "Roles, grants and accounts.",
                         canToggle = canToggleAdminView,
                         onEnable = { requestAdminView(true) }
                     )
@@ -2610,13 +2606,13 @@ private fun HomeScreen(
                 // which is worth saying out loud.
                 s.section == AdminHubEntry.ACCESS_ROSTER -> AdminViewHiddenCard(
                     label = "The access roster",
-                    blurb = "It decides who may sign in at all, and holds the pending requests from people who were turned away.",
+                    blurb = "Who may sign in, and pending requests.",
                     canToggle = canToggleAdminView,
                     onEnable = { requestAdminView(true) }
                 )
                 else -> AdminViewHiddenCard(
                     label = "The settings hub",
-                    blurb = "It gathers reviews, recovered recordings, feedback, tool assignment and user management in one place.",
+                    blurb = "Reviews, recordings, feedback, tools and users.",
                     canToggle = canToggleAdminView,
                     onEnable = { requestAdminView(true) }
                 )
@@ -2696,7 +2692,7 @@ private fun HomeScreen(
                         title = { Text("Update required") },
                         text = {
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("Version ${release.versionName} is available and must be installed to continue using the app.")
+                                Text("Install version ${release.versionName} to continue.")
                                 release.notes?.takeIf { it.isNotBlank() }?.let { Text(it, color = Muted, fontSize = 12.sp) }
                                 updateError?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
                                 if (updateBusy) {
@@ -2715,11 +2711,11 @@ private fun HomeScreen(
                                         runCatching {
                                             if (!canInstallUpdates(context)) {
                                                 requestInstallPermission(context)
-                                                throw IllegalStateException("Enable \"Install unknown apps\" for Field Repository in the screen that just opened, then tap Update now again.")
+                                                throw IllegalStateException("Allow \"Install unknown apps\" for Field Repository, then tap Update now.")
                                             }
                                             val apk = repository.downloadApk(context, release.url!!, release.versionCode)
                                             launchApkInstaller(context, apk)
-                                        }.onFailure { updateError = it.apiErrorMessage("Unable to download the update — check your connection and try again.") }
+                                        }.onFailure { updateError = it.apiErrorMessage("Update didn't download. Check your connection.") }
                                         // Keep `pendingUpdate` set: if the user backs out of the installer the
                                         // dialog must stay until the new version is actually installed.
                                         updateBusy = false
@@ -2739,26 +2735,29 @@ private fun HomeScreen(
                         title = { Text("Unsaved changes") },
                         text = {
                             Text(
-                                "You have unsaved changes, including any recordings or media you just captured. " +
-                                    "Save them before leaving, or discard them?"
+                                "You have unsaved changes, including new recordings or media. Save or discard?"
                             )
                         },
+                        // Three actions, so one ActionRow in the confirm slot: stacked on a phone, one
+                        // row on a wider window, Discard last — the web's FieldDialog does the same.
                         confirmButton = {
-                            TextButton(onClick = {
-                                pendingExit = null
-                                // The form validates and, on success, saves and navigates itself. On a missing
-                                // required field it stays put with the field highlighted.
-                                unsavedGuard.onSave?.invoke()
-                            }) { Text("Save") }
-                        },
-                        dismissButton = {
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                TextButton(onClick = { pendingExit = null }) { Text("Keep editing") }
+                            ActionRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                destructive = {
+                                    TextButton(onClick = {
+                                        pendingExit = null
+                                        unsavedGuard.clear()
+                                        exit()
+                                    }) { Text("Discard", color = MaterialTheme.colorScheme.error) }
+                                }
+                            ) {
                                 TextButton(onClick = {
                                     pendingExit = null
-                                    unsavedGuard.clear()
-                                    exit()
-                                }) { Text("Discard", color = MaterialTheme.colorScheme.error) }
+                                    // The form validates and, on success, saves and navigates itself. On a
+                                    // missing required field it stays put with the field highlighted.
+                                    unsavedGuard.onSave?.invoke()
+                                }) { Text("Save") }
+                                TextButton(onClick = { pendingExit = null }) { Text("Keep editing") }
                             }
                         }
                     )
@@ -2868,18 +2867,16 @@ private fun AdminViewHiddenCard(
     RecordCard(title = title, icon = Icons.Filled.VisibilityOff) {
         Text(
             if (canToggle) {
-                "$blurb You switched admin view off, so you see exactly what an ordinary user " +
-                    "sees."
+                "$blurb Admin view is off."
             } else {
-                "$blurb Those tools belong to administrators; everything your role does reach is in " +
-                    "the menu."
+                "$blurb Admins only."
             },
             color = Body,
             fontSize = 13.sp
         )
         if (canToggle) {
             Text(
-                "Your access has not changed — this is your own setting, not a permission you are missing.",
+                "Your access hasn't changed.",
                 color = Muted,
                 fontSize = 12.sp
             )
@@ -2895,8 +2892,7 @@ private fun AdminViewHiddenCard(
 private fun DataBrowserEntryCard(onOpen: () -> Unit) {
     RecordCard(title = "Data Browser", icon = Icons.Filled.Storage) {
         Text(
-            "Browse every record as folders, preview media and transcripts, and download " +
-                "any folder as a zip, filtered by file type.",
+            "Browse records as folders, preview files, download as zip.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -2970,20 +2966,18 @@ private fun SettingsScreen(
         }
         Text("Transcription output", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
         Text(
-            "How recorded audio is turned into text after upload. Refinement/translation use AI and " +
-                "always await your approval before they become the saved transcript.",
+            "How audio becomes text. AI refinement always waits for your approval.",
             color = Muted,
             fontSize = 12.sp
         )
-        SettingsRadioRow("Raw transcript only", "Fastest, lowest cost — the plain speech-to-text.", mode == "RAW") { mode = "RAW" }
-        SettingsRadioRow("Refined transcript", "Cleaned into a readable interviewer/interviewee dialogue.", mode == "REFINED") { mode = "REFINED" }
-        SettingsRadioRow("Refined + translated to English", "Refined, then translated to English (default).", mode == "REFINED_TRANSLATED") { mode = "REFINED_TRANSLATED" }
+        SettingsRadioRow("Raw transcript only", "Fastest, lowest cost.", mode == "RAW") { mode = "RAW" }
+        SettingsRadioRow("Refined transcript", "Cleaned into a readable dialogue.", mode == "REFINED") { mode = "REFINED" }
+        SettingsRadioRow("Refined + translated to English", "Default.", mode == "REFINED_TRANSLATED") { mode = "REFINED_TRANSLATED" }
 
         HorizontalDivider()
         AppToggle(
             label = "Process during an off-peak window",
-            description = "When on, transcription & refinement run only between the times below (IST), so the " +
-                "heavy work happens when nobody is uploading. When off, they run immediately.",
+            description = "Run transcription only between these times (IST).",
             checked = windowEnabled,
             onCheckedChange = { windowEnabled = it }
         )
@@ -2992,7 +2986,7 @@ private fun SettingsScreen(
                 Box(modifier = Modifier.weight(1f)) { TimePickerField("Start", startTime) { startTime = it } }
                 Box(modifier = Modifier.weight(1f)) { TimePickerField("End", endTime) { endTime = it } }
             }
-            Text("Window is in India Standard Time (Asia/Kolkata).", color = Muted, fontSize = 12.sp)
+            Text("India Standard Time.", color = Muted, fontSize = 12.sp)
         }
 
         Button(
@@ -3094,15 +3088,15 @@ private fun CarryForwardPanel(
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Saved ${prefill.artisanName ?: "artisan"} ✓", display = true, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
             Text("Keep going for the same artisan — details are pre-filled.", color = Muted, fontSize = 12.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                Button(onClick = { onSelect(EntryMode.PRODUCT) }, modifier = Modifier.weight(1f)) { Text("Add product") }
+            ActionRow {
+                Button(onClick = { onSelect(EntryMode.PRODUCT) }) { Text("Add product") }
                 if (canCreateTool) {
-                    Button(onClick = { onSelect(EntryMode.TOOL) }, modifier = Modifier.weight(1f)) { Text("Add tool") }
+                    Button(onClick = { onSelect(EntryMode.TOOL) }) { Text("Add tool") }
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                OutlinedButton(onClick = { onSelect(EntryMode.QUESTIONNAIRE) }, modifier = Modifier.weight(1f)) { Text("Take interview") }
-                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Dismiss") }
+            ActionRow {
+                OutlinedButton(onClick = { onSelect(EntryMode.QUESTIONNAIRE) }) { Text("Take interview") }
+                OutlinedButton(onClick = onDismiss) { Text("Dismiss") }
             }
         }
     }
@@ -3210,10 +3204,7 @@ private fun DashboardScreen(
             ) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "You are signed in as $roleLabel. That covers answering existing " +
-                            "interviews, uploading media and commenting on records other people " +
-                            "opened. Creating artisans, products, processes and tools needs " +
-                            "Researcher access or above — ask an admin to raise your tier.",
+                        "As $roleLabel you can answer interviews, upload media and comment. Creating records needs Researcher access — ask an admin.",
                         color = Muted,
                         fontSize = 13.sp
                     )
@@ -3264,7 +3255,7 @@ private fun DashboardScreen(
                                 onClickLabel = "Open ${artisan.name}"
                             ) { onOpenArtisan(artisan.id) }
                             .semantics(mergeDescendants = true) {
-                                contentDescription = "${artisan.name}. Opens this artisan to read; Update is on the next screen."
+                                contentDescription = "${artisan.name}. Opens the artisan."
                             }
                             .padding(12.dp)
                     ) {
@@ -3427,8 +3418,10 @@ private fun StatsCard(
             Spacer(Modifier.height(12.dp))
             if (stats == null && statsError != null) {
                 Text(statsError, color = MaterialTheme.field.onBrandTile, fontSize = 14.sp)
-                TextButton(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text("Try again", color = MaterialTheme.field.accentOnBrandTile, fontWeight = FontWeight.SemiBold)
+                ActionRow {
+                    TextButton(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
+                        Text("Try again", color = MaterialTheme.field.accentOnBrandTile, fontWeight = FontWeight.SemiBold)
+                    }
                 }
             } else if (stats == null) {
                 Text("Loading…", color = MaterialTheme.field.onBrandTileMuted)
@@ -3643,7 +3636,7 @@ private fun RecentSubmissionsCard(stats: DashboardStats?, statsError: String?, o
             )
             when {
                 stats == null && statsError != null -> Text(
-                    "Couldn't load the newest records. Try again from the totals above.",
+                    "Couldn't load the newest records.",
                     color = Muted,
                     fontSize = 13.sp
                 )
@@ -3657,7 +3650,7 @@ private fun RecentSubmissionsCard(stats: DashboardStats?, statsError: String?, o
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        "New field documentation will appear here after records are created.",
+                        "New records will appear here.",
                         color = Muted,
                         fontSize = 12.sp
                     )
@@ -4150,9 +4143,9 @@ internal fun pincodeValidationError(value: String?): String? {
     // ASCII digits only, for the same reason as the Aadhaar validator: Char.isDigit() admits the
     // Devanagari and fullwidth digits an Indic IME produces, and those would be stored verbatim,
     // giving one village two pincodes no query could ever match to each other.
-    if (!digits.all { it in '0'..'9' }) return "Pincode must be 6 digits — remove any letters or symbols."
-    if (digits.length != PINCODE_LENGTH) return "Pincode must be exactly 6 digits (this one has ${digits.length})."
-    if (digits[0] == '0') return "Pincodes never start with 0 — please re-check the first digit."
+    if (!digits.all { it in '0'..'9' }) return "Pincode must be 6 digits."
+    if (digits.length != PINCODE_LENGTH) return "Pincode must be 6 digits (has ${digits.length})."
+    if (digits[0] == '0') return "Pincodes don't start with 0."
     return null
 }
 
@@ -4294,8 +4287,7 @@ private suspend fun uploadAttachments(
         val allFailed = failures.size == media.uris.size
         val prefix = if (allFailed) "All ${failures.size} media file(s) failed to upload" else "${failures.size} media file(s) failed to upload"
         throw IllegalStateException(
-            "$prefix (${failures.joinToString(", ")}). The record was saved — check your connection " +
-                "and re-open it from \"Update existing\" to re-attach the media."
+            "$prefix (${failures.joinToString(", ")}). The record was saved — re-attach from \"Update existing\"."
         )
     }
 }
@@ -4319,7 +4311,7 @@ private suspend fun queueFailedAttachments(
     if (queued) {
         Toast.makeText(
             context.applicationContext,
-            "The record was saved. ${items.size} file(s) are kept on this device and will attach automatically when you're back online.",
+            "Saved. ${items.size} file(s) will attach when you're online.",
             Toast.LENGTH_LONG
         ).show()
     }
@@ -4492,7 +4484,7 @@ private fun GridMeasurementSection(
         )
         if (enabled.contains(key)) {
             Text(hint, color = Muted, fontSize = 12.sp, modifier = Modifier.padding(start = 8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            ActionRow {
                 OutlinedButton(
                     onClick = {
                         pendingGroup = key
@@ -4503,12 +4495,10 @@ private fun GridMeasurementSection(
                             takePhoto.launch(uri)
                         }
                     },
-                    modifier = Modifier.weight(1f),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
                 ) { Text("Capture photo", maxLines = 1, softWrap = false, fontSize = 12.sp) }
                 OutlinedButton(
                     onClick = { pendingGroup = key; pickImage.launch("image/*") },
-                    modifier = Modifier.weight(1f),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
                 ) { Text("Pick photo", maxLines = 1, softWrap = false, fontSize = 12.sp) }
             }
@@ -4523,14 +4513,13 @@ private fun GridMeasurementSection(
         HorizontalDivider()
         Text("Document using grid", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
         Text(
-            "Place the object on a 1-inch grid sheet. Length and breadth are read from a single top-down " +
-                "photo; height needs its own side-on photo. The measured inches auto-fill the fields (still editable).",
+            "Place the object on a 1-inch grid. A top-down photo gives length and breadth; a side-on photo gives height.",
             color = Muted,
             fontSize = 12.sp
         )
-        GridGroupRow("lengthBreadth", "Length & breadth (one photo)", "Top-down photo of the object on the grid — fills both length and breadth.")
+        GridGroupRow("lengthBreadth", "Length & breadth (one photo)", "Top-down photo on the grid.")
         if (includeHeight) {
-            GridGroupRow("height", "Height (one photo)", "Side-on photo of the object against the grid — fills height.")
+            GridGroupRow("height", "Height (one photo)", "Side-on photo against the grid.")
         }
     }
 }
@@ -4595,7 +4584,7 @@ private fun StatusControl(canSetStatus: Boolean, value: String, onSelect: (Strin
                 Box(modifier = Modifier.size(8.dp).background(MaterialTheme.field.warning, CircleShape))
                 Text("Pending", color = Body, fontSize = 13.sp, fontWeight = FontWeight.Medium)
             }
-            Text("New records are reviewed before they're published.", color = Muted, fontSize = 12.sp)
+            Text("Reviewed before publishing.", color = Muted, fontSize = 12.sp)
         }
     }
 }
@@ -4910,12 +4899,11 @@ private fun WorkshopField(state: WorkshopPickerState, saving: Boolean = false) {
             selectedValue = state.selectedId,
             // A create form preselects only a workshop running today; when none is, the empty box
             // says what it wants (the web's wording) instead of the bare "Unlinked".
-            placeholder = "Choose the workshop this record belongs to"
+            placeholder = "Choose a workshop"
         ) { state.selectedId = it }
         if (blocked) {
             Text(
-                "You are not assigned to this workshop, so this can't be saved. Ask an admin to " +
-                    "assign you to it, or pick another workshop.",
+                "You're not assigned to this workshop. Pick another, or ask an admin.",
                 color = MaterialTheme.colorScheme.error,
                 fontSize = 12.sp
             )
@@ -4967,15 +4955,13 @@ private fun LateSubmissionDialog(
                 Text(
                     "$name$ended. " +
                         if (needsAdminApproval) {
-                            "Your entry will still be saved, but it is recorded as a late submission: " +
-                                "it stays Pending until an admin or master admin approves it — a " +
-                                "professor cannot approve it for you."
+                            "It will save as a late submission and needs an admin's approval."
                         } else {
-                            "Your entry will still be saved, and it is recorded as a late submission."
+                            "It will save as a late submission."
                         }
                 )
                 Text(
-                    "Pick a different workshop above if this record belongs to one that is still running.",
+                    "Or pick a workshop that's still running.",
                     color = Muted,
                     fontSize = 12.sp
                 )
@@ -5108,12 +5094,11 @@ private fun aadhaarValidationError(value: String?): String? {
     // Verhoeff tables — an ArrayIndexOutOfBoundsException thrown straight out of a Compose callback.
     // The server rejects the same characters (they would otherwise be stored verbatim and defeat the
     // unique index), so rejecting them here keeps both sides answering the same sentence.
-    if (!digits.all { it in '0'..'9' }) return "Aadhaar number must be 12 digits — remove any letters or symbols."
-    if (digits.length != AADHAAR_LENGTH) return "Aadhaar number must be exactly 12 digits (this one has ${digits.length})."
-    if (digits[0] == '0' || digits[0] == '1') return "Aadhaar numbers never start with 0 or 1 — please re-check the first digit."
+    if (!digits.all { it in '0'..'9' }) return "Aadhaar must be 12 digits."
+    if (digits.length != AADHAAR_LENGTH) return "Aadhaar must be 12 digits (has ${digits.length})."
+    if (digits[0] == '0' || digits[0] == '1') return "Aadhaar numbers don't start with 0 or 1."
     if (!verhoeffOk(digits)) {
-        return "That Aadhaar number fails its checksum, so at least one digit is wrong. " +
-            "Please re-read the card and enter it again."
+        return "This Aadhaar number isn't valid. Check the card."
     }
     return null
 }
@@ -5195,12 +5180,9 @@ private fun ArtisanAadhaarField(
                 } else {
                     Text(
                         if (required) {
-                            "Required. 12 digits from the artisan's card — it is the key that stops " +
-                                "the same artisan being recorded twice by two researchers. Stored " +
-                                "securely and shown as XXXX XXXX 9012 everywhere but this form."
+                            "12 digits from the card. Stored securely and shown masked elsewhere."
                         } else {
-                            "This artisan was recorded before an Aadhaar number was required, so the " +
-                                "record still saves without one — add it only if the artisan is willing."
+                            "Optional for this older record — add only if the artisan agrees."
                         },
                         color = Muted,
                         fontSize = 12.sp
@@ -5386,30 +5368,28 @@ private fun AudioClipRecorder(
             ) { Text(if (clips.isNotEmpty()) "Record another ●" else idleLabel, maxLines = 1, softWrap = false, fontSize = 13.sp) }
 
             RecPhase.RECORDING -> {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                ActionRow {
                     OutlinedButton(
                         onClick = { runCatching { recorder?.pause(); phase = RecPhase.PAUSED }.onFailure { onError(it.apiErrorMessage("Unable to pause")) } },
-                        modifier = Modifier.weight(1f),
                         contentPadding = pad
                     ) {
                         Icon(Icons.Filled.Pause, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("Pause", maxLines = 1, softWrap = false, fontSize = 13.sp)
                     }
-                    OutlinedButton(onClick = { stopAndSave() }, modifier = Modifier.weight(1f), contentPadding = pad) {
+                    OutlinedButton(onClick = { stopAndSave() }, contentPadding = pad) {
                         StopSquareLabel("Stop")
                     }
                 }
             }
 
             RecPhase.PAUSED -> {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                ActionRow {
                     OutlinedButton(
                         onClick = { runCatching { recorder?.resume(); phase = RecPhase.RECORDING }.onFailure { onError(it.apiErrorMessage("Unable to resume")) } },
-                        modifier = Modifier.weight(1f),
                         contentPadding = pad
                     ) { Text("Resume ●", maxLines = 1, softWrap = false, fontSize = 13.sp) }
-                    OutlinedButton(onClick = { stopAndSave() }, modifier = Modifier.weight(1f), contentPadding = pad) {
+                    OutlinedButton(onClick = { stopAndSave() }, contentPadding = pad) {
                         StopSquareLabel("Stop")
                     }
                 }
@@ -5559,12 +5539,12 @@ private fun MediaCaptureSection(
         HorizontalDivider()
         Text("Attach media", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
         Text(
-            "Photos, video, audio and files link to this record automatically. Audio is queued for transcription after upload.",
+            "Audio is transcribed after upload.",
             color = Muted,
             fontSize = 12.sp
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton(onClick = { pickMedia.launch("*/*") }, modifier = Modifier.weight(1f)) { Text("Pick files") }
+        ActionRow {
+            OutlinedButton(onClick = { pickMedia.launch("*/*") }) { Text("Pick files") }
             OutlinedButton(
                 onClick = {
                     permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) {
@@ -5574,16 +5554,15 @@ private fun MediaCaptureSection(
                         takePhoto.launch(uri)
                     }
                 },
-                modifier = Modifier.weight(1f)
             ) { Text("Take photo") }
         }
         if (emphasizeVideo) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Icon(Icons.Filled.Videocam, contentDescription = null, tint = MaterialTheme.field.muted, modifier = Modifier.size(16.dp))
-                Text("Video is the preferred format here — capture the action as it happens.", color = MaterialTheme.field.muted, fontSize = 13.sp)
+                Text("Video works best here.", color = MaterialTheme.field.muted, fontSize = 13.sp)
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        ActionRow {
             if (emphasizeVideo) {
                 Button(
                     onClick = {
@@ -5594,7 +5573,6 @@ private fun MediaCaptureSection(
                             takeVideo.launch(uri)
                         }
                     },
-                    modifier = Modifier.weight(1f),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
                 ) { CardButtonLabel(Icons.Filled.Videocam, "Record video") }
             } else {
@@ -5607,7 +5585,6 @@ private fun MediaCaptureSection(
                             takeVideo.launch(uri)
                         }
                     },
-                    modifier = Modifier.weight(1f),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
                 ) { Text("Record video", maxLines = 1, softWrap = false, fontSize = 13.sp) }
             }
@@ -5636,7 +5613,6 @@ private fun MediaCaptureSection(
                         onMessage("Audio recording added")
                     }
                 },
-                modifier = Modifier.weight(1f),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 10.dp)
             ) { if (recording) StopSquareLabel("Stop audio") else Text("Record audio ●", maxLines = 1, softWrap = false, fontSize = 13.sp) }
         }
@@ -5696,11 +5672,11 @@ private fun MediaCaptureSection(
             HorizontalDivider()
             Text("Grid-sheet measurement image (optional)", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
             Text(
-                "Length and breadth are estimated from the grid where possible and fill any empty boxes. You can always enter them yourself.",
+                "Fills length and breadth from the grid.",
                 color = Muted,
                 fontSize = 12.sp
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            ActionRow {
                 OutlinedButton(
                     onClick = {
                         permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) {
@@ -5710,9 +5686,8 @@ private fun MediaCaptureSection(
                             takePhoto.launch(uri)
                         }
                     },
-                    modifier = Modifier.weight(1f)
                 ) { Text("Capture grid") }
-                OutlinedButton(onClick = { pickMeasurement.launch("image/*") }, modifier = Modifier.weight(1f)) { Text("Pick grid") }
+                OutlinedButton(onClick = { pickMeasurement.launch("image/*") }) { Text("Pick grid") }
             }
             media.measurementUri?.let { uri ->
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -5754,7 +5729,7 @@ private fun MediaCaptureSection(
                     when {
                         allDone -> "All uploaded ✓ — ready to save"
                         stalled -> uploadStalledSentence(failedCount)
-                        else -> "Uploading… ${(overall * 100).toInt()}% (${media.staged.size}/${media.uris.size} files done)"
+                        else -> "Uploading… ${(overall * 100).toInt()}% (${media.staged.size}/${media.uris.size})"
                     },
                     color = MaterialTheme.field.onBrandTileMuted,
                     fontSize = 12.sp
@@ -5782,21 +5757,25 @@ private fun MediaCaptureSection(
                     )
                 }
                 if (media.uris.size > attachmentsCap) {
-                    TextButton(onClick = { attachmentsExpanded = !attachmentsExpanded }) {
-                        Text(if (attachmentsExpanded) "Show fewer" else "+${media.uris.size - attachmentsCap} more")
+                    ActionRow {
+                        TextButton(onClick = { attachmentsExpanded = !attachmentsExpanded }) {
+                            Text(if (attachmentsExpanded) "Show fewer" else "+${media.uris.size - attachmentsCap} more")
+                        }
                     }
                 }
-                TextButton(onClick = {
-                    val pending = media.stagedDeferred.values.toList()
-                    media.stagedDeferred.clear()
-                    media.staged = emptyMap()
-                    media.stagedProgress = emptyMap()
-                    media.stagedFailed = emptySet()
-                    media.uris = emptyList()
-                    AppScope.io.launch {
-                        pending.forEach { d -> runCatching { d.await()?.let { repository.deleteStaged(it.objectKey) } } }
-                    }
-                }) { Text("Clear attachments") }
+                ActionRow {
+                    TextButton(onClick = {
+                        val pending = media.stagedDeferred.values.toList()
+                        media.stagedDeferred.clear()
+                        media.staged = emptyMap()
+                        media.stagedProgress = emptyMap()
+                        media.stagedFailed = emptySet()
+                        media.uris = emptyList()
+                        AppScope.io.launch {
+                            pending.forEach { d -> runCatching { d.await()?.let { repository.deleteStaged(it.objectKey) } } }
+                        }
+                    }) { Text("Clear attachments") }
+                }
             }
         }
     }
@@ -5876,7 +5855,7 @@ private fun AttachedUploadsCard(
             when {
                 allDone -> "All uploaded ✓ — ready to save"
                 stalled -> uploadStalledSentence(failedCount)
-                else -> "Uploading… ${(overall * 100).toInt()}% ($doneCount/${uris.size} files done)"
+                else -> "Uploading… ${(overall * 100).toInt()}% ($doneCount/${uris.size})"
             },
             color = MaterialTheme.field.onBrandTileMuted,
             fontSize = 12.sp
@@ -5896,8 +5875,10 @@ private fun AttachedUploadsCard(
             )
         }
         if (uris.size > cap) {
-            TextButton(onClick = { expanded = !expanded }) {
-                Text(if (expanded) "Show fewer" else "+${uris.size - cap} more")
+            ActionRow {
+                TextButton(onClick = { expanded = !expanded }) {
+                    Text(if (expanded) "Show fewer" else "+${uris.size - cap} more")
+                }
             }
         }
     }
@@ -5915,7 +5896,7 @@ private fun LoadingCard(mode: EntryMode, error: String? = null, onRetry: () -> U
         return
     }
     RecordCard(title = "Loading ${mode.label.lowercase()}") {
-        Text("Fetching the latest saved values…", color = Muted, fontSize = 13.sp)
+        Text("Loading…", color = Muted, fontSize = 13.sp)
     }
 }
 
@@ -6104,7 +6085,7 @@ private fun RecordPickerScreen(
     }
 
     RecordCard(title = "Update existing ${mode.label.lowercase()}") {
-        Text("Pick a record from the dropdown and choose Update to change it, or tap a recent record to read it first. Changes are attributed to you per field.", color = Muted, fontSize = 12.sp)
+        Text("Pick a record to update, or tap a recent one to read it.", color = Muted, fontSize = 12.sp)
         if (mode == EntryMode.QUESTIONNAIRE) {
             // ABOVE the list, because it changes what the list IS — the same placement the completion
             // matrix and the consolidated index give it, for the same reason.
@@ -6118,8 +6099,7 @@ private fun RecordPickerScreen(
             // wording is `ConsolidatedIndex`'s, which faced the identical choice one screen over.
             options.isEmpty() && mode == EntryMode.QUESTIONNAIRE && !workshopScope.isAllRecords ->
                 Text(
-                    "No interviews in the chosen workshops yet. Widen the workshop scope, or choose " +
-                        "All records.",
+                    "No interviews in these workshops yet.",
                     color = Muted
                 )
             options.isEmpty() -> Text("No ${mode.label.lowercase()} records found yet.", color = Muted)
@@ -6197,7 +6177,7 @@ private fun DeleteRecordSection(
     var deleting by remember { mutableStateOf(false) }
     val noun = mode.label.lowercase()
     RecordCard(title = "Danger zone") {
-        Text("Deleting permanently removes this $noun and its links. This cannot be undone.", color = Muted, fontSize = 12.sp)
+        Text("Permanently deletes this $noun and its links.", color = Muted, fontSize = 12.sp)
         OutlinedButton(
             onClick = { confirm = true },
             enabled = !deleting,
@@ -6213,7 +6193,7 @@ private fun DeleteRecordSection(
         AlertDialog(
             onDismissRequest = { if (!deleting) confirm = false },
             title = { Text("Delete $noun?") },
-            text = { Text("This permanently deletes the record. This action cannot be undone.") },
+            text = { Text("This permanently deletes the record.") },
             confirmButton = {
                 TextButton(
                     enabled = !deleting,
@@ -6594,7 +6574,7 @@ private fun CraftForm(
     fun submit() {
         if (!validateRequired(listOf(
                 RequiredCheck(name.isBlank(), { nameError = it }, nameFocus)
-            ))) { onError("Please fill the required field highlighted above."); return }
+            ))) { onError("Fill in the highlighted field."); return }
         scope.launch {
             // Late-submission gate: if the chosen workshop has ended, say what that means and save
             // only if the researcher confirms. Returns true immediately when there is nothing to say.
@@ -6615,7 +6595,7 @@ private fun CraftForm(
             }.getOrElse { false }
             if (queuedOffline) {
                 media.reset()
-                onError("Saved on this device. It'll upload automatically when you're back online.")
+                onError("Saved offline. Uploads when you're online.")
                 draft.clear(); onDone()
                 saving = false
                 return@launch
@@ -6850,7 +6830,7 @@ private fun ArtisanForm(
                 RequiredCheck(!hasCraft, { craftError = it }, craftFocus),
                 RequiredCheck(dosText.isBlank(), { dosError = it }, dosFocus),
                 RequiredCheck(dontsText.isBlank(), { dontsError = it }, dontsFocus)
-            ))) { onError("Please fill the required field highlighted above."); return }
+            ))) { onError("Fill in the highlighted field."); return }
         // Phone (optional) must be a valid number for its ISD code when present.
         artisanPhoneValidationError(phone)?.let { msg -> phoneError = msg; onError("Fix the phone number highlighted above."); return }
         phoneError = null
@@ -6858,7 +6838,7 @@ private fun ArtisanForm(
         // enforces (EMAIL_RE in components/forms/ArtisanForm.tsx). Accepting "a@b" here while the web
         // refused it meant one artisan got two different verdicts depending on who typed them in.
         if (email.isNotBlank() && !EMAIL_RE.matches(email.trim())) {
-            emailError = "Enter a valid email address (name@example.com)."
+            emailError = "Enter a valid email."
             runCatching { emailFocus.requestFocus() }
             onError("Fix the email highlighted above."); return
         }
@@ -6867,10 +6847,9 @@ private fun ArtisanForm(
         // this form saves offline, so a form that only learned the number was missing from a 422
         // would let a researcher walk away from the artisan with an unsavable record in hand.
         if (aadhaarRequired && aadhaar.isBlank()) {
-            aadhaarError = "Enter the artisan's 12-digit Aadhaar number. It is how the app " +
-                "recognises someone another researcher has already documented."
+            aadhaarError = "Enter the 12-digit Aadhaar number."
             runCatching { aadhaarFocus.requestFocus() }
-            onError("The Aadhaar number is required — see the highlighted field."); return
+            onError("Aadhaar number required."); return
         }
         // ...and it must be a genuine number when present — the same three checks the API runs,
         // applied here so a bad digit is caught with the card still in hand.
@@ -6882,10 +6861,9 @@ private fun ArtisanForm(
         aadhaarError = null
         // "Card available = Yes" without a number is the one combination the API refuses outright.
         if (pehchanAvailable && pehchanNumber.isBlank()) {
-            pehchanError = "Enter the Artisan Pehchan Card number, or set the card to 'No' if the " +
-                "artisan does not hold one."
+            pehchanError = "Enter the Pehchan Card number, or set the card to 'No'."
             runCatching { pehchanFocus.requestFocus() }
-            onError("Fix the Artisan Pehchan Card details highlighted above."); return
+            onError("Fix the Pehchan Card details."); return
         }
         pehchanError = null
         // Last, because it is the one check whose answer is further down the form than the focus
@@ -6930,7 +6908,7 @@ private fun ArtisanForm(
             }.getOrElse { false }
             if (queuedOffline) {
                 media.reset()
-                onError("Saved on this device. It'll upload automatically when you're back online.")
+                onError("Saved offline. Uploads when you're online.")
                 draft.clear(); onDone()
                 saving = false
                 return@launch
@@ -7066,7 +7044,7 @@ private fun ArtisanForm(
             // Nobody is born tomorrow, and a future date would derive a negative age.
             maximum = java.time.LocalDate.now(),
             clearable = true,
-            supportingText = "The record sheet shows an age, worked out from this date."
+            supportingText = "Shown as an age."
         )
         OutlinedTextField(
             value = experienceYears,
@@ -7108,8 +7086,7 @@ private fun ArtisanForm(
         // "holds a card" and "card number" legible instead of reading as three unrelated boxes.
         Text("Identity", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
         Text(
-            "Government identifiers, kept so the same artisan documented at two workshops resolves " +
-                "to one record. Stored securely and masked on every shared or exported view.",
+            "Stored securely; masked when shared or exported.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -7145,7 +7122,7 @@ private fun ArtisanForm(
                     ?: if (pehchanAvailable) {
                         "The PM Vishwakarma artisan ID printed on the card."
                     } else {
-                        "Disabled because this artisan holds no Pehchan card. Switch \"available\" to Yes to enter a number."
+                        "Set \"available\" to Yes to enter a number."
                     }
                 Text(hint, color = if (pehchanError != null) MaterialTheme.colorScheme.error else Muted, fontSize = 12.sp)
             },
@@ -7159,14 +7136,14 @@ private fun ArtisanForm(
             items = dosItems,
             error = dosError,
             focusRequester = dosFocus,
-            helper = "Lessons from years at the craft — the things the artisan has learnt to do. Press Enter for each new point."
+            helper = "What the artisan has learnt to do. One point per line."
         ) { dosItems = it; dosError = null }
         NumberedListInput(
             label = "Don'ts",
             items = dontsItems,
             error = dontsError,
             focusRequester = dontsFocus,
-            helper = "Lessons from years at the craft — the things the artisan has learnt not to do / to avoid. Press Enter for each new point."
+            helper = "What the artisan avoids. One point per line."
         ) { dontsItems = it; dontsError = null }
         StatusControl(canSetStatus = canSetStatus, value = status) { status = it }
         if (isEdit) {
@@ -7233,7 +7210,7 @@ private fun WorkshopForm(
         if (!validateRequired(listOf(
                 RequiredCheck(title.isBlank(), { titleError = it }, titleFocus),
                 RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
-            ))) { onError("Please fill the required field highlighted above."); return }
+            ))) { onError("Fill in the highlighted field."); return }
         newRecordLocationError(isEdit, media.location)?.let { onError(it); return }
         scope.launch {
             saving = true
@@ -7264,7 +7241,7 @@ private fun WorkshopForm(
             }.getOrElse { false }
             if (queuedOffline) {
                 media.reset()
-                onError("Saved on this device. It'll upload automatically when you're back online.")
+                onError("Saved offline. Uploads when you're online.")
                 draft.clear(); onDone()
                 saving = false
                 return@launch
@@ -7502,7 +7479,7 @@ private fun ProductForm(
                 RequiredCheck(craftName.isBlank(), { craftNameError = it }, craftNameFocus),
                 RequiredCheck(artisanName.isBlank(), { artisanNameError = it }, artisanNameFocus),
                 RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
-            ))) { onError("Please fill the required field highlighted above."); return }
+            ))) { onError("Fill in the highlighted field."); return }
         newRecordLocationError(isEdit, media.location)?.let { onError(it); return }
         scope.launch {
             if (!workshop.confirmSubmission()) return@launch
@@ -7573,7 +7550,7 @@ private fun ProductForm(
                 carry.prune(CarryNode.PRODUCT)
                 carry.remember(sitting)
                 media.reset()
-                onError("Saved on this device. It'll upload automatically when you're back online.")
+                onError("Saved offline. Uploads when you're online.")
                 draft.clear(); onDone()
                 saving = false
                 return@launch
@@ -8276,7 +8253,7 @@ private fun ToolForm(
                 RequiredCheck(craftName.isBlank(), { craftNameError = it }, craftNameFocus),
                 RequiredCheck(artisanName.isBlank(), { artisanNameError = it }, artisanNameFocus),
                 RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
-            ))) { onError("Please fill the required field highlighted above."); return }
+            ))) { onError("Fill in the highlighted field."); return }
         newRecordLocationError(isEdit, media.location)?.let { onError(it); return }
         scope.launch {
             if (!workshop.confirmSubmission()) return@launch
@@ -8453,7 +8430,7 @@ private fun ToolForm(
                         carry.remember(sitting)
                     }
                     media.reset(); stages.reset()
-                    onError("Saved on this device. It'll upload automatically when you're back online.")
+                    onError("Saved offline. Uploads when you're online.")
                     draft.clear(); onDone(); saving = false; return@launch
                 } else onError("Couldn't save offline")
                 saving = false; return@launch
@@ -8495,8 +8472,7 @@ private fun ToolForm(
                 }
                 if (!queueFailedAttachments(repository, context, "tool", toolId, toolkitName, stagesLeft)) {
                     throw IllegalStateException(
-                        "The tool was saved, but ${stagesLeft.size} stage capture(s) couldn't be uploaded. " +
-                            "Re-open it from \"Update existing\" to attach them again."
+                        "Tool saved, but ${stagesLeft.size} capture(s) didn't upload. Re-attach from \"Update existing\"."
                     )
                 }
                 toolId
@@ -8850,12 +8826,12 @@ private fun ToolStagesSection(
         HorizontalDivider()
         Text("Process stages", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
         Text(
-            "Document each step of making or using this tool. Captures are kept in the order you take them.",
+            "Capture each step in order.",
             color = Muted,
             fontSize = 12.sp
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton(onClick = { pickMedia.launch("*/*") }, modifier = Modifier.weight(1f)) { Text("Add files") }
+        ActionRow {
+            OutlinedButton(onClick = { pickMedia.launch("*/*") }) { Text("Add files") }
             OutlinedButton(
                 onClick = {
                     permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) {
@@ -8864,10 +8840,9 @@ private fun ToolStagesSection(
                         takePhoto.launch(uri)
                     }
                 },
-                modifier = Modifier.weight(1f)
             ) { Text("Photo step") }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        ActionRow {
             OutlinedButton(
                 onClick = {
                     permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) {
@@ -8876,7 +8851,6 @@ private fun ToolStagesSection(
                         takeVideo.launch(uri)
                     }
                 },
-                modifier = Modifier.weight(1f)
             ) { Text("Video step") }
             OutlinedButton(
                 onClick = {
@@ -8900,7 +8874,6 @@ private fun ToolStagesSection(
                         onMessage("Stage audio step added")
                     }
                 },
-                modifier = Modifier.weight(1f)
             ) { if (recording) StopSquareLabel("Stop") else Text("Audio step ●") }
         }
         if (recording) {
@@ -8914,7 +8887,9 @@ private fun ToolStagesSection(
                     AndroidUriPreview(context = context, uri = uri, downloadable = true)
                 }
             }
-            TextButton(onClick = { stages.uris = emptyList() }) { Text("Clear stages") }
+            ActionRow {
+                TextButton(onClick = { stages.uris = emptyList() }) { Text("Clear stages") }
+            }
         }
     }
 }
@@ -9134,7 +9109,7 @@ private fun ProcessForm(
         }
         val blocked = nameError != null || productError != null || stepsError != null ||
             preMediaError != null || artisanError != null || steps.any { it.name.isBlank() }
-        if (blocked) { onError("Please fill the required fields highlighted above."); return }
+        if (blocked) { onError("Fill in the highlighted fields."); return }
 
         scope.launch {
             if (!workshop.confirmSubmission()) return@launch
@@ -9208,7 +9183,7 @@ private fun ProcessForm(
                 if (ok) {
                     carry.remember(sitting)
                     preMedia.reset(); steps.forEach { it.media.reset() }
-                    onError("Saved on this device. It'll upload automatically when you're back online.")
+                    onError("Saved offline. Uploads when you're online.")
                     draft.clear(); onDone()
                 } else onError("Couldn't save offline")
                 saving = false
@@ -9263,8 +9238,7 @@ private fun ProcessForm(
                     }
                     if (!queueFailedAttachments(repository, context, "processstep", serverStep.id, name, stepLeft)) {
                         throw IllegalStateException(
-                            "The process was saved, but ${stepLeft.size} step file(s) couldn't be uploaded. " +
-                                "Re-open it from \"Update existing\" to attach them again."
+                            "Process saved, but ${stepLeft.size} file(s) didn't upload. Re-attach from \"Update existing\"."
                         )
                     }
                 }
@@ -9307,7 +9281,7 @@ private fun ProcessForm(
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
         Text(
-            "Capture how a product is made, step by step. Each process is tied to a product; multiple people can document the same product's processes.",
+            "How a product is made, step by step.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -9381,9 +9355,9 @@ private fun ProcessForm(
             }
             productLoadError != null -> Text(productLoadError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
             artisanId.isNotBlank() && artisanProducts.isEmpty() ->
-                Text("No products found for this artisan yet. Create a product for them first, then return here.", color = Muted, fontSize = 12.sp)
+                Text("No products for this artisan yet. Create one first.", color = Muted, fontSize = 12.sp)
             artisanId.isNotBlank() && artisanProducts.isNotEmpty() ->
-                Text("${artisanProducts.size} product(s) available for this artisan.", color = Muted, fontSize = 12.sp)
+                Text("${artisanProducts.size} product(s).", color = Muted, fontSize = 12.sp)
         }
         if (productError != null) Text(productError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
 
@@ -9499,7 +9473,7 @@ private fun ProcessForm(
         ) {
             Icon(Icons.Filled.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
             Text(
-                "Document the process yourself even if a colleague already has — each researcher's account is kept.",
+                "Each researcher's account is kept separately.",
                 color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 13.sp
             )
@@ -9717,7 +9691,7 @@ private fun MyActivityScreen(
             }
     }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-        Text("Everything you've recorded, most recent first. Tap an entry to open it.", color = Muted, fontSize = 13.sp)
+        Text("Your records, newest first.", color = Muted, fontSize = 13.sp)
         val current = activity
         val failure = loadError
         if (current != null && current.failedTypes.isNotEmpty()) {
@@ -9728,7 +9702,7 @@ private fun MyActivityScreen(
         }
         if (current != null && current.truncated) {
             Text(
-                "Showing the newest ${MY_RECORDS_PAGE_BUDGET * 100} of a type; open View Data for the rest.",
+                "Newest ${MY_RECORDS_PAGE_BUDGET * 100} per type. See View Data for more.",
                 color = Muted,
                 fontSize = 13.sp
             )
@@ -9743,7 +9717,7 @@ private fun MyActivityScreen(
                 Text("Loading your activity…", color = Muted, fontSize = 13.sp)
             }
             current.items.isEmpty() && current.failedTypes.isEmpty() -> Text(
-                "You haven't recorded anything yet. Create a record from the menu and it will appear here.",
+                "Nothing recorded yet.",
                 color = Muted,
                 fontSize = 13.sp
             )
@@ -9811,7 +9785,7 @@ private fun ToolAssignScreen(
 
     RecordCard(title = "Assign a tool to multiple artisans") {
         Text(
-            "Map one documented tool to several artisans — across the same or different crafts — instead of re-entering the same tool for each craft.",
+            "Link one tool to several artisans.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -9844,7 +9818,7 @@ private fun ToolAssignScreen(
                 scope.launch {
                     saving = true
                     runCatching { repository.assignToolArtisans(toolId, artisanIds.toList()) }
-                        .onSuccess { result -> assigned = result; artisanIds = emptySet(); info = "Done. This tool now maps to ${result.size} artisan(s)." }
+                        .onSuccess { result -> assigned = result; artisanIds = emptySet(); info = "Linked to ${result.size} artisan(s)." }
                         .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; onError(it.apiErrorMessage("Assignment failed")) }
                     saving = false
                 }
@@ -9857,7 +9831,7 @@ private fun ToolAssignScreen(
             HorizontalDivider()
             Text("Currently assigned to", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
             if (assigned.isEmpty()) {
-                Text("Not assigned to any additional artisans yet.", color = Muted, fontSize = 12.sp)
+                Text("No other artisans yet.", color = Muted, fontSize = 12.sp)
             } else {
                 assigned.forEach { artisan ->
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -10028,7 +10002,7 @@ private fun ArtisanQuestionnaireData(repository: FieldRepository, artisanId: Str
     if (interviews.isNotEmpty()) {
         RecordCard(title = "Questionnaire recordings", icon = Icons.Filled.Quiz) {
             Text(
-                "Recordings and notes from every interview this artisan is part of — including ones recorded with others.",
+                "From every interview with this artisan.",
                 color = Muted,
                 fontSize = 12.sp
             )
@@ -10110,11 +10084,11 @@ private fun TranscriptRefineControls(
         if (aiCostReminderSuppressed(context)) runRefine(translate) else pendingTranslate = translate
     }
 
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        OutlinedButton(onClick = { onRefineClick(false) }, enabled = !refining, modifier = Modifier.weight(1f), contentPadding = pad) {
+    ActionRow {
+        OutlinedButton(onClick = { onRefineClick(false) }, enabled = !refining, contentPadding = pad) {
             Text("Refine transcript", maxLines = 1, softWrap = false, fontSize = 12.sp)
         }
-        OutlinedButton(onClick = { onRefineClick(true) }, enabled = !refining, modifier = Modifier.weight(1f), contentPadding = pad) {
+        OutlinedButton(onClick = { onRefineClick(true) }, enabled = !refining, contentPadding = pad) {
             Text("Refine & translate", maxLines = 1, softWrap = false, fontSize = 12.sp)
         }
     }
@@ -10147,7 +10121,7 @@ private fun TranscriptRefineControls(
             )
             // Approve = persist the refined text as the transcript (uploader/admin only on the server);
             // Reject = just discard this preview, leaving the stored transcript untouched.
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            ActionRow {
                 Button(
                     onClick = {
                         scope.launch {
@@ -10167,13 +10141,11 @@ private fun TranscriptRefineControls(
                         }
                     },
                     enabled = !applying,
-                    modifier = Modifier.weight(1f),
                     contentPadding = pad
                 ) { Text(if (applying) "Saving…" else "Approve", maxLines = 1, softWrap = false, fontSize = 12.sp) }
                 OutlinedButton(
                     onClick = { refined = null },
                     enabled = !applying,
-                    modifier = Modifier.weight(1f),
                     contentPadding = pad
                 ) { Text("Reject", maxLines = 1, softWrap = false, fontSize = 12.sp) }
             }
@@ -10189,8 +10161,7 @@ private fun TranscriptRefineControls(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        "Refining" + (if (mode) " and translating" else "") + " this transcript runs it through an " +
-                            "AI model (gpt-4o-mini), which incurs a small extra cost each time you do it. Continue?"
+                        "Refining" + (if (mode) " and translating" else "") + " uses AI and costs a little each time. Continue?"
                     )
                     AppToggle(
                         label = "Do not remind me again",
@@ -10422,9 +10393,7 @@ private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Uni
 
     RecordCard(title = "App feedback") {
         Text(
-            "Tell us how the app is working for you — rate it on a few aspects and add anything you'd " +
-                "like in your own words. Everything is optional; fill in what's relevant. You can come " +
-                "back and update this at any time.",
+            "How is the app working for you? Everything is optional.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -10508,7 +10477,7 @@ private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Uni
                         val payload = offlineFormJson.encodeToString(request)
                         if (queueSmallWrite(repository, context, null, idempotent = true, type = "feedback", payloadJson = payload, label = "App feedback")) {
                             status = ActionStatus.SUCCESS
-                            onError("Saved on this device. It'll send automatically when you're back online.")
+                            onError("Saved offline. Sends when you're online.")
                             saving = false
                             return@launch
                         }
@@ -10518,7 +10487,7 @@ private fun FeedbackScreen(repository: FieldRepository, onError: (String) -> Uni
                                 if (it !is kotlinx.coroutines.CancellationException) {
                                     if (queueSmallWrite(repository, context, it, idempotent = true, type = "feedback", payloadJson = payload, label = "App feedback")) {
                                         status = ActionStatus.SUCCESS
-                                        onError("Saved on this device. It'll send automatically when you're back online.")
+                                        onError("Saved offline. Sends when you're online.")
                                     } else {
                                         status = ActionStatus.ERROR
                                         onError(it.apiErrorMessage("Unable to save your feedback"))
@@ -10571,7 +10540,7 @@ private fun MasterFeedbackCard(repository: FieldRepository, onError: (String) ->
     }
 
     RecordCard(title = "User feedback") {
-        Text("Qualitative and quantitative feedback submitted by the team. Pick a user to read theirs.", color = Muted, fontSize = 12.sp)
+        Text("Pick a user to read their feedback.", color = Muted, fontSize = 12.sp)
         when {
             loading -> Text("Loading feedback…", color = Muted, fontSize = 12.sp)
             feedback.isEmpty() -> Text("No feedback submitted yet.", color = Muted, fontSize = 12.sp)
@@ -10696,15 +10665,13 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
 
     RecordCard(title = "Recovered recordings") {
         Text(
-            "Recordings & clips whose original record was deleted afterwards. The files are safe in " +
-                "storage — play them here, and optionally re-attach each to an existing record so it " +
-                "appears under it again.",
+            "Recordings whose record was deleted. Play or re-attach them.",
             color = Muted,
             fontSize = 12.sp
         )
         when {
             loading -> Text("Loading…", color = Muted, fontSize = 12.sp)
-            orphans.isEmpty() -> Text("None — every recording is attached to a live record.", color = Muted, fontSize = 12.sp)
+            orphans.isEmpty() -> Text("None.", color = Muted, fontSize = 12.sp)
             else -> {
                 Text("${orphans.size} recovered file(s)", color = Body, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
                 orphans.forEach { m ->
@@ -10716,7 +10683,7 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         val typeLabel = m.linkedRecordType?.replaceFirstChar { it.uppercase() } ?: "Record"
-                        Text("Originally a $typeLabel attachment (that record was deleted)", color = Muted, fontSize = 12.sp)
+                        Text("From a deleted $typeLabel", color = Muted, fontSize = 12.sp)
                         m.uploadedBy?.name?.let { Text("Recorded by $it", color = Muted, fontSize = 12.sp) }
                         MediaWithTranscript(context, m, repository)
                         val opts = targetOptions[m.linkedRecordType].orEmpty()
@@ -10770,7 +10737,7 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
             title = { Text("Permanently delete recording?") },
             text = {
                 Text(
-                    "This permanently deletes “${toDelete.originalFilename}”. It cannot be undone."
+                    "Permanently delete “${toDelete.originalFilename}”?"
                 )
             },
             confirmButton = {
@@ -10812,7 +10779,7 @@ private enum class AdminHubEntry(
     // Label + description verbatim from ADMIN_LINKS on the web's /settings page.
     TASKS(
         "Task assignment",
-        "Hand documentation work to the people below you, then hold it to account.",
+        "Assign and track work.",
         Icons.AutoMirrored.Filled.Assignment
     ),
     WORKSHOPS("Workshop assignments", "Choose who may submit entries for each workshop.", Icons.Filled.Groups),
@@ -10825,14 +10792,14 @@ private enum class AdminHubEntry(
     // other so the difference is visible rather than discovered.
     ACCESS_ROSTER(
         "Access roster",
-        "Who may sign in at all, plus the queue of people waiting for a decision.",
+        "Who may sign in, and pending requests.",
         Icons.Filled.HowToReg
     ),
     // Every /secrets route is require_master_admin, not require_admin: handing out live provider
     // credentials (reveal returns plaintext) is a different class of power from managing people.
     API_KEYS(
         "API keys",
-        "Change, test and view the service keys the app uses.",
+        "Manage service keys.",
         Icons.Filled.VpnKey,
         masterOnly = true
     ),
@@ -11148,7 +11115,7 @@ private fun ViewDataScreen(
     }
 
     RecordCard(title = "View data") {
-        Text("Pick a record type, then an entry, to view it — including any transcribed audio.", color = Muted, fontSize = 12.sp)
+        Text("Pick a record type, then an entry.", color = Muted, fontSize = 12.sp)
         DropdownField(
             label = "Record type",
             options = viewDataModes.map { it.name to it.label },
@@ -11226,8 +11193,8 @@ private fun ViewDataScreen(
                     // that is one tap away under All records.
                     val why =
                         if (workshopScope.isAllRecords) "No questionnaires involve the selected artisan(s) yet"
-                        else "No questionnaires in the chosen workshops involve the selected artisan(s)"
-                    Text("$why — \"Check completion\" still shows the full matrix.", color = Muted, fontSize = 12.sp)
+                        else "No questionnaires for these artisans in these workshops"
+                    Text("$why.", color = Muted, fontSize = 12.sp)
                 }
                 // What the interview list is not showing. Printed under the dropdown it describes,
                 // exactly as the record forms print theirs.
@@ -11452,9 +11419,7 @@ private fun ReviewApprovalCard(
 
     RecordCard(title = "Reviews & approvals") {
         Text(
-            "Records submitted by the team that are still pending review. Tap a record to read it. Approve " +
-                "to publish it, fix a small mistake yourself with $RECORD_UPDATE_LABEL, send it back for " +
-                "revision with comments, or reject it.",
+            "Pending submissions. Tap one to review.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -11464,7 +11429,7 @@ private fun ReviewApprovalCard(
                 Text("Loading pending records…", color = Muted, fontSize = 12.sp)
             }
             loadError != null -> LoadFailedCard(message = loadError.orEmpty(), onRetry = { refresh() })
-            pending.isEmpty() && total == 0 -> Text("Nothing pending — everything has been reviewed.", color = Muted, fontSize = 13.sp)
+            pending.isEmpty() && total == 0 -> Text("Nothing pending.", color = Muted, fontSize = 13.sp)
             else -> {
                 Text(
                     "$total record${if (total == 1) "" else "s"} awaiting review" +
@@ -11605,35 +11570,34 @@ private fun PendingReviewRow(
             }
             if (item.needsAdminApproval) {
                 Text(
-                    "Submitted outside its workshop's dates — only an admin can edit or approve it.",
+                    "Outside workshop dates — admin approval needed.",
                     color = Coral,
                     fontSize = 12.sp
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            ActionRow(
+                destructive = {
+                    OutlinedButton(
+                        // Asks first, as the web's review page does. Rejection is the end of the road for a
+                        // submission and it sits one tap away from "Send for revision", the recoverable
+                        // action with almost the same meaning; on a phone, where the two buttons are a
+                        // thumb-width apart, doing it on the first tap was a mis-tap away from telling a
+                        // contributor their work was thrown out.
+                        onClick = { confirmReject = true },
+                        enabled = !busy,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                    ) { Text("Reject", maxLines = 1, fontSize = 13.sp) }
+                }
+            ) {
                 Button(
                     onClick = { act("Approved ${item.label}", resolves = true) { repository.approveRecord(item.recordType, item.id) } },
                     enabled = !busy,
-                    modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
                 ) { Text(if (busy) "Working…" else "Approve", maxLines = 1, fontSize = 13.sp) }
                 OutlinedButton(
-                    // Asks first, as the web's review page does. Rejection is the end of the road for a
-                    // submission and it sits one tap away from "Send for revision", the recoverable
-                    // action with almost the same meaning; on a phone, where the two buttons are a
-                    // thumb-width apart, doing it on the first tap was a mis-tap away from telling a
-                    // contributor their work was thrown out.
-                    onClick = { confirmReject = true },
-                    enabled = !busy,
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
-                ) { Text("Reject", maxLines = 1, fontSize = 13.sp) }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                OutlinedButton(
                     onClick = { panel = if (panel == "edit") null else "edit" },
                     enabled = !busy && fields.isNotEmpty(),
-                    modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
                 ) {
                     Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -11643,7 +11607,6 @@ private fun PendingReviewRow(
                 OutlinedButton(
                     onClick = { panel = if (panel == "revise") null else "revise" },
                     enabled = !busy,
-                    modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
                 ) { Text(if (panel == "revise") "Close" else "Send for revision", maxLines = 1, fontSize = 12.sp) }
             }
@@ -11651,8 +11614,7 @@ private fun PendingReviewRow(
             when (panel) {
                 "revise" -> {
                     Text(
-                        "Comments are required — they are what the creator sees and fixes. The record goes " +
-                            "back to them and returns for review once they edit it.",
+                        "Comments required — the creator sees them.",
                         color = Muted,
                         fontSize = 12.sp
                     )
@@ -11676,8 +11638,7 @@ private fun PendingReviewRow(
                         Text("Loading ${item.recordType}…", color = Muted, fontSize = 12.sp)
                     } else {
                         Text(
-                            "Fix the values here instead of bouncing the record back. This does NOT approve " +
-                                "it — the status stays pending, and the change is recorded against your name.",
+                            "Fix values directly. This doesn't approve it; the edit is logged under your name.",
                             color = Muted,
                             fontSize = 12.sp
                         )
@@ -11770,8 +11731,7 @@ private fun PendingReviewRow(
             title = { Text("Reject this record?") },
             text = {
                 Text(
-                    "${item.label} will show as rejected to the contributor. If you want them to fix " +
-                        "it and resubmit, close this and use Send for revision instead."
+                    "${item.label} will be rejected. To ask for fixes, use Send for revision."
                 )
             },
             confirmButton = {
@@ -11801,9 +11761,7 @@ private fun DatasetDownloadCard(repository: FieldRepository, onError: (String) -
 
     RecordCard(title = "Download entire dataset") {
         Text(
-            "Pulls every record and media file into a single zip, organised as Workshops → crafts → " +
-                "artisans → products (with their processes), tools and questionnaires. This can take a " +
-                "while as all resources are fetched, then compiled.",
+            "Every record and file in one zip, organised by workshop. This can take a while.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -11831,7 +11789,7 @@ private fun DatasetDownloadCard(repository: FieldRepository, onError: (String) -
                         // shape of a wrong answer that reads as a right one.
                         resultMessage = "Saved to ${res.displayLocation} — ${res.saved}/${res.total} files" +
                             (if (res.failed > 0) " (${res.failed} could not be fetched)" else "") +
-                            (if (res.truncated) " — this download doesn't include every record" else "")
+                            (if (res.truncated) " — not every record included" else "")
                     }.onFailure { onError(it.apiErrorMessage("Unable to download the dataset")) }
                     downloading = false
                 }
@@ -11845,8 +11803,7 @@ private fun DatasetDownloadCard(repository: FieldRepository, onError: (String) -
         }
         HorizontalDivider()
         Text(
-            "Prefer a spreadsheet? Download a styled .xlsx report of the whole dataset — one sheet per " +
-                "record type, with the relationships between them preserved.",
+            "Or download an .xlsx report, one sheet per record type.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -11955,8 +11912,7 @@ private fun CompletionMatrixCard(
 
     RecordCard(title = "Check completion", icon = Icons.Filled.GridView) {
         Text(
-            "Sections recorded per artisan — green is done (counted whether recorded individually or " +
-                "as part of any group/superset). Pinch to zoom." +
+            "Green means recorded. Pinch to zoom." +
                 if (canEdit) " Tap a cell to set its status." else "",
             color = Muted,
             fontSize = 12.sp
@@ -11990,9 +11946,7 @@ private fun CompletionMatrixCard(
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    "So ${if (hidden == 1) "it counts" else "they count"} towards no workshop scope and " +
-                        "nothing ${if (hidden == 1) "it holds" else "they hold"} turns a cell green here. " +
-                        "Choose All records above to include ${if (hidden == 1) "it" else "them"}" +
+                    "Choose All records to include ${if (hidden == 1) "it" else "them"}" +
                         if (canEdit) {
                             ", or file ${if (hidden == 1) "it" else "them"} under a workshop from the " +
                                 "Workshop screen."
@@ -12022,9 +11976,7 @@ private fun CompletionMatrixCard(
          */
         if (matrix?.overridesAreRepositoryWide == true) {
             Text(
-                "The workshop scope narrows the green derived from recordings. An admin override is a " +
-                    "judgement about that artisan's section across every workshop, so a marked cell " +
-                    "keeps its colour under every scope.",
+                "Admin-marked cells keep their colour in every scope.",
                 color = MaterialTheme.field.muted,
                 fontSize = 12.sp
             )
@@ -12038,9 +11990,9 @@ private fun CompletionMatrixCard(
             // are there. The web's own two sentences.
             data.artisans.isEmpty() -> Text(
                 if (!workshopScope.isAllRecords) {
-                    "No artisans in the chosen workshops. Widen the scope, or choose All records."
+                    "No artisans in these workshops."
                 } else {
-                    "No artisans yet — the matrix appears once artisans are recorded."
+                    "No artisans yet."
                 },
                 color = Muted,
                 fontSize = 12.sp
@@ -12521,7 +12473,7 @@ private fun RecordCollabSection(
                         if (queueSmallWrite(repository, context, null, idempotent = false, type = "comment",
                                 payloadJson = offlineFormJson.encodeToString(body), label = "Comment")) {
                             draft = ""
-                            onError("Saved on this device. It'll post automatically when you're back online.")
+                            onError("Saved offline. Posts when you're online.")
                             busy = false
                             return@launch
                         }
@@ -12677,7 +12629,7 @@ private fun AndroidMediaForm(
         // (ElevenLabs → Deepgram → Whisper), so naming one of them tells the researcher something
         // that is only sometimes true. The web misc-media screen already says it this way.
         Text(
-            "Upload images, videos, audio and files. Audio is transcribed after upload.",
+            "Audio is transcribed after upload.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -12806,19 +12758,23 @@ private fun AndroidMediaForm(
                 // primary is purple too, and "Download" and "Clear batch" all but vanished (doc/75).
                 val tileInk = MaterialTheme.field.onBrandTile
                 if (selectedUris.size > batchCap) {
-                    TextButton(
-                        onClick = { batchExpanded = !batchExpanded },
-                        colors = ButtonDefaults.textButtonColors(contentColor = tileInk)
-                    ) {
-                        Text(if (batchExpanded) "Show fewer" else "+${selectedUris.size - batchCap} more", color = tileInk)
+                    ActionRow {
+                        TextButton(
+                            onClick = { batchExpanded = !batchExpanded },
+                            colors = ButtonDefaults.textButtonColors(contentColor = tileInk)
+                        ) {
+                            Text(if (batchExpanded) "Show fewer" else "+${selectedUris.size - batchCap} more", color = tileInk)
+                        }
                     }
                 }
-                OutlinedButton(
-                    onClick = { selectedUris = emptyList() },
-                    border = BorderStroke(1.dp, tileInk.copy(alpha = TILE_OUTLINE_ALPHA)),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = tileInk)
-                ) {
-                    Text("Clear batch", color = tileInk, fontWeight = FontWeight.SemiBold)
+                ActionRow {
+                    OutlinedButton(
+                        onClick = { selectedUris = emptyList() },
+                        border = BorderStroke(1.dp, tileInk.copy(alpha = TILE_OUTLINE_ALPHA)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = tileInk)
+                    ) {
+                        Text("Clear batch", color = tileInk, fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
         }
@@ -12959,9 +12915,9 @@ private fun AndroidMediaForm(
                             selectedUris = failedUris.toList()
                             uploadStatus = ActionStatus.ERROR
                             val msg = if (success == 0) {
-                                "All ${failedUris.size} file(s) failed to upload. Check your internet connection, then tap Upload to retry — the files are still staged."
+                                "All ${failedUris.size} file(s) failed. Check your connection and tap Upload to retry."
                             } else {
-                                "$success uploaded, ${failedUris.size} failed. Tap Upload to retry the remaining file(s)."
+                                "$success uploaded, ${failedUris.size} failed. Tap Upload to retry."
                             }
                             localMessage = msg
                             if (success > 0) refreshMedia()
@@ -13094,13 +13050,10 @@ private fun AndroidUriPreview(
     }
     if ((failed && onRetry != null) || downloadable) {
         // One action row at the foot of every media card, always in this order — Retry (the way out of
-        // a failure) then Download — as real tonal buttons (MediaActionButton), wrapping rather than
-        // squeezing on a narrow screen and never overlapping the tile's discard badge above.
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
+        // a failure) then Download — as real tonal buttons (MediaActionButton), laid out by the one
+        // ActionRow (a pair shares the line, stacking only when a word cannot fit its half) and never
+        // overlapping the tile's discard badge above.
+        ActionRow(modifier = Modifier.fillMaxWidth()) {
             if (failed && onRetry != null) {
                 MediaActionButton(
                     action = MediaAction.RETRY,
@@ -14011,7 +13964,7 @@ private fun QuestionnaireForm(
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
         if (isEdit) {
-            Text("Add or update answers below. Existing answers from other interviewers are preserved unless you change them.", color = Muted, fontSize = 12.sp)
+            Text("Others' answers stay unless you change them.", color = Muted, fontSize = 12.sp)
         }
         // ABOVE EVERY FIELD IT FILLS, so what was carried in is read before any of them. This used
         // to say "above the workshop picker", which was true when the workshop opened the form; the
@@ -14134,9 +14087,7 @@ private fun QuestionnaireForm(
         */
         if (instrumentsFailed) {
             Text(
-                "The questionnaire list could not be loaded, so there is nothing to choose from. " +
-                    "This interview will be filed against the questionnaire set for the workshop, " +
-                    "or the default one.",
+                "Couldn't load questionnaires. The workshop's default will be used.",
                 color = Muted,
                 fontSize = 12.sp
             )
@@ -14247,9 +14198,7 @@ private fun QuestionnaireForm(
         */
         if (artisanOptions.failed) {
             Text(
-                "This workshop's artisan list could not be loaded, so nobody is being offered above. " +
-                    "Pick the workshop again to ask for it once more. Anyone already ticked is still on " +
-                    "this interview.",
+                "Couldn't load artisans. Pick the workshop again to retry.",
                 color = Muted,
                 fontSize = 12.sp
             )
@@ -14282,7 +14231,7 @@ private fun QuestionnaireForm(
         var hideAnswers by remember { mutableStateOf(true) }
         AppToggle(
             label = "Show answer text boxes",
-            description = "Off by default — only the record button shows. Turn on to type written answers.",
+            description = "Turn on to type answers.",
             checked = !hideAnswers,
             onCheckedChange = { hideAnswers = !it }
         )
@@ -14293,7 +14242,7 @@ private fun QuestionnaireForm(
             onChange = { capturedLocation = it },
             onMessage = onError
         )
-        Text("Tap a section to answer its questions. Only answered questions are saved.", color = Muted, fontSize = 12.sp)
+        Text("Tap a section to answer it.", color = Muted, fontSize = 12.sp)
         sections.forEach { section ->
             val activeQuestions = section.questions.filter { it.isActive }
             if (activeQuestions.isNotEmpty()) {
@@ -14448,7 +14397,7 @@ private fun QuestionnaireForm(
         if (qMedia.uris.isNotEmpty()) {
             HorizontalDivider()
             Text("All recordings (every section)", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
-            Text("Every question/section clip across the whole interview, uploading as you record. They link to this interview on save.", color = Muted, fontSize = 12.sp)
+            Text("Every clip in this interview.", color = Muted, fontSize = 12.sp)
             AttachedUploadsCard(context = context, media = qMedia, label = "recording", repository = repository) { uri -> removeClipUri(uri) }
         }
         // Any saved media not tied to a specific section (general attachments, or recordings whose
@@ -14608,8 +14557,7 @@ private fun QuestionnaireForm(
                         if (mergeConflicts.isEmpty()) {
                             Text(mergeOfferQuestion(holder.title), color = Body, fontSize = 13.sp)
                             Text(
-                                "Its answers and recordings move onto that interview and this one is " +
-                                    "then removed. Nothing already answered there is overwritten.",
+                                "Answers and recordings move there; this one is removed. Nothing is overwritten.",
                                 color = Muted,
                                 fontSize = 12.sp
                             )
@@ -14640,8 +14588,7 @@ private fun QuestionnaireForm(
                                 }
                             }
                             Text(
-                                "Open both interviews, agree on the wording for each question above, " +
-                                    "then try the move again.",
+                                "Reconcile the answers above, then try again.",
                                 color = Muted,
                                 fontSize = 12.sp
                             )
@@ -14671,7 +14618,7 @@ private fun QuestionnaireForm(
         fun submit() {
             if (!validateRequired(listOf(
                     RequiredCheck(title.isBlank(), { titleError = it }, titleFocus)
-                ))) { onError("Please fill the required field highlighted above."); return }
+                ))) { onError("Fill in the highlighted field."); return }
                 // Asked of a new interview even when it will FOLD into an existing one for the same
                 // artisan set: POST /questionnaire/interviews validates the whole body before it
                 // decides which of the two it is doing, so the stated address is required either way.
@@ -14790,7 +14737,7 @@ private fun QuestionnaireForm(
                             media.reset(); qMedia.reset(); questionAudio = emptyMap()
                             draft.clear()
                             saveState = SaveState.SAVED
-                            onError("Saved on this device. It'll upload automatically when you're back online.")
+                            onError("Saved offline. Uploads when you're online.")
                             delay(SAVED_CONFIRM_MS)
                             onSaved()
                             return@launch
@@ -15058,7 +15005,7 @@ private fun QuestionnaireForm(
             state = saveState,
             idleLabel = if (isEdit) "Update interview" else "Save questionnaire"
         ) { submit() }
-        Text("Recordings and attached media upload as you go and link to this interview automatically; audio is queued for transcription.", color = Muted, fontSize = 12.sp)
+        Text("Media uploads as you go.", color = Muted, fontSize = 12.sp)
     }
 }
 
@@ -15079,7 +15026,7 @@ private fun QuestionnaireBuilder(
     var updatingSections by remember { mutableStateOf(setOf<String>()) }
 
     RecordCard(title = "Questionnaire builder") {
-        Text("Master admin controls for adding, editing, removing, moving sections, and moving questions between sections. Tap a section to expand and edit it.", color = Muted, fontSize = 12.sp)
+        Text("Tap a section to edit it.", color = Muted, fontSize = 12.sp)
         // A SECTION CODE IS NOT PROSE. It is one to three letters that a regex in
         // `backend/app/services/media_naming.py` matches (`_CAPTION_SECTION` at :148 and
         // `_FILE_SECTION` at :156, both `[A-Za-z]{1,3}`) and that every media filename is built
@@ -15155,7 +15102,7 @@ private fun QuestionnaireBuilder(
                         // as "New section code" above (:11476).
                         TextInput("Code", code, dictate = false) { code = it }
                         TextInput("Title", sectionTitle) { sectionTitle = it }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        ActionRow {
                             OutlinedButton(
                                 onClick = {
                                     scope.launch {
@@ -15165,7 +15112,6 @@ private fun QuestionnaireBuilder(
                                         }.onFailure { onError(it.apiErrorMessage("Unable to update section")) }
                                     }
                                 },
-                                modifier = Modifier.weight(1f)
                             ) { Text("Save") }
                             OutlinedButton(
                                 enabled = sectionIndex > 0,
@@ -15213,7 +15159,7 @@ private fun QuestionnaireBuilder(
                             ) {
                                 Text("${question.sortOrder}. ${question.sectionCode} ${question.prompt}", color = Muted, fontSize = 12.sp)
                                 TextInput("Prompt", prompt, minLines = 2) { prompt = it }
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                ActionRow {
                                     OutlinedButton(
                                         onClick = {
                                             scope.launch {
@@ -15223,7 +15169,6 @@ private fun QuestionnaireBuilder(
                                                 }.onFailure { onError(it.apiErrorMessage("Unable to update question")) }
                                             }
                                         },
-                                        modifier = Modifier.weight(1f)
                                     ) { Text("Save") }
                                     OutlinedButton(
                                         enabled = questionIndex > 0,
@@ -15248,7 +15193,7 @@ private fun QuestionnaireBuilder(
                                         }
                                     ) { Text("Down") }
                                 }
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                ActionRow {
                                     OutlinedButton(
                                         enabled = sectionIndex > 0,
                                         onClick = {
@@ -15259,7 +15204,6 @@ private fun QuestionnaireBuilder(
                                                 }.onFailure { onError(it.apiErrorMessage("Unable to move question")) }
                                             }
                                         },
-                                        modifier = Modifier.weight(1f)
                                     ) { Text("Prev section") }
                                     OutlinedButton(
                                         enabled = sectionIndex < sections.lastIndex,
@@ -15271,7 +15215,6 @@ private fun QuestionnaireBuilder(
                                                 }.onFailure { onError(it.apiErrorMessage("Unable to move question")) }
                                             }
                                         },
-                                        modifier = Modifier.weight(1f)
                                     ) { Text("Next section") }
                                 }
                                 OutlinedButton(
@@ -15386,11 +15329,7 @@ private fun UserManagementForm(
 
     RecordCard(title = "Users and access") {
         Text(
-            "Professors and above can move a user along the six-tier ladder (never above their own " +
-                "tier); admins can additionally grant or revoke questionnaire-builder, record " +
-                "review & approval, view-provenance and dataset-download access. Craft and workshop " +
-                "creation are not grantable — they come with Professor, so promote instead. Tap a " +
-                "user to expand and manage them.",
+            "Tap a user to manage their role and access.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -15539,8 +15478,7 @@ private fun UserManagementForm(
                                 }
                             }
                             Text(
-                                "Professor and above already hold every privilege below; the toggles are " +
-                                    "for lifting a single power for someone lower on the ladder.",
+                                "Professors and above already have these.",
                                 color = Muted,
                                 fontSize = 12.sp
                             )
@@ -15757,7 +15695,7 @@ private fun SharingForm(
                         color = Muted, fontSize = 12.sp
                     )
                     if (!g.requestNote.isNullOrBlank()) Text("“${g.requestNote}”", color = Muted, fontSize = 12.sp)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ActionRow {
                         when (g.status) {
                             "PENDING" -> {
                                 Button(enabled = !busy, onClick = { run({ repository.decideDataAccess(g.id, "GRANTED", g.tier) }, "Access granted.") }) { Text("Approve") }
@@ -15783,8 +15721,10 @@ private fun SharingForm(
                         "${g.owner?.email ?: ""} · ${tierLabel(g.tier)} · ${g.status}",
                         color = Muted, fontSize = 12.sp
                     )
-                    OutlinedButton(enabled = !busy, onClick = { run({ repository.deleteDataAccess(g.id) }, "Request removed.") }) {
-                        Text(if (g.status == "PENDING") "Withdraw" else "Remove")
+                    ActionRow {
+                        OutlinedButton(enabled = !busy, onClick = { run({ repository.deleteDataAccess(g.id) }, "Request removed.") }) {
+                            Text(if (g.status == "PENDING") "Withdraw" else "Remove")
+                        }
                     }
                 }
             }
@@ -15896,8 +15836,7 @@ private fun WorkshopAssignmentCard(
 
     RecordCard(title = "Workshop assignments", icon = Icons.Filled.Groups) {
         Text(
-            "Pick a workshop, then choose who may work in it and at what level. A workshop with nobody " +
-                "granted stays open to everyone.",
+            "Pick a workshop and who may work in it. With nobody assigned, it's open to all.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -15913,7 +15852,7 @@ private fun WorkshopAssignmentCard(
         if (loadingRoster) {
             Text("Loading the roster…", color = Muted, fontSize = 12.sp)
         } else if (roster.isEmpty()) {
-            Text("Nobody is assigned yet — this workshop is open to everyone.", color = Muted, fontSize = 12.sp)
+            Text("Open to everyone.", color = Muted, fontSize = 12.sp)
         }
         // Granted first (the people who actually have access), then anyone waiting, then the history.
         val ordered = roster.sortedBy { row ->
@@ -15953,11 +15892,10 @@ private fun WorkshopAssignmentCard(
                             }
                         }
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    ActionRow {
                         if (row.status == "GRANTED") {
                             OutlinedButton(
                                 enabled = !busy,
-                                modifier = Modifier.weight(1f),
                                 onClick = {
                                     act(row.userId, "Access revoked") {
                                         repository.revokeWorkshopAccess(selectedWorkshop, row.userId)
@@ -15967,7 +15905,6 @@ private fun WorkshopAssignmentCard(
                         } else {
                             Button(
                                 enabled = !busy,
-                                modifier = Modifier.weight(1f),
                                 onClick = {
                                     act(row.userId, "Access granted") {
                                         repository.grantWorkshopAccess(selectedWorkshop, row.userId, row.accessLevel)
@@ -15977,7 +15914,6 @@ private fun WorkshopAssignmentCard(
                             if (row.status == "PENDING") {
                                 OutlinedButton(
                                     enabled = !busy,
-                                    modifier = Modifier.weight(1f),
                                     onClick = {
                                         act(row.userId, "Request denied") {
                                             repository.updateWorkshopAccess(selectedWorkshop, row.userId, status = "DENIED")
@@ -16071,8 +16007,7 @@ private fun WorkshopAccessScreen(
 
     RecordCard(title = "Request workshop access", icon = Icons.Filled.LockOpen) {
         Text(
-            "Pick every workshop you need to work in, then send one request. An admin approves it and " +
-                "sets the level you get.",
+            "Pick workshops and send one request.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -16130,12 +16065,12 @@ private fun WorkshopAccessScreen(
 
     RecordCard(title = "My workshop access") {
         Text(
-            "Everything you hold, everything you are waiting on, and anything that was refused.",
+            "Granted, pending and refused.",
             color = Muted,
             fontSize = 12.sp
         )
         if (mine.isEmpty()) {
-            Text("You have not asked for — or been given — access to any workshop yet.", color = Muted, fontSize = 12.sp)
+            Text("No workshop access yet.", color = Muted, fontSize = 12.sp)
         }
         mine.forEach { row ->
             ElevatedCard(
@@ -16157,7 +16092,7 @@ private fun WorkshopAccessScreen(
                     row.decisionNote?.takeIf { it.isNotBlank() }?.let { Text("“$it”", color = Muted, fontSize = 12.sp) }
                     row.decidedBy?.name?.let { Text("Decided by $it${formatIsoDate(row.decidedAt)?.let { d -> " · $d" } ?: ""}", color = Muted, fontSize = 12.sp) }
                     if (row.status == "DENIED" || row.status == "REVOKED") {
-                        Text("You can ask again above — that starts a fresh request.", color = Muted, fontSize = 12.sp)
+                        Text("You can ask again above.", color = Muted, fontSize = 12.sp)
                     }
                 }
             }
@@ -16213,8 +16148,7 @@ private fun WorkshopAccessQueueCard(
 
     RecordCard(title = "Workshop access requests", icon = Icons.Filled.LockOpen) {
         Text(
-            "Researchers asking to work in a workshop, oldest first. Approving gives them the level you " +
-                "pick — it does not put them on the roster, so an open workshop stays open to everyone else.",
+            "Requests to work in a workshop, oldest first.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -16225,7 +16159,7 @@ private fun WorkshopAccessQueueCard(
         when {
             loading -> Text("Loading requests…", color = Muted, fontSize = 12.sp)
             rows.isEmpty() -> Text(
-                if (showAll) "No workshop access yet." else "Nothing waiting — the queue is clear. 🎉",
+                if (showAll) "No workshop access yet." else "Nothing waiting.",
                 color = Muted,
                 fontSize = 12.sp
             )
@@ -16264,22 +16198,20 @@ private fun WorkshopAccessQueueCard(
                                 enabled = !busy,
                                 onSelect = { chosenLevel[row.id] = it }
                             )
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            ActionRow {
                                 Button(
                                     enabled = !busy,
-                                    modifier = Modifier.weight(1f),
                                     onClick = { decide(row, "GRANTED") }
                                 ) { Text(if (busy) "Working…" else "Approve", maxLines = 1, fontSize = 13.sp) }
                                 OutlinedButton(
                                     enabled = !busy,
-                                    modifier = Modifier.weight(1f),
                                     onClick = { decide(row, "DENIED") }
                                 ) { Text("Deny", maxLines = 1, fontSize = 13.sp) }
                             }
                         } else {
                             row.decisionNote?.takeIf { it.isNotBlank() }?.let { Text("Decision: “$it”", color = Muted, fontSize = 12.sp) }
                             Text(
-                                "Already decided — change it from Workshop assignments.",
+                                "Decided. Change it in Workshop assignments.",
                                 color = Muted,
                                 fontSize = 12.sp
                             )
@@ -16395,7 +16327,7 @@ private fun MyTasksScreen(
                 tasks = tasks.map {
                     if (it.id == task.id) it.copy(status = status ?: it.status, progressCount = progressCount ?: it.progressCount) else it
                 }
-                onMessage("Saved on this device. It'll update automatically when you're back online.")
+                onMessage("Saved offline. Updates when you're online.")
                 return true
             }
             if (keepOnDevice(null)) { busyId = null; return@launch }
@@ -16414,8 +16346,7 @@ private fun MyTasksScreen(
 
     RecordCard(title = "Tasks", icon = Icons.AutoMirrored.Filled.Assignment) {
         Text(
-            "Work assigned to you, with what it covers and how far along you are. Move the status as you " +
-                "go so whoever assigned it can see where things stand.",
+            "Your assigned work. Update the status as you go.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -16423,9 +16354,7 @@ private fun MyTasksScreen(
             // Web parity with the strip on /tasks: say where handing work out actually happens, and
             // offer the way there, rather than leaving the board undiscoverable outside the hub.
             Text(
-                "Handing work out happens on the assignment board: one scope — record types, an " +
-                    "artisan subset, questionnaire sections, a target count — given to several " +
-                    "people at once, with the accountability rollup beside it.",
+                "Assign work from the assignment board.",
                 color = Muted,
                 fontSize = 12.sp
             )
@@ -16678,11 +16607,7 @@ private fun WorkshopMappingCard(
 
     RecordCard(title = "Records not filed under a workshop", icon = Icons.Filled.Link) {
         Text(
-            "A record with no workshop is excluded from every workshop scope — search, the map, the data " +
-                "browser, the exports and the completion matrix — while still appearing under All records. " +
-                "That reads as an empty workshop rather than as a filter. This finds them and files each one " +
-                "where its own evidence points: the record it hangs off, the artisans in it, or the workshop " +
-                "whose dates it was recorded inside.",
+            "Records without a workshop are hidden from workshop views. File them here.",
             color = MaterialTheme.field.muted,
             fontSize = 12.sp
         )
@@ -16690,19 +16615,18 @@ private fun WorkshopMappingCard(
         val current = plan
         when {
             loading && current == null ->
-                Text("Reading every record that names no workshop…", color = MaterialTheme.field.muted, fontSize = 12.sp)
+                Text("Checking records…", color = MaterialTheme.field.muted, fontSize = 12.sp)
 
             current == null ->
                 Text(
-                    "The report could not be read. Tap Re-check to try again.",
+                    "Couldn't check. Tap Re-check.",
                     color = MaterialTheme.field.body,
                     fontSize = 12.sp
                 )
 
             current.totals.unassigned == 0 ->
                 Text(
-                    "Every record names the workshop it was captured at. Nothing is hidden " +
-                        "from a workshop scope.",
+                    "Every record has a workshop.",
                     color = MaterialTheme.field.body,
                     fontSize = 12.sp
                 )
@@ -16765,7 +16689,7 @@ private fun WorkshopMappingCard(
                                     .padding(8.dp)
                             ) {
                                 Text(
-                                    "Left alone — open the record and choose its workshop by hand",
+                                    "Choose its workshop by hand",
                                     color = MaterialTheme.field.onWarningContainer,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold
@@ -16788,8 +16712,7 @@ private fun WorkshopMappingCard(
                                 // to act on.
                                 if (stuck.size < bucket.unresolved) {
                                     Text(
-                                        "${bucket.unresolved - stuck.size} more are not listed. Re-check " +
-                                            "after filing these to see the rest.",
+                                        "${bucket.unresolved - stuck.size} more. Re-check after filing these.",
                                         color = MaterialTheme.field.onWarningContainer,
                                         fontSize = 12.sp
                                     )
@@ -16834,8 +16757,7 @@ private fun WorkshopMappingCard(
                         )
                     }
                     Text(
-                        "Only ever fills an empty workshop — nothing already filed is moved or cleared, and " +
-                            "pressing it twice changes nothing.",
+                        "Only fills empty workshops; nothing else changes.",
                         color = MaterialTheme.field.muted,
                         fontSize = 12.sp
                     )
@@ -16846,10 +16768,9 @@ private fun WorkshopMappingCard(
         appliedTotal?.let { total ->
             Text(
                 if (total == 0) {
-                    "Nothing left to file — every record the evidence could settle was already filed."
+                    "Nothing left to file."
                 } else {
-                    "$total record${if (total == 1) "" else "s"} filed. They now appear under their workshop " +
-                        "everywhere: search, the map, the data browser, the exports and the completion matrix."
+                    "$total record${if (total == 1) "" else "s"} filed."
                 },
                 color = MaterialTheme.field.body,
                 fontSize = 12.sp
@@ -16859,8 +16780,7 @@ private fun WorkshopMappingCard(
         plan?.let { current ->
             if (current.workshops.isEmpty()) {
                 Text(
-                    "No workshop has a date, so nothing can be filed by when it was " +
-                        "recorded. Adding a start and end date to a workshop makes that evidence available.",
+                    "No workshop has dates. Add dates to file by date.",
                     color = MaterialTheme.field.muted,
                     fontSize = 12.sp
                 )
@@ -16946,7 +16866,7 @@ private suspend fun trySaveOffline(
 @Composable
 private fun OfflineNotice(
     modifier: Modifier = Modifier,
-    text: String = "You're offline. Showing what was last loaded; anything you save stays on this device until you're back online."
+    text: String = "Offline — showing saved data. Changes upload when you're back."
 ) {
     val ink = MaterialTheme.field.onBrandTile
     Row(
@@ -16969,7 +16889,7 @@ private fun OfflineNotice(
  * Thrown by [createOrKeep] when a create's answer was lost and the record went to the outbox
  * instead. Its message is what the form tells the researcher.
  */
-private class KeptOnDevice : Exception("Saved on this device. It'll upload automatically when you're back online.")
+private class KeptOnDevice : Exception("Saved offline. Uploads when you're online.")
 
 /**
  * Send a create with a fresh `Idempotency-Key`, and if its answer is lost (no signal part-way, a
@@ -17324,10 +17244,12 @@ private fun NumberedListInput(
                 }
             }
         }
-        TextButton(onClick = { onChange(rows + "") }) {
-            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(4.dp))
-            Text("Add point")
+        ActionRow {
+            TextButton(onClick = { onChange(rows + "") }) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Add point")
+            }
         }
         if (error != null) Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
     }
@@ -17417,10 +17339,12 @@ private fun MultiNoteInput(
                 }
             }
         }
-        TextButton(onClick = { emit(rows + "") }) {
-            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(4.dp))
-            Text("Add note")
+        ActionRow {
+            TextButton(onClick = { emit(rows + "") }) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Add note")
+            }
         }
     }
 }
@@ -17725,7 +17649,7 @@ internal fun mediaUploadButtonLabel(
 
 /** Under a batch whose remaining files all failed: nothing is uploading, so say what happens next. */
 private fun uploadStalledSentence(failed: Int): String =
-    "$failed file${if (failed == 1) "" else "s"} did not upload. Saving tries again, or tap Retry below."
+    "$failed file${if (failed == 1) "" else "s"} didn't upload. Tap Retry or save again."
 
 /** The island bar's height, reported up so the app-level offline and outbox lines sit above it. */
 private val LocalIslandClearance = staticCompositionLocalOf<MutableState<androidx.compose.ui.unit.Dp>?> { null }

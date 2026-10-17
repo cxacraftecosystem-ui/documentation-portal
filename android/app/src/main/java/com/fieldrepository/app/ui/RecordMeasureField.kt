@@ -308,12 +308,9 @@ internal fun recordProposalText(offered: String): String {
 internal fun recordProposalNote(dimension: RecordDimension, offered: String): String? {
     val clamped = clampedToColumn(offered) ?: return null
     if (clamped.signum() == 0) {
-        return "That measures about $offered ${dimension.unit}, which rounds to zero in " +
-            "“${dimension.label}” — that box holds $RECORD_DECIMALS decimal places. A stored 0 " +
-            "would read as “measured, and it is nothing”, so nothing was put in it."
+        return "About $offered ${dimension.unit} rounds to zero in “${dimension.label}”, so it was left empty."
     }
-    return "“${dimension.label}” holds $RECORD_DECIMALS decimal places, so the measured " +
-        "$offered ${dimension.unit} went in as ${clamped.toPlainString()}."
+    return "“${dimension.label}” rounded $offered ${dimension.unit} to ${clamped.toPlainString()}."
 }
 
 /**
@@ -718,8 +715,7 @@ internal fun RecordMeasureField(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    "Marks you place, measured against something of a known size in the same photo. " +
-                        "No network, no model, and anybody can check it later from the marks.",
+                    "Mark the object against something of known size in the same photo.",
                     color = MaterialTheme.field.muted,
                     fontSize = 11.sp,
                     lineHeight = 16.sp,
@@ -911,14 +907,9 @@ private fun MeasurePanelOpen(
     PanelNote(
         warning = config.mode == MeasureMode.SCALE,
         text = if (config.mode == MeasureMode.SCALE) {
-            "This is only true when the reference and the thing you are measuring lie in the SAME FLAT " +
-                "PLANE, square to the camera. A ruler on the table and a pot standing on it are not in " +
-                "the same plane, and the pot will read wrong with no sign of it. If in doubt, use the " +
-                "four-corner method."
+            "Only accurate if the reference and object are in the same flat plane, facing the camera. If unsure, use four corners."
         } else {
-            "Mark the four corners of something whose real size you know — an A4 sheet, a card, the " +
-                "grid sheet — IN ORDER AROUND IT, not in reading order. The tilt of that surface is " +
-                "then divided out, and both ends of the object must sit on it."
+            "Mark the four corners of something of known size (A4, card, grid sheet), in order around it. Both ends of the object must sit on it."
         },
     )
 
@@ -1023,8 +1014,7 @@ private fun MeasurePanelOpen(
             Text(
                 when (state) {
                     is AsyncImagePainter.State.Error ->
-                        "This file could not be opened as a photograph on this device, so it cannot be " +
-                            "measured. Pick another one from the batch."
+                        "Can't open this photo. Pick another."
                     else -> "Opening the photograph…"
                 },
                 color = MaterialTheme.field.muted,
@@ -1051,8 +1041,7 @@ private fun MeasurePanelOpen(
     // ZOOMING IN GENUINELY MAKES THE MEASUREMENT BETTER and the readout says so, so the current zoom
     // belongs on screen beside the marks it is about.
     Text(
-        "Zoom ${String.format(Locale.ROOT, "%.1f", zoom)}×. A mark is only as well placed as the zoom it " +
-            "was placed at, and the error bar below is worked out from exactly that.",
+        "Zoom ${String.format(Locale.ROOT, "%.1f", zoom)}× — zoom in for more precise marks.",
         color = MaterialTheme.field.muted,
         fontSize = 11.sp,
         lineHeight = 16.sp,
@@ -1097,7 +1086,7 @@ private fun MeasurePanelOpen(
     }
 
     if (config.mode == MeasureMode.SCALE) {
-        PanelLabel("How long is the reference, really?")
+        PanelLabel("Reference length")
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier.fillMaxWidth().horizontalScroll(scrollPresets),
@@ -1121,7 +1110,7 @@ private fun MeasurePanelOpen(
         )
         UnitChips(selected = config.referenceUnit, enabled = enabled) { config.referenceUnit = it }
     } else {
-        PanelLabel("How big is that rectangle, really?")
+        PanelLabel("Rectangle size")
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier.fillMaxWidth().horizontalScroll(scrollPresets),
@@ -1266,10 +1255,7 @@ private fun MeasurementReadout(
     if (!config.allPlaced) {
         val remaining = config.needed.filter { config.marks[it]?.placed != true }
         Text(
-            "${remaining.size} of ${config.needed.size} marks still to place " +
-                "(${remaining.joinToString(", ") { MARK_BADGE.getValue(it) }}). Nothing is measured " +
-                "until every mark is where it belongs — a reading off the marks as they were laid out " +
-                "would be a confident number about nothing.",
+            "${remaining.size} of ${config.needed.size} marks left to place (${remaining.joinToString(", ") { MARK_BADGE.getValue(it) }}).",
             color = MaterialTheme.field.muted,
             fontSize = 11.sp,
             lineHeight = 16.sp,
@@ -1280,9 +1266,9 @@ private fun MeasurementReadout(
     if (result == null) {
         Text(
             if (config.mode == MeasureMode.SCALE) {
-                "Type how long the reference really is, and the measurement appears here."
+                "Enter the reference length."
             } else {
-                "Type how big the rectangle really is, and the measurement appears here."
+                "Enter the rectangle size."
             },
             color = MaterialTheme.field.muted,
             fontSize = 11.sp,
@@ -1324,12 +1310,7 @@ private fun MeasurementReadout(
             fontWeight = FontWeight.Bold,
         )
         Text(
-            "That is ±${String.format(Locale.ROOT, "%.1f", measurement.relativeUncertainty * 100)}%, from a " +
-                "reference ${measurement.referencePixels.roundToInt()} pixels long and an object " +
-                "${measurement.targetPixels.roundToInt()} pixels long in this working copy. The error bar is " +
-                "how far the answer moves when each mark is nudged by the amount a mark can be placed to at " +
-                "the zoom it was placed at — it is not a guess about the camera, and it does not include the " +
-                "reference being the wrong length.",
+            "±${String.format(Locale.ROOT, "%.1f", measurement.relativeUncertainty * 100)}% (reference ${measurement.referencePixels.roundToInt()} px, object ${measurement.targetPixels.roundToInt()} px).",
             color = MaterialTheme.field.muted,
             fontSize = 11.sp,
             lineHeight = 16.sp,
@@ -1350,9 +1331,9 @@ private fun MeasurementReadout(
                     append(". ")
                     append(
                         if (tilt < 0.01) {
-                            "That is small enough that the two-mark method would have done here."
+                            "Two marks would have been enough."
                         } else {
-                            "That is why the four corners were worth marking."
+                            "Four corners made the difference."
                         }
                     )
                 },
@@ -1371,7 +1352,7 @@ private fun MeasurementReadout(
                 // A unit this module cannot convert must not become a destination. Said out loud rather
                 // than silently omitted, so nobody wonders where the button went.
                 Text(
-                    "${dimension.label} is measured in ${dimension.unit}, which this cannot convert to.",
+                    "Can't convert to ${dimension.unit}.",
                     color = MaterialTheme.field.muted,
                     fontSize = 11.sp,
                 )
@@ -1398,9 +1379,7 @@ private fun MeasurementReadout(
         }
 
         Text(
-            "The figure is rounded to the precision its own error bar reaches, because once it is in " +
-                "the field the error bar is gone — the number of digits is the only thing left saying " +
-                "how well it was measured.",
+            "Rounded to its measured precision.",
             color = MaterialTheme.field.muted,
             fontSize = 11.sp,
             lineHeight = 16.sp,

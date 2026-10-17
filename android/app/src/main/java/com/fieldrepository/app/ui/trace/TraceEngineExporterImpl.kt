@@ -368,8 +368,7 @@ private fun traceUnwritableSentence(format: TraceExportFormat): String =
  * this drawing has too many separate paths in it.
  */
 const val TRACE_EXPORT_MEMORY_SENTENCE: String =
-    "This drawing has too many separate paths for this phone to write out as a file. The SVG still " +
-        "saves. Raise “Minimum speck” or “Simplify” and trace again for a drawing that fits."
+    "Too many paths for this file type. Save as SVG, or raise “Minimum speck” or “Simplify” and trace again."
 
 /**
  * The exporter a host mounts, in one place, so a mount site does not have to know which it is.

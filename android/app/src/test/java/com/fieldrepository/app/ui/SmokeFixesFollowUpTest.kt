@@ -91,9 +91,9 @@ class SmokeFixesFollowUpTest {
     @Test
     fun `a refused file in a batch with no record does not send the reader to one`() {
         val refused = listOf("\"a.jpg\": too large.", "\"a.jpg\": too large.")
-        assertEquals("2 file(s) couldn't be uploaded: \"a.jpg\": too large.", replayRefusedFilesSentence(refused, unlinked = true))
+        assertEquals("2 file(s) didn't upload: \"a.jpg\": too large.", replayRefusedFilesSentence(refused, unlinked = true))
         assertEquals(
-            "It was saved, but 2 file(s) couldn't be uploaded: \"a.jpg\": too large. Attach them again on the record.",
+            "Saved, but 2 file(s) didn't upload: \"a.jpg\": too large. Attach them again.",
             replayRefusedFilesSentence(refused, unlinked = false)
         )
     }

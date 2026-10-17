@@ -164,8 +164,8 @@ private fun BatchOutcomePanel(outcomes: List<ShareOutcome>, verb: String) {
     val failed = outcomes.size - posted
     val summary = when {
         failed == 0 -> "All $posted $verb."
-        posted == 0 -> "None $verb. $failed could not be sent."
-        else -> "$posted of ${outcomes.size} $verb. $failed could not be sent, and are still selected."
+        posted == 0 -> "None $verb. $failed failed."
+        else -> "$posted of ${outcomes.size} $verb. $failed failed and are still selected."
     }
     val allGood = failed == 0
 
@@ -245,8 +245,7 @@ fun RequestAccessFields(
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
         Text(
-            "Ask other researchers for access to their data. They each decide, and can narrow it to " +
-                "a subset. One request is sent per researcher.",
+            "Ask researchers for access to their data. Each decides separately.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -275,34 +274,36 @@ fun RequestAccessFields(
             enabled = !busy,
             modifier = Modifier.fillMaxWidth()
         )
-        Button(
-            enabled = !busy && selected.isNotEmpty(),
-            modifier = Modifier.heightIn(min = 48.dp),
-            onClick = {
-                val people = directory.filter { it.id in selected }
-                scope.launch {
-                    busy = true
-                    val results = runShareBatch(people) { person ->
-                        repository.requestDataAccess(person.id, tier, note)
+        ActionRow {
+            Button(
+                enabled = !busy && selected.isNotEmpty(),
+                modifier = Modifier.heightIn(min = 48.dp),
+                onClick = {
+                    val people = directory.filter { it.id in selected }
+                    scope.launch {
+                        busy = true
+                        val results = runShareBatch(people) { person ->
+                            repository.requestDataAccess(person.id, tier, note)
+                        }
+                        outcomes = results
+                        selected = unfinished(results)
+                        // The note is only cleared once every request carrying it has landed: it is the
+                        // sentence the researcher wrote to explain themselves, and wiping it while two
+                        // people still need re-sending would make them write it again.
+                        if (selected.isEmpty()) note = ""
+                        busy = false
+                        onChanged()
                     }
-                    outcomes = results
-                    selected = unfinished(results)
-                    // The note is only cleared once every request carrying it has landed: it is the
-                    // sentence the researcher wrote to explain themselves, and wiping it while two
-                    // people still need re-sending would make them write it again.
-                    if (selected.isEmpty()) note = ""
-                    busy = false
-                    onChanged()
                 }
+            ) {
+                Text(
+                    if (busy) {
+                        "Sending…"
+                    } else {
+                        "Send ${requestCountLabel(selected.size)}"
+                    }
+                )
             }
-        ) {
-            Text(
-                if (busy) {
-                    "Sending…"
-                } else {
-                    "Send ${requestCountLabel(selected.size)}"
-                }
-            )
         }
         BatchOutcomePanel(outcomes, verb = "sent")
     }
@@ -363,7 +364,7 @@ fun GrantAccessFields(
                 label = "${user.name} · ${user.email}",
                 hint = grant?.let {
                     val scopeWord = if (it.allData) "all data" else "${it.scopeItems.size} records"
-                    "already has ${tierWord(it.tier)}, $scopeWord — granting replaces it"
+                    "has ${tierWord(it.tier)}, $scopeWord — this replaces it"
                 }
             )
         }
@@ -395,8 +396,7 @@ fun GrantAccessFields(
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
         Text(
-            "Share all of your data, or pick specific records, with colleagues. Everyone selected " +
-                "gets the same tier and the same records.",
+            "Share all your data or chosen records. Everyone selected gets the same access.",
             color = Muted,
             fontSize = 12.sp
         )
@@ -453,43 +453,45 @@ fun GrantAccessFields(
                 )
             }
         }
-        Button(
-            enabled = !busy && selected.isNotEmpty() && (allData || scopeKeys.isNotEmpty()),
-            modifier = Modifier.heightIn(min = 48.dp),
-            onClick = {
-                val people = directory.filter { it.id in selected }
-                val scopeItems = if (allData) {
-                    emptyList()
-                } else {
-                    scopeKeys.mapNotNull { key ->
-                        val parts = key.split("::")
-                        if (parts.size == 2) {
-                            DataAccessScopeItemDto(recordType = parts[0], recordId = parts[1])
-                        } else {
-                            null
+        ActionRow {
+            Button(
+                enabled = !busy && selected.isNotEmpty() && (allData || scopeKeys.isNotEmpty()),
+                modifier = Modifier.heightIn(min = 48.dp),
+                onClick = {
+                    val people = directory.filter { it.id in selected }
+                    val scopeItems = if (allData) {
+                        emptyList()
+                    } else {
+                        scopeKeys.mapNotNull { key ->
+                            val parts = key.split("::")
+                            if (parts.size == 2) {
+                                DataAccessScopeItemDto(recordType = parts[0], recordId = parts[1])
+                            } else {
+                                null
+                            }
                         }
                     }
-                }
-                scope.launch {
-                    busy = true
-                    val results = runShareBatch(people) { person ->
-                        repository.grantDataAccess(person.id, tier, allData, scopeItems)
+                    scope.launch {
+                        busy = true
+                        val results = runShareBatch(people) { person ->
+                            repository.grantDataAccess(person.id, tier, allData, scopeItems)
+                        }
+                        outcomes = results
+                        selected = unfinished(results)
+                        // Tier and record scope survive a partial batch on purpose: they are what the
+                        // remaining people still need, and re-choosing eleven records to finish the two
+                        // that failed is the repetition this whole screen was changed to remove.
+                        if (selected.isEmpty()) {
+                            scopeKeys = emptySet()
+                            allData = true
+                        }
+                        busy = false
+                        onChanged()
                     }
-                    outcomes = results
-                    selected = unfinished(results)
-                    // Tier and record scope survive a partial batch on purpose: they are what the
-                    // remaining people still need, and re-choosing eleven records to finish the two
-                    // that failed is the repetition this whole screen was changed to remove.
-                    if (selected.isEmpty()) {
-                        scopeKeys = emptySet()
-                        allData = true
-                    }
-                    busy = false
-                    onChanged()
                 }
+            ) {
+                Text(if (busy) "Granting…" else "Grant ${grantCountLabel(selected.size)}")
             }
-        ) {
-            Text(if (busy) "Granting…" else "Grant ${grantCountLabel(selected.size)}")
         }
         BatchOutcomePanel(outcomes, verb = "granted")
     }

@@ -636,7 +636,7 @@ class FieldRepository(
     suspend fun createAccount(body: CreateAccountBody): CreatedAccountDto {
         val answer = recoveryApi.createAccount(body.copy(email = body.email.trim().lowercase(), name = body.name.trim()))
         if (answer.isSuccessful) {
-            return answer.body() ?: throw IllegalStateException("The server's answer could not be read. Try again.")
+            return answer.body() ?: throw IllegalStateException("Something went wrong. Try again.")
         }
         val refused = HttpException(answer)
         if (answer.code() == 409) {
@@ -3035,9 +3035,7 @@ class FieldRepository(
                 return when {
                     isTransient(e) -> ReplayOutcome.Retry
                     isKeyReused(e) -> ReplayOutcome.Review(
-                        "The server already has a request under this entry's key with different " +
-                            "contents, so this record may already be saved. Check the record list; if it " +
-                            "is not there, tap Send again (its photos are kept on this device either way)."
+                        "This may already be saved. Check the list; if it isn't there, tap Send again. Photos stay on this phone."
                     )
                     else -> ReplayOutcome.Rejected(e.apiErrorMessage("This record couldn't be saved."))
                 }
@@ -3143,8 +3141,7 @@ class FieldRepository(
                     landed.add(
                         FileOutcome.Refused(
                             index,
-                            "\"${pm.originalFilename}\" had nowhere to attach — the saved record has fewer " +
-                                "process steps than were captured."
+                            "\"${pm.originalFilename}\" wasn't attached — its process step no longer exists."
                         )
                     )
                     return@launch
@@ -4170,6 +4167,6 @@ private fun literalBaseName(base: String, extension: String): String {
  */
 internal fun replayRefusedFilesSentence(refused: List<String>, unlinked: Boolean): String {
     val reasons = refused.distinct().joinToString(" ")
-    return if (unlinked) "${refused.size} file(s) couldn't be uploaded: $reasons"
-    else "It was saved, but ${refused.size} file(s) couldn't be uploaded: $reasons Attach them again on the record."
+    return if (unlinked) "${refused.size} file(s) didn't upload: $reasons"
+    else "Saved, but ${refused.size} file(s) didn't upload: $reasons Attach them again."
 }

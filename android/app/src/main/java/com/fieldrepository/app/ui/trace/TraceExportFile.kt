@@ -154,8 +154,7 @@ internal suspend fun traceAttachFile(
 
 /** What to say when the one derived file could not be written to this device. */
 const val TRACE_ATTACH_WRITE_FAILED: String =
-    "The line art could not be written to this device, so nothing has been attached. The photograph " +
-        "is unaffected. Free some space and trace it again."
+    "Couldn't save the line art. Free some space and try again."
 
 /* ────────────────────────────────────────────────────────────────────────────
  * The result of a save
@@ -347,8 +346,7 @@ fun traceExportShareIntent(saved: TraceExportSaved): Intent? {
  * pick it up from there.
  */
 const val TRACE_EXPORT_NO_SHARE_SENTENCE: String =
-    "Open it from the Downloads folder to send it — any app's file picker or share sheet will find " +
-        "it there."
+    "Find it in Downloads to send it."
 
 /**
  * The warning under the share button.
@@ -357,6 +355,4 @@ const val TRACE_EXPORT_NO_SHARE_SENTENCE: String =
  * has to live with, so it is one wording rather than two accounts of one limitation.
  */
 const val TRACE_EXPORT_SHARE_CAVEAT: String =
-    "Pick nearby share, Bluetooth or a cable if you have no signal. A chat app will look like it " +
-        "worked and then send nothing until you are back online — the share sheet does not tell this " +
-        "app which one you chose, so it cannot warn you afterwards."
+    "No signal? Use Nearby Share, Bluetooth or a cable — chat apps wait until you're online."

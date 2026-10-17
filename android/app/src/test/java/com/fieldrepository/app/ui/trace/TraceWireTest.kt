@@ -51,7 +51,8 @@ class TraceWireTest {
     }
 
     /**
-     * A sentence a person can act on: long enough to be a sentence, and naming something to DO.
+     * A sentence a person can act on: more than a fragment, and naming something to DO. Short is the
+     * goal — the length floor only rules out a bare label.
      *
      * "Something went wrong" is forbidden here because somebody four days from a connection cannot act
      * on it, and neither can whoever reads the screenshot afterwards.
@@ -64,7 +65,7 @@ class TraceWireTest {
         )
         TraceFailureKind.entries.forEach { kind ->
             val sentence = traceSentence(kind)
-            assertTrue("$kind is too short to be a sentence: $sentence", sentence.length > 60)
+            assertTrue("$kind is too short to be a sentence: $sentence", sentence.length > 30)
             assertTrue(
                 "$kind names nothing the reader can do: $sentence",
                 verbs.any { sentence.contains(it) },

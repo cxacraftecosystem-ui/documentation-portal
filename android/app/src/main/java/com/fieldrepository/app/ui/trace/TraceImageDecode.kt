@@ -88,8 +88,7 @@ internal suspend fun traceDecodeForTrace(context: Context, uri: Uri): Bitmap =
         if (traceRotationTagged(context, uri)) {
             throw TraceHostFailure(
                 TraceFailureKind.IMAGE_UNREADABLE,
-                "this photograph carries a rotation the tracer will not guess at — " +
-                    "straighten it or take it again square on, and trace that",
+                "this photo is rotated — straighten it or retake it square-on",
             )
         }
 
@@ -100,7 +99,7 @@ internal suspend fun traceDecodeForTrace(context: Context, uri: Uri): Bitmap =
         if (opened.isFailure) {
             throw TraceHostFailure(
                 TraceFailureKind.IMAGE_UNREADABLE,
-                "this device would not open that photograph",
+                "this photo couldn't be opened",
             )
         }
         val storedWidth = bounds.outWidth

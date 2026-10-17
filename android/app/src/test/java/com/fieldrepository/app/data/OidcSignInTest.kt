@@ -87,7 +87,7 @@ class OidcSignInTest {
     @Test
     fun `a cancelled sign-in says so, and no message mentions a server`() {
         assertEquals(
-            "Signing in with Yahoo was cancelled. You can try again.",
+            "Yahoo sign-in cancelled.",
             oidcCallbackErrorMessage(OidcProviderId.YAHOO, "cancelled"),
         )
         val failed = oidcCallbackErrorMessage(OidcProviderId.MICROSOFT, "server_error")

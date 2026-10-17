@@ -571,5 +571,4 @@ interface TraceEngineRuntime {
  * no sentence at all, and it is not recoverable by anything they can do in a village.
  */
 const val TRACE_ENGINE_SILENT_SENTENCE: String =
-    "The tracing controls did not come back this time, and nothing has said why. Close this and open " +
-        "it again — the photograph is untouched either way."
+    "Tracing controls didn't load. Close and reopen."

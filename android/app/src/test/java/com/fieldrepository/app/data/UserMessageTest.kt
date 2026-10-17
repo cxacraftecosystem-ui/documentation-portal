@@ -35,7 +35,7 @@ class UserMessageTest {
             assertFalse(said, said.contains("HTTP"))
             assertFalse(said, said.contains(code.toString()))
         }
-        assertTrue(http(404, "").userMessage("x").contains("could not be found"))
+        assertTrue(http(404, "").userMessage("x").contains("Not found"))
         assertTrue(http(503, "<html>gateway</html>").userMessage("x").contains("Try again"))
     }
 

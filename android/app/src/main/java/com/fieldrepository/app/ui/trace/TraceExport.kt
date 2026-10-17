@@ -198,9 +198,7 @@ fun tracePngReductionNote(
     size: TracePngSize,
 ): String {
     if (!size.reduced) return ""
-    return "The picture is ${size.width}x${size.height}, reduced from " +
-        "${documentWidth}x$documentHeight so it stays inside what a phone can hold. The SVG " +
-        "beside it has no such limit."
+    return "Picture reduced to ${size.width}x${size.height} (from ${documentWidth}x$documentHeight). The SVG is full size."
 }
 
 /**
@@ -218,9 +216,7 @@ fun tracePngReductionNote(
  * frame panel puts on itself, so a researcher is sent to a heading they can see.
  */
 const val TRACE_PNG_MEMORY_REFUSAL: String =
-    "This phone could not make room for a picture that size. The SVG is the same drawing and needs " +
-        "almost no room — or choose a smaller region under “The part of the photograph to trace” " +
-        "and trace again, because the picture is as big as the part of the sheet you traced."
+    "Not enough memory for a picture this size. Save the SVG, or trace a smaller region."
 
 /**
  * The dots-per-inch given to `ExportOptions`.
@@ -315,8 +311,7 @@ val TRACE_EXPORT_FORMATS: List<TraceExportFormat> = listOf(
         attachable = true,
         isVector = true,
         save = "Save the trace (SVG)",
-        hint = "The traced paths themselves. Scales to any size without ever going blocky, opens in " +
-            "Illustrator, Inkscape and CorelDRAW, and is what gets attached to the record.",
+        hint = "Vector — scales to any size. Opens in Illustrator, Inkscape, CorelDRAW.",
     ),
     TraceExportFormat(
         id = "png",
@@ -330,9 +325,7 @@ val TRACE_EXPORT_FORMATS: List<TraceExportFormat> = listOf(
         // "2048px" AND NOT "2048 px": the web's row interpolates the same constant with no space, and
         // a lane whose rule is that one format is described one way on both clients cannot spell one
         // number two ways. The `${…}` braces are what keep the space out of the Kotlin interpolation.
-        hint = "The drawing rendered as a picture, transparent wherever the drawing is not, up to " +
-            "${TRACE_PNG_MAX_EDGE_PX}px on its long edge. Opens anywhere and drops straight into " +
-            "a letter or a slide, but it is pixels — enlarge it and it goes soft.",
+        hint = "Transparent picture, up to ${TRACE_PNG_MAX_EDGE_PX}px. Opens anywhere.",
     ),
     TraceExportFormat(
         id = "pdf",
@@ -343,9 +336,7 @@ val TRACE_EXPORT_FORMATS: List<TraceExportFormat> = listOf(
         attachable = false,
         isVector = true,
         save = "Save a PDF to send on",
-        hint = "Vector, and it opens on every machine you could mail it to without anybody installing " +
-            "anything. The one to attach to an email, or to hand to somebody who only needs to look " +
-            "at it.",
+        hint = "Vector that opens anywhere. Best for email.",
     ),
     TraceExportFormat(
         id = "dxf",
@@ -355,10 +346,8 @@ val TRACE_EXPORT_FORMATS: List<TraceExportFormat> = listOf(
         mime = "image/vnd.dxf",
         attachable = false,
         isVector = true,
-        save = "Save for a CAD or cutting machine (DXF)",
-        hint = "The outlines as CAD geometry, for a laser cutter, a CNC router or a drafting package. " +
-            "It is DXF R12, which every controller reads: curves arrive as many short straight lines, " +
-            "and colour, fill and line thickness are not carried at all.",
+        save = "Save for CAD (DXF)",
+        hint = "Outlines for laser cutters, CNC and CAD. No colour or fill.",
     ),
     TraceExportFormat(
         id = "eps",
@@ -369,9 +358,7 @@ val TRACE_EXPORT_FORMATS: List<TraceExportFormat> = listOf(
         attachable = false,
         isVector = true,
         save = "Save for a print shop (EPS)",
-        hint = "Vector PostScript, for a print shop or sign-cutting software that will not take an " +
-            "SVG. PostScript has no transparency, so anything part-see-through is flattened onto the " +
-            "background as the file is written.",
+        hint = "For print shops and sign cutters that don't take SVG. No transparency.",
     ),
 )
 
@@ -527,9 +514,7 @@ fun traceBackgroundLabel(documentBackground: Int?): String =
  * whether anybody has measured it on this model of phone.
  */
 const val TRACE_BACKGROUND_RETRACE_SENTENCE: String =
-    "Changing this traces the sheet again, which takes a few seconds — the background is part of the " +
-        "drawing the engine writes, so every format below changes together and none of them can " +
-        "disagree with the others."
+    "Changing this re-traces, which takes a few seconds."
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Naming
@@ -683,10 +668,7 @@ fun traceProvenanceNote(
  * researcher to stop. Sending the drawing on is the whole point of the four take-away formats.
  */
 const val TRACE_EXPORT_KEEP_SENTENCE: String =
-    "This file is yours to keep and to send on. It is written to this phone's Downloads folder and " +
-        "goes no further — it is not attached to the record, not uploaded and not synced, so if this " +
-        "handset is lost so is this copy. Use “Add the line art” above for the copy that reaches the " +
-        "record."
+    "Saved to Downloads only — not attached to the record. Use “Add the line art” for that."
 
 /**
  * **WHAT THE ATTACHED FILE IS, PRINTED UNDER THE BUTTON THAT ATTACHES IT.**
@@ -707,11 +689,7 @@ const val TRACE_EXPORT_KEEP_SENTENCE: String =
  * with it afterwards, because this panel cannot know and a promise it cannot keep is worse than none.
  */
 const val TRACE_ATTACH_SENTENCE: String =
-    "The drawing is added as an SVG — vector line work that prints at any size without ever going " +
-        "blocky. It goes through the same door a photograph taken with the camera goes through, so it " +
-        "queues, retries and waits offline exactly like any other file on this record. The " +
-        "photograph itself is not changed, and the picture above is only for comparing — it is never " +
-        "what gets attached."
+    "Added to the record as an SVG; it queues and uploads like any other file. The picture above is only for comparing."
 
 /**
  * The sentence shown when the trace on screen is a PREVIEW rather than a full-resolution run.
@@ -730,9 +708,7 @@ const val TRACE_ATTACH_SENTENCE: String =
  * recoverable failure — the sheet of paper is a fortnight away.
  */
 const val TRACE_EXPORT_PREVIEW_SENTENCE: String =
-    "This drawing was traced at a smaller size so it could be tuned quickly. Trace it once at full " +
-        "size before saving it — a preview saved now would be a coarser drawing than the one on " +
-        "screen, and nothing in the file would say so."
+    "This is a quick preview. Trace at full size before saving."
 
 /**
  * The sentence about the tracer's own name in the file's metadata.
@@ -756,9 +732,7 @@ const val TRACE_EXPORT_PREVIEW_SENTENCE: String =
  *    writers, so this list cannot rot into a claim about a file nobody read.
  */
 const val TRACE_EXPORT_ENGINE_NAME_SENTENCE: String =
-    "The file records that it was made by the Offline Tracer engine, which is the tracing library " +
-        "this app uses on the device. That is a note about the software — not about the drawing, " +
-        "and not about you."
+    "The file notes the tracing software used — nothing about you."
 
 /**
  * The sentence for a format that cannot say what it was traced from — which is all five.
@@ -778,9 +752,7 @@ const val TRACE_EXPORT_ENGINE_NAME_SENTENCE: String =
  * Written once and shared by every row, because two spellings of one fact is how the two drift.
  */
 const val TRACE_EXPORT_NO_PROVENANCE_SENTENCE: String =
-    "This file records nothing about which photograph it was traced from. None of the five forms " +
-        "this app writes has anywhere to put that note, so keep the photograph beside it if somebody " +
-        "will need to know which sheet it came from."
+    "The file doesn't record its source photo. Keep them together."
 
 /**
  * The sentence for a CROPPED trace saved in a format that cannot record the crop.
@@ -799,9 +771,7 @@ const val TRACE_EXPORT_NO_PROVENANCE_SENTENCE: String =
  * stale the day a sixth is added.
  */
 const val TRACE_EXPORT_NO_FRAME_SENTENCE: String =
-    "You traced part of the photograph rather than the whole sheet. This file has nowhere to record " +
-        "that either, so somebody holding it beside the photograph cannot tell why the two do not " +
-        "match. Say which part you traced when you send it on."
+    "You traced part of the photo. Mention which part when sharing."
 
 /**
  * Everything a researcher should be told about the file they are about to save, beside the file.
@@ -843,21 +813,17 @@ fun traceExportLosses(
         "png" -> {
             val capBites = documentLongEdgePx <= 0 || documentLongEdgePx > TRACE_PNG_MAX_EDGE_PX
             if (capBites) {
-                out += "Pixels, not curves, and no bigger than $TRACE_PNG_MAX_EDGE_PX px on the " +
-                    "long edge — a larger one is more memory than these phones have. Save the " +
-                    "SVG instead if it has to be enlarged."
+                out += "Pixels, no bigger than $TRACE_PNG_MAX_EDGE_PX px. Use SVG to enlarge."
             }
             out += TRACE_EXPORT_NO_PROVENANCE_SENTENCE
         }
         "dxf" -> {
-            out += "DXF R12 carries geometry and nothing else: no colour, no fill, no line " +
-                "thickness, and curves arrive as many short straight lines."
+            out += "Geometry only — no colour, fill or line weight."
             out += TRACE_EXPORT_NO_PROVENANCE_SENTENCE
-            out += "It carries no background either, so the choice above changes nothing in this file."
+            out += "It carries no background."
         }
         "eps" -> {
-            out += "PostScript has no transparency. Anything part-see-through is flattened onto the " +
-                "background as the file is written, and the engine records in the file that it did so."
+            out += "No transparency — see-through parts are flattened."
             // THE ONLY FORMAT STILL BRANDED. `EpsWriter` writes `%%Creator: Offline Tracer` outside the
             // `includeMetadata` guard, so no option removes it — see that constant, which reads all
             // five writers and says which are clean.
@@ -879,9 +845,7 @@ fun traceExportLosses(
         // which is the same surprise a transparent SVG produces in a PDF — the format that genuinely
         // cannot express it is the DXF, which carries no background at all, and that one is named on
         // its own row above.
-        out += "Transparent means the page shows through wherever the drawing is not. In an email or " +
-            "a document that is whatever colour the reader's page happens to be — turn the white " +
-            "background on above if somebody is going to print it."
+        out += "Transparent — the page shows through. Turn on white above for printing."
     }
     return out
 }

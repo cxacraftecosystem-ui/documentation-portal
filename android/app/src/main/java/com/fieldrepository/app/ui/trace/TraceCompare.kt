@@ -236,10 +236,7 @@ fun TraceCompare(
     if (widthGap > 1 || heightGap > 1) {
         TracePanelNote(
             warning = true,
-            text = "The two pictures came back at different sizes — the photograph at " +
-                "${photograph.width}×${photograph.height} and the drawing at " +
-                "${trace.width}×${trace.height} — so they cannot be laid over each other. The trace " +
-                "itself is unaffected and can still be attached; only this comparison is unavailable.",
+            text = "Sizes differ (${photograph.width}×${photograph.height} vs ${trace.width}×${trace.height}), so they can't be compared. The trace is fine.",
         )
         return
     }
@@ -484,8 +481,7 @@ fun TraceCompare(
             Text(
                 // Said once, under the control, because a gesture nobody is told about is a gesture
                 // nobody uses — and this one is the reason the strip can afford to be below the frame.
-                "Drag the strip to wipe between the two. Press and hold the picture to see the " +
-                    "photograph, and let go to come back.",
+                "Drag to compare. Hold to see the photo.",
                 color = MaterialTheme.field.muted,
                 fontSize = 11.sp,
                 lineHeight = 16.sp,

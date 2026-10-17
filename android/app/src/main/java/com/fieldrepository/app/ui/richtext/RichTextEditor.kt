@@ -941,7 +941,7 @@ private fun InlinePhotograph(
                 )
                 if (imageUrl == null) {
                     Text(
-                        "A photograph placed in this narrative. It is kept with the answer.",
+                        "Photo in this answer.",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

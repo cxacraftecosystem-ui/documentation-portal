@@ -740,27 +740,25 @@ object PhotoMeasure {
         if (!finite(reference.length, markSigmaPx, referenceLengthSigma) ||
             markSigmaPx < 0.0 || referenceLengthSigma < 0.0
         ) {
-            return MeasureResult.Refusal("The reference length is not a number this can measure against.")
+            return MeasureResult.Refusal("The reference length isn't a number.")
         }
         if (LENGTH_UNITS[reference.unit] == null) {
-            return MeasureResult.Refusal("“${reference.unit}” is not a length unit this can convert.")
+            return MeasureResult.Refusal("“${reference.unit}” isn't a length unit.")
         }
         if (reference.length <= 0.0) {
-            return MeasureResult.Refusal("The reference must have a real length greater than zero.")
+            return MeasureResult.Refusal("The reference length must be above zero.")
         }
 
         val referencePixels = distanceBetween(reference.from, reference.to)
         val targetPixels = distanceBetween(target.from, target.to)
         if (referencePixels < MIN_REFERENCE_PIXELS) {
             return MeasureResult.Refusal(
-                "The reference is only ${jsRound(referencePixels).toLong()} pixels long in this photograph, " +
-                    "which is too short to measure against — the error bar would be wider than the answer. " +
-                    "Zoom in and place the two marks further apart, or photograph the object closer to the scale."
+                "The reference is only ${jsRound(referencePixels).toLong()} pixels long — too short to measure against. Zoom in and mark its ends further apart, or photograph closer."
             )
         }
         if (targetPixels == 0.0) {
             return MeasureResult.Refusal(
-                "The two marks on the object are in the same place, so there is nothing to measure."
+                "The two object marks are in the same place."
             )
         }
 
@@ -775,7 +773,7 @@ object PhotoMeasure {
         )
         val uncertainty = relative * value
         if (!finite(value, relative, uncertainty)) {
-            return MeasureResult.Refusal("These marks do not produce a measurement that can be stood behind.")
+            return MeasureResult.Refusal("These marks don't give a reliable measurement.")
         }
 
         return MeasureResult.Measurement(
@@ -811,8 +809,7 @@ object PhotoMeasure {
         // a crash here loses whatever else the researcher was in the middle of recording.
         if (corners.size != 4) {
             return MeasureResult.Refusal(
-                "The rectangle needs four marked corners and there ${if (corners.size == 1) "is" else "are"} " +
-                    "${corners.size}. Mark each corner once, in order around the sheet."
+                "Mark all four corners, in order around the sheet (${corners.size} marked)."
             )
         }
         if (!pointsFinite(corners) || !pointsFinite(listOf(target.from, target.to))) {
@@ -822,24 +819,23 @@ object PhotoMeasure {
         }
         if (!finite(rectangle.width, rectangle.height, markSigmaPx) || markSigmaPx < 0.0) {
             return MeasureResult.Refusal(
-                "The rectangle's size is not a pair of numbers this can measure against."
+                "The rectangle's size must be two numbers."
             )
         }
         if (LENGTH_UNITS[rectangle.unit] == null) {
-            return MeasureResult.Refusal("“${rectangle.unit}” is not a length unit this can convert.")
+            return MeasureResult.Refusal("“${rectangle.unit}” isn't a length unit.")
         }
         if (rectangle.width <= 0.0 || rectangle.height <= 0.0) {
-            return MeasureResult.Refusal("The rectangle must have a real width and height greater than zero.")
+            return MeasureResult.Refusal("Width and height must be above zero.")
         }
         if (distanceBetween(target.from, target.to) == 0.0) {
             return MeasureResult.Refusal(
-                "The two marks on the object are in the same place, so there is nothing to measure."
+                "The two object marks are in the same place."
             )
         }
         if (!isSimpleConvexQuad(corners)) {
             return MeasureResult.Refusal(
-                "Those four corners cross over one another, so they do not enclose the rectangle. Mark them in " +
-                    "order around it — each corner next to the one before it — rather than in reading order."
+                "The corners cross over. Mark them in order around the rectangle."
             )
         }
 
@@ -910,13 +906,11 @@ object PhotoMeasure {
 
         val value = evaluate(coordinates)
             ?: return MeasureResult.Refusal(
-                "Those four corners do not define a plane this can rectify — three of them are in a straight " +
-                    "line, or an end of the object falls where the surface runs out of view. Re-mark the corners " +
-                    "of the rectangle, and keep both ends of the object on it."
+                "These corners can't be flattened — three are in a line, or an end is off the surface. Mark them again, with both ends on the rectangle."
             )
         if (value == 0.0) {
             return MeasureResult.Refusal(
-                "Both ends of the object rectify to the same place, so there is nothing to measure."
+                "Both ends of the object land in the same place."
             )
         }
 
@@ -926,9 +920,7 @@ object PhotoMeasure {
             // not one this module can put an error bar next to, and it does not offer numbers without
             // one.
             ?: return MeasureResult.Refusal(
-                "These marks are too close to an arrangement this cannot measure for an error bar to be worked " +
-                    "out, and a measurement is not offered without one. Photograph the rectangle less edge-on " +
-                    "and mark it again."
+                "Too edge-on to measure reliably. Photograph the rectangle more square-on and mark again."
             )
 
         val referencePixels = distanceBetween(corners[0], corners[1])
@@ -947,7 +939,7 @@ object PhotoMeasure {
                 targetPixels, uncorrectedValue, tiltCorrection,
             )
         ) {
-            return MeasureResult.Refusal("These marks do not produce a measurement that can be stood behind.")
+            return MeasureResult.Refusal("These marks don't give a reliable measurement.")
         }
 
         return MeasureResult.Measurement(

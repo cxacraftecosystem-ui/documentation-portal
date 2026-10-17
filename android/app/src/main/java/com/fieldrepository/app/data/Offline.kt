@@ -395,7 +395,7 @@ internal object OfflineQueueFile {
             return emptyList()
         }
         if (text.isBlank()) {
-            quarantine(file, "was empty, which means a save was interrupted part-way through", onDamage)
+            quarantine(file, "was empty — a save was interrupted", onDamage)
             return emptyList()
         }
         return runCatching { json.decodeFromString<List<PendingEntry>>(text) }.getOrElse { error ->
@@ -415,11 +415,9 @@ internal object OfflineQueueFile {
         val moved = runCatching { file.renameTo(kept) }.getOrDefault(false)
         onDamage(
             if (moved) {
-                "The list of records saved on this device $reason. Nothing has been deleted — it has been " +
-                    "kept as ${kept.name} in the app's storage. Please report this before uninstalling the app."
+                "Saved records on this phone $reason. Nothing was deleted (kept as ${kept.name}). Report this before uninstalling."
             } else {
-                "The list of records saved on this device $reason, and could not be set aside. Please report " +
-                    "this before uninstalling the app."
+                "Saved records on this phone $reason and could not be set aside. Report this before uninstalling."
             }
         )
     }
