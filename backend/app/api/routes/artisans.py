@@ -11,6 +11,7 @@ from app.core.deps import (
 )
 from app.schemas.records import ArtisanCreate, ArtisanUpdate, drop_masked_identity_numbers
 from app.services.access import guard_record_edit
+from app.services.artisan_form_contract import assert_required_dates, take_form_contract
 from app.services.artisan_identity import mask_aadhaar, normalize_aadhaar
 from app.services.concurrency import gather_reads
 from app.services.pagination import normalize_pagination, page_payload
@@ -364,6 +365,8 @@ async def create_artisan(
     current_user: Any = Depends(require_record_creator),
 ) -> dict[str, Any]:
     data = clean_data(payload.model_dump())
+    # The artisan form contract: both dates required on a save made under it, the old shape accepted.
+    assert_required_dates(take_form_contract(data), data)
     data = await resolve_craft_id(data, current_user)
     data = await attach_location(data)
     # Workshop entries: enforce assignment, then flag + pin a late submission for admin approval.
@@ -418,6 +421,9 @@ async def update_artisan(
     # diffs it into a ``RecordRevision``, ``merge_field_provenance`` stamps a contributor against
     # every key it holds, and Prisma is finally handed it as columns.
     expected_updated_at = take_expected_updated_at(data)
+    # Checked against the row as it will be after this write: a date the body leaves out keeps the
+    # stored value, so a record saved before the contract must gain both. Old shape: unchanged.
+    assert_required_dates(take_form_contract(data), data, stored=artisan)
     # ABOVE ``guard_record_edit``, and that ordering is the whole of the safety in a backend with no
     # transactions: ``guard_record_edit`` ends in ``record_revision``, which COMMITS a ledger row
     # asserting a change, and there is nothing here to roll it back with.

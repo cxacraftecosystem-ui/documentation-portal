@@ -314,6 +314,8 @@ _EDIT_SCHEMAS: dict[str, type[APIModel]] = {
 #   the same two keys with migration 20260915100000 — same reason, no new entry needed. A reviewer
 #   who needs to change which crafts a tool covers sends them to the tool's own PATCH, where the
 #   404/403 checks on the ids live.
+# - ``formContract`` — a statement about the artisan FORM a save came from, not a column; a review
+#   edit corrects fields and is not that form (``services/artisan_form_contract``).
 _NOT_REVIEW_EDITABLE = frozenset(
     {
         "status",
@@ -326,6 +328,7 @@ _NOT_REVIEW_EDITABLE = frozenset(
         "steps",
         "recordedAt",
         "recordedTimezone",
+        "formContract",
     }
 )
 

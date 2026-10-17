@@ -579,9 +579,12 @@ class RecordProseTest {
      * the argument has to be "no form draws it". A column that IS a box on some form cannot be added
      * here without that sentence being visibly false to anyone reading the form, and the four names
      * that were here before this one have held that property since they were written.
+     *
+     * `formContract` (2026-10-17) is the same kind of name: the artisan form sets it to say which
+     * contract the save was made under, and no form draws a box for it.
      */
     private val WIRE_PLUMBING =
-        setOf("id", "recordedAt", "recordedTimezone", "location", "steps", "clientKey")
+        setOf("id", "recordedAt", "recordedTimezone", "location", "steps", "clientKey", "formContract")
 
     /** `ProcessStepRequest.name` is `stepName` here, because `name` on this surface is the process's. */
     private fun stepKey(field: String) =

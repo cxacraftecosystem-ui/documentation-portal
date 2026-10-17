@@ -206,6 +206,32 @@ backfilled; the mismatch is flagged in the form rather than guessed at in the da
 
 ---
 
+### The artisan form contract (2026-10-17)
+
+One artisan form in both portals, on the web and on Android (owner decision): the designer portal
+adopted the documentation portal's form. `shared/artisan-form-contract.json` declares it and is
+byte-identical in the two repositories; `backend/tests/test_artisan_form_contract.py` holds each
+client's form to it and compares the two repositories when both checkouts are present.
+
+- **Date of birth** and **Craft start date** (`Artisan.dateOfBirth`, `Artisan.craftStartDate`) are
+  **required on every new save** — a create, and an edit made from the artisan form. The columns stay
+  nullable.
+- **Experience** is two optional boxes, *Experience (years)* (`experienceYears`, 0–90) and
+  *Experience (months)* (`experienceMonths`, 0–11, a remainder, `CHECK` on the column). The months
+  box's empty option is *Not stated* and stores NULL, never 0. Both portals already stored experience
+  this way, so the contract needed **no migration**.
+- **Server-side:** a save carrying `"formContract": 2` in its body is refused with a 422
+  ("Enter the date of birth and the craft start date.", naming only what is missing) when a date
+  would be empty; on an edit the stored value counts for a date the body leaves out, an explicit null
+  does not. Every current web and Android save sends the key.
+- **Transition:** a body **without** `formContract` is the old shape and is accepted unchanged — an
+  outbox entry queued by an older build (web IndexedDB or the Android outbox, both of which store the
+  body at queue time), the spreadsheet import and a review-queue edit. Removing that acceptance is a
+  later change, once no older build is in the field.
+- **Records saved before the rule** still load and display: the date boxes open empty and the months
+  box reads *Not stated*. An edit of such a record from the artisan form asks for both dates before
+  it saves.
+
 ## 3. Media, and the polymorphic link
 
 `MediaFile` is the one table almost everything points at, and it uses **two different linking

@@ -124,9 +124,10 @@ val RECORD_DICTATED: Map<RecordFormKind, Set<String>> = mapOf(
  * classified anyway, and that is the point: a wire column this test cannot see is a wire column
  * nobody has to think about.
  *
- * AND FOUR ARE BOXES IN THE BROWSER ONLY — `Artisan.craftStartDate`, `Artisan.experienceMonths`,
- * `Workshop.workshopType` and `Tool.heightInches` reached the wire with the record-parity work and
- * the handset draws none of them yet. Their entries carry the dictation argument AND say so, for
+ * AND TWO ARE BOXES IN THE BROWSER ONLY — `Workshop.workshopType` and `Tool.heightInches` reached
+ * the wire with the record-parity work and the handset draws neither yet. (`Artisan.craftStartDate`
+ * and `Artisan.experienceMonths` were the other two; the handset draws both since the one artisan
+ * form of 2026-10-17, undictated, exactly as classified below.) Their entries carry the dictation argument AND say so, for
  * the reason the whole file exists: "no microphone" and "no box" are different facts, and a reader
  * who cannot tell them apart will read the second as the first and close the wrong gap. Each is a
  * closed picker, a calendar or a measurement, so the dictation answer will not change on the day

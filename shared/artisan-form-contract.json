@@ -1,0 +1,125 @@
+{
+  "contract": "artisan-form",
+  "version": 2,
+  "enforcedBy": [
+    "backend/tests/test_artisan_form_contract.py",
+    "frontend/e2e/artisan-form-contract-unit.spec.ts",
+    "android/app/src/test/java/<package>/data/ArtisanFormContractTest.kt"
+  ],
+  "whatThisIs": [
+    "THE ARTISAN FORM, DECLARED ONCE FOR BOTH PORTALS AND BOTH CLIENTS (owner decision, 2026-10-17).",
+    "The designer portal adopted the documentation portal's form. This file is byte-identical in the",
+    "two repositories; each repository's backend test compares it with the sibling checkout's copy",
+    "when one is present, so a change made in one repository and not the other fails there.",
+    "",
+    "It declares the labels and their order on each client, the words a client shows, the words a",
+    "client may no longer show, the two required dates and the sentence that asks for them, and the",
+    "body key a client sends to be held to the rule. The sentence vectors are run by the server, the",
+    "web helper and the Android helper in both repositories."
+  ],
+  "bodyKey": "formContract",
+  "datesRequiredFrom": 2,
+  "transition": [
+    "A body WITHOUT formContract is the old shape and is accepted unchanged, so an outbox entry",
+    "queued by an older build still replays. A body WITH formContract >= 2 is refused (422, the",
+    "sentence below) when it leaves a required date empty. On an edit, the stored value counts for a",
+    "date the body leaves out; an explicit null does not. Existing records without the dates still",
+    "load and display, and an edit made from the artisan form asks for them."
+  ],
+  "requiredDates": [
+    { "field": "dateOfBirth", "label": "Date of birth", "words": "date of birth" },
+    { "field": "craftStartDate", "label": "Craft start date", "words": "craft start date" }
+  ],
+  "refusalVectors": [
+    { "dateOfBirth": null, "craftStartDate": null, "sentence": "Enter the date of birth and the craft start date." },
+    { "dateOfBirth": "1971-03-04", "craftStartDate": null, "sentence": "Enter the craft start date." },
+    { "dateOfBirth": null, "craftStartDate": "1994-06-01", "sentence": "Enter the date of birth." },
+    { "dateOfBirth": "  ", "craftStartDate": "1994-06-01", "sentence": "Enter the date of birth." },
+    { "dateOfBirth": "1971-03-04", "craftStartDate": "1994-06-01", "sentence": null }
+  ],
+  "experience": {
+    "years": { "field": "experienceYears", "label": "Experience (years)", "min": 0, "max": 90 },
+    "months": {
+      "field": "experienceMonths",
+      "label": "Experience (months)",
+      "min": 0,
+      "max": 11,
+      "empty": "Not stated",
+      "optionVectors": [[0, "0 months"], [1, "1 month"], [2, "2 months"], [11, "11 months"]]
+    }
+  },
+  "web": {
+    "order": [
+      "Name",
+      "Local name",
+      "Craft",
+      "Or new craft name",
+      "Place",
+      "Gender",
+      "Date of birth",
+      "Craft start date",
+      "Experience (years)",
+      "Experience (months)",
+      "Phone",
+      "Email",
+      "Address",
+      "Notes",
+      "Do's",
+      "Don'ts"
+    ],
+    "copy": [
+      "Select gender",
+      "Not stated",
+      "Masked on every shared or exported view.",
+      "Optional for this older record — add only with the artisan’s consent.",
+      "One point per line."
+    ],
+    "mediaHint": "Or drag files here. Uploads start right away.",
+    "retired": [
+      "Practising since",
+      "Not recorded",
+      "positive prompt",
+      "negative prompt",
+      "EXIF is",
+      "photo details (date, place, camera)"
+    ]
+  },
+  "android": {
+    "order": [
+      "Name",
+      "Local name",
+      "Craft *",
+      "Or new craft name",
+      "Place",
+      "Gender",
+      "Date of birth *",
+      "Craft start date *",
+      "Experience (years)",
+      "Experience (months)",
+      "Email",
+      "Address",
+      "Identity",
+      "Artisan Pehchan Card available",
+      "Do's",
+      "Don'ts"
+    ],
+    "copy": [
+      "Select…",
+      "Shown as an age.",
+      "Shown as years of experience.",
+      "Not stated",
+      "Stored securely; masked when shared or exported.",
+      "The PM Vishwakarma artisan ID printed on the card.",
+      "What the artisan has learnt to do. One point per line.",
+      "What the artisan avoids. One point per line."
+    ],
+    "retired": [
+      "Practising since",
+      "Do's (positive prompt)",
+      "Don'ts (negative prompt)",
+      "Used to show the artisan's age.",
+      "Used only if there's no start date.",
+      "What the artisan has learnt to avoid. One point per line."
+    ]
+  }
+}

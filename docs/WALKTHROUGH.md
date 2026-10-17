@@ -112,8 +112,9 @@ contents by craft. Adding it once keeps spellings consistent across everyone's r
 Record the person: who they are, where they work, how to reach them, and what they have learnt.
 
 **What the screen asks for:** Name *(required)*, Local name, Workshop, **Craft** *(required)*, Or new
-craft name, Place *(required)*, **Aadhaar number**, **Artisan Pehchan Card available** and its number,
-Gender, Phone, Email, Address, Notes, **Do's** *(required)*, **Don'ts**
+craft name, Place *(required)*, Gender, **Date of birth** *(required)*, **Craft start date**
+*(required)*, Experience (years), Experience (months), Phone, Email, Address, Notes, **Aadhaar
+number**, **Artisan Pehchan Card available** and its number, **Do's** *(required)*, **Don'ts**
 *(required)*, Artisan media, Location (device fix **and** stated address).
 
 **Why it exists.** The artisan is the anchor of the dataset — products, processes, tools and
@@ -133,6 +134,10 @@ own hard-won craft knowledge: the part of the archive that cannot be reconstruct
   recognised as "unchanged"; you do not have to retype the number.
 - **Pehchan card**: answer Yes/No first. Answering Yes makes the card number required; answering No
   clears it. It is not possible to store a card number for an artisan who says they hold no card.
+- **Date of birth and Craft start date are required** (since 2026-10-17). The age and the years of
+  experience are worked out from them. *Experience (years)* and *(months)* are for an artisan who
+  cannot name a start year; leave months on *Not stated* rather than 0. An artisan recorded before
+  the rule still opens as before; saving an edit asks for both dates first.
 - Photo details (date, place, camera) are kept and summarised into the notes automatically. Do not transcribe camera
   details by hand.
 - **Location asks two different things** — see the box below.
