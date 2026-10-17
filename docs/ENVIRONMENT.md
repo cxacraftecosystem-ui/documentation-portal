@@ -122,7 +122,7 @@ Emitted by `app.main.SecurityHeadersMiddleware`. Defaults are correct for local 
 | `AWS_S3_BUCKET` | **Yes** | — | No | Production: `fieldrepo-media-626159998512`. Local: `field-repository`. |
 | `AWS_S3_ENDPOINT` | No | unset | No | **Set only for MinIO/non-AWS storage** (`http://localhost:9000`). Leave it UNSET on AWS so boto3 signs against the dual-stack regional endpoint — that is what makes uploads work from IPv6-only mobile networks. |
 | `AWS_S3_PUBLIC_BASE_URL` | No | unset | No | Base URL used to build readable media links. On AWS use the dual-stack host: `https://fieldrepo-media-626159998512.s3.dualstack.ap-south-1.amazonaws.com`. |
-| `AWS_S3_SSE_ALGORITHM` | No | `AES256` | No | Server-side encryption requested on uploads the **API** starts (multipart create). `aws:kms` needs a key policy granting the media IAM user. Set it **empty** for local MinIO without a KMS backend, which rejects the header outright. Presigned single PUTs cannot carry it — the bucket's default-encryption setting covers those. |
+| `AWS_S3_SSE_ALGORITHM` | No | `AES256` | No | Server-side encryption requested on uploads the **API** starts (multipart create). `aws:kms` needs a key policy granting the media IAM user. Off-site replication copies SSE-S3 objects only, so an `aws:kms` object is never copied to the off-site bucket (SSE-KMS for the off-site copies is deferred to the production launch: decision D1 in the IIT workspace deferred-for-launch log). Set it **empty** for local MinIO without a KMS backend, which rejects the header outright. Presigned single PUTs cannot carry it — the bucket's default-encryption setting covers those. |
 
 ### Web origins and CORS
 
