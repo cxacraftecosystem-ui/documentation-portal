@@ -8,10 +8,11 @@
 #   2. An off-site copy. Everything in the media bucket (media/ and backups/)
 #      replicates to a bucket in ap-south-2 (Hyderabad), which keeps the data
 #      in India. It has Object Lock: no version can be deleted for 35 days
-#      after it lands. Its own KMS key is the default encryption, but the
-#      replicas are SSE-S3 (AES-256), not KMS: S3 only puts a replica under
-#      the replica key when the source object is SSE-KMS, and this media
-#      bucket is SSE-S3 throughout. See "Open points" in the hardening report.
+#      after it lands. The copies are SSE-S3 (AES-256) by choice, the same as
+#      the media bucket: the owner took option (b) on 2026-10-17 and the
+#      dedicated off-site KMS key was removed. SSE-KMS for the nightly dumps
+#      is deferred to the production launch, see D1 in
+#      docs/DEFERRED_FOR_LAUNCH.md (IIT workspace).
 #   3. The API's key can no longer write to backups/. The nightly dump runs
 #      under its own user, `backup_writer`, which can add a dump and list
 #      backups/documentation-portal/ and do nothing else.
@@ -72,24 +73,6 @@ resource "aws_s3_bucket_versioning" "media" {
 
 ############################ Off-site bucket (Hyderabad) ######################
 
-resource "aws_kms_key" "offsite" {
-  provider                = aws.offsite
-  description             = "${var.project}: encrypts the off-site copy of the media bucket"
-  enable_key_rotation     = true
-  deletion_window_in_days = 30
-
-  tags = {
-    Name    = "${var.project}-offsite"
-    Project = var.project
-  }
-}
-
-resource "aws_kms_alias" "offsite" {
-  provider      = aws.offsite
-  name          = "alias/${var.project}-offsite"
-  target_key_id = aws_kms_key.offsite.key_id
-}
-
 resource "aws_s3_bucket" "offsite" {
   provider            = aws.offsite
   bucket              = "${var.project}-offsite-${data.aws_caller_identity.current.account_id}"
@@ -134,12 +117,14 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "offsite" {
   provider = aws.offsite
   bucket   = aws_s3_bucket.offsite.id
 
+  # SSE-S3, the same as every replica already is. No KMS key: see D1 in
+  # docs/DEFERRED_FOR_LAUNCH.md (IIT workspace) for the switch at launch.
+  # SSE-C stays blocked, as S3 sets it on new buckets.
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm     = "aws:kms"
-      kms_master_key_id = aws_kms_key.offsite.arn
+      sse_algorithm = "AES256"
     }
-    bucket_key_enabled = true
+    blocked_encryption_types = ["SSE-C"]
   }
 }
 
@@ -238,9 +223,9 @@ resource "aws_iam_role" "replication" {
   }
 }
 
-# Read from the media bucket, write replicas to the off-site bucket, encrypt
-# with the off-site key. Nothing else: no delete of a version anywhere, and
-# the key can only be used through S3 in the off-site region.
+# Read from the media bucket and write replicas to the off-site bucket.
+# Nothing else: no delete of a version anywhere, and no KMS, because every
+# object on both sides is SSE-S3.
 resource "aws_iam_role_policy" "replication" {
   name = "${var.project}-s3-replication"
   role = aws_iam_role.replication.id
@@ -271,15 +256,6 @@ resource "aws_iam_role_policy" "replication" {
         Effect   = "Allow"
         Action   = ["s3:ReplicateObject", "s3:ReplicateDelete", "s3:ReplicateTags"]
         Resource = "${aws_s3_bucket.offsite.arn}/*"
-      },
-      {
-        Sid      = "EncryptReplicas"
-        Effect   = "Allow"
-        Action   = ["kms:Encrypt", "kms:GenerateDataKey"]
-        Resource = aws_kms_key.offsite.arn
-        Condition = {
-          StringEquals = { "kms:ViaService" = "s3.${var.offsite_region}.amazonaws.com" }
-        }
       }
     ]
   })
@@ -302,23 +278,13 @@ resource "aws_s3_bucket_replication_configuration" "media" {
       status = "Enabled"
     }
 
-    # S3 refuses a replica KMS key without this block. Nothing in the media
-    # bucket is KMS-encrypted (it is SSE-S3), so it changes nothing today.
-    # Replicas do not inherit the destination's default encryption, and the
-    # replica key below applies only to SSE-KMS source objects. So today every
-    # replica is SSE-S3 (AES-256). Checked with head-object on 2026-10-17.
-    source_selection_criteria {
-      sse_kms_encrypted_objects {
-        status = "Enabled"
-      }
-    }
-
+    # Replicas keep the source's encryption, SSE-S3 (AES-256), by choice.
+    # No source_selection_criteria and no replica KMS key: nothing in the
+    # media bucket is SSE-KMS. Deferred to launch: D1 in
+    # docs/DEFERRED_FOR_LAUNCH.md (IIT workspace).
     destination {
       bucket        = aws_s3_bucket.offsite.arn
       storage_class = "STANDARD_IA"
-      encryption_configuration {
-        replica_kms_key_id = aws_kms_key.offsite.arn
-      }
     }
   }
 

@@ -71,16 +71,6 @@ import {
   id = "fieldrepo-media-626159998512"
 }
 import {
-  to       = aws_kms_key.offsite
-  id       = "b81118fd-e26a-4608-b868-86d516334e12"
-  provider = aws.offsite
-}
-import {
-  to       = aws_kms_alias.offsite
-  id       = "alias/fieldrepo-offsite"
-  provider = aws.offsite
-}
-import {
   to       = aws_s3_bucket.offsite
   id       = "fieldrepo-offsite-626159998512"
   provider = aws.offsite
