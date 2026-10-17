@@ -104,7 +104,7 @@ export async function setPasswordWithLink(token: string, password: string): Prom
 
 /** What the screen prints if an older server answers without its own sentence. */
 export const FORGOT_PASSWORD_FALLBACK =
-  "If that address belongs to an account that signs in with a password, a link to choose a new password is on its way.";
+  "If that address has an account, a reset link is on its way.";
 
 /**
  * Ask for a password link by e-mail. The answer is the server's one sentence, the same for every

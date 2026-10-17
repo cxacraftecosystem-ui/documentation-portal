@@ -1,5 +1,6 @@
 package com.fieldrepository.app.data
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -33,5 +34,14 @@ class ServerReachabilityTest {
     fun `a cancelled call says nothing about the server`() {
         repeat(5) { ServerReachability.recordFailure(IOException("Canceled")) }
         assertFalse(ServerReachability.unreachable.value)
+    }
+
+    @Test
+    fun `the line never says offline, because the phone has signal`() {
+        assertEquals(
+            "Can't reach the server — your work is saved on this phone.",
+            ServerReachability.SERVER_UNREACHABLE_SENTENCE
+        )
+        assertFalse(ServerReachability.SERVER_UNREACHABLE_SENTENCE.contains("offline", ignoreCase = true))
     }
 }

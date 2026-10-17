@@ -228,6 +228,11 @@ class WalkthroughSurfaceTest {
             occurrences(journey, "BackHandler("),
         )
         assertTrue(
+            "one back press must leave the walkthrough — collapsing a step is a tap on the step, " +
+                "and an open first step made a first-run reader press back twice",
+            journey.contains("BackHandler(enabled = true) { onFinish() }"),
+        )
+        assertTrue(
             "the window must keep dismissOnBackPress = false, or the platform's own listener and " +
                 "the journey's both fire and which wins is an ordering detail of whichever Compose " +
                 "version is on the classpath",

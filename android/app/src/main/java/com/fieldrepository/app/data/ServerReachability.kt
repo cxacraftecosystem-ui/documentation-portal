@@ -21,8 +21,8 @@ object ServerReachability {
     /** One failure is a dropped packet; two in a row is a server that is not there. */
     const val FAILURES_BEFORE_UNREACHABLE = 2
 
-    /** The line the app shows while [unreachable] is true and the phone itself is online. */
-    const val SERVER_UNREACHABLE_SENTENCE = "Offline — your work is saved on this phone."
+    /** The line shown while [unreachable] is true and the phone itself is online. Never "Offline": the phone has signal. */
+    const val SERVER_UNREACHABLE_SENTENCE = "Can't reach the server — your work is saved on this phone."
 
     private val consecutiveFailures = AtomicInteger(0)
     private val state = MutableStateFlow(false)

@@ -49,12 +49,9 @@ logger = logging.getLogger(__name__)
 
 #: THE ONLY ANSWER the endpoint gives a well-formed request. It does not mention two-step verification:
 #: whether an account has a second factor is not something to tell a stranger who typed its address.
-FORGOT_PASSWORD_MESSAGE = (
-    "If that address belongs to an account that signs in with a password, a link to choose a new "
-    f"password is on its way. It works once and lasts {credential_links.RESET_TTL_HOURS} hours. If "
-    "nothing arrives within a few minutes, check your spam folder, or ask an administrator to make "
-    "you a link."
-)
+#: One short sentence: the screen already says how long the link lasts and that an administrator can
+#: make one.
+FORGOT_PASSWORD_MESSAGE = "If that address has an account, a reset link is on its way."
 
 #: The per-client refusal (429). About the connection, never about an account.
 TOO_MANY_REQUESTS_DETAIL = (

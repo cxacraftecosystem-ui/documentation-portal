@@ -65,6 +65,12 @@ class AccountRecoveryCopyTest {
         assertEquals("Exactly this.", forgotPasswordShown("  Exactly this. "))
         assertEquals(FORGOT_PASSWORD_FALLBACK, forgotPasswordShown(""))
         assertEquals(FORGOT_PASSWORD_FALLBACK, forgotPasswordShown(null))
+        assertEquals("If that address has an account, a reset link is on its way.", FORGOT_PASSWORD_FALLBACK)
+    }
+
+    @Test
+    fun `the two-step screen opens with one short sentence`() {
+        assertEquals("Use an authenticator app for a code at each sign-in.", TWO_FACTOR_INTRO)
     }
 
     @Test

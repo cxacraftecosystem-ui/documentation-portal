@@ -21,7 +21,7 @@ const val FORGOT_PASSWORD_TWO_STEP_NOTE = "With two-step verification on, you'll
 const val FORGOT_PASSWORD_NO_EMAIL_NOTE = "No email? Ask an administrator — they can make you a link."
 
 /** Shown only if a server answers 200 with no sentence of its own. The server's words win. */
-const val FORGOT_PASSWORD_FALLBACK = "If that address uses a password, a reset link is on its way. Nothing after a few minutes? Check spam, or ask an administrator."
+const val FORGOT_PASSWORD_FALLBACK = "If that address has an account, a reset link is on its way."
 
 /**
  * What is wrong with the typed address before it is sent, or null. As shallow as the access screen's
@@ -139,6 +139,9 @@ fun accessAddedLine(email: String, method: AccessSignIn): String = when (method)
 /** The first-password form's code box, shown when the account has two-step verification on. */
 const val TWO_FACTOR_CODE_LABEL = "Code from your authenticator app"
 const val TWO_FACTOR_CODE_HINT = "Two-step verification is on for your account."
+
+/** The one line under the two-step screen's title. The web card says the same. */
+const val TWO_FACTOR_INTRO = "Use an authenticator app for a code at each sign-in."
 
 /** A first password (no password yet) on an account with two-step on needs a code as well. */
 fun firstPasswordNeedsCode(hasPassword: Boolean, user: UserDto?): Boolean =

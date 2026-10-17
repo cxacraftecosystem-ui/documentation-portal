@@ -320,8 +320,7 @@ export function TwoStepVerificationCard() {
         </h2>
       </div>
       <p className="mt-1.5 text-xs leading-5 text-ink-500">
-        After your password or Google, Microsoft or Yahoo sign-in, also ask for a 6-digit code from an authenticator
-        app on your phone.
+        Use an authenticator app for a code at each sign-in.
       </p>
 
       {/* Mounted from first paint and emptied rather than removed, so the sentence is announced. */}

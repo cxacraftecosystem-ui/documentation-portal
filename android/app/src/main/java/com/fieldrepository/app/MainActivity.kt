@@ -5745,6 +5745,7 @@ private fun MediaCaptureSection(
                         failed = uri in media.stagedFailed,
                         onRetry = { startEagerUpload(repository, context, media, uri, scope) },
                         downloadable = true,
+                        onTile = true,
                         onRemove = {
                             // Drop just this file from the batch and clean up its staged object (if any).
                             val deferred = media.stagedDeferred[uri]
@@ -5756,25 +5757,36 @@ private fun MediaCaptureSection(
                         }
                     )
                 }
+                // On the purple tile every action is drawn in the tile's own ink, as on the "files
+                // ready" card: the theme's primary is purple too, and "Clear attachments" vanished
+                // into it in light mode (release smoke 2026-10-17, doc-final/34).
+                val tileInk = MaterialTheme.field.onBrandTile
                 if (media.uris.size > attachmentsCap) {
                     ActionRow {
-                        TextButton(onClick = { attachmentsExpanded = !attachmentsExpanded }) {
-                            Text(if (attachmentsExpanded) "Show fewer" else "+${media.uris.size - attachmentsCap} more")
+                        TextButton(
+                            onClick = { attachmentsExpanded = !attachmentsExpanded },
+                            colors = ButtonDefaults.textButtonColors(contentColor = tileInk)
+                        ) {
+                            Text(if (attachmentsExpanded) "Show fewer" else "+${media.uris.size - attachmentsCap} more", color = tileInk)
                         }
                     }
                 }
                 ActionRow {
-                    TextButton(onClick = {
-                        val pending = media.stagedDeferred.values.toList()
-                        media.stagedDeferred.clear()
-                        media.staged = emptyMap()
-                        media.stagedProgress = emptyMap()
-                        media.stagedFailed = emptySet()
-                        media.uris = emptyList()
-                        AppScope.io.launch {
-                            pending.forEach { d -> runCatching { d.await()?.let { repository.deleteStaged(it.objectKey) } } }
+                    OutlinedButton(
+                        border = BorderStroke(1.dp, tileInk.copy(alpha = TILE_OUTLINE_ALPHA)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = tileInk),
+                        onClick = {
+                            val pending = media.stagedDeferred.values.toList()
+                            media.stagedDeferred.clear()
+                            media.staged = emptyMap()
+                            media.stagedProgress = emptyMap()
+                            media.stagedFailed = emptySet()
+                            media.uris = emptyList()
+                            AppScope.io.launch {
+                                pending.forEach { d -> runCatching { d.await()?.let { repository.deleteStaged(it.objectKey) } } }
+                            }
                         }
-                    }) { Text("Clear attachments") }
+                    ) { Text("Clear attachments", color = tileInk, fontWeight = FontWeight.SemiBold) }
                 }
             }
         }
@@ -5871,13 +5883,18 @@ private fun AttachedUploadsCard(
                 failed = uri in media.stagedFailed,
                 onRetry = { startEagerUpload(repository, context, media, uri, scope) },
                 downloadable = true,
+                onTile = true,
                 onRemove = { onRemove(uri) }
             )
         }
         if (uris.size > cap) {
+            val tileInk = MaterialTheme.field.onBrandTile
             ActionRow {
-                TextButton(onClick = { expanded = !expanded }) {
-                    Text(if (expanded) "Show fewer" else "+${uris.size - cap} more")
+                TextButton(
+                    onClick = { expanded = !expanded },
+                    colors = ButtonDefaults.textButtonColors(contentColor = tileInk)
+                ) {
+                    Text(if (expanded) "Show fewer" else "+${uris.size - cap} more", color = tileInk)
                 }
             }
         }
@@ -13035,7 +13052,8 @@ private fun AndroidUriPreview(
     when {
         failed -> Text(
             "Upload failed — tap Retry, or Download to keep a copy on this device.",
-            color = MaterialTheme.colorScheme.error,
+            // On the purple tile the scheme's error red is 2.1:1; the tile's own error rung is AA.
+            color = if (onTile) MaterialTheme.field.errorOnBrandTile else MaterialTheme.colorScheme.error,
             fontSize = 12.sp
         )
         progress != null && progress < 1f -> {

@@ -1139,23 +1139,17 @@ internal fun WalkthroughJourney(
      * `dismissOnBackPress` is false on the window (see [WalkthroughDialog]) so that back has exactly
      * one listener rather than two with different opinions, and this is it.
      *
-     * Back means "undo the last thing I did". With a panel open, that is the panel. With nothing open
-     * it is the walkthrough itself, and what it leaves to is the reason this is a dialog: the screen
-     * underneath was never unmounted, so closing reveals it — the dashboard on first run, whatever
-     * form the designer re-opened this from otherwise. There is no stack to pop and no destination to
-     * compute, which is what rules out the failure the requirement names, a back press finishing the
-     * activity and dropping somebody onto the launcher.
-     *
-     * THE COST, WHICH IS REAL AND IS ACCEPTED: the first step is open on arrival, so on first run it
-     * takes two presses to leave — one closes a panel the reader did not open, one leaves. The
-     * alternative is a second saveable flag recording who opened what, and a second piece of state
-     * that has to survive process death to answer one gesture is worse than one extra press that has
-     * visible feedback. It goes through [onFinish] like every other exit, so the flag is written
-     * whichever way somebody leaves.
+     * ONE PRESS LEAVES. Back closes the walkthrough whether or not a step is open; a step collapses
+     * by tapping it. It used to collapse the open step first, and since the first step is open on
+     * arrival that made a first-run reader press twice to leave a screen they never touched (release
+     * smoke 2026-10-17). What it leaves to is the reason this is a dialog: the screen underneath was
+     * never unmounted, so closing reveals it — the dashboard on first run, whatever form the
+     * researcher re-opened this from otherwise. There is no stack to pop and no destination to
+     * compute, which rules out a back press finishing the activity and dropping somebody onto the
+     * launcher. It goes through [onFinish] like every other exit, so the flag is written whichever
+     * way somebody leaves.
      */
-    BackHandler(enabled = true) {
-        if (expandedId != null) expandedId = null else onFinish()
-    }
+    BackHandler(enabled = true) { onFinish() }
 
     /*
      * WHEN NOTHING WAITS TO BE REVEALED, AND THE TWO VERY DIFFERENT REASONS FOR IT.

@@ -253,7 +253,7 @@ export function MediaCaptureField({
               {previewItems.length} file{previewItems.length === 1 ? "" : "s"} attached
             </p>
             {/* Android parity wording: "All uploaded ✓ — ready to save". */}
-            <p className={`text-xs ${staging.failed ? "text-error-600" : "text-ink-500"}`}>
+            <p className={`text-xs ${staging.failed ? "font-medium text-red-800 dark:text-red-300" : "text-ink-500"}`}>
               {staging.allReady
                 ? "All uploaded ✓ — ready to save"
                 : staging.failed

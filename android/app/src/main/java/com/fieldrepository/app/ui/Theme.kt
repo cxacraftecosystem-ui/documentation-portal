@@ -144,6 +144,7 @@ object FieldPalette {
     val Success400 = Color(0xFF4ADE80)
     val Success900 = Color(0xFF14532D)
     val Success950 = Color(0xFF052E16)
+    val Error200 = Color(0xFFFECACA)
     val Error400 = Color(0xFFF87171)
     val Error800 = Color(0xFF991B1B)
     val Error900 = Color(0xFF7F1D1D)
@@ -220,6 +221,12 @@ data class FieldTokens(
     val onBrandTileMuted: Color,
     /** Accent (links, progress, emphasis) sitting ON [brandTile] — primary is too dark there. */
     val accentOnBrandTile: Color,
+    /**
+     * An error line sitting ON [brandTile] (a failed upload on the "files attached" card). The
+     * scheme's error red is 2.1:1 on purple-800; error-200 is 7.0:1 on purple-800 and 8.7:1 on
+     * purple-900, and still reads as red beside the tile's white-purple ink.
+     */
+    val errorOnBrandTile: Color,
     val success: Color,
     val onSuccess: Color,
     val successContainer: Color,
@@ -246,6 +253,7 @@ private val LightFieldTokens = FieldTokens(
     onBrandTile = FieldPalette.Purple50,
     onBrandTileMuted = FieldPalette.Purple200,
     accentOnBrandTile = FieldPalette.Purple300,
+    errorOnBrandTile = FieldPalette.Error200,
     success = FieldPalette.Success600,
     onSuccess = Color.White,
     successContainer = FieldPalette.Success100,
@@ -271,6 +279,7 @@ private val DarkFieldTokens = FieldTokens(
     onBrandTile = FieldPalette.Purple50,
     onBrandTileMuted = FieldPalette.Purple200,
     accentOnBrandTile = FieldPalette.Purple300,
+    errorOnBrandTile = FieldPalette.Error200,
     success = FieldPalette.Success400,
     onSuccess = FieldPalette.Success950,
     successContainer = FieldPalette.Success900,

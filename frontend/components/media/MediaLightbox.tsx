@@ -180,7 +180,7 @@ export function MediaPreviewTile({
         <ProgressBar percent={percent} aria-hidden fillClassName="transition-all" />
       ) : null}
       {statusLabel ? (
-        <span className={`text-xs leading-4 ${failed ? "font-medium text-error-600" : "text-ink-muted"}`}>{statusLabel}</span>
+        <span className={`text-xs leading-4 ${failed ? "font-medium text-red-800 dark:text-red-300" : "text-ink-muted"}`}>{statusLabel}</span>
       ) : null}
       {/* One action row, always in the same place at the foot of the card: Retry first (it is the
           way out of a failure), then Download. Full-width buttons on a narrow tile, so neither is

@@ -342,6 +342,7 @@ def test_forgot_password_answers_every_address_identically(monkeypatch) -> None:
     assert answers[0].json() == {"message": password_reset.FORGOT_PASSWORD_MESSAGE}
     assert all(a.headers["cache-control"] == "no-store" for a in answers)
     assert "two-step" not in password_reset.FORGOT_PASSWORD_MESSAGE.lower()
+    assert password_reset.FORGOT_PASSWORD_MESSAGE == "If that address has an account, a reset link is on its way."
 
     outcomes = {row.email: row.outcome for row in fake.passwordresetrequest.rows}
     assert outcomes == {

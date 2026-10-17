@@ -380,8 +380,7 @@ fun TwoStepVerificationScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                "After your password or Google, Microsoft or Yahoo sign-in, also ask for a 6-digit code from an " +
-                    "authenticator app on your phone.",
+                TWO_FACTOR_INTRO,
                 color = Muted,
                 style = MaterialTheme.typography.bodySmall
             )
