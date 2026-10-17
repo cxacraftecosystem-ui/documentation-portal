@@ -1050,9 +1050,10 @@ input, and no single-box code input — on any surface of either app, web or And
    - Sign-in asks for a code ONLY when two-step is enabled; a pending secret changes nothing.
    - On → switch off → a current code (six boxes) or a recovery code, then off.
 6. **Media card actions (Retry, Download).** A real button with an icon AND a word, from the purple
-   ramp: a pale ground (purple-50; dark purple-950), a purple edge at 3:1 or better against the card
-   and surface-50, deep-purple ink at 4.5:1 or better, ≥48dp / 44px on touch, in one action row that
-   never overlaps another control, the same on every card, tile, upload row and outbox row.
+   ramp: a pale ground (purple-50 or purple-100; dark purple-900 or purple-950 — each repo's exact
+   pair is in its notes below), a purple edge at 3:1 or better against the card and surface-50,
+   deep-purple ink at 4.5:1 or better, ≥48dp / 44px on touch, in one action row that never overlaps
+   another control, the same on every card, tile, upload row and outbox row.
 <!-- shared:form-primitives:end -->
 
 #### This repo's notes
@@ -1213,7 +1214,9 @@ Every media card, tile, upload row and outbox row draws its actions as **`MediaA
 icon AND a word — "Retry" (error rung) and "Download" (purple rung) — 14px/14sp semibold, ≥36px on a
 mouse and ≥44px/48dp on touch, AA contrast in light and dark, in ONE action row at the foot of the
 card (Retry first), wrapping rather than squeezing and never under the discard badge. Never a 12px
-TextButton or an outline chip.
+TextButton or an outline chip. Download's pair: purple-800 ink on a purple-50 ground (web) or
+Purple100 (Android), purple-200 edge; dark, purple-100 ink on purple-900 with a purple-700 edge, both
+clients.
 
 **One on-tile variant, Android.** On a coloured tile — the purple "files ready" batch card (Purple800
 light, Purple900 dark) — the tonal pair would be a purple chip on a purple card, so
