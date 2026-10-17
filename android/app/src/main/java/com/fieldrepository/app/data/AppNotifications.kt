@@ -21,6 +21,7 @@ import retrofit2.HttpException
 import java.io.File
 import java.io.FileOutputStream
 import java.time.Instant
+import java.time.OffsetDateTime
 
 /*
  * THE IN-APP ACTIVITY LIST (C25), the handset's half: the wire shapes, the offline copy, the sync
@@ -36,8 +37,14 @@ import java.time.Instant
  *
  * OFFLINE. The list is kept on the device (one JSON file per account, written temp-then-rename with
  * an fsync) and drawn from there, so it opens with no signal. A notice opened offline is marked read
- * HERE at once and the mark is queued in the same file; the next sync replays it first. The routes
+ * HERE at once and the mark is queued in the same file, AS IDS: "Mark all as read" queues the ids
+ * of the unread notices the device holds at the tap, never `all`, so a notice that reached the
+ * server afterwards stays unread and is alerted. The next sync replays the queue first and then
+ * clears only the ids it sent, so a tap made while that call was in flight stays queued. The routes
  * are idempotent, so a replay that already landed changes nothing.
+ *
+ * SIGN-OUT. [NotificationSync.signOut] deletes the account's copy, takes its alerts out of the
+ * shade and empties the in-memory list: the next person on a shared phone sees none of it.
  *
  * ALERTS. After a sync, every unread notice this device has not alerted before is posted as a
  * system notification — but never on the first sync for an account (a phone signing in must not
@@ -83,6 +90,10 @@ data class NotificationInbox(
     val userId: String = "",
     val items: List<AppNotificationDto> = emptyList(),
     val pendingReadIds: List<String> = emptyList(),
+    /**
+     * Written only by builds before the all-mark was queued as ids. Read so such a file still
+     * replays: [NotificationInboxRules.replayBody] turns it into the ids of the notices on the device.
+     */
     val pendingReadAll: Boolean = false,
     val alertedIds: List<String> = emptyList(),
     /** False until the first sync for this account: that one seeds [alertedIds] and alerts nothing. */
@@ -102,6 +113,8 @@ object NotificationInboxRules {
     const val KEEP = 100
     const val ALERTED_KEEP = 300
     const val MAX_SEPARATE_ALERTS = 3
+    /** The server's ceiling on ids in one mark; a longer queue is sent over several syncs. */
+    const val MAX_IDS_PER_MARK = 500
 
     fun unread(inbox: NotificationInbox): Int = inbox.items.count { !it.read }
 
@@ -114,16 +127,33 @@ object NotificationInboxRules {
         return inbox.copy(items = items, pendingReadIds = pending)
     }
 
+    /**
+     * Every notice on the device, read now, queued as THEIR ids. An `all` mark replayed later would
+     * also mark whatever reached the server after the tap, which the person never saw.
+     */
     fun markAllRead(inbox: NotificationInbox, now: String): NotificationInbox =
-        inbox.copy(
-            items = inbox.items.map { if (it.read) it else it.copy(read = true, readAt = now) },
-            pendingReadIds = emptyList(),
-            pendingReadAll = true,
-        )
+        markRead(inbox, inbox.items.filter { !it.read }.map { it.id }, now)
 
-    /** The marks were accepted (or refused for good): nothing is waiting any more. */
-    fun replayed(inbox: NotificationInbox): NotificationInbox =
-        inbox.copy(pendingReadIds = emptyList(), pendingReadAll = false)
+    /** What the next replay sends, or null when nothing is waiting. Always ids, never `all`. */
+    fun replayBody(inbox: NotificationInbox): NotificationReadBody? {
+        val legacyAll = if (inbox.pendingReadAll) inbox.items.map { it.id } else emptyList()
+        val ids = (inbox.pendingReadIds + legacyAll).distinct().take(MAX_IDS_PER_MARK)
+        if (ids.isEmpty() && !inbox.pendingReadAll) return null
+        return NotificationReadBody(ids = ids)
+    }
+
+    /**
+     * [sent] was accepted (or refused for good): drop exactly those ids from the queue. A mark queued
+     * while the call was in flight is not in [sent] and stays for the next sync. [sentLegacyAll] is
+     * whether the replay was built from an old file's all-mark.
+     */
+    fun replayed(inbox: NotificationInbox, sent: NotificationReadBody, sentLegacyAll: Boolean): NotificationInbox {
+        val done = sent.ids.toSet()
+        return inbox.copy(
+            pendingReadIds = inbox.pendingReadIds.filter { it !in done },
+            pendingReadAll = inbox.pendingReadAll && !sentLegacyAll,
+        )
+    }
 
     /**
      * The server's page becomes the list, with any mark still waiting laid over it — a notice read
@@ -131,8 +161,10 @@ object NotificationInboxRules {
      */
     fun merge(local: NotificationInbox, page: NotificationPageDto, now: String): NotificationInbox {
         val pending = local.pendingReadIds.toSet()
+        // An old file's all-mark covers only what the device held when it was made.
+        val held = if (local.pendingReadAll) local.items.map { it.id }.toSet() else emptySet()
         val items = page.items.take(KEEP).map { item ->
-            if (!item.read && (local.pendingReadAll || item.id in pending)) item.copy(read = true, readAt = now) else item
+            if (!item.read && (item.id in pending || item.id in held)) item.copy(read = true, readAt = now) else item
         }
         return local.copy(items = items, syncedAt = now)
     }
@@ -155,6 +187,16 @@ object NotificationInboxRules {
 
     /** The alert's words: one notice is its own title; several are counted. */
     fun summaryTitle(count: Int): String = if (count == 1) "1 new notification" else "$count new notifications"
+}
+
+/**
+ * A server time ("2026-10-17T12:00:00+00:00", Python's isoformat, or "...Z"), or null. Offset
+ * first: before API 34, [Instant.parse] refuses an offset, and minSdk is 26.
+ */
+fun notificationInstant(value: String?): Instant? {
+    val text = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    return runCatching { OffsetDateTime.parse(text).toInstant() }.getOrNull()
+        ?: runCatching { Instant.parse(text) }.getOrNull()
 }
 
 /** Where a notice's link leads on this handset, or null when it has no screen here. */
@@ -229,6 +271,11 @@ object NotificationState {
         _inbox.value = inbox
     }
 
+    /** Signed out: no account's list is held. */
+    fun clear() {
+        _inbox.value = null
+    }
+
     fun requestOpen() {
         _openRequests.value = System.currentTimeMillis()
     }
@@ -248,13 +295,13 @@ object NotificationSync {
             val app = context.applicationContext
             val before = NotificationStore.load(app, userId)
             NotificationState.publish(before)
-            if (before.pendingReadAll || before.pendingReadIds.isNotEmpty()) {
-                val body = NotificationReadBody(ids = if (before.pendingReadAll) emptyList() else before.pendingReadIds, all = before.pendingReadAll)
-                val sent = runCatching { api.markRead(body) }
+            val body = NotificationInboxRules.replayBody(before)
+            if (body != null) {
+                val sent = if (body.ids.isEmpty()) Result.success(Unit) else runCatching { api.markRead(body) }
                 // A refusal (4xx) will never succeed on a replay; a network failure or an expired
                 // sign-in (401) keeps the mark for the next pass.
                 if (sent.isSuccess || NotificationInboxRules.replayRefusedForGood((sent.exceptionOrNull() as? HttpException)?.code())) {
-                    NotificationStore.update(app, userId) { NotificationInboxRules.replayed(it) }
+                    NotificationStore.update(app, userId) { NotificationInboxRules.replayed(it, body, before.pendingReadAll) }
                 }
             }
             val page = runCatching { api.list(NotificationInboxRules.KEEP) }.getOrNull() ?: return null
@@ -282,6 +329,17 @@ object NotificationSync {
         NotificationStore.update(context.applicationContext, userId) {
             NotificationInboxRules.markAllRead(it, Instant.now().toString())
         }
+    }
+
+    /**
+     * Sign-out: the account's copy is deleted, its alerts leave the shade and the in-memory list is
+     * emptied. Best-effort: signing out must finish even if a file will not delete.
+     */
+    fun signOut(context: Context, userId: String?) {
+        val app = context.applicationContext
+        if (!userId.isNullOrBlank()) NotificationStore.forget(app, userId)
+        LocalAlerts.cancelAll(app)
+        NotificationState.clear()
     }
 }
 
@@ -353,6 +411,16 @@ object LocalAlerts {
                         .build()
                 )
             }
+        }
+    }
+
+    /** Takes every alert this channel posted out of the shade (sign-out). Other channels are left. */
+    fun cancelAll(context: Context) {
+        runCatching {
+            val manager = context.getSystemService(NotificationManager::class.java) ?: return
+            manager.activeNotifications
+                .filter { it.notification.channelId == CHANNEL_ID }
+                .forEach { manager.cancel(it.tag, it.id) }
         }
     }
 

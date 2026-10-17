@@ -18,6 +18,9 @@ import java.time.Instant
  * are thin shells over these.
  */
 class AppNotificationsTest {
+    private val PKG = "com/fieldrepository/app"
+    private val REPO = "FieldRepository.kt"
+
     private fun notice(id: String, read: Boolean = false) =
         AppNotificationDto(id = id, kind = "REVIEW_SENT_BACK", title = "Notice $id", read = read, createdAt = "2026-10-17T12:00:00Z")
 
@@ -31,11 +34,100 @@ class AppNotificationsTest {
         assertEquals(listOf(true, false, false), merged.items.map { it.read })
         assertEquals(2, NotificationInboxRules.unread(merged))
         val all = NotificationInboxRules.markAllRead(merged, "now")
-        assertTrue(all.pendingReadAll)
-        assertEquals(0, NotificationInboxRules.unread(NotificationInboxRules.merge(all, page(notice("a"), notice("d")), "x")))
-        val replayed = NotificationInboxRules.replayed(all)
-        assertFalse(replayed.pendingReadAll)
+        assertFalse("an all-mark is queued as ids, never as all", all.pendingReadAll)
+        assertEquals(listOf("a", "b", "c"), all.pendingReadIds.sorted())
+        assertEquals(0, NotificationInboxRules.unread(NotificationInboxRules.merge(all, page(notice("a"), notice("b"), notice("c")), "x")))
+        val body = NotificationInboxRules.replayBody(all)!!
+        assertFalse(body.all)
+        val replayed = NotificationInboxRules.replayed(all, body, sentLegacyAll = false)
         assertTrue(replayed.pendingReadIds.isEmpty())
+        assertNull(NotificationInboxRules.replayBody(replayed))
+    }
+
+    @Test
+    fun `a tap made while the replay is in flight is not wiped by it`() {
+        val start = NotificationInbox(userId = "u", items = listOf(notice("a"), notice("x")), seeded = true)
+        val before = NotificationInboxRules.markRead(start, listOf("a"), "t0")
+        val sent = NotificationInboxRules.replayBody(before)!!
+        assertEquals(listOf("a"), sent.ids)
+        // The person opens "x" while that call is running: it is queued beside "a".
+        val during = NotificationInboxRules.markRead(before, listOf("x"), "t1")
+        val after = NotificationInboxRules.replayed(during, sent, sentLegacyAll = false)
+        assertEquals(listOf("x"), after.pendingReadIds)
+        // The server has not heard about "x" yet; the list must still show it read.
+        val merged = NotificationInboxRules.merge(after, page(notice("a", read = true), notice("x")), "t2")
+        assertEquals(listOf(true, true), merged.items.map { it.read })
+        assertEquals(listOf("x"), NotificationInboxRules.replayBody(merged)!!.ids)
+    }
+
+    @Test
+    fun `mark all offline leaves a notice that arrived later unread and alerts it`() {
+        val held = NotificationInboxRules.remember(NotificationInbox(userId = "u", items = listOf(notice("a"), notice("b"))))
+        val all = NotificationInboxRules.markAllRead(held, "t0")
+        val merged = NotificationInboxRules.merge(all, page(notice("new"), notice("a"), notice("b")), "t1")
+        assertEquals(listOf(false, true, true), merged.items.map { it.read })
+        assertEquals(listOf("new"), NotificationInboxRules.freshAlerts(all, merged).map { it.id })
+        assertEquals(listOf("a", "b"), NotificationInboxRules.replayBody(merged)!!.ids.sorted())
+    }
+
+    @Test
+    fun `an old file's all-mark replays as the ids it covered`() {
+        val legacy = NotificationInbox(
+            userId = "u", items = listOf(notice("a", read = true), notice("b", read = true)), pendingReadAll = true, seeded = true,
+        )
+        val body = NotificationInboxRules.replayBody(legacy)!!
+        assertFalse(body.all)
+        assertEquals(listOf("a", "b"), body.ids)
+        val merged = NotificationInboxRules.merge(legacy, page(notice("new"), notice("a"), notice("b")), "t1")
+        assertEquals("only what the device held is covered", listOf(false, true, true), merged.items.map { it.read })
+        val done = NotificationInboxRules.replayed(merged, body, sentLegacyAll = true)
+        assertFalse(done.pendingReadAll)
+        assertNull(NotificationInboxRules.replayBody(done))
+    }
+
+    @Test
+    fun `a long queue is sent within the server's ceiling`() {
+        val ids = (1..NotificationInboxRules.MAX_IDS_PER_MARK + 20).map { "n$it" }
+        val inbox = NotificationInbox(userId = "u", pendingReadIds = ids)
+        val body = NotificationInboxRules.replayBody(inbox)!!
+        assertEquals(NotificationInboxRules.MAX_IDS_PER_MARK, body.ids.size)
+        assertEquals(20, NotificationInboxRules.replayed(inbox, body, sentLegacyAll = false).pendingReadIds.size)
+    }
+
+    @Test
+    fun `server times with an offset are read`() {
+        // Python's isoformat sends "+00:00". Before API 34, Instant.parse refuses it on the phone.
+        val utc = Instant.parse("2026-10-17T12:00:00Z")
+        assertEquals(utc, notificationInstant("2026-10-17T12:00:00+00:00"))
+        assertEquals(utc, notificationInstant("2026-10-17T17:30:00+05:30"))
+        assertEquals(utc, notificationInstant("2026-10-17T12:00:00Z"))
+        assertEquals(Instant.parse("2026-10-17T12:00:00.123456Z"), notificationInstant("2026-10-17T12:00:00.123456+00:00"))
+        assertNull(notificationInstant("not a date"))
+        assertNull(notificationInstant(""))
+        assertEquals("5 min ago", notificationWhen("2026-10-17T11:55:00+00:00", utc))
+        // The screen goes through the offset-first parser, not Instant.parse alone.
+        val screen = listOf(File("src/main/java/$PKG/ui/NotificationsScreen.kt"), File("app/src/main/java/$PKG/ui/NotificationsScreen.kt"))
+            .first { it.exists() }.readText()
+        assertTrue(screen.contains("notificationInstant(createdAt)"))
+        assertFalse(screen.contains("Instant.parse(createdAt)"))
+    }
+
+    @Test
+    fun `signing out forgets the activity list`() {
+        NotificationState.publish(NotificationInbox(userId = "u", items = listOf(notice("a"))))
+        NotificationState.clear()
+        assertNull(NotificationState.inbox.value)
+        val repository = listOf(File("src/main/java/$PKG/data/$REPO"), File("app/src/main/java/$PKG/data/$REPO"))
+            .first { it.exists() }.readText()
+        val logout = repository.replace("\r\n", "\n").substringAfter("fun logout(").substringBefore("\n    }\n")
+        assertTrue("logout must call NotificationSync.signOut", logout.contains("NotificationSync.signOut("))
+    }
+
+    @Test
+    fun `every sign-out in the app passes a context, so the list is forgotten`() {
+        val main = listOf(File("src/main/java/$PKG/MainActivity.kt"), File("app/src/main/java/$PKG/MainActivity.kt"))
+            .first { it.exists() }.readText()
+        assertFalse(main.contains("repository.logout()"))
     }
 
     @Test

@@ -647,8 +647,13 @@ class FieldRepository(
         throw refused
     }
 
-    fun logout() {
+    /** [context] lets the activity list be forgotten too; every caller in the app passes it. */
+    fun logout(context: Context? = null) {
+        val signedOut = tokenStore.getUser()?.id
         tokenStore.clear()
+        // The activity list holds this account's notices: the device copy, the alerts in the shade
+        // and the in-memory list all go.
+        if (context != null) runCatching { NotificationSync.signOut(context, signedOut) }
         // The read cache holds this account's records; the next person to sign in must not be shown
         // them offline. The outbox is NOT cleared: its entries carry their owner and wait for them.
         OfflineReadCache.clear()

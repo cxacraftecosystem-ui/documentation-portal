@@ -816,6 +816,8 @@ private fun RepositoryApp(
     // ui/LocalNetworkAccess.kt. Renders nothing; in a release build it is a no-op.
     LocalNetworkAccessForDevelopmentBackend()
     val scope = rememberCoroutineScope()
+    /** For sign-out: it forgets this account's activity list on the device. */
+    val signOutContext = LocalContext.current.applicationContext
     var user by remember { mutableStateOf(repository.cachedUser()) }
     var loading by remember { mutableStateOf(user == null && repository.hasToken()) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -922,20 +924,20 @@ private fun RepositoryApp(
                         if (held != null) {
                             user = held
                         } else {
-                            repository.logout()
+                            repository.logout(signOutContext)
                             user = null
                             error = err.apiErrorMessage("Sign in again to continue.")
                         }
                     }
                     SessionVerdict.REFUSED -> {
-                        repository.logout()
+                        repository.logout(signOutContext)
                         user = null
                         val failure = err.apiFailure("Your access to this application has ended.")
                         error = failure.message
                         refusalCode = failure.code
                     }
                     SessionVerdict.EXPIRED -> {
-                        repository.logout()
+                        repository.logout(signOutContext)
                         user = null
                         doorPassword = ""
                         error = SESSION_ENDED_SENTENCE
@@ -1223,7 +1225,7 @@ private fun RepositoryApp(
                 onSignOut = {
                     scope.launch {
                         runCatching { googleAuthClient.clear() }
-                        repository.logout()
+                        repository.logout(signOutContext)
                         doorPassword = ""
                         user = null
                     }
@@ -1231,7 +1233,7 @@ private fun RepositoryApp(
                 onSessionEnded = { message ->
                     scope.launch {
                         runCatching { googleAuthClient.clear() }
-                        repository.logout()
+                        repository.logout(signOutContext)
                         doorPassword = ""
                         refusalCode = null
                         error = message
@@ -1252,7 +1254,7 @@ private fun RepositoryApp(
                         // Counted BEFORE the session goes: the count is this account's entries.
                         val waiting = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
                         runCatching { googleAuthClient.clear() }
-                        repository.logout()
+                        repository.logout(signOutContext)
                         user = null
                         if (waiting > 0) {
                             Toast.makeText(

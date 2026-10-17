@@ -45,6 +45,7 @@ import com.fieldrepository.app.data.NotificationInboxRules
 import com.fieldrepository.app.data.NotificationState
 import com.fieldrepository.app.data.NotificationStore
 import com.fieldrepository.app.data.NotificationSync
+import com.fieldrepository.app.data.notificationInstant
 import kotlinx.coroutines.launch
 import java.time.Duration
 import java.time.Instant
@@ -190,7 +191,7 @@ private fun NotificationRow(item: AppNotificationDto, onOpen: () -> Unit) {
 
 /** "Just now", "5 min ago", "3 h ago", "Yesterday", then the date — the web's `whenWords`. */
 internal fun notificationWhen(createdAt: String, now: Instant = Instant.now()): String {
-    val moment = runCatching { Instant.parse(createdAt) }.getOrNull() ?: return ""
+    val moment = notificationInstant(createdAt) ?: return ""
     val seconds = Duration.between(moment, now).seconds
     return when {
         seconds < 60 -> "Just now"
