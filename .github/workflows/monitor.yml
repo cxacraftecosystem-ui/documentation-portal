@@ -199,7 +199,23 @@ jobs:
           # `|| true`: an all-green run has no lines to match, and grep's exit 1 would trip pipefail.
           signature="$( (grep -o '^- \*\*[^*]*\*\*' "$RUNNER_TEMP/failures" || true) | sort | tr '\n' ' ' | sed 's/ *$//')"
 
-          open="$(gh issue list --label outage --state open --json number --jq '.[0].number // empty' --limit 1)"
+          # Only an issue this probe opened counts: it carries the `outage-signature` marker. An issue a
+          # person labelled `outage` by hand is never edited or closed by this step.
+          # One retry: a brief GitHub API blip on an all-green run must not turn the run red.
+          find_open() {
+            gh issue list --label outage --state open --json number,body --limit 50               --jq '[.[] | select(.body | contains("<!-- outage-signature:"))] | sort_by(.number) | .[0].number // empty'
+          }
+          if ! open="$(find_open)"; then
+            sleep 10
+            if ! open="$(find_open)"; then
+              if [ -z "$failures" ]; then
+                echo "::warning::Could not list issues (GitHub API error). Every check is green; any open outage issue closes on the next run."
+                exit 0
+              fi
+              echo "::error::Could not list issues (GitHub API error), so the outage issue was not opened or updated."
+              exit 1
+            fi
+          fi
 
           if [ -z "$failures" ]; then
             if [ -n "$open" ]; then
