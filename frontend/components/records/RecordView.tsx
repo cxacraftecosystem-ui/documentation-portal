@@ -35,6 +35,7 @@ import { TRANSCRIPT_SOURCE } from "@/lib/transcriptAnswer";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { canUpdateRecord, recordUpdateHref, type RecordViewType } from "@/lib/recordView";
 import type { Artisan, MediaFile, QuestionnaireResponse, RecordStatus, User } from "@/lib/types";
+import { Badge } from "@/components/ui/Badge";
 
 const ICON: Record<RecordViewType, LucideIcon> = {
   artisan: Users,
@@ -208,9 +209,7 @@ function TypeExtras({
                       </span>
                       {/* C22: a step saved before it was named is flagged until somebody names it. */}
                       {step.name?.trim() ? null : (
-                        <span className="rounded-full border border-amber-500 bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-                          Unnamed step
-                        </span>
+                        <Badge tone="attention">Unnamed step</Badge>
                       )}
                     </div>
                     {step.notes?.trim() ? <p className="whitespace-pre-line text-sm text-ink-700">{step.notes}</p> : null}
@@ -305,9 +304,9 @@ function InterviewAnswers({ responses }: { responses: QuestionnaireResponse[] })
             </dt>
             <dd className="mt-1 whitespace-pre-line text-sm text-ink-900">{response.answerText}</dd>
             {response.answerSource === TRANSCRIPT_SOURCE ? (
-              <dd className="mt-1 w-fit rounded-full border border-purple-300 bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-800">
+              <Badge as="dd" className="mt-1">
                 From transcript
-              </dd>
+              </Badge>
             ) : null}
             {response.answeredBy?.name ? <dd className="mt-1 text-xs text-ink-muted">Answered by {response.answeredBy.name}</dd> : null}
           </div>

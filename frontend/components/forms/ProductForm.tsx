@@ -184,8 +184,6 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
   /** A8: the product just created, for the next-step panel; and the form's remount key. */
   const [savedProduct, setSavedProduct] = useState<ProductDocumentation | null>(null);
   const [formKey, setFormKey] = useState(0);
-  /** A8: "Save and add another" — set by that button, read once by `submit`. */
-  const addAnotherRef = useRef(false);
   /** B7: files of a saved product that did not upload, held for one-tap retry. */
   const [retry, setRetry] = useState<{ files: File[]; upload: (files: File[]) => Promise<{ failed: Array<{ name: string; error?: string }> }> } | null>(null);
   /*
@@ -507,8 +505,10 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
     event.preventDefault();
     // Read the form synchronously: React nulls event.currentTarget across the await below.
     const form = new FormData(event.currentTarget);
-    const addAnother = addAnotherRef.current;
-    addAnotherRef.current = false;
+    // A8: the intent rides on the button that submitted, so a save blocked by validation leaves
+    // nothing behind for the next plain "Save product".
+    const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLElement | null;
+    const addAnother = submitter?.dataset.intent === "add-another";
     if (!offRecord && !artisanId) {
       setError("Pick the artisan, or switch on “Artisan not on record”.");
       return;
@@ -526,13 +526,13 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
       const recordedAt = recordedAtFromForm(form);
       const recordedTimezone = recordedTimezoneFromForm(form);
       const location = locationFromForm(form);
+      // From state, not FormData: with a linked artisan the three typed boxes are not on screen.
+      // They are still sent on a create (an older server requires them), and the server re-derives
+      // them from the links anyway (A12). On an edit a blank one is left out: it means "unchanged".
+      const names = { craftName: craftName.trim(), place: place.trim(), artisanName: artisanName.trim() };
+      const sentNames = initial ? Object.fromEntries(Object.entries(names).filter(([, value]) => value)) : names;
       const payload = {
-        // From state, not FormData: with a linked artisan the three typed boxes are not on screen.
-        // They are still sent (an older server requires them), and the server re-derives them from
-        // the links anyway (A12).
-        craftName: craftName.trim(),
-        place: place.trim(),
-        artisanName: artisanName.trim(),
+        ...sentNames,
         productName: requiredText(form, "productName"),
         localName: textValue(form, "localName"),
         productType: requiredText(form, "productType") || "OTHER",
@@ -650,10 +650,10 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
       // dashboard already knows where the researcher is.
       const sitting = {
         artisanId,
-        artisanName: payload.artisanName,
-        place: payload.place,
+        artisanName: names.artisanName,
+        place: names.place,
         craftId,
-        craftName: payload.craftName,
+        craftName: names.craftName,
         workshopId: workshop.workshopId,
         workshopName: workshop.workshops.find((w) => w.id === workshop.workshopId)?.title ?? null
       };
@@ -875,6 +875,35 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
               <CappedListNotice cuts={[artisanSearch.cut]} />
             </div>
           )}
+          {/* A record that lacks a craft or a place cannot supply it, so that one box is asked for. */}
+          {!offRecord && pickedArtisan && !pickedArtisan.craftId ? (
+            <DictatedTextInput
+              name="craftName"
+              label="Craft name"
+              required
+              titleCased
+              explainWhenUnavailable={false}
+              value={craftName}
+              onChange={(next) => {
+                setCraftName(next);
+                markDirty();
+              }}
+            />
+          ) : null}
+          {!offRecord && pickedArtisan && !pickedArtisan.place?.trim() ? (
+            <DictatedTextInput
+              name="place"
+              label="Place"
+              required
+              titleCased
+              explainWhenUnavailable={false}
+              value={place}
+              onChange={(next) => {
+                setPlace(next);
+                markDirty();
+              }}
+            />
+          ) : null}
           <Toggle
             className="self-end"
             label="Artisan not on record"
@@ -1234,13 +1263,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
             Cancel
           </button>
           {initial ? null : (
-            <button
-              className="field-button-secondary"
-              disabled={saving}
-              onClick={() => {
-                addAnotherRef.current = true;
-              }}
-            >
+            <button className="field-button-secondary" data-intent="add-another" disabled={saving}>
               Save and add another
             </button>
           )}

@@ -11,6 +11,7 @@ import { CarryForwardCards } from "@/components/CarryForwardCards";
 import { Field, Select, TextInput } from "@/components/FormControls";
 import { AadhaarField, aadhaarValidationError, isMaskedIdentityNumber } from "@/components/forms/AadhaarField";
 import { CarryContextBanner, carryScope, useCarryContext, type CarryScopeState } from "@/components/forms/CarryContextBanner";
+import { DraftOfferCard, useFormDraft } from "@/components/forms/FormDraft";
 import { DosDontsField } from "@/components/forms/DosDontsField";
 import { DuplicateArtisanDialog } from "@/components/forms/DuplicateArtisanDialog";
 import { ArtisanLookup, type ArtisanLookupStart } from "@/components/forms/ArtisanLookup";
@@ -366,6 +367,9 @@ function StatusField({
  * `DictationUnavailableNotice` sits once at the top. Seven microphones down one form is seven copies
  * of the Firefox paragraph, which is how a true sentence becomes wallpaper.
  */
+/** B6: the uncontrolled boxes an artisan draft reads from the form. No identity number is among them. */
+const ARTISAN_DRAFT_FORM_FIELDS = ["gender", "dateOfBirth", "craftStartDate", "experienceYears", "experienceMonths", "phone", "address", "notes", "dos", "donts"];
+
 export function ArtisanForm({ initial }: { initial?: Artisan }) {
   const router = useRouter();
   const { user } = useAuth();
@@ -445,7 +449,10 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
    * real number this caller may not read — and AadhaarField satisfies the requirement by posting the
    * mask straight back.
    */
-  const aadhaarRequired = (!initial || Boolean(initial.aadhaarNumber?.trim())) && !aadhaarNotShared;
+  // A record flagged "Not shared by artisan" that has the outcome switched off needs the number:
+  // Aadhaar is optional only through that explicit outcome (C18), and the server refuses the save.
+  const aadhaarRequired =
+    (!initial || Boolean(initial.aadhaarNumber?.trim()) || Boolean(initial.aadhaarNotShared)) && !aadhaarNotShared;
   /** The outcome is offered only where no number is on file: it never retracts a stored Aadhaar. */
   const notSharedOffered = !initial?.aadhaarNumber?.trim();
   // The workshop this artisan was documented at: shared picker, shared most-recent defaulting, and
@@ -454,6 +461,53 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
     initialWorkshopId: initial?.workshopId,
     isEdit: Boolean(initial),
     resetKey: initial?.id ?? null
+  });
+  /*
+    B6 — THIS FORM KEEPS A DRAFT, WITHOUT THE IDENTITY NUMBERS. Aadhaar and Pehchan are never written
+    to this device's draft store (field laptops are shared — the carry-forward allowlist's rule), so a
+    continued draft asks for them again. Everything else is kept as the product form keeps it.
+  */
+  const [restored, setRestored] = useState<Record<string, string>>({});
+  const [draftTick, setDraftTick] = useState(0);
+  const draft = useFormDraft({
+    kind: "artisan",
+    recordId: initial?.id ?? null,
+    dirty,
+    label: name.trim(),
+    fields: { name, localName, craftId, newCraftName, place, email, mediaFiles, workshopId: workshop.workshopId, tick: draftTick },
+    collect: () => {
+      const form = formRef.current ? new FormData(formRef.current) : null;
+      const out: Record<string, string> = {};
+      for (const field of ARTISAN_DRAFT_FORM_FIELDS) {
+        const value = form?.get(field);
+        if (typeof value === "string") out[`form.${field}`] = value;
+      }
+      return out;
+    },
+    onRestore: (fields) => {
+      const text = (key: string) => (typeof fields[key] === "string" ? (fields[key] as string) : null);
+      const setters: Array<[string, (value: string) => void]> = [
+        ["name", setName],
+        ["localName", setLocalName],
+        ["craftId", setCraftId],
+        ["newCraftName", setNewCraftName],
+        ["place", setPlace],
+        ["email", setEmail]
+      ];
+      for (const [key, set] of setters) {
+        const value = text(key);
+        if (value !== null) set(value);
+      }
+      if (Array.isArray(fields.mediaFiles)) setMediaFiles(fields.mediaFiles as File[]);
+      const workshopId = text("workshopId");
+      if (workshopId) workshop.setWorkshopId(workshopId);
+      const seeded: Record<string, string> = {};
+      for (const [key, value] of Object.entries(fields)) {
+        if (key.startsWith("form.") && typeof value === "string") seeded[key.slice(5)] = value;
+      }
+      setRestored(seeded);
+      setFormKey((key) => key + 1);
+    }
   });
 
   const emailError =
@@ -550,6 +604,8 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
     setLocalName(initial?.localName ?? "");
     setNewCraftName("");
     setPlace(initial?.place ?? "");
+    setRestored({});
+    draft.clear();
     resetDirty();
     setFormKey((key) => key + 1);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
@@ -734,6 +790,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
       if (outcome.queued) {
         // No per-form "queued" banner: OutboxBanner at the top of the page already names the entry
         // and is the one place that says where it lives. Scroll so it is the next thing seen.
+        draft.clear();
         resetDirty();
         if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
         setSaving(false);
@@ -757,6 +814,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         setUploadProgress(null);
         if (failed.length) {
           // B7: the artisan is saved; only the files that failed are kept, for one-tap retry.
+          draft.clear();
           resetDirty();
           setRetry({ files: failedFilesOf(mediaFiles, failed), upload: uploadTo });
           if (!initial) setSavedRecord(saved);
@@ -764,6 +822,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
           return;
         }
       }
+      draft.clear();
       resetDirty();
       if (initial) {
         router.push("/artisans");
@@ -874,11 +933,15 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         key={formKey}
         ref={formRef}
         onSubmit={submit}
-        onInput={markDirty}
+        onInput={() => {
+          markDirty();
+          setDraftTick((tick) => tick + 1);
+        }}
         onKeyDown={handleFormEnter}
         className="panel grid gap-4 p-4"
       >
         {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+        <DraftOfferCard draft={draft} />
         <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
         {conflict ? (
           <div role="alert" className="rounded-md border border-amber-500 bg-amber-100 px-3 py-2 text-sm text-amber-800">
@@ -994,7 +1057,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
           {/* UX audit DC-08: this box opened on "Male", so a form nobody touched saved a claim about a
               person and skewed the dataset. It opens empty now and saves nothing until answered. */}
           <Field label="Gender">
-            <Select name="gender" defaultValue={initial?.gender?.trim() ?? ""} onChange={markDirty}>
+            <Select name="gender" defaultValue={restored.gender ?? initial?.gender?.trim() ?? ""} onChange={markDirty}>
               <option value="">Select gender</option>
               {genderOptions.map((option) => (
                 <option key={option}>{option}</option>
@@ -1022,7 +1085,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
             <CalendarField
               id={`${dateFieldsId}-dob`}
               name="dateOfBirth"
-              defaultValue={initial?.dateOfBirth ? String(initial.dateOfBirth).slice(0, 10) : ""}
+              defaultValue={restored.dateOfBirth ?? (initial?.dateOfBirth ? String(initial.dateOfBirth).slice(0, 10) : "")}
               max={toIsoDate(new Date())}
               required
               clearable
@@ -1042,7 +1105,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
             <CalendarField
               id={`${dateFieldsId}-craft-start`}
               name="craftStartDate"
-              defaultValue={initial?.craftStartDate ? String(initial.craftStartDate).slice(0, 10) : ""}
+              defaultValue={restored.craftStartDate ?? (initial?.craftStartDate ? String(initial.craftStartDate).slice(0, 10) : "")}
               max={toIsoDate(new Date())}
               required
               clearable
@@ -1059,7 +1122,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
               min={0}
               max={90}
               step={1}
-              defaultValue={initial?.experienceYears ?? ""}
+              defaultValue={restored.experienceYears ?? initial?.experienceYears ?? ""}
               onChange={markDirty}
             />
           </Field>
@@ -1087,7 +1150,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
           <Field label="Experience (months)">
             <Select
               name="experienceMonths"
-              defaultValue={initial?.experienceMonths != null ? String(initial.experienceMonths) : ""}
+              defaultValue={restored.experienceMonths ?? (initial?.experienceMonths != null ? String(initial.experienceMonths) : "")}
               onChange={markDirty}
             >
               <option value="">Not stated</option>
@@ -1099,7 +1162,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
             </Select>
           </Field>
           <Field label="Phone">
-            <PhoneField name="phone" defaultValue={initial?.phone} onValueChange={markDirty} />
+            <PhoneField name="phone" defaultValue={restored.phone ?? initial?.phone} onValueChange={markDirty} />
           </Field>
           <Field label="Email">
             <TextInput
@@ -1124,7 +1187,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
           <DictatedTextArea
             name="address"
             label="Address"
-            defaultValue={initial?.address ?? ""}
+            defaultValue={restored.address ?? initial?.address ?? ""}
             // Said once at the top of this form by `DictationUnavailableNotice`.
             explainWhenUnavailable={false}
             onDirty={markDirty}
@@ -1152,7 +1215,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
           <RichTextField
             name="notes"
             label="Notes"
-            defaultValue={initial?.notes ?? ""}
+            defaultValue={restored.notes ?? initial?.notes ?? ""}
             join="paragraph"
             className="md:col-span-2"
             // Said once at the top of this form by `DictationUnavailableNotice`. `join="paragraph"`
@@ -1175,7 +1238,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
               </h3>
               <p className="mt-0.5 text-xs text-ink-muted">
                 Masked on every shared or exported view.
-                {aadhaarRequired ? "" : " Optional for this older record — add only with the artisan’s consent."}
+                {aadhaarRequired || aadhaarNotShared ? "" : " Optional for this older record — add only with the artisan’s consent."}
               </p>
             </div>
             {aadhaarNotShared ? (
@@ -1215,13 +1278,13 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
             name="dos"
             label="Do's"
             helper="One point per line."
-            defaultValue={initial?.dos}
+            defaultValue={restored.dos ?? initial?.dos}
           />
           <DosDontsField
             name="donts"
             label="Don'ts"
             helper="One point per line."
-            defaultValue={initial?.donts}
+            defaultValue={restored.donts ?? initial?.donts}
           />
           <StatusField canSetStatus={canSetStatus} initialStatus={initial?.status} onDirty={markDirty} />
         </div>

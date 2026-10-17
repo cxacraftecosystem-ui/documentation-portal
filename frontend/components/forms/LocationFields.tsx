@@ -1731,7 +1731,7 @@ export function LocationFields({
             <span>From {statedPrefill.label}&rsquo;s record.</span>
             <button
               type="button"
-              className="rounded-md border border-purple-300 bg-white px-3 py-1.5 text-xs font-semibold text-purple-800 transition-colors hover:bg-purple-100"
+              className="field-button-secondary min-h-8 px-3 py-1 text-xs"
               onClick={clearStatedPrefill}
             >
               Clear

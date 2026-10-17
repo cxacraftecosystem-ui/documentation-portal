@@ -8,6 +8,7 @@ import { mergeById } from "@/components/data/cappedList";
 import { CappedListNotice } from "@/components/data/CappedListNotice";
 import { Field, Select, TextInput } from "@/components/FormControls";
 import { CarryContextBanner, carryScope, useCarryContext } from "@/components/forms/CarryContextBanner";
+import { DraftOfferCard, useFormDraft } from "@/components/forms/FormDraft";
 import { cmTextFromInches, inchesTextFromCm, propagate } from "@/components/forms/dimensionUnits";
 import { LocationFields, type LocationInitialValues } from "@/components/forms/LocationFields";
 import {
@@ -281,6 +282,9 @@ type ToolRetry = { files: File[]; upload: (files: File[]) => Promise<{ failed: F
  * carry-forward bag fills with the same artisan. B7: files that did not upload are offered for one
  * tap retry, on create and on edit.
  */
+/** B6: the uncontrolled boxes a tool draft reads from the form at write time. */
+const TOOL_DRAFT_FORM_FIELDS = ["yearsInUse", "thickness", "weight", "radius", "maker", "traditionType", "replacementCost", "suggestionsForToolImprovement", "remarks"];
+
 export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
   const router = useRouter();
   const [run, setRun] = useState(0);
@@ -642,6 +646,88 @@ function ToolFormBody({
   // The workshop this tool was documented at: shared picker, shared most-recent defaulting, and the
   // late-submission gate (see components/forms/WorkshopSelect).
   const workshop = useWorkshopSelection({ initialWorkshopId: initial?.workshopId, isEdit, resetKey: initial?.id ?? null });
+  /*
+    B6 — THIS FORM KEEPS A DRAFT (`components/forms/FormDraft.tsx`), as the product form does: the
+    controlled boxes and the attached files from state, the uncontrolled ones read from the form at
+    write time and, on Continue, seeded into the remounted form through `restored`.
+  */
+  const [restored, setRestored] = useState<Record<string, string>>({});
+  const [formKey, setFormKey] = useState(0);
+  const [draftTick, setDraftTick] = useState(0);
+  const draft = useFormDraft({
+    kind: "tool",
+    recordId: initial?.id ?? null,
+    parentId: initial ? null : searchParams.get("artisanId"),
+    parentLabel: initial ? null : searchParams.get("artisanName"),
+    dirty,
+    label: toolkitName.trim(),
+    fields: {
+      toolkitName,
+      localName,
+      englishName,
+      craftName,
+      artisanName,
+      place,
+      processUsedIn,
+      material,
+      length,
+      breadth,
+      height,
+      width,
+      heightInches,
+      craftIds,
+      artisanIds,
+      mediaFiles,
+      workshopId: workshop.workshopId,
+      tick: draftTick
+    },
+    collect: () => {
+      const form = formRef.current ? new FormData(formRef.current) : null;
+      const out: Record<string, string> = {};
+      for (const name of TOOL_DRAFT_FORM_FIELDS) {
+        const value = form?.get(name);
+        if (typeof value === "string") out[`form.${name}`] = value;
+      }
+      return out;
+    },
+    onRestore: (fields) => {
+      const text = (key: string) => (typeof fields[key] === "string" ? (fields[key] as string) : null);
+      const setters: Array<[string, (value: string) => void]> = [
+        ["toolkitName", setToolkitName],
+        ["localName", setLocalName],
+        ["englishName", setEnglishName],
+        ["craftName", setCraftName],
+        ["artisanName", setArtisanName],
+        ["place", setPlace],
+        ["processUsedIn", setProcessUsedIn],
+        ["material", setMaterial],
+        ["length", setLength],
+        ["breadth", setBreadth],
+        ["height", setHeight],
+        ["width", setWidth],
+        ["heightInches", setHeightInches]
+      ];
+      for (const [key, set] of setters) {
+        const value = text(key);
+        if (value !== null) set(value);
+      }
+      const ids = (key: string) =>
+        Array.isArray(fields[key]) ? (fields[key] as unknown[]).filter((id): id is string => typeof id === "string") : null;
+      const restoredCrafts = ids("craftIds");
+      if (restoredCrafts) setCraftIds(restoredCrafts);
+      const restoredArtisans = ids("artisanIds");
+      if (restoredArtisans) setArtisanIds(restoredArtisans);
+      if (Array.isArray(fields.mediaFiles)) setMediaFiles(fields.mediaFiles as File[]);
+      const workshopId = text("workshopId");
+      if (workshopId) workshop.setWorkshopId(workshopId);
+      const seeded: Record<string, string> = {};
+      for (const [key, value] of Object.entries(fields)) {
+        if (key.startsWith("form.") && typeof value === "string") seeded[key.slice(5)] = value;
+      }
+      setRestored(seeded);
+      setFormKey((key) => key + 1);
+    }
+  });
 
   const toNum = (value: string) => {
     const n = Number(value);
@@ -1144,6 +1230,7 @@ function ToolFormBody({
         carry.prune("tool");
         carry.remember(sitting);
         // OutboxBanner at the top of the page names the entry and says where it lives.
+        draft.clear();
         resetDirty();
         if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
         setSaving(false);
@@ -1231,12 +1318,14 @@ function ToolFormBody({
         setUploadProgress(null);
         if (failed.length) {
           // B7: the tool is saved; only the files that failed are kept, for one-tap retry.
+          draft.clear();
           resetDirty();
           onSaved(saved, { files: failedFilesOf(mediaFiles, failed), upload: uploadTo });
           setSaving(false);
           return;
         }
       }
+      draft.clear();
       resetDirty();
       onSaved(saved, null);
     } catch (err) {
@@ -1249,8 +1338,19 @@ function ToolFormBody({
 
   return (
     <>
-      <form ref={formRef} onSubmit={submit} onInput={markDirty} onKeyDown={handleFormEnter} className="panel grid gap-4 p-4">
+      <form
+        key={formKey}
+        ref={formRef}
+        onSubmit={submit}
+        onInput={() => {
+          markDirty();
+          setDraftTick((tick) => tick + 1);
+        }}
+        onKeyDown={handleFormEnter}
+        className="panel grid gap-4 p-4"
+      >
         {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+        <DraftOfferCard draft={draft} />
         <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
         {/*
           THE ONE PLACE THIS FORM EXPLAINS A MISSING MICROPHONE — see `DictationUnavailableNotice`.
@@ -1488,7 +1588,7 @@ function ToolFormBody({
             }}
           />
           <Field label="Years in use">
-            <TextInput name="yearsInUse" type="number" min={0} defaultValue={initial?.yearsInUse ?? ""} />
+            <TextInput name="yearsInUse" type="number" min={0} defaultValue={restored.yearsInUse ?? initial?.yearsInUse ?? ""} />
           </Field>
           {/*
             `min={0}` ON EVERY MEASUREMENT AND PRICE ON THIS FORM, AND IT IS HALF OF A PAIR.
@@ -1607,13 +1707,13 @@ function ToolFormBody({
             may have two numbers that disagree.
           </p>
           <Field label="Thickness">
-            <TextInput name="thickness" type="number" step="0.01" min={0} defaultValue={initial?.thickness ?? ""} />
+            <TextInput name="thickness" type="number" step="0.01" min={0} defaultValue={restored.thickness ?? initial?.thickness ?? ""} />
           </Field>
           <Field label="Weight">
-            <TextInput name="weight" type="number" step="0.01" min={0} defaultValue={initial?.weight ?? ""} />
+            <TextInput name="weight" type="number" step="0.01" min={0} defaultValue={restored.weight ?? initial?.weight ?? ""} />
           </Field>
           <Field label="Radius">
-            <TextInput name="radius" type="number" step="0.01" min={0} defaultValue={initial?.radius ?? ""} />
+            <TextInput name="radius" type="number" step="0.01" min={0} defaultValue={restored.radius ?? initial?.radius ?? ""} />
           </Field>
         </div>
         {/*
@@ -1775,21 +1875,21 @@ function ToolFormBody({
         </section>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           <Field label="Maker">
-            <Select name="maker" defaultValue={initial?.maker ?? "UNKNOWN"} onChange={markDirty}>
+            <Select name="maker" defaultValue={restored.maker ?? initial?.maker ?? "UNKNOWN"} onChange={markDirty}>
               {makerOptions.map((option) => (
                 <option key={option}>{option}</option>
               ))}
             </Select>
           </Field>
           <Field label="Tradition type">
-            <Select name="traditionType" defaultValue={initial?.traditionType ?? "UNKNOWN"} onChange={markDirty}>
+            <Select name="traditionType" defaultValue={restored.traditionType ?? initial?.traditionType ?? "UNKNOWN"} onChange={markDirty}>
               {traditionOptions.map((option) => (
                 <option key={option}>{option}</option>
               ))}
             </Select>
           </Field>
           <Field label="Replacement cost">
-            <TextInput name="replacementCost" type="number" step="0.01" min={0} defaultValue={initial?.replacementCost ?? ""} />
+            <TextInput name="replacementCost" type="number" step="0.01" min={0} defaultValue={restored.replacementCost ?? initial?.replacementCost ?? ""} />
           </Field>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
@@ -1811,7 +1911,7 @@ function ToolFormBody({
           <RichTextField
             name="suggestionsForToolImprovement"
             label="Suggestions for improvement"
-            defaultValue={initial?.suggestionsForToolImprovement ?? ""}
+            defaultValue={restored.suggestionsForToolImprovement ?? initial?.suggestionsForToolImprovement ?? ""}
             className="md:col-span-2"
             // Said once at the top of this form by `DictationUnavailableNotice`.
             explainWhenUnavailable={false}
@@ -1820,7 +1920,7 @@ function ToolFormBody({
           <RichTextField
             name="remarks"
             label="Remarks"
-            defaultValue={initial?.remarks ?? ""}
+            defaultValue={restored.remarks ?? initial?.remarks ?? ""}
             className="md:col-span-2"
             // Said once at the top of this form by `DictationUnavailableNotice`.
             explainWhenUnavailable={false}

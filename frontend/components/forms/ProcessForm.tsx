@@ -34,6 +34,7 @@ import type { Artisan, ExtraMetadata, MediaFile, ProductDocumentation, RecordSta
 import { useConfirm } from "@/components/dialogs";
 import { Toggle } from "@/components/ui/Toggle";
 import { ButtonRow } from "@/components/ui/ButtonRow";
+import { Badge } from "@/components/ui/Badge";
 
 // ---------------------------------------------------------------------------
 // Types for the /processes endpoints (hydrated detail: media on the process =
@@ -1164,13 +1165,9 @@ export function ProcessForm({
                     Step {index + 1} · {stepTypeLabel(step.stepType)}
                   </span>
                   {!step.name.trim() ? (
-                    <span className="rounded-full border border-amber-500 bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-                      Unnamed step
-                    </span>
+                    <Badge tone="attention">Unnamed step</Badge>
                   ) : step.template ? (
-                    <span className="rounded-full border border-purple-300 bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-800">
-                      From last process
-                    </span>
+                    <Badge>From last process</Badge>
                   ) : null}
                 </span>
                 <button

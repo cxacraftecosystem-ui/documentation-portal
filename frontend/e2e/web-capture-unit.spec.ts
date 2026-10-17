@@ -264,6 +264,8 @@ test("a draft notices a changed file but not a re-render", () => {
   for (const [name, path] of [
     ["product", ["components", "forms", "ProductForm.tsx"]],
     ["process", ["components", "forms", "ProcessForm.tsx"]],
+    ["tool", ["components", "forms", "ToolForm.tsx"]],
+    ["artisan", ["components", "forms", "ArtisanForm.tsx"]],
     ["interview", ["app", "(protected)", "questionnaire", "page.tsx"]]
   ] as const) {
     const source = FRONTEND(...path);
@@ -271,4 +273,50 @@ test("a draft notices a changed file but not a re-render", () => {
     expect(source, `${name} offers it back`).toContain("<DraftOfferCard");
     expect(source, `${name} clears it on save`).toMatch(/[dD]raft\.clear\(\)/);
   }
+});
+
+// ── Review fixes (2026-10-17) ──────────────────────────────────────────────────────────────────
+
+test("an artisan draft never reads an identity box from the form", () => {
+  const form = FRONTEND("components", "forms", "ArtisanForm.tsx");
+  const list = form.slice(form.indexOf("const ARTISAN_DRAFT_FORM_FIELDS"), form.indexOf("];", form.indexOf("const ARTISAN_DRAFT_FORM_FIELDS")));
+  expect(list).toContain('"dos"');
+  expect(list).not.toMatch(/aadhaar|pehchan/i);
+  expect(stripIdentity({ aadhaarNumber: "x", "form.pehchanCardNumber": "y", name: "R" })).toEqual({ name: "R" });
+});
+
+test("switching off Not shared on a flagged artisan asks for the Aadhaar again", () => {
+  const form = FRONTEND("components", "forms", "ArtisanForm.tsx");
+  expect(form).toContain("Boolean(initial.aadhaarNotShared)) && !aadhaarNotShared");
+});
+
+test("save-and-add-another rides on the submitting button, not a ref", () => {
+  const form = FRONTEND("components", "forms", "ProductForm.tsx");
+  expect(form).not.toContain("addAnotherRef");
+  expect(form).toContain('data-intent="add-another"');
+  expect(form).toContain('submitter?.dataset.intent === "add-another"');
+});
+
+test("an edit leaves out a blank product name, and a linked artisan missing one asks for it", () => {
+  const form = FRONTEND("components", "forms", "ProductForm.tsx");
+  expect(form).toContain("Object.entries(names).filter(([, value]) => value)");
+  expect(form).toContain("!pickedArtisan.craftId");
+  expect(form).toContain("!pickedArtisan.place?.trim()");
+});
+
+test("source marks share one badge and the small actions are the secondary button", () => {
+  for (const path of [
+    ["app", "(protected)", "questionnaire", "page.tsx"],
+    ["components", "forms", "ProcessForm.tsx"],
+    ["components", "records", "RecordView.tsx"]
+  ] as const) {
+    const source = FRONTEND(...path);
+    expect(source, path.join("/")).toContain("<Badge");
+    expect(source, path.join("/")).not.toContain("rounded-full border border-purple-300 bg-purple-50 px-2 py-0.5");
+    expect(source, path.join("/")).not.toContain("rounded-full border border-amber-500 bg-amber-100 px-2 py-0.5");
+  }
+  expect(FRONTEND("app", "(protected)", "questionnaire", "page.tsx")).not.toContain("border-purple-300 bg-white px-3 py-1.5");
+  const location = FRONTEND("components", "forms", "LocationFields.tsx");
+  const clear = location.slice(location.lastIndexOf("<button", location.indexOf("onClick={clearStatedPrefill}")), location.indexOf("onClick={clearStatedPrefill}"));
+  expect(clear).toContain("field-button-secondary");
 });

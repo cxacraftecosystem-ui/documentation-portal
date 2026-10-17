@@ -70,6 +70,7 @@ import { DraftOfferCard, useFormDraft } from "@/components/forms/FormDraft";
 import { artisanStatedSource } from "@/components/forms/statedPrefill";
 import { ARTISAN_FIELD_OPTIONS, artisanFieldLabel, artisanPrefill, automaticInterviewTitle } from "@/lib/questionArtisanFields";
 import { applyTranscripts, TRANSCRIPT_SOURCE, transcriptAnswerText, transcriptOffer } from "@/lib/transcriptAnswer";
+import { Badge } from "@/components/ui/Badge";
 
 /**
  * The API's own ceiling on an interview title — `QuestionnaireInterviewCreate.title` is
@@ -2526,7 +2527,7 @@ function QuestionnairePageBody() {
                         <span>Transcript ready.</span>
                         <button
                           type="button"
-                          className="rounded-md border border-purple-300 bg-white px-3 py-1.5 font-semibold text-purple-800 transition-colors hover:bg-purple-100"
+                          className="field-button-secondary min-h-8 px-3 py-1 text-xs"
                           onClick={() => takeTranscriptAsAnswer(question.id)}
                         >
                           Use as answer
@@ -2541,9 +2542,7 @@ function QuestionnairePageBody() {
                           </p>
                         ) : null}
                         {fromTranscript.has(question.id) ? (
-                          <span className="w-fit rounded-full border border-purple-300 bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-800">
-                            From transcript
-                          </span>
+                          <Badge>From transcript</Badge>
                         ) : null}
                         <TextArea
                           aria-labelledby={`question-label-${question.id}`}
@@ -3918,9 +3917,7 @@ function QuestionTile({
             {question.prompt}
             {!question.isActive ? <span className="ml-2 rounded bg-line-200 px-1.5 py-0.5 text-xs text-ink-500">inactive</span> : null}
             {artisanFieldLabel(question.artisanField) ? (
-              <span className="ml-2 rounded-full border border-purple-300 bg-purple-50 px-2 py-0.5 text-xs text-purple-800">
-                From artisan: {artisanFieldLabel(question.artisanField)}
-              </span>
+              <Badge className="ml-2">From artisan: {artisanFieldLabel(question.artisanField)}</Badge>
             ) : null}
           </p>
         )}
