@@ -1004,7 +1004,12 @@ data class QuestionnaireQuestionDto(
     val sectionTitle: String,
     val prompt: String,
     val sortOrder: Int,
-    val isActive: Boolean = true
+    val isActive: Boolean = true,
+    /**
+     * WHICH ARTISAN FIELD ANSWERS THIS QUESTION (B8) — one of `ARTISAN_FIELD_OPTIONS`, set in the
+     * question builder. Null on every question nobody has mapped, and on an older server.
+     */
+    val artisanField: String? = null
 )
 
 @Serializable
@@ -1052,7 +1057,9 @@ data class QuestionnaireQuestionCreateRequest(
     val sectionId: String,
     val prompt: String,
     val sortOrder: Int? = null,
-    val isActive: Boolean = true
+    val isActive: Boolean = true,
+    /** B8: the artisan field that answers it; null for none. */
+    val artisanField: String? = null
 )
 
 @Serializable
@@ -1060,7 +1067,13 @@ data class QuestionnaireQuestionUpdateRequest(
     val sectionId: String? = null,
     val prompt: String? = null,
     val sortOrder: Int? = null,
-    val isActive: Boolean? = null
+    val isActive: Boolean? = null,
+    /**
+     * B8: the artisan field that answers it. `""` REMOVES the mapping — the server reads a blank as
+     * null — because `explicitNulls = false` would drop a null from the body, and an omitted key on
+     * this PATCH means "leave it alone".
+     */
+    val artisanField: String? = null
 )
 
 @Serializable
@@ -1073,7 +1086,9 @@ data class QuestionnaireQuestionReorderRequest(
 data class QuestionnaireResponseRequest(
     val questionId: String,
     val answerText: String? = null,
-    val notes: String? = null
+    val notes: String? = null,
+    /** A7: "TRANSCRIPT" when the words were taken from the question's clip; absent for a typed answer. */
+    val answerSource: String? = null
 )
 
 /**

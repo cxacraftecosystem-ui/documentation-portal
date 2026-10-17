@@ -193,7 +193,8 @@ fun unsavedBeforeMergeNotice(typedAnswers: Int, recordings: Int, attachments: In
     return "Unsaved: ${joinWithAnd(parts)} on this screen $verb still only here and won't move with the interview."
 }
 
-private fun plural(count: Int, noun: String): String =
+/** "1 answer", "3 answers" — the one count-and-noun helper, shared with MainActivity. */
+internal fun plural(count: Int, noun: String): String =
     if (count == 1) "1 $noun" else "$count ${noun}s"
 
 private fun joinWithAnd(parts: List<String>): String = when (parts.size) {

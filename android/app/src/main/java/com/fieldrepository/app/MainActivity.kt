@@ -151,6 +151,13 @@ import com.fieldrepository.app.ui.rememberKeepShootingCamera
 import com.fieldrepository.app.ui.KeepShootingToggle
 import com.fieldrepository.app.ui.nextStepChoices
 import com.fieldrepository.app.ui.nextStepHeading
+import com.fieldrepository.app.ui.plural
+import com.fieldrepository.app.ui.artisanPrefill
+import com.fieldrepository.app.ui.automaticInterviewTitle
+import com.fieldrepository.app.ui.questionTranscripts
+import com.fieldrepository.app.ui.transcriptOffer
+import com.fieldrepository.app.ui.TRANSCRIPT_SOURCE
+import com.fieldrepository.app.ui.ARTISAN_FIELD_OPTIONS
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.material3.Surface
@@ -13920,7 +13927,9 @@ private fun QuestionnaireForm(
     val isEdit = editing != null
     var syncing by remember { mutableStateOf(false) }
     var saveState by remember { mutableStateOf(SaveState.IDLE) }
-    var title by remember(editing) { mutableStateOf(editing?.title ?: prefill?.artisanName?.let { "Interview with $it" } ?: "") }.drafted(draft, "title")
+    // B8: a new sitting's title starts EMPTY and is named for who, what and when on save — see
+    // `effectiveTitle` below. "Interview with Ramesh" used to be typed in for them, which blocked that.
+    var title by remember(editing) { mutableStateOf(editing?.title ?: "") }.drafted(draft, "title")
     var selectedArtisans by remember(editing) {
         mutableStateOf(
             editing?.artisans?.map { it.artisanId }?.toSet()
@@ -14159,6 +14168,47 @@ private fun QuestionnaireForm(
     // to storage the moment it is captured and shows in a live "N recording(s) attached" progress
     // card — exactly like the attach-media array on the other forms. Finalised with per-section /
     // per-question captions at save time (see the save handler below).
+    /*
+     * B8 + A7: WHAT THE FORM FILLED IN FOR THE RESEARCHER, kept so each can be named on screen, undone,
+     * and (for a transcript) stored with its source. Each map holds the exact text it wrote: a box
+     * somebody has since edited no longer matches, and from then on it is their answer.
+     */
+    var artisanFilled by remember(editing?.id) { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var artisanFilledFrom by remember(editing?.id) { mutableStateOf<String?>(null) }
+    var transcriptFilled by remember(editing?.id) { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var autoPlace by remember(editing?.id) { mutableStateOf<String?>(null) }
+    val headArtisanId = selectedArtisans.firstOrNull()
+    // B8: picking the artisan fills the place and every question mapped to one of their fields —
+    // EMPTY boxes only, and only on a new sitting (a saved one keeps what it says).
+    LaunchedEffect(headArtisanId, questions) {
+        if (isEdit) return@LaunchedEffect
+        // What the previous artisan filled, and nobody has touched since, makes way for this one.
+        artisanFilled.forEach { (qid, value) -> answers[qid]?.let { if (it.value == value) it.value = "" } }
+        val previousPlace = autoPlace
+        if (headArtisanId == null) {
+            artisanFilled = emptyMap(); artisanFilledFrom = null
+            if (previousPlace != null && place == previousPlace) place = ""
+            autoPlace = null
+            return@LaunchedEffect
+        }
+        val listed = artisanOptions.options.firstOrNull { it.id == headArtisanId }
+        val detail = runCatching { repository.artisan(headArtisanId) }.getOrNull()
+        val theirPlace = (detail?.place ?: listed?.place).orEmpty().trim()
+        if (theirPlace.isNotEmpty() && (place.isBlank() || place == previousPlace)) {
+            place = theirPlace
+            autoPlace = theirPlace
+        }
+        if (detail == null) {
+            artisanFilled = emptyMap(); artisanFilledFrom = null
+            return@LaunchedEffect
+        }
+        val me = repository.cachedUser()
+        val fills = artisanPrefill(questions, detail, me?.name?.takeIf { it.isNotBlank() } ?: me?.email)
+            .filterKeys { answers[it]?.value.isNullOrBlank() }
+        fills.forEach { (qid, value) -> answers[qid]?.value = value }
+        artisanFilled = fills
+        artisanFilledFrom = detail.name.takeIf { fills.isNotEmpty() }
+    }
     val qMedia = rememberMediaCaptureState()
     MediaStagingEffect(repository = repository, media = qMedia)
     // The interview's already-saved media, loaded in edit mode so earlier recordings stay visible
@@ -14189,6 +14239,17 @@ private fun QuestionnaireForm(
     // The section the user most recently added to / updated this session — drives the green
     // "Most recent changes by you were made over here ↑" pointer shown beneath that section.
     var lastEditedSectionId by remember { mutableStateOf<String?>(null) }
+    // A7: each question's newest transcribed clip, as answer text.
+    val clipTranscripts = remember(savedMedia, questions) { questionTranscripts(savedMedia, questions) }
+    /** B8: the title typed, or the one the server writes when none is: "Ramesh · Craft questionnaire · 17 Oct". */
+    fun effectiveTitle(): String = title.trim().ifBlank {
+        automaticInterviewTitle(
+            artisanName = artisanOptions.options.firstOrNull { it.id == selectedArtisans.firstOrNull() }?.name
+                ?: editing?.artisans?.firstOrNull()?.artisan?.name,
+            artisanCount = selectedArtisans.size,
+            questionnaireTitle = instruments.firstOrNull { it.id == questionnaireId }?.title ?: editing?.questionnaire?.title
+        )
+    }
     // Clips keyed by target: a question id (individual mode) or "section:<id>" (whole-section mode).
     var questionAudio by remember { mutableStateOf<Map<String, List<Uri>>>(emptyMap()) }
     fun sectionIdForKey(key: String): String? =
@@ -14418,13 +14479,19 @@ private fun QuestionnaireForm(
         // gone. Title, place, language, each answer and the notes now take the shared default, as the
         // sibling application's interview form has since 2026-08-28. The section clips are still the
         // recorded, stored capture; dictation types into a box and keeps nothing.
-        RequiredInput("Interview title", title, titleError, titleFocus, titleCased = true) { title = it }
+        TextInput("Interview title", title, titleCased = true) { title = it }
+        if (title.isBlank()) {
+            Text("Leave empty to save as “${effectiveTitle()}”.", color = Muted, fontSize = 12.sp)
+        }
         // There is deliberately NO date field: the server derives interviewDate from recordedAt,
         // which is when the interview was actually captured. Asking a researcher to confirm today's
         // date was a field to tab past that could only ever be wrong -- and a spoken date is the one
         // thing a recogniser gets wrong in a way that still parses, so no microphone would go on one
         // even if it came back. `absent` in the form contract holds all three guides to that.
         TextInput("Place", place, titleCased = true) { place = it }
+        if (autoPlace != null && place == autoPlace) {
+            Text("From the artisan's record. Change it to override.", color = Muted, fontSize = 12.sp)
+        }
         /*
           -- LANGUAGE IS FREE TEXT, AND THE DROPDOWN THAT STOOD HERE WAS THE DRIFT -------------------
 
@@ -14668,6 +14735,40 @@ private fun QuestionnaireForm(
             inherit = artisans.firstOrNull { it.id in selectedArtisans }.inheritedPlace(isEdit)
         )
         Text("Tap a section to answer it.", color = Muted, fontSize = 12.sp)
+        // B8: what the artisan's record answered, named, with one Undo.
+        val standingFills = artisanFilled.filter { (qid, value) -> answers[qid]?.value == value }
+        if (standingFills.isNotEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.field.surface100, RoundedCornerShape(12.dp))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    "${plural(standingFills.size, "answer")} filled from ${artisanFilledFrom ?: "the artisan"}'s record. Change any to override.",
+                    color = MaterialTheme.field.body,
+                    fontSize = 12.sp
+                )
+                ActionRow {
+                    OutlinedButton(onClick = {
+                        standingFills.forEach { (qid, _) -> answers[qid]?.value = "" }
+                        artisanFilled = emptyMap()
+                    }) { Text("Undo") }
+                }
+            }
+        }
+        // A7: every empty answer that has a transcribed clip, in one tap.
+        val transcriptOffers = questions.mapNotNull { q -> transcriptOffer(answers[q.id]?.value, clipTranscripts[q.id])?.let { q.id to it } }
+        if (transcriptOffers.size > 1) {
+            ActionRow {
+                OutlinedButton(onClick = {
+                    transcriptOffers.forEach { (qid, text) -> answers[qid]?.value = text }
+                    transcriptFilled = transcriptFilled + transcriptOffers
+                    onError("${plural(transcriptOffers.size, "answer")} taken from the recordings. Check them before saving.")
+                }) { Text("Use ${transcriptOffers.size} transcripts as answers") }
+            }
+        }
         sections.forEach { section ->
             val activeQuestions = section.questions.filter { it.isActive }
             if (activeQuestions.isNotEmpty()) {
@@ -14762,11 +14863,31 @@ private fun QuestionnaireForm(
                                 */
                                 val recordedAnswer = editing?.responses
                                     ?.firstOrNull { it.questionId == question.id }?.answerText
-                                if (answerBoxVisible(hideAnswers, recordedAnswer)) {
+                                // A box the form filled is always drawn: an answer nobody can see is
+                                // an answer nobody checked.
+                                val currentAnswer = answers[question.id]?.value.orEmpty()
+                                val fromTranscript = transcriptFilled[question.id]?.let { it == currentAnswer } == true
+                                val fromArtisan = artisanFilled[question.id]?.let { it == currentAnswer } == true
+                                if (answerBoxVisible(hideAnswers, recordedAnswer) || fromTranscript || fromArtisan) {
                                     // Dictates (C23); no rich editor — an answer is plain text.
-                                    TextInput("Answer", answers[question.id]?.value.orEmpty(), minLines = 3) { value ->
+                                    TextInput("Answer", currentAnswer, minLines = 3) { value ->
                                         answers[question.id]?.let { state -> state.value = value }
                                         lastEditedSectionId = section.id
+                                    }
+                                    when {
+                                        fromTranscript -> Text("From the recording.", color = Muted, fontSize = 12.sp)
+                                        fromArtisan -> Text("From the artisan's record.", color = Muted, fontSize = 12.sp)
+                                    }
+                                }
+                                // A7: the question's transcribed clip, as its answer in one tap. Never
+                                // offered over words already in the box.
+                                transcriptOffer(currentAnswer, clipTranscripts[question.id])?.let { offered ->
+                                    ActionRow {
+                                        OutlinedButton(onClick = {
+                                            answers[question.id]?.value = offered
+                                            transcriptFilled = transcriptFilled + (question.id to offered)
+                                            lastEditedSectionId = section.id
+                                        }) { Text("Use as answer") }
                                     }
                                 }
                             }
@@ -15016,9 +15137,6 @@ private fun QuestionnaireForm(
             )
         }
         fun submit() {
-            if (!validateRequired(listOf(
-                    RequiredCheck(title.isBlank(), { titleError = it }, titleFocus)
-                ))) { onError("Fill in the highlighted field."); return }
                 // Asked of a new interview even when it will FOLD into an existing one for the same
                 // artisan set: POST /questionnaire/interviews validates the whole body before it
                 // decides which of the two it is doing, so the stated address is required either way.
@@ -15035,7 +15153,12 @@ private fun QuestionnaireForm(
                         val current = answers[question.id]?.value?.trim().orEmpty()
                         val initial = editing?.responses?.firstOrNull { it.questionId == question.id }?.answerText?.trim().orEmpty()
                         if (current.isNotBlank() && current != initial) {
-                            QuestionnaireResponseRequest(questionId = question.id, answerText = current)
+                            QuestionnaireResponseRequest(
+                                questionId = question.id,
+                                answerText = current,
+                                // A7: stored as taken from the recording while the words are still exactly those.
+                                answerSource = if (transcriptFilled[question.id]?.trim() == current) TRANSCRIPT_SOURCE else null
+                            )
                         } else null
                     }
                     // Offline: queue the interview + every recorded clip (with its section/question
@@ -15083,7 +15206,7 @@ private fun QuestionnaireForm(
                         val original = editing!!
                         val originalArtisans = original.artisans.map { it.artisanId }.toSet()
                         return QuestionnaireInterviewUpdateRequest(
-                            title = title.trim(),
+                            title = effectiveTitle(),
                             place = place.blankToNull(),
                             language = language.blankToNull(),
                             notes = notes.blankToNull(),
@@ -15102,14 +15225,14 @@ private fun QuestionnaireForm(
                         val ok = runCatching {
                             if (isEdit) {
                                 repository.queueSequence(
-                                    context, "questionnaire", editing!!.id, title.trim().ifBlank { "Interview" },
+                                    context, "questionnaire", editing!!.id, effectiveTitle(),
                                     listOf(OutboxStep("questionnaire.update", editing.id, offlineFormJson.encodeToString(interviewUpdateRequest()))),
                                     questionnaireOfflineItems()
                                 )
                                 return@runCatching
                             }
                             val request = QuestionnaireInterviewCreateRequest(
-                                title = title.trim(),
+                                title = effectiveTitle(),
                                 place = place.blankToNull(),
                                 language = language.blankToNull(),
                                 notes = notes.blankToNull(),
@@ -15131,7 +15254,7 @@ private fun QuestionnaireForm(
                             )
                             val items = questionnaireOfflineItems()
                             repository.queueOfflineEntry(context, "questionnaire", offlineFormJson.encodeToString(request),
-                                title.trim().ifBlank { "Interview" }, items)
+                                effectiveTitle(), items)
                         }.isSuccess
                         if (ok && isEdit) {
                             media.reset(); qMedia.reset(); questionAudio = emptyMap()
@@ -15181,7 +15304,7 @@ private fun QuestionnaireForm(
                             original.id
                         } else {
                             val request = QuestionnaireInterviewCreateRequest(
-                                    title = title.trim(),
+                                    title = effectiveTitle(),
                                     place = place.blankToNull(),
                                     language = language.blankToNull(),
                                     notes = notes.blankToNull(),
@@ -15199,7 +15322,7 @@ private fun QuestionnaireForm(
                                 )
                             createOrKeep(
                                 repository, context, "questionnaire", offlineFormJson.encodeToString(request),
-                                title.trim().ifBlank { "Interview" }, { questionnaireOfflineItems() }
+                                effectiveTitle(), { questionnaireOfflineItems() }
                             ) { key -> onSubmit(request, key) }
                         }
                         // Upload all recorded clips, whether keyed by question id or by section.
@@ -15550,6 +15673,7 @@ private fun QuestionnaireBuilder(
 
                         section.questions.forEachIndexed { questionIndex, question ->
                             var prompt by remember(question.id, question.prompt) { mutableStateOf(question.prompt) }
+                            var mapping by remember(question.id, question.artisanField) { mutableStateOf(question.artisanField.orEmpty()) }
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -15559,12 +15683,21 @@ private fun QuestionnaireBuilder(
                             ) {
                                 Text("${question.sortOrder}. ${question.sectionCode} ${question.prompt}", color = Muted, fontSize = 12.sp)
                                 TextInput("Prompt", prompt, minLines = 2) { prompt = it }
+                                // B8: which of the artisan's fields answers this question, so an
+                                // interview fills it from the picked artisan instead of guessing.
+                                DropdownField(
+                                    label = "Answered from the artisan's",
+                                    options = ARTISAN_FIELD_OPTIONS,
+                                    selectedValue = mapping,
+                                    placeholder = "Not filled in for them"
+                                ) { mapping = it }
                                 ActionRow {
                                     OutlinedButton(
                                         onClick = {
                                             scope.launch {
                                                 runCatching {
-                                                    repository.updateQuestionnaireQuestion(question.id, QuestionnaireQuestionUpdateRequest(prompt = prompt.trim(), isActive = true))
+                                                    // "" clears a mapping (see QuestionnaireQuestionUpdateRequest).
+                                                    repository.updateQuestionnaireQuestion(question.id, QuestionnaireQuestionUpdateRequest(prompt = prompt.trim(), isActive = true, artisanField = mapping))
                                                     onRefresh()
                                                 }.onFailure { onError(it.apiErrorMessage("Unable to update question")) }
                                             }

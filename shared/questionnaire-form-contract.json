@@ -259,13 +259,13 @@
       "key": "title",
       "label": "Interview title",
       "control": "text",
-      "required": true,
-      "note": "What this sitting is called in every list that shows it; title-cased by the server on save.",
+      "required": false,
+      "note": "What this sitting is called in every list that shows it; title-cased by the server on save. Optional since B8 (2026-10-17): left empty, the sitting is named \"<artisan> · <questionnaire> · <17 Oct>\".",
       "web": {
         "component": "DictatedTextInput"
       },
       "android": {
-        "composable": "RequiredInput"
+        "composable": "TextInput"
       }
     },
     {
