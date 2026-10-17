@@ -21,12 +21,14 @@ import { recordViewHref } from "@/lib/recordView";
 import {
   bulkApprove,
   bulkReceipt,
+  decisionBody,
   fetchReviewReasons,
   queueFiltersFrom,
   queueQuery,
   refusalButtonLabel,
   refusalOutcome,
   refusalReady,
+  reviseReasons,
   type PreviousReview,
   type QueueFilters,
   type ReviewReason
@@ -34,6 +36,7 @@ import {
 import type { Workshop } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
+import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
 
 /**
  * One row of the review queue. The backend only returns records whose creator ranks strictly
@@ -159,11 +162,33 @@ export default function ReviewPage() {
   const [reasons, setReasons] = useState<ReviewReason[]>([]);
   const [reasonCode, setReasonCode] = useState("");
 
+  /**
+   * The workshop picker asks the SERVER: a filter box over the first page of workshops answered
+   * "No matches" for every workshop past it. Each answer is one page of matches; the chosen workshop
+   * stays in the list so the trigger can still name it.
+   */
+  const [workshopSearch, setWorkshopSearch] = useState("");
+  const workshopLoad = useRef(0);
+  useEffect(() => {
+    const generation = ++workshopLoad.current;
+    const timer = window.setTimeout(() => {
+      listResource<Workshop>("/workshops", { pageSize: 80, search: workshopSearch.trim() || undefined })
+        .then((result) => {
+          if (generation !== workshopLoad.current) return;
+          setWorkshops((current) => {
+            const chosen = current.filter((w) => w.id === filters?.workshopId);
+            return [...chosen, ...result.items.filter((w) => !chosen.some((c) => c.id === w.id))];
+          });
+        })
+        .catch(() => undefined);
+    }, workshopSearch ? 250 : 0);
+    return () => window.clearTimeout(timer);
+    // The chosen id is read when the answer lands; re-asking on every pick is not wanted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workshopSearch]);
+
   useEffect(() => {
     setFilters(queueFiltersFrom(new URLSearchParams(window.location.search)));
-    listResource<Workshop>("/workshops", { pageSize: 100 })
-      .then((page) => setWorkshops(page.items))
-      .catch(() => setWorkshops([]));
     fetchReviewReasons()
       .then(setReasons)
       .catch(() => setReasons([]));
@@ -312,6 +337,8 @@ export default function ReviewPage() {
     if (action === "revise" && !notes) return;
     const reason = reasons.find((r) => r.code === reasonCode) ?? null;
     if (action === "reject" && reasons.length > 0 && !refusalReady(reason, notes)) return;
+    // On "Send for revision" a reason is optional and only a fixable one is offered.
+    const sentReason = action === "approve" ? null : action === "revise" ? (reason?.fixable ? reason : null) : reason;
     // Rejecting is the end of the road for a record (until its creator fixes it), and "Send for
     // revision" is the softer action — so a final rejection still asks first. A FIXABLE reason is a
     // send-back, which needs no warning.
@@ -333,7 +360,7 @@ export default function ReviewPage() {
     try {
       await apiFetch(`/review/${item.recordType}/${item.id}/${action}`, {
         method: "POST",
-        body: JSON.stringify(action === "reject" && reason ? { notes: notes || null, reason: reason.code } : { notes: notes || null })
+        body: JSON.stringify(decisionBody(notes, sentReason))
       });
       setActive(null);
       setNote("");
@@ -415,6 +442,7 @@ export default function ReviewPage() {
     const noteId = `review-note-${rowKey(item)}`;
     const reason = reasons.find((r) => r.code === reasonCode) ?? null;
     const picking = activeAction === "reject" && reasons.length > 0;
+    const fixable = activeAction === "revise" ? reviseReasons(reasons) : [];
     const confirmLabel = picking ? refusalButtonLabel(reason) : ACTION_COPY[activeAction].confirmLabel;
     const blocked =
       submitting || (activeAction === "revise" && !note.trim()) || (picking && !refusalReady(reason, note));
@@ -432,6 +460,21 @@ export default function ReviewPage() {
               options={reasons.map((r) => ({ value: r.code, label: r.label }))}
             />
             {reason?.fixable ? <p className="text-xs text-ink-500">This sends it back to be fixed.</p> : null}
+          </div>
+        ) : null}
+        {fixable.length > 0 ? (
+          <div className="mb-3 grid gap-1">
+            <span className="block text-xs font-semibold uppercase tracking-wide text-ink-500">Reason (optional)</span>
+            <SearchableSelect
+              ariaLabel="Reason"
+              value={reasonCode}
+              onChange={setReasonCode}
+              advanceOnSelect={false}
+              placeholder="Pick a reason"
+              clearable
+              clearLabel="No reason"
+              options={fixable.map((r) => ({ value: r.code, label: r.label }))}
+            />
           </div>
         ) : null}
         <label htmlFor={noteId} className="block text-xs font-semibold uppercase tracking-wide text-ink-500">
@@ -544,9 +587,10 @@ export default function ReviewPage() {
               ariaLabel="Workshop"
               value={filters.workshopId ?? ""}
               onChange={(value) => changeFilters({ ...filters, workshopId: value || undefined })}
-              options={workshops.map((w) => ({ value: w.id, label: w.title }))}
+              options={workshops.map((w) => ({ value: w.id, label: w.title, hint: w.place || undefined }))}
               placeholder="All workshops"
               searchable
+              onSearch={setWorkshopSearch}
               clearable
               clearLabel="Show all workshops"
               advanceOnSelect={false}
@@ -554,20 +598,19 @@ export default function ReviewPage() {
           </div>
           <div className="grid gap-1">
             <span className="field-label">Order</span>
-            <SearchableSelect
-              ariaLabel="Order"
+            <SegmentedChoice
+              label="Order"
               value={filters.order ?? "oldest"}
               onChange={(value) => changeFilters({ ...filters, order: value === "newest" ? "newest" : undefined })}
               options={ORDER_OPTIONS}
-              advanceOnSelect={false}
             />
           </div>
-          {filters.createdById || filters.recordType ? (
+          {filters.createdById || filters.recordType || filters.artisanId ? (
             <div className="flex items-end">
               <button
                 type="button"
                 className="inline-flex min-h-10 items-center gap-1.5 rounded-full border border-purple-300 bg-purple-50 px-3 text-sm text-purple-800"
-                onClick={() => changeFilters({ ...filters, createdById: undefined, recordType: undefined })}
+                onClick={() => changeFilters({ ...filters, createdById: undefined, recordType: undefined, artisanId: undefined })}
               >
                 From a task
                 <X className="h-4 w-4" aria-hidden />

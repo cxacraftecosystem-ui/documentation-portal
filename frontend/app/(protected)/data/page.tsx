@@ -62,7 +62,7 @@ import type {
 } from "@/lib/types";
 import { Toggle } from "@/components/ui/Toggle";
 import { ButtonRow } from "@/components/ui/ButtonRow";
-import { SearchableSelect } from "@/components/ui/SearchableSelect";
+import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
 import { DATA_STATUS_OPTIONS, DEFAULT_DATA_STATUS, dataStatusLabel, statusQuery } from "@/lib/review";
 
 // ---------------------------------------------------------------------------
@@ -1689,14 +1689,13 @@ export default function DataBrowserPage() {
       {/* The same repository, re-rooted three ways. */}
       <TaxonomySwitcher taxonomies={taxonomies} active={activeTaxonomy} onSelect={selectFolder} />
 
-      <div className="mb-5 grid max-w-xs gap-1">
+      <div className="mb-5 grid gap-1">
         <span className="field-label">Review status</span>
-        <SearchableSelect
-          ariaLabel="Review status"
+        <SegmentedChoice
+          label="Review status"
           value={reviewStatus}
           onChange={(value) => changeReviewStatus(value || DEFAULT_DATA_STATUS)}
           options={DATA_STATUS_OPTIONS}
-          advanceOnSelect={false}
         />
       </div>
 

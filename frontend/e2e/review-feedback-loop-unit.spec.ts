@@ -9,6 +9,7 @@ import { completionVerdictLabel, nextCompletionStatus } from "@/lib/completionVe
 import {
   bulkReceipt,
   dataStatusLabel,
+  decisionBody,
   isReturned,
   queueFiltersFrom,
   queueQuery,
@@ -18,6 +19,7 @@ import {
   returnedHeading,
   returnedNextStep,
   reviewQueueHref,
+  reviseReasons,
   sentBackNote,
   sentBackTitle,
   statusQuery,
@@ -75,6 +77,20 @@ test.describe("a reason picked from the short list", () => {
     expect(refusalReady(OTHER, "  ")).toBe(false);
     expect(refusalReady(OTHER, "Wrong artisan")).toBe(true);
   });
+
+  test("Send for revision offers only the fixable reasons, and a reason travels only when picked", () => {
+    expect(reviseReasons([MISSING, DUPLICATE, OTHER])).toEqual([MISSING]);
+    expect(decisionBody("  Add the village. ", MISSING)).toEqual({ notes: "Add the village.", reason: "MISSING_DETAILS" });
+    expect(decisionBody("", null)).toEqual({ notes: null });
+  });
+
+  test("both revise panels carry the reason", () => {
+    for (const file of ["app/(protected)/review/page.tsx", "components/review/RecordReviewBar.tsx"]) {
+      const source = read(file);
+      expect(source, file).toContain("reviseReasons(reasons)");
+      expect(source, file).toContain("decisionBody(notes,");
+    }
+  });
 });
 
 test.describe("the queue's filters", () => {
@@ -85,6 +101,22 @@ test.describe("the queue's filters", () => {
     expect(queueQuery(1, 20, {})).toBe("?page=1&pageSize=20");
     expect(queueFiltersFrom(new URLSearchParams("order=sideways")).order).toBeUndefined();
     expect(reviewQueueHref({ createdById: "u1", workshopId: "w1" })).toBe("/review?createdById=u1&workshopId=w1");
+    // A task's artisans narrow the queue to exactly that task's records (B12).
+    const task = queueFiltersFrom(new URLSearchParams("createdById=u1&recordType=product&artisanId=a1,a2"));
+    expect(task.artisanId).toBe("a1,a2");
+    expect(queueQuery(1, 20, task)).toBe("?page=1&pageSize=20&createdById=u1&recordType=product&artisanId=a1%2Ca2");
+  });
+
+  test("the workshop picker searches the server, and short choices are segments", () => {
+    const page = read("app/(protected)/review/page.tsx");
+    expect(page).toContain("onSearch={setWorkshopSearch}");
+    expect(page).not.toContain('listResource<Workshop>("/workshops", { pageSize: 100 })');
+    expect(page).toContain("<SegmentedChoice");
+    expect(read("app/(protected)/data/page.tsx")).toContain("<SegmentedChoice");
+  });
+
+  test("the record page asks for its review only with review access", () => {
+    expect(read("components/review/RecordReviewBar.tsx")).toContain("if (!pending || !reviewer)");
   });
 
   test("a bulk receipt names what failed", () => {

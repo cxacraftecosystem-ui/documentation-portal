@@ -18,4 +18,3 @@ export function completionVerdictLabel(status: string | null | undefined): strin
   if (status === "NEEDS_REDO") return "needs to be redone";
   return "not complete";
 }
-

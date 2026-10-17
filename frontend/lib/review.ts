@@ -102,6 +102,17 @@ export function refusalButtonLabel(reason: ReviewReason | null | undefined): str
   return refusalOutcome(reason) === "NEEDS_REVISION" ? "Send for revision" : "Reject record";
 }
 
+/** The reasons offered on "Send for revision": only the fixable ones, and picking one is optional. */
+export function reviseReasons(reasons: ReviewReason[]): ReviewReason[] {
+  return reasons.filter((reason) => reason.fixable);
+}
+
+/** The body a decision posts. A reason travels only when one was picked; older servers ignore it. */
+export function decisionBody(notes: string, reason: ReviewReason | null | undefined): { notes: string | null; reason?: string } {
+  const trimmed = notes.trim();
+  return reason ? { notes: trimmed || null, reason: reason.code } : { notes: trimmed || null };
+}
+
 /** Whether the reject panel may be submitted: a reason is picked, and "Other" carries words. */
 export function refusalReady(reason: ReviewReason | null | undefined, note: string): boolean {
   if (!reason) return false;
@@ -113,6 +124,8 @@ export type QueueFilters = {
   workshopId?: string;
   createdById?: string;
   recordType?: string;
+  /** A task's artisans, comma-separated (B12). */
+  artisanId?: string;
   order?: "oldest" | "newest";
 };
 
@@ -126,6 +139,7 @@ export function queueFiltersFrom(params: URLSearchParams | null | undefined): Qu
     workshopId: read("workshopId"),
     createdById: read("createdById"),
     recordType: read("recordType"),
+    artisanId: read("artisanId"),
     order: order === "newest" ? "newest" : undefined
   };
 }
@@ -137,6 +151,7 @@ export function queueQuery(page: number, pageSize: number, filters: QueueFilters
     workshopId: filters.workshopId,
     createdById: filters.createdById,
     recordType: filters.recordType,
+    artisanId: filters.artisanId,
     order: filters.order === "newest" ? "newest" : undefined
   });
 }

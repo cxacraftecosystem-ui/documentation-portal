@@ -3,16 +3,20 @@
 import { useEffect, useState } from "react";
 import { ClipboardCheck } from "lucide-react";
 
+import { useAuth } from "@/components/AuthProvider";
 import { useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { apiFetch } from "@/lib/api";
+import { canReview as mayReview } from "@/lib/permissions";
 import {
+  decisionBody,
   fetchLatestReview,
   fetchReviewReasons,
   refusalButtonLabel,
   refusalOutcome,
   refusalReady,
+  reviseReasons,
   type ReviewReason
 } from "@/lib/review";
 
@@ -37,6 +41,9 @@ export function RecordReviewBar({
   onDecided: (message: string) => void;
 }) {
   const confirm = useConfirm();
+  const { user } = useAuth();
+  // Only an account with review access asks: anyone else would be refused (403) on every view.
+  const reviewer = mayReview(user);
   const [canReview, setCanReview] = useState(false);
   const [late, setLate] = useState(false);
   const [panel, setPanel] = useState<Panel>(null);
@@ -48,7 +55,7 @@ export function RecordReviewBar({
   const pending = status === "PENDING";
 
   useEffect(() => {
-    if (!pending) {
+    if (!pending || !reviewer) {
       setCanReview(false);
       return;
     }
@@ -70,7 +77,7 @@ export function RecordReviewBar({
     return () => {
       cancelled = true;
     };
-  }, [recordType, recordId, pending]);
+  }, [recordType, recordId, pending, reviewer]);
 
   if (!pending || !canReview) return null;
   const reason = reasons.find((r) => r.code === reasonCode) ?? null;
@@ -89,8 +96,9 @@ export function RecordReviewBar({
     setBusy(true);
     setError(null);
     try {
-      const body =
-        action === "reject" ? { notes: notes || null, reason: reason?.code ?? null } : { notes: notes || null };
+      // A reason on "Send for revision" is optional and only a fixable one is offered.
+      const sent = action === "approve" ? null : action === "revise" ? (reason?.fixable ? reason : null) : reason;
+      const body = decisionBody(notes, sent);
       await apiFetch(`/review/${encodeURIComponent(recordType)}/${encodeURIComponent(recordId)}/${action}`, {
         method: "POST",
         body: JSON.stringify(body)
@@ -126,7 +134,10 @@ export function RecordReviewBar({
           <button
             type="button"
             className="field-danger h-9 min-h-0 rounded-md px-3 text-xs pointer-coarse:h-11"
-            onClick={() => setPanel(panel === "reject" ? null : "reject")}
+            onClick={() => {
+              setReasonCode("");
+              setPanel(panel === "reject" ? null : "reject");
+            }}
             disabled={busy}
           >
             Reject
@@ -139,7 +150,10 @@ export function RecordReviewBar({
         <button
           type="button"
           className="field-button-secondary h-9 min-h-0 px-3 text-xs pointer-coarse:h-11"
-          onClick={() => setPanel(panel === "revise" ? null : "revise")}
+          onClick={() => {
+            setReasonCode("");
+            setPanel(panel === "revise" ? null : "revise");
+          }}
           disabled={busy}
         >
           Send for revision
@@ -159,6 +173,21 @@ export function RecordReviewBar({
                 options={reasons.map((r) => ({ value: r.code, label: r.label }))}
               />
               {reason?.fixable ? <p className="text-xs text-ink-500">This sends it back to be fixed.</p> : null}
+            </div>
+          ) : null}
+          {panel === "revise" && reviseReasons(reasons).length > 0 ? (
+            <div className="grid gap-1">
+              <span className="field-label">Reason (optional)</span>
+              <SearchableSelect
+                ariaLabel="Reason"
+                value={reasonCode}
+                onChange={setReasonCode}
+                advanceOnSelect={false}
+                placeholder="Pick a reason"
+                clearable
+                clearLabel="No reason"
+                options={reviseReasons(reasons).map((r) => ({ value: r.code, label: r.label }))}
+              />
             </div>
           ) : null}
           <label className="field-label" htmlFor={`record-review-note-${recordId}`}>
