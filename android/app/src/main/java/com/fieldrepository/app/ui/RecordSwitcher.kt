@@ -106,7 +106,36 @@ enum class RecordSwitchKind(
      * is to stop exactly that.
      */
     val noun: String get() = "$plural in this workshop"
+
+    /** [noun] for the workshop selected, or the bare plural under "All workshops" (a blank id). */
+    fun nounFor(workshopId: String): String = if (workshopId.isBlank()) plural else noun
 }
+
+/**
+ * THE FIRST ROW OF THE WORKSHOP DROPDOWN: no filter at all.
+ *
+ * Its value is the blank id, which the five list routes read as "no workshop filter" — every record
+ * the account may see, unfiled ones included. It is where the switcher OPENS unless the record on
+ * screen names its own workshop: opening on the most recent workshop instead pre-selected one the
+ * record had nothing to do with and announced it had no artisans (release smoke test, doc/70).
+ */
+const val ALL_WORKSHOPS_LABEL = "All workshops"
+
+/** The workshop dropdown's rows: [ALL_WORKSHOPS_LABEL] first, then every workshop. */
+fun recordSwitchWorkshopOptions(workshops: List<SelectOption>): List<SelectOption> =
+    listOf(SelectOption("", ALL_WORKSHOPS_LABEL)) + workshops.filter { it.value.isNotBlank() }
+
+/**
+ * Where the switcher should stand once the open record's workshop is known: that workshop when it is
+ * one of the options, else wherever it already stands. Only ever moves it off "All workshops", so a
+ * reader who chose a workshop is never moved off it by a late load.
+ */
+fun recordSwitchWorkshopFor(selectedId: String, recordWorkshopId: String?, available: Collection<String>): String =
+    if (selectedId.isBlank() && !recordWorkshopId.isNullOrBlank() && recordWorkshopId in available) {
+        recordWorkshopId
+    } else {
+        selectedId
+    }
 
 /**
  * THE SEPARATOR BETWEEN A LABEL'S TWO HALVES: U+00B7 MIDDLE DOT, SPACED.
@@ -228,6 +257,10 @@ fun recordListMessage(
     // the question they are actually asking at that moment is whether their work is still there.
     state == RecordListState.UNAVAILABLE ->
         "These ${kind.plural} could not be loaded. The record open below is unaffected."
+    // Under "All workshops" there is no workshop to talk about.
+    workshopId.isBlank() && (state == RecordListState.PENDING || loadedForWorkshop != workshopId) ->
+        "Loading ${kind.plural}…"
+    workshopId.isBlank() && shown == 0 -> "No ${kind.plural} yet."
     // Covers both "the first request has not answered yet" and "the workshop changed a frame ago and
     // these are still the previous one's rows". Neither is a fact about the workshop now selected.
     state == RecordListState.PENDING || !recordsAreForWorkshop(loadedForWorkshop, workshopId) ->
@@ -379,7 +412,7 @@ class RecordSwitcherState internal constructor(
     /** The cut sentence, or null when this list is whole. */
     val cutNotice: String?
         get() = if (state == RecordListState.LOADED) {
-            listCutNotice(options.size, total, kind.noun, ListCutReach.SEARCH)
+            listCutNotice(options.size, total, kind.nounFor(selectedWorkshopId), ListCutReach.SEARCH)
         } else {
             null
         }
@@ -405,7 +438,7 @@ class RecordSwitcherState internal constructor(
         options = emptyList()
         loadedForWorkshop = null
         total = 0
-        if (workshopId.isBlank()) return
+        // A blank id is "All workshops" and loads unfiltered (see [ALL_WORKSHOPS_LABEL]).
         runCatching { loadRecordSwitchPage(repository, kind, workshopId) }
             .onSuccess { page ->
                 options = page.options
@@ -512,7 +545,13 @@ internal fun RecordSwitcher(
     currentWorkshopId: String? = null
 ) {
     val workshopOptions = remember(workshop.workshops) {
-        workshop.workshops.map { SelectOption(it.id, workshopScopeLabel(it)) }
+        recordSwitchWorkshopOptions(workshop.workshops.map { SelectOption(it.id, workshopScopeLabel(it)) })
+    }
+    // Opens on "All workshops", and moves to the record's own workshop once that is known.
+    LaunchedEffect(currentWorkshopId, workshop.workshops) {
+        workshop.selectedId = recordSwitchWorkshopFor(
+            workshop.selectedId, currentWorkshopId, workshop.workshops.map { it.id }
+        )
     }
     val showsCurrentRecord = switcher.options.any { it.value == currentId }
 
@@ -538,11 +577,8 @@ internal fun RecordSwitcher(
             label = "Workshop",
             options = workshopOptions,
             selectedValue = workshop.selectedId,
-            placeholder = if (workshopOptions.isEmpty()) "No workshops recorded yet" else "Select a workshop",
-            // A workshop is what this control is FILTERED BY, so there is no "none" row: an absent
-            // workshop cannot narrow a list, and the singular `workshopId` filter the five list
-            // routes accept has no spelling for "unlinked" to send even if it did. See the report in
-            // the switcher's own header for what that leaves unreachable from here.
+            placeholder = ALL_WORKSHOPS_LABEL,
+            // No separate "none" row: the first option, "All workshops", is the blank id already.
             includeNone = false,
             onSelect = { workshop.selectedId = it }
         )
@@ -561,7 +597,7 @@ internal fun RecordSwitcher(
             selectedValue = if (showsCurrentRecord) currentId else "",
             placeholder = "Search ${kind.singular} records…",
             includeNone = false,
-            enabled = workshop.selectedId.isNotBlank() && switcher.state != RecordListState.UNAVAILABLE,
+            enabled = switcher.state != RecordListState.UNAVAILABLE,
             // FORCED ON rather than left to the eight-option threshold, which is the same call the
             // web's `ComboBox` makes for the same reason: a workshop with six records and a workshop
             // with sixty are one control, and one that is searchable on Tuesday and not on Wednesday

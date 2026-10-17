@@ -183,7 +183,8 @@ fun PasswordGateScreen(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(vertical = 8.dp),
+            // The offline / outbox banners float over the foot of the gate too (BannerClearance.kt).
+            .padding(top = 8.dp, bottom = 8.dp + (LocalBannerClearance.current?.value ?: 0.dp)),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(

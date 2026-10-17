@@ -5,6 +5,7 @@ import { expect, test } from "@playwright/test";
 
 import { cappedListNotice, type ListCut } from "@/components/data/cappedList";
 import {
+  ALL_WORKSHOPS_LABEL,
   EDIT_QUERY_PARAM,
   isInlineEditSurface,
   LABEL_SEPARATOR,
@@ -18,6 +19,8 @@ import {
   recordSingular,
   recordsAreForWorkshop,
   recordSwitcherTitle,
+  recordSwitchWorkshopFor,
+  recordSwitchWorkshopOptions,
   SEARCH_DEBOUNCE_MS,
   shouldSearchServer,
   type RecordKind,
@@ -237,6 +240,19 @@ test.describe("the sentence under the record dropdown", () => {
     ).toBe("These processes could not be loaded. The record open below is unaffected.");
   });
 
+  /** "All workshops" (the blank id) is no workshop: its sentences name the plural alone. */
+  test("under All workshops the sentences name no workshop", () => {
+    const all = { ...base, workshopId: "", loadedForWorkshop: "" };
+    expect(recordListMessage(all)).toBeNull();
+    expect(recordListMessage({ ...all, shown: 0 })).toBe("No artisans yet.");
+    expect(recordListMessage({ ...all, state: "pending", loadedForWorkshop: null })).toBe("Loading artisans…");
+    // Rows still belonging to a workshop just left are not the unfiltered list.
+    expect(recordListMessage({ ...all, loadedForWorkshop: "w1" })).toBe("Loading artisans…");
+    expect(recordListMessage({ ...all, state: "unavailable" })).toBe(
+      "These artisans could not be loaded. The record open below is unaffected."
+    );
+  });
+
   test("the two nouns are kept apart for every kind", () => {
     expect(recordNoun("tool")).toBe("tools in this workshop");
     expect(recordPlural("tool")).toBe("tools");
@@ -274,6 +290,15 @@ test.describe("when a keystroke is allowed to cost a request", () => {
     expect(recordListCut("artisan", 40, undefined as unknown as number)).toBeNull();
   });
 
+  test("a cut under All workshops counts the bare plural", () => {
+    expect(cappedListNotice(recordListCut("artisan", 100, 240, "") as ListCut, "search")).toBe(
+      "Showing 100 of 240 artisans — type to search all 240."
+    );
+    expect(cappedListNotice(recordListCut("artisan", 100, 240, "w1") as ListCut, "search")).toBe(
+      "Showing 100 of 240 artisans in this workshop — type to search all 240."
+    );
+  });
+
   test("the debounce is the 350ms every list page already uses", () => {
     expect(SEARCH_DEBOUNCE_MS).toBe(350);
     // Not a constant defined and then not used: the timer the switcher arms must be THIS number.
@@ -300,6 +325,28 @@ test.describe("when a keystroke is allowed to cost a request", () => {
   });
 });
 
+test.describe("the workshop dropdown", () => {
+  test("opens with All workshops, the blank id, ahead of every workshop", () => {
+    expect(ALL_WORKSHOPS_LABEL).toBe("All workshops");
+    expect(
+      recordSwitchWorkshopOptions([
+        { value: "w1", label: "Pune" },
+        { value: "", label: "stray" }
+      ])
+    ).toEqual([
+      { value: "", label: "All workshops" },
+      { value: "w1", label: "Pune" }
+    ]);
+  });
+
+  test("moves to the record's own workshop once known, and never off a reader's pick", () => {
+    expect(recordSwitchWorkshopFor("", "w2", ["w1", "w2"])).toBe("w2");
+    expect(recordSwitchWorkshopFor("", "w9", ["w1", "w2"])).toBe("");
+    expect(recordSwitchWorkshopFor("", null, ["w1"])).toBe("");
+    expect(recordSwitchWorkshopFor("w1", "w2", ["w1", "w2"])).toBe("w1");
+  });
+});
+
 test.describe("the handset's copy of all of it", () => {
   const kotlin = () => read(...KOTLIN_SWITCHER);
 
@@ -323,6 +370,14 @@ test.describe("the handset's copy of all of it", () => {
     ]) {
       expect(source, `RecordSwitcher.kt no longer contains: ${fragment}`).toContain(fragment);
     }
+  });
+
+  /** The "All workshops" row and its two sentences (release smoke test 2026-10-17, doc/70). */
+  test("the handset opens on the same All workshops row and says the same two sentences", () => {
+    const source = kotlin();
+    expect(source).toContain(`ALL_WORKSHOPS_LABEL = "${ALL_WORKSHOPS_LABEL}"`);
+    expect(source).toContain('"Loading ${kind.plural}…"');
+    expect(source).toContain('"No ${kind.plural} yet."');
   });
 
   /**

@@ -31,6 +31,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -225,6 +229,9 @@ private fun openSaved(context: Context, uri: Uri, mimeType: String) {
         .onFailure { Toast.makeText(context, "No app on this phone can open this file.", Toast.LENGTH_LONG).show() }
 }
 
+/** The outline of a button drawn on a coloured tile: the label's own colour, a little quieter. */
+const val TILE_OUTLINE_ALPHA = 0.72f
+
 private data class SavedCopy(val uri: Uri, val name: String, val mimeType: String, val nonce: Long)
 
 /**
@@ -239,7 +246,9 @@ fun MediaDownloadButton(
     modifier: Modifier = Modifier,
     name: String? = null,
     mimeType: String? = null,
-    contentColor: Color? = null
+    contentColor: Color? = null,
+    /** Drawn as an outlined button in [contentColor] — for a coloured tile, where a bare link vanishes. */
+    outlined: Boolean = false
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -262,8 +271,7 @@ fun MediaDownloadButton(
         }
     }
 
-    TextButton(
-        onClick = {
+    val download: () -> Unit = {
             scope.launch {
                 val (fileName, mime) = withContext(Dispatchers.IO) {
                     val mime = mimeTypeOf(context, source, mimeType)
@@ -278,14 +286,32 @@ fun MediaDownloadButton(
                     runCatching { createDocument.launch(fileName) }.onFailure { pending = null; failed(it) }
                 }
             }
-        },
-        modifier = modifier,
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-    ) {
-        val tint = contentColor ?: Coral
+    }
+    val tint = contentColor ?: Coral
+    val label: @Composable () -> Unit = {
         Icon(Icons.Filled.Download, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(4.dp))
-        Text("Download", fontSize = 12.sp, color = tint)
+        Spacer(Modifier.width(if (outlined) 6.dp else 4.dp))
+        Text(
+            "Download",
+            fontSize = if (outlined) 13.sp else 12.sp,
+            color = tint,
+            fontWeight = if (outlined) FontWeight.SemiBold else null
+        )
+    }
+    if (outlined) {
+        OutlinedButton(
+            onClick = download,
+            modifier = modifier,
+            border = BorderStroke(1.dp, tint.copy(alpha = TILE_OUTLINE_ALPHA)),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = tint),
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+        ) { label() }
+    } else {
+        TextButton(
+            onClick = download,
+            modifier = modifier,
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+        ) { label() }
     }
 
     saved?.let { copy ->
