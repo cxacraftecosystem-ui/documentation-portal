@@ -1,5 +1,6 @@
 "use client";
 
+import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useId } from "react";
 import {
   Boxes,
@@ -506,15 +507,13 @@ function Bar({
 }: {
   value: number;
   denominator: number;
-  className: string;
+  className?: string;
   size?: "sm" | "lg";
 }) {
   const pct = denominator > 0 ? Math.min(100, Math.round((100 * value) / denominator)) : 0;
   const height = size === "lg" ? "h-3" : "h-2";
   return (
-    <div className={cn("w-full overflow-hidden rounded-full bg-surface-50 ring-1 ring-inset ring-line-200", height)}>
-      <div className={cn("rounded-full transition-all", height, className)} style={{ width: `${pct}%` }} />
-    </div>
+    <ProgressBar percent={pct} className={height} fillClassName={cn("transition-all", className)} />
   );
 }
 
@@ -544,7 +543,7 @@ export function ProgressGapMeter({
     <div className={cn("grid gap-2", className)}>
       <div className="grid grid-cols-[6.5rem_1fr_auto] items-center gap-x-3 gap-y-2">
         <span className="text-xs text-ink-500">Reported</span>
-        <Bar value={reported} denominator={denominator} className="bg-purple-700" />
+        <Bar value={reported} denominator={denominator} />
         <span className="text-xs font-semibold tabular-nums text-ink-900">
           {reported}
           {suffix}
@@ -734,7 +733,7 @@ export function PercentBar({ percent, label }: { percent: number; label?: string
         <span className="text-xs text-ink-500">{label ?? "Progress"}</span>
         <span className="text-xs font-semibold tabular-nums text-ink-900">{clamped}%</span>
       </div>
-      <Bar value={clamped} denominator={100} className="bg-purple-700" />
+      <Bar value={clamped} denominator={100} />
     </div>
   );
 }

@@ -61,7 +61,8 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
+import com.fieldrepository.app.ui.FieldLinearProgressIndicator
+import com.fieldrepository.app.ui.FieldProgressDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedButton
@@ -286,6 +287,13 @@ import com.fieldrepository.app.ui.RecordSwitcher
 import com.fieldrepository.app.ui.recordSwitcherTitle
 import com.fieldrepository.app.ui.rememberRecordSwitcher
 import com.fieldrepository.app.ui.WorkshopWindowState
+// The walkthrough: its surface, and the device-local flag that opens it exactly once. The step list
+// and the dialog live in `ui/` rather than here so a JVM unit test can read them without standing up
+// a composition — the deck they replace was private to this file, which is why its opening card
+// could say "Ten steps" over a counter reading 1/12 with nothing able to notice.
+import com.fieldrepository.app.ui.WalkthroughDialog
+import com.fieldrepository.app.ui.markWalkthroughSeen
+import com.fieldrepository.app.ui.walkthroughSeen
 import com.fieldrepository.app.ui.formatWorkshopDay
 import com.fieldrepository.app.ui.workshopWindowNotice
 import com.fieldrepository.app.ui.workshopWindowState
@@ -474,6 +482,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Locale
+import com.fieldrepository.app.ui.FieldCircularProgressIndicator
 
 class MainActivity : ComponentActivity() {
     /**
@@ -1561,8 +1570,15 @@ private fun HomeScreen(
         onDispose { lifecycleOwner?.lifecycle?.removeObserver(observer) }
     }
     // First-run walkthrough: new sign-ups see it automatically; anyone can reopen it from the menu.
-    var showWalkthrough by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { if (!walkthroughSeen(context)) showWalkthrough = true }
+    // Read in the remember initialiser rather than in an effect, so the decision is part of the
+    // first composition and the dashboard never paints for one frame underneath it.
+    var showWalkthrough by remember { mutableStateOf(!walkthroughSeen(context)) }
+    // ONE EXIT, used by every way out of the walkthrough: Skip, Done, back, and a step's own "Open"
+    // button. Both halves always happen together, so a Skip can never forget the seen flag.
+    fun finishWalkthrough() {
+        showWalkthrough = false
+        markWalkthroughSeen(context)
+    }
 
     // Surface a message, but swallow the noise from a coroutine being cancelled when a screen is
     // left during navigation (e.g. "The coroutine scope left the composition") — that is expected,
@@ -2584,7 +2600,18 @@ private fun HomeScreen(
 
                 // The walkthrough never sits on top of a required-update prompt (that must be handled first).
                 if (showWalkthrough && pendingUpdate == null) {
-                    WalkthroughDialog(onDismiss = { showWalkthrough = false; markWalkthroughSeen(context) })
+                    WalkthroughDialog(
+                        // Which deck OPENS, and nothing else: `walkthroughDeckFor` reads the role. It is a
+                        // default and not a gate — the opening card still offers every other deck.
+                        user = user,
+                        onFinish = { finishWalkthrough() },
+                        onOpen = { destination ->
+                            // Following a step's own button counts as having seen the walkthrough, and
+                            // it leaves through `navigate`, so a half-filled form is still asked about.
+                            finishWalkthrough()
+                            navigate(destination)
+                        },
+                    )
                 }
 
                 pendingUpdate?.let { release ->
@@ -2600,7 +2627,7 @@ private fun HomeScreen(
                                 release.notes?.takeIf { it.isNotBlank() }?.let { Text(it, color = Muted, fontSize = 12.sp) }
                                 updateError?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
                                 if (updateBusy) {
-                                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                    FieldLinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                                     Text("Downloading and preparing the installer…", color = Muted, fontSize = 12.sp)
                                 }
                             }
@@ -2857,7 +2884,7 @@ private fun SettingsScreen(
     RecordCard(title = "Settings") {
         if (loading) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                FieldCircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                 Text("Loading settings…", color = Muted, fontSize = 13.sp)
             }
             return@RecordCard
@@ -5643,10 +5670,11 @@ private fun MediaCaptureSection(
                 val failedCount = media.uris.count { it in media.stagedFailed }
                 val stalled = !allDone && media.staged.size + failedCount >= media.uris.size
                 if (!allDone && !stalled) {
-                    LinearProgressIndicator(
+                    FieldLinearProgressIndicator(
                         progress = { overall },
                         modifier = Modifier.fillMaxWidth().height(6.dp),
-                        color = Coral
+                        color = FieldProgressDefaults.onBrandTileIndicator,
+                        trackColor = FieldProgressDefaults.onBrandTileTrack
                     )
                 }
                 Text(
@@ -5764,10 +5792,11 @@ private fun AttachedUploadsCard(
         val failedCount = uris.count { it in media.stagedFailed }
         val stalled = !allDone && doneCount + failedCount >= uris.size
         if (!allDone && !stalled) {
-            LinearProgressIndicator(
+            FieldLinearProgressIndicator(
                 progress = { overall },
                 modifier = Modifier.fillMaxWidth().height(6.dp),
-                color = Coral
+                color = FieldProgressDefaults.onBrandTileIndicator,
+                trackColor = FieldProgressDefaults.onBrandTileTrack
             )
         }
         Text(
@@ -9277,7 +9306,7 @@ private fun ProcessForm(
         }
         when {
             productsLoading -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                FieldCircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                 Text("Loading this artisan's products…", color = Muted, fontSize = 12.sp)
             }
             productLoadError != null -> Text(productLoadError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
@@ -9640,7 +9669,7 @@ private fun MyActivityScreen(
                 onRetry = { loadError = null; attempt += 1 }
             )
             current == null -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                FieldCircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                 Text("Loading your activity…", color = Muted, fontSize = 13.sp)
             }
             current.items.isEmpty() && current.failedTypes.isEmpty() -> Text(
@@ -9876,7 +9905,7 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
         transcribing || (isAudio && (status == null || status in processing)) -> {
             // Still processing — show a buffer icon; the transcript appears here once it's ready.
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                FieldCircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                 Text(if (transcribing) "Transcribing now…" else "Transcribing audio…", color = Muted, fontSize = 12.sp)
             }
         }
@@ -9949,194 +9978,17 @@ private fun ArtisanQuestionnaireData(repository: FieldRepository, artisanId: Str
     }
 }
 
-// SharedPreferences holding the "don't remind me again" acknowledgement for AI-cost prompts, and
-// whether the user has seen (or skipped) the first-run walkthrough.
+// SharedPreferences holding the "don't remind me again" acknowledgement for AI-cost prompts. The
+// walkthrough's "seen" flag lives in this same file and is read and written by `ui/WalkthroughScreen.kt`,
+// which names `"fieldrepo_prefs"` again in its own constant.
 private const val APP_PREFS_NAME = "fieldrepo_prefs"
 private const val PREF_AI_COST_ACK = "ai_refine_cost_ack"
-private const val PREF_WALKTHROUGH_SEEN = "walkthrough_seen"
 
 private fun aiCostReminderSuppressed(context: Context): Boolean =
     context.getSharedPreferences(APP_PREFS_NAME, Context.MODE_PRIVATE).getBoolean(PREF_AI_COST_ACK, false)
 
 private fun suppressAiCostReminder(context: Context) {
     context.getSharedPreferences(APP_PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(PREF_AI_COST_ACK, true).apply()
-}
-
-/** True once the user has finished or skipped the walkthrough at least once on this device. */
-private fun walkthroughSeen(context: Context): Boolean =
-    context.getSharedPreferences(APP_PREFS_NAME, Context.MODE_PRIVATE).getBoolean(PREF_WALKTHROUGH_SEEN, false)
-
-private fun markWalkthroughSeen(context: Context) {
-    context.getSharedPreferences(APP_PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(PREF_WALKTHROUGH_SEEN, true).apply()
-}
-
-/** One step of the in-app walkthrough: a heading and a short description of a feature area. */
-private data class WalkStep(val title: String, val body: String)
-
-/**
- * The walkthrough, which is the WEB GUIDE's ten steps rather than a tour of this app's buttons.
- *
- * What it used to be — dashboard, menu, forms, attach media, the grid — described the interface. But
- * a researcher opening this app for the first time does not need to be told what a menu is; they need
- * to know that a workshop comes before a craft, that a craft comes before an artisan, and that a
- * process hangs off a product. That ordering is the actual thing to learn, it is what /guide teaches
- * on the web, and getting it wrong in the field costs a return trip.
- *
- * The wording is lifted from frontend/components/guide/steps.ts on purpose: the two apps are one
- * product, a researcher moves between them mid-workshop, and a step that is worded differently in
- * each reads as two different instructions.
- */
-private val walkthroughBody = listOf(
-    WalkStep(
-        "1. Workshop \u00b7 Record workshop",
-        "Open the workshop you are documenting under — or create it — before you record anything " +
-            "else. Every record you make is scoped to a workshop. Products, tools and interviews all " +
-            "carry a linked workshop, and the Data Browser opens on \"By workshop\", which files " +
-            "every record under the workshop it was recorded in. On a create form the most recent " +
-            "workshop you have access to is preselected, so getting this right once saves you picking " +
-            "it on every screen afterwards. Watch out: Create the workshop before you leave for the " +
-            "field — it is the container everything else drops into."
-    ),
-    WalkStep(
-        "2. Craft \u00b7 Add craft",
-        "Add the craft being documented so artisans, products and tools have something to hang " +
-            "off. Craft is the shared vocabulary everyone uses: artisans link to a craft, " +
-            "products and tools inherit the craft name from it, and the Data Browser groups every " +
-            "workshop's contents by craft. Adding it once keeps spellings consistent across " +
-            "everyone's records. Watch out: Check the list first — if the craft already exists, reuse " +
-            "it instead of creating a near-duplicate spelling."
-    ),
-    WalkStep(
-        "3. Artisan \u00b7 Record artisan",
-        "Record the person: who they are, where they work, how to reach them, and what they have " +
-            "learnt. The artisan is the anchor of the dataset. Products, processes, tools and " +
-            "questionnaire interviews all link back to an artisan record, and the Do's and Don'ts are " +
-            "the artisan's own hard-won craft knowledge — the part of the archive that cannot be " +
-            "reconstructed later. Watch out: Do's and Don'ts are required. Press Enter for each new " +
-            "point — one lesson per line."
-    ),
-    WalkStep(
-        "4. Product \u00b7 Record product",
-        "Record one thing this artisan makes, with its measurements, economics and photographs. " +
-            "The product record is where the craft becomes measurable: dimensions, cost of making, " +
-            "selling price and market demand are the fields researchers compare across regions. Link " +
-            "it to the artisan and the craft and the whole chain stays navigable. Watch out: Pick the " +
-            "linked craft first — the artisan dropdown stays disabled until a craft is chosen, then " +
-            "only lists that craft's artisans."
-    ),
-    WalkStep(
-        "5. Process \u00b7 Document process",
-        "Walk through how that product is made, one step at a time, filming each step as it " +
-            "happens. The process is the craft itself. A product photograph shows the result; the " +
-            "step-by-step record with per-step media shows the knowledge — the sequence, the hand " +
-            "movements, the judgement calls that a text description always loses. Watch out: Add a " +
-            "step with \"Add Another Step\" and pick Sequential for an ordered stage, or Group of " +
-            "activities for things done together."
-    ),
-    WalkStep(
-        "6. Tool \u00b7 Record tool",
-        "Record the toolkit the artisan uses: what it is made of, how big it is, who made it, " +
-            "what it costs to replace. Tools are the most quietly endangered part of a craft — the " +
-            "maker of a tool often disappears before the craft does. Replacement cost, maker and " +
-            "tradition type are the fields that record whether the toolchain behind the craft is " +
-            "still alive. Watch out: Fill only the dimensions that make sense for the tool — a blade " +
-            "has a length and thickness, a wheel has a radius."
-    ),
-    WalkStep(
-        "7. Questionnaire \u00b7 Take interview",
-        "Sit down with the artisan and work through the interview sections, recording each answer " +
-            "as audio. The questionnaire is the artisan speaking in their own voice and their own " +
-            "language. Recorded audio is transcribed automatically, so you get both the original " +
-            "recording and searchable text without typing during the interview. Watch out: There is " +
-            "one interview per exact set of artisans. If an entry already exists for that set, saving " +
-            "adds your answers to it — it never creates a duplicate."
-    ),
-    WalkStep(
-        "8. Miscellaneous Media \u00b7 Upload media",
-        "Upload the photographs, video, audio and files that do not belong to any single record. " +
-            "Field work produces context that no form has a slot for: the road into the village, the " +
-            "market, an unplanned conversation. Miscellaneous Media keeps that material with your " +
-            "records instead of on a phone that gets wiped. Watch out: Upload stays disabled until " +
-            "you pick a Linked record type. If the file belongs to nothing in particular, pick " +
-            "\"Miscellaneous Media\" and leave the entry blank."
-    ),
-    WalkStep(
-        "9. Review \u00b7 Track your submissions",
-        "Everything you submit goes into the review queue and comes back Approved, Rejected, or " +
-            "Sent for revision. Review is what turns a pile of field notes into a dataset anyone can " +
-            "cite. It also means you are never the last check on your own work — a reviewer above " +
-            "your tier reads every record before it counts as final. Watch out: Below Professor the " +
-            "status chip is locked: whatever you create is submitted as Pending. That is normal, not " +
-            "an error."
-    ),
-    WalkStep(
-        "10. View Data \u00b7 Browse records",
-        "Browse every record as folders and export a report of any folder. This " +
-            "is where the documentation stops being data entry and starts being research material: " +
-            "the same records, filed three different ways, previewable in place and downloadable as a " +
-            "spreadsheet. Watch out: Pick a folder, then use the breadcrumb to move back up — each " +
-            "folder loads when you open it."
-    ),
-    WalkStep(
-        "Before you leave the field",
-        "A missing field is a phone call; a missing recording is another trip. Every artisan you " +
-            "spoke to has a record with Do's and Don'ts. Every product you photographed has its " +
-            "dimensions and its costs. Every process has its steps in order, and the steps have " +
-            "video. Every tool has a material, a maker and a replacement cost. The questionnaire's " +
-            "completion matrix has no unexplained gaps. Anything you shot that has no home is in " +
-            "Miscellaneous Media."
-    )
-)
-
-/**
- * The deck: an opening card, then [walkthroughBody]. The opening card COUNTS the numbered steps it
- * introduces rather than typing a number — it said "Ten steps" over a deck the counter showed as
- * 1/12, and nothing tied the word to the list (release smoke test, 2026-10-16).
- */
-private val walkthroughSteps: List<WalkStep> = run {
-    val numbered = walkthroughBody.count { Regex("""^\d+\. """).containsMatchIn(it.title) }
-    listOf(
-        WalkStep(
-            "$numbered steps, in this order",
-            "This is the documentation process the app is built around, and it is the same $numbered steps " +
-                "in the same order on the web. Work down it once and you will not need the guide again. " +
-                "You can leave at any point and reopen this from the menu."
-        )
-    ) + walkthroughBody
-}
-
-/**
- * First-run (and on-demand) walkthrough: a stepped guide across the app's features with Back / Next /
- * Done and a Skip. New sign-ups see it automatically; everyone can reopen it from the menu. Dismissing
- * (Skip, Done, back, or tap-outside) marks it seen so it doesn't reappear on every launch.
- */
-@Composable
-private fun WalkthroughDialog(onDismiss: () -> Unit) {
-    var step by remember { mutableStateOf(0) }
-    val steps = walkthroughSteps
-    val current = steps[step]
-    val isLast = step == steps.lastIndex
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Column {
-                Text("Walkthrough · ${step + 1}/${steps.size}", color = Muted, fontSize = 12.sp)
-                Text(current.title, display = true, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
-            }
-        },
-        text = { Text(current.body, fontSize = 14.sp, color = Body) },
-        confirmButton = {
-            TextButton(onClick = { if (isLast) onDismiss() else step++ }) {
-                Text(if (isLast) "Done" else "Next")
-            }
-        },
-        dismissButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (step > 0) TextButton(onClick = { step-- }) { Text("Back") }
-                TextButton(onClick = onDismiss) { Text("Skip") }
-            }
-        }
-    )
 }
 
 /**
@@ -10198,7 +10050,7 @@ private fun TranscriptRefineControls(
     }
     if (refining) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+            FieldCircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
             Text("Refining with AI…", color = Muted, fontSize = 12.sp)
         }
     }
@@ -11538,7 +11390,7 @@ private fun ReviewApprovalCard(
         )
         when {
             loading -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                FieldCircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                 Text("Loading pending records…", color = Muted, fontSize = 12.sp)
             }
             loadError != null -> LoadFailedCard(message = loadError.orEmpty(), onRetry = { refresh() })
@@ -11887,7 +11739,7 @@ private fun DatasetDownloadCard(repository: FieldRepository, onError: (String) -
         )
         if (downloading) {
             val fraction = if (total > 0) done.toFloat() / total.toFloat() else 0f
-            LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+            FieldLinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
             Text("Compiling $done / $total files (${(fraction * 100).toInt()}%)", color = Muted, fontSize = 12.sp)
         }
         resultMessage?.let { Text(it, color = Body, fontSize = 12.sp) }
@@ -12887,7 +12739,7 @@ private fun AndroidMediaForm(
         }
         localMessage?.let { Text(it, color = Muted, fontSize = 12.sp) }
         if (uploading) {
-            LinearProgressIndicator(progress = { uploadFraction }, modifier = Modifier.fillMaxWidth())
+            FieldLinearProgressIndicator(progress = { uploadFraction }, modifier = Modifier.fillMaxWidth())
             uploadProgressText?.let { Text(it, color = Muted, fontSize = 12.sp) }
         }
         Button(
@@ -13102,7 +12954,7 @@ private fun AndroidUriPreview(
             fontSize = 12.sp
         )
         progress != null && progress < 1f -> {
-            LinearProgressIndicator(
+            FieldLinearProgressIndicator(
                 progress = { progress },
                 modifier = Modifier.fillMaxWidth().height(4.dp),
                 color = Coral
@@ -16539,7 +16391,7 @@ private fun TaskCard(
                 fontSize = 12.sp
             )
             task.percentComplete?.let { percent ->
-                LinearProgressIndicator(progress = { percent / 100f }, modifier = Modifier.fillMaxWidth())
+                FieldLinearProgressIndicator(progress = { percent / 100f }, modifier = Modifier.fillMaxWidth())
             }
 
             if (!editable) return@Column
@@ -17127,7 +16979,7 @@ private fun SaveButton(
     Button(onClick = onClick, enabled = enabled && state == SaveState.IDLE, modifier = modifier) {
         when (state) {
             SaveState.SAVING -> {
-                androidx.compose.material3.CircularProgressIndicator(
+                FieldCircularProgressIndicator(
                     modifier = Modifier.size(16.dp),
                     strokeWidth = 2.dp,
                     color = LocalContentColor.current

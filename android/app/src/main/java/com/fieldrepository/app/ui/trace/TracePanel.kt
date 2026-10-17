@@ -29,9 +29,9 @@ import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
+import com.fieldrepository.app.ui.FieldCircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
+import com.fieldrepository.app.ui.FieldLinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
@@ -997,7 +997,7 @@ private fun TracePanelOpen(
 
         if (loading) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                FieldCircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                 Text("Starting the tracing engine…", color = MaterialTheme.field.muted, fontSize = 12.sp)
             }
             return@Column
@@ -1473,13 +1473,13 @@ private fun TraceProgressRow(
             else -> "Tracing…"
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+            FieldCircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
             Text(sentence, color = MaterialTheme.field.body, fontSize = 12.sp)
         }
 
         if (kind != null && kind.isFullResolution && progress != null) {
             val fraction = weights.fractionAt(progress.stageId, progress.fraction)
-            LinearProgressIndicator(
+            FieldLinearProgressIndicator(
                 progress = { fraction.coerceIn(0f, 1f) },
                 modifier = Modifier.fillMaxWidth().height(4.dp),
             )

@@ -275,7 +275,7 @@ one is the thing to argue about in review.
   on a pull request, and a second Gradle job would spend five more minutes to learn the same thing.
   **What is missing is two lines in that file, not a job here:** its `pull_request` trigger is
   filtered to `android/**` (`android-build.yml:31-33`), and the Android suite reads the *web* tree —
-  `android/app/src/test/java/com/fieldrepository/app/ui/WalkthroughStepsTest.kt:385` names
+  `android/app/src/test/java/com/fieldrepository/app/ui/WalkthroughStepsTest.kt:293` names
   `frontend/components/guide/steps.ts` and asserts the Kotlin and web walkthroughs declare the same
   steps in the same order; `RecordPickersTest.kt` and `AccessRosterTest.kt` name their own web twins
   the same way. So a frontend-only pull request can break an Android test that nothing will run.
@@ -623,7 +623,7 @@ because a `.env` that is quietly pointed at a real database is a much worse way 
   June-vintage versions production had been running.
 - **The Android tests cannot see the change that breaks them.** `android-build.yml`'s `pull_request`
   trigger is filtered to `android/**` (`android-build.yml:31-33`), and the Kotlin suite reads the web
-  tree: `WalkthroughStepsTest.kt:385` names `frontend/components/guide/steps.ts` and asserts both
+  tree: `WalkthroughStepsTest.kt:293` names `frontend/components/guide/steps.ts` and asserts both
   walkthroughs declare the same steps in the same order, and `RecordPickersTest.kt` and
   `AccessRosterTest.kt` name their own web twins. Add `frontend/**` to that filter — a two-line
   change in a file `checks.yml` deliberately does not duplicate.

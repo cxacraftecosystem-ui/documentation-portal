@@ -70,6 +70,8 @@ const config: Config = {
           soft: neutral("ink-300")
         },
         line: { 200: neutral("line-200") },
+        // Progress indicators — themed, see the --progress-* block in globals.css.
+        progress: { track: neutral("progress-track"), fill: neutral("progress-fill"), done: neutral("progress-done") },
         surface: { 50: neutral("surface-50") },
         "bg-0": neutral("bg-0"),
         // Legacy `field` scale → mapped onto the new system. 50–300 are the tinted surface ladder

@@ -241,7 +241,10 @@ fun AudioPlayer(uri: Uri, modifier: Modifier = Modifier) {
                     positionMs = target
                     runCatching { player.seekTo(target) }
                 },
-                enabled = ready && durationMs > 0
+                enabled = ready && durationMs > 0,
+                // The tinted track, not surface-100: this row's own ground IS surface-100, so the
+                // unplayed track used to be 1.00:1 against it — the voice note with no bar at all.
+                colors = FieldProgressDefaults.sliderColors()
             )
             Text("${formatMs(positionMs)} / ${formatMs(durationMs)}", color = Body, fontSize = 12.sp)
         }

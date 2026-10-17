@@ -33,7 +33,6 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -657,7 +656,7 @@ private fun ApiKeyCard(
                     enabled = secret.configured && rowBusy != ApiKeyAction.REVEAL
                 ) {
                     if (rowBusy == ApiKeyAction.REVEAL) {
-                        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                        FieldCircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
                     } else {
                         Icon(
                             if (plaintext != null) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
@@ -762,7 +761,7 @@ private fun ApiKeyCard(
                     modifier = Modifier.weight(1f)
                 ) {
                     if (rowBusy == ApiKeyAction.TEST) {
-                        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
+                        FieldCircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
                     } else {
                         Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                     }
@@ -865,7 +864,7 @@ private fun ApiKeyEditPanel(secret: ManagedSecretDto, state: ApiKeysState, busy:
                 modifier = Modifier.weight(1f)
             ) {
                 if (busy) {
-                    CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
+                    FieldCircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(6.dp))
                 }
                 Text(if (busy) "Saving…" else "Save key")
@@ -914,7 +913,7 @@ private fun ApiKeyClearPanel(secret: ManagedSecretDto, state: ApiKeysState, busy
                 modifier = Modifier.weight(1f)
             ) {
                 if (busy) {
-                    CircularProgressIndicator(
+                    FieldCircularProgressIndicator(
                         strokeWidth = 2.dp,
                         color = MaterialTheme.colorScheme.onError,
                         modifier = Modifier.size(14.dp)

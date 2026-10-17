@@ -1,5 +1,6 @@
 "use client";
 
+import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useEffect, useRef, useState } from "react";
 
 /**
@@ -211,9 +212,7 @@ export function Waveform({
   if (reduced) {
     return (
       <div className={`flex min-w-0 flex-1 items-center gap-2 ${className}`} role="img" aria-label={`${label}: ${level}%`}>
-        <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-line-200">
-          <div className="h-full rounded-full bg-purple-700" style={{ width: `${level}%` }} />
-        </div>
+        <ProgressBar percent={level} className="h-2 min-w-0 flex-1" />
         <span className="shrink-0 text-xs font-medium tabular-nums text-ink-500">{level}%</span>
       </div>
     );

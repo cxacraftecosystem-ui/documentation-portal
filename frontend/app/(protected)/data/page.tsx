@@ -1,5 +1,6 @@
 "use client";
 
+import { ProgressBar } from "@/components/ui/ProgressBar";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -1734,12 +1735,11 @@ export default function DataBrowserPage() {
                   {" — "}
                   <span className="break-all font-medium text-ink-900">{progress.current}</span>
                 </div>
-                <div className="h-2 overflow-hidden rounded-full bg-line-200">
-                  <div
-                    className="h-full rounded-full bg-purple-700 transition-all"
-                    style={{ width: `${progress.total ? Math.round((progress.done / progress.total) * 100) : 0}%` }}
-                  />
-                </div>
+                <ProgressBar
+                  percent={progress.total ? Math.round((progress.done / progress.total) * 100) : 0}
+                  className="h-2"
+                  fillClassName="transition-all"
+                />
               </div>
             ) : null}
             {downloadNote ? (

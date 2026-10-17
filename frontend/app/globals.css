@@ -89,6 +89,13 @@
     --ink-700: 58 54 81; /* #3a3651 */
     --ink-500: 97 93 122; /* #615d7a */
     --ink-300: 167 163 188; /* #a7a3bc */
+    /* Progress indicators (.progress-track / .progress-fill below; Android's FieldProgress.kt holds
+       the same values). The TRACK is purple-700 at 28% over the white card — 1.61:1 against it, so a
+       bar is visibly a bar and never the card's own white. The FILL is purple-700: 7.59:1 on the card
+       and 4.71:1 on the track. DONE is success-600: 5.02:1 / 3.11:1. */
+    --progress-track: 217 196 233; /* #d9c4e9 */
+    --progress-fill: 118 44 177; /* #762cb1, purple-700 */
+    --progress-done: 21 128 61; /* #15803d, success-600 */
     /* Legacy aliases — derived, so they follow the triplets into whichever theme is active. */
     --background: rgb(var(--bg-0));
     --foreground: rgb(var(--ink-900));
@@ -123,6 +130,12 @@
     --ink-700: 208 203 223; /* #d0cbdf */
     --ink-500: 158 152 178; /* #9e98b2 */
     --ink-300: 110 104 132; /* #6e6884 */
+    /* Progress in dark: purple-700 is 2.32:1 on this card, so the fill moves up the ramp to
+       purple-400 (7.16:1 on the card, 4.05:1 on the track), and the track is purple-400 at 30% over
+       the card (1.77:1). Done is success-400: 10.10:1 / 5.70:1. */
+    --progress-track: 76 59 99; /* #4c3b63 */
+    --progress-fill: 192 144 245; /* #c090f5, purple-400 */
+    --progress-done: 74 222 128; /* #4ade80, success-400 */
     /* The mesh backdrop needs more punch to read against a dark canvas. */
     --grad-mesh:
       radial-gradient(40rem 40rem at 12% 18%, oklch(0.648 0.19 305 / 0.24), transparent 60%),
@@ -332,7 +345,7 @@
   .audio-range::-webkit-slider-runnable-track {
     height: 6px;
     border-radius: 9999px;
-    background: var(--audio-range-fill, rgb(var(--line-200)));
+    background: var(--audio-range-fill, rgb(var(--progress-track)));
   }
 
   .audio-range::-webkit-slider-thumb {
@@ -342,7 +355,7 @@
     height: 14px;
     width: 14px;
     border-radius: 9999px;
-    background: oklch(0.47 0.198 305); /* purple-700 */
+    background: rgb(var(--progress-fill));
     border: 2px solid rgb(var(--card));
     box-shadow: 0 1px 2px rgba(46, 16, 101, 0.3);
   }
@@ -350,14 +363,14 @@
   .audio-range::-moz-range-track {
     height: 6px;
     border-radius: 9999px;
-    background: var(--audio-range-fill, rgb(var(--line-200)));
+    background: var(--audio-range-fill, rgb(var(--progress-track)));
   }
 
   .audio-range::-moz-range-thumb {
     height: 14px;
     width: 14px;
     border-radius: 9999px;
-    background: oklch(0.47 0.198 305);
+    background: rgb(var(--progress-fill));
     border: 2px solid rgb(var(--card));
     box-shadow: 0 1px 2px rgba(46, 16, 101, 0.3);
   }
@@ -377,6 +390,28 @@
    * its own hover wash). Purple link ink is `text-purple-700 dark:text-purple-300` at every
    * call site wherever it sits on a ground that inverts (bg-card, surface, page).
    */
+
+  /*
+   * PROGRESS INDICATORS — every bar in the app draws its track and its fill with these two, so the
+   * rule lives in one place (owner report 2026-10-17: the voice-note bar vanished into its white
+   * card; its track was line-200, 1.28:1, and in dark the purple-700 fill was 2.32:1).
+   * Track: a tinted token, never the card. Fill: >= 3:1 against both track and card, both themes.
+   * At least 4px tall, round ends. `data-tone="done"` on the fill is the finished/passing state.
+   * `components/ui/ProgressBar.tsx` renders the pair; `e2e/progress-indicator-unit.spec.ts` holds
+   * the numbers and refuses a hand-rolled `bg-line-200` / `bg-field-200` track.
+   */
+  .progress-track {
+    @apply h-1.5 w-full overflow-hidden rounded-full bg-progress-track;
+    min-height: 4px;
+  }
+
+  .progress-fill {
+    @apply h-full rounded-full bg-progress-fill;
+  }
+
+  .progress-fill[data-tone="done"] {
+    @apply bg-progress-done;
+  }
 
   .field-input {
     @apply w-full rounded-md border border-line-200 bg-card px-3.5 py-2.5 text-sm text-ink-900 outline-hidden transition placeholder:text-ink-300 focus:border-purple-600 focus:ring-4 focus:ring-purple-600/15;

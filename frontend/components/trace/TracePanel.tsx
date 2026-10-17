@@ -122,6 +122,7 @@
  * has an image on it.
  */
 
+import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -2036,12 +2037,11 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
                 */}
                 {tracing && progressAt !== null ? (
                   <div className="mt-2 grid gap-1">
-                    <div className="h-1 w-full overflow-hidden rounded-full bg-field-200">
-                      <div
-                        className="h-full rounded-full bg-primary transition-[width] duration-200"
-                        style={{ width: `${Math.round(progressAt * 100)}%` }}
-                      />
-                    </div>
+                    <ProgressBar
+                      percent={Math.round(progressAt * 100)}
+                      className="h-1"
+                      fillClassName="transition-[width] duration-200"
+                    />
                     {/* A BAR THAT WILL VISIBLY STALL, SAYING SO. Until this machine has finished one
                         trace the boundaries are the engine's even twelfths, and the two long stages are
                         worth several of the others put together. One line costs less than a researcher

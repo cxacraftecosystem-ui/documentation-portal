@@ -46,7 +46,6 @@ import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -2540,8 +2539,7 @@ private fun MeterBar(value: Int, denominator: Int, color: Color) {
         modifier = Modifier
             .fillMaxWidth()
             .height(8.dp)
-            .background(MaterialTheme.field.surface200, CircleShape)
-            .border(1.dp, MaterialTheme.field.hairline, CircleShape)
+            .background(FieldProgressDefaults.trackColor, CircleShape)
     ) {
         if (fraction > 0f) {
             Box(
@@ -2754,7 +2752,7 @@ private fun WarningLine(message: String) {
 @Composable
 private fun LoadingLine(message: String) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+        FieldCircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
         Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
