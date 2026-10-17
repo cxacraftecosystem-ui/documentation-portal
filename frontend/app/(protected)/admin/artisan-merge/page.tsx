@@ -262,7 +262,7 @@ export default function ArtisanMergePage() {
       {header}
 
       {error ? (
-        <p role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="mb-4 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-red-800">
           {error}
         </p>
       ) : null}
@@ -401,7 +401,7 @@ export default function ArtisanMergePage() {
           ) : null}
 
           {preview.blockers.map((blocker) => (
-            <p key={blocker.message} role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p key={blocker.message} role="alert" className="mt-3 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-red-800">
               {blocker.message}
             </p>
           ))}
