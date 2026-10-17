@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useMotionValueEvent, useScroll } from "framer-motion";
 import {
   Activity,
+  Bell,
   Boxes,
   Brush,
   ClipboardCheck,
@@ -37,6 +38,7 @@ import {
 } from "lucide-react";
 
 import { useAdminView } from "@/components/AdminViewProvider";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { useAuth } from "@/components/AuthProvider";
 import { usePendingAccessCount } from "@/components/hooks/usePendingAccessCount";
 import { HoveredLink, MenuItem } from "@/components/ui/navbar-menu";
@@ -189,6 +191,9 @@ export const NAV_ITEMS: NavItem[] = [
   // PUT /preferences/me, which asks for nothing but a login. Gating the entry on isMasterAdmin left
   // every other user with NO route to their own accessibility switches, so it is `everyone` — the
   // master admin's global column is also linked from the /admin hub tile "App settings".
+  // The activity list (C25): every notice the server sends, in-app, mail or no mail. The bell in the
+  // island opens the same page; this row is the keyboard and sheet route to it. Android: "Notifications".
+  { href: "/notifications", label: "Notifications", icon: Bell, group: "Account", can: everyone, gate: "get_current_user (GET /notifications)" },
   { href: "/settings", label: "Settings", icon: SettingsIcon, group: "Account", can: everyone, gate: "get_current_user (PUT /preferences/me)" },
   // Android's Workshop access entry, which the menu had no equivalent for: the destination is the
   // fork, and for anyone below admin it opens their own request page directly. Ungated because
@@ -472,6 +477,7 @@ export function DynamicIslandNav() {
                 <Toggle hideLabel label="Admin view" checked={adminMode} onChange={() => toggleAdminView()} />
               </span>
             ) : null}
+            <NotificationBell active={isActivePath("/notifications")} />
             <button
               ref={menuButtonRef}
               type="button"
