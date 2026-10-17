@@ -7,6 +7,11 @@
  * switch (§11.11), saved the moment it is pressed and shown ON only once the server says so. Turning
  * it off withdraws the agreement and unlinks every Designer Portal record. The Aadhaar number never
  * leaves this portal either way; the label says so because it is the question an artisan asks.
+ *
+ * WHAT IT NAMES IS WHAT IS SENT. The list comes from the server (`/cross-portal/status` →
+ * `sharedFields`, built from the same list the lookup answer is), so the artisan never agrees to
+ * less than the Designer Portal receives. `SHARED_FIELDS_FALLBACK` is that phrase as of this build,
+ * held to the server's by `backend/tests/test_cross_portal_identity.py`.
  */
 import { useEffect, useState } from "react";
 
@@ -20,18 +25,34 @@ type Consent = {
   linkedRecords: number;
 };
 
-let statusPromise: Promise<boolean> | null = null;
+export const SHARED_FIELDS_FALLBACK = "name, local name, gender, date of birth, Pehchan card, phone number, address, place, craft and craft experience";
 
-export function crossPortalEnabled(): Promise<boolean> {
+type CrossPortalStatus = { enabled: boolean; sharedFields: string };
+
+let statusPromise: Promise<CrossPortalStatus> | null = null;
+
+export function crossPortalStatus(): Promise<CrossPortalStatus> {
   if (!statusPromise) {
-    statusPromise = apiFetch<{ enabled: boolean }>("/cross-portal/status")
-      .then((answer) => Boolean(answer?.enabled))
+    statusPromise = apiFetch<{ enabled: boolean; sharedFields?: string }>("/cross-portal/status")
+      .then((answer) => ({
+        enabled: Boolean(answer?.enabled),
+        sharedFields: answer?.sharedFields?.trim() || SHARED_FIELDS_FALLBACK
+      }))
       .catch(() => {
         statusPromise = null;
-        return false;
+        return { enabled: false, sharedFields: SHARED_FIELDS_FALLBACK };
       });
   }
   return statusPromise;
+}
+
+export function crossPortalEnabled(): Promise<boolean> {
+  return crossPortalStatus().then((status) => status.enabled);
+}
+
+/** The switch's description: every item a lookup shares, from the server's one list. */
+export function consentDescription(sharedFields: string): string {
+  return `The artisan agrees designers may look up their ${sharedFields}. Aadhaar never leaves this portal.`;
 }
 
 export function consentStatusLine(consent: Consent): string {
@@ -49,15 +70,17 @@ export function consentStatusLine(consent: Consent): string {
 
 export function SharingConsentToggle({ artisanId }: { artisanId: string }) {
   const [enabled, setEnabled] = useState(false);
+  const [sharedFields, setSharedFields] = useState(SHARED_FIELDS_FALLBACK);
   const [consent, setConsent] = useState<Consent | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    void crossPortalEnabled().then(async (on) => {
-      if (cancelled || !on) return;
+    void crossPortalStatus().then(async (status) => {
+      if (cancelled || !status.enabled) return;
       setEnabled(true);
+      setSharedFields(status.sharedFields);
       try {
         const answer = await apiFetch<Consent>(`/cross-portal/artisans/${encodeURIComponent(artisanId)}/consent`);
         if (!cancelled) setConsent(answer);
@@ -93,7 +116,7 @@ export function SharingConsentToggle({ artisanId }: { artisanId: string }) {
     <div className="md:col-span-3 grid gap-1">
       <Toggle
         label="Share with the Designer Portal"
-        description="The artisan agrees designers may look up their name, gender, date of birth and Pehchan. Aadhaar never leaves this portal."
+        description={consentDescription(sharedFields)}
         checked={consent.granted}
         busy={busy}
         onChange={(next) => void change(next)}

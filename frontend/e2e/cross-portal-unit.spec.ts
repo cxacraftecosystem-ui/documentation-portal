@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { consentStatusLine } from "@/components/forms/SharingConsentToggle";
+import { consentDescription, consentStatusLine, SHARED_FIELDS_FALLBACK } from "@/components/forms/SharingConsentToggle";
 import { isMachineSuggested, MACHINE_SUGGESTED_LABEL } from "@/components/questionnaire/AnswerDraftsPanel";
 
 /**
@@ -18,6 +18,15 @@ test("the consent status line says what was recorded", () => {
   expect(consentStatusLine({ granted: false, recorded: true, recordedAt: null, linkedRecords: 0 })).toBe("Declined");
 });
 
+test("the consent names everything a lookup sends, from the server's list", () => {
+  for (const item of ["phone number", "address", "place", "craft", "date of birth", "Pehchan card"]) {
+    expect(SHARED_FIELDS_FALLBACK).toContain(item);
+  }
+  expect(consentDescription("name and phone number")).toBe(
+    "The artisan agrees designers may look up their name and phone number. Aadhaar never leaves this portal."
+  );
+});
+
 test("both machine origins are labelled, a typed answer is not", () => {
   expect(MACHINE_SUGGESTED_LABEL).toBe("Machine-suggested");
   expect(isMachineSuggested("MACHINE_SUGGESTED")).toBe(true);
@@ -27,12 +36,14 @@ test("both machine origins are labelled, a typed answer is not", () => {
 
 test("each feature is drawn only behind its server flag", () => {
   const toggle = readFileSync(join(__dirname, "../components/forms/SharingConsentToggle.tsx"), "utf8");
-  expect(toggle).toContain('apiFetch<{ enabled: boolean }>("/cross-portal/status")');
+  expect(toggle).toContain('apiFetch<{ enabled: boolean; sharedFields?: string }>("/cross-portal/status")');
+  expect(toggle).toContain("description={consentDescription(sharedFields)}");
   expect(toggle).toContain("if (!enabled || !consent) return null;");
   expect(toggle).toContain('label="Share with the Designer Portal"');
   const drafts = readFileSync(join(__dirname, "../components/questionnaire/AnswerDraftsPanel.tsx"), "utf8");
   expect(drafts).toContain('"/questionnaire/answer-drafts/status"');
   expect(drafts).toContain("if (!enabled || !list) return null;");
+  expect(drafts).toContain("answer.mayDraft === false");
   const page = readFileSync(join(__dirname, "../app/(protected)/questionnaire/page.tsx"), "utf8");
   expect(page).toContain("<AnswerDraftsPanel");
   expect(page).toContain("<MachineSuggestedBadge");

@@ -25,6 +25,27 @@ class CrossPortalHandsetTest {
     }
 
     @Test
+    fun theConsentNamesEverythingTheLookupSends() {
+        val description = SharingConsentCopy.description(null)
+        for (item in listOf("phone number", "address", "place", "craft", "date of birth", "Pehchan card")) {
+            assertTrue("consent lacks: $item", description.contains(item))
+        }
+        assertTrue(SharingConsentCopy.description("name and phone number").contains("look up their name and phone number."))
+        assertEquals(
+            "x",
+            json.decodeFromString(CrossPortalStatusDto.serializer(), """{"enabled":true,"sharedFields":"x"}""").sharedFields,
+        )
+        assertNull(json.decodeFromString(CrossPortalStatusDto.serializer(), """{"enabled":true}""").sharedFields)
+    }
+
+    @Test
+    fun aReaderWhoMayNotDraftSeesNothing() {
+        val list = json.decodeFromString(AnswerDraftListDto.serializer(), """{"items":[],"transcripts":[],"mayDraft":false}""")
+        assertFalse(list.mayDraft)
+        assertTrue(json.decodeFromString(AnswerDraftListDto.serializer(), """{"items":[]}""").mayDraft)
+    }
+
+    @Test
     fun machineSuggestedAnswersAreLabelledAndTypedOnesAreNot() {
         assertEquals("Machine-suggested", AnswerDrafts.badge(AnswerDrafts.ORIGIN_MACHINE))
         assertEquals("Machine-suggested · edited", AnswerDrafts.badge(AnswerDrafts.ORIGIN_MACHINE_EDITED))
@@ -58,7 +79,8 @@ class CrossPortalHandsetTest {
             .firstOrNull { File(it, "frontend/components/forms/SharingConsentToggle.tsx").isFile } ?: return
         val consent = File(root, "frontend/components/forms/SharingConsentToggle.tsx").readText()
         assertTrue(consent.contains(SharingConsentCopy.LABEL))
-        assertTrue(consent.contains(SharingConsentCopy.DESCRIPTION))
+        assertTrue(consent.contains(SharingConsentCopy.SHARED_FIELDS_FALLBACK))
+        assertTrue(consent.contains("The artisan agrees designers may look up their"))
         val drafts = File(root, "frontend/components/questionnaire/AnswerDraftsPanel.tsx").readText()
         for (phrase in listOf(AnswerDrafts.LABEL, AnswerDrafts.ACCEPT, AnswerDrafts.DRAFT, AnswerDrafts.PASTE, AnswerDrafts.NOTHING_FOUND)) {
             assertTrue("web lacks: $phrase", drafts.contains(phrase))

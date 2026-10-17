@@ -11,10 +11,15 @@ Two kinds of caller, kept apart by path:
 
 Every route here answers 404 while the feature is not active on this server, exactly as if it did
 not exist. This portal is the source of truth for the identity fields and never writes to the other.
+
+Every peer request is written to ``CrossPortalAccessLog`` (which designer-portal account asked, what
+for, and which artisan it reached, or that it reached none) — never the number or the code it asked
+with. Every consent change is a ``RecordRevision`` on the artisan, so a withdrawal leaves a trace.
 """
 
 import json
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
@@ -25,7 +30,7 @@ from app.core.config import get_settings
 from app.core.db import db
 from app.core.deps import get_current_user, get_value
 from app.services import cross_portal
-from app.services.access import record_edit_privilege
+from app.services.access import record_edit_privilege, record_revision
 from app.services.artisan_identity import normalize_pehchan
 
 router = APIRouter(prefix="/cross-portal", tags=["cross-portal"])
@@ -38,21 +43,67 @@ def _active_or_404() -> Any:
     return settings
 
 
-async def require_peer(authorization: str | None = Header(default=None)) -> Any:
-    """The designer portal's server, by the shared token, and nobody else."""
+async def require_peer(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    x_cross_portal_nonce: str | None = Header(default=None),
+) -> Any:
+    """The designer portal's server, by the shared token and a fresh nonce, and nobody else."""
     settings = _active_or_404()
     if not cross_portal.bearer_matches(settings.cross_portal_token, authorization):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authorised.")
+    nonce = (x_cross_portal_nonce or "").strip()
+    if len(nonce) < cross_portal.MIN_NONCE_LENGTH or len(nonce) > 128:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authorised.")
+    request.state.cross_portal_nonce = nonce
     return settings
 
 
-def _signed(settings: Any, payload: Any, status_code: int = 200) -> Response:
+def _signed(settings: Any, request: Request, payload: Any, status_code: int = 200) -> Response:
+    """The answer, signed over the request it answers (method, peer path, nonce) and its body."""
     body = json.dumps(payload, separators=(",", ":"), default=str).encode("utf-8")
+    signature = cross_portal.sign(
+        settings.cross_portal_token,
+        body,
+        method=request.method,
+        path=request.url.path,
+        nonce=getattr(request.state, "cross_portal_nonce", ""),
+    )
     return Response(
         content=body,
         status_code=status_code,
         media_type="application/json",
-        headers={cross_portal.SIGNATURE_HEADER: cross_portal.sign(settings.cross_portal_token, body)},
+        headers={cross_portal.SIGNATURE_HEADER: signature},
+    )
+
+
+ACTION_LOOKUP = "LOOKUP"
+ACTION_REFRESH = "REFRESH"
+ACTION_LINK = "LINK"
+ACTION_UNLINK = "UNLINK"
+
+
+async def _log_access(
+    request: Request,
+    action: str,
+    outcome: str,
+    *,
+    artisan_id: str | None = None,
+    remote_artisan_id: str | None = None,
+    matched_by: str | None = None,
+) -> None:
+    """One row per peer request: who asked (the designer-portal account id), what, and what it
+    reached. Never the Pehchan number or the Aadhaar code."""
+    asked_by = (request.headers.get(cross_portal.REQUESTED_BY_HEADER) or "").strip()[:64] or None
+    await db.crossportalaccesslog.create(
+        data={
+            "action": action,
+            "outcome": outcome,
+            "artisanId": artisan_id,
+            "remoteUserId": asked_by,
+            "remoteArtisanId": (remote_artisan_id or "")[:64] or None,
+            "matchedBy": matched_by,
+        }
     )
 
 
@@ -110,7 +161,9 @@ def _answer(artisan: Any, matched_by: str) -> dict[str, Any]:
 
 
 @router.post("/peer/artisans/lookup")
-async def peer_lookup(payload: PeerLookup, settings: Any = Depends(require_peer)) -> Response:
+async def peer_lookup(
+    payload: PeerLookup, request: Request, settings: Any = Depends(require_peer)
+) -> Response:
     """One artisan by Pehchan number or by the Aadhaar code, if their consent is recorded here.
 
     "No such artisan" and "no consent" are the SAME answer, on purpose: telling the other portal that
@@ -122,8 +175,15 @@ async def peer_lookup(payload: PeerLookup, settings: Any = Depends(require_peer)
         if row is not None and getattr(row, "status", None) != "REJECTED":
             artisan = await _consenting(row.id)
             if artisan is not None:
+                await _log_access(
+                    request,
+                    ACTION_LOOKUP,
+                    "MATCH",
+                    artisan_id=artisan.id,
+                    matched_by=cross_portal.MATCHED_BY_PEHCHAN,
+                )
                 return _signed(
-                    settings, {"match": _answer(artisan, cross_portal.MATCHED_BY_PEHCHAN)}
+                    settings, request, {"match": _answer(artisan, cross_portal.MATCHED_BY_PEHCHAN)}
                 )
     if payload.aadhaarCode:
         # Only artisans who agreed are hashed at all: the set is small, and an artisan without
@@ -143,15 +203,28 @@ async def peer_lookup(payload: PeerLookup, settings: Any = Depends(require_peer)
             ):
                 artisan = await _consenting(row.id)
                 if artisan is not None:
-                    return _signed(
-                        settings, {"match": _answer(artisan, cross_portal.MATCHED_BY_AADHAAR)}
+                    await _log_access(
+                        request,
+                        ACTION_LOOKUP,
+                        "MATCH",
+                        artisan_id=artisan.id,
+                        matched_by=cross_portal.MATCHED_BY_AADHAAR,
                     )
-    return _signed(settings, {"match": None})
+                    return _signed(
+                        settings,
+                        request,
+                        {"match": _answer(artisan, cross_portal.MATCHED_BY_AADHAAR)},
+                    )
+    await _log_access(request, ACTION_LOOKUP, "NO_MATCH")
+    return _signed(settings, request, {"match": None})
 
 
 @router.get("/peer/artisans/{artisan_id}")
 async def peer_refresh(
-    artisan_id: str, remoteArtisanId: str, settings: Any = Depends(require_peer)
+    artisan_id: str,
+    remoteArtisanId: str,
+    request: Request,
+    settings: Any = Depends(require_peer),
 ) -> Response:
     """The identity fields again, for a record the designer portal has LINKED. 404 otherwise."""
     link = await db.crossportalartisanlink.find_first(
@@ -159,17 +232,29 @@ async def peer_refresh(
     )
     artisan = await _consenting(artisan_id) if link is not None else None
     if artisan is None:
-        return _signed(settings, {"match": None}, status_code=404)
-    return _signed(settings, {"match": _answer(artisan, link.matchedBy)})
+        await _log_access(request, ACTION_REFRESH, "NO_MATCH", remote_artisan_id=remoteArtisanId)
+        return _signed(settings, request, {"match": None}, status_code=404)
+    await _log_access(
+        request,
+        ACTION_REFRESH,
+        "MATCH",
+        artisan_id=artisan.id,
+        remote_artisan_id=remoteArtisanId,
+        matched_by=link.matchedBy,
+    )
+    return _signed(settings, request, {"match": _answer(artisan, link.matchedBy)})
 
 
 @router.post("/peer/artisans/{artisan_id}/links")
 async def peer_link(
-    artisan_id: str, payload: PeerLink, settings: Any = Depends(require_peer)
+    artisan_id: str, payload: PeerLink, request: Request, settings: Any = Depends(require_peer)
 ) -> Response:
     """Record the designer portal's link. Refused (409) once consent is not granted."""
     if await _consenting(artisan_id) is None:
-        return _signed(settings, {"linked": False}, status_code=409)
+        await _log_access(
+            request, ACTION_LINK, "REFUSED", remote_artisan_id=payload.remoteArtisanId
+        )
+        return _signed(settings, request, {"linked": False}, status_code=409)
     existing = await db.crossportalartisanlink.find_first(
         where={"artisanId": artisan_id, "remoteArtisanId": payload.remoteArtisanId}
     )
@@ -181,17 +266,35 @@ async def peer_link(
                 "matchedBy": payload.matchedBy,
             }
         )
-    return _signed(settings, {"linked": True})
+    await _log_access(
+        request,
+        ACTION_LINK,
+        "LINKED",
+        artisan_id=artisan_id,
+        remote_artisan_id=payload.remoteArtisanId,
+        matched_by=payload.matchedBy,
+    )
+    return _signed(settings, request, {"linked": True})
 
 
 @router.delete("/peer/artisans/{artisan_id}/links/{remote_artisan_id}")
 async def peer_unlink(
-    artisan_id: str, remote_artisan_id: str, settings: Any = Depends(require_peer)
+    artisan_id: str,
+    remote_artisan_id: str,
+    request: Request,
+    settings: Any = Depends(require_peer),
 ) -> Response:
     await db.crossportalartisanlink.delete_many(
         where={"artisanId": artisan_id, "remoteArtisanId": remote_artisan_id}
     )
-    return _signed(settings, {"linked": False})
+    await _log_access(
+        request,
+        ACTION_UNLINK,
+        "UNLINKED",
+        artisan_id=artisan_id,
+        remote_artisan_id=remote_artisan_id,
+    )
+    return _signed(settings, request, {"linked": False})
 
 
 # ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -201,8 +304,12 @@ async def peer_unlink(
 
 @router.get("/status")
 async def cross_portal_status(_: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """Whether the clients should draw the sharing switch at all."""
-    return {"enabled": cross_portal.active(get_settings())}
+    """Whether the clients should draw the sharing switch at all, and what it shares."""
+    return {
+        "enabled": cross_portal.active(get_settings()),
+        # The consent copy's list, from the one list the lookup answer is built from.
+        "sharedFields": cross_portal.consent_fields_phrase(),
+    }
 
 
 def _consent_payload(consent: Any | None, links: int) -> dict[str, Any]:
@@ -249,6 +356,15 @@ async def set_consent(
         "recordedById": get_value(current_user, "id"),
         "recordedAt": datetime.now(UTC),
     }
+    before = await db.artisansharingconsent.find_unique(where={"artisanId": artisan_id})
+    # THE AUDIT LEDGER, as for any change to the artisan: who granted or withdrew, from what, when.
+    # The upsert below keeps only the latest state; this row is what keeps the history.
+    await record_revision(
+        SimpleNamespace(id=artisan_id, sharingConsent=getattr(before, "granted", None)),
+        current_user,
+        {"sharingConsent": payload.granted},
+        "artisan",
+    )
     consent = await db.artisansharingconsent.upsert(
         where={"artisanId": artisan_id},
         data={"create": {"artisanId": artisan_id, **data}, "update": data},

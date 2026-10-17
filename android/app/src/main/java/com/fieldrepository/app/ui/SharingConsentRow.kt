@@ -30,16 +30,21 @@ fun SharingConsentRow(artisanId: String) {
     val client = remember { CrossPortalSharingClient.create(context) }
     val scope = rememberCoroutineScope()
     var consent by remember(artisanId) { mutableStateOf<SharingConsentDto?>(null) }
+    var sharedFields by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(artisanId) {
-        if (client.enabled()) consent = runCatching { client.consent(artisanId) }.getOrNull()
+        val status = client.status()
+        if (status.enabled) {
+            sharedFields = status.sharedFields
+            consent = runCatching { client.consent(artisanId) }.getOrNull()
+        }
     }
     val current = consent ?: return
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         AppToggle(
             label = SharingConsentCopy.LABEL,
-            description = SharingConsentCopy.DESCRIPTION,
+            description = SharingConsentCopy.description(sharedFields),
             checked = current.granted,
             busy = busy,
             onCheckedChange = { next ->

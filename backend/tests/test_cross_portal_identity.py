@@ -87,6 +87,19 @@ def _settings(**over):
     return SimpleNamespace(**base)
 
 
+NONCE = "n" * 32
+
+
+def _req(method="POST", path="/api/cross-portal/peer/artisans/lookup", nonce=NONCE, asked_by="dp-u1"):
+    """A stand-in for the FastAPI request: what the signature and the access log read."""
+    return SimpleNamespace(
+        method=method,
+        url=SimpleNamespace(path=path),
+        state=SimpleNamespace(cross_portal_nonce=nonce),
+        headers={cross_portal.REQUESTED_BY_HEADER: asked_by} if asked_by else {},
+    )
+
+
 @pytest.fixture
 def world(monkeypatch):
     craft = SimpleNamespace(name="Bandhej", craftCode="bandhani")
@@ -125,16 +138,30 @@ def world(monkeypatch):
         artisan=artisans,
         artisansharingconsent=Table([{"artisanId": "a1", "granted": True}], key="artisanId"),
         crossportalartisanlink=Table(),
+        crossportalaccesslog=Table(),
     )
     monkeypatch.setattr(routes, "db", fake)
     monkeypatch.setattr(routes, "get_settings", lambda: _settings())
+    revisions: list[Any] = []
+
+    async def record_revision(record, user, data, record_type, **_k):
+        revisions.append((record, user, data, record_type))
+
+    monkeypatch.setattr(routes, "record_revision", record_revision)
+    fake.revisions = revisions
     return fake
 
 
-def _body(response) -> Any:
+def _body(response, request=None) -> Any:
+    request = request or _req()
     assert cross_portal.signature_matches(
-        TOKEN, response.body, response.headers.get(cross_portal.SIGNATURE_HEADER)
-    ), "every peer answer is signed"
+        TOKEN,
+        response.body,
+        response.headers.get(cross_portal.SIGNATURE_HEADER),
+        method=request.method,
+        path=request.url.path,
+        nonce=request.state.cross_portal_nonce,
+    ), "every peer answer is signed for the request it answers"
     return json.loads(response.body)
 
 
@@ -158,11 +185,23 @@ def test_the_aadhaar_code_is_keyed_stable_and_never_the_number():
     assert AADHAAR not in code and len(code) == 64
 
 
-def test_signatures_and_bearer_are_checked():
+def test_signatures_are_bound_to_the_request_and_bearer_is_checked():
     body = b'{"match":null}'
-    assert cross_portal.signature_matches(TOKEN, body, cross_portal.sign(TOKEN, body))
-    assert not cross_portal.signature_matches(TOKEN, body + b" ", cross_portal.sign(TOKEN, body))
-    assert not cross_portal.signature_matches(TOKEN, body, None)
+    where = {"method": "POST", "path": "/cross-portal/peer/artisans/lookup", "nonce": NONCE}
+    signature = cross_portal.sign(TOKEN, body, **where)
+    assert cross_portal.signature_matches(TOKEN, body, signature, **where)
+    assert not cross_portal.signature_matches(TOKEN, body + b" ", signature, **where)
+    assert not cross_portal.signature_matches(TOKEN, body, None, **where)
+    # A captured answer replayed against another request: another nonce, path or method fails.
+    assert not cross_portal.signature_matches(TOKEN, body, signature, **{**where, "nonce": "m" * 32})
+    assert not cross_portal.signature_matches(
+        TOKEN, body, signature, **{**where, "path": "/cross-portal/peer/artisans/a1"}
+    )
+    assert not cross_portal.signature_matches(TOKEN, body, signature, **{**where, "method": "GET"})
+    # A proxy prefix in front of the peer path does not change what is signed.
+    assert cross_portal.signature_matches(
+        TOKEN, body, signature, **{**where, "path": "/api/cross-portal/peer/artisans/lookup"}
+    )
     assert cross_portal.bearer_matches(TOKEN, f"Bearer {TOKEN}")
     assert not cross_portal.bearer_matches(TOKEN, "Bearer wrong")
     assert not cross_portal.bearer_matches(TOKEN, None)
@@ -174,49 +213,115 @@ def test_the_shared_fields_carry_no_aadhaar_and_no_review_state():
     assert set(cross_portal.IDENTITY_FIELDS) <= set(cross_portal.SHARED_FIELDS)
 
 
+def test_the_consent_names_everything_a_lookup_sends():
+    """One list: every key of the answer has words in the consent, and nothing else does."""
+    assert set(cross_portal.SHARED_FIELD_LABELS) == set(cross_portal.SHARED_FIELDS) | set(
+        cross_portal.ANSWER_EXTRAS
+    )
+    phrase = cross_portal.consent_fields_phrase()
+    for words in ("phone number", "address", "place", "craft", "craft experience", "date of birth"):
+        assert words in phrase
+
+
+async def test_every_answer_key_is_named_in_the_consent(world):
+    found = _body(
+        await routes.peer_lookup(routes.PeerLookup(pehchanCardNumber="PEH12345"), _req(), _settings())
+    )["match"]
+    sent = set(found["fields"]) | ({"craft", "statedAddress"} & set(found))
+    assert sent <= set(cross_portal.SHARED_FIELD_LABELS)
+
+
+def test_the_clients_fall_back_to_the_servers_words():
+    """The web and Android copy, used before the status answer arrives, is the server's phrase."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    phrase = cross_portal.consent_fields_phrase()
+    web = (root / "frontend/components/forms/SharingConsentToggle.tsx").read_text(encoding="utf-8")
+    kotlin = (
+        root / "android/app/src/main/java/com/fieldrepository/app/data/CrossPortalSharing.kt"
+    ).read_text(encoding="utf-8")
+    assert f'"{phrase}"' in web
+    assert f'"{phrase}"' in kotlin
+
+
 # ── the peer ───────────────────────────────────────────────────────────────────────────────────
 
 
-async def test_the_peer_is_refused_without_the_token_and_404_while_off(world, monkeypatch):
+async def test_the_peer_is_refused_without_the_token_or_a_nonce_and_404_while_off(world, monkeypatch):
+    request = _req()
     with pytest.raises(HTTPException) as exc:
-        await routes.require_peer(authorization="Bearer nope")
+        await routes.require_peer(request, authorization="Bearer nope", x_cross_portal_nonce=NONCE)
     assert exc.value.status_code == 401
+    with pytest.raises(HTTPException) as exc:
+        await routes.require_peer(request, authorization=f"Bearer {TOKEN}", x_cross_portal_nonce="short")
+    assert exc.value.status_code == 401
+    assert await routes.require_peer(request, authorization=f"Bearer {TOKEN}", x_cross_portal_nonce=NONCE)
     monkeypatch.setattr(routes, "get_settings", lambda: _settings(cross_portal_identity_enabled=False))
     with pytest.raises(HTTPException) as exc:
-        await routes.require_peer(authorization=f"Bearer {TOKEN}")
+        await routes.require_peer(request, authorization=f"Bearer {TOKEN}", x_cross_portal_nonce=NONCE)
     assert exc.value.status_code == 404
 
 
 async def test_lookup_by_pehchan_answers_only_with_consent(world):
-    found = _body(await routes.peer_lookup(routes.PeerLookup(pehchanCardNumber="peh-12345"), _settings()))
+    found = _body(
+        await routes.peer_lookup(routes.PeerLookup(pehchanCardNumber="peh-12345"), _req(), _settings())
+    )
     assert found["match"]["artisanId"] == "a1"
     assert found["match"]["matchedBy"] == "PEHCHAN"
     assert found["match"]["craft"] == {"code": "bandhani", "name": "Bandhej"}
     assert found["match"]["statedAddress"]["district"] == "Kachchh"
     assert "aadhaarNumber" not in found["match"]["fields"]
-    none = _body(await routes.peer_lookup(routes.PeerLookup(pehchanCardNumber="PEH99999"), _settings()))
+    none = _body(
+        await routes.peer_lookup(routes.PeerLookup(pehchanCardNumber="PEH99999"), _req(), _settings())
+    )
     assert none == {"match": None}
+
+
+async def test_every_peer_lookup_is_logged_without_the_number(world):
+    await routes.peer_lookup(routes.PeerLookup(pehchanCardNumber="PEH12345"), _req(), _settings())
+    await routes.peer_lookup(routes.PeerLookup(pehchanCardNumber="PEH00000"), _req(asked_by=None), _settings())
+    logs = world.crossportalaccesslog.rows
+    assert [(r["action"], r["outcome"], r["artisanId"], r["remoteUserId"]) for r in logs] == [
+        ("LOOKUP", "MATCH", "a1", "dp-u1"),
+        ("LOOKUP", "NO_MATCH", None, None),
+    ]
+    assert "PEH12345" not in json.dumps(logs, default=str)
 
 
 async def test_lookup_by_aadhaar_code_compares_only_consenting_artisans(world):
     code = cross_portal.aadhaar_code(AADHAAR, KEY)
-    found = _body(await routes.peer_lookup(routes.PeerLookup(aadhaarCode=code), _settings()))
+    found = _body(await routes.peer_lookup(routes.PeerLookup(aadhaarCode=code), _req(), _settings()))
     assert found["match"]["matchedBy"] == "AADHAAR"
     other = cross_portal.aadhaar_code("987698769876", KEY)
-    assert _body(await routes.peer_lookup(routes.PeerLookup(aadhaarCode=other), _settings())) == {
-        "match": None
-    }
+    assert _body(
+        await routes.peer_lookup(routes.PeerLookup(aadhaarCode=other), _req(), _settings())
+    ) == {"match": None}
+    assert code not in json.dumps(world.crossportalaccesslog.rows, default=str)
 
 
 async def test_links_need_consent_and_withdrawal_removes_them(world, monkeypatch):
-    linked = await routes.peer_link("a1", routes.PeerLink(remoteArtisanId="dp1", matchedBy="AADHAAR"), _settings())
-    assert _body(linked) == {"linked": True}
+    link_req = _req(path="/cross-portal/peer/artisans/a1/links")
+    linked = await routes.peer_link(
+        "a1", routes.PeerLink(remoteArtisanId="dp1", matchedBy="AADHAAR"), link_req, _settings()
+    )
+    assert _body(linked, link_req) == {"linked": True}
     assert len(world.crossportalartisanlink.rows) == 1
-    refused = await routes.peer_link("a2", routes.PeerLink(remoteArtisanId="dp2", matchedBy="PEHCHAN"), _settings())
+    refused = await routes.peer_link(
+        "a2", routes.PeerLink(remoteArtisanId="dp2", matchedBy="PEHCHAN"), _req(), _settings()
+    )
     assert refused.status_code == 409
-    refresh = await routes.peer_refresh("a1", "dp1", _settings())
-    assert _body(refresh)["match"]["fields"]["name"] == "Meena Devi"
-    assert (await routes.peer_refresh("a1", "someone-else", _settings())).status_code == 404
+    get_req = _req(method="GET", path="/cross-portal/peer/artisans/a1")
+    refresh = await routes.peer_refresh("a1", "dp1", get_req, _settings())
+    assert _body(refresh, get_req)["match"]["fields"]["name"] == "Meena Devi"
+    assert (await routes.peer_refresh("a1", "someone-else", get_req, _settings())).status_code == 404
+    outcomes = [(r["action"], r["outcome"]) for r in world.crossportalaccesslog.rows]
+    assert outcomes == [
+        ("LINK", "LINKED"),
+        ("LINK", "REFUSED"),
+        ("REFRESH", "MATCH"),
+        ("REFRESH", "NO_MATCH"),
+    ]
 
     async def may_edit(*_a, **_k):
         return True
@@ -227,6 +332,21 @@ async def test_links_need_consent_and_withdrawal_removes_them(world, monkeypatch
     assert world.crossportalartisanlink.rows == []
 
 
+async def test_a_consent_change_is_written_to_the_audit_ledger(world, monkeypatch):
+    async def may_edit(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(routes, "record_edit_privilege", may_edit)
+    user = SimpleNamespace(id="u1")
+    await routes.set_consent("a1", routes.ConsentIn(granted=False), user)
+    await routes.set_consent("a1", routes.ConsentIn(granted=True), user)
+    trail = [(r.id, r.sharingConsent, d, t) for r, _u, d, t in world.revisions]
+    assert trail == [
+        ("a1", True, {"sharingConsent": False}, "artisan"),
+        ("a1", False, {"sharingConsent": True}, "artisan"),
+    ]
+
+
 async def test_only_an_editor_records_consent(world, monkeypatch):
     async def may_not(*_a, **_k):
         return False
@@ -235,11 +355,15 @@ async def test_only_an_editor_records_consent(world, monkeypatch):
     with pytest.raises(HTTPException) as exc:
         await routes.set_consent("a2", routes.ConsentIn(granted=True), SimpleNamespace(id="u9"))
     assert exc.value.status_code == 403
+    assert world.revisions == []
 
 
-async def test_status_says_off_by_default(monkeypatch):
+async def test_status_says_off_by_default_and_names_what_is_shared(monkeypatch):
     monkeypatch.setattr(routes, "get_settings", lambda: _settings(cross_portal_identity_enabled=False))
-    assert await routes.cross_portal_status(SimpleNamespace(id="u1")) == {"enabled": False}
+    assert await routes.cross_portal_status(SimpleNamespace(id="u1")) == {
+        "enabled": False,
+        "sharedFields": cross_portal.consent_fields_phrase(),
+    }
 
 
 def test_the_config_defaults_to_off():
@@ -248,4 +372,3 @@ def test_the_config_defaults_to_off():
     fields = Settings.model_fields
     assert fields["cross_portal_identity_enabled"].default is False
     assert fields["cross_portal_token"].default is None
-    assert fields["cross_portal_aadhaar_hmac_key"].default is None

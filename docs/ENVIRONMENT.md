@@ -237,6 +237,9 @@ it. The raw Aadhaar number never leaves either server: the designer portal sends
 `HMAC-SHA256(CROSS_PORTAL_AADHAAR_HMAC_KEY, digits)`. Each server proves itself to the other with
 `CROSS_PORTAL_TOKEN` (a bearer on the request, an HMAC of the body on the answer). The documentation
 portal answers only for an artisan whose "Share with the Designer Portal" consent is recorded.
+Every answer is signed over the request it answers (method, path and a fresh nonce), every peer
+request is written to `CrossPortalAccessLog` (which designer-portal account asked and which artisan
+it reached, never a number), and every consent change is a revision in the artisan's history.
 
 **Nothing works until all of it is set on BOTH servers** — the flag, both secrets (32 characters or
 more, the same values on the two servers). Anything missing and every `/api/cross-portal/*`

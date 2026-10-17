@@ -16,13 +16,19 @@ record is refreshed FROM it, never the other way round.
    artisans whose consent it holds and compares. The key is a secret both servers share
    (``CROSS_PORTAL_AADHAAR_HMAC_KEY``) and nothing else knows, so the code cannot be reversed by
    hashing all 10^12 numbers — that is why it is an HMAC and not a plain hash. :func:`aadhaar_code`.
-2. **Both servers prove who they are.** The caller sends ``Authorization: Bearer <token>``; the
-   answer carries ``X-Cross-Portal-Signature``, an HMAC of the exact body bytes under the same token,
-   which the caller checks before it reads a word. A man in the middle holding neither can neither
-   ask nor answer. :func:`bearer_matches`, :func:`sign`, :func:`signature_matches`.
+2. **Both servers prove who they are.** The caller sends ``Authorization: Bearer <token>`` and a
+   fresh ``X-Cross-Portal-Nonce``; the answer carries ``X-Cross-Portal-Signature``, an HMAC under the
+   same token of the REQUEST (method, peer path, the nonce) and the exact body bytes, which the
+   caller checks before it reads a word. A man in the middle holding neither can neither ask nor
+   answer, and a captured answer cannot be replayed against another request: its nonce is not the
+   one the caller just sent. :func:`bearer_matches`, :func:`sign`, :func:`signature_matches`.
 3. **Nothing works until both servers are configured.** :func:`active` is the flag AND both secrets
    (32 characters or more each); the designer portal adds its URL for the other server. A server
    that is not active answers 404 on every route here, so a half-configured pair fails closed.
+
+What a lookup shares is :data:`SHARED_FIELDS` plus the craft and the stated address, and the words
+the artisan agrees to are built from the same list (:func:`consent_fields_phrase`), so the consent
+can never name less than is sent.
 
 Consent is recorded per artisan on the documentation portal (``ArtisanSharingConsent``) and per link
 on the designer portal (``CrossPortalArtisanLink``, who recorded the artisan's agreement and when).
@@ -41,6 +47,18 @@ MIN_SECRET_LENGTH = 32
 
 #: The header the answering server signs its body in.
 SIGNATURE_HEADER = "X-Cross-Portal-Signature"
+
+#: The caller's one-time value, echoed into the signed material so an answer fits one request only.
+NONCE_HEADER = "X-Cross-Portal-Nonce"
+
+#: The designer-portal account that asked, for the answering server's access log. Never a number.
+REQUESTED_BY_HEADER = "X-Cross-Portal-Requested-By"
+
+#: Where the peer routes live on the answering server; the signed path starts here.
+PEER_PREFIX = "/cross-portal/peer"
+
+#: Shortest nonce the answering server accepts.
+MIN_NONCE_LENGTH = 16
 
 #: ``CrossPortalArtisanLink.matchedBy`` values.
 MATCHED_BY_PEHCHAN = "PEHCHAN"
@@ -70,6 +88,37 @@ SUGGESTED_FIELDS: tuple[str, ...] = (
 #: Everything a lookup answer may carry, and nothing else: no Aadhaar, no notes, no review state.
 SHARED_FIELDS: tuple[str, ...] = IDENTITY_FIELDS + SUGGESTED_FIELDS
 
+#: The blocks an answer carries beside ``fields``: the craft and the stated address.
+ANSWER_EXTRAS: tuple[str, ...] = ("craft", "statedAddress")
+
+#: Every shared item in the words the artisan is asked to agree to, in the order they are read out.
+#: The consent copy on BOTH portals, web and Android, is built from this (``/cross-portal/status``
+#: sends :func:`consent_fields_phrase`), and a test holds its keys to SHARED_FIELDS + ANSWER_EXTRAS.
+SHARED_FIELD_LABELS: dict[str, str] = {
+    "name": "name",
+    "localName": "local name",
+    "gender": "gender",
+    "dateOfBirth": "date of birth",
+    "pehchanCardAvailable": "Pehchan card",
+    "pehchanCardNumber": "Pehchan card",
+    "phone": "phone number",
+    "statedAddress": "address",
+    "place": "place",
+    "craft": "craft",
+    "craftStartDate": "craft experience",
+    "experienceYears": "craft experience",
+    "experienceMonths": "craft experience",
+}
+
+
+def consent_fields_phrase() -> str:
+    """"name, local name, …, craft and craft experience" — what the artisan agrees to share."""
+    labels: list[str] = []
+    for label in SHARED_FIELD_LABELS.values():
+        if label not in labels:
+            labels.append(label)
+    return ", ".join(labels[:-1]) + " and " + labels[-1]
+
 
 def _secret_ok(value: str | None) -> bool:
     return bool(value) and len(value.strip()) >= MIN_SECRET_LENGTH  # type: ignore[union-attr]
@@ -94,13 +143,29 @@ def aadhaar_code(number: str, key: str) -> str:
     return hmac.new(key.strip().encode("utf-8"), digits.encode("ascii"), hashlib.sha256).hexdigest()
 
 
-def sign(token: str, body: bytes) -> str:
-    """The signature the answering server puts on its body."""
-    return hmac.new(token.strip().encode("utf-8"), body, hashlib.sha256).hexdigest()
+def peer_path(path: str) -> str:
+    """The part of a request path the signature covers: from ``/cross-portal/peer`` on.
+
+    The answering server may sit behind a proxy that adds a prefix (``/api``); both sides sign the
+    same suffix whatever is in front of it.
+    """
+    index = path.find(PEER_PREFIX)
+    return path[index:] if index >= 0 else path
 
 
-def signature_matches(token: str, body: bytes, signature: str | None) -> bool:
-    return bool(signature) and hmac.compare_digest(sign(token, body), signature or "")
+def sign(token: str, body: bytes, *, method: str, path: str, nonce: str) -> str:
+    """The signature the answering server puts on its body, bound to the request it answers."""
+    head = "\n".join((method.upper(), peer_path(path), nonce, ""))
+    material = head.encode("utf-8") + body
+    return hmac.new(token.strip().encode("utf-8"), material, hashlib.sha256).hexdigest()
+
+
+def signature_matches(
+    token: str, body: bytes, signature: str | None, *, method: str, path: str, nonce: str
+) -> bool:
+    return bool(signature) and hmac.compare_digest(
+        sign(token, body, method=method, path=path, nonce=nonce), signature or ""
+    )
 
 
 def codes_match(mine: str, theirs: str | None) -> bool:

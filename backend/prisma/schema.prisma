@@ -651,6 +651,25 @@ model CrossPortalArtisanLink {
   @@index([remoteArtisanId])
 }
 
+/// C27: one row per request the designer portal's server made here — which of its accounts asked
+/// (``remoteUserId``, that portal's user id), what for (``action``), and which artisan it reached
+/// (``artisanId``) or that it reached none. NEVER the Pehchan number or the Aadhaar code it asked
+/// with. Kept so a cross-system read of an artisan's details is always traceable to a person.
+model CrossPortalAccessLog {
+  id              String   @id @default(cuid())
+  action          String
+  outcome         String
+  artisanId       String?
+  remoteUserId    String?
+  remoteArtisanId String?
+  matchedBy       String?
+  createdAt       DateTime @default(now())
+
+  @@index([artisanId, createdAt])
+  @@index([remoteUserId, createdAt])
+  @@index([createdAt])
+}
+
 /// TWO ANSWERS TO TWO DIFFERENT QUESTIONS, and reading one as the other is what this model was
 /// changed to stop.
 ///
