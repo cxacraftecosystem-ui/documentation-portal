@@ -8,6 +8,7 @@ from app.core.deps import (
     assert_can_delete,
     can_manage_crafts,
     get_current_user,
+    get_value,
 )
 from app.schemas.records import ArtisanCreate, ArtisanUpdate, drop_masked_identity_numbers
 from app.services.access import guard_record_edit
@@ -261,17 +262,36 @@ async def resolve_craft_id(data: dict[str, Any], current_user: Any) -> dict[str,
     return data
 
 
-def reconcile_aadhaar_not_shared(data: dict[str, Any]) -> dict[str, Any]:
+def reconcile_aadhaar_not_shared(data: dict[str, Any], stored: Any | None = None) -> dict[str, Any]:
     """Keep the "Not shared by artisan" flag and the number consistent on an edit (C18).
 
-    A number arriving clears the flag — the follow-up is done. The outcome arriving with no number
-    stores no number: on an edit that is a retraction the artisan asked for, written as an explicit
-    NULL. Mutates and returns *data*.
+    A number arriving clears the flag — the follow-up is done. Against the ``stored`` artisan, two
+    edits are refused, before anything is written:
+
+    * the outcome over a number on file — it would wipe the Aadhaar; and
+    * the outcome switched off with no number arriving and none on file — the follow-up flag would
+      drop with nothing in its place, and Aadhaar is optional ONLY through that explicit outcome.
+
+    Mutates and returns *data*.
     """
     number = data.get("aadhaarNumber")
     if isinstance(number, str) and number.strip():
         data["aadhaarNotShared"] = False
-    elif data.get("aadhaarNotShared") is True:
+        return data
+    if stored is not None:
+        stored_number = get_value(stored, "aadhaarNumber")
+        number_after = data["aadhaarNumber"] if "aadhaarNumber" in data else stored_number
+        if data.get("aadhaarNotShared") is True and stored_number:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="This artisan's Aadhaar is on file, so it cannot be marked as not shared.",
+            )
+        if data.get("aadhaarNotShared") is False and get_value(stored, "aadhaarNotShared") and not number_after:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Enter the 12-digit Aadhaar, or keep “Not shared by artisan”.",
+            )
+    if data.get("aadhaarNotShared") is True:
         data["aadhaarNumber"] = None
     return data
 
@@ -450,7 +470,7 @@ async def update_artisan(
     # A caller shown a masked number who saves without touching it means "leave it alone" — for the
     # Pehchan card as much as for the Aadhaar, since both are masked on the way out to them.
     data = drop_masked_identity_numbers(data)
-    reconcile_aadhaar_not_shared(data)
+    reconcile_aadhaar_not_shared(data, stored=artisan)
     data = await resolve_craft_id(data, current_user)
     data = await attach_location(data)
     # Moving a record into (or between) workshops is a workshop submission too, so the create-time

@@ -608,6 +608,22 @@ class ProductUpdate(APIModel):
     craftName: str | None = Field(default=None, min_length=1, max_length=180)
     place: str | None = Field(default=None, min_length=1, max_length=180)
     artisanName: str | None = Field(default=None, min_length=1, max_length=180)
+
+    @model_validator(mode="before")
+    @classmethod
+    def blank_name_means_unchanged(cls, values: Any) -> Any:
+        """A blank craft name, artisan name or place on an edit is "not changing it", not a 422.
+
+        A linked product's names come from its records, and a client echoing a name the link left
+        empty used to make the product uneditable. A name still cannot be CLEARED: blank leaves the
+        stored value where it is.
+        """
+        if isinstance(values, dict):
+            for key in ("craftName", "place", "artisanName"):
+                value = values.get(key)
+                if isinstance(value, str) and not value.strip():
+                    values = {k: v for k, v in values.items() if k != key}
+        return values
     productName: str | None = Field(default=None, min_length=1, max_length=220)
     localName: str | None = None
     productType: str | None = None

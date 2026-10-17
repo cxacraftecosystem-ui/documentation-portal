@@ -65,7 +65,7 @@ def _clip(**kwargs: Any) -> SimpleNamespace:
     return SimpleNamespace(**base)
 
 
-STEMS = {"D3": "q-d3", "D30": "q-d30", "A1": "q-a1"}
+STEMS = {"D3": "q-d3", "D30": "q-d30", "A1": "q-a1", "RESP1": "q-resp1"}
 
 
 def test_a_clip_finds_its_question_by_metadata_then_by_either_clients_caption():
@@ -182,9 +182,14 @@ async def test_apply_transcripts_fills_only_the_empty_answers(monkeypatch):
     async def fake_hydrate(rows, relations):
         return None
 
+    async def fake_guard(record, user, data, record_type, **_):
+        captured["guarded"] = (record_type, data)
+        return True
+
     monkeypatch.setattr(q_routes, "require_record", fake_require)
     monkeypatch.setattr(q_routes, "gather_reads", fake_gather)
     monkeypatch.setattr(q_routes, "upsert_responses", fake_upsert)
+    monkeypatch.setattr(q_routes, "guard_record_edit", fake_guard)
     monkeypatch.setattr(q_routes, "hydrate_relations", fake_hydrate)
     monkeypatch.setattr(q_routes, "public_encode", lambda row, viewer=None: {"id": row.id})
     monkeypatch.setattr(
@@ -200,6 +205,7 @@ async def test_apply_transcripts_fills_only_the_empty_answers(monkeypatch):
     result = await q_routes.apply_interview_transcripts("i-1", current_user=SimpleNamespace(id="u-9", role="ADMIN"))
     assert captured["fills"] == [("q-d3", "Speaker 1: Clay from the river.", "TRANSCRIPT")]
     assert captured["instrument"] == "inst"
+    assert captured["guarded"] == ("questionnaire", {"transcriptAnswers": {"q-d3": "Speaker 1: Clay from the river."}})
     assert result == {"applied": 1, "skipped": 1, "interview": {"id": "i-1"}}
 
 
@@ -387,3 +393,222 @@ def test_the_migration_is_additive_and_matches_the_schema():
     schema = (ROOT / "backend" / "prisma" / "schema.prisma").read_text(encoding="utf-8")
     for column in ("aadhaarNotShared Boolean", "artisanField    String?", "answerSource String?"):
         assert column in schema
+
+
+# ──────────────────────────────────────────────────────────────────────────────────────────────
+# Review fixes (2026-10-17)
+# ──────────────────────────────────────────────────────────────────────────────────────────────
+
+
+def _drive_apply(monkeypatch, interview: Any) -> dict[str, Any]:
+    """Wire ``apply_interview_transcripts`` to fakes: one D3 clip, no answers. Returns what it wrote."""
+    captured: dict[str, Any] = {"updates": []}
+    media = [_clip(caption="Question audio: D3 - x", transcriptText="Clay from the river.")]
+    questions = [SimpleNamespace(id="q-d3", sectionCode="D", sortOrder=3)]
+
+    async def fake_require(model, record_id):
+        return interview
+
+    async def fake_gather(*reads):
+        for read in reads:
+            read.close()
+        return media, [], questions
+
+    async def fake_upsert(interview_id, fills, user, questionnaire_id):
+        captured["fills"] = [f.questionId for f in fills]
+
+    async def fake_guard(record, user, data, record_type, **_):
+        captured["guarded"] = data
+        return True
+
+    class _Interviews:
+        async def find_unique(self, where):
+            return interview
+
+        async def update(self, where, data):
+            captured["updates"].append(data)
+
+    class _Any:
+        def find_many(self, where):
+            async def _rows():
+                return []
+
+            return _rows()
+
+    async def fake_hydrate(rows, relations):
+        return None
+
+    monkeypatch.setattr(q_routes, "require_record", fake_require)
+    monkeypatch.setattr(q_routes, "gather_reads", fake_gather)
+    monkeypatch.setattr(q_routes, "upsert_responses", fake_upsert)
+    monkeypatch.setattr(q_routes, "guard_record_edit", fake_guard)
+    monkeypatch.setattr(q_routes, "hydrate_relations", fake_hydrate)
+    monkeypatch.setattr(q_routes, "public_encode", lambda row, viewer=None: {"id": row.id})
+    monkeypatch.setattr(
+        q_routes,
+        "db",
+        SimpleNamespace(
+            questionnaireinterview=_Interviews(),
+            mediafile=_Any(),
+            questionnaireresponse=_Any(),
+            questionnairequestion=_Any(),
+        ),
+    )
+    return captured
+
+
+def _sitting(**kwargs: Any) -> SimpleNamespace:
+    base = {"id": "i-1", "questionnaireId": "inst", "createdById": "u-1", "status": "PENDING", "extraMetadata": None}
+    base.update(kwargs)
+    return SimpleNamespace(**base)
+
+
+async def test_apply_transcripts_refuses_a_volunteer_before_reading_anything(monkeypatch):
+    from fastapi import HTTPException
+
+    captured = _drive_apply(monkeypatch, _sitting())
+    volunteer = SimpleNamespace(id="u-5", role="CROWDSOURCE_VOLUNTEER", canReview=False)
+    with pytest.raises(HTTPException) as refused:
+        await q_routes.apply_interview_transcripts("i-1", current_user=volunteer)
+    assert refused.value.status_code == 403
+    assert "fills" not in captured and "guarded" not in captured
+
+
+async def test_apply_transcripts_runs_the_edit_gate_with_the_filled_answers(monkeypatch):
+    captured = _drive_apply(monkeypatch, _sitting(status="APPROVED"))
+    reviewer = SimpleNamespace(id="u-7", role="FIELD_CONTRIBUTOR", canReview=False)
+    await q_routes.apply_interview_transcripts("i-1", current_user=reviewer)
+    assert captured["guarded"] == {"transcriptAnswers": {"q-d3": "Clay from the river."}}
+    assert captured["fills"] == ["q-d3"]
+    # Not the creator, not sent back: the status is left alone.
+    assert captured["updates"] == []
+
+
+async def test_apply_transcripts_by_the_creator_resubmits_a_sitting_sent_back(monkeypatch):
+    captured = _drive_apply(monkeypatch, _sitting(status="NEEDS_REVISION"))
+    creator = SimpleNamespace(id="u-1", role="RESEARCHER", canReview=False)
+    await q_routes.apply_interview_transcripts("i-1", current_user=creator)
+    assert captured["updates"] == [{"status": "PENDING"}]
+
+
+async def test_the_edit_gate_lets_a_contributor_fill_and_writes_the_revision(monkeypatch):
+    """`guard_record_edit` itself, with the fill's key: a contributor may fill, and a revision is written."""
+    from app.services import access
+
+    written: list[dict[str, Any]] = []
+
+    class _Revisions:
+        async def create(self, data):
+            written.append(data)
+
+    async def not_privileged(record, user, record_type):
+        return False
+
+    monkeypatch.setattr(access, "db", SimpleNamespace(recordrevision=_Revisions()))
+    monkeypatch.setattr(access, "record_edit_privilege", not_privileged)
+    interview = SimpleNamespace(id="i-1", createdById="u-1")
+    user = SimpleNamespace(id="u-7", role="FIELD_CONTRIBUTOR")
+    await access.guard_record_edit(interview, user, {"transcriptAnswers": {"q-d3": "Clay"}}, "questionnaire")
+    assert written and written[0]["recordType"] == "questionnaire" and written[0]["editedById"] == "u-7"
+
+
+def test_a_resp_clip_finds_its_question_by_caption():
+    assert q_routes.clip_question_id(_clip(caption="Question audio: RESP1 - Who answered?"), STEMS) == "q-resp1"
+    assert q_routes.clip_question_id(_clip(caption="Question audio: RESP 1 Who answered?"), STEMS) == "q-resp1"
+
+
+async def test_a_notes_only_change_keeps_the_transcript_mark(monkeypatch):
+    stored = SimpleNamespace(
+        id="r-1", questionId="q-1", answerText="from clip", notes=None, answeredById="u-1", answerSource="TRANSCRIPT"
+    )
+    responses = _FakeResponses([stored])
+    questions = _FakeQuestions([SimpleNamespace(id="q-1", questionnaireId="inst")])
+    monkeypatch.setattr(q_routes, "db", SimpleNamespace(questionnaireresponse=responses, questionnairequestion=questions))
+    user = SimpleNamespace(id="u-1", role="RESEARCHER")
+    await q_routes.upsert_responses(
+        "i-1", [QuestionnaireResponseInput(questionId="q-1", answerText="from clip", notes="checked")], user, "inst"
+    )
+    assert responses.updated == [
+        ("r-1", {"answerText": "from clip", "notes": "checked", "answerSource": "TRANSCRIPT", "answeredById": "u-1"})
+    ]
+
+
+async def test_a_linked_create_the_records_cannot_name_is_refused(monkeypatch):
+    from fastapi import HTTPException
+
+    craftless = SimpleNamespace(id="a-2", name="Sita", place="", craftId=None)
+    monkeypatch.setattr(linked_names, "db", SimpleNamespace(artisan=_Rows({"a-2": craftless}), craft=_Rows({})))
+    with pytest.raises(HTTPException, match="craft") as refused:
+        await linked_names.fill_product_names({"artisanId": "a-2", "craftName": None, "artisanName": None, "place": "Kutch"})
+    assert refused.value.status_code == 422
+    with pytest.raises(HTTPException, match="place"):
+        await linked_names.fill_product_names({"artisanId": "a-2", "craftName": "Weaving", "artisanName": None, "place": None})
+    # A typed value the record cannot supply is kept.
+    kept = await linked_names.fill_product_names(
+        {"artisanId": "a-2", "craftName": "Weaving", "artisanName": None, "place": "Kutch"}
+    )
+    assert kept["craftName"] == "Weaving" and kept["place"] == "Kutch" and kept["artisanName"] == "Sita"
+
+
+def test_an_edit_may_send_a_blank_name_and_it_means_unchanged():
+    from app.schemas.records import ProductUpdate
+
+    update = ProductUpdate(craftName="", place="  ", artisanName="Ramesh")
+    assert update.model_dump(exclude_unset=True) == {"artisanName": "Ramesh"}
+
+
+async def test_an_unchanged_link_keeps_drifted_names_so_a_contributor_can_edit(monkeypatch):
+    from app.core.deps import assert_can_contribute_fields
+
+    _patch_links(monkeypatch)
+    # Stored before the artisan was renamed to "Ramesh Chhipa".
+    stored = SimpleNamespace(
+        id="p-1",
+        createdById="u-1",
+        artisanId="a-1",
+        craftId="c-1",
+        artisanName="Ramesh",
+        place="Bagru",
+        craftName="Block Printing",
+        remarks=None,
+    )
+    body = {
+        "artisanId": "a-1",
+        "craftId": "c-1",
+        "artisanName": "Ramesh",
+        "place": "Bagru",
+        "craftName": "Block Printing",
+        "remarks": "dyed twice",
+    }
+    data = await linked_names.fill_product_names(dict(body), stored=stored)
+    assert data == body
+    assert_can_contribute_fields(stored, SimpleNamespace(id="u-9", role="RESEARCHER"), data)
+    # A changed link still re-derives.
+    moved = await linked_names.fill_product_names({"artisanId": "a-1"}, stored=SimpleNamespace(artisanId="a-0", craftId="c-1"))
+    assert moved["artisanName"] == "Ramesh Chhipa"
+
+
+def test_the_outcome_cannot_wipe_a_stored_number_or_drop_without_one():
+    from fastapi import HTTPException
+
+    on_file = SimpleNamespace(aadhaarNumber=VALID_AADHAAR, aadhaarNotShared=False)
+    with pytest.raises(HTTPException, match="on file") as refused:
+        artisan_routes.reconcile_aadhaar_not_shared({"aadhaarNotShared": True}, stored=on_file)
+    assert refused.value.status_code == 422
+    flagged = SimpleNamespace(aadhaarNumber=None, aadhaarNotShared=True)
+    with pytest.raises(HTTPException, match="12-digit Aadhaar"):
+        artisan_routes.reconcile_aadhaar_not_shared({"aadhaarNotShared": False}, stored=flagged)
+    with pytest.raises(HTTPException, match="12-digit Aadhaar"):
+        artisan_routes.reconcile_aadhaar_not_shared({"aadhaarNotShared": False, "aadhaarNumber": None}, stored=flagged)
+    # A number arriving is the follow-up done.
+    assert artisan_routes.reconcile_aadhaar_not_shared(
+        {"aadhaarNumber": VALID_AADHAAR, "aadhaarNotShared": False}, stored=flagged
+    ) == {"aadhaarNumber": VALID_AADHAAR, "aadhaarNotShared": False}
+    # Leaving the flag alone, or re-sending it on a flagged record, is fine.
+    assert artisan_routes.reconcile_aadhaar_not_shared({"phone": "x"}, stored=flagged) == {"phone": "x"}
+    assert artisan_routes.reconcile_aadhaar_not_shared({"aadhaarNotShared": True}, stored=flagged)["aadhaarNumber"] is None
+
+
+def test_the_update_route_hands_the_stored_artisan_to_the_reconcile():
+    source = (ROOT / "backend" / "app" / "api" / "routes" / "artisans.py").read_text(encoding="utf-8")
+    assert "reconcile_aadhaar_not_shared(data, stored=artisan)" in source

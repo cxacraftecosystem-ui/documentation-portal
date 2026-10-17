@@ -246,12 +246,15 @@ row that already existed, so nothing changes until a client uses them:
   `ARTISAN_FIELD_KEYS` in `backend/app/schemas/questionnaire.py`). Set in the question builder.
 - **`QuestionnaireResponse.answerSource`** — `TRANSCRIPT` when the answer was taken from the
   question's own transcribed clip ("Use as answer"); NULL for a typed answer, and set back to NULL by
-  a later save that changes the words. `POST /questionnaire/interviews/{id}/apply-transcripts` fills
-  every EMPTY answer of a sitting this way in one call and never touches a typed one.
+  a later save that changes the words (a notes-only change keeps it).
+  `POST /questionnaire/interviews/{id}/apply-transcripts` fills every EMPTY answer of a sitting this
+  way in one call, never touches a typed one, needs Researcher or review access, and runs the same
+  edit gate as a PATCH (a revision row, the resubmit and late-submission status rules).
 
 Two rules changed without a column: a linked product's `craftName`, `artisanName` and `place` are
 filled by the server from the linked artisan and craft (`services/linked_names.py`), so the typed
-copies are required only for an unlinked product; and a process step may be saved without a name
+copies are required only for an unlinked product (a linked create whose records cannot supply a
+name is refused, and on an edit only a CHANGED link re-derives them); and a process step may be saved without a name
 (it is shown as *Unnamed step* until somebody names it). An interview created without a title is
 named "<artisan> · <questionnaire> · <17 Oct>" by the server.
 

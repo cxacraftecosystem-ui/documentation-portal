@@ -28,6 +28,8 @@ from app.core.deps import (
     assert_can_contribute_relation,
     assert_can_create_records,
     assert_can_delete,
+    can_access_review,
+    can_create_records,
     can_manage_questionnaire,
     get_current_user,
     get_value,
@@ -502,7 +504,12 @@ async def upsert_responses(
                     "answerText": response.answerText,
                     "notes": response.notes,
                     # A changed answer says where its NEW words came from; a typed change is NULL.
-                    "answerSource": source_of(response),
+                    # A notes-only change keeps the stored mark: the words did not change.
+                    "answerSource": (
+                        source_of(response)
+                        if existing.answerText != response.answerText
+                        else get_value(existing, "answerSource")
+                    ),
                     "answeredById": current_user.id,
                 },
             )
@@ -1552,7 +1559,8 @@ def transcript_answer_text(transcript: str | None) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
-_CLIP_QUESTION_CAPTION = re.compile(r"^question\s+audio:\s*([A-Za-z]{1,3})\s*(\d+)\b", re.IGNORECASE)
+# The section code is letters of any length (``D``, ``RESP``); the digits after it are the number.
+_CLIP_QUESTION_CAPTION = re.compile(r"^question\s+audio:\s*([A-Za-z]+?)\s*(\d+)\b", re.IGNORECASE)
 
 
 def clip_question_id(media: Any, question_by_stem: dict[str, str]) -> str | None:
@@ -1599,6 +1607,13 @@ async def apply_interview_transcripts(
     answer is stored with ``answerSource = "TRANSCRIPT"`` so every reader can tell it came from the
     recording. Answers ``{applied, skipped, interview}``.
     """
+    # The same people the web offers the button to: a record creator or a reviewer. A volunteer
+    # answers by typing; a one-tap fill of a whole sitting is not theirs to make.
+    if not (can_create_records(current_user) or can_access_review(current_user)):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Using transcripts as answers needs Researcher or review access.",
+        )
     interview = await require_record(db.questionnaireinterview, interview_id)
     questionnaire_id = get_value(interview, "questionnaireId")
     media_rows, responses, questions = await gather_reads(
@@ -1617,7 +1632,24 @@ async def apply_interview_transcripts(
         if qid not in answered
     ]
     if fills:
+        # The chain `update_interview` runs for a PATCH that carries answers: the edit gate and its
+        # revision row (the filled answers under one key, so the audit trail names them), then the
+        # status rules — a creator's fill resubmits a sitting sent back, and a sitting flagged as a
+        # late workshop submission stays PENDING.
+        await guard_record_edit(
+            interview,
+            current_user,
+            {"transcriptAnswers": {fill.questionId: fill.answerText for fill in fills}},
+            "questionnaire",
+        )
+        data: dict[str, Any] = {}
+        pin_pending_if_late(data, current_user, record=interview)
+        resubmit_status(interview, current_user, data)
         await upsert_responses(interview_id, fills, current_user, questionnaire_id)
+        if "status" in data:
+            await db.questionnaireinterview.update(
+                where={"id": interview_id}, data={"status": data["status"]}
+            )
     updated = await db.questionnaireinterview.find_unique(where={"id": interview_id})
     await hydrate_relations([updated], RELATIONS)
     return {
