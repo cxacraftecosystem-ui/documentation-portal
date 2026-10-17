@@ -470,6 +470,10 @@ interface FieldRepositoryApi {
     @POST("workshops/unmapped/map")
     suspend fun mapUnmappedRecords(): WorkshopMappingPlanDto
 
+    // Switch the nightly filing of clear-cut records on or off. Admin-only.
+    @PUT("workshops/unmapped/auto")
+    suspend fun setUnmappedAuto(@Body body: WorkshopAutoMapRequest): WorkshopAutoMapDto
+
     @Multipart
     @POST("media/analyze-measurement")
     suspend fun analyzeMeasurement(

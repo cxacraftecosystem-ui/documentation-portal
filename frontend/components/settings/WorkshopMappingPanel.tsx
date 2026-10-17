@@ -15,6 +15,11 @@
  * behind — hence a button rather than only a migration. `backend/app/services/workshop_inference.py` holds
  * the evidence ladder both this and the migration share.
  *
+ * THE CLEAR-CUT ROWS FILE THEMSELVES (2026-10-20). A record whose parent record already names a
+ * workshop is filed by the server once a night (`services/workshop_auto_map`), so this card leads with
+ * what is left for a person and offers the nightly switch. The button below still files everything the
+ * evidence settles, at once, for an admin who does not want to wait.
+ *
  * IT IS A PREVIEW FIRST, ALWAYS. The report is a plain read and renders on load; nothing is written until
  * somebody presses the button, and the button says exactly how many rows it will touch. Rows the evidence
  * cannot settle are listed BY NAME with the reason, because "949 of 949" is a fine answer and "947 of 949"
@@ -27,39 +32,21 @@ import { AlertTriangle, Check, Link2, RefreshCw } from "lucide-react";
 
 import { apiFetch } from "@/lib/api";
 import { ButtonRow } from "@/components/ui/ButtonRow";
+import { Toggle } from "@/components/ui/Toggle";
+import {
+  autoMapLine,
+  bucketsNeedingReview,
+  needsReviewCount,
+  reviewRungs,
+  suggestedCount,
+  totalClearCut,
+  totalNeedsReview,
+  type AutoMapStatus,
+  type MappingBucket,
+  type WorkshopMappingPlan
+} from "@/components/settings/workshopMapping";
 
-type MappingRow = {
-  id: string;
-  title: string;
-  workshopId: string | null;
-  workshopTitle: string | null;
-  rung: string | null;
-  rungCopy: string | null;
-  reason: string | null;
-  reasonCopy: string | null;
-  candidateTitles: string[];
-};
-
-type MappingBucket = {
-  bucket: string;
-  singular: string;
-  plural: string;
-  unassigned: number;
-  resolved: number;
-  unresolved: number;
-  byRung: Array<{ rung: string; copy: string; count: number }>;
-  byReason: Array<{ reason: string; copy: string; count: number }>;
-  byWorkshop: Array<{ workshopId: string; title: string; count: number }>;
-  rows: MappingRow[];
-  rowsTruncated: boolean;
-  applied: number | null;
-};
-
-export type WorkshopMappingPlan = {
-  workshops: Array<{ id: string; title: string; start: string; end: string }>;
-  buckets: MappingBucket[];
-  totals: { unassigned: number; resolved: number; unresolved: number; applied: number | null };
-};
+export type { WorkshopMappingPlan } from "@/components/settings/workshopMapping";
 
 /** Type-of noun for the counts sentence. Plural unless the count is exactly one, as everywhere else. */
 function noun(bucket: MappingBucket, count: number): string {
@@ -92,6 +79,7 @@ export function WorkshopMappingPanel() {
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [applied, setApplied] = useState<number | null>(null);
+  const [savingAuto, setSavingAuto] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -127,10 +115,27 @@ export function WorkshopMappingPanel() {
     }
   }
 
-  // Only the buckets that have something to say. A panel listing "0 product records" five times over
-  // buries the one line that matters.
-  const buckets = (plan?.buckets ?? []).filter((bucket) => bucket.unassigned > 0);
+  async function setAuto(enabled: boolean) {
+    setSavingAuto(true);
+    setError(null);
+    try {
+      const status = await apiFetch<AutoMapStatus>("/workshops/unmapped/auto", {
+        method: "PUT",
+        body: JSON.stringify({ enabled })
+      });
+      setPlan((current) => (current ? { ...current, autoMap: status } : current));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The setting could not be saved.");
+    } finally {
+      setSavingAuto(false);
+    }
+  }
+
+  // Only the buckets with something left for a person. The clear-cut rows are the nightly job's.
+  const buckets = plan ? bucketsNeedingReview(plan) : [];
   const totals = plan?.totals;
+  const needsReview = plan ? totalNeedsReview(plan) : 0;
+  const clearCut = plan ? totalClearCut(plan) : 0;
 
   return (
     <section className="panel p-4">
@@ -141,7 +146,7 @@ export function WorkshopMappingPanel() {
             Records not filed under a workshop
           </h2>
           <p className="mt-1 max-w-2xl text-xs leading-5 text-ink-500">
-            These are hidden from workshop filters. File them using their linked records, artisans or dates.
+            Hidden from workshop filters. Records with a filed parent are filed each night; the rest need a look.
           </p>
         </div>
         <button
@@ -165,6 +170,18 @@ export function WorkshopMappingPanel() {
 
       {plan && totals ? (
         <>
+          {plan.autoMap ? (
+            <div className="mt-3 rounded-md border border-line-200 bg-surface-50">
+              <Toggle
+                label="File clear-cut records each night"
+                description={autoMapLine(plan.autoMap, clearCut)}
+                checked={plan.autoMap.enabled}
+                busy={savingAuto}
+                onChange={(next) => void setAuto(next)}
+              />
+            </div>
+          ) : null}
+
           {totals.unassigned === 0 ? (
             <p className="mt-3 flex items-center gap-2 rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-xs text-ink-700">
               <Check className="h-4 w-4 shrink-0 text-success-600" aria-hidden />
@@ -173,8 +190,8 @@ export function WorkshopMappingPanel() {
           ) : (
             <>
               <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                <Stat label="Not filed" value={totals.unassigned} />
-                <Stat label="Can be filed now" value={totals.resolved} tone="good" />
+                <Stat label="Need a look" value={needsReview} tone={needsReview ? "warn" : undefined} />
+                <Stat label="Suggested" value={Math.max(0, totals.resolved - clearCut)} tone="good" />
                 <Stat label="Need a person" value={totals.unresolved} tone={totals.unresolved ? "warn" : undefined} />
               </dl>
 
@@ -182,14 +199,14 @@ export function WorkshopMappingPanel() {
                 {buckets.map((bucket) => (
                   <li key={bucket.bucket} className="rounded-md border border-line-200 bg-surface-50 p-3">
                     <p className="text-xs font-semibold text-ink-900">
-                      {bucket.unassigned} {noun(bucket, bucket.unassigned)}
+                      {needsReviewCount(bucket)} {noun(bucket, needsReviewCount(bucket))}
                       {bucket.applied !== null ? (
                         <span className="ml-1 font-normal text-success-600">
                           — {bucket.applied} filed just now
                         </span>
                       ) : (
                         <span className="ml-1 font-normal text-ink-500">
-                          — {bucket.resolved} can be filed
+                          — {suggestedCount(bucket)} suggested
                           {bucket.unresolved ? `, ${bucket.unresolved} need a person` : ""}
                         </span>
                       )}
@@ -209,9 +226,9 @@ export function WorkshopMappingPanel() {
                         know whether 924 files were filed because their parent records said so or because
                         their timestamps merely fell in a window — those are different levels of certainty
                         and the panel must not flatten them into one number. */}
-                    {bucket.byRung.length ? (
+                    {reviewRungs(bucket).length ? (
                       <ul className="mt-1.5 grid gap-0.5">
-                        {bucket.byRung.map((entry) => (
+                        {reviewRungs(bucket).map((entry) => (
                           <li key={entry.rung} className="text-[11px] leading-4 text-ink-700">
                             <span className="font-semibold text-ink-900">{entry.count}</span> because{" "}
                             {entry.copy}.

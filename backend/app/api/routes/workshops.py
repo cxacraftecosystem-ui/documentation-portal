@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 
 from app.core.db import db
 from app.core.deps import (
@@ -74,6 +75,8 @@ from app.services.workshop_access import (
     valid_level,
     workshop_is_curated,
 )
+from app.services.app_settings import load_app_settings
+from app.services.workshop_auto_map import auto_map_status, set_auto_map_enabled
 from app.services.workshop_inference import (
     apply_workshop_mapping,
     plan_workshop_mapping,
@@ -382,7 +385,24 @@ async def unmapped_records(_: Any = Depends(require_admin)) -> dict[str, Any]:
     many interviews the completion matrix is missing — is served by ``GET /questionnaire/completion``
     itself, so nobody has to hold this entitlement to understand their own screen.
     """
-    return await plan_workshop_mapping()
+    plan = await plan_workshop_mapping()
+    # ADDITIVE (2026-10-20): the nightly job's state, so the card can say "filed automatically each
+    # night" and lead with the rows that still need a person.
+    plan["autoMap"] = auto_map_status(await load_app_settings())
+    return plan
+
+
+class AutoMapSetting(BaseModel):
+    enabled: bool
+
+
+@router.put("/unmapped/auto")
+async def set_unmapped_auto(
+    payload: AutoMapSetting, current_user: Any = Depends(require_admin)
+) -> dict[str, Any]:
+    """Switch the nightly filing of clear-cut records on or off. Admin only."""
+    row = await set_auto_map_enabled(payload.enabled, getattr(current_user, "id", None))
+    return auto_map_status(row)
 
 
 @router.post("/unmapped/map")

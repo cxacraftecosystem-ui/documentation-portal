@@ -68,6 +68,12 @@ RUNG_WINDOW = "WINDOW"
 
 RUNGS: tuple[str, ...] = (RUNG_PARENT, RUNG_ARTISANS, RUNG_WINDOW)
 
+# THE CLEAR-CUT RUNG, filed without a person. A row resolved by PARENT is not an inference at all — it
+# reads the workshop off the record it hangs off — so the nightly job (services/workshop_auto_map) files
+# these on its own and the admin card is left holding only the rows that need a judgement: the ones the
+# artisans or the dates merely suggest, and the ones nothing settles.
+CLEAR_CUT_RUNGS: frozenset[str] = frozenset({RUNG_PARENT})
+
 # How a rung is described to a human, on both clients. Here rather than in two UIs, so the web and
 # Android cannot describe the same decision differently.
 RUNG_COPY: dict[str, str] = {
@@ -162,6 +168,16 @@ class BucketPlan:
     @property
     def unresolved(self) -> list[RowPlan]:
         return [row for row in self.rows if not row.workshopId]
+
+    @property
+    def clear_cut(self) -> list[RowPlan]:
+        """Resolved rows the nightly job files without asking — see ``CLEAR_CUT_RUNGS``."""
+        return [row for row in self.rows if row.workshopId and row.rung in CLEAR_CUT_RUNGS]
+
+    @property
+    def suggested(self) -> list[RowPlan]:
+        """Resolved rows whose evidence is a suggestion an admin confirms: artisans or dates."""
+        return [row for row in self.rows if row.workshopId and row.rung not in CLEAR_CUT_RUNGS]
 
 
 @dataclass
@@ -632,12 +648,16 @@ def payload_for(run: LadderRun, applied: dict[str, int] | None = None) -> dict[s
     buckets: list[dict[str, Any]] = []
     total_unassigned = 0
     total_resolved = 0
+    total_clear_cut = 0
     for bucket, _delegate, singular, plural in BUCKETS:
         plan = run.plans[bucket]
         resolved = plan.resolved
         unresolved = plan.unresolved
+        clear_cut = plan.clear_cut
+        suggested = plan.suggested
         total_unassigned += plan.unassigned
         total_resolved += len(resolved)
+        total_clear_cut += len(clear_cut)
 
         by_rung: dict[str, int] = {}
         by_workshop: dict[str, int] = {}
@@ -659,6 +679,10 @@ def payload_for(run: LadderRun, applied: dict[str, int] | None = None) -> dict[s
                 "unassigned": plan.unassigned,
                 "resolved": len(resolved),
                 "unresolved": len(unresolved),
+                # ADDITIVE, 2026-10-20. ``clearCut`` is filed by the nightly job on its own;
+                # ``needsReview`` is everything else — the count the admin card leads with.
+                "clearCut": len(clear_cut),
+                "needsReview": plan.unassigned - len(clear_cut),
                 "byRung": [
                     {"rung": rung, "copy": RUNG_COPY.get(rung, rung), "count": by_rung[rung]}
                     for rung in RUNGS
@@ -676,9 +700,9 @@ def payload_for(run: LadderRun, applied: dict[str, int] | None = None) -> dict[s
                     }
                     for workshop_id, count in sorted(by_workshop.items(), key=lambda item: -item[1])
                 ],
-                # Resolved rows first, then the ones needing a person — the second group is what an
-                # admin actually has to act on, and it is never the group that gets truncated away
-                # while the first fills the cap.
+                # The rows needing a person FIRST, then the suggestions an admin confirms, then the
+                # clear-cut rows the nightly job files anyway — so the cap is never spent on the group
+                # nobody has to look at. Each row says whether it is clear-cut.
                 "rows": [
                     {
                         "id": row.id,
@@ -694,8 +718,9 @@ def payload_for(run: LadderRun, applied: dict[str, int] | None = None) -> dict[s
                         "candidateTitles": [
                             titles.get(candidate, "Unknown workshop") for candidate in row.candidates
                         ],
+                        "clearCut": bool(row.workshopId) and row.rung in CLEAR_CUT_RUNGS,
                     }
-                    for row in (*unresolved, *resolved)[:_MAX_ROWS_PER_BUCKET]
+                    for row in (*unresolved, *suggested, *clear_cut)[:_MAX_ROWS_PER_BUCKET]
                 ],
                 "rowsTruncated": len(plan.rows) > _MAX_ROWS_PER_BUCKET,
                 "applied": (applied or {}).get(bucket) if applied is not None else None,
@@ -717,6 +742,8 @@ def payload_for(run: LadderRun, applied: dict[str, int] | None = None) -> dict[s
             "unassigned": total_unassigned,
             "resolved": total_resolved,
             "unresolved": total_unassigned - total_resolved,
+            "clearCut": total_clear_cut,
+            "needsReview": total_unassigned - total_clear_cut,
             "applied": sum((applied or {}).values()) if applied is not None else None,
         },
     }
@@ -731,8 +758,12 @@ def _chunks(values: list[str], size: int) -> list[list[str]]:
     return [values[index : index + size] for index in range(0, len(values), size)]
 
 
-async def apply_workshop_mapping() -> dict[str, Any]:
+async def apply_workshop_mapping(rungs: frozenset[str] | None = None) -> dict[str, Any]:
     """Stamp every row the ladder resolved, and return the plan that was applied.
+
+    ``rungs`` narrows the write to rows decided by those rungs — the nightly job passes
+    ``CLEAR_CUT_RUNGS`` and files the parent-evidence rows alone. ``None`` (the admin's button) files
+    every resolved row, as it always has.
 
     RE-DERIVES the plan rather than accepting one from the client. A client-supplied plan is a
     client-supplied list of "set this row's workshop to that id", which is a much wider power than
@@ -754,6 +785,8 @@ async def apply_workshop_mapping() -> dict[str, Any]:
         delegate = getattr(db, delegate_name)
         grouped: dict[str, list[str]] = {}
         for row in run.plans[bucket].resolved:
+            if rungs is not None and row.rung not in rungs:
+                continue
             grouped.setdefault(str(row.workshopId), []).append(row.id)
         changed = 0
         for workshop_id, ids in grouped.items():
