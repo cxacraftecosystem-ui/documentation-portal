@@ -6,6 +6,10 @@ name: Deploy backend to EC2
 #   EC2_SSH_KEY           contents of the .pem private key for the EC2 key pair
 #   BACKEND_ENV           the full backend/.env file contents (DATABASE_URL, JWT_SECRET,
 #                         AWS_* keys, OPENAI_API_KEY, GEMINI_API_KEYS, BACKEND_CORS_ORIGINS …)
+#   DEPLOY_SG_AWS_ACCESS_KEY_ID / DEPLOY_SG_AWS_SECRET_ACCESS_KEY
+#                         IAM user `fieldrepo-ci-sg`: may only add and remove rules on DEPLOY_SG_ID
+#   DEPLOY_SG_ID          the API box's security group (sg-0a3ffc8a00c9246f1), opened on port 22
+#                         for this runner's /32 for the length of the deploy
 #
 # Nothing secret is stored in this file — values come from the secrets above.
 #
@@ -396,6 +400,35 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # ─── PORT 22 OPENS FOR THIS RUNNER ONLY, AND ONLY FOR THIS DEPLOY (2026-10-17) ──────────────
+      # The API box's security group used to keep port 22 open to 0.0.0.0/0. It now has no standing
+      # SSH rule at all, as on the designer portal: this step adds a /32 for the address AWS sees
+      # this runner on, and "Close the deploy window" at the end of the job takes it out again
+      # whatever happened. The IAM user behind DEPLOY_SG_AWS_* is `fieldrepo-ci-sg`, allowed to add
+      # and remove rules on that one group and nothing else. People reach the box with
+      # `aws ssm start-session --target i-012eae3e379fbbeac` (instance profile `fieldrepo-ssm`).
+      - name: Open the deploy window for this runner
+        id: sgwindow
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.DEPLOY_SG_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.DEPLOY_SG_AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ap-south-1
+          SG_ID: ${{ secrets.DEPLOY_SG_ID }}
+        run: |
+          set -euo pipefail
+          ip="$(curl -fsS --max-time 15 https://checkip.amazonaws.com | tr -d '[:space:]')"
+          case "$ip" in
+            *[!0-9.]*|"") echo "::error::refusing to authorise a malformed address: '$ip'"; exit 1 ;;
+          esac
+          echo "runner=$ip"
+          echo "cidr=${ip}/32" >> "$GITHUB_OUTPUT"
+          # A rule left by a killed run makes this call fail as a duplicate; the rule being there
+          # is the state wanted, so that must not fail the deploy.
+          aws ec2 authorize-security-group-ingress \
+            --group-id "$SG_ID" \
+            --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=${ip}/32,Description='github-actions deploy window'}]" \
+            2>&1 | tail -5 || echo "authorize returned non-zero (likely InvalidPermission.Duplicate), continuing"
 
       - name: Start ssh-agent with the deploy key
         uses: webfactory/ssh-agent@e83874834305fe9a4a2997156cb26c5de65a8555 # v0.10.0
@@ -824,6 +857,81 @@ jobs:
             echo \"sign-in providers pinned: \$(grep -c -E \"^(MICROSOFT|YAHOO)_CLIENT_ID=\" \"\$ENVFILE\" || true)\"
           '"
 
+      # ─── THE BOX ANSWERS CLOUDFRONT AND NOTHING ELSE ────────────────────────────────────────────
+      # CloudFront sends `X-Origin-Verify: <ORIGIN_VERIFY_SECRET>` to this origin (a custom origin
+      # header on the distribution) and nginx answers 403 to any request without it, so somebody who
+      # finds the box's address cannot skip CloudFront and hand the API a forged X-Forwarded-For. The
+      # security group also admits port 80 only from CloudFront's origin-facing prefix list. Both are
+      # in docs/INFRA_ORIGIN_LOCK.md. Rewritten on every deploy so a rebuilt box converges. The value
+      # rides ssh's STDIN as the first line of the script, never an argument (visible in `ps`). It is
+      # also written to the .env, per the rule that every secret lives in Actions AND the box's .env.
+      # A missing secret fails here rather than shipping a box that turns CloudFront away. nginx is
+      # RELOADED, never restarted; a config that fails `nginx -t`, or that CloudFront itself cannot get
+      # a 200 through, is put back as it was.
+      - name: Require CloudFront's origin header in nginx
+        env:
+          ORIGIN_VERIFY_SECRET: ${{ secrets.ORIGIN_VERIFY_SECRET }}
+          PUBLIC_API: https://d2b34i3e92al6i.cloudfront.net
+        run: |
+          if ! printf '%s' "$ORIGIN_VERIFY_SECRET" | grep -qE '^[A-Za-z0-9]{32,}$'; then
+            echo "::error::ORIGIN_VERIFY_SECRET is unset or is not 32+ letters and digits. It must equal the X-Origin-Verify header on the CloudFront origin: docs/INFRA_ORIGIN_LOCK.md."
+            exit 1
+          fi
+          { printf 'secret=%s\n' "$ORIGIN_VERIFY_SECRET"; cat; } <<'REMOTE' | ssh ubuntu@${{ secrets.EC2_HOST }} 'bash -s'
+          set -euo pipefail
+          SITE=/etc/nginx/sites-available/fieldrepo
+          SNIP=/etc/nginx/snippets/origin-verify.conf
+          ENVFILE="/home/ubuntu/app/backend/.env"
+          tmp="$(mktemp)"
+          {
+            echo '# Written by deploy-backend.yml from ORIGIN_VERIFY_SECRET. CloudFront sends this value as the'
+            echo '# X-Origin-Verify origin header; anything reaching the box without it gets 403.'
+            echo 'set $origin_verified 0;'
+            printf 'if ($http_x_origin_verify = "%s") { set $origin_verified 1; }\n' "$secret"
+            echo 'if ($remote_addr = 127.0.0.1) { set $origin_verified 1; }'
+            echo 'if ($origin_verified = 0) { return 403; }'
+          } > "$tmp"
+          sudo cp -a "$SITE" /tmp/fieldrepo.site.prev
+          if [ -f "$SNIP" ]; then sudo cp -a "$SNIP" /tmp/origin-verify.prev; else sudo rm -f /tmp/origin-verify.prev; fi
+          sudo install -m 600 -o root -g root "$tmp" "$SNIP"; rm -f "$tmp"
+          grep -q 'snippets/origin-verify.conf' "$SITE" \
+            || sudo sed -i 's#^\(\s*client_max_body_size .*;\)$#\1\n    include /etc/nginx/snippets/origin-verify.conf;#' "$SITE"
+          if ! grep -q 'snippets/origin-verify.conf' "$SITE" || ! sudo nginx -t; then
+            sudo cp -a /tmp/fieldrepo.site.prev "$SITE"
+            if [ -f /tmp/origin-verify.prev ]; then sudo cp -a /tmp/origin-verify.prev "$SNIP"; else sudo rm -f "$SNIP"; fi
+            sudo rm -f /tmp/origin-verify.prev
+            echo "::error::nginx refused the origin check; the previous config was put back"; exit 1
+          fi
+          sudo systemctl reload nginx
+          [ -s "$ENVFILE" ] && [ -n "$(tail -c1 "$ENVFILE")" ] && printf '\n' >> "$ENVFILE"
+          sed -i '/^ORIGIN_VERIFY_SECRET=/d' "$ENVFILE"
+          printf 'ORIGIN_VERIFY_SECRET=%s\n' "$secret" >> "$ENVFILE"
+          REMOTE
+          # Loopback is exempt from the check, so only CloudFront's own answer proves the secret
+          # matches its header. The old API is still serving here, so anything but 200 (403 is a
+          # mismatch) puts the previous nginx config back and fails the deploy before the switch.
+          code=000
+          for i in $(seq 1 12); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$PUBLIC_API/health?origin-check=$GITHUB_RUN_ID-$i" || true)"
+            { [ "$code" = 200 ] || [ "$code" = 403 ]; } && break
+            sleep 10
+          done
+          if [ "$code" = 200 ]; then
+            ssh ubuntu@${{ secrets.EC2_HOST }} 'sudo rm -f /tmp/origin-verify.prev /tmp/fieldrepo.site.prev'
+            echo "origin check: CloudFront answered 200 through the new nginx config"
+          else
+            ssh ubuntu@${{ secrets.EC2_HOST }} 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          SNIP=/etc/nginx/snippets/origin-verify.conf
+          sudo cp -a /tmp/fieldrepo.site.prev /etc/nginx/sites-available/fieldrepo
+          if [ -f /tmp/origin-verify.prev ]; then sudo cp -a /tmp/origin-verify.prev "$SNIP"; else sudo rm -f "$SNIP"; fi
+          sudo rm -f /tmp/origin-verify.prev
+          sudo nginx -t && sudo systemctl reload nginx
+          REMOTE
+            echo "::error::CloudFront got $code from the box after the origin check went in, so the previous nginx config was put back. ORIGIN_VERIFY_SECRET must equal the X-Origin-Verify header on the CloudFront origin: docs/INFRA_ORIGIN_LOCK.md."
+            exit 1
+          fi
+
       # ─── THE PROJECT, THE PRISMA CLIENT, THE MIGRATION, THE SWITCH ──────────────────────────────
       # Everything up to the switch happens inside the venv the build step chose, while the API is
       # still serving from the old one; the switch happens with both services stopped. The order of
@@ -985,3 +1093,22 @@ jobs:
             [ "$used" = yes ] || sudo rm -rf "$d"
           done
           REMOTE
+
+      # `if: always()`: a deploy that fails or is cancelled must not leave port 22 open to a runner
+      # address that will be handed to somebody else. An already-absent rule is the state wanted.
+      - name: Close the deploy window
+        if: always() && steps.sgwindow.outputs.cidr != ''
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.DEPLOY_SG_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.DEPLOY_SG_AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ap-south-1
+          SG_ID: ${{ secrets.DEPLOY_SG_ID }}
+          CIDR: ${{ steps.sgwindow.outputs.cidr }}
+        run: |
+          aws ec2 revoke-security-group-ingress \
+            --group-id "$SG_ID" \
+            --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=${CIDR}}]" \
+            2>&1 | tail -5 || echo "revoke returned non-zero: the rule is already absent, which is the state wanted"
+          echo "--- port 22 rules remaining on ${SG_ID} ---"
+          aws ec2 describe-security-groups --group-ids "$SG_ID" \
+            --query "SecurityGroups[0].IpPermissions[?FromPort==\`22\`].IpRanges[].CidrIp" --output text || true

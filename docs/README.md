@@ -63,6 +63,7 @@ flowchart TD
 | [RELEASING.md](RELEASING.md) | How an Android build reaches the fleet: the tag-driven signed pipeline, what each guard refuses, how to check a signer by hand, and the one-off uninstall that moving off the debug key costs every handset |
 | [DEPLOYMENT_VERCEL.md](DEPLOYMENT_VERCEL.md) | The web deploy, and the two traps that ship a green pipeline over a broken site |
 | [CDN.md](CDN.md) | CloudFront caching, the origin timeout that has already broken this system, and the invalidation runbook |
+| [INFRA_ORIGIN_LOCK.md](INFRA_ORIGIN_LOCK.md) | Why the API box answers CloudFront and nothing else: the security group, the origin header, the ids, how to change the secret and how to roll it back |
 | [DOCKER.md](DOCKER.md) | Running the whole stack in containers |
 | [KUBERNETES.md](KUBERNETES.md) | Running it on a cluster, and the connection ceiling that governs how far it scales |
 

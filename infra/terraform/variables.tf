@@ -20,11 +20,6 @@ variable "ssh_key_name" {
   type        = string
 }
 
-variable "ssh_ingress_cidr" {
-  description = "CIDR allowed to SSH (use YOUR.IP/32, not 0.0.0.0/0)."
-  type        = string
-}
-
 variable "cors_allowed_origins" {
   description = "Origins allowed to PUT/GET media from the browser (the web frontend URL)."
   type        = list(string)
