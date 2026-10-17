@@ -1,34 +1,48 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Copy, Download, ShieldCheck } from "lucide-react";
 
 import { useAuth } from "@/components/AuthProvider";
+import { OtpCodeInput } from "@/components/ui/OtpCodeInput";
+import { Toggle } from "@/components/ui/Toggle";
 import { useToast } from "@/components/ui/Toast";
 import { ApiError } from "@/lib/api";
+import { formatDate } from "@/lib/format";
+import { isCompleteCode } from "@/lib/otp";
+import { saveBlobToDevice } from "@/lib/saveToDevice";
 import {
   beginTwoFactorSetup,
+  cancelTwoFactorSetup,
   disableTwoFactor,
   enableTwoFactor,
   fetchTwoFactorStatus,
   makeNewRecoveryCodes,
   recoveryCodesFileText,
+  twoFactorStatusLine,
+  twoFactorView,
   type TwoFactorSetup,
   type TwoFactorStatus
 } from "@/lib/twoFactor";
-import { formatDate } from "@/lib/format";
-import { saveBlobToDevice } from "@/lib/saveToDevice";
 
 /**
- * Two-step verification for THIS account: turn it on, see how many recovery codes are left, make new
- * ones, turn it off. Open to every role — it is the account's own lock, so there is no gate here.
+ * Two-step verification for THIS account, as ONE switch (owner, 2026-10-17).
  *
- * One card, one step at a time, never a modal: setup is a short conversation (scan, type a code, save
- * the recovery codes) and the page around it is the account screen the person came to anyway.
+ * - Off → switch on → setup opens (QR, key, six code boxes). The switch reads "Setting up…" and
+ *   stays OFF until the server has checked a code (`/enable` succeeded). Only then is it On.
+ * - Leaving setup without a verified code DISCARDS it: Cancel, closing or reloading the page and
+ *   navigating away all call `POST /auth/two-factor/setup/cancel`; a tab hidden for longer than
+ *   `AWAY_LIMIT_MS` (the reader went somewhere else, not merely to the authenticator app) does too.
+ *   The server also drops a pending secret older than 15 minutes, and reports `pending` so a page
+ *   that finds a setup left over from an earlier visit shows Off and clears it — never On.
+ * - On → switch off → asks for a current code (six boxes) or, behind "Use a recovery code instead",
+ *   a recovery code; then it is off.
+ * - The line under the switch says the state in plain words: "On since 17 Oct 2026 · 8 recovery
+ *   codes left".
  *
- * Everything is decided on the server: the QR square arrives drawn, a code is checked and SPENT there,
- * and the recovery codes exist in plain text only in the one response that issues them. That is why
- * the codes step refuses to be left by accident — they cannot be shown again.
+ * Everything is decided on the server: the QR square arrives drawn, a code is checked and SPENT
+ * there, and the recovery codes exist in plain text only in the one response that issues them —
+ * which is why the codes step refuses to be left by accident.
  */
 
 type Step =
@@ -37,47 +51,100 @@ type Step =
   | { kind: "codes"; codes: string[] }
   | { kind: "confirm"; action: "disable" | "regenerate" };
 
+/** Hidden this long, a setup is abandoned rather than paused for a look at the authenticator app. */
+const AWAY_LIMIT_MS = 5 * 60 * 1000;
+
 export function TwoStepVerificationCard() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [status, setStatus] = useState<TwoFactorStatus | null>(null);
   const [step, setStep] = useState<Step>({ kind: "idle" });
   const [code, setCode] = useState("");
+  const [recovery, setRecovery] = useState("");
+  const [useRecovery, setUseRecovery] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorNonce, setErrorNonce] = useState(0);
   const [saved, setSaved] = useState(false);
-  const box = useRef<HTMLInputElement | null>(null);
+  const recoveryBox = useRef<HTMLInputElement | null>(null);
 
-  async function reload() {
+  // Whether a setup is open on THIS screen, readable from the leave handlers without re-binding.
+  const settingUp = useRef(false);
+  useEffect(() => {
+    settingUp.current = step.kind === "setup";
+  }, [step]);
+
+  const view = twoFactorView(status, step.kind === "setup");
+
+  const reload = useCallback(async () => {
     try {
       setStatus(await fetchTwoFactorStatus());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't load this setting. Try again.");
     }
-  }
+  }, []);
 
   useEffect(() => {
     let live = true;
-    void fetchTwoFactorStatus()
-      .then((answer) => {
+    void (async () => {
+      try {
+        let answer = await fetchTwoFactorStatus();
+        // A setup somebody started on an earlier visit and never finished: it is Off, so forget it.
+        if (!answer.enabled && answer.pending) {
+          await cancelTwoFactorSetup().catch(() => undefined);
+          answer = { ...answer, pending: false };
+        }
         if (live) setStatus(answer);
-      })
-      .catch((err: unknown) => {
+      } catch (err) {
         if (live) setError(err instanceof Error ? err.message : "Couldn't load this setting. Try again.");
-      });
+      }
+    })();
     return () => {
       live = false;
     };
   }, []);
 
-  // The code box is where the next keystroke belongs whenever one appears.
+  // Every way out of the page while setting up discards the pending secret. `keepalive` lets the
+  // request finish after the page is gone; the server is idempotent, so a double call is harmless.
   useEffect(() => {
-    if (step.kind === "setup" || step.kind === "confirm") box.current?.focus();
-  }, [step]);
+    let hiddenAt: number | null = null;
+    function onPageHide() {
+      if (settingUp.current) void cancelTwoFactorSetup({ keepalive: true }).catch(() => undefined);
+    }
+    function onVisibility() {
+      if (document.visibilityState === "hidden") {
+        hiddenAt = Date.now();
+        return;
+      }
+      const away = hiddenAt === null ? 0 : Date.now() - hiddenAt;
+      hiddenAt = null;
+      if (settingUp.current && away > AWAY_LIMIT_MS) {
+        void cancelTwoFactorSetup().catch(() => undefined);
+        setStep({ kind: "idle" });
+        setCode("");
+        setError("Setup was stopped because you were away. Turn it on again to get a new code to scan.");
+        void reload();
+      }
+    }
+    window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("visibilitychange", onVisibility);
+      // Navigating to another page inside the app unmounts the card without a pagehide.
+      if (settingUp.current) void cancelTwoFactorSetup({ keepalive: true }).catch(() => undefined);
+    };
+  }, [reload]);
+
+  useEffect(() => {
+    if (useRecovery && step.kind === "confirm") recoveryBox.current?.focus();
+  }, [useRecovery, step]);
 
   function go(next: Step) {
     setStep(next);
     setCode("");
+    setRecovery("");
+    setUseRecovery(false);
     setError(null);
     setSaved(false);
   }
@@ -89,35 +156,55 @@ export function TwoStepVerificationCard() {
       await work();
     } catch (err) {
       setCode("");
+      setRecovery("");
+      setErrorNonce((n) => n + 1);
       setError(err instanceof ApiError ? err.message : "Couldn't connect. Check your connection and try again.");
-      box.current?.focus();
+      // A setup the server has already dropped (expired): back to Off with the server's sentence.
+      if (err instanceof ApiError && err.status === 409 && step.kind === "setup") {
+        setStep({ kind: "idle" });
+        await reload();
+      }
     } finally {
       setBusy(false);
     }
   }
 
-  function start() {
-    void run(async () => go({ kind: "setup", setup: await beginTwoFactorSetup() }));
+  function onSwitch(next: boolean) {
+    if (busy) return;
+    if (next && view === "off") {
+      void run(async () => go({ kind: "setup", setup: await beginTwoFactorSetup() }));
+    } else if (!next && view === "on") {
+      go({ kind: "confirm", action: "disable" });
+    }
   }
 
-  function submitCode(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const typed = code.trim();
-    if (!typed || busy) return;
+  function cancelSetup() {
+    go({ kind: "idle" });
+    void cancelTwoFactorSetup()
+      .catch(() => undefined)
+      .finally(() => void reload());
+  }
+
+  function submit(typed: string) {
+    if (busy) return;
     if (step.kind === "setup") {
+      if (!isCompleteCode(typed)) return;
       void run(async () => {
         const codes = await enableTwoFactor(typed);
         go({ kind: "codes", codes });
         await reload();
       });
     } else if (step.kind === "confirm" && step.action === "disable") {
+      if (!useRecovery && !isCompleteCode(typed)) return;
+      if (useRecovery && !typed.trim()) return;
       void run(async () => {
-        await disableTwoFactor(typed);
+        await disableTwoFactor(typed.trim());
         go({ kind: "idle" });
         await reload();
         toast({ title: "Two-step verification is off", tone: "success" });
       });
     } else if (step.kind === "confirm") {
+      if (!isCompleteCode(typed)) return;
       void run(async () => {
         const codes = await makeNewRecoveryCodes(typed);
         go({ kind: "codes", codes });
@@ -144,37 +231,77 @@ export function TwoStepVerificationCard() {
     setSaved(true);
   }
 
-  const codeForm = (label: string, hint: string, submitLabel: string, acceptsRecovery: boolean) => (
-    <form onSubmit={submitCode} className="mt-4 grid gap-3 sm:max-w-sm">
-      <div className="grid gap-1.5">
-        <label htmlFor="two-step-setting-code" className="text-sm font-medium text-ink-900">
-          {label}
-        </label>
-        <input
-          id="two-step-setting-code"
-          ref={box}
-          type="text"
-          required
-          inputMode={acceptsRecovery ? "text" : "numeric"}
-          autoComplete="one-time-code"
-          autoCapitalize="none"
-          spellCheck={false}
-          maxLength={acceptsRecovery ? 20 : 7}
-          placeholder={acceptsRecovery ? "123456 or xxxx-xxxx" : "123456"}
+  /** Six boxes for a 6-digit code; for "turn off", a recovery code in its own field behind a switch. */
+  const codeForm = (hint: string, submitLabel: string, acceptsRecovery: boolean, onCancel: () => void) => (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit(useRecovery ? recovery : code);
+      }}
+      className="mt-4 grid gap-3"
+    >
+      {acceptsRecovery && useRecovery ? (
+        <div className="grid gap-1.5 sm:max-w-sm">
+          <label htmlFor="two-step-recovery-code" className="text-sm font-medium text-ink-900">
+            Recovery code
+          </label>
+          <input
+            id="two-step-recovery-code"
+            ref={recoveryBox}
+            type="text"
+            required
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            maxLength={20}
+            placeholder="xxxx-xxxx"
+            value={recovery}
+            onChange={(event) => setRecovery(event.target.value)}
+            aria-describedby="two-step-setting-hint"
+            aria-invalid={error ? true : undefined}
+            className="field-input font-mono tracking-[0.15em]"
+          />
+        </div>
+      ) : (
+        <OtpCodeInput
           value={code}
-          onChange={(event) => setCode(event.target.value)}
-          aria-describedby="two-step-setting-hint"
-          className="field-input text-center font-mono tracking-[0.2em]"
+          onChange={setCode}
+          onComplete={submit}
+          label="6-digit code"
+          describedBy="two-step-setting-hint"
+          error={Boolean(error)}
+          errorNonce={errorNonce}
+          disabled={busy}
+          autoFocus
         />
-        <p id="two-step-setting-hint" className="text-xs leading-5 text-ink-500">
-          {hint}
-        </p>
-      </div>
+      )}
+      <p id="two-step-setting-hint" className="text-xs leading-5 text-ink-500">
+        {acceptsRecovery && useRecovery ? "Each recovery code works once." : hint}
+      </p>
+      {acceptsRecovery ? (
+        <div className="sm:max-w-sm">
+          <Toggle
+            label="Use a recovery code instead"
+            description="For when your phone is lost or the authenticator app is gone."
+            checked={useRecovery}
+            onChange={(next) => {
+              setUseRecovery(next);
+              setCode("");
+              setRecovery("");
+              setError(null);
+            }}
+          />
+        </div>
+      ) : null}
       <div className="flex flex-wrap gap-2">
-        <button type="submit" className="field-button" disabled={busy || !code.trim()}>
+        <button
+          type="submit"
+          className="field-button"
+          disabled={busy || (useRecovery ? !recovery.trim() : !isCompleteCode(code))}
+        >
           {busy ? "Checking…" : submitLabel}
         </button>
-        <button type="button" className="field-button-secondary" disabled={busy} onClick={() => go({ kind: "idle" })}>
+        <button type="button" className="field-button-secondary" disabled={busy} onClick={onCancel}>
           Cancel
         </button>
       </div>
@@ -206,8 +333,21 @@ export function TwoStepVerificationCard() {
 
       {status === null ? (
         error ? null : <p className="mt-3 text-sm text-ink-500">Loading…</p>
-      ) : step.kind === "setup" ? (
-        <div className="mt-4 grid gap-4 md:grid-cols-[auto_minmax(0,1fr)] md:items-start">
+      ) : (
+        <div className="mt-3 sm:max-w-xl">
+          <Toggle
+            label="Two-step verification"
+            description={twoFactorStatusLine(status, view, (iso) => formatDate(iso))}
+            checked={view === "on"}
+            busy={view === "setting-up" || busy}
+            disabled={step.kind === "codes" || step.kind === "confirm"}
+            onChange={onSwitch}
+          />
+        </div>
+      )}
+
+      {status === null ? null : step.kind === "setup" ? (
+        <div className="mt-4 grid gap-4 border-t border-line-200 pt-4 md:grid-cols-[auto_minmax(0,1fr)] md:items-start">
           {/* The server draws the square; it is shown as an image so nothing in it is ever markup here. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -220,7 +360,7 @@ export function TwoStepVerificationCard() {
               1. Scan this code with an authenticator app, such as Google Authenticator, Microsoft Authenticator or
               1Password. Or type the key into the app instead.
             </p>
-            <div className="mt-2 flex min-w-0 items-center gap-2">
+            <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
               <code className="min-w-0 break-all rounded-md bg-surface-50 px-2 py-1 font-mono text-sm text-ink-900">
                 {step.setup.secret}
               </code>
@@ -229,20 +369,22 @@ export function TwoStepVerificationCard() {
                 Copy key
               </button>
             </div>
-            <p className="mt-4 text-sm leading-6 text-ink-700">2. Enter the 6-digit code the app shows.</p>
-            {codeForm("6-digit code", "Codes change every 30 seconds.", "Turn on", false)}
+            <p className="mt-4 text-sm leading-6 text-ink-700">
+              2. Enter the 6-digit code the app shows. Two-step verification turns on once the code is checked.
+            </p>
+            {codeForm("Codes change every 30 seconds. This setup is dropped if it isn't finished within 15 minutes.", "Turn on", false, cancelSetup)}
           </div>
         </div>
       ) : step.kind === "codes" ? (
-        <div className="mt-4">
+        <div className="mt-4 border-t border-line-200 pt-4">
           <p className="text-sm font-semibold text-ink-900">Save these codes</p>
           <p className="mt-1 text-sm leading-6 text-ink-700">
             If you lose your phone, each code signs you in once instead of the 6-digit code. Keep them somewhere safe —
             they won&rsquo;t be shown again.
           </p>
           <ul className="mt-3 grid max-w-md grid-cols-2 gap-2 rounded-md border border-line-200 bg-surface-50 p-3 font-mono text-sm text-ink-900">
-            {step.codes.map((recovery) => (
-              <li key={recovery}>{recovery}</li>
+            {step.codes.map((recoveryCode) => (
+              <li key={recoveryCode}>{recoveryCode}</li>
             ))}
           </ul>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -261,53 +403,26 @@ export function TwoStepVerificationCard() {
           {!saved ? <p className="mt-2 text-xs text-ink-500">Copy or download the codes to finish.</p> : null}
         </div>
       ) : step.kind === "confirm" ? (
-        step.action === "disable" ? (
-          codeForm(
-            "Code",
-            "Enter the 6-digit code from your authenticator app, or one of your recovery codes.",
-            "Turn off",
-            true
-          )
-        ) : (
-          codeForm(
-            "6-digit code",
-            "Your old recovery codes stop working as soon as the new ones are made.",
-            "Make new codes",
-            false
-          )
-        )
-      ) : status.enabled ? (
-        <div className="mt-4">
-          <p className="text-sm text-ink-900">
-            <span className="font-semibold text-success-600">On</span>
-            {status.enabled_at ? <span className="text-ink-500"> since {formatDate(status.enabled_at)}</span> : null}
+        <div className="mt-4 border-t border-line-200 pt-4">
+          <p className="text-sm font-semibold text-ink-900">
+            {step.action === "disable" ? "Turn off two-step verification" : "Make new recovery codes"}
           </p>
-          <p className="mt-1 text-sm text-ink-700">
-            {status.recovery_codes_remaining === 1
-              ? "1 recovery code left."
-              : `${status.recovery_codes_remaining} recovery codes left.`}
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" className="field-button-secondary" onClick={() => go({ kind: "confirm", action: "regenerate" })}>
-              Make new recovery codes
-            </button>
-            <button
-              type="button"
-              className="field-danger"
-              onClick={() => go({ kind: "confirm", action: "disable" })}
-            >
-              Turn off
-            </button>
-          </div>
+          {step.action === "disable"
+            ? codeForm("Enter the 6-digit code from your authenticator app.", "Turn off", true, () => go({ kind: "idle" }))
+            : codeForm(
+                "Enter the 6-digit code from your authenticator app. Your old recovery codes stop working as soon as the new ones are made.",
+                "Make new codes",
+                false,
+                () => go({ kind: "idle" })
+              )}
         </div>
-      ) : (
-        <div className="mt-4">
-          <p className="text-sm text-ink-700">Off.</p>
-          <button type="button" className="field-button mt-3" disabled={busy} onClick={start}>
-            {busy ? "Starting…" : "Turn on"}
+      ) : view === "on" ? (
+        <div className="mt-3">
+          <button type="button" className="field-button-secondary" onClick={() => go({ kind: "confirm", action: "regenerate" })}>
+            Make new recovery codes
           </button>
         </div>
-      )}
+      ) : null}
     </section>
   );
 }

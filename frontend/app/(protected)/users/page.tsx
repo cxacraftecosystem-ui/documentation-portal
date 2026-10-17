@@ -31,6 +31,8 @@ import type { PageResult, User } from "@/lib/types";
 import { RequirePasswordChangeDialog, TemporaryPasswordDialog } from "./AccountDialogs";
 import { AddPersonForm } from "./AddPersonForm";
 import { mayUpdateUser, rowOffers, signInSummary } from "./accountAdmin";
+import { Toggle } from "@/components/ui/Toggle";
+import { SearchableMultiSelect } from "@/components/ui/SearchableSelect";
 
 /**
  * A capability as the list reads it. The list only READS a person (owner ruling, 2026-10-16): a click
@@ -155,15 +157,6 @@ export default function UsersPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to sign them out");
     }
-  }
-
-  function toggleAdminSelection(id: string) {
-    setAdminSelection((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
   }
 
   async function applyAdminGrants() {
@@ -504,37 +497,27 @@ export default function UsersPage() {
           <div className="mt-4 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
             <div className="rounded-md border border-line-200 bg-field-50 p-3">
               <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">Select users ({adminSelection.size} selected)</div>
-              <div className="grid max-h-72 gap-1 overflow-y-auto">
-                {allUsers
-                  .filter((user) => user.role !== "MASTER_ADMIN")
-                  .map((user) => (
-                    <label key={user.id} className="flex items-center gap-2 rounded px-2 py-1 hover:bg-field-100">
-                      <input type="checkbox" checked={adminSelection.has(user.id)} onChange={() => toggleAdminSelection(user.id)} />
-                      <span className="min-w-0 flex-1 truncate text-sm text-ink">
-                        {user.name} <span className="text-ink-muted">· {user.email}</span>
-                      </span>
-                      <span className="rounded-full bg-field-200 px-2 py-0.5 text-xs text-ink-muted">{roleLabel(user.role)}</span>
-                    </label>
-                  ))}
-                {allUsers.filter((user) => user.role !== "MASTER_ADMIN").length === 0 ? (
-                  <p className="px-2 py-1 text-sm text-ink-muted">No eligible users.</p>
-                ) : null}
-              </div>
+              {allUsers.filter((user) => user.role !== "MASTER_ADMIN").length === 0 ? (
+                <p className="px-2 py-1 text-sm text-ink-muted">No eligible users.</p>
+              ) : (
+                <SearchableMultiSelect
+                  values={Array.from(adminSelection)}
+                  onChange={(next) => setAdminSelection(new Set(next))}
+                  options={allUsers
+                    .filter((user) => user.role !== "MASTER_ADMIN")
+                    .map((user) => ({ value: user.id, label: `${user.name} · ${user.email} · ${roleLabel(user.role)}` }))}
+                  placeholder="Choose users"
+                  ariaLabel="Users to make administrators"
+                  confirmOnSelect={false}
+                  searchable
+                />
+              )}
             </div>
             <div className="grid content-start gap-2 rounded-md border border-line-200 bg-field-50 p-3">
               <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">Grant</div>
-              <label className="flex items-center gap-2 text-sm text-ink">
-                <input type="checkbox" checked={grantAdmin} onChange={(event) => setGrantAdmin(event.target.checked)} />
-                Administrator access (role = ADMIN)
-              </label>
-              <label className="flex items-center gap-2 text-sm text-ink">
-                <input type="checkbox" checked={grantQuestionnaire} onChange={(event) => setGrantQuestionnaire(event.target.checked)} />
-                Manage questionnaire
-              </label>
-              <label className="flex items-center gap-2 text-sm text-ink">
-                <input type="checkbox" checked={grantDataset} onChange={(event) => setGrantDataset(event.target.checked)} />
-                Download dataset
-              </label>
+              <Toggle label="Administrator access (role = ADMIN)" checked={grantAdmin} onChange={setGrantAdmin} />
+              <Toggle label="Manage questionnaire" checked={grantQuestionnaire} onChange={setGrantQuestionnaire} />
+              <Toggle label="Download dataset" checked={grantDataset} onChange={setGrantDataset} />
               <button
                 type="button"
                 className="field-button mt-2"

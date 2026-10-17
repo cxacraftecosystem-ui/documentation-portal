@@ -101,15 +101,15 @@ export function AccessibilityCard() {
       <p className="mt-1.5 text-xs leading-5 text-ink-500">
         Reading comfort for this account. Each switch applies the moment it is flipped.
       </p>
-      <div className="mt-3 grid gap-3">
+      <div className="mt-3 grid gap-1">
         {ACCESSIBILITY_OPTIONS.map((option) => (
-          <div className="flex items-start justify-between gap-4" key={option.key}>
-            <div>
-              <span className="block text-sm font-medium text-ink-900">{option.label}</span>
-              <span className="block text-xs leading-5 text-ink-500">{option.helper}</span>
-            </div>
-            <Toggle checked={preferences[option.key]} label={option.label} onChange={(next) => update({ [option.key]: next })} />
-          </div>
+          <Toggle
+            key={option.key}
+            checked={preferences[option.key]}
+            label={option.label}
+            description={option.helper}
+            onChange={(next) => update({ [option.key]: next })}
+          />
         ))}
       </div>
       <p className="mt-auto pt-4 text-xs leading-5 text-ink-500" role="status">

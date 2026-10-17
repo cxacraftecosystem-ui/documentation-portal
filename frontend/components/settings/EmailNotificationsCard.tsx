@@ -58,15 +58,13 @@ export function EmailNotificationsCard() {
         </h2>
       </div>
       <p className="mt-1.5 text-xs leading-5 text-ink-500">What this account is sent by e-mail.</p>
-      <div className="mt-3 flex items-start justify-between gap-4">
-        <div>
-          <span className="block text-sm font-medium text-ink-900">{label}</span>
-          <span className="block text-xs leading-5 text-ink-500">
-            An e-mail when a task you gave out is handed in for your approval, and when a task of yours is approved or
-            sent back.
-          </span>
-        </div>
-        <Toggle checked={state.emailTaskUpdates} label={label} onChange={(next) => void change(next)} />
+      <div className="mt-3">
+        <Toggle
+          checked={state.emailTaskUpdates}
+          label={label}
+          description="An e-mail when a task you gave out is handed in for your approval, and when a task of yours is approved or sent back."
+          onChange={(next) => void change(next)}
+        />
       </div>
       <p className="pt-4 text-xs leading-5 text-ink-500" role="status">
         {error ?? (saving ? "Saving to your account..." : "Saved to your account automatically.")}

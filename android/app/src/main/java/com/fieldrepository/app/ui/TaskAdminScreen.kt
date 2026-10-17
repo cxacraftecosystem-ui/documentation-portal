@@ -46,7 +46,6 @@ import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -1010,8 +1009,8 @@ fun TaskAdminScreen(
         // --- step 1: the scope every view below inherits --------------------------------------
         PanelCard {
             StepHeader(number = 1, title = "Workshop")
-            FieldLabel("Scope everything below to")
             SingleSelectField(
+                label = "Scope everything below to",
                 value = workshopId,
                 placeholder = if (optionsLoading) "Loading workshops..." else "All workshops",
                 options = listOf("" to "All workshops") + workshops.map { workshop ->
@@ -1259,8 +1258,8 @@ private fun AssignWorkTab(
                 hint = "Only people ranked below you can be given a task. Narrow by tier first if the " +
                     "list is long — each person gets their own task."
             )
-            FieldLabel("Filter by tier")
             SingleSelectField(
+                label = "Filter by tier",
                 value = form.roleFilter,
                 placeholder = "Everyone below me",
                 options = roleOptions,
@@ -1273,10 +1272,10 @@ private fun AssignWorkTab(
                 emptyLabel = if (loading) "Loading people..." else "Nobody ranked below you",
                 options = visibleAssignees.map { it.id to "${it.name} — ${it.displayRole()}" },
                 selected = form.assigneeIds,
-                searchable = visibleAssignees.size > 8,
-                onToggle = { id -> form.assigneeIds = form.assigneeIds.toggle(id) },
-                onSelectAll = { form.assigneeIds = form.assigneeIds + visibleAssignees.map { it.id } },
-                onClear = { form.assigneeIds = emptySet() }
+                // People hidden by the tier filter stay chosen: the sheet answers for the visible rows.
+                onSelectedChange = { next ->
+                    form.assigneeIds = (form.assigneeIds - visibleAssignees.map { it.id }.toSet()) + next
+                }
             )
             if (selectedAssignees.isNotEmpty()) {
                 FlowRow(
@@ -1319,8 +1318,7 @@ private fun AssignWorkTab(
                     kind.value to kind.pluralLabel.replaceFirstChar { it.uppercase() }
                 },
                 selected = form.recordTypes,
-                onToggle = { id -> form.recordTypes = form.recordTypes.toggle(id) },
-                onClear = { form.recordTypes = emptySet() }
+                onSelectedChange = { form.recordTypes = it }
             )
             PickedHint(
                 labels = allRecordTypes.filter { it.value in form.recordTypes }.map { it.pluralLabel },
@@ -1333,10 +1331,7 @@ private fun AssignWorkTab(
                 emptyLabel = "No active questionnaire sections",
                 options = allSections.sortedBy { it.sortOrder }.map { it.id to "${it.code} — ${it.title}" },
                 selected = form.sectionIds,
-                searchable = allSections.size > 8,
-                onToggle = { id -> form.sectionIds = form.sectionIds.toggle(id) },
-                onSelectAll = { form.sectionIds = allSections.map { it.id }.toSet() },
-                onClear = { form.sectionIds = emptySet() }
+                onSelectedChange = { form.sectionIds = it }
             )
             PickedHint(
                 labels = selectedSections.map { "Section ${it.code}" },
@@ -1352,10 +1347,7 @@ private fun AssignWorkTab(
                         ?.let { "${artisan.name} · $it" } ?: artisan.name)
                 },
                 selected = form.artisanIds,
-                searchable = allArtisans.size > 8,
-                onToggle = { id -> form.artisanIds = form.artisanIds.toggle(id) },
-                onSelectAll = { form.artisanIds = allArtisans.map { it.id }.toSet() },
-                onClear = { form.artisanIds = emptySet() }
+                onSelectedChange = { form.artisanIds = it }
             )
             PickedHint(
                 labels = artisanNames,
@@ -2079,8 +2071,6 @@ private fun BatchCard(batch: TaskBatchDto, busy: Boolean, onRemove: () -> Unit) 
 // its equivalents are private to it.
 // =================================================================================================
 
-private fun Set<String>.toggle(id: String): Set<String> = if (id in this) this - id else this + id
-
 @Composable
 private fun PanelCard(
     container: Color = MaterialTheme.colorScheme.surface,
@@ -2159,70 +2149,32 @@ private fun PickedHint(labels: List<String>, empty: String) {
     )
 }
 
+/**
+ * One-of-many on this screen: the shared [SearchableSelectField] (owner, 2026-10-17 — one picker on
+ * every surface). The option lists carry their own "everything" row, so no blank row is added.
+ */
 @Composable
 private fun SingleSelectField(
+    label: String,
     value: String,
     placeholder: String,
     options: List<Pair<String, String>>,
     onSelect: (String) -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    val selectedLabel = options.firstOrNull { it.first == value }?.second
-    Box(modifier = Modifier.fillMaxWidth()) {
-        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
-            Text(
-                selectedLabel ?: placeholder,
-                color = if (selectedLabel != null) MaterialTheme.field.body else MaterialTheme.field.placeholder,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            Icon(
-                if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp)
-            )
-        }
-        androidx.compose.material3.DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier.background(MaterialTheme.colorScheme.surface)
-        ) {
-            options.forEach { (optionValue, label) ->
-                val selected = optionValue == value
-                androidx.compose.material3.DropdownMenuItem(
-                    text = {
-                        Text(
-                            label,
-                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.field.body,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    },
-                    trailingIcon = {
-                        if (selected) {
-                            Icon(
-                                Icons.Filled.CheckCircle,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    },
-                    onClick = { onSelect(optionValue); expanded = false }
-                )
-            }
-        }
-    }
+    SearchableSelectField(
+        label = label,
+        options = remember(options) { options.asSelectOptions() },
+        selectedValue = value,
+        placeholder = placeholder,
+        includeNone = false,
+        onSelect = onSelect
+    )
 }
 
 /**
- * A collapsed trigger that opens an inline checkbox list.
- *
- * A menu would be wrong here: these lists run to dozens of people or artisans, several are picked at
- * a time, and a dropdown that closes on every tick makes a second pick impossible.
+ * Many-of-many on this screen: the shared [SearchableMultiSelectField] — a summary trigger and a
+ * searchable sheet with Select all and Clear. Chips are off because every caller here already draws
+ * the selection under the field (the people chips, or a [PickedHint] line).
  */
 @Composable
 private fun MultiSelectField(
@@ -2232,109 +2184,17 @@ private fun MultiSelectField(
     options: List<Pair<String, String>>,
     selected: Set<String>,
     required: Boolean = false,
-    searchable: Boolean = false,
-    onToggle: (String) -> Unit,
-    onSelectAll: (() -> Unit)? = null,
-    onClear: (() -> Unit)? = null
+    onSelectedChange: (Set<String>) -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    var query by remember { mutableStateOf("") }
-    val chosen = options.count { it.first in selected }
-    val filtered =
-        if (query.isBlank()) options else options.filter { it.second.contains(query.trim(), ignoreCase = true) }
-
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        FieldLabel(label, required)
-        OutlinedButton(onClick = { expanded = !expanded }, modifier = Modifier.fillMaxWidth()) {
-            Text(
-                if (chosen > 0) "$chosen selected" else placeholder,
-                color = if (chosen > 0) MaterialTheme.field.body else MaterialTheme.field.placeholder,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            Icon(
-                if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp)
-            )
-        }
-
-        if (expanded) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.field.surface50, MaterialTheme.shapes.medium)
-                    .border(1.dp, MaterialTheme.field.hairline, MaterialTheme.shapes.medium)
-                    .padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                if (options.isEmpty()) {
-                    Text(
-                        emptyLabel,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    if (searchable) {
-                        OutlinedTextField(
-                            value = query,
-                            onValueChange = { query = it },
-                            singleLine = true,
-                            placeholder = { Text("Search", color = MaterialTheme.field.placeholder) },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 280.dp)
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        filtered.forEach { (id, text) ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onToggle(id) }
-                            ) {
-                                Checkbox(checked = id in selected, onCheckedChange = { onToggle(id) })
-                                Text(
-                                    text,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.field.body
-                                )
-                            }
-                        }
-                        if (filtered.isEmpty()) {
-                            Text(
-                                "Nothing matches \"${query.trim()}\".",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        onSelectAll?.let {
-                            TextButton(onClick = it) { Text("Select all") }
-                        }
-                        onClear?.let {
-                            TextButton(onClick = it) { Text("Clear") }
-                        }
-                        Spacer(Modifier.weight(1f))
-                        TextButton(onClick = { expanded = false }) { Text("Done") }
-                    }
-                }
-            }
-        }
-    }
+    SearchableMultiSelectField(
+        label = label + if (required) " *" else "",
+        options = remember(options) { options.asSelectOptions() },
+        selected = selected,
+        placeholder = placeholder,
+        emptyMessage = emptyLabel,
+        showChips = false,
+        onSelectedChange = onSelectedChange
+    )
 }
 
 @Composable
@@ -2378,7 +2238,7 @@ private fun PersonChip(user: TaskUserDto, onRemove: () -> Unit) {
  */
 @Composable
 private fun DueDateField(value: LocalDate?, onChange: (LocalDate?) -> Unit) {
-    FieldDateField(
+    CalendarField(
         label = "Due date",
         value = value,
         onValueChange = onChange,

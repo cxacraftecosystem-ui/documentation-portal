@@ -465,6 +465,12 @@ class FieldRepository(
 
     suspend fun beginTwoFactorSetup(): TwoFactorSetupDto = api.beginTwoFactorSetup()
 
+    /** Discard an unconfirmed setup: Cancel, Back, leaving the screen, or coming back after a long while. */
+    suspend fun cancelTwoFactorSetup() {
+        val response = api.cancelTwoFactorSetup()
+        if (!response.isSuccessful) throw HttpException(response)
+    }
+
     suspend fun enableTwoFactor(code: String): List<String> =
         api.enableTwoFactor(TwoFactorCodeRequest(code.trim())).recoveryCodes
 

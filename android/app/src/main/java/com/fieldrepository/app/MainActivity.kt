@@ -43,6 +43,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -71,6 +72,9 @@ import androidx.compose.material3.Switch
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Timeline
 import com.fieldrepository.app.ui.trace.TracePanel
+import com.fieldrepository.app.ui.AppToggle
+import com.fieldrepository.app.ui.MediaAction
+import com.fieldrepository.app.ui.MediaActionButton
 import com.fieldrepository.app.ui.MediaDownloadButton
 import com.fieldrepository.app.ui.TILE_OUTLINE_ALPHA
 import androidx.compose.foundation.BorderStroke
@@ -89,7 +93,8 @@ import com.fieldrepository.app.data.OutboxStep
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import com.fieldrepository.app.ui.parseFieldDate
-import com.fieldrepository.app.ui.FieldDateField
+import com.fieldrepository.app.ui.CalendarField
+import com.fieldrepository.app.ui.FieldDateRangeField
 import com.fieldrepository.app.ui.FieldIslandNav
 import com.fieldrepository.app.ui.NavGroup
 import com.fieldrepository.app.ui.visibleNavItems
@@ -376,9 +381,7 @@ import com.fieldrepository.app.ui.SurfaceCard
 import kotlinx.coroutines.launch
 import coil3.compose.AsyncImage
 import retrofit2.HttpException
-import android.app.DatePickerDialog
 import androidx.activity.compose.BackHandler
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DrawerValue
@@ -2977,18 +2980,13 @@ private fun SettingsScreen(
         SettingsRadioRow("Refined + translated to English", "Refined, then translated to English (default).", mode == "REFINED_TRANSLATED") { mode = "REFINED_TRANSLATED" }
 
         HorizontalDivider()
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Process during an off-peak window", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "When on, transcription & refinement run only between the times below (IST), so the " +
-                        "heavy work happens when nobody is uploading. When off, they run immediately.",
-                    color = Muted,
-                    fontSize = 12.sp
-                )
-            }
-            Switch(checked = windowEnabled, onCheckedChange = { windowEnabled = it })
-        }
+        AppToggle(
+            label = "Process during an off-peak window",
+            description = "When on, transcription & refinement run only between the times below (IST), so the " +
+                "heavy work happens when nobody is uploading. When off, they run immediately.",
+            checked = windowEnabled,
+            onCheckedChange = { windowEnabled = it }
+        )
         if (windowEnabled) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 Box(modifier = Modifier.weight(1f)) { TimePickerField("Start", startTime) { startTime = it } }
@@ -4487,13 +4485,11 @@ private fun GridMeasurementSection(
 
     @Composable
     fun GridGroupRow(key: String, label: String, hint: String) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Checkbox(
-                checked = enabled.contains(key),
-                onCheckedChange = { checked -> enabled = if (checked) enabled + key else enabled - key }
-            )
-            Text(label, color = Body, fontSize = 14.sp)
-        }
+        AppToggle(
+            label = label,
+            checked = enabled.contains(key),
+            onCheckedChange = { checked -> enabled = if (checked) enabled + key else enabled - key }
+        )
         if (enabled.contains(key)) {
             Text(hint, color = Muted, fontSize = 12.sp, modifier = Modifier.padding(start = 8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -5226,87 +5222,6 @@ private fun ArtisanAadhaarField(
 }
 
 /**
- * A WALL OF CHECKBOXES OVER AN ARTISAN LIST — one row per artisan, painted straight into the form.
- *
- * ── ONE CALLER LEFT, AND IT IS NOT AN OVERSIGHT ─────────────────────────────────────────────────
- *
- * The WORKSHOP record form's "Linked artisans" box, and nothing else. The two callers that used to
- * sit beside it — the questionnaire capture form and the browse screen's interview filter — both
- * moved to [SearchableMultiSelectField] on 2026-09-16, because the owner asked for that by name:
- * *"the checkbox list should be replaced with multi-select dropdown for artisans over there as
- * well"*. `shared/questionnaire-form-contract.json` pins the capture form's control so it cannot
- * come back, and `QuestionnaireFormWiringTest` says the same thing where an Android change is made.
- *
- * SO WHY IS THIS STILL HERE. The owner's report was about the questionnaire page, and the workshop
- * form is a different screen with a materially different list: it is the roster a researcher is
- * ASSEMBLING for a workshop they are creating, seen all at once, ticked in bulk, from a list that is
- * short at the moment the workshop is being written. The wall's real cost — no summary line, so the
- * only way to see who is ticked is to scroll the form back over them — is what made it wrong in a
- * long capture form; it is the least bad thing about it in a short one. The dropdown is probably
- * still the better control there. That is a decision to take with the workshop form in front of you,
- * not one to take by extension from another screen's complaint, and it is deliberately NOT taken
- * here so that this commit means one thing.
- *
- * WHEN THAT LAST CALLER MOVES, DELETE THIS. There is no third control to write and nothing here that
- * [SearchableMultiSelectField] cannot draw better; the one thing to carry across is [emptyMessage],
- * which is the parameter below.
- */
-@Composable
-private fun ArtisanMultiSelectField(
-    label: String,
-    artisans: List<ArtisanDto>,
-    selectedIds: Set<String>,
-    /**
-     * WHAT AN EMPTY LIST MEANS, WHICH IS NOT ALWAYS "THERE ARE NO ARTISANS".
-     *
-     * The default is the sentence this control has always printed and is right for the caller that
-     * remains: the workshop form hands it a list it already holds, so an empty one really does mean
-     * the repository has nobody in it yet and the next thing to do really is to create an artisan.
-     *
-     * THE PARAMETER EXISTS FOR A CALLER THAT HAS SINCE LEFT, and the reasoning is what left with it —
-     * to [SearchableMultiSelectField]'s identically-named parameter, at the questionnaire form's
-     * artisan control. A list FETCHED PER WORKSHOP is empty in three more states — in flight, failed,
-     * and "this workshop has nobody yet" — in which that default is a claim about the repository
-     * built out of a claim about the network, and sends a researcher off to create a duplicate of an
-     * artisan who already exists. The browser prints the same four sentences off the same three facts
-     * (`frontend/app/(protected)/questionnaire/page.tsx`, the picker's `emptyLabel`).
-     *
-     * It is kept rather than removed with its last user because the next caller to fetch a scoped
-     * list needs it, and because a control whose only empty message is a hard-coded claim is how that
-     * defect happened the first time.
-     */
-    emptyMessage: String = "No artisans available yet. Create an artisan first.",
-    onToggle: (String) -> Unit
-) {
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("$label (${selectedIds.size} selected)", color = Muted, fontSize = 12.sp)
-        if (artisans.isEmpty()) {
-            Text(emptyMessage, color = Muted, fontSize = 12.sp)
-        } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(SurfaceCard, RoundedCornerShape(12.dp))
-                    .padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                artisans.forEach { artisan ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onToggle(artisan.id) }
-                    ) {
-                        Checkbox(checked = selectedIds.contains(artisan.id), onCheckedChange = { onToggle(artisan.id) })
-                        Text("${artisan.name} · ${artisan.place}", color = Body, fontSize = 13.sp)
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
  * Generic many-of-many over (id, label) options. Now a thin adapter over
  * [SearchableMultiSelectField], which trades the wall of checkboxes this used to paint into the
  * form for a summary trigger, the chosen rows as chips, and a searchable sheet with Select all.
@@ -5391,29 +5306,6 @@ private fun CheckboxMultiSelectField(
         enabled = enabled,
         onSelectedChange = onSelectedChange
     )
-}
-
-@Composable
-private fun DatePickerField(label: String, value: LocalDate?, onChange: (LocalDate) -> Unit) {
-    val context = LocalContext.current
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, color = Muted, fontSize = 12.sp)
-        OutlinedButton(
-            onClick = {
-                val initial = value ?: LocalDate.now()
-                DatePickerDialog(
-                    context,
-                    { _, year, month, day -> onChange(LocalDate.of(year, month + 1, day)) },
-                    initial.year,
-                    initial.monthValue - 1,
-                    initial.dayOfMonth
-                ).show()
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(value?.toString() ?: "Pick date")
-        }
-    }
 }
 
 private enum class RecPhase { IDLE, RECORDING, PAUSED, RECORDED }
@@ -7167,7 +7059,7 @@ private fun ArtisanForm(
             placeholder = "Select…",
             includeNone = true
         ) { gender = it }
-        FieldDateField(
+        CalendarField(
             label = "Date of birth",
             value = dateOfBirth,
             onValueChange = { dateOfBirth = it },
@@ -7426,26 +7318,26 @@ private fun WorkshopForm(
         RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
         // Web parity (components/forms/DateRangeField): the two dates are one answer — how long the
         // workshop ran — and they are labelled as one before being split into start and end.
-        Text("Workshop duration", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Box(modifier = Modifier.weight(1f)) {
-                DatePickerField("Start date", startDate) { picked ->
-                    startDate = picked
-                    if (endDate == null || endDate!!.isBefore(picked)) endDate = picked
-                }
+        // CalendarField's range form (ui/DateTimeFields.FieldDateRangeField): typed dd/mm/yyyy boxes
+        // and one themed range calendar, never the platform DatePickerDialog (owner, 2026-10-17).
+        FieldDateRangeField(
+            label = "Workshop duration",
+            start = startDate,
+            end = endDate,
+            onRangeChange = { from, to ->
+                startDate = from
+                endDate = to
             }
-            Box(modifier = Modifier.weight(1f)) {
-                DatePickerField("End date", endDate) { endDate = it }
-            }
-        }
+        )
         StatusControl(canSetStatus = canSetStatus, value = status) { status = it }
         // `Workshop.description` — the narrative of what happened at the workshop, and the field a
         // reader of the record is actually looking for. Both controls.
         TextInput("Description", description, minLines = 3, dictate = dictates("description"), rich = true) { description = it }
         MultiNoteInput(value = notes, dictate = dictates("notes")) { notes = it }
-        ArtisanMultiSelectField(
+        CheckboxMultiSelectField(
             label = "Linked artisans",
-            artisans = artisans,
+            emptyMessage = "No artisans available yet. Create an artisan first.",
+            options = artisans.map { it.id to "${it.name} · ${it.place}" },
             selectedIds = selectedArtisans
         ) { id ->
             selectedArtisans = if (selectedArtisans.contains(id)) selectedArtisans - id else selectedArtisans + id
@@ -8670,9 +8562,9 @@ private fun ToolForm(
         // name stops writing into it. There is no re-arming gesture and there must not be one.
         TextInput("English name", englishName, titleCased = true, dictate = dictates("englishName")) { englishName = it; mirrorArmed = false }
         // A MANY-OF-MANY SINCE 2026-09-15 — one documented toolkit can belong to several crafts.
-        // `CheckboxMultiSelectField` and never `ArtisanMultiSelectField`: the latter paints an
-        // unsearchable wall of checkboxes straight into the form, with no summary line and no cap
-        // notice, and a craft register runs to the hundreds. This one is a summary trigger, the
+        // `CheckboxMultiSelectField`, never a wall of checkboxes painted straight into the form (the
+        // old `ArtisanMultiSelectField`, removed 2026-10-17 when the workshop form, its last caller,
+        // moved): a craft register runs to the hundreds. This one is a summary trigger, the
         // chosen rows as chips, and a searchable sheet with Select all.
         //
         // `craftOptions`, not `crafts`: the page is 100 rows of a NAME-ordered list, so a craft whose
@@ -9495,10 +9387,11 @@ private fun ProcessForm(
         }
         if (productError != null) Text(productError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
 
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Checkbox(checked = preProcessAvailable, onCheckedChange = { preProcessAvailable = it })
-            Text("Pre-processes available", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
-        }
+        AppToggle(
+            label = "Pre-processes available",
+            checked = preProcessAvailable,
+            onCheckedChange = { preProcessAvailable = it }
+        )
         if (preProcessAvailable) {
             Text("Attach the pre-process media (required).", color = Muted, fontSize = 12.sp)
             if (existingPreMedia.isNotEmpty()) {
@@ -9558,13 +9451,11 @@ private fun ProcessForm(
                         media = step.media,
                         emphasizeVideo = true,
                         beforeLocation = {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                                Checkbox(
-                                    checked = step.recordAdditional,
-                                    onCheckedChange = { step.recordAdditional = it; if (!it) step.notes = "" }
-                                )
-                                Text("Record additional information", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
-                            }
+                            AppToggle(
+                                label = "Record additional information",
+                                checked = step.recordAdditional,
+                                onCheckedChange = { step.recordAdditional = it; if (!it) step.notes = "" }
+                            )
                             if (step.recordAdditional) {
                                 MultiNoteInput(label = "Additional context for this step", value = step.notes, resetKey = step.key, dictate = dictates("stepNotes")) { step.notes = it }
                             }
@@ -10301,10 +10192,11 @@ private fun TranscriptRefineControls(
                         "Refining" + (if (mode) " and translating" else "") + " this transcript runs it through an " +
                             "AI model (gpt-4o-mini), which incurs a small extra cost each time you do it. Continue?"
                     )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = dontRemind, onCheckedChange = { dontRemind = it })
-                        Text("Do not remind me again", fontSize = 13.sp)
-                    }
+                    AppToggle(
+                        label = "Do not remind me again",
+                        checked = dontRemind,
+                        onCheckedChange = { dontRemind = it }
+                    )
                 }
             },
             confirmButton = {
@@ -13147,6 +13039,7 @@ private fun mediaTypeFromMime(mime: String?): String = when {
     else -> "DOCUMENT"
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun AndroidUriPreview(
     context: Context,
@@ -13200,31 +13093,29 @@ private fun AndroidUriPreview(
         progress != null && progress >= 1f -> Text("Uploaded ✓", color = SuccessGreen, fontSize = 12.sp)
     }
     if ((failed && onRetry != null) || downloadable) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically
+        // One action row at the foot of every media card, always in this order — Retry (the way out of
+        // a failure) then Download — as real tonal buttons (MediaActionButton), wrapping rather than
+        // squeezing on a narrow screen and never overlapping the tile's discard badge above.
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
         ) {
             if (failed && onRetry != null) {
-                TextButton(
+                MediaActionButton(
+                    action = MediaAction.RETRY,
                     onClick = onRetry,
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                ) {
-                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Retry", fontSize = 12.sp)
-                }
+                    modifier = Modifier.semantics { contentDescription = "Retry uploading ${uri.lastPathSegment.orEmpty()}" }
+                )
             }
             if (downloadable) {
-                if (onTile) {
-                    MediaDownloadButton(
-                        source = uri,
-                        mimeType = mimeType,
-                        contentColor = MaterialTheme.field.onBrandTile,
-                        outlined = true
-                    )
-                } else {
-                    MediaDownloadButton(source = uri, mimeType = mimeType)
-                }
+                MediaDownloadButton(
+                    source = uri,
+                    mimeType = mimeType,
+                    name = uri.lastPathSegment,
+                    // On the purple "files ready" tile: the on-tile variant, outlined in the tile's ink.
+                    onTile = if (onTile) MaterialTheme.field.onBrandTile else null
+                )
             }
         }
     }
@@ -13250,6 +13141,7 @@ private fun DiscardBadge(contentDescription: String, onClick: () -> Unit, modifi
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun AndroidSavedMediaPreview(
     context: Context,
@@ -13294,14 +13186,18 @@ private fun AndroidSavedMediaPreview(
                 null
             }
         )
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            TextButton(onClick = { saveMediaToDevice(context, media.url, media.originalFilename, media.mimeType) }) {
-                Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Save to device", fontSize = 12.sp)
-            }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            MediaActionButton(
+                action = MediaAction.DOWNLOAD,
+                onClick = { saveMediaToDevice(context, media.url, media.originalFilename, media.mimeType) },
+                modifier = Modifier.semantics { contentDescription = "Download ${media.originalFilename}" }
+            )
             if (onDelete != null) {
-                TextButton(onClick = { confirmDelete = true }) {
+                TextButton(onClick = { confirmDelete = true }, modifier = Modifier.heightIn(min = 48.dp)) {
                     Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
                     Spacer(Modifier.width(4.dp))
                     Text("Remove", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
@@ -14251,7 +14147,7 @@ private fun QuestionnaireForm(
 
           The owner asked for this one by name: *"the checkbox list should be replaced with
           multi-select dropdown for artisans over there as well"*. What stood here was
-          [ArtisanMultiSelectField], which paints a Column of checkboxes -- every artisan at the
+          `ArtisanMultiSelectField` (since removed, 2026-10-17), which painted a Column of checkboxes -- every artisan at the
           workshop, one row each, straight into a form that is already long. It has no summary line,
           so the only way to see who is ticked is to scroll the form back over them, and no room for
           a Select-all row without pushing the next field further down.
@@ -14384,13 +14280,12 @@ private fun QuestionnaireForm(
         ) { recordMode = it }
         // On by default: keep the UI to just the record button; reveal answer boxes only on demand.
         var hideAnswers by remember { mutableStateOf(true) }
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Show answer text boxes", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
-                Text("Off by default — only the record button shows. Turn on to type written answers.", color = Muted, fontSize = 12.sp)
-            }
-            Switch(checked = !hideAnswers, onCheckedChange = { hideAnswers = !it })
-        }
+        AppToggle(
+            label = "Show answer text boxes",
+            description = "Off by default — only the record button shows. Turn on to type written answers.",
+            checked = !hideAnswers,
+            onCheckedChange = { hideAnswers = !it }
+        )
         LocationAddressEditor(
             repository = repository,
             value = capturedLocation,
@@ -15597,7 +15492,15 @@ private fun UserManagementForm(
                         UserSummaryLine("View provenance", if (roleRank(appUser.role) >= RANK_ADMIN || appUser.canViewProvenance) "Granted" else "Not granted")
                         UserSummaryLine("Download entire dataset", if (targetIsProfessorPlus || appUser.canDownloadDataset) "Granted" else "Not granted")
                         UserSummaryLine("Password", if (accountHasPassword(appUser)) "Set" else "No password yet")
-                        UserSummaryLine("Two-step verification", if (appUser.twoFactorEnabled) "On" else "Off")
+                        // The shared switch, read-only here: only the person can turn it on, from their own
+                        // account; an administrator turns it off with the button below.
+                        AppToggle(
+                            label = "Two-step verification",
+                            description = if (appUser.twoFactorEnabled) "Turned on by them." else "Not turned on. Only they can turn it on.",
+                            checked = appUser.twoFactorEnabled,
+                            enabled = false,
+                            onCheckedChange = {}
+                        )
                         com.fieldrepository.app.ui.signInStatusLabel(appUser.lastLoginAt, appUser.firstLoginAt, appUser.createdAt)
                             ?.let { UserSummaryLine("Signed in", it) }
                         if (mayUpdate) {

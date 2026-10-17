@@ -52,6 +52,7 @@ import {
   isAdmin,
   roleLabel
 } from "@/lib/permissions";
+import { Toggle } from "@/components/ui/Toggle";
 import { cn } from "@/lib/utils";
 import type { User } from "@/lib/types";
 
@@ -459,21 +460,17 @@ export function DynamicIslandNav() {
           <div className="ml-1 flex items-center gap-1.5">
             {/* Offered to admins only — and it can merely hide admin chrome, never unlock it. */}
             {canAdmin && !compact ? (
-              <button
-                type="button"
-                onClick={toggleAdminView}
-                aria-pressed={adminMode}
-                title={adminMode ? "Admin view: ON" : "Admin view: OFF"}
+              // The shared switch (components/ui/Toggle), never "ON"/"OFF" words: the track says it.
+              <span
                 className={cn(
-                  "hidden items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-medium transition sm:inline-flex",
-                  adminMode
-                    ? "border-purple-300 bg-purple-50 text-purple-700"
-                    : "border-line-200 bg-card text-ink-500 hover:bg-surface-50"
+                  "hidden items-center gap-1 rounded-full border py-0.5 pl-2.5 pr-0.5 text-xs font-medium transition sm:inline-flex",
+                  adminMode ? "border-purple-300 bg-purple-50 text-purple-700" : "border-line-200 bg-card text-ink-500"
                 )}
               >
                 {adminMode ? <Eye className="h-3.5 w-3.5" aria-hidden /> : <EyeOff className="h-3.5 w-3.5" aria-hidden />}
-                {adminMode ? "Admin view: ON" : "Admin view: OFF"}
-              </button>
+                <span aria-hidden>Admin view</span>
+                <Toggle hideLabel label="Admin view" checked={adminMode} onChange={() => toggleAdminView()} />
+              </span>
             ) : null}
             <button
               ref={menuButtonRef}
@@ -539,10 +536,14 @@ export function DynamicIslandNav() {
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line-200 pt-4">
                 {canAdmin ? (
-                  <button type="button" onClick={toggleAdminView} aria-pressed={adminMode} className="field-button-secondary">
-                    {adminMode ? <Eye className="h-4 w-4" aria-hidden /> : <EyeOff className="h-4 w-4" aria-hidden />}
-                    {adminMode ? "Admin view: ON" : "Admin view: OFF"}
-                  </button>
+                  <div className="min-w-56">
+                    <Toggle
+                      label="Admin view"
+                      description={adminMode ? "Admin pages and controls are shown." : "Admin pages and controls are hidden."}
+                      checked={adminMode}
+                      onChange={() => toggleAdminView()}
+                    />
+                  </div>
                 ) : null}
                 <div className="ml-auto text-right text-xs">
                   <div className="font-medium text-ink-900">{user.name}</div>

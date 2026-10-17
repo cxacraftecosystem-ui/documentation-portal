@@ -552,15 +552,18 @@ test("the toolkit name mirrors into the English name, and stops the moment a per
  * ──────────────────────────────────────────────────────────────────────────── */
 
 test("the artisan form collects the craft start date and clears it with an explicit null", () => {
-  const box = inputFor(ARTISAN_FORM, "craftStartDate", "ArtisanForm");
-  expect(box, "a date, because a stated number of years is wrong within a year").toContain('type="date"');
-  expect(box, "seeded from the record, trimmed to the date the input understands").toContain(
+  // The shared CalendarField (owner, 2026-10-17: never a native date input), not a <TextInput>.
+  const at = ARTISAN_FORM.indexOf('name="craftStartDate"');
+  expect(at, "there must be a control named craftStartDate").toBeGreaterThan(-1);
+  const box = ARTISAN_FORM.slice(ARTISAN_FORM.lastIndexOf("<CalendarField", at), ARTISAN_FORM.indexOf("/>", at) + 2);
+  expect(box, "a date, because a stated number of years is wrong within a year").toContain("<CalendarField");
+  expect(box, "seeded from the record, trimmed to the yyyy-mm-dd the field understands").toContain(
     'defaultValue={initial?.craftStartDate ? String(initial.craftStartDate).slice(0, 10) : ""}'
   );
-  expect(box, "a craft taken up next year is a typo the browser can refuse").toContain(
-    'max={new Date().toISOString().slice(0, 10)}'
+  expect(box, "a craft taken up next year is refused: today, in LOCAL parts").toContain("max={toIsoDate(new Date())}");
+  expect(box, "a themed field fires no native input event, so the guard is armed by hand").toContain(
+    "onChange={() => markDirty()}"
   );
-  expect(box, "a date fires no themed-control event, so the guard is armed by hand").toContain("onChange={markDirty}");
   expect(ARTISAN_FORM, "not dictated — both readings of an ambiguous spoken date are valid dates").not.toMatch(
     /<DictatedTextInput[\s\S]{0,400}?name="craftStartDate"/
   );

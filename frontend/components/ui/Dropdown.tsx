@@ -81,7 +81,8 @@ export function MultiSelectDropdown({
   ariaLabel,
   searchable,
   confirmOnSelect = true,
-  confirmLabel = "Confirm"
+  confirmLabel = "Confirm",
+  showChips = true
 }: {
   values: string[];
   onChange: (values: string[]) => void;
@@ -103,6 +104,8 @@ export function MultiSelectDropdown({
    */
   confirmOnSelect?: boolean;
   confirmLabel?: string;
+  /** Removable chips for the chosen options under the trigger. See `SearchableMultiSelect`. */
+  showChips?: boolean;
 }) {
   return (
     <SearchableMultiSelect
@@ -117,6 +120,7 @@ export function MultiSelectDropdown({
       searchable={searchable}
       confirmOnSelect={confirmOnSelect}
       confirmLabel={confirmLabel}
+      showChips={showChips}
     />
   );
 }

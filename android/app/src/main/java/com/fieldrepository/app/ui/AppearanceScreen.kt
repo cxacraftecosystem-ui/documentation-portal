@@ -622,7 +622,7 @@ private fun ThemeChoiceRow(option: ThemeOption, selected: Boolean, onSelect: () 
     }
 }
 
-/** One accessibility switch: label + helper on the left, the switch on the right, whole row tappable. */
+/** One accessibility switch: the shared [AppToggle] — label + helper, the whole row tappable. */
 @Composable
 private fun AccessibilitySwitchRow(
     label: String,
@@ -630,23 +630,7 @@ private fun AccessibilitySwitchRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.small)
-            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange)
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
-            Text(helper, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
-        }
-        // The row owns the gesture, so the switch itself is decoration (null keeps it non-clickable
-        // and stops the tap target from being announced twice).
-        Switch(checked = checked, onCheckedChange = null)
-    }
+    AppToggle(label = label, description = helper, checked = checked, onCheckedChange = onCheckedChange)
 }
 
 /** The web's status line: an error if there is one, else saving/saved. */

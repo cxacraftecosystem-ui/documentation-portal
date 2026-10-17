@@ -25,7 +25,9 @@ import { DictatedTextInput } from "@/components/richtext/DictatedTextInput";
 import { DictationUnavailableNotice } from "@/components/richtext/DictationUnavailableNotice";
 import { RichTextField } from "@/components/richtext/RichTextField";
 import { appendStoredParagraph } from "@/components/richtext/storedRichText";
+import { CalendarField } from "@/components/ui/CalendarField";
 import { RequiredMark } from "@/components/ui/RequiredMark";
+import { toIsoDate } from "@/components/forms/DateTimeField";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 import { statusLabel } from "@/components/StatusBadge";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
@@ -358,6 +360,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
   const { user } = useAuth();
   const canSetStatus = hasRank(user, "PROFESSOR");
   const identityLabelId = `${useId()}-identity`;
+  const dateFieldsId = useId();
   const formRef = useRef<HTMLFormElement>(null);
   const [crafts, setCrafts] = useState<Craft[]>([]);
   // Controlled so the carried craft can land in it after the list arrives; a defaultValue is fixed
@@ -937,29 +940,38 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
 
               A DATE OF BIRTH AND NOT AN AGE: the sheet shows an age, derived from this on every
               read, because an age written down is wrong within a year and nothing would notice. */}
-          <Field label="Date of birth">
-            <TextInput
+          {/* CalendarField, never the browser's native date input; labelled as a SIBLING because it holds buttons
+              (a wrapping <label> would fold "Open calendar" into its name). `max` is today in LOCAL
+              parts — toISOString() is UTC and, before 05:30 in India, still yesterday. */}
+          <div className="grid min-w-0 gap-1">
+            <label htmlFor={`${dateFieldsId}-dob`} className="field-label">
+              Date of birth
+            </label>
+            <CalendarField
+              id={`${dateFieldsId}-dob`}
               name="dateOfBirth"
-              type="date"
               defaultValue={initial?.dateOfBirth ? String(initial.dateOfBirth).slice(0, 10) : ""}
-              max={new Date().toISOString().slice(0, 10)}
-              onChange={markDirty}
+              max={toIsoDate(new Date())}
+              onChange={() => markDirty()}
             />
-          </Field>
+          </div>
           {/* THE DATE THE DERIVED FIGURE IS COMPUTED FROM. It sits BEFORE the two stated boxes
               because it outranks them: the record sheet prefers this, then `experienceYears`, then
               the legacy metadata, and a form that asks for the weakest answer first teaches the
               opposite. `max` is today for the same reason date of birth carries one — a craft taken
               up next year is a typo, and the browser can refuse it by name. */}
-          <Field label="Craft start date">
-            <TextInput
+          <div className="grid min-w-0 gap-1">
+            <label htmlFor={`${dateFieldsId}-craft-start`} className="field-label">
+              Craft start date
+            </label>
+            <CalendarField
+              id={`${dateFieldsId}-craft-start`}
               name="craftStartDate"
-              type="date"
               defaultValue={initial?.craftStartDate ? String(initial.craftStartDate).slice(0, 10) : ""}
-              max={new Date().toISOString().slice(0, 10)}
-              onChange={markDirty}
+              max={toIsoDate(new Date())}
+              onChange={() => markDirty()}
             />
-          </Field>
+          </div>
           <Field label="Experience (years)">
             <TextInput
               name="experienceYears"

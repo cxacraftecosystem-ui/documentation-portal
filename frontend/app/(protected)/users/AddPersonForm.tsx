@@ -19,7 +19,9 @@
 import { useState } from "react";
 import { Copy, UserPlus } from "lucide-react";
 
-import { Field, TextInput } from "@/components/FormControls";
+import { Field, Select, TextInput } from "@/components/FormControls";
+import { RequiredMark } from "@/components/ui/RequiredMark";
+import { Toggle } from "@/components/ui/Toggle";
 import { requiredText } from "@/lib/forms";
 import { roleLabel } from "@/lib/permissions";
 import {
@@ -180,15 +182,20 @@ export function AddPersonForm({
         <Field label="Email" required>
           <TextInput name="email" type="email" required autoComplete="off" />
         </Field>
-        <Field label="Role" required>
-          <select name="role" className="field-input" defaultValue={roles.includes("RESEARCHER") ? "RESEARCHER" : roles[0]}>
+        {/* A <div>, not Field's <label>: the themed Select is a button, and a wrapping label would
+            forward stray clicks to it. Named through aria-label instead. */}
+        <div className="grid min-w-0 gap-1">
+          <span className="field-label">
+            Role <RequiredMark when />
+          </span>
+          <Select name="role" required aria-label="Role" defaultValue={roles.includes("RESEARCHER") ? "RESEARCHER" : roles[0]}>
             {roles.map((role) => (
               <option key={role} value={role}>
                 {roleLabel(role)}
               </option>
             ))}
-          </select>
-        </Field>
+          </Select>
+        </div>
       </div>
 
       <fieldset className="grid gap-2">
@@ -226,10 +233,11 @@ export function AddPersonForm({
               />
             </Field>
             <p className="text-xs leading-5 text-ink-500">{passwordRuleLine("Send it to them yourself — nothing shows it again.")}</p>
-            <label className="flex items-start gap-2 text-sm text-ink-700">
-              <input type="checkbox" checked={requireChange} onChange={(event) => setRequireChange(event.target.checked)} className="mt-1" />
-              <span>Ask them to choose a new password at first sign-in</span>
-            </label>
+            <Toggle
+              label="Ask them to choose a new password at first sign-in"
+              checked={requireChange}
+              onChange={setRequireChange}
+            />
             <RequireChangeNote required={requireChange} when="first" />
           </div>
         ) : mode === "GENERATE" ? (
@@ -243,24 +251,17 @@ export function AddPersonForm({
               Their account opens the first time they sign in with Google, Microsoft or Yahoo on this address.
             </p>
             {mailAvailable ? (
-              <label className="flex items-start gap-2 text-sm text-ink-700">
-                <input type="checkbox" checked={sendLink} onChange={(event) => setSendLink(event.target.checked)} className="mt-1" />
-                <span>Email them a link to set a password too</span>
-              </label>
+              <Toggle label="Email them a link to set a password too" checked={sendLink} onChange={setSendLink} />
             ) : null}
           </div>
         )}
       </fieldset>
 
-      <div className="flex flex-wrap gap-2">
-        <label className="flex items-center gap-2 rounded-md border border-line-200 bg-field-100 px-3 py-2 text-sm text-ink-muted">
-          <input name="canManageQuestionnaire" type="checkbox" />
-          Manage questionnaire
-        </label>
-        <label className="flex items-center gap-2 rounded-md border border-line-200 bg-field-100 px-3 py-2 text-sm text-ink-muted">
-          <input name="canDownloadDataset" type="checkbox" />
-          Download dataset
-        </label>
+      {/* Settings, so switches (components/ui/Toggle). Uncontrolled with a `name`: each posts "on"
+          while on, exactly as the checkboxes they replace did, so `submit` reads them unchanged. */}
+      <div className="grid gap-1 md:max-w-md">
+        <Toggle name="canManageQuestionnaire" label="Manage questionnaire" />
+        <Toggle name="canDownloadDataset" label="Download dataset" />
       </div>
 
       <div>

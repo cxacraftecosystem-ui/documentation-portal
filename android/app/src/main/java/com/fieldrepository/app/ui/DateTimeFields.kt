@@ -316,7 +316,38 @@ private object DateSlashTransformation : VisualTransformation {
 private fun LocalDate?.toDateDigits(): String = this?.format(fieldDateFormatter)?.filter { it.isDigit() } ?: ""
 
 /**
- * A labelled date field: type the date, or tap the calendar for the themed picker.
+ * `CalendarField` — the ONE date field on the handset; the web's `CalendarField`
+ * (components/ui/CalendarField.tsx). Owner, 2026-10-17: a field that opens a calendar, with min/max,
+ * typed entry still allowed, and Clear. It is [FieldDateField] (folded in — the typing contract, the
+ * themed picker, the bounds) with Clear on by default. The value is a LOCAL [LocalDate], never an
+ * instant, and travels as `yyyy-mm-dd` — the web's `parseDateInput` rule — so it cannot slide a day.
+ */
+@Composable
+fun CalendarField(
+    label: String,
+    value: LocalDate?,
+    onValueChange: (LocalDate?) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String = FIELD_DATE_HINT,
+    minimum: LocalDate? = null,
+    maximum: LocalDate? = null,
+    clearable: Boolean = true,
+    supportingText: String? = null
+) = FieldDateField(
+    label = label,
+    value = value,
+    onValueChange = onValueChange,
+    modifier = modifier,
+    placeholder = placeholder,
+    minimum = minimum,
+    maximum = maximum,
+    clearable = clearable,
+    supportingText = supportingText
+)
+
+/**
+ * A labelled date field: type the date, or tap the calendar for the themed picker. Call it through
+ * [CalendarField]; this is the implementation.
  *
  * TYPING IS THE FIELD ITSELF, NOT A MODE INSIDE THE DIALOG — and that is a decision about data, not
  * about taste. Material 3's picker does have a keyboard-entry toggle, but the pattern it types in

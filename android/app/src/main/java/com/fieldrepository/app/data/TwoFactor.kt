@@ -46,7 +46,13 @@ data class TwoFactorCodeRequest(val code: String)
 
 @Serializable
 data class TwoFactorStatusDto(
+    /** True ONLY once a code has been verified by `/enable`: the one fact that means "On". */
     val enabled: Boolean = false,
+    /**
+     * A setup was started (a QR shown) and not confirmed, and is younger than 15 minutes. Still OFF:
+     * sign-in never asks for a code on the strength of it. Defaults false for an older server.
+     */
+    val pending: Boolean = false,
     @SerialName("recovery_codes_remaining") val recoveryCodesRemaining: Int = 0,
     @SerialName("enabled_at") val enabledAt: String? = null
 )
@@ -57,7 +63,9 @@ data class TwoFactorSetupDto(
     val secret: String,
     @SerialName("otpauth_uri") val otpauthUri: String,
     /** A white square and one black path, drawn on the server. Read by [QrSquare.parse]. */
-    @SerialName("qr_svg") val qrSvg: String
+    @SerialName("qr_svg") val qrSvg: String,
+    /** How long the pending secret stays usable before the server discards it (900). */
+    @SerialName("expires_in_seconds") val expiresInSeconds: Int = 900
 )
 
 @Serializable
@@ -122,3 +130,40 @@ fun recoveryCodesShareText(codes: List<String>, email: String): String =
             ""
         ) + codes
         ).joinToString("\n")
+
+/**
+ * What the two-step switch shows — the web's `twoFactorView` / `twoFactorStatusLine`, to the word.
+ *
+ * Owner's ruling (2026-10-17): the switch is ON only once the server has VERIFIED a code (`/enable`
+ * succeeded). While a setup is open on this screen it reads "Setting up…" and stays off; a setup left
+ * over from an earlier visit (the server's `pending`) is Off and is discarded, never shown as On.
+ */
+object TwoStepSwitch {
+    enum class View { OFF, SETTING_UP, ON }
+
+    /**
+     * Away from the app (in the background) for longer than this, an open setup is abandoned rather
+     * than paused. A short trip — to the authenticator app on this same phone, which is how the code
+     * is read — must NOT cancel it, so the limit is minutes, not zero.
+     */
+    const val AWAY_LIMIT_MILLIS: Long = 5L * 60L * 1000L
+
+    fun view(status: TwoFactorStatusDto?, settingUpHere: Boolean): View = when {
+        status?.enabled == true -> View.ON
+        settingUpHere -> View.SETTING_UP
+        else -> View.OFF
+    }
+
+    /** A setup open when the app went to the background is dropped if it was away too long. */
+    fun abandonedAfterAway(settingUpHere: Boolean, awayMillis: Long): Boolean =
+        settingUpHere && awayMillis > AWAY_LIMIT_MILLIS
+
+    /** The plain-words line under the switch, e.g. "On since 17 Oct 2026 · 8 recovery codes left". */
+    fun statusLine(status: TwoFactorStatusDto?, view: View, formatDate: (String) -> String): String {
+        if (view == View.SETTING_UP) return "Setting up… It turns on once the app's code is checked."
+        if (status == null || view == View.OFF) return "Off. Turn it on to ask for a code from your phone at sign-in."
+        val left = status.recoveryCodesRemaining
+        val codes = if (left == 1) "1 recovery code left" else "$left recovery codes left"
+        return status.enabledAt?.let { "On since ${formatDate(it)} · $codes" } ?: "On · $codes"
+    }
+}

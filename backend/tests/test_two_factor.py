@@ -186,10 +186,10 @@ def test_setup_then_enable_switches_it_on_and_hides_every_secret(monkeypatch, cl
     token = _session(f"id-{email}")
 
     assert _call("GET", "/api/auth/two-factor", token=token).json() == {
-        "enabled": False, "recovery_codes_remaining": 0, "enabled_at": None
+        "enabled": False, "pending": False, "recovery_codes_remaining": 0, "enabled_at": None
     }
     setup = _call("POST", "/api/auth/two-factor/setup", token=token).json()
-    assert set(setup) == {"secret", "otpauth_uri", "qr_svg"}
+    assert set(setup) == {"secret", "otpauth_uri", "qr_svg", "expires_in_seconds"}
     row = fake.user.rows[0]
     assert row.twoFactorEnabled is False
     assert row.twoFactorPendingSecret and setup["secret"] not in row.twoFactorPendingSecret
@@ -206,6 +206,7 @@ def test_setup_then_enable_switches_it_on_and_hides_every_secret(monkeypatch, cl
 
     status_now = _call("GET", "/api/auth/two-factor", token=token).json()
     assert status_now["enabled"] is True and status_now["recovery_codes_remaining"] == 10
+    assert status_now["pending"] is False
 
     me = _call("GET", "/api/me", token=token).json()
     for field in two_factor.SECRET_USER_FIELDS:
@@ -776,6 +777,7 @@ def test_public_encode_strips_every_secret_user_field_at_any_depth() -> None:
         "passwordHash": "$2b$12$hash",
         "twoFactorSecret": "v1.a.b.c",
         "twoFactorPendingSecret": "v1.d.e.f",
+        "twoFactorPendingAt": datetime.now(UTC),
         "twoFactorRecoveryCodes": ["$2b$12$code"],
         "twoFactorLastStep": 59_000_000,
         "twoFactorFailedAttempts": 3,
@@ -812,3 +814,108 @@ def test_public_encode_strips_every_secret_user_field_at_any_depth() -> None:
 
     assert not keys(encoded) & set(SECRET_USER_FIELDS)
     assert encoded["uploadedBy"]["twoFactorEnabled"] is True and encoded["uploadedBy"]["email"]
+
+
+# --- A setup that was started and never confirmed ----------------------------------------------------
+# The owner's bug report: switching it on, never scanning, and coming back to an account that said On.
+# Only /enable with a verified code turns it on; a pending setup is Off, and a left setup is discarded.
+
+
+def test_a_pending_setup_reads_as_off_and_pending(monkeypatch, clock) -> None:
+    email = "pending@example.org"
+    install(monkeypatch, FakeDb(users=[_account(email)], roster=_admitted(email)))
+    token = _session(f"id-{email}")
+    assert _call("POST", "/api/auth/two-factor/setup", token=token).status_code == 200
+    answer = _call("GET", "/api/auth/two-factor", token=token).json()
+    assert answer["enabled"] is False
+    assert answer["pending"] is True
+    assert answer["recovery_codes_remaining"] == 0
+
+
+def test_a_pending_only_account_signs_in_without_a_challenge(monkeypatch, clock) -> None:
+    email = "walked-away@example.org"
+    install(monkeypatch, FakeDb(users=[_account(email)], roster=_admitted(email)))
+    assert _call("POST", "/api/auth/two-factor/setup", token=_session(f"id-{email}")).status_code == 200
+    signed_in = _password_login(email)
+    assert signed_in.status_code == 200, signed_in.text
+    body = signed_in.json()
+    assert "two_factor_required" not in body and "challenge_token" not in body
+    assert body.get("accessToken")
+
+
+def test_cancel_discards_the_pending_secret_and_enable_then_refuses(monkeypatch, clock) -> None:
+    email = "cancel@example.org"
+    fake = install(monkeypatch, FakeDb(users=[_account(email)], roster=_admitted(email)))
+    token = _session(f"id-{email}")
+    secret = _call("POST", "/api/auth/two-factor/setup", token=token).json()["secret"]
+    cancelled = _call("POST", "/api/auth/two-factor/setup/cancel", token=token)
+    assert cancelled.status_code == 204
+    row = fake.user.rows[0]
+    assert row.twoFactorPendingSecret is None and row.twoFactorPendingAt is None
+    assert _call("GET", "/api/auth/two-factor", token=token).json()["pending"] is False
+    late = _call("POST", "/api/auth/two-factor/enable", {"code": two_factor.current_totp(secret)}, token)
+    assert late.status_code == 409
+    assert row.twoFactorEnabled is False
+
+
+def test_cancel_is_idempotent_and_never_touches_an_enabled_secret(monkeypatch, clock) -> None:
+    email = "already-on@example.org"
+    fake = install(monkeypatch, FakeDb(users=[_account(email)], roster=_admitted(email)))
+    token = _session(f"id-{email}")
+    # Nothing pending at all: still a 204.
+    assert _call("POST", "/api/auth/two-factor/setup/cancel", token=token).status_code == 204
+    _enrol(f"id-{email}", clock)
+    row = fake.user.rows[0]
+    enabled_secret = row.twoFactorSecret
+    assert _call("POST", "/api/auth/two-factor/setup/cancel", token=token).status_code == 204
+    assert _call("POST", "/api/auth/two-factor/setup/cancel", token=token).status_code == 204
+    assert row.twoFactorEnabled is True and row.twoFactorSecret == enabled_secret
+    assert len(row.twoFactorRecoveryCodes) == two_factor.RECOVERY_CODE_COUNT
+
+
+def test_cancel_needs_a_session(monkeypatch) -> None:
+    install(monkeypatch, FakeDb(users=[], roster=[]))
+    assert _call("POST", "/api/auth/two-factor/setup/cancel").status_code == 401
+
+
+def test_a_setup_older_than_fifteen_minutes_is_cleared_and_cannot_be_enabled(monkeypatch, clock) -> None:
+    email = "stale@example.org"
+    fake = install(monkeypatch, FakeDb(users=[_account(email)], roster=_admitted(email)))
+    token = _session(f"id-{email}")
+    secret = _call("POST", "/api/auth/two-factor/setup", token=token).json()["secret"]
+    clock.now += two_factor.PENDING_TTL.total_seconds() + 1
+    expired = _call("POST", "/api/auth/two-factor/enable", {"code": two_factor.current_totp(secret)}, token)
+    assert expired.status_code == 409
+    row = fake.user.rows[0]
+    assert row.twoFactorEnabled is False and row.twoFactorPendingSecret is None
+
+
+def test_the_status_read_clears_a_stale_pending_secret(monkeypatch, clock) -> None:
+    email = "came-back@example.org"
+    fake = install(monkeypatch, FakeDb(users=[_account(email)], roster=_admitted(email)))
+    token = _session(f"id-{email}")
+    _call("POST", "/api/auth/two-factor/setup", token=token)
+    clock.now += two_factor.PENDING_TTL.total_seconds() + 60
+    answer = _call("GET", "/api/auth/two-factor", token=token).json()
+    assert answer == {"enabled": False, "pending": False, "recovery_codes_remaining": 0, "enabled_at": None}
+    assert fake.user.rows[0].twoFactorPendingSecret is None
+
+
+def test_a_setup_inside_fifteen_minutes_still_enables(monkeypatch, clock) -> None:
+    email = "slow-scanner@example.org"
+    install(monkeypatch, FakeDb(users=[_account(email)], roster=_admitted(email)))
+    token = _session(f"id-{email}")
+    secret = _call("POST", "/api/auth/two-factor/setup", token=token).json()["secret"]
+    clock.now += two_factor.PENDING_TTL.total_seconds() - 60
+    enabled = _call("POST", "/api/auth/two-factor/enable", {"code": two_factor.current_totp(secret)}, token)
+    assert enabled.status_code == 200, enabled.text
+
+
+def test_a_legacy_pending_secret_without_a_stamp_is_not_live() -> None:
+    class Row:
+        twoFactorEnabled = False
+        twoFactorPendingSecret = "v1.a.b.c"
+        twoFactorPendingAt = None
+
+    assert two_factor.pending_is_live(Row()) is False
+    assert two_factor.has_stale_pending(Row()) is True

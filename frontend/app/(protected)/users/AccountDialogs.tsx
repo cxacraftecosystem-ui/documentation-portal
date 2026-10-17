@@ -22,6 +22,7 @@ import {
 import type { User } from "@/lib/types";
 
 import { hasPassword, linkOffered, passwordFrom, passwordHasEdgeSpace } from "./accountAdmin";
+import { Toggle } from "@/components/ui/Toggle";
 
 /** The amber box for "this choice has a cost". */
 export const CAUTION_CLASS = "rounded-md border border-amber-500/30 bg-amber-100 px-3 py-2 text-xs leading-5 text-amber-800";
@@ -186,15 +187,7 @@ export function TemporaryPasswordDialog({
             </p>
           </div>
           {edgeSpace ? <EdgeSpaceNote /> : null}
-          <label className="flex items-start gap-2 text-sm text-ink-700">
-            <input
-              type="checkbox"
-              checked={requireChange}
-              onChange={(event) => setRequireChange(event.target.checked)}
-              className="mt-1"
-            />
-            <span>Require a new password at next sign-in</span>
-          </label>
+          <Toggle label="Require a new password at next sign-in" checked={requireChange} onChange={setRequireChange} />
           <RequireChangeNote required={requireChange} when="next" />
         </form>
       ) : null}
@@ -293,16 +286,13 @@ export function RequirePasswordChangeDialog({
             know it, they need a password link.
           </p>
           {canLink ? (
-            <label className="flex items-start gap-2 text-sm text-ink-700">
-              <input
-                type="checkbox"
-                checked={withLink}
-                disabled={busy}
-                onChange={(event) => setWithLinkChoice(event.target.checked)}
-                className="mt-1"
-              />
-              <span>Also make a password link — shown to you once, on this page, to send them yourself</span>
-            </label>
+            <Toggle
+              label="Also make a password link"
+              description="Shown to you once, on this page, to send them yourself."
+              checked={withLink}
+              disabled={busy}
+              onChange={setWithLinkChoice}
+            />
           ) : null}
         </div>
       ) : null}

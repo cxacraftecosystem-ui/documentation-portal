@@ -60,6 +60,7 @@ import type {
   ToolDocumentation,
   Workshop
 } from "@/lib/types";
+import { Toggle } from "@/components/ui/Toggle";
 
 // ---------------------------------------------------------------------------
 // Local types for the /data browsing endpoints
@@ -1710,15 +1711,13 @@ export default function DataBrowserPage() {
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-ink-500">Include</span>
               {INCLUDE_OPTIONS.map((option) => (
-                <label key={option.key} className="inline-flex items-center gap-1.5 text-sm text-ink-700">
-                  <input
-                    type="checkbox"
-                    className="accent-purple-700"
-                    checked={includes[option.key]}
-                    onChange={(event) => setIncludes((prev) => ({ ...prev, [option.key]: event.target.checked }))}
-                  />
-                  {option.label}
-                </label>
+                <Toggle
+                  key={option.key}
+                  className="w-auto gap-3"
+                  label={option.label}
+                  checked={includes[option.key]}
+                  onChange={(next) => setIncludes((prev) => ({ ...prev, [option.key]: next }))}
+                />
               ))}
               <div className="ml-auto">
                 <button type="button" className="field-button" disabled={downloading} onClick={downloadFolder}>

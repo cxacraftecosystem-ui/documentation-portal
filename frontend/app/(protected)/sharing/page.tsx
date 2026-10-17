@@ -333,15 +333,6 @@ export default function SharingPage() {
     }
   }
 
-  function toggleRecord(key: string) {
-    setSelectedKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
-
   const load = useCallback(async () => {
     try {
       const [g, t, u] = await Promise.all([
@@ -903,21 +894,21 @@ export default function SharingPage() {
           </label>
         </div>
         {!grantScopeAll ? (
-          <div className="mt-2 max-h-64 overflow-y-auto rounded-md border border-line-200 bg-field-50 p-2">
+          <div className="mt-2">
             {loadingRecords ? (
               <p className="px-2 py-1 text-sm text-ink-muted">Loading your records…</p>
             ) : (myRecords ?? []).length === 0 ? (
               <p className="px-2 py-1 text-sm text-ink-muted">You have no records to share.</p>
             ) : (
-              (myRecords ?? []).map((r) => {
-                const key = `${r.recordType}::${r.recordId}`;
-                return (
-                  <label key={key} className="flex items-center gap-2 rounded px-2 py-1 hover:bg-field-100">
-                    <input type="checkbox" checked={selectedKeys.has(key)} onChange={() => toggleRecord(key)} />
-                    <span className="min-w-0 flex-1 truncate text-sm text-ink">{r.label}</span>
-                  </label>
-                );
-              })
+              <SearchableMultiSelect
+                values={Array.from(selectedKeys)}
+                onChange={(next) => setSelectedKeys(new Set(next))}
+                options={(myRecords ?? []).map((r) => ({ value: `${r.recordType}::${r.recordId}`, label: r.label }))}
+                placeholder="Choose records to share"
+                ariaLabel="Records to share"
+                confirmOnSelect={false}
+                searchable
+              />
             )}
           </div>
         ) : null}

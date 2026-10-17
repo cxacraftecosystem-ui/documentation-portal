@@ -23,6 +23,8 @@ import { adminChromeVisible, useAdminView } from "@/components/AdminViewProvider
 import { useAuth } from "@/components/AuthProvider";
 import { useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { PageHeader } from "@/components/PageHeader";
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
+import { Toggle } from "@/components/ui/Toggle";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { assignableRoles, hasRank, isAdmin, isMasterAdmin, roleLabel, roleRank } from "@/lib/permissions";
@@ -134,21 +136,17 @@ function UserView() {
             <Item label="Email">{person.email}</Item>
             <Item label="Role">
               {updating && mayUpdate ? (
-                <select
-                  className="field-input max-w-56"
-                  aria-label={`Role for ${person.name}`}
+                <SearchableSelect
+                  className="max-w-56"
+                  ariaLabel={`Role for ${person.name}`}
                   value={person.role}
                   disabled={saving}
-                  onChange={(event) => void changeRole(event.target.value)}
-                >
-                  {assignableRoles(currentUser)
+                  advanceOnSelect={false}
+                  onChange={(next) => void changeRole(next)}
+                  options={assignableRoles(currentUser)
                     .filter((role) => role !== "MASTER_ADMIN" || isMasterAdmin(currentUser))
-                    .map((role) => (
-                      <option key={role} value={role}>
-                        {roleLabel(role)}
-                      </option>
-                    ))}
-                </select>
+                    .map((role) => ({ value: role, label: roleLabel(role) }))}
+                />
               ) : (
                 roleLabel(person.role)
               )}
@@ -171,9 +169,21 @@ function UserView() {
               />
             </Item>
             <Item label="Two-step verification">
-              {person.twoFactorEnabled
-                ? `On${person.twoFactorEnabledAt ? ` since ${formatDateTime(person.twoFactorEnabledAt)}` : ""}`
-                : "Off"}
+              <span className="flex flex-wrap items-center gap-2">
+                <Toggle
+                  hideLabel
+                  label={`Two-step verification for ${person.email}`}
+                  checked={Boolean(person.twoFactorEnabled)}
+                  disabled
+                />
+                <span className="text-xs text-ink-500">
+                  {person.twoFactorEnabled
+                    ? person.twoFactorEnabledAt
+                      ? `Since ${formatDateTime(person.twoFactorEnabledAt)}`
+                      : "Turned on"
+                    : "Not turned on. Only they can turn it on, from their account."}
+                </span>
+              </span>
             </Item>
             <Item label="First signed in">
               {!person.firstLoginAt
@@ -217,11 +227,7 @@ function Grant({
   label: string;
   onChange: (value: boolean) => void;
 }) {
-  if (!editable) return <>{on ? "Yes" : "No"}</>;
-  return (
-    <label className="inline-flex items-center gap-2">
-      <input type="checkbox" className="h-4 w-4 accent-purple-700" checked={on} aria-label={label} onChange={(event) => onChange(event.target.checked)} />
-      <span>{on ? "Yes" : "No"}</span>
-    </label>
-  );
+  // The shared switch (components/ui/Toggle), never a checkbox for a setting. Read-only is the same
+  // switch, disabled, so "on" looks the same whether or not this viewer may change it.
+  return <Toggle hideLabel label={label} checked={on} disabled={!editable} onChange={onChange} />;
 }

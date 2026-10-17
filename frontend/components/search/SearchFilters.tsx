@@ -14,8 +14,9 @@
 import { useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 
-import { DateField } from "@/components/forms/DateTimeField";
+import { CalendarField } from "@/components/ui/CalendarField";
 import { Dropdown } from "@/components/ui/Dropdown";
+import { SearchableMultiSelect } from "@/components/ui/SearchableSelect";
 
 /** The five buckets `GET /search` returns, in the order the results are rendered. */
 export const RECORD_TYPES = ["artisans", "workshops", "products", "tools", "media"] as const;
@@ -216,12 +217,12 @@ const CHIP_OFF = "border-line-200 bg-surface-50 text-ink-700 hover:border-purple
  * Chips, a disclosure, and the advanced panel behind it.
  *
  * THE CHIPS AND THE MULTI-SELECT ARE ONE PIECE OF STATE, not two. `filters.types` is the only store
- * of which types are being searched; the chip row and the checkbox list are two editors of that same
+ * of which types are being searched; the chip row and the Record types multi-select are two editors of that same
  * set, which is why they can never fall out of step:
  *
  *   - a chip is the shortcut for "only this" — clicking one REPLACES the set with that single type,
  *     and "Everything" empties it;
- *   - a checkbox adds or removes one member and leaves the rest alone.
+ *   - picking in the multi-select adds or removes one member and leaves the rest alone.
  *
  * The chip row keeps saying what the set is even when the set is something chips alone cannot
  * express: with two or more types selected no chip is the solid "this is the filter" purple, the
@@ -255,12 +256,9 @@ export function SearchFilterBar({
     onChange({ ...value, types: id === "all" ? [] : [id as RecordType] });
   }
 
-  function toggleType(type: RecordType) {
-    const next = value.types.includes(type)
-      ? value.types.filter((current) => current !== type)
-      : [...value.types, type];
+  function setTypes(next: string[]) {
     // Held in bucket order so the state reads the same as the row of chips above it, whatever order
-    // the ticks went in. `typeList` re-derives it anyway; this keeps what is stored honest too.
+    // the choices went in. `typeList` re-derives it anyway; this keeps what is stored honest too.
     onChange({ ...value, types: RECORD_TYPES.filter((current) => next.includes(current)) });
   }
 
@@ -329,7 +327,7 @@ export function SearchFilterBar({
                 <label className="field-label" htmlFor="search-range-from">
                   From
                 </label>
-                <DateField
+                <CalendarField
                   id="search-range-from"
                   value={value.from}
                   max={value.to || undefined}
@@ -340,7 +338,7 @@ export function SearchFilterBar({
                 <label className="field-label" htmlFor="search-range-to">
                   To
                 </label>
-                <DateField
+                <CalendarField
                   id="search-range-to"
                   value={value.to}
                   min={value.from || undefined}
@@ -350,25 +348,20 @@ export function SearchFilterBar({
             </div>
           ) : null}
 
-          <fieldset className="grid gap-1.5">
-            <legend className="field-label">Record types</legend>
+          <div className="grid gap-1.5">
+            <span className="field-label">Record types</span>
             <p className="text-xs text-ink-500">
-              The same setting as the chips above. Tick any number; nothing ticked searches everything.
+              The same setting as the chips above. Pick any number; nothing picked searches everything.
             </p>
-            <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-              {RECORD_TYPES.map((type) => (
-                <label key={type} className="flex items-center gap-2 text-sm text-ink-700">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 accent-purple-700"
-                    checked={value.types.includes(type)}
-                    onChange={() => toggleType(type)}
-                  />
-                  {TYPE_LABEL[type]}
-                </label>
-              ))}
-            </div>
-          </fieldset>
+            <SearchableMultiSelect
+              values={value.types}
+              onChange={setTypes}
+              options={RECORD_TYPES.map((type) => ({ value: type, label: TYPE_LABEL[type] }))}
+              placeholder="Everything"
+              ariaLabel="Record types"
+              confirmOnSelect={false}
+            />
+          </div>
 
           {hasActiveFilters(value) ? (
             <div>

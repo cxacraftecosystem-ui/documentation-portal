@@ -27,14 +27,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Text
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -234,11 +240,93 @@ const val TILE_OUTLINE_ALPHA = 0.72f
 
 private data class SavedCopy(val uri: Uri, val name: String, val mimeType: String, val nonce: Long)
 
+/** Which of the two media-card actions a [MediaActionButton] is. */
+enum class MediaAction { DOWNLOAD, RETRY }
+
 /**
- * The one "Download" control on every upload, recording and outbox row: the Download icon and the
- * word "Download", at the trailing end of the row. [source] is the copy on this phone (a content or
- * file Uri); it works before, during and after the upload. On success a snackbar confirms where the
- * file went and offers "Open".
+ * The visible action buttons on a media card — "Retry" and "Download" — drawn ONE way on every
+ * tile, row and banner (capture tiles, uploaded media, the outbox). The web's `MediaActionButton`.
+ *
+ * Owner, 2026-10-17: these were not clearly visible. They were 12sp TextButtons in a light tint
+ * with 2dp of vertical padding — a word floating on the card. Now each is a TONAL button with an
+ * icon AND a word, 14sp semibold, at least 48dp tall, with a 1dp edge of the next rung:
+ *
+ *   Download  light: purple-800 on purple-100   dark: purple-100 on purple-900
+ *   Retry     light: error-800 on error-100     dark: error-400 on error-950
+ *
+ * every pair far above WCAG AA's 4.5:1 for text. Retry takes the error rung because it sits under a
+ * failure line and has to read as the way out of it. [text] overrides the word ("Try again",
+ * "Send again") where the outbox already uses another; the icon stays.
+ */
+@Composable
+fun MediaActionButton(
+    action: MediaAction,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    text: String? = null,
+    enabled: Boolean = true,
+    /**
+     * The on-tile variant: on a coloured tile (Purple800 light, Purple900 dark) the tonal pair would be
+     * a purple chip on a purple card, so the button is drawn OUTLINED in the tile's own ink instead —
+     * the word and icon in [onTile], the edge in [onTile] at [TILE_OUTLINE_ALPHA], no container. The
+     * ink is the theme's onBrandTile, far above AA's 4.5:1 on both purples. Same size, icon and word.
+     */
+    onTile: Color? = null
+) {
+    if (onTile != null) {
+        OutlinedButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = modifier.heightIn(min = 48.dp),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, onTile.copy(alpha = TILE_OUTLINE_ALPHA)),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+            colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent, contentColor = onTile)
+        ) { MediaActionLabel(action, text) }
+        return
+    }
+    val dark = MaterialTheme.field.isDark
+    val (container, content, edge) = when (action) {
+        MediaAction.DOWNLOAD ->
+            if (dark) Triple(FieldPalette.Purple900, FieldPalette.Purple100, FieldPalette.Purple700)
+            else Triple(FieldPalette.Purple100, FieldPalette.Purple800, FieldPalette.Purple200)
+        MediaAction.RETRY ->
+            if (dark) Triple(FieldPalette.Error950, FieldPalette.Error400, FieldPalette.Error800)
+            else Triple(FieldPalette.Error100, FieldPalette.Error800, FieldPalette.Error400.copy(alpha = 0.6f))
+    }
+    FilledTonalButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.heightIn(min = 48.dp),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, edge),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+        colors = ButtonDefaults.filledTonalButtonColors(containerColor = container, contentColor = content)
+    ) { MediaActionLabel(action, text) }
+}
+
+/** The icon and the word of a [MediaActionButton], in the button's content colour, in both variants. */
+@Composable
+private fun MediaActionLabel(action: MediaAction, text: String?) {
+    Icon(
+        if (action == MediaAction.DOWNLOAD) Icons.Filled.Download else Icons.Filled.Refresh,
+        contentDescription = null,
+        modifier = Modifier.size(18.dp)
+    )
+    Spacer(Modifier.width(8.dp))
+    Text(
+        text ?: if (action == MediaAction.DOWNLOAD) "Download" else "Retry",
+        fontSize = 14.sp,
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1
+    )
+}
+
+/**
+ * The one "Download" control on every upload, recording and outbox row: a [MediaActionButton] —
+ * the Download icon and the word "Download". [source] is the copy on this phone (a content or file
+ * Uri); it works before, during and after the upload. On success a snackbar confirms where the file
+ * went and offers "Open".
  */
 @Composable
 fun MediaDownloadButton(
@@ -246,9 +334,11 @@ fun MediaDownloadButton(
     modifier: Modifier = Modifier,
     name: String? = null,
     mimeType: String? = null,
-    contentColor: Color? = null,
-    /** Drawn as an outlined button in [contentColor] — for a coloured tile, where a bare link vanishes. */
-    outlined: Boolean = false
+    /**
+     * The ink of a coloured tile this button sits on (the purple "files ready" card). Non-null draws
+     * the on-tile [MediaActionButton] — outlined in that ink — instead of the tonal default.
+     */
+    onTile: Color? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -271,7 +361,10 @@ fun MediaDownloadButton(
         }
     }
 
-    val download: () -> Unit = {
+    MediaActionButton(
+        action = MediaAction.DOWNLOAD,
+        onTile = onTile,
+        onClick = {
             scope.launch {
                 val (fileName, mime) = withContext(Dispatchers.IO) {
                     val mime = mimeTypeOf(context, source, mimeType)
@@ -286,33 +379,9 @@ fun MediaDownloadButton(
                     runCatching { createDocument.launch(fileName) }.onFailure { pending = null; failed(it) }
                 }
             }
-    }
-    val tint = contentColor ?: Coral
-    val label: @Composable () -> Unit = {
-        Icon(Icons.Filled.Download, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(if (outlined) 6.dp else 4.dp))
-        Text(
-            "Download",
-            fontSize = if (outlined) 13.sp else 12.sp,
-            color = tint,
-            fontWeight = if (outlined) FontWeight.SemiBold else null
-        )
-    }
-    if (outlined) {
-        OutlinedButton(
-            onClick = download,
-            modifier = modifier,
-            border = BorderStroke(1.dp, tint.copy(alpha = TILE_OUTLINE_ALPHA)),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = tint),
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-        ) { label() }
-    } else {
-        TextButton(
-            onClick = download,
-            modifier = modifier,
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-        ) { label() }
-    }
+        },
+        modifier = modifier.semantics { contentDescription = "Download ${name ?: "this file"}" }
+    )
 
     saved?.let { copy ->
         LaunchedEffect(copy.nonce) {
@@ -407,9 +476,11 @@ fun OutboxPendingBanner(
                         fontSize = 12.sp,
                         modifier = Modifier.weight(1f)
                     )
-                    TextButton(onClick = { scope.launch { onRetry(entry.id); reload++ } }) {
-                        Text(if (entry.needsReview) "Send again" else "Try again", color = ink, fontSize = 12.sp)
-                    }
+                    MediaActionButton(
+                        action = MediaAction.RETRY,
+                        text = if (entry.needsReview) "Send again" else "Try again",
+                        onClick = { scope.launch { onRetry(entry.id); reload++ } }
+                    )
                 }
             }
             if (files.isEmpty()) {
@@ -427,7 +498,7 @@ fun OutboxPendingBanner(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
-                    MediaDownloadButton(source = Uri.fromFile(file), name = label, mimeType = media.mimeType, contentColor = ink)
+                    MediaDownloadButton(source = Uri.fromFile(file), name = label, mimeType = media.mimeType)
                 }
             }
         }

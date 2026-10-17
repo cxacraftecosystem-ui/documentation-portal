@@ -617,6 +617,7 @@ async def reset_two_factor(user_id: str, current_user: Any = Depends(require_adm
             "twoFactorEnabled": False,
             "twoFactorSecret": None,
             "twoFactorPendingSecret": None,
+            "twoFactorPendingAt": None,
             "twoFactorRecoveryCodes": [],
             "twoFactorLastStep": None,
             "twoFactorEnabledAt": None,

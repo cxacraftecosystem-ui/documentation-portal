@@ -14,6 +14,7 @@ SECRET_USER_FIELDS: tuple[str, ...] = (
     # how close somebody is to guessing their way in.
     "twoFactorSecret",
     "twoFactorPendingSecret",
+    "twoFactorPendingAt",
     "twoFactorRecoveryCodes",
     "twoFactorLastStep",
     "twoFactorFailedAttempts",
