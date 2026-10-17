@@ -4,6 +4,7 @@ from app.api.routes import (
     ai_keys,
     access_roster,
     app_release,
+    artisan_merge,
     artisans,
     auth,
     crafts,
@@ -42,6 +43,8 @@ api_router.include_router(users.router)
 # The sign-in gate's admin side. Mounted next to /users because it answers the same question from
 # the other end: /users is who has an account, /access-roster is who is allowed to have one.
 api_router.include_router(access_roster.router)
+# The merge tool's literal /artisans/merge/* paths, ABOVE /artisans/{artisan_id}.
+api_router.include_router(artisan_merge.router)
 api_router.include_router(artisans.router)
 api_router.include_router(crafts.router)
 api_router.include_router(workshops.router)

@@ -11,6 +11,7 @@ from app.core.deps import (
 )
 from app.schemas.records import ArtisanCreate, ArtisanUpdate, drop_masked_identity_numbers
 from app.services.access import guard_record_edit
+from app.services.artisan_merge import survivor_of
 from app.services.artisan_form_contract import assert_required_dates, take_form_contract
 from app.services.artisan_identity import mask_aadhaar, normalize_aadhaar
 from app.services.concurrency import gather_reads
@@ -397,6 +398,8 @@ async def create_artisan(
 
 @router.get("/{artisan_id}")
 async def get_artisan(artisan_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    # A link to an artisan merged away since opens the one it was merged into.
+    artisan_id = await survivor_of(artisan_id) or artisan_id
     artisan = await require_record(db.artisan, artisan_id)
     await hydrate_relations([artisan], RELATIONS)
     # Masked unless this caller is entitled to the raw number (creator, or professor+) — decided
@@ -411,6 +414,8 @@ async def update_artisan(
     payload: ArtisanUpdate,
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
+    # A queued edit of an artisan merged away since lands on the survivor (services/artisan_merge).
+    artisan_id = await survivor_of(artisan_id) or artisan_id
     artisan = await require_record(db.artisan, artisan_id)
     # ``exclude_unset=True`` IS THE PRECONDITION OF ``clearable``, not a stylistic choice: it is what
     # makes a present key mean "the caller sent this". Drop it and every optional the client left

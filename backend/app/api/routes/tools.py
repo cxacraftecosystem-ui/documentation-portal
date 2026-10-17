@@ -4,6 +4,7 @@ from typing import Any, NamedTuple
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.db import db
+from app.services.artisan_merge import redirect_merged_artisans
 from app.core.deps import (
     require_record_creator,
     assert_can_contribute_relation,
@@ -752,6 +753,8 @@ async def create_tool(
         ):
             await hydrate_relations([replayed], _LINK_RELATIONS)
         return _tool_payload(replayed)
+    # A queued write naming an artisan merged away since lands on the survivor (services/artisan_merge).
+    await redirect_merged_artisans(payload)
     data = decimal_to_string(clean_data(payload.model_dump()))
     # THE TWO LINK LISTS COME OUT OF THE BODY HERE, above everything that reads ``data`` as columns,
     # and the ids are checked before the first write. ``craftId``/``craftName``/``artisanId`` are
@@ -821,6 +824,8 @@ async def update_tool(
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     tool = await require_record(db.tooldocumentation, tool_id)
+    # A queued write naming an artisan merged away since lands on the survivor (services/artisan_merge).
+    await redirect_merged_artisans(payload)
     # ``exclude_unset=True`` IS THE PRECONDITION OF ``clearable``, not a stylistic choice: it is what
     # makes a present key mean "the caller sent this". Drop it and every optional the client left
     # alone would arrive as ``None`` and be written as an explicit NULL over stored data.

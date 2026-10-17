@@ -139,6 +139,11 @@ def _matches(row: Any, where: dict[str, Any] | None) -> bool:
             if "in" in expected:
                 if actual not in expected["in"]:
                     return False
+            elif "has" in expected:
+                # A scalar-list column holding the value (``AssignedTask.artisanIds``), as Postgres's
+                # ``= ANY`` reads it. Added for ``services/artisan_merge``.
+                if expected["has"] not in (actual or []):
+                    return False
             elif "contains" in expected:
                 needle = str(expected["contains"]).lower()
                 if needle not in str(actual or "").lower():
@@ -166,6 +171,13 @@ def _matches(row: Any, where: dict[str, Any] | None) -> bool:
         elif actual != expected:
             return False
     return True
+
+
+def _unwrap_set(value: Any) -> Any:
+    """``{"set": [...]}`` is how a scalar-list column is written on an update; store the list."""
+    if isinstance(value, dict) and set(value) == {"set"}:
+        return value["set"]
+    return value
 
 
 class FakeTable:
@@ -279,6 +291,7 @@ class FakeTable:
         row = await self.find_unique(where)
         if row is None:
             return None
+        data = {field: _unwrap_set(value) for field, value in data.items()}
         candidate = {**vars(row), **data}
         self._refuse_duplicate(candidate, exclude_id=getattr(row, "id", None))
         for field, value in data.items():
@@ -295,6 +308,7 @@ class FakeTable:
                     value = (getattr(row, field, 0) or 0) + value["increment"]
                 elif isinstance(value, dict) and "decrement" in value:
                     value = (getattr(row, field, 0) or 0) - value["decrement"]
+                value = _unwrap_set(value)
                 setattr(row, field, value)
             row.updatedAt = _now()
         self.writes.append(("update_many", dict(data)))
