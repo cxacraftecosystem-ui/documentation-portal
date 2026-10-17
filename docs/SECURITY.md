@@ -476,6 +476,26 @@ never even reaches the Proxy code, and `x-vercel-enable-rewrite-caching: 0`, so 
 stores an answer. Photos, video and audio still go straight from the browser to S3 on presigned URLs.
 The public Android download link still points at the API directly.
 
+**What the API is sent: an allowlist (2026-10-18).** `upstreamHeaders` copies only the browser
+headers it names (`FORWARDED_REQUEST_HEADERS`): `content-type`, `accept*`, `range` and `if-*`,
+`user-agent`, `origin`, `x-forwarded-for`, `idempotency-key`, `x-client-app` and the sign-in
+confirmation headers. It then sets `Authorization` from the cookie and adds the two proxy headers.
+The `Cookie` header is never sent on, and neither is anything Vercel or Next.js added on the way in.
+A new request header from a client must be added to that list, with its reason, or the API never
+sees it.
+
+Checked on a preview on 2026-10-18, with the proxy pointed at a temporary header echo. Before the
+change the API also got `x-vercel-proxy-signature` (a bearer value), `x-vercel-proxy-signature-ts`,
+`x-vercel-ja4-digest` and `x-vercel-proxied-for`. After it, none of them arrived. Vercel's edge still
+adds a few headers on the way out that no project code can remove: `x-vercel-id` (a request id), the
+visitor's address in `x-vercel-forwarded-for`, `x-real-ip`, `x-forwarded-for` and `forwarded` (the
+API already gets it in `X-Viewer-Address`), plus `x-forwarded-host` and `x-forwarded-proto`. No
+`x-vercel-oidc-token` reached the API on either build, though the project has OIDC federation
+turned on. The same run showed that no `Cookie` arrived and `Authorization: Bearer` did, and that
+`X-Web-Proxy-Secret` matched the SSM copy. `X-Viewer-Address` carried the visitor's real address,
+not a forged one sent by the caller. A 5,000,000-byte upload and a 20 MiB download went through
+whole, and a cross-site POST got 403. The check ran on a `designer-repository` preview; `lib/server/apiProxy.ts` is the same file in both portals.
+
 **Cross-site request forgery.** Two locks. `SameSite=Lax` keeps the cookie off cross-site POSTs.
 And every state-changing request (anything but GET/HEAD/OPTIONS) must carry
 `Sec-Fetch-Site: same-origin`, or, from a browser too old to send that header, an `Origin` equal to
@@ -738,6 +758,10 @@ Until it ships: keep `JWT_EXPIRES_MINUTES` no longer than the field workflow nee
 `field_repository_auth`. Since 2026-10-17 `TokenStore` seals the token with AES-256-GCM under a key
 kept in the Android Keystore, and seals a plain token left by an older build on its first read. Not
 `EncryptedSharedPreferences`: that library is deprecated, and one value needs sealing.
+Since 2026-10-18 the sealed token is deleted only when it can never open: no key under the alias,
+a failed GCM check, or a value this code did not write (`OpenResult.Unreadable`). If the Keystore
+cannot be asked at that moment (`OpenResult.Unavailable`, for example just after a boot), the token
+is kept and the next read tries again. Before this, a passing failure signed the person out.
 
 ### P6 — Secret rotation hygiene
 
