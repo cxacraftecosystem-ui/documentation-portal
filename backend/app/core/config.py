@@ -162,6 +162,12 @@ class Settings(BaseSettings):
     two_factor_encryption_previous_keys: str | None = Field(
         default=None, alias="TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS"
     )
+    # The HMAC key the artisan register fingerprints Aadhaar numbers under
+    # (services/aadhaar_fingerprint.py). 32 random bytes, base64. THE SAME VALUE ON BOTH PORTALS, so
+    # the cross-portal link can compare fingerprints. Losing it makes every stored fingerprint
+    # unmatchable; changing it needs the numbers again. Backed up in SSM at
+    # /iit/shared/aadhaar-fingerprint-key. Unset: any write or lookup carrying an Aadhaar is refused.
+    aadhaar_fingerprint_key: str | None = Field(default=None, alias="AADHAAR_FINGERPRINT_KEY")
 
     # --- Security response headers (see app.main.SecurityHeadersMiddleware) ---------------------
     # HSTS tells browsers to refuse plaintext HTTP to this host for max_age seconds. It is only

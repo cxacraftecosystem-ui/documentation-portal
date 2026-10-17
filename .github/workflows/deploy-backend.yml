@@ -1044,6 +1044,53 @@ jobs:
           REMOTE
           } | ssh ubuntu@$EC2_HOST 'bash -s'
 
+      # The artisan register's Aadhaar fingerprint key (2026-10-17): the HMAC key every stored
+      # Aadhaar fingerprint is made with (backend/app/services/aadhaar_fingerprint.py), ONE value shared
+      # with the designer portal so the two registers match. An Actions SECRET, on ssh's STDIN. It
+      # FAILS rather than ships a key that differs from the one on the box (every stored fingerprint
+      # would stop matching, duplicates included); an empty secret keeps the box's key, and a box
+      # with none answers 503 to an artisan save carrying an Aadhaar. Shape-checked on the runner.
+      # Backup: SSM /iit/shared/aadhaar-fingerprint-key.
+      - name: Pin the Aadhaar fingerprint key
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          AADHAAR_FINGERPRINT_KEY: ${{ secrets.AADHAAR_FINGERPRINT_KEY }}
+        run: |
+          key="$(printf '%s' "$AADHAAR_FINGERPRINT_KEY" | tr -d '[:space:]')"
+          # Shape-checked on the runner, before anything reaches the box.
+          if [ -n "$key" ]; then KEY="$key" python3 - <<'PY' || exit 1
+          import base64, binascii, os
+          try:
+              raw = base64.b64decode(os.environ["KEY"], validate=True)
+          except (binascii.Error, ValueError):
+              raw = b""
+          if len(raw) != 32:
+              print("::error::AADHAAR_FINGERPRINT_KEY is not 32 bytes of base64; nothing was deployed.")
+              raise SystemExit(1)
+          PY
+          fi
+          {
+            printf 'AK=%q\n' "$key"
+            cat <<'REMOTE'
+          set -euo pipefail
+          ENVFILE=/home/ubuntu/app/backend/.env
+          have=$({ grep -E '^AADHAAR_FINGERPRINT_KEY=' "$ENVFILE" || true; } | tail -n1 | cut -d= -f2- | tr -d "[:space:]\"'")
+          if [ -z "$AK" ]; then
+            if [ -n "$have" ]; then echo "Aadhaar fingerprint key: kept from the box"; else echo "::warning::AADHAAR_FINGERPRINT_KEY is not set; artisan saves carrying an Aadhaar will answer 503"; fi
+            exit 0
+          fi
+          if [ -n "$have" ] && [ "$have" != "$AK" ]; then
+            echo "::error::the box's AADHAAR_FINGERPRINT_KEY differs from the Actions secret. Changing it makes every stored fingerprint unmatchable; fix the secret (SSM /iit/shared/aadhaar-fingerprint-key)."
+            exit 1
+          fi
+          [ -s "$ENVFILE" ] && [ -n "$(tail -c1 "$ENVFILE")" ] && printf '\n' >> "$ENVFILE"
+          sed -i '/^AADHAAR_FINGERPRINT_KEY=/d' "$ENVFILE"
+          printf 'AADHAAR_FINGERPRINT_KEY=%s\n' "$AK" >> "$ENVFILE"
+          grep -q '^AADHAAR_FINGERPRINT_KEY=.' "$ENVFILE" || { echo "the fingerprint key did not land on its own line"; exit 1; }
+          echo "Aadhaar fingerprint key pinned"
+          REMOTE
+          } | ssh ubuntu@$EC2_HOST 'bash -s'
+
       # ─── THE PROJECT, THE PRISMA CLIENT, THE MIGRATION, THE SWITCH ──────────────────────────────
       # Everything up to the switch happens inside the venv the build step chose, while the API is
       # still serving from the old one; the switch happens with both services stopped. The order of

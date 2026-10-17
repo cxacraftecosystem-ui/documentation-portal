@@ -20,6 +20,7 @@ from app.api.routes.auth import (
     TWO_FACTOR_REQUIRED_HEADER,
 )
 from app.core.config import get_settings
+from app.services import aadhaar_fingerprint
 from app.core.db import connect_db, db, disconnect_db
 from app.core.deps import PASSWORD_CHANGE_REQUIRED_HEADER
 from app.core.idempotency import IdempotencyMiddleware
@@ -511,4 +512,6 @@ def create_app() -> FastAPI:
     return app
 
 
+# An Aadhaar-shaped query value (old app builds' GET duplicate lookup) never reaches the access log.
+aadhaar_fingerprint.install_access_log_redaction()
 app = create_app()

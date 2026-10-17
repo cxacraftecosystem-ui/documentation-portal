@@ -37,6 +37,7 @@ from dataclasses import dataclass
 import json
 from typing import Any, Callable, Iterable
 
+from app.services import aadhaar_fingerprint
 from app.services.artisan_identity import mask_aadhaar
 from app.services.records import derive_age, derive_experience_years
 
@@ -360,7 +361,7 @@ ARTISAN = RecordSpec(
         # (``records.mask_identity_number``, which is this same ``mask_aadhaar``) and nowhere else.
         # A registry that disagrees with the API about which numbers are secret is the whole reason
         # this module exists.
-        _f("Aadhaar number", lambda a: mask_aadhaar(a.aadhaarNumber)),
+        _f("Aadhaar number", aadhaar_fingerprint.stored_mask),
         _f(
             "Artisan Pehchan Card",
             lambda a: "Yes" if a.pehchanCardAvailable else "No",

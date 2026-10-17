@@ -28,6 +28,7 @@ from app.schemas.records import (
     WorkshopUpdate,
     drop_masked_identity_numbers,
 )
+from app.services import aadhaar_fingerprint
 from app.services.access import record_revision
 from app.services.records import clean_data, decimal_to_string, jsonify_metadata, merge_field_provenance
 from app.services.records import review_update
@@ -445,8 +446,25 @@ async def edit_reviewed_record(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Send at least one field to change in 'fields'",
         )
+    # The artisan's Aadhaar is stored as a fingerprint and its last four (services/
+    # aadhaar_fingerprint.py), here exactly as on PATCH /artisans.
+    if key == "artisan":
+        try:
+            aadhaar_fingerprint.seal(data, previous=record)
+        except aadhaar_fingerprint.FingerprintKeyMissing as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Aadhaar numbers can't be saved right now. Try again shortly.",
+            ) from exc
     changed = sorted(
-        field for field, value in data.items() if not values_match(get_value(record, field), value)
+        {
+            # The log names the field the reviewer edited, never the stored halves of it.
+            aadhaar_fingerprint.NUMBER_FIELD
+            if field in (aadhaar_fingerprint.FINGERPRINT_FIELD, aadhaar_fingerprint.LAST4_FIELD)
+            else field
+            for field, value in data.items()
+            if not values_match(get_value(record, field), value)
+        }
     )
 
     # Audit BEFORE provenance is merged in, so the revision holds real content changes only.

@@ -1,6 +1,8 @@
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 
 from app.core.db import db
 from app.core.deps import (
@@ -12,7 +14,8 @@ from app.core.deps import (
 from app.schemas.records import ArtisanCreate, ArtisanUpdate, drop_masked_identity_numbers
 from app.services.access import guard_record_edit
 from app.services.artisan_form_contract import assert_required_dates, take_form_contract
-from app.services.artisan_identity import mask_aadhaar, normalize_aadhaar
+from app.services import aadhaar_fingerprint
+from app.services.artisan_identity import aadhaar_error, mask_aadhaar, normalize_aadhaar
 from app.services.concurrency import gather_reads
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.record_filters import (
@@ -44,6 +47,8 @@ from app.services.workshop_access import (
     pin_pending_if_late,
     stamp_workshop_submission,
 )
+
+logger = logging.getLogger("app.artisans")
 
 router = APIRouter(prefix="/artisans", tags=["artisans"])
 
@@ -134,15 +139,41 @@ _CLEARABLE_COLUMNS = (
 )
 
 
+#: The column whose unique index stands behind each request field. The Aadhaar is stored as its
+#: fingerprint (services/aadhaar_fingerprint.py); a 409 still names ``aadhaarNumber``, the field
+#: the form shows, so every client keeps placing the message under the Aadhaar box.
+_IDENTITY_COLUMNS = {
+    "aadhaarNumber": aadhaar_fingerprint.FINGERPRINT_FIELD,
+    "pehchanCardNumber": "pehchanCardNumber",
+}
+
+
 def _violated_identity_field(error: Exception) -> str | None:
-    """Which identity column a Prisma unique-constraint error was raised on, if any."""
+    """Which identity field a Prisma unique-constraint error was raised on, if any."""
     text = str(error)
     if "unique" not in text.lower():
         return None
-    for field in _IDENTITY_CONSTRAINTS:
-        if field in text:
+    for field, column in _IDENTITY_COLUMNS.items():
+        if column in text or field in text:
             return field
     return None
+
+
+def _fingerprint_unavailable() -> HTTPException:
+    """The server has no fingerprint key, so it cannot store or match an Aadhaar. An operator fault."""
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Aadhaar numbers can't be saved right now. Try again shortly.",
+    )
+
+
+def _seal_aadhaar(data: dict[str, Any], previous: Any = None) -> str | None:
+    """``aadhaar_fingerprint.seal`` with the missing-key fault turned into a 503 and logged."""
+    try:
+        return aadhaar_fingerprint.seal(data, previous=previous)
+    except aadhaar_fingerprint.FingerprintKeyMissing as exc:
+        logger.error("artisan write refused: %s", exc)
+        raise _fingerprint_unavailable() from exc
 
 
 async def _identity_conflict(
@@ -158,8 +189,15 @@ async def _identity_conflict(
     below has it in hand, and re-reading it would cost another cross-region round trip to learn
     something we already know.
     """
-    if existing is None:
-        existing = await db.artisan.find_first(where={field: value}, include={"craft": True})
+    if existing is None and value:
+        where = (
+            aadhaar_fingerprint.match_where(
+                value, legacy=await aadhaar_fingerprint.legacy_pending(db)
+            )
+            if field == "aadhaarNumber"
+            else {field: value}
+        )
+        existing = await db.artisan.find_first(where=where, include={"craft": True})
     detail: dict[str, Any] = {
         "code": "artisan_identity_conflict",
         "field": field,
@@ -176,7 +214,7 @@ async def _identity_conflict(
             f"{existing.name} ({existing.place}) is already recorded with this "
             f"{_IDENTITY_CONSTRAINTS[field]}. Open that artisan instead of creating a duplicate."
         )
-    if field == "aadhaarNumber":
+    if field == "aadhaarNumber" and value:
         detail["maskedValue"] = mask_aadhaar(value)
     return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
 
@@ -212,7 +250,9 @@ def _mask_artisan_identity(payload: Any, user: Any, artisan: Any) -> Any:
     return payload
 
 
-async def _guard_identity_conflicts(data: dict[str, Any], exclude_id: str | None = None) -> None:
+async def _guard_identity_conflicts(
+    data: dict[str, Any], exclude_id: str | None = None, aadhaar: str | None = None
+) -> None:
     """Reject a duplicate Aadhaar/Pehchan number BEFORE writing, with a message worth reading.
 
     The unique indexes are the real guarantee — this is the pre-check that turns a would-be 500 into
@@ -224,17 +264,26 @@ async def _guard_identity_conflicts(data: dict[str, Any], exclude_id: str | None
     saved artisan — two probes and a third to look up the artisan being reported — for a question a
     single ``OR`` answers.
     """
-    checks = {field: data[field] for field in _IDENTITY_CONSTRAINTS if data.get(field)}
-    if not checks:
+    # ``aadhaar`` is the number ``_seal_aadhaar`` just took out of ``data``: the payload now carries
+    # its fingerprint, and the legacy column (rows the backfill has not reached) can only be matched
+    # by the number itself.
+    clauses: list[dict[str, Any]] = []
+    if aadhaar:
+        legacy = await aadhaar_fingerprint.legacy_pending(db)
+        clauses.append(aadhaar_fingerprint.match_where(aadhaar, legacy=legacy))
+    pehchan = data.get("pehchanCardNumber")
+    if pehchan:
+        clauses.append({"pehchanCardNumber": pehchan})
+    if not clauses:
         return
-    clashes = await db.artisan.find_many(
-        where={"OR": [{field: value} for field, value in checks.items()]},
-        include={"craft": True},
-    )
-    for field, value in checks.items():
-        for clash in clashes:
-            if getattr(clash, field, None) == value and clash.id != exclude_id:
-                raise await _identity_conflict(field, value, exclude_id, existing=clash)
+    clashes = await db.artisan.find_many(where={"OR": clauses}, include={"craft": True})
+    for clash in clashes:
+        if clash.id == exclude_id:
+            continue
+        if aadhaar and aadhaar_fingerprint.holds(clash, aadhaar):
+            raise await _identity_conflict("aadhaarNumber", aadhaar, exclude_id, existing=clash)
+        if pehchan and getattr(clash, "pehchanCardNumber", None) == pehchan:
+            raise await _identity_conflict("pehchanCardNumber", pehchan, exclude_id, existing=clash)
 
 
 async def resolve_craft_id(data: dict[str, Any], current_user: Any) -> dict[str, Any]:
@@ -365,6 +414,9 @@ async def create_artisan(
     current_user: Any = Depends(require_record_creator),
 ) -> dict[str, Any]:
     data = clean_data(payload.model_dump())
+    # The typed Aadhaar becomes its fingerprint and last four here, before anything else reads the
+    # payload; ``aadhaar`` is held only for the duplicate check below.
+    aadhaar = _seal_aadhaar(data)
     # The artisan form contract: both dates required on a save made under it, the old shape accepted.
     assert_required_dates(take_form_contract(data), data)
     data = await resolve_craft_id(data, current_user)
@@ -379,7 +431,7 @@ async def create_artisan(
     pin_pending_if_late(data, current_user, check=check)
     # Aadhaar / Pehchan are the dedup keys: point the researcher at the existing artisan instead of
     # letting the unique index surface as a 500.
-    await _guard_identity_conflicts(data)
+    await _guard_identity_conflicts(data, aadhaar=aadhaar)
     try:
         created = await db.artisan.create(data=data, include=INCLUDE)
     except Exception as exc:  # noqa: BLE001 - narrowed immediately by _violated_identity_field
@@ -387,7 +439,8 @@ async def create_artisan(
         if field is None:
             raise
         # Lost the race against a concurrent submission of the same person.
-        raise await _identity_conflict(field, data[field]) from exc
+        value = aadhaar if field == "aadhaarNumber" else data.get(field)
+        raise await _identity_conflict(field, value) from exc
     # The explicit column ADDS to the WorkshopArtisan join every existing query still reads through.
     await link_workshop_artisan(created.workshopId, created.id)
     # The creator is by definition entitled, but pass the viewer anyway rather than relying on
@@ -431,6 +484,8 @@ async def update_artisan(
     # A caller shown a masked number who saves without touching it means "leave it alone" — for the
     # Pehchan card as much as for the Aadhaar, since both are masked on the way out to them.
     data = drop_masked_identity_numbers(data)
+    # Before the edit guard, so the ledger and the provenance see the stored columns.
+    aadhaar = _seal_aadhaar(data, previous=artisan)
     data = await resolve_craft_id(data, current_user)
     data = await attach_location(data)
     # Moving a record into (or between) workshops is a workshop submission too, so the create-time
@@ -470,21 +525,26 @@ async def update_artisan(
                     "does not hold one."
                 ),
             )
-    await _guard_identity_conflicts(data, exclude_id=artisan_id)
+    await _guard_identity_conflicts(data, exclude_id=artisan_id, aadhaar=aadhaar)
     try:
         updated = await db.artisan.update(where={"id": artisan_id}, data=data, include=INCLUDE)
     except Exception as exc:  # noqa: BLE001 - narrowed immediately by _violated_identity_field
         field = _violated_identity_field(exc)
         if field is None:
             raise
-        raise await _identity_conflict(field, data[field], exclude_id=artisan_id) from exc
+        value = aadhaar if field == "aadhaarNumber" else data.get(field)
+        raise await _identity_conflict(field, value, exclude_id=artisan_id) from exc
     await link_workshop_artisan(updated.workshopId, updated.id)
     return public_encode(updated, current_user)
 
 
-@router.get("/lookup/aadhaar")
-async def lookup_artisan_by_aadhaar(
-    number: str, _: Any = Depends(get_current_user)
+class AadhaarLookup(BaseModel):
+    number: str = Field(max_length=40)
+
+
+@router.post("/lookup/aadhaar")
+async def lookup_artisan_by_aadhaar_body(
+    payload: AadhaarLookup, current_user: Any = Depends(get_current_user)
 ) -> dict[str, Any]:
     """Is this Aadhaar already on an artisan? The form's pre-flight duplicate check.
 
@@ -492,13 +552,34 @@ async def lookup_artisan_by_aadhaar(
     and hitting a 409 on save. Returns ``{found, artisan?}`` and never 404s — "not found" is the
     expected, successful answer. Only the identifying fields of the existing artisan come back, and
     only to a signed-in user who already holds the number they searched with.
+
+    THE NUMBER TRAVELS IN THE BODY. A query string is written to the access logs of CloudFront,
+    nginx and uvicorn; a body is not. The GET below stays for app builds already in the field.
     """
+    return await _lookup_aadhaar(payload.number)
+
+
+@router.get("/lookup/aadhaar")
+async def lookup_artisan_by_aadhaar(
+    number: str, _: Any = Depends(get_current_user)
+) -> dict[str, Any]:
+    """The same check for clients that predate the POST. New code must use the POST."""
+    return await _lookup_aadhaar(number)
+
+
+async def _lookup_aadhaar(number: str) -> dict[str, Any]:
     normalized = normalize_aadhaar(number)
-    if not normalized:
+    # Only a well-formed number is fingerprinted; anything else cannot be on an artisan.
+    if not normalized or aadhaar_error(normalized):
         return {"found": False, "artisan": None}
-    existing = await db.artisan.find_first(
-        where={"aadhaarNumber": normalized}, include={"craft": True, "workshop": True}
-    )
+    try:
+        where = aadhaar_fingerprint.match_where(
+            normalized, legacy=await aadhaar_fingerprint.legacy_pending(db)
+        )
+    except aadhaar_fingerprint.FingerprintKeyMissing as exc:
+        logger.error("aadhaar lookup refused: %s", exc)
+        raise _fingerprint_unavailable() from exc
+    existing = await db.artisan.find_first(where=where, include={"craft": True, "workshop": True})
     if existing is None:
         return {"found": False, "artisan": None}
     return {

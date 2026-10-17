@@ -1732,7 +1732,7 @@ class FieldRepository(
      * than as a 409 on save. [number] may be typed with spacing; the API normalises it.
      */
     suspend fun lookupArtisanByAadhaar(number: String): AadhaarLookupDto =
-        api.lookupArtisanByAadhaar(number.trim())
+        api.lookupArtisanByAadhaar(AadhaarLookupRequest(number.trim()))
 
     suspend fun updateArtisan(id: String, body: ArtisanCreateRequest): ArtisanDetailDto = api.updateArtisan(id, body)
 

@@ -326,8 +326,11 @@ interface FieldRepositoryApi {
     // Pre-flight duplicate check for the artisan form's Aadhaar field. Declared BEFORE `artisan(id)`
     // only for readability — Retrofit matches on the literal path, so "lookup/aadhaar" can never be
     // swallowed by the "{id}" route the way a server-side router would.
-    @GET("artisans/lookup/aadhaar")
-    suspend fun lookupArtisanByAadhaar(@Query("number") number: String): AadhaarLookupDto
+    //
+    // POST, with the number in the BODY (2026-10-17): a query string is written to the access logs
+    // of CloudFront, nginx and the API, a body is not. The server keeps the GET for older builds.
+    @POST("artisans/lookup/aadhaar")
+    suspend fun lookupArtisanByAadhaar(@Body body: AadhaarLookupRequest): AadhaarLookupDto
 
     @GET("artisans/{id}")
     suspend fun artisan(@Path("id") id: String): ArtisanDetailDto

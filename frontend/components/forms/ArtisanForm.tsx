@@ -31,7 +31,7 @@ import { toIsoDate } from "@/components/forms/DateTimeField";
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 import { statusLabel } from "@/components/StatusBadge";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
-import { ApiError, apiFetch, buildQuery, listResource } from "@/lib/api";
+import { ApiError, apiFetch, listResource } from "@/lib/api";
 import { ARTISAN_FORM_CONTRACT, missingArtisanDatesSentence } from "@/lib/artisanFormContract";
 import { locationFromForm, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue, useUnsavedChanges } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
@@ -140,7 +140,10 @@ async function findArtisanByAadhaar(digits: string | null, excludeArtisanId: str
   const number = (digits ?? "").trim();
   if (!number || isMaskedIdentityNumber(number) || aadhaarValidationError(number)) return null;
   try {
-    const result = await apiFetch<AadhaarLookupResult>(`/artisans/lookup/aadhaar${buildQuery({ number })}`);
+    const result = await apiFetch<AadhaarLookupResult>("/artisans/lookup/aadhaar", {
+      method: "POST",
+      body: JSON.stringify({ number })
+    });
     const found = result.found ? (result.artisan ?? null) : null;
     return found && found.id !== excludeArtisanId ? found : null;
   } catch {

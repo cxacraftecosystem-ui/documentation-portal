@@ -74,16 +74,20 @@ internal object DraftFiles {
         File(accountDir(root, account), "${safe(kind)}__${safe(recordKey)}.json")
 
     fun write(root: File, account: String, draft: FormDraftFile) {
-        writeFileAtomically(file(root, account, draft.formKind, draft.recordKey), json.encodeToString(FormDraftFile.serializer(), draft).toByteArray())
+        // A typed Aadhaar is kept sealed under the Keystore (AadhaarAtRest), opened on read.
+        val sealed = draft.copy(fields = AadhaarAtRest.sealDraft(draft.fields))
+        writeFileAtomically(file(root, account, draft.formKind, draft.recordKey), json.encodeToString(FormDraftFile.serializer(), sealed).toByteArray())
     }
 
     /** A draft that will not parse is set aside (never deleted) and reads as absent. */
     fun read(file: File): FormDraftFile? {
         if (!file.exists()) return null
-        return runCatching { json.decodeFromString(FormDraftFile.serializer(), file.readText()) }.getOrElse {
-            runCatching { file.renameTo(File(file.parentFile, file.name + ".damaged-${System.currentTimeMillis()}")) }
-            null
-        }
+        return runCatching { json.decodeFromString(FormDraftFile.serializer(), file.readText()) }
+            .map { it.copy(fields = AadhaarAtRest.openDraft(it.fields)) }
+            .getOrElse {
+                runCatching { file.renameTo(File(file.parentFile, file.name + ".damaged-${System.currentTimeMillis()}")) }
+                null
+            }
     }
 
     fun read(root: File, account: String, kind: String, recordKey: String): FormDraftFile? =

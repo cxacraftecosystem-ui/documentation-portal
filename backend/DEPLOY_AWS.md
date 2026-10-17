@@ -651,3 +651,45 @@ EC2* from the Actions tab (a dispatch deploys without waiting for Checks), and c
 --allocation-id eipalloc-03a87f17914bfa85d --instance-id <new id> --allow-reassociation`, set
 `EC2_HOST` back to `15.207.145.174`, check the API through CloudFront, retag both boxes, and **stop**
 the old one (`aws ec2 stop-instances`), so going back is a start and an `associate-address`.
+
+## Aadhaar fingerprint: the run order (2026-10-17)
+
+The artisan register stops holding Aadhaar numbers. It keeps `Artisan.aadhaarFingerprint`
+(HMAC-SHA256 of the 12 digits under `AADHAAR_FINGERPRINT_KEY`, unique) and `Artisan.aadhaarLast4`
+(`backend/app/services/aadhaar_fingerprint.py`). The key is ONE value shared with the designer portal
+(backup: SSM SecureString `/iit/shared/aadhaar-fingerprint-key`; GitHub Actions secret
+`AADHAAR_FINGERPRINT_KEY`, pinned into the release `.env` by deploy-backend.yml). Losing it makes
+every fingerprint unmatchable, and it cannot be rotated without the numbers. Three steps, on each
+box, in this order:
+
+1. **Release with migration `20261022090000_aadhaar_fingerprint`.** Adds the two nullable columns,
+   the unique index and shape checks. From this release on nothing writes a full number: create,
+   edit, the review edit, the spreadsheet import and the duplicate lookup all fingerprint the typed
+   number and drop it; every response and export shows `XXXX XXXX 9012`. Rows recorded earlier still
+   hold the number in the legacy `aadhaarNumber` column and are still matched as duplicates.
+2. **Backfill, on the box, after that release is live** (by SSM, as `ubuntu`, from the live release
+   so it reads the same `.env`):
+
+   ```
+   cd /home/ubuntu/app/current/backend
+   .venv/bin/python -m scripts.backfill_aadhaar_fingerprint             # dry run: counts only
+   .venv/bin/python -m scripts.backfill_aadhaar_fingerprint --apply     # writes, then verifies
+   ```
+
+   It works in batches, is idempotent (run it again: "Nothing left"), prints counts only, verifies
+   each fingerprint by reading it back, and rewrites any edit-history entry that still holds an old
+   value into a valueless one. A legacy value that is not a valid Aadhaar is reported and left;
+   `--apply --retract-unusable` clears those. Exit 0 means nothing is left.
+3. **A LATER release ships the drop.** Move `backend/prisma/deferred_migrations/
+   20261029090000_drop_aadhaar_number/` into `backend/prisma/migrations/`, delete `aadhaarNumber`
+   from `Artisan` in `schema.prisma`, and set `LEGACY_COLUMN_PRESENT = False` in
+   `aadhaar_fingerprint.py`, in one commit. The migration refuses (and the deploy fails before the
+   switch-over) while any row holds a number without its fingerprint, or any history entry still
+   holds a value; if it refuses, run step 2, then
+   `npx prisma migrate resolve --rolled-back 20261029090000_drop_aadhaar_number` and deploy again.
+   Afterwards run `VACUUM FULL "Artisan"; VACUUM FULL "RecordRevision";` in the SQL editor so the old
+   row versions holding numbers are gone from the data files, and note that nightly dumps taken
+   before the drop still hold them until they age out (30 days).
+
+Rollback: steps 1 and 2 are additive; rolling the release back leaves the new columns unused and the
+legacy column intact. Step 3 is not reversible: the numbers are gone, which is its purpose.

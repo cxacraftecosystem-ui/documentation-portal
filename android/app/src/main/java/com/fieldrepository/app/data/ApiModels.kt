@@ -1156,9 +1156,9 @@ data class ArtisanDetailDto(
     val place: String = "",
     val address: String? = null,
     val notes: String? = null,
-    // The artisan record returns the FULL Aadhaar number (every other surface — the data browser, the
-    // .xlsx report, exports — gets the "XXXX XXXX 9012" mask), because the edit form has to show the
-    // researcher what is stored before they change it.
+    // ALWAYS the mask "XXXX XXXX 9012" since 2026-10-17: the register keeps a fingerprint and the last
+    // four digits, never the number (backend/app/services/aadhaar_fingerprint.py). The edit form shows
+    // the mask and sends it back untouched when the number is not being changed.
     val aadhaarNumber: String? = null,
     val dateOfBirth: String? = null,
     /** The day this artisan began practising. See [ArtisanCreateRequest.craftStartDate]. */
@@ -1196,9 +1196,13 @@ data class ArtisanIdentityMatchDto(
 )
 
 /**
- * Answer from `GET /artisans/lookup/aadhaar`. "Not found" is the expected, successful answer (the
+ * Answer from `POST /artisans/lookup/aadhaar`. "Not found" is the expected, successful answer (the
  * endpoint never 404s), so [found] false with a null [artisan] is the normal case, not an error.
  */
+/** Body of `POST /artisans/lookup/aadhaar`: the typed number, kept out of the URL and its logs. */
+@Serializable
+data class AadhaarLookupRequest(val number: String)
+
 @Serializable
 data class AadhaarLookupDto(
     val found: Boolean = false,
