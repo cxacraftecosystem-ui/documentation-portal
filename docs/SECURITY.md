@@ -536,8 +536,12 @@ puts it in access logs and stays only for app builds already in the field). Ever
 included, is shown `XXXX XXXX 9012`. Android keeps a typed number sealed under an Android Keystore key
 in its outbox and form drafts until it is sent (`AadhaarAtRest.kt`). Until the backfill and the drop
 migration have run on a box (`backend/DEPLOY_AWS.md`, "Aadhaar fingerprint"), numbers recorded
-before that date are still in the legacy `aadhaarNumber` column, in old row versions, and in nightly
-dumps for 30 days.
+before that date are still in the legacy `aadhaarNumber` column and in old row versions. After the
+drop they survive in the nightly dumps for about 125 days (30 days current plus 90 days as noncurrent
+versions in the media bucket; 35 days under Object Lock plus 90 noncurrent in the off-site replica)
+and in Supabase's own backups and point-in-time recovery for the plan's window. `backend/DEPLOY_AWS.md`
+has the detail. Do not roll the backend back past the fingerprint release once it has taken writes:
+older code would resume storing full numbers and miss duplicates (same section).
 
 Validation and display, in `backend/app/services/artisan_identity.py`:
 
