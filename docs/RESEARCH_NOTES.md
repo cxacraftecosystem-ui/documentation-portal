@@ -806,6 +806,12 @@ evolution against irreplaceable data:
   with no Aadhaar could then **never be edited again** — a researcher fixing that artisan's phone
   number would be refused until they produced a number they do not have.
 
+Since the Aadhaar fingerprint release (2026-10-17) the key is stored as `aadhaarFingerprint`, an
+HMAC of the number under a server key, beside `aadhaarLast4` for display; the register keeps no
+number ([SECURITY.md §4A.1](SECURITY.md#4a1-aadhaar)). Rows recorded before then keep it in the
+legacy `aadhaarNumber` column until the backfill and the drop migration run on the box
+(`backend/DEPLOY_AWS.md`). The nullability reasoning above holds for the fingerprint unchanged.
+
 ### 9.3 Validation strictness, and a Unicode trap that would have defeated the index
 
 A mistyped Aadhaar is *worse* than no Aadhaar: it passes the uniqueness check against a number
