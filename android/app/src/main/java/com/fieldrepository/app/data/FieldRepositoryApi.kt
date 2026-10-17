@@ -439,7 +439,9 @@ interface FieldRepositoryApi {
         @Query("page") page: Int = 1,
         @Query("pageSize") pageSize: Int = 100,
         /** Only rows this account created — My Activity asks the SERVER, so nothing past page one is lost. */
-        @Query("createdBy") createdBy: String? = null
+        @Query("createdBy") createdBy: String? = null,
+        /** The route's free-text filter (title, place, notes), for the record pickers. */
+        @Query("search") search: String? = null
     ): PageResponse<WorkshopDetailDto>
 
     @GET("workshops/{id}")
@@ -515,7 +517,9 @@ interface FieldRepositoryApi {
         @Query("page") page: Int = 1,
         @Query("pageSize") pageSize: Int = 20,
         @Query("linkedRecordType") linkedRecordType: String? = null,
-        @Query("linkedRecordId") linkedRecordId: String? = null
+        @Query("linkedRecordId") linkedRecordId: String? = null,
+        /** The route's free-text filter (file name, caption, type), for the record pickers. */
+        @Query("search") search: String? = null
     ): PageResponse<MediaFileDto>
 
     // Admin-only: media whose parent record was deleted (tag columns survive, typed FK nulled) — and

@@ -214,12 +214,17 @@ fun SearchableSelectField(
      * Off by default — a required field has nothing honest to clear to. The web's `clearable`.
      */
     clearable: Boolean = false,
+    /**
+     * Rows that live on the server (`ui/ServerSearch.kt`): the sheet lists [ServerSearch.rows] and
+     * reports its query instead of filtering [options], which then only name the chosen row.
+     */
+    server: ServerSearch? = null,
     onSelect: (String) -> Unit
 ) {
     var sheetOpen by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     val selectedLabel = options.firstOrNull { it.value == selectedValue }?.label
-    val searchable = searchable ?: (options.size >= SEARCH_THRESHOLD)
+    val searchable = server != null || (searchable ?: (options.size >= SEARCH_THRESHOLD))
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, color = MaterialTheme.field.muted, fontSize = 12.sp)
@@ -287,11 +292,13 @@ fun SearchableSelectField(
             multiple = false,
             noneLabel = if (includeNone) placeholder else null,
             onSearch = onSearch,
+            server = server,
             onDismiss = {
                 sheetOpen = false
                 // The sheet is leaving and its query goes with it. A caller still holding the last
                 // term would go on requesting against a filter nobody can see — see [onSearch].
                 onSearch?.invoke("")
+                server?.onQuery?.invoke("")
             },
             onApply = { next -> onSelect(next.firstOrNull().orEmpty()) }
         )
@@ -326,10 +333,14 @@ fun SearchableMultiSelectField(
      * Turn off only where the screen already draws the selection beside the field.
      */
     showChips: Boolean = true,
+    /** See [SearchableSelectField]'s own parameter. */
+    server: ServerSearch? = null,
     onSelectedChange: (Set<String>) -> Unit
 ) {
     var sheetOpen by remember { mutableStateOf(false) }
     val chosen = options.filter { it.value in selected }
+    // With server rows, [options] is one page plus the chosen rows, so "3 of 100" would count a page.
+    val ofTotal = if (server == null) " of ${options.size}" else ""
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
@@ -337,16 +348,16 @@ fun SearchableMultiSelectField(
             color = MaterialTheme.field.muted,
             fontSize = 12.sp
         )
-        if (options.isEmpty()) {
+        if (options.isEmpty() && (server == null || (server.rows.isEmpty() && !server.loading && server.note == null))) {
             Text(emptyMessage, color = MaterialTheme.field.muted, fontSize = 12.sp)
         } else {
             SelectTrigger(
                 speech = "$label. " + if (chosen.isEmpty()) {
                     "Nothing selected"
                 } else {
-                    "${chosen.size} of ${options.size} selected: ${chosen.joinToString { it.label }}"
+                    "${chosen.size}$ofTotal selected: ${chosen.joinToString { it.label }}"
                 },
-                text = if (chosen.isEmpty()) placeholder else "${chosen.size} of ${options.size} selected",
+                text = if (chosen.isEmpty()) placeholder else "${chosen.size}$ofTotal selected",
                 hasSelection = chosen.isNotEmpty(),
                 enabled = enabled,
                 onClick = { sheetOpen = true }
@@ -403,7 +414,8 @@ fun SearchableMultiSelectField(
             selected = selected,
             multiple = true,
             noneLabel = null,
-            onDismiss = { sheetOpen = false },
+            server = server,
+            onDismiss = { sheetOpen = false; server?.onQuery?.invoke("") },
             onApply = onSelectedChange
         )
     }
@@ -512,7 +524,9 @@ private fun SearchablePickerSheet(
     onDismiss: () -> Unit,
     onApply: (Set<String>) -> Unit,
     /** See [SearchableSelectField]'s own parameter. Null for every caller that holds all its rows. */
-    onSearch: ((String) -> Unit)? = null
+    onSearch: ((String) -> Unit)? = null,
+    /** Server-held rows; see `ui/ServerSearch.kt`. The sheet then lists them as given. */
+    server: ServerSearch? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
@@ -532,12 +546,13 @@ private fun SearchablePickerSheet(
     fun setQuery(next: String) {
         queryState = next
         onSearch?.invoke(next)
+        server?.onQuery?.invoke(next)
     }
 
     val query = queryState
 
     val terms = queryTerms(query)
-    val filtered = remember(options, query) { options.filter { it.matches(terms) } }
+    val filtered = if (server != null) server.rows else remember(options, query) { options.filter { it.matches(terms) } }
     val searching = terms.isNotEmpty()
 
     // Only meaningful while filtering. Unfiltered, "the first row" is whatever happens to sort
@@ -579,7 +594,7 @@ private fun SearchablePickerSheet(
     }
 
     LaunchedEffect(Unit) {
-        if (options.size >= AUTOFOCUS_THRESHOLD) focusRequester.requestFocus()
+        if (server != null || options.size >= AUTOFOCUS_THRESHOLD) focusRequester.requestFocus()
     }
 
     val maxSheetHeight = LocalConfiguration.current.screenHeightDp.dp * SHEET_HEIGHT_FRACTION
@@ -668,7 +683,8 @@ private fun SearchablePickerSheet(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        countLine(filtered.size, options.size, searching),
+                        if (server != null) serverCountLine(filtered.size, server.total, searching, server.loading)
+                        else countLine(filtered.size, options.size, searching),
                         color = MaterialTheme.field.muted,
                         fontSize = 12.sp,
                         modifier = Modifier
@@ -699,6 +715,7 @@ private fun SearchablePickerSheet(
                         ) { Text("Clear all", fontSize = 12.sp) }
                     }
                 }
+                server?.note?.let { Text(it, color = MaterialTheme.field.muted, fontSize = 12.sp) }
             }
             HorizontalDivider(color = MaterialTheme.field.hairline)
 
@@ -747,7 +764,16 @@ private fun SearchablePickerSheet(
                         onClick = { if (multiple) toggle(option.value) else commitSingle(option.value) }
                     )
                 }
-                if (filtered.isEmpty()) {
+                if (server != null && server.hasMore) {
+                    item {
+                        Box(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
+                            TextButton(onClick = server.onLoadMore, enabled = !server.loading) {
+                                Text(if (server.loading) "Loading…" else "Load more")
+                            }
+                        }
+                    }
+                }
+                if (filtered.isEmpty() && !(server != null && server.loading)) {
                     item {
                         Column(
                             modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -786,6 +812,21 @@ private fun SearchablePickerSheet(
                 }
             }
         }
+    }
+}
+
+/**
+ * The count over server rows. Only the server knows the size of the whole listing, so the number is
+ * its `total` when it has said, and what is shown otherwise.
+ */
+private fun serverCountLine(shown: Int, total: Int?, searching: Boolean, loading: Boolean): String {
+    val n = total ?: shown
+    return when {
+        loading && shown == 0 -> "Searching…"
+        !searching -> if (n == 1) "1 option" else "$n options"
+        n == 0 -> "No matches"
+        n == 1 -> "1 match"
+        else -> "$n match"
     }
 }
 

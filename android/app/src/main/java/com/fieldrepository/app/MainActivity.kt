@@ -53,6 +53,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -247,8 +249,6 @@ import com.fieldrepository.app.data.RecordRevisionDto
 import com.fieldrepository.app.data.DashboardRecentSubmissionDto
 import com.fieldrepository.app.data.DashboardStats
 import com.fieldrepository.app.data.DashboardStatsMine
-import com.fieldrepository.app.data.ARTISAN_PAGE_BUDGET
-import com.fieldrepository.app.data.LOOKUP_PAGE_BUDGET
 import com.fieldrepository.app.data.EVERY_WORKSHOP
 import com.fieldrepository.app.data.MY_RECORDS_PAGE_BUDGET
 import com.fieldrepository.app.data.REVIEW_PAGE_SIZE
@@ -299,6 +299,7 @@ import com.fieldrepository.app.ui.AccessRosterScreen
 import com.fieldrepository.app.ui.RecordSwitchKind
 import com.fieldrepository.app.ui.recordOptionLabel
 import com.fieldrepository.app.ui.RecordSwitcher
+import com.fieldrepository.app.ui.RecordSwitcherState
 import com.fieldrepository.app.ui.recordSwitcherTitle
 import com.fieldrepository.app.ui.rememberRecordSwitcher
 import com.fieldrepository.app.ui.WorkshopWindowState
@@ -342,13 +343,24 @@ import com.fieldrepository.app.ui.craftNameFor
 import com.fieldrepository.app.ui.craftsChangeClearsArtisans
 import com.fieldrepository.app.ui.inchesTextFromCm
 import com.fieldrepository.app.ui.propagateDimension
-import com.fieldrepository.app.ui.artisanScopeNoun
 import com.fieldrepository.app.ui.artisansNotAtWorkshop
-import com.fieldrepository.app.ui.listCutNotice
 import com.fieldrepository.app.ui.mergeArtisansById
 import com.fieldrepository.app.ui.outOfWorkshopNotice
 import com.fieldrepository.app.ui.rememberArtisanPicker
-import com.fieldrepository.app.ui.rememberCraftOptions
+import com.fieldrepository.app.ui.rememberCraftPicker
+import com.fieldrepository.app.ui.rememberServerSearch
+import com.fieldrepository.app.ui.ServerSearch
+import com.fieldrepository.app.ui.ServerSearchState
+import com.fieldrepository.app.ui.artisanSelectOption
+import com.fieldrepository.app.ui.artisanSearchText
+import com.fieldrepository.app.ui.craftSearchText
+import com.fieldrepository.app.ui.carryScopeStateFor
+import com.fieldrepository.app.ui.LazyPageChrome
+import com.fieldrepository.app.ui.LazyScrollMark
+import com.fieldrepository.app.ui.PageLazyColumn
+import com.fieldrepository.app.ui.lazyRestoreReady
+import com.fieldrepository.app.ui.SERVER_SEARCH_PAGE_SIZE
+import com.fieldrepository.app.data.PageResponse
 import com.fieldrepository.app.ui.rememberCarryPrefill
 import com.fieldrepository.app.ui.Coral
 import com.fieldrepository.app.ui.ConsolidatedQuestionnaireScreen
@@ -1466,19 +1478,20 @@ private fun HomeScreen(
      */
     var scrollRestoreFor by remember { mutableStateOf<Screen?>(null) }
     val scrollMemory = remember { mutableMapOf<Screen, Int>() }
+    // The same memory for the pages whose list is their scroller (`ui/LazyPage.kt`): an item and its
+    // offset, because a lazy list has no pixel position for rows it has not measured.
+    val lazyScrollMemory = remember { mutableMapOf<Screen, LazyScrollMark>() }
     var carryForward by remember { mutableStateOf<Prefill?>(null) }
     // "I can no longer see this record" and "there is no signal" are different answers, and the
     // carry prefill treats them differently: only a list that actually arrived is entitled to
     // disown a carried id. Held here because the two lookups below feed every create form.
     var lookupState by remember { mutableStateOf(CarryScopeState.PENDING) }
-    // WHAT THE TWO LOOKUPS ABOVE ARE NOT SHOWING. Both ask for `pageSize = 100`, which is the
-    // server's ceiling and not a default (`normalize_pagination`, MAX_PAGE_SIZE = 100), and both
-    // used to keep only `.items`. A list that quietly stops is indistinguishable from a place with
-    // no records, so the `total` beside the items is kept and turned into one sentence under the
-    // control — see `ui/RecordPickers.listCutNotice` for the wording and for why the decision is a
-    // pure function rather than an `if` inside a composable.
-    var craftListCut by remember { mutableStateOf<String?>(null) }
-    var artisanListCut by remember { mutableStateOf<String?>(null) }
+    // THE TWO LOOKUPS' FIRST PAGES, envelope and all. Every craft and artisan picker opens on page 1
+    // of its table and reaches the rest through the server's own search and "Load more"
+    // (`ui/ServerSearch.kt`); handing the page in as a seed means a form costs no request until
+    // somebody types. One page each, not the twenty this used to walk at start-up.
+    var craftSeed by remember { mutableStateOf<PageResponse<CraftDto>?>(null) }
+    var artisanSeed by remember { mutableStateOf<PageResponse<ArtisanDto>?>(null) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     // The reduced-motion switch, which the menu now honours when it opens and closes.
     val reducedMotion = preferences.reducedMotion
@@ -1729,16 +1742,18 @@ private fun HomeScreen(
         val gotCrafts = runCatching { repository.craftsPage() }
             .onSuccess {
                 crafts = it.items
-                craftListCut = listCutNotice(it.items.size, it.total, "crafts")
+                craftSeed = it
             }
             .isSuccess
-        val gotArtisans = runCatching { repository.artisansPage(pageBudget = LOOKUP_PAGE_BUDGET) }
+        val gotArtisans = runCatching { repository.artisansPage() }
             .onSuccess {
                 artisans = it.items
-                artisanListCut = listCutNotice(it.items.size, it.total, "artisans")
+                artisanSeed = it
             }
             .isSuccess
-        lookupState = if (gotCrafts && gotArtisans) CarryScopeState.LOADED else CarryScopeState.UNAVAILABLE
+        // A page that is not the whole list cannot say a carried record is gone — see
+        // `carryScopeStateFor`.
+        lookupState = if (gotCrafts && gotArtisans) carryScopeStateFor(craftSeed, artisanSeed) else CarryScopeState.UNAVAILABLE
     }
 
     fun refreshLookups() {
@@ -2115,13 +2130,39 @@ private fun HomeScreen(
                 // nothing on it to explain why. `key` throws the state away when the destination
                 // changes, so each page starts where a page starts.
                 val pageScroll = key(screen) { rememberScrollState() }
+                // THE LONG-LIST SCREENS ARE THEIR OWN SCROLLER (DC-A34). A LazyColumn cannot sit inside
+                // the page column's `verticalScroll`, so these screens are handed the page chrome and lay
+                // out one LazyColumn whose first item is the page header — see `ui/LazyPage.kt`.
+                val lazyPage = screen is Screen.MyActivity || screen is Screen.Browse ||
+                    (screen as? Screen.Create)?.mode == EntryMode.CONSOLIDATED_QUESTIONNAIRE
+                val pageList = key(screen) { rememberLazyListState() }
                 // Where this page was scrolled when it was left, and — only when Back is returning to it
                 // from a record — scrolled back there once its rows have arrived (see `scrollMemory`).
                 val shownScreen = screen
-                DisposableEffect(shownScreen) { onDispose { scrollMemory[shownScreen] = pageScroll.value } }
+                DisposableEffect(shownScreen) {
+                    onDispose {
+                        if (lazyPage) {
+                            lazyScrollMemory[shownScreen] = LazyScrollMark(pageList.firstVisibleItemIndex, pageList.firstVisibleItemScrollOffset)
+                        } else {
+                            scrollMemory[shownScreen] = pageScroll.value
+                        }
+                    }
+                }
                 LaunchedEffect(shownScreen) {
-                    val target = if (scrollRestoreFor == shownScreen) scrollMemory[shownScreen] else null
+                    val restoring = scrollRestoreFor == shownScreen
                     scrollRestoreFor = null
+                    if (!restoring) return@LaunchedEffect
+                    if (lazyPage) {
+                        val mark = lazyScrollMemory[shownScreen] ?: return@LaunchedEffect
+                        if (mark.index == 0 && mark.offset == 0) return@LaunchedEffect
+                        // The rows arrive after the screen does: wait until the list holds the item.
+                        withTimeoutOrNull(4_000L) {
+                            snapshotFlow { pageList.layoutInfo.totalItemsCount }.first { lazyRestoreReady(mark, it) }
+                        }
+                        pageList.scrollToItem(mark.index, mark.offset)
+                        return@LaunchedEffect
+                    }
+                    val target = scrollMemory[shownScreen]
                     if (target == null || target <= 0) return@LaunchedEffect
                     withTimeoutOrNull(4_000L) { snapshotFlow { pageScroll.maxValue }.first { it >= target } }
                     pageScroll.scrollTo(target.coerceAtMost(pageScroll.maxValue))
@@ -2185,30 +2226,23 @@ private fun HomeScreen(
                 }) { islandReserve ->
         // The header's quick-return state: the page's scroller reports to it, and the page is padded
         // by the header's measured height so nothing sits under it at rest. See AppSearch.kt.
-        val quickReturn = rememberQuickReturnHeader(pageScroll, pinned = searchOpen)
+        val quickReturn = if (lazyPage) {
+            rememberQuickReturnHeader(pageList, pinned = searchOpen)
+        } else {
+            rememberQuickReturnHeader(pageScroll, pinned = searchOpen)
+        }
         val pageImeOpen by rememberIslandImeVisible()
         val clearance = LocalIslandClearance.current
         // The bar AND the offline / outbox banners over it: the page's end clears both.
         val pageReserve = pageBottomReserve(islandReserve, bannerReserve)
         SideEffect { clearance?.value = islandReserve }
         DisposableEffect(clearance) { onDispose { clearance?.value = 0.dp } }
-        Box(Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .nestedScroll(quickReturn.connection)
-                .verticalScroll(pageScroll)
-                .padding(top = with(LocalDensity.current) { quickReturn.reservePx.toDp() })
-                // Inside the scroller, so it is the END of the page that clears the bar and banners.
-                .padding(bottom = pageReserve),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-
         // The dashboard is the root of every path, so only the screens below it get a back arrow —
         // and it is also the only screen with no title of its own, so on the dashboard this whole
         // row is nothing and is not laid out at all. Rendering it empty would spend the parent's
         // 16dp of spacing on a strip with nothing in it.
         val showBack = screen !is Screen.Dashboard
+        val pageHeader: @Composable () -> Unit = {
         if (showBack || headerTitle != null) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 if (showBack) {
@@ -2231,6 +2265,57 @@ private fun HomeScreen(
                 }
             }
         }
+        }
+        val pageTop = with(LocalDensity.current) { quickReturn.reservePx.toDp() }
+        Box(Modifier.fillMaxSize()) {
+        if (lazyPage) {
+            val chrome = LazyPageChrome(
+                state = pageList,
+                connection = quickReturn.connection,
+                topPadding = pageTop,
+                // The END of the list clears the bar and the banners, as the column's did.
+                bottomPadding = pageReserve,
+                header = pageHeader
+            )
+            when (val s = screen) {
+                is Screen.Browse -> RecordPickerScreen(
+                    repository = repository,
+                    mode = s.mode,
+                    // The dropdown's "Update" button and a card's own Update go to the form; a tap on a
+                    // card anywhere else opens the record read-only, as every other card does.
+                    onPick = { recordId -> screen = Screen.Edit(s.mode, recordId) },
+                    onView = { recordId -> openRecordView(s.mode, recordId) },
+                    onError = { showMessage(it) },
+                    chrome = chrome
+                )
+                is Screen.MyActivity -> MyActivityScreen(
+                    repository = repository,
+                    userId = user.id,
+                    onOpen = { mode, recordId -> openRecordView(mode, recordId) },
+                    onError = { showMessage(it) },
+                    chrome = chrome
+                )
+                // /questionnaire/consolidated on the web: the artisan picker, and the document behind
+                // it. Both halves live in the one screen because Android has no URL to give the
+                // document its own address.
+                else -> ConsolidatedQuestionnaireScreen(
+                    repository = repository,
+                    onError = { showMessage(it) },
+                    chrome = chrome
+                )
+            }
+        } else Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .nestedScroll(quickReturn.connection)
+                .verticalScroll(pageScroll)
+                .padding(top = pageTop)
+                // Inside the scroller, so it is the END of the page that clears the bar and banners.
+                .padding(bottom = pageReserve),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+
+        pageHeader()
 
         when (val s = screen) {
             is Screen.Dashboard -> {
@@ -2283,15 +2368,8 @@ private fun HomeScreen(
                 )
             }
 
-            is Screen.Browse -> RecordPickerScreen(
-                repository = repository,
-                mode = s.mode,
-                // The dropdown's "Update" button and a card's own Update go to the form; a tap on a
-                // card anywhere else opens the record read-only, as every other card does.
-                onPick = { recordId -> screen = Screen.Edit(s.mode, recordId) },
-                onView = { recordId -> openRecordView(s.mode, recordId) },
-                onError = { showMessage(it) }
-            )
+            // Hosted above as lazy pages, because the list is their scroller.
+            is Screen.Browse, is Screen.MyActivity -> Unit
 
             is Screen.View -> RecordViewScreen(
                 repository = repository,
@@ -2318,7 +2396,7 @@ private fun HomeScreen(
                     repository = repository,
                     crafts = crafts,
                     lookupState = lookupState,
-                    craftListCut = craftListCut,
+                    craftSeed = craftSeed,
                     prefill = s.prefill,
                     adminView = adminView,
                     onArtisanCreated = { prefill ->
@@ -2333,6 +2411,7 @@ private fun HomeScreen(
                 EntryMode.WORKSHOP -> WorkshopForm(
                     repository = repository,
                     artisans = artisans,
+                    artisanSeed = artisanSeed,
                     prefill = s.prefill,
                     adminView = adminView,
                     onDone = { message = "Workshop saved"; refresh(); goDashboard() },
@@ -2343,8 +2422,8 @@ private fun HomeScreen(
                     crafts = crafts,
                     artisans = artisans,
                     lookupState = lookupState,
-                    craftListCut = craftListCut,
-                    artisanListCut = artisanListCut,
+                    craftSeed = craftSeed,
+                    artisanSeed = artisanSeed,
                     prefill = s.prefill,
                     adminView = adminView,
                     onDone = { message = "Product saved"; refresh(); goDashboard() },
@@ -2410,20 +2489,15 @@ private fun HomeScreen(
                         openSearchRecord(recordType, recordId)
                     }
                 )
-                // /questionnaire/consolidated on the web: the artisan picker, and the document behind
-                // it. Both halves live in the one screen because Android has no URL to give the
-                // document its own address.
-                EntryMode.CONSOLIDATED_QUESTIONNAIRE -> ConsolidatedQuestionnaireScreen(
-                    repository = repository,
-                    onError = { showMessage(it) }
-                )
+                // Hosted above as a lazy page — its artisan index is a long list.
+                EntryMode.CONSOLIDATED_QUESTIONNAIRE -> Unit
                 EntryMode.TOOL -> ToolForm(
                     repository = repository,
                     crafts = crafts,
                     artisans = artisans,
                     lookupState = lookupState,
-                    craftListCut = craftListCut,
-                    artisanListCut = artisanListCut,
+                    craftSeed = craftSeed,
+                    artisanSeed = artisanSeed,
                     prefill = s.prefill,
                     adminView = adminView,
                     onDone = { message = "Tool saved"; refresh(); goDashboard() },
@@ -2538,8 +2612,8 @@ private fun HomeScreen(
                 recordId = s.recordId,
                 crafts = crafts,
                 artisans = artisans,
-                craftListCut = craftListCut,
-                artisanListCut = artisanListCut,
+                craftSeed = craftSeed,
+                artisanSeed = artisanSeed,
                 adminView = adminView,
                 // Same rule as the interview loader above: `adminMode` gates Delete on every web list.
                 canDelete = isAdmin && adminChrome,
@@ -2550,13 +2624,6 @@ private fun HomeScreen(
                 // inside `EditScreen` re-keys on it — so the form, its detail fetch and the picker's
                 // own "which workshop is this record in" all rebuild for the record just chosen.
                 onOpenRecord = { picked -> message = null; screen = Screen.Edit(s.mode, picked) }
-            )
-
-            is Screen.MyActivity -> MyActivityScreen(
-                repository = repository,
-                userId = user.id,
-                onOpen = { mode, recordId -> openRecordView(mode, recordId) },
-                onError = { showMessage(it) }
             )
 
             is Screen.ToolAssign -> ToolAssignScreen(
@@ -4538,6 +4605,8 @@ private fun DropdownField(
     placeholder: String = "Select",
     includeNone: Boolean = true,
     enabled: Boolean = true,
+    /** Rows the server searches and pages (`ui/ServerSearch.kt`); [options] then only name the chosen one. */
+    server: ServerSearch? = null,
     onSelect: (String) -> Unit
 ) {
     SearchableSelectField(
@@ -4547,6 +4616,7 @@ private fun DropdownField(
         placeholder = placeholder,
         includeNone = includeNone,
         enabled = enabled,
+        server = server,
         onSelect = onSelect
     )
 }
@@ -5226,6 +5296,7 @@ private fun CheckboxMultiSelectField(
     options: List<Pair<String, String>>,
     selectedIds: Set<String>,
     emptyMessage: String = "No options available.",
+    server: ServerSearch? = null,
     onToggle: (String) -> Unit
 ) {
     CheckboxMultiSelectField(
@@ -5233,6 +5304,7 @@ private fun CheckboxMultiSelectField(
         options = remember(options) { options.asSelectOptions() },
         selectedIds = selectedIds,
         emptyMessage = emptyMessage,
+        server = server,
         onSelectedChange = { next ->
             (next - selectedIds).forEach(onToggle)
             (selectedIds - next).forEach(onToggle)
@@ -5277,6 +5349,7 @@ private fun CheckboxMultiSelectField(
     placeholder: String = "Select",
     emptyMessage: String = "No options available.",
     enabled: Boolean = true,
+    server: ServerSearch? = null,
     onSelectedChange: (Set<String>) -> Unit
 ) {
     SearchableMultiSelectField(
@@ -5286,6 +5359,7 @@ private fun CheckboxMultiSelectField(
         placeholder = placeholder,
         emptyMessage = emptyMessage,
         enabled = enabled,
+        server = server,
         onSelectedChange = onSelectedChange
     )
 }
@@ -5926,245 +6000,186 @@ private fun RecordPickerScreen(
     onPick: (String) -> Unit,
     /** Open the record read-only — a tap anywhere else on a card (`ui/RecordOpen.kt`). */
     onView: (String) -> Unit,
-    onError: (String) -> Unit
+    onError: (String) -> Unit,
+    /** The page's own scroller: this screen IS the list (`ui/LazyPage.kt`). */
+    chrome: LazyPageChrome
 ) {
-    var loading by remember(mode) { mutableStateOf(true) }
-    var options by remember(mode) { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var selected by remember(mode) { mutableStateOf("") }
-    /**
-     * What the list below is NOT showing, already worded (`ui/RecordPickers.listCutNotice`), or null
-     * when the list is whole. Only the questionnaire arm sets it today, because it is the only arm
-     * that keeps the response envelope; every other arm still drops `total` on the floor and so has
-     * nothing it could honestly say.
-     */
-    var listCut by remember(mode) { mutableStateOf<String?>(null) }
-    /** A failed load, drawn as a failure with Try again — never as "No records found yet". */
-    var loadError by remember(mode) { mutableStateOf<String?>(null) }
-    var loadAttempt by remember(mode) { mutableIntStateOf(0) }
 
     /*
      * WHICH WORKSHOP'S INTERVIEWS THIS PICKER OFFERS — defect (2), on the screen the owner was
      * looking at.
      *
      * "In the android, the questionnaire from the previous workshop are showing up even in the third
-     * workshop". The questionnaire arm below called `repository.interviews()`, which took no workshop
-     * argument at all, so this dropdown offered every interview ever recorded no matter which
-     * workshop the researcher was standing in. The shared control fixes it with the SAME default (the
-     * most recent workshop), the SAME three states and the SAME wire format as the completion matrix,
-     * the consolidated questionnaire and the map — see `ui/WorkshopScope.kt`. A fourth opinion about
-     * what "this workshop" means is the drift that file exists to prevent.
+     * workshop". The shared control fixes it with the SAME default (the most recent workshop), the
+     * SAME three states and the SAME wire format as the completion matrix, the consolidated
+     * questionnaire and the map — see `ui/WorkshopScope.kt`.
      *
-     * ── WHY IT IS DECLARED FOR EVERY MODE AND SHOWN FOR ONE ───────────────────────────────────
-     *
-     * `rememberWorkshopScope` cannot live inside `if (mode == EntryMode.QUESTIONNAIRE)`: the effect
-     * below has to read `settled` and `requestKey` to know whether to hold its first request, and an
-     * effect cannot read a `remember` that only exists in a sibling branch. The alternative — a
-     * second picker composable owning its own scope — would duplicate this screen's dropdown, its
-     * twelve recent-record cards and its empty-state copy, which is exactly how two pickers come to
-     * answer "which record" differently. The cost of declaring it unconditionally is one small
-     * `GET /workshops` on the five modes that do not display it, which is the same request
-     * `rememberWorkshopPicker` already issues below for those same five.
-     *
-     * ── AND WHY THE OTHER FIVE MODES DO NOT WAIT FOR IT ───────────────────────────────────────
-     *
-     * The scope joins this screen's request key ONLY in the mode that sends it. Keying every mode on
-     * it would put a workshops round-trip in front of the artisan list for no reason, and would
-     * re-issue that list every time a scope the artisan picker does not even show happened to move.
+     * Declared for every mode and shown for one: the list below reads `settled` and `requestKey`, and
+     * a `remember` inside `if (mode == QUESTIONNAIRE)` could not be read from outside it. The scope
+     * joins the list's key ONLY in the mode that sends it, so the other modes never wait for it.
      */
     val workshopScope = rememberWorkshopScope(repository = repository, onError = onError)
-    val scopeSettled = mode != EntryMode.QUESTIONNAIRE || workshopScope.settled
-    val scopeKey = if (mode == EntryMode.QUESTIONNAIRE) workshopScope.requestKey else ""
+    val isInterviews = mode == EntryMode.QUESTIONNAIRE
+    val scopeSettled = !isInterviews || workshopScope.settled
+    val scopeKey = if (isInterviews) workshopScope.requestKey else ""
 
-    LaunchedEffect(mode, scopeSettled, scopeKey, loadAttempt) {
-        // Held until the picker has settled, or the first request goes out unscoped and is replaced a
-        // moment later — two requests, and a visible flash of the previous workshop's interviews,
-        // which is the exact symptom being fixed.
-        if (!scopeSettled) return@LaunchedEffect
-        loading = true
-        // Cleared BEFORE the request rather than after it: a notice left standing while a new scope
-        // is in flight describes a list that is no longer on screen.
-        listCut = null
-        runCatching {
-            when (mode) {
-                // THE FIVE LABELS ARE NO LONGER SPELLED HERE. They were, character for character, the
-                // same five templates `ui/RecordSwitcher.kt` now owns — which made this screen and the
-                // edit screen's picker two independent copies of one answer to "what is this row
-                // called", and the web a third. `recordOptionLabel` is the one copy; it also stopped
-                // the two hand-written middle dots that used to print with nothing after them when a
-                // craft had no place or a process no parent product.
-                // Every page up to LOOKUP_PAGE_BUDGET, with the cut said out loud past it — this list
-                // used to stop at page one (media at twenty) and say nothing.
-                EntryMode.ARTISAN -> repository.artisansPage(pageBudget = LOOKUP_PAGE_BUDGET).let { page ->
-                    listCut = listCutNotice(page.items.size, page.total, "artisans")
-                    page.items.map { it.id to recordOptionLabel(it) }
-                }
-                EntryMode.CRAFT -> repository.craftsPage().let { page ->
-                    listCut = listCutNotice(page.items.size, page.total, "crafts")
-                    page.items.map { it.id to recordOptionLabel(it) }
-                }
-                EntryMode.PRODUCT -> repository.productsAll().let { page ->
-                    listCut = listCutNotice(page.items.size, page.total, "products")
-                    page.items.map { it.id to recordOptionLabel(it) }
-                }
-                EntryMode.PROCESS -> repository.processesAll().let { page ->
-                    listCut = listCutNotice(page.items.size, page.total, "processes")
-                    page.items.map { it.id to recordOptionLabel(it) }
-                }
-                EntryMode.TOOL -> repository.toolsAll().let { page ->
-                    listCut = listCutNotice(page.items.size, page.total, "tools")
-                    page.items.map { it.id to recordOptionLabel(it) }
-                }
-                EntryMode.WORKSHOP -> repository.workshopsAll().let { page ->
-                    listCut = listCutNotice(page.items.size, page.total, "workshops")
-                    page.items.map { it.id to it.title.ifBlank { "Untitled workshop" } }
-                }
-                EntryMode.MEDIA -> repository.mediaAll().let { page ->
-                    listCut = listCutNotice(page.items.size, page.total, "media files")
-                    page.items.map { m -> m.id to (m.caption?.takeIf { it.isNotBlank() } ?: m.originalFilename) }
-                }
-                EntryMode.QUESTIONNAIRE -> {
-                    // Idempotent: all saved interview records for the same set of artisan(s) collapse
-                    // into one entry (open the most recent); the label notes how many sessions exist.
-                    //
-                    // SCOPED, and with the envelope kept. `interviewsPage` rather than `interviews`
-                    // because the grouping above destroys the count — twelve sittings for one artisan
-                    // set collapse to one row — so `total` has to be read before the fold or there is
-                    // no honest number left to print. See `listCut` below.
-                    val page = repository.interviewsPage(workshopScope.workshopIds, pageBudget = LOOKUP_PAGE_BUDGET)
-                    listCut = listCutNotice(page.items.size, page.total, "interviews")
-                    page.items.groupBy { interviewGroupKey(it) }.values.map { group ->
-                        val rep = representativeInterview(group)
-                        val artisanNames = rep.artisans.mapNotNull { it.artisan?.name }.distinct().joinToString(", ")
-                        val parts = listOfNotNull(
-                            artisanNames.ifBlank { null },
-                            rep.title.takeIf { it.isNotBlank() },
-                            if (group.size > 1) "${group.size} sessions" else null
-                        )
-                        rep.id to parts.joinToString(" · ").ifBlank { "Untitled interview" }
-                    }.sortedBy { it.second.lowercase() }
-                }
-                else -> emptyList()
-            }
-        }.onSuccess { options = it; loadError = null }.onFailure {
-            if (it is kotlinx.coroutines.CancellationException) throw it
-            loadError = it.apiErrorMessage("Couldn't load the ${mode.label.lowercase()} records.")
-        }
-        loading = false
-    }
+    /*
+     * THE RECORDS, ONE PAGE AT A TIME AND SEARCHED BY THE SERVER (DC-A09). This screen used to walk
+     * twenty pages (2,000 rows) of the type before it drew anything and filter that copy on the
+     * device. Now the dropdown types into the list route's own `search`, the cards below are the
+     * plain list, and both reach the rest with "Load more" — see `ui/ServerSearch.kt`.
+     */
+    val rows = rememberRecordRows(
+        repository,
+        mode,
+        workshopIds = if (isInterviews) workshopScope.workshopIds else EVERY_WORKSHOP,
+        key = mode to scopeKey,
+        enabled = scopeSettled
+    )
+    val loading = !rows.browseLoaded && rows.note == null
+    val failed = !rows.browseLoaded && rows.note != null && !rows.loading
+    val options = recordRowOptions(mode, rows.known).map { it.value to it.label }
+    val cards = recordRowOptions(mode, rows.browse)
+    val browseHasMore = rows.browseLoaded && rows.browse.size < rows.browseTotal
 
     /*
      * THE WORKSHOP-FIRST PICKER, ON THE SCREEN THAT IS ACTUALLY CALLED "UPDATE EXISTING".
      *
-     * ── WHY IT IS HERE AND NOT ONLY ON THE EDIT SCREEN ────────────────────────────────────────
-     *
-     * It was built on `EditScreen` first, which sounds like the update page and is not: you only
-     * reach `EditScreen` once you have ALREADY chosen the record. The control whose whole purpose is
-     * choosing one was therefore behind the choice it exists to make, and the screen a researcher
-     * taps "Update existing artisan" to reach went on showing what it always had — every artisan in
-     * the repository, in one unsearchable dropdown. Reported as "no fix whatsoever is visible in the
-     * app", which was exactly right: on the screen being looked at, there wasn't one.
-     *
-     * ── IT IS THE SAME COMPONENT, NOT A SECOND ONE ────────────────────────────────────────────
-     *
      * `RecordSwitcher` and `rememberRecordSwitcher` are reused verbatim, so this screen and the edit
      * screen cannot drift about the default workshop, the debounce, when a search reaches the server,
-     * or what an empty or unreachable list says. Two pickers that answer "which record" differently
-     * is the drift `recordOptionLabel` was extracted to end, one screen earlier.
-     *
-     * ── THE PLAIN LIST BELOW IT STAYS ─────────────────────────────────────────────────────────
-     *
-     * `options` still loads every record of this kind and still draws the twelve most recent as tap
-     * targets. That is deliberate: it is the only route to a record whose `workshopId` is null, which
-     * the workshop filter has no spelling for — the singular `workshopId` parameter the five list
-     * routes accept cannot express "unfiled". Removing it would strand those records, so the
-     * switcher is an ADDITION to this screen and never a replacement.
+     * or what an empty or unreachable list says. The plain list below it stays: it is the only route
+     * to a record whose `workshopId` is null, which the workshop filter has no spelling for.
      */
     val switchKind = recordSwitchKindFor(mode)
-    if (switchKind != null) {
-        // `isEdit = true` only to skip the most-recent-workshop default: the switcher opens on
-        // "All workshops" (ui/RecordSwitcher.kt, ALL_WORKSHOPS_LABEL).
-        val switchWorkshop = rememberWorkshopPicker(repository, isEdit = true, initialId = null)
-        val switcher = rememberRecordSwitcher(repository, switchKind, switchWorkshop)
-        RecordCard(title = recordSwitcherTitle(switchKind)) {
-            RecordSwitcher(
-                kind = switchKind,
-                workshop = switchWorkshop,
-                switcher = switcher,
-                // No record is open on this screen, so there is nothing to exclude and nothing to
-                // offer a "show this record's own workshop" shortcut for. Both are absences rather
-                // than blanks: `currentId` empty means the record dropdown pre-selects nothing, and
-                // a null `currentWorkshopId` simply withholds the shortcut button.
-                currentId = "",
-                onPick = onPick,
-                currentWorkshopId = null
-            )
-        }
-    }
+    // Remembered HERE, above the list, and not inside its item: a lazy item that scrolls away is
+    // disposed, and the switcher would reload its workshop and its records every time it came back.
+    val switch = if (switchKind != null) rememberUpdatePickerSwitch(repository, switchKind) else null
 
-    RecordCard(title = "Update existing ${mode.label.lowercase()}") {
-        Text("Pick a record to update, or tap a recent one to read it.", color = Muted, fontSize = 12.sp)
-        if (mode == EntryMode.QUESTIONNAIRE) {
-            // ABOVE the list, because it changes what the list IS — the same placement the completion
-            // matrix and the consolidated index give it, for the same reason.
-            WorkshopScopeSelect(scope = workshopScope, label = "Workshops in this list")
+    PageLazyColumn(chrome) {
+        if (switchKind != null && switch != null) {
+            item(key = "switcher", contentType = "card") {
+                RecordCard(title = recordSwitcherTitle(switchKind)) {
+                    RecordSwitcher(
+                        kind = switchKind,
+                        workshop = switch.first,
+                        switcher = switch.second,
+                        // No record is open on this screen: nothing to exclude, no shortcut to offer.
+                        currentId = "",
+                        onPick = onPick,
+                        currentWorkshopId = null
+                    )
+                }
+            }
         }
-        when {
-            loading -> Text("Loading ${mode.label.lowercase()} records…", color = Muted)
-            loadError != null -> LoadFailedCard(message = loadError.orEmpty(), onRetry = { loadAttempt += 1 })
-            // AN EMPTY SCOPED LIST IS NOT AN EMPTY REPOSITORY, and saying only the second sends a
-            // researcher looking for a record that is sitting one tap away under "All records". The
-            // wording is `ConsolidatedIndex`'s, which faced the identical choice one screen over.
-            options.isEmpty() && mode == EntryMode.QUESTIONNAIRE && !workshopScope.isAllRecords ->
-                Text(
-                    "No interviews in these workshops yet.",
-                    color = Muted
-                )
-            options.isEmpty() -> Text("No ${mode.label.lowercase()} records found yet.", color = Muted)
-            else -> {
-                DropdownField(
-                    label = "Select ${mode.label.lowercase()}",
-                    options = options,
-                    selectedValue = selected,
-                    placeholder = "Select a record",
-                    includeNone = false,
-                    onSelect = { selected = it }
-                )
-                listCut?.let { Text(it, color = Muted, fontSize = 12.sp) }
-                Button(
-                    onClick = { if (selected.isNotBlank()) onPick(selected) },
-                    enabled = selected.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text(RECORD_UPDATE_LABEL) }
-                Text("Or tap a recent record to read it", color = Muted, fontSize = 12.sp)
-                options.take(12).forEach { (id, label) ->
-                    // THE WHOLE CARD READS THE RECORD; only its Update button edits it. The click sits
-                    // inside the card so the ripple stops at the rounded corner, and the button is a
-                    // child with its own pointer handling, so a tap on it never also opens the view.
-                    ElevatedCard(
-                        colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable(role = Role.Button, onClickLabel = "Open") { onView(id) }
-                                .heightIn(min = 48.dp)
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(label, color = Body, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                            OutlinedButton(
-                                onClick = { onPick(id) },
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                modifier = Modifier.semantics { contentDescription = "$RECORD_UPDATE_LABEL $label" }
-                            ) { Text(RECORD_UPDATE_LABEL, fontSize = 12.sp) }
-                        }
+
+        item(key = "picker", contentType = "card") {
+            RecordCard(title = "Update existing ${mode.label.lowercase()}") {
+                Text("Pick a record to update, or tap a recent one to read it.", color = Muted, fontSize = 12.sp)
+                if (isInterviews) {
+                    // ABOVE the list, because it changes what the list IS — the same placement the
+                    // completion matrix and the consolidated index give it, for the same reason.
+                    WorkshopScopeSelect(scope = workshopScope, label = "Workshops in this list")
+                }
+                when {
+                    loading -> Text("Loading ${mode.label.lowercase()} records…", color = Muted)
+                    failed -> LoadFailedCard(
+                        message = "Couldn't load the ${mode.label.lowercase()} records.",
+                        onRetry = { rows.retry() }
+                    )
+                    // AN EMPTY SCOPED LIST IS NOT AN EMPTY REPOSITORY, and saying only the second sends
+                    // a researcher looking for a record that is sitting one tap away under "All records".
+                    rows.browseTotal == 0 && isInterviews && !workshopScope.isAllRecords ->
+                        Text("No interviews in these workshops yet.", color = Muted)
+                    rows.browseTotal == 0 && rows.browseLoaded ->
+                        Text("No ${mode.label.lowercase()} records found yet.", color = Muted)
+                    else -> {
+                        DropdownField(
+                            label = "Select ${mode.label.lowercase()}",
+                            options = options,
+                            selectedValue = selected,
+                            placeholder = "Select a record",
+                            includeNone = false,
+                            server = rows.asServerSearchRows(countsRows = !isInterviews) { recordRowOptions(mode, it) },
+                            onSelect = { selected = it }
+                        )
+                        rows.note?.let { Text(it, color = Muted, fontSize = 12.sp) }
+                        Button(
+                            onClick = { if (selected.isNotBlank()) onPick(selected) },
+                            enabled = selected.isNotBlank(),
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text(RECORD_UPDATE_LABEL) }
                     }
                 }
             }
         }
+
+        // THE RECORDS AS CARDS — lazily: only the rows on screen are composed, so a long table costs
+        // what one screenful costs, and "Load more" at the end pages the rest in.
+        if (cards.isNotEmpty()) {
+            item(key = "cards-label", contentType = "note") {
+                Text("Or tap a recent record to read it", color = Muted, fontSize = 12.sp)
+            }
+        }
+        items(cards, key = { "record:${it.value}" }, contentType = { "recordCard" }) { option ->
+            val id = option.value
+            val label = option.label
+            // THE WHOLE CARD READS THE RECORD; only its Update button edits it. The click sits inside
+            // the card so the ripple stops at the rounded corner, and the button is a child with its
+            // own pointer handling, so a tap on it never also opens the view.
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(role = Role.Button, onClickLabel = "Open") { onView(id) }
+                        .heightIn(min = 48.dp)
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(label, color = Body, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                    OutlinedButton(
+                        onClick = { onPick(id) },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.semantics { contentDescription = "$RECORD_UPDATE_LABEL $label" }
+                    ) { Text(RECORD_UPDATE_LABEL, fontSize = 12.sp) }
+                }
+            }
+        }
+        if (browseHasMore) {
+            item(key = "more", contentType = "more") {
+                LoadMoreRow(loading = rows.loading, onLoadMore = { rows.loadMore() })
+            }
+        }
     }
 }
+
+/**
+ * The Update picker's workshop-first switcher, remembered by the screen rather than by a lazy item.
+ * `isEdit = true` only to skip the most-recent-workshop default: the switcher opens on
+ * "All workshops" (ui/RecordSwitcher.kt, ALL_WORKSHOPS_LABEL).
+ */
+@Composable
+private fun rememberUpdatePickerSwitch(
+    repository: FieldRepository,
+    kind: RecordSwitchKind
+): Pair<WorkshopPickerState, RecordSwitcherState> {
+    val switchWorkshop = rememberWorkshopPicker(repository, isEdit = true, initialId = null)
+    return switchWorkshop to rememberRecordSwitcher(repository, kind, switchWorkshop)
+}
+
+/** The "Load more" row at the end of a paged lazy list: one centred button. */
+@Composable
+private fun LoadMoreRow(loading: Boolean, onLoadMore: () -> Unit) {
+    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        OutlinedButton(onClick = onLoadMore, enabled = !loading, modifier = Modifier.heightIn(min = 48.dp)) {
+            Text(if (loading) "Loading…" else "Load more")
+        }
+    }
+}
+
 
 /** Maps a record type to its admin delete call. */
 private suspend fun deleteByMode(repository: FieldRepository, mode: EntryMode, id: String) {
@@ -6257,12 +6272,10 @@ private fun EditScreen(
     recordId: String,
     crafts: List<CraftDto>,
     artisans: List<ArtisanDto>,
-    // Travels with the two lists for the reason given on [ProductForm.craftListCut]: the totals
-    // belong to the same load, and a form handed the items without them can only stay silent. The
-    // EDIT path is the one that needs the sentence most — it is the path that opens over a record
-    // already pointing at rows the page may not hold.
-    craftListCut: String? = null,
-    artisanListCut: String? = null,
+    // Page 1 of each lookup, envelope and all: the pickers start from it and search the server for
+    // the rest (`ui/ServerSearch.kt`).
+    craftSeed: PageResponse<CraftDto>? = null,
+    artisanSeed: PageResponse<ArtisanDto>? = null,
     adminView: Boolean,
     canDelete: Boolean,
     onDone: () -> Unit,
@@ -6336,7 +6349,7 @@ private fun EditScreen(
                 ArtisanForm(
                     repository = repository,
                     crafts = crafts,
-                    craftListCut = craftListCut,
+                    craftSeed = craftSeed,
                     editing = d,
                     adminView = adminView,
                     onDone = onDone,
@@ -6357,8 +6370,8 @@ private fun EditScreen(
                 repository = repository,
                 crafts = crafts,
                 artisans = artisans,
-                craftListCut = craftListCut,
-                artisanListCut = artisanListCut,
+                craftSeed = craftSeed,
+                artisanSeed = artisanSeed,
                 editing = d,
                 adminView = adminView,
                 onDone = onDone,
@@ -6393,8 +6406,8 @@ private fun EditScreen(
                 repository = repository,
                 crafts = crafts,
                 artisans = artisans,
-                craftListCut = craftListCut,
-                artisanListCut = artisanListCut,
+                craftSeed = craftSeed,
+                artisanSeed = artisanSeed,
                 editing = d,
                 adminView = adminView,
                 onDone = onDone,
@@ -6412,6 +6425,7 @@ private fun EditScreen(
             if (d == null) LoadingCard(mode, loadError, retryLoad) else WorkshopForm(
                 repository = repository,
                 artisans = artisans,
+                artisanSeed = artisanSeed,
                 editing = d,
                 adminView = adminView,
                 onDone = onDone,
@@ -6679,8 +6693,8 @@ private fun ArtisanForm(
     crafts: List<CraftDto>,
     /** Whether [crafts] arrived, could not be reached, or is still coming — see [rememberFormCarry]. */
     lookupState: CarryScopeState = CarryScopeState.PENDING,
-    /** What [crafts] is not showing, already worded — see [ProductForm]'s parameter of this name. */
-    craftListCut: String? = null,
+    /** Page 1 of [crafts] with its envelope — see [ProductForm]'s parameter of this name. */
+    craftSeed: PageResponse<CraftDto>? = null,
     editing: ArtisanDetailDto? = null,
     prefill: Prefill? = null,
     adminView: Boolean = false,
@@ -6740,7 +6754,8 @@ private fun ArtisanForm(
      * below resolves the craft's NAME out of this list, and a local declared after the lambda is not
      * in scope for it. That is not a style preference, it is what the compiler said.
      */
-    val craftOptions = rememberCraftOptions(repository, crafts, craftId)
+    val craftPicker = rememberCraftPicker(repository, crafts, craftId, seed = craftSeed)
+    val craftOptions = craftPicker.options
     val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing, runningOnly = true)
     /**
      * The craft and the workshop carry into a new artisan; the ARTISAN in the bag never does.
@@ -7008,6 +7023,7 @@ private fun ArtisanForm(
             options = craftOptions.map { it.id to it.name },
             selectedValue = craftId,
             placeholder = "Select existing craft",
+            server = craftPicker.search.asServerSearch { SelectOption(it.id, it.name) },
             onSelect = { picked ->
                 craftId = picked
                 // An explicit pick replaces the remembered craft and retires the banner: from here on
@@ -7017,7 +7033,6 @@ private fun ArtisanForm(
                 }
             }
         )
-        craftListCut?.let { Text(it, color = Muted, fontSize = 12.sp) }
         /*
          * THIS BOX MOVED ONTO THE SHARED CONTROL SO IT COULD HAVE A MICROPHONE — 2026-09-13.
          *
@@ -7178,6 +7193,8 @@ private fun ArtisanForm(
 private fun WorkshopForm(
     repository: FieldRepository,
     artisans: List<ArtisanDto>,
+    /** Page 1 of the artisan lookup, so the picker costs no request until somebody types. */
+    artisanSeed: PageResponse<ArtisanDto>? = null,
     editing: WorkshopDetailDto? = null,
     prefill: Prefill? = null,
     adminView: Boolean = false,
@@ -7205,7 +7222,15 @@ private fun WorkshopForm(
                 ?: emptySet()
         )
     }.drafted(draft, "selectedArtisans")
-    var crafts by remember { mutableStateOf<List<CraftDto>>(emptyList()) }
+    // Both pickers search the server and page (`ui/ServerSearch.kt`); the craft one asks for its own
+    // first page, the artisan one starts from the app-wide page it was handed.
+    val craftSearch = rememberServerSearch(
+        key = Unit, cached = emptyList<CraftDto>(), seed = null, idOf = { it.id }, textOf = ::craftSearchText
+    ) { term, page -> repository.craftsSearchPage(term, page) }
+    val artisanSearch = rememberServerSearch(
+        key = Unit, cached = artisans, seed = artisanSeed, idOf = { it.id }, textOf = ::artisanSearchText
+    ) { term, page -> repository.artisansSearchPage(term, page) }
+    val crafts = craftSearch.known
     var selectedCrafts by remember(editing) {
         mutableStateOf(editing?.crafts?.map { it.craftId }?.toSet() ?: emptySet())
     }.drafted(draft, "selectedCrafts")
@@ -7218,9 +7243,6 @@ private fun WorkshopForm(
     LaunchedEffect(editing) {
         val existing = editing?.location
         if (existing != null && media.location == null) media.location = existing.toRequest()
-    }
-    LaunchedEffect(Unit) {
-        runCatching { repository.crafts() }.onSuccess { crafts = it }
     }
 
     fun submit() {
@@ -7331,8 +7353,9 @@ private fun WorkshopForm(
         CheckboxMultiSelectField(
             label = "Linked artisans",
             emptyMessage = "No artisans available yet. Create an artisan first.",
-            options = artisans.map { it.id to "${it.name} · ${it.place}" },
-            selectedIds = selectedArtisans
+            options = artisanSearch.known.map { it.id to "${it.name} · ${it.place}" },
+            selectedIds = selectedArtisans,
+            server = artisanSearch.asServerSearch(::artisanSelectOption)
         ) { id ->
             selectedArtisans = if (selectedArtisans.contains(id)) selectedArtisans - id else selectedArtisans + id
         }
@@ -7340,7 +7363,8 @@ private fun WorkshopForm(
             label = "Crafts covered",
             emptyMessage = "No crafts available yet. Create a craft first.",
             options = crafts.map { it.id to (it.name + (it.place?.let { p -> " · $p" } ?: "")) },
-            selectedIds = selectedCrafts
+            selectedIds = selectedCrafts,
+            server = craftSearch.asServerSearch { SelectOption(it.id, it.name + (it.place?.let { p -> " · $p" } ?: "")) }
         ) { id ->
             selectedCrafts = if (selectedCrafts.contains(id)) selectedCrafts - id else selectedCrafts + id
         }
@@ -7363,16 +7387,13 @@ private fun ProductForm(
     /** Whether the two lists above arrived, could not be reached, or are still coming. */
     lookupState: CarryScopeState = CarryScopeState.PENDING,
     /**
-     * What the two lists above are NOT showing, already worded (`ui/RecordPickers.listCutNotice`),
-     * or null when they are whole — which is the common case and prints nothing.
-     *
-     * Passed in rather than derived here because the lists themselves are: they are loaded once for
-     * the whole app and handed to every form, so the `total` that goes with them has to travel the
-     * same way. Defaulted to null so a caller that has not been given the numbers stays SILENT
-     * rather than claiming a complete list it cannot vouch for.
+     * Page 1 of each list above WITH its envelope, so the pickers can start from it and search the
+     * server for the rest (`ui/ServerSearch.kt`) without a request of their own. Loaded once for the
+     * whole app and handed to every form, exactly as the lists are. Null makes each picker ask for its
+     * own first page.
      */
-    craftListCut: String? = null,
-    artisanListCut: String? = null,
+    craftSeed: PageResponse<CraftDto>? = null,
+    artisanSeed: PageResponse<ArtisanDto>? = null,
     editing: ProductDetailDto? = null,
     prefill: Prefill? = null,
     adminView: Boolean = false,
@@ -7409,8 +7430,9 @@ private fun ProductForm(
      * the lookup returns nothing for a deleted id. This is the same choice the web forms make, and
      * the two must keep making it together.
      */
-    val craftOptions = rememberCraftOptions(repository, crafts, craftId)
-    val picker = rememberArtisanPicker(repository, artisans, craftId, artisanId)
+    val craftPicker = rememberCraftPicker(repository, crafts, craftId, seed = craftSeed)
+    val craftOptions = craftPicker.options
+    val picker = rememberArtisanPicker(repository, artisans, craftId, artisanId, seed = artisanSeed)
 
     var productType by remember(editing) { mutableStateOf(editing?.productType ?: "OTHER") }.drafted(draft, "productType")
     var marketDemand by remember(editing) { mutableStateOf(editing?.marketDemand ?: "UNKNOWN") }.drafted(draft, "marketDemand")
@@ -7633,7 +7655,8 @@ private fun ProductForm(
             label = "Linked craft (fills craft name)",
             options = craftOptions.map { it.id to it.name },
             selectedValue = craftId,
-            placeholder = "Unlinked / type below"
+            placeholder = "Unlinked / type below",
+            server = craftPicker.search.asServerSearch { SelectOption(it.id, it.name) }
         ) { id ->
             craftId = id
             craftOptions.firstOrNull { it.id == id }?.let { craftName = it.name }
@@ -7648,7 +7671,6 @@ private fun ProductForm(
                 artisanId = ""
             }
         }
-        craftListCut?.let { Text(it, color = Muted, fontSize = 12.sp) }
         RequiredInput("Craft name", craftName, craftNameError, craftNameFocus, titleCased = true, dictate = dictates("craftName")) { craftName = it }
         // Task 6: the artisan dropdown is gated on a linked craft and only lists that craft's
         // artisans. Filtered from `picker.options` — the startup page PLUS the craft's server-side
@@ -7665,7 +7687,8 @@ private fun ProductForm(
             options = artisanOptionsForCraft.map { it.id to "${it.name} · ${it.place}" },
             selectedValue = artisanId,
             placeholder = if (craftId.isBlank()) "Select a linked craft first" else "Unlinked / type below",
-            enabled = craftId.isNotBlank()
+            enabled = craftId.isNotBlank(),
+            server = picker.search.asServerSearch(::artisanSelectOption)
         ) { id ->
             artisanId = id
             picker.options.firstOrNull { it.id == id }?.let {
@@ -7692,11 +7715,6 @@ private fun ProductForm(
         if (craftId.isNotBlank() && picker.loadedForCraft == craftId && artisanOptionsForCraft.isEmpty()) {
             Text("No artisans are linked to this craft yet.", color = Muted, fontSize = 12.sp)
         }
-        // Which list is short depends on whether a craft has been chosen: without one the dropdown is
-        // the app-wide artisan page, with one it is that craft's roster. Saying both at once would be
-        // two sentences about one control.
-        val artisanCutNote = if (craftId.isBlank()) artisanListCut else picker.craftRosterCut
-        artisanCutNote?.let { Text(it, color = Muted, fontSize = 12.sp) }
         RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus, titleCased = true, dictate = dictates("artisanName")) { artisanName = it }
         RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
         TextInput("Time taken to complete", timeTaken, dictate = dictates("timeTakenToCompleteProduct")) { timeTaken = it }
@@ -7804,8 +7822,8 @@ private fun ToolForm(
     /** Whether the two lists above arrived, could not be reached, or are still coming. */
     lookupState: CarryScopeState = CarryScopeState.PENDING,
     /** See [ProductForm]'s pair of the same name — identical meaning, identical default. */
-    craftListCut: String? = null,
-    artisanListCut: String? = null,
+    craftSeed: PageResponse<CraftDto>? = null,
+    artisanSeed: PageResponse<ArtisanDto>? = null,
     editing: ToolDetailDto? = null,
     prefill: Prefill? = null,
     adminView: Boolean = false,
@@ -7952,18 +7970,21 @@ private fun ToolForm(
      * one of them that failed left its row missing for the life of the form. The loops stay as the
      * fallback for an older server that sends a null nested object.
      */
-    val craftOptions = rememberCraftOptions(
+    val craftPicker = rememberCraftPicker(
         repository,
         crafts,
         craftIds,
-        hydrated = editing?.craftLinks?.mapNotNull { it.craft }.orEmpty()
+        hydrated = editing?.craftLinks?.mapNotNull { it.craft }.orEmpty(),
+        seed = craftSeed
     )
+    val craftOptions = craftPicker.options
     val picker = rememberArtisanPicker(
         repository,
         artisans,
         craftIds,
         artisanIds,
-        hydrated = editing?.artisanLinks?.mapNotNull { it.artisan }.orEmpty()
+        hydrated = editing?.artisanLinks?.mapNotNull { it.artisan }.orEmpty(),
+        seed = artisanSeed
     )
 
     var processUsedIn by remember(editing) { mutableStateOf(editing?.processUsedIn ?: "") }.drafted(draft, "processUsedIn")
@@ -8578,9 +8599,9 @@ private fun ToolForm(
             options = craftOptions.map { SelectOption(value = it.id, label = it.name) },
             selectedIds = craftIds.toSet(),
             emptyMessage = "No crafts available yet.",
+            server = craftPicker.search.asServerSearch { SelectOption(value = it.id, label = it.name) },
             onSelectedChange = { selection -> onCraftsChanged(selection) }
         )
-        craftListCut?.let { Text(it, color = Muted, fontSize = 12.sp) }
         RequiredInput("Craft name", craftName, craftNameError, craftNameFocus, titleCased = true, dictate = dictates("craftName")) { craftName = it }
         // Task 6, now plural: the artisan picker is still gated on a linked craft, and lists the
         // artisans of ALL the ticked crafts. Filtered from `picker.options` — the startup page PLUS
@@ -8609,18 +8630,20 @@ private fun ToolForm(
         // `SelectOption.matches` searches the hint as well as the label, so typing a craft name
         // filters the sheet to that craft, which is the half of a heading that actually does work.
         val selectedCrafts = craftOptions.filter { it.id in craftIds }
-        val artisanRows = artisansByCraftThenName(artisanOptionsForCraft, selectedCrafts).map { artisan ->
-            SelectOption(
-                value = artisan.id,
-                label = artisan.name,
-                // Blanks dropped rather than printed: an artisan whose craft this form cannot name
-                // would otherwise read " · Bagru", which looks like a rendering fault.
-                hint = listOf(craftNameFor(artisan, selectedCrafts), artisan.place)
-                    .filter { it.isNotBlank() }
-                    .joinToString(" · ")
-                    .ifBlank { null }
-            )
-        }
+        fun toolArtisanRows(list: List<ArtisanDto>): List<SelectOption> =
+            artisansByCraftThenName(list, selectedCrafts).map { artisan ->
+                SelectOption(
+                    value = artisan.id,
+                    label = artisan.name,
+                    // Blanks dropped rather than printed: an artisan whose craft this form cannot name
+                    // would otherwise read " · Bagru", which looks like a rendering fault.
+                    hint = listOf(craftNameFor(artisan, selectedCrafts), artisan.place)
+                        .filter { it.isNotBlank() }
+                        .joinToString(" · ")
+                        .ifBlank { null }
+                )
+            }
+        val artisanRows = toolArtisanRows(artisanOptionsForCraft)
         CheckboxMultiSelectField(
             label = "Linked artisans (fills artisan + place)",
             options = artisanRows,
@@ -8628,6 +8651,9 @@ private fun ToolForm(
             placeholder = if (craftIds.isEmpty()) "Select a linked craft first" else "Select",
             emptyMessage = "No artisans available for the crafts selected above.",
             enabled = craftIds.isNotEmpty(),
+            // The sheet lists the crafts' roster as the server pages and searches it, in the same
+            // craft-then-name order as the rows above.
+            server = picker.search.asServerSearchRows(countsRows = true) { toolArtisanRows(it) },
             // The whole selection, once — see the craft picker above. "Clear all" here used to replay
             // N unticks, and the N-1th rewrote `artisanName`/`place` from the last surviving artisan
             // before the Nth returned.
@@ -8645,11 +8671,6 @@ private fun ToolForm(
                 fontSize = 12.sp
             )
         }
-        // Which list is short depends on whether a craft has been chosen: without one the picker is
-        // the app-wide artisan page, with one it is those crafts' roster. Saying both at once would be
-        // two sentences about one control.
-        val artisanCutNote = if (craftIds.isEmpty()) artisanListCut else picker.craftRosterCut
-        artisanCutNote?.let { Text(it, color = Muted, fontSize = 12.sp) }
         RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus, titleCased = true, dictate = dictates("artisanName")) { artisanName = it }
         RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
         TextInput("Process used in", processUsedIn, dictate = dictates("processUsedIn")) { processUsedIn = it }
@@ -8990,23 +9011,18 @@ private fun ProcessForm(
         }
     }
 
-    // WHAT THIS FORM'S ARTISAN DROPDOWN IS NOT SHOWING.
-    //
-    // This is the most exposed picker in the app. Unlike the product and tool forms' it is not
-    // narrowed by a craft, so it really is the newest hundred rows of the whole artisan table
-    // (`pageSize = 100` is the server's ceiling, not a default), with no search and no page two —
-    // and the field is REQUIRED and gates the product dropdown beneath it. `total` was on the wire
-    // and discarded. See `ui/RecordPickers.listCutNotice`; the web form says the same sentence.
-    var artisanListCut by remember { mutableStateOf<String?>(null) }
+    // THIS FORM'S ARTISAN PAGE. Not narrowed by a craft, so it is page 1 of the whole table; the
+    // picker's search and "Load more" go to the server for the rest (`ui/ServerSearch.kt`).
+    var artisanSeed by remember { mutableStateOf<PageResponse<ArtisanDto>?>(null) }
     LaunchedEffect(Unit) {
         runCatching { repository.products() }.onSuccess { products = it }
-        val gotArtisans = runCatching { repository.artisansPage(pageBudget = LOOKUP_PAGE_BUDGET) }
+        val gotArtisans = runCatching { repository.artisansPage() }
             .onSuccess {
                 artisans = it.items
-                artisanListCut = listCutNotice(it.items.size, it.total, "artisans")
+                artisanSeed = it
             }
             .isSuccess
-        artisanListState = if (gotArtisans) CarryScopeState.LOADED else CarryScopeState.UNAVAILABLE
+        artisanListState = if (gotArtisans) carryScopeStateFor(artisanSeed) else CarryScopeState.UNAVAILABLE
     }
 
     /**
@@ -9018,7 +9034,7 @@ private fun ProcessForm(
      * artisan), and the only way forward on screen was to pick a DIFFERENT one. `craftId` is blank
      * here on purpose — this form has no craft field, so the hook makes only the by-id request.
      */
-    val artisanPicker = rememberArtisanPicker(repository, artisans, "", artisanId)
+    val artisanPicker = rememberArtisanPicker(repository, artisans, "", artisanId, seed = artisanSeed)
     val artisanOptions = artisanPicker.options
 
     /**
@@ -9314,7 +9330,8 @@ private fun ProcessForm(
             options = artisanOptions.map { it.id to "${it.name} · ${it.place}" },
             selectedValue = artisanId,
             placeholder = "Select the artisan",
-            includeNone = false
+            includeNone = false,
+            server = artisanPicker.search.asServerSearch(::artisanSelectOption)
         ) { picked ->
             if (picked != artisanId) {
                 artisanId = picked
@@ -9330,7 +9347,6 @@ private fun ProcessForm(
                 }
             }
         }
-        artisanListCut?.let { Text(it, color = Muted, fontSize = 12.sp) }
         if (artisanError != null) Text(artisanError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
         DropdownField(
             label = "Product *",
@@ -9592,43 +9608,103 @@ private suspend fun interviewGroup(
 }
 
 /**
- * A record type's entries as (id, label) pairs, for a dropdown that has no filter of its own.
+ * ONE ROW OF A RECORD-TYPE PICKER — the Update picker, View Data and the media form's linked entry.
  *
- * DELIBERATELY UNSCOPED, INCLUDING THE INTERVIEWS. Every questionnaire list a researcher chooses
- * FROM is now scoped by the shared workshop control — the update picker and the View Data browse
- * screen both draw one and both pass `scope.workshopIds`. This helper's only remaining questionnaire
- * caller is the miscellaneous-media form's "linked record" dropdown, which carries no workshop
- * control at all: it asks "which record does this file belong to", and the answer is legitimately
- * any record in the repository, including one filed at a different workshop. Passing a scope nothing
- * on that screen displays would narrow the list by a rule the researcher could neither see nor
- * change, which is a worse failure than the one being fixed — they would simply be unable to attach
- * a file, with no explanation.
- *
- * If that form ever grows a workshop field, this signature grows a `workshopIds` parameter and the
- * questionnaire arm below passes it. The rule is the same one stated on `FieldRepository.interviews`:
- * a list passes the scope that is ACTUALLY ON SCREEN, and nothing else.
- *
- * The 100-row ceiling on every arm here is untouched and is the one thing still outstanding — see the
- * report for this change. It bites the questionnaire arm no harder than the seven beside it.
+ * [text] is what an offline search matches; [interview] is kept for the questionnaire arm, whose
+ * sittings are folded into one entry per artisan set after the rows arrive.
  */
-private suspend fun loadViewEntries(repository: FieldRepository, mode: EntryMode): List<Pair<String, String>> = when (mode) {
-    // Every list is ordered most-recent-first (createdAt desc; ISO timestamps sort lexically).
-    EntryMode.ARTISAN -> repository.artisans().sortedByDescending { it.createdAt ?: "" }.map { it.id to "${it.name} · ${it.place}" }
-    EntryMode.CRAFT -> repository.crafts().sortedByDescending { it.createdAt ?: "" }.map { it.id to (it.name + (it.place?.let { p -> " · $p" } ?: "")) }
-    EntryMode.PRODUCT -> repository.products().sortedByDescending { it.createdAt ?: "" }.map { it.id to "${it.productName} · ${it.artisanName}" }
-    EntryMode.PROCESS -> repository.processes().sortedByDescending { it.createdAt ?: "" }.map { it.id to (it.name + (it.product?.productName?.let { p -> " · $p" } ?: "")) }
-    EntryMode.TOOL -> repository.tools().sortedByDescending { it.createdAt ?: "" }.map { it.id to "${it.toolkitName} · ${it.artisanName}" }
-    EntryMode.WORKSHOP -> repository.workshops().sortedByDescending { it.createdAt ?: "" }.map { it.id to it.title.ifBlank { "Untitled workshop" } }
-    // [EVERY_WORKSHOP] written out, and not a bare call. The scope is deliberate here — the header
-    // above says why — and naming it is what makes that visible on the line where the decision is,
-    // rather than at a default on the declaration where nobody reading this list would look.
-    EntryMode.QUESTIONNAIRE -> repository.interviews(EVERY_WORKSHOP).sortedByDescending { it.createdAt ?: "" }.map { it.id to it.title.ifBlank { "Untitled interview" } }
-    EntryMode.MEDIA -> repository.mediaList().sortedByDescending { it.createdAt ?: "" }.map { m ->
-        val tag = m.linkedRecordType?.takeIf { it.isNotBlank() }?.replaceFirstChar { it.uppercase() }
-        m.id to (m.originalFilename.ifBlank { "Media" } + " · " + listOfNotNull(m.mediaType, tag).joinToString(" · "))
+private data class RecordRow(
+    val id: String,
+    val label: String,
+    val text: String,
+    val interview: QuestionnaireInterviewDetailDto? = null
+)
+
+/**
+ * One page of one record type, SEARCHED BY THE SERVER (`ui/ServerSearch.kt`). [search] null is the
+ * plain list. Each arm reads the list route's own `search`, so a match means what it means on the web.
+ *
+ * [workshopIds] defaults to EVERY workshop, deliberately: a list passes the scope that is actually on
+ * screen and nothing else, and the media form's linked-entry picker has no workshop control — a file
+ * may belong to a record filed anywhere.
+ */
+private suspend fun recordRowsPage(
+    repository: FieldRepository,
+    mode: EntryMode,
+    search: String?,
+    page: Int,
+    workshopIds: List<String>? = EVERY_WORKSHOP
+): PageResponse<RecordRow> {
+    fun <T> PageResponse<T>.rows(row: (T) -> RecordRow) =
+        PageResponse(items.map(row), total, this.page, pageSize, pages)
+    return when (mode) {
+        EntryMode.ARTISAN -> repository.artisansSearchPage(search, page).rows {
+            RecordRow(it.id, recordOptionLabel(it), artisanSearchText(it))
+        }
+        EntryMode.CRAFT -> repository.craftsSearchPage(search, page).rows {
+            RecordRow(it.id, recordOptionLabel(it), craftSearchText(it))
+        }
+        EntryMode.PRODUCT -> repository.productsSearchPage(search, page).rows {
+            RecordRow(it.id, recordOptionLabel(it), "${it.productName} ${it.artisanName} ${it.craftName}")
+        }
+        EntryMode.PROCESS -> repository.processesSearchPage(search, page).rows {
+            RecordRow(it.id, recordOptionLabel(it), "${it.name} ${it.product?.productName.orEmpty()}")
+        }
+        EntryMode.TOOL -> repository.toolsSearchPage(search, page).rows {
+            RecordRow(it.id, recordOptionLabel(it), "${it.toolkitName} ${it.artisanName} ${it.craftName}")
+        }
+        EntryMode.WORKSHOP -> repository.workshopsSearchPage(search, page).rows {
+            val title = it.title.ifBlank { "Untitled workshop" }
+            RecordRow(it.id, title, "$title ${it.place.orEmpty()}")
+        }
+        EntryMode.MEDIA -> repository.mediaSearchPage(search, page).rows { m ->
+            val label = m.caption?.takeIf { it.isNotBlank() } ?: m.originalFilename.ifBlank { "Media" }
+            RecordRow(m.id, label, "$label ${m.originalFilename} ${m.mediaType}")
+        }
+        EntryMode.QUESTIONNAIRE -> repository.interviewsSearchPage(workshopIds, search, page).rows { iv ->
+            val names = iv.artisans.mapNotNull { it.artisan?.name }.distinct().joinToString(", ")
+            RecordRow(iv.id, iv.title.ifBlank { "Untitled interview" }, "$names ${iv.title}", interview = iv)
+        }
+        else -> PageResponse(emptyList(), 0, 1, SERVER_SEARCH_PAGE_SIZE, 0)
     }
-    else -> emptyList()
 }
+
+/**
+ * The picker rows for a list of [RecordRow]s. Interviews fold into one entry per artisan set (open the
+ * most recent; the label says how many sittings exist) — over the rows loaded so far.
+ */
+private fun recordRowOptions(mode: EntryMode, rows: List<RecordRow>): List<SelectOption> =
+    if (mode != EntryMode.QUESTIONNAIRE) {
+        rows.map { SelectOption(it.id, it.label) }
+    } else {
+        rows.mapNotNull { it.interview }.groupBy { interviewGroupKey(it) }.values.map { group ->
+            val rep = representativeInterview(group)
+            val artisanNames = rep.artisans.mapNotNull { it.artisan?.name }.distinct().joinToString(", ")
+            val parts = listOfNotNull(
+                artisanNames.ifBlank { null },
+                rep.title.takeIf { it.isNotBlank() },
+                if (group.size > 1) "${group.size} sessions" else null
+            )
+            SelectOption(rep.id, parts.joinToString(" · ").ifBlank { "Untitled interview" })
+        }.sortedBy { it.label.lowercase() }
+    }
+
+/** A record-type list that searches the server and pages, for [mode]. */
+@Composable
+private fun rememberRecordRows(
+    repository: FieldRepository,
+    mode: EntryMode?,
+    workshopIds: List<String>? = EVERY_WORKSHOP,
+    key: Any? = mode,
+    enabled: Boolean = mode != null
+): ServerSearchState<RecordRow> = rememberServerSearch(
+    key = key,
+    cached = emptyList(),
+    seed = null,
+    idOf = { it.id },
+    textOf = { it.text },
+    enabled = enabled
+) { term, page -> recordRowsPage(repository, mode ?: EntryMode.ARTISAN, term, page, workshopIds) }
 
 // ===========================================================================
 // My Activity — every record the current user created, most recent first
@@ -9694,7 +9770,9 @@ private fun MyActivityScreen(
     repository: FieldRepository,
     userId: String,
     onOpen: (EntryMode, String) -> Unit,
-    onError: (String) -> Unit
+    onError: (String) -> Unit,
+    /** The page's own scroller: this screen IS the list (`ui/LazyPage.kt`). */
+    chrome: LazyPageChrome
 ) {
     var activity by remember { mutableStateOf<MyActivityResult?>(null) }
     var loadError by remember { mutableStateOf<String?>(null) }
@@ -9707,60 +9785,78 @@ private fun MyActivityScreen(
                 loadError = it.apiErrorMessage("Couldn't load your activity.")
             }
     }
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-        Text("Your records, newest first.", color = Muted, fontSize = 13.sp)
-        val current = activity
-        val failure = loadError
+    val current = activity
+    val failure = loadError
+    // ONE LAZY LIST, NOT A COLUMN OF CARDS. A researcher's records run to thousands across seven
+    // types, and the page column composed every one of them before the first frame; this composes the
+    // screenful that is visible (DC-A34).
+    PageLazyColumn(chrome, spacing = 12.dp) {
+        item(key = "intro", contentType = "note") {
+            Text("Your records, newest first.", color = Muted, fontSize = 13.sp)
+        }
         if (current != null && current.failedTypes.isNotEmpty()) {
-            LoadFailedCard(
-                message = "Couldn't load your ${current.failedTypes.joinToString(", ")}. Everything else is below.",
-                onRetry = { attempt += 1 }
-            )
+            item(key = "partial", contentType = "card") {
+                LoadFailedCard(
+                    message = "Couldn't load your ${current.failedTypes.joinToString(", ")}. Everything else is below.",
+                    onRetry = { attempt += 1 }
+                )
+            }
         }
         if (current != null && current.truncated) {
-            Text(
-                "Newest ${MY_RECORDS_PAGE_BUDGET * 100} per type. See View Data for more.",
-                color = Muted,
-                fontSize = 13.sp
-            )
+            item(key = "truncated", contentType = "note") {
+                Text(
+                    "Newest ${MY_RECORDS_PAGE_BUDGET * 100} per type. See View Data for more.",
+                    color = Muted,
+                    fontSize = 13.sp
+                )
+            }
         }
         when {
-            current == null && failure != null -> LoadFailedCard(
-                message = failure,
-                onRetry = { loadError = null; attempt += 1 }
-            )
-            current == null -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FieldCircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                Text("Loading your activity…", color = Muted, fontSize = 13.sp)
+            current == null && failure != null -> item(key = "failed", contentType = "card") {
+                LoadFailedCard(message = failure, onRetry = { loadError = null; attempt += 1 })
             }
-            current.items.isEmpty() && current.failedTypes.isEmpty() -> Text(
-                "Nothing recorded yet.",
-                color = Muted,
-                fontSize = 13.sp
-            )
-            else -> current.items.forEach { item ->
-                ElevatedCard(
-                    colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        // Clipped to the card's own corners so the ripple does not paint past them.
-                        .clip(RoundedCornerShape(14.dp))
-                        .clickable(role = Role.Button, onClickLabel = "Open ${item.title}") { onOpen(item.mode, item.id) }
-                ) {
-                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(item.title, display = true, color = Body, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                        Text(
-                            item.subtitle + (formatIsoDate(item.createdAt)?.let { " · $it" } ?: ""),
-                            color = Muted,
-                            fontSize = 12.sp
-                        )
-                    }
+            current == null -> item(key = "loading", contentType = "note") {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FieldCircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Text("Loading your activity…", color = Muted, fontSize = 13.sp)
                 }
             }
+            current.items.isEmpty() && current.failedTypes.isEmpty() -> item(key = "empty", contentType = "note") {
+                Text("Nothing recorded yet.", color = Muted, fontSize = 13.sp)
+            }
+            else -> items(
+                current.items.distinctBy { "${it.mode.name}:${it.id}" },
+                // Keyed by type and id — two tables can hold the same cuid, and a key must be unique.
+                key = { "${it.mode.name}:${it.id}" },
+                contentType = { "activity" }
+            ) { item -> ActivityCard(item = item, onOpen = onOpen) }
         }
     }
 }
+
+/** One of the researcher's own records. A tap READS it (`ui/RecordOpen.kt`); its view carries Update. */
+@Composable
+private fun ActivityCard(item: ActivityItem, onOpen: (EntryMode, String) -> Unit) {
+    ElevatedCard(
+        colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            // Clipped to the card's own corners so the ripple does not paint past them.
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(role = Role.Button, onClickLabel = "Open ${item.title}") { onOpen(item.mode, item.id) }
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(item.title, display = true, color = Body, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+            Text(
+                item.subtitle + (formatIsoDate(item.createdAt)?.let { " · $it" } ?: ""),
+                color = Muted,
+                fontSize = 12.sp
+            )
+        }
+    }
+}
+
 
 // ===========================================================================
 // Assign tools to artisans — map one documented tool to many artisans
@@ -9772,9 +9868,6 @@ private fun ToolAssignScreen(
     onError: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    var tools by remember { mutableStateOf<List<ToolDetailDto>>(emptyList()) }
-    var crafts by remember { mutableStateOf<List<CraftDto>>(emptyList()) }
-    var artisans by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
     var toolId by remember { mutableStateOf("") }
     var craftIds by remember { mutableStateOf(setOf<String>()) }
     var artisanIds by remember { mutableStateOf(setOf<String>()) }
@@ -9782,11 +9875,23 @@ private fun ToolAssignScreen(
     var saving by remember { mutableStateOf(false) }
     var info by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) {
-        runCatching { repository.tools() }.onSuccess { tools = it }.onFailure { onError(it.apiErrorMessage("Failed to load tools")) }
-        runCatching { repository.crafts() }.onSuccess { crafts = it }
-        runCatching { repository.artisans() }.onSuccess { artisans = it }
-    }
+    // All three pickers search the server and page (`ui/ServerSearch.kt`); the artisan one is scoped
+    // to the ticked crafts by the server, so a craft's whole roster is reachable.
+    val toolSearch = rememberServerSearch(
+        key = Unit, cached = emptyList<ToolDetailDto>(), seed = null, idOf = { it.id },
+        textOf = { "${it.toolkitName} ${it.craftName}" }
+    ) { term, page -> repository.toolsSearchPage(term, page) }
+    val craftSearch = rememberServerSearch(
+        key = Unit, cached = emptyList<CraftDto>(), seed = null, idOf = { it.id }, textOf = ::craftSearchText
+    ) { term, page -> repository.craftsSearchPage(term, page) }
+    val craftScope = craftIds.sorted()
+    val artisanSearch = rememberServerSearch(
+        key = craftScope, cached = emptyList<ArtisanDto>(), seed = null, idOf = { it.id },
+        textOf = ::artisanSearchText, enabled = craftScope.isNotEmpty()
+    ) { term, page -> repository.artisansForCraftsPage(craftScope, term, page) }
+    val tools = toolSearch.known
+    val crafts = craftSearch.known
+    val artisans = artisanSearch.known
     LaunchedEffect(toolId) {
         if (toolId.isBlank()) { assigned = emptyList(); return@LaunchedEffect }
         runCatching { repository.toolArtisans(toolId) }.onSuccess { assigned = it }.onFailure { assigned = emptyList() }
@@ -9811,13 +9916,15 @@ private fun ToolAssignScreen(
             options = tools.map { it.id to "${it.toolkitName} · ${it.craftName}" },
             selectedValue = toolId,
             placeholder = "Select a tool",
-            includeNone = false
+            includeNone = false,
+            server = toolSearch.asServerSearch { SelectOption(it.id, "${it.toolkitName} · ${it.craftName}") }
         ) { toolId = it }
         CheckboxMultiSelectField(
             label = "Crafts",
             options = crafts.map { it.id to it.name },
             selectedIds = craftIds,
             emptyMessage = "No crafts available.",
+            server = craftSearch.asServerSearch { SelectOption(it.id, it.name) },
             onToggle = { id -> craftIds = if (craftIds.contains(id)) craftIds - id else craftIds + id }
         )
         CheckboxMultiSelectField(
@@ -9825,6 +9932,7 @@ private fun ToolAssignScreen(
             options = artisansForCrafts.map { it.id to "${it.name} · ${it.place}" },
             selectedIds = artisanIds,
             emptyMessage = if (craftIds.isEmpty()) "Select one or more crafts first." else "No artisans for the selected crafts.",
+            server = if (craftIds.isEmpty()) null else artisanSearch.asServerSearch(::artisanSelectOption),
             onToggle = { id -> artisanIds = if (artisanIds.contains(id)) artisanIds - id else artisanIds + id }
         )
         info?.let { Text(it, color = Coral, fontSize = 12.sp) }
@@ -10653,7 +10761,7 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
             if (map.containsKey(t)) return@forEach
             runCatching {
                 when (t.lowercase()) {
-                    // Unscoped, exactly as `loadViewEntries` is and for the identical reason: this
+                    // Unscoped, exactly as `recordRowsPage` is by default and for the identical reason: this
                     // is the re-link picker on the media screen, which has no workshop control, and a
                     // file legitimately re-links to a record filed at any workshop.
                     "questionnaire", "questionnaireinterview" -> repository.interviews(EVERY_WORKSHOP).map { it.id to it.title.ifBlank { "Untitled interview" } }
@@ -10970,7 +11078,6 @@ private fun ViewDataScreen(
     onError: (String) -> Unit
 ) {
     var mode by remember { mutableStateOf(EntryMode.ARTISAN) }
-    var options by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var selectedId by remember { mutableStateOf("") }
     var loadingList by remember { mutableStateOf(false) }
 
@@ -10996,18 +11103,11 @@ private fun ViewDataScreen(
      * readable by the load effect below, which runs for every mode.
      */
     val workshopScope = rememberWorkshopScope(repository = repository, onError = onError)
-    /**
-     * What the interview list is NOT showing, already worded (`ui/RecordPickers.listCutNotice`), or
-     * null when it is whole. Questionnaire mode only: it is the only arm here that keeps `total`.
-     */
-    var interviewListCut by remember { mutableStateOf<String?>(null) }
-
     // Questionnaire-only filter: pick involved artisan(s), then the dependent dropdown lists the
     // interviews any of them were part of. RELOADED WHENEVER THE WORKSHOP SCOPE MOVES — it used to
     // load once when questionnaire mode was selected and never again, which is the same defect
     // wearing a different hat: a list that was right when it arrived and wrong from the next tap on.
     var interviewsDetailed by remember { mutableStateOf<List<QuestionnaireInterviewDetailDto>>(emptyList()) }
-    var artisanFilterList by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
     var selectedArtisanIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     // Sections (with their questions) so the dropdown can show the "A1"-style section+question codes
     // each interview actually answered. Loaded alongside the interviews in questionnaire mode.
@@ -11017,6 +11117,22 @@ private fun ViewDataScreen(
     // artisans appears as long as ONE selected artisan matches. The label LEADS with the artisan
     // name(s) — then the section/question span it covers (e.g. "A1–A5" from the section codes +
     // question numbers), then the title and place — so the list is easy to scan by who was interviewed.
+    // The two lists the screen picks from, both searched and paged by the server
+    // (`ui/ServerSearch.kt`). Declared here because the scope they read is.
+    val scopeSettledForLists = mode != EntryMode.QUESTIONNAIRE || workshopScope.settled
+    val entrySearch = rememberRecordRows(
+        repository, mode, key = mode, enabled = mode != EntryMode.QUESTIONNAIRE
+    )
+    // The artisans the interview filter offers: everybody in the workshop scope, asked of the server.
+    val artisanFilterSearch = rememberServerSearch(
+        key = workshopScope.requestKey,
+        cached = emptyList<ArtisanDto>(),
+        seed = null,
+        idOf = { it.id },
+        textOf = ::artisanSearchText,
+        enabled = mode == EntryMode.QUESTIONNAIRE && scopeSettledForLists
+    ) { term, page -> repository.artisansSearchPage(term, page, workshopScope.workshopIds) }
+    val artisanFilterList = artisanFilterSearch.known
     val questionnaireOptions = remember(interviewsDetailed, selectedArtisanIds, artisanFilterList, questionnaireSections) {
         if (selectedArtisanIds.isEmpty()) emptyList()
         else {
@@ -11079,35 +11195,16 @@ private fun ViewDataScreen(
     val scopeKey = if (mode == EntryMode.QUESTIONNAIRE) workshopScope.requestKey else ""
     LaunchedEffect(mode, scopeSettled, scopeKey) {
         if (!scopeSettled) return@LaunchedEffect
-        loadingList = true
         selectedId = ""
         selectedArtisanIds = emptySet()
-        interviewListCut = null
+        interviewsDetailed = emptyList()
         if (mode == EntryMode.QUESTIONNAIRE) {
+            loadingList = true
             runCatching {
-                // BOTH LISTS TAKE THE SAME SCOPE. The envelope is kept for the interviews because the
-                // grouping below folds sittings together and destroys the count; `artisans` needs no
-                // envelope here because `artisanFilterList` is rebuilt from the interview links
-                // rather than from this page, so a cut artisan page cannot shorten the filter.
-                val page = repository.interviewsPage(workshopScope.workshopIds, pageBudget = LOOKUP_PAGE_BUDGET)
-                interviewListCut = listCutNotice(page.items.size, page.total, "interviews")
-                val interviews = page.items
-                val arts = repository.artisans(workshopIds = workshopScope.workshopIds)
                 // Sections power the "A1"-style section+question codes in the dropdown label; a failure
                 // here must not block the list, so it's fetched leniently and defaults to empty.
-                questionnaireSections = runCatching { repository.questionnaireSections() }.getOrDefault(emptyList())
-                interviews to arts
-            }.onSuccess { (interviews, arts) ->
-                interviewsDetailed = interviews
-                // Only list artisans actually involved in an interview; build from the interview
-                // links so it stays correct even past the artisans() page cap.
-                val byId = arts.associateBy { it.id }
-                val involved = LinkedHashMap<String, ArtisanDto>()
-                interviews.forEach { iv ->
-                    iv.artisans.forEach { link -> (link.artisan ?: byId[link.artisanId])?.let { involved.putIfAbsent(it.id, it) } }
-                }
-                artisanFilterList = involved.values.sortedBy { it.name.lowercase() }
-            }.onFailure {
+                runCatching { repository.questionnaireSections() }.getOrDefault(emptyList())
+            }.onSuccess { questionnaireSections = it }.onFailure {
                 // Re-keying this effect on the scope cancels the load in flight, and `runCatching`
                 // catches that cancellation like any other Throwable. Rethrowing keeps a superseded
                 // request from surfacing as an error banner over the answer that replaced it — the
@@ -11117,12 +11214,23 @@ private fun ViewDataScreen(
                 if (it is kotlinx.coroutines.CancellationException) throw it
                 onError(it.apiErrorMessage("Unable to load questionnaires"))
             }
-        } else {
-            runCatching { loadViewEntries(repository, mode) }
-                .onSuccess { options = it }
-                .onFailure { onError(it.apiErrorMessage("Unable to load list")) }
         }
         loadingList = false
+    }
+    // THE DEPENDENT LIST: the interviews the ticked artisans sat in, inside the scope. Asked per
+    // artisan, so it is bounded by the selection rather than by every interview in the scope.
+    LaunchedEffect(mode, selectedArtisanIds, scopeKey) {
+        if (mode != EntryMode.QUESTIONNAIRE || selectedArtisanIds.isEmpty()) {
+            interviewsDetailed = emptyList()
+            return@LaunchedEffect
+        }
+        runCatching {
+            selectedArtisanIds.flatMap { id -> repository.interviewsForArtisanInScope(id, workshopScope.workshopIds) }
+                .distinctBy { it.id }
+        }.onSuccess { interviewsDetailed = it }.onFailure {
+            if (it is kotlinx.coroutines.CancellationException) throw it
+            onError(it.apiErrorMessage("Unable to load questionnaires"))
+        }
     }
     // Keep the chosen questionnaire valid as the artisan filter changes (only in questionnaire mode).
     LaunchedEffect(questionnaireOptions, mode) {
@@ -11188,7 +11296,8 @@ private fun ViewDataScreen(
                     options = artisanFilterOptions,
                     selected = selectedArtisanIds,
                     placeholder = "Narrow the list to one or more artisans",
-                    emptyMessage = "No artisans in the workshops above yet"
+                    emptyMessage = "No artisans in the workshops above yet",
+                    server = artisanFilterSearch.asServerSearchRows(countsRows = true) { artisanSelectOptions(it) }
                 ) { next -> selectedArtisanIds = next }
                 val hasArtisan = selectedArtisanIds.isNotEmpty()
                 // "Check completion" is always offered first — it opens the artisans x sections matrix
@@ -11213,17 +11322,18 @@ private fun ViewDataScreen(
                         else "No questionnaires for these artisans in these workshops"
                     Text("$why.", color = Muted, fontSize = 12.sp)
                 }
-                // What the interview list is not showing. Printed under the dropdown it describes,
-                // exactly as the record forms print theirs.
-                interviewListCut?.let { Text(it, color = Muted, fontSize = 12.sp) }
             }
-            options.isEmpty() -> Text("No ${mode.label.lowercase()} records yet.", color = Muted)
+            !entrySearch.browseLoaded && entrySearch.note == null ->
+                Text("Loading ${mode.label.lowercase()}…", color = Muted)
+            entrySearch.browseLoaded && entrySearch.browseTotal == 0 ->
+                Text("No ${mode.label.lowercase()} records yet.", color = Muted)
             else -> DropdownField(
                 label = "Select ${mode.label.lowercase()}",
-                options = options,
+                options = recordRowOptions(mode, entrySearch.known).map { it.value to it.label },
                 selectedValue = selectedId,
                 placeholder = "Select a record",
-                includeNone = false
+                includeNone = false,
+                server = entrySearch.asServerSearchRows(countsRows = true) { recordRowOptions(mode, it) }
             ) { selectedId = it }
         }
     }
@@ -12553,8 +12663,6 @@ private fun AndroidMediaForm(
     // A record picked before the process died, re-applied once its type's entries reload (the
     // type change below clears the pick).
     var restoredEntryId by remember { mutableStateOf<String?>(null) }
-    var entryOptions by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
-    var loadingEntries by remember { mutableStateOf(false) }
     var caption by remember { mutableStateOf("") }.drafted(draft, "caption")
     var location by remember { mutableStateOf<LocationRequest?>(null) }.drafted(draft, "location")
     var uploading by remember { mutableStateOf(false) }
@@ -12604,14 +12712,11 @@ private fun AndroidMediaForm(
     LaunchedEffect(linkedMode) {
         linkedEntryId = restoredEntryId ?: ""
         restoredEntryId = null
-        entryOptions = emptyList()
-        val mode = linkedMode ?: return@LaunchedEffect
-        loadingEntries = true
-        runCatching { loadViewEntries(repository, mode) }
-            .onSuccess { entryOptions = it }
-            .onFailure { error -> onError(error.apiErrorMessage("Unable to load ${mode.label} entries")) }
-        loadingEntries = false
     }
+    // The chosen type's entries, searched and paged by the server (`ui/ServerSearch.kt`).
+    val entrySearch = rememberRecordRows(repository, linkedMode)
+    val entryOptions = linkedMode?.let { recordRowOptions(it, entrySearch.known).map { o -> o.value to o.label } }.orEmpty()
+    val loadingEntries = linkedMode != null && !entrySearch.browseLoaded && entrySearch.note == null
 
     // Which boxes on this form carry a microphone is DATA, not a pattern — see
     // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
@@ -12732,7 +12837,8 @@ private fun AndroidMediaForm(
                 else -> "Select an entry"
             },
             includeNone = true,
-            enabled = linkedMode != null && !loadingEntries
+            enabled = linkedMode != null && !loadingEntries,
+            server = linkedMode?.let { m -> entrySearch.asServerSearchRows(countsRows = true) { recordRowOptions(m, it) } }
         ) { linkedEntryId = it }
         // A media caption. Dictation only — a caption is one sentence describing a photograph, and
         // it is shown as a single run beside the thumbnail, where a heading or a bullet has nowhere
@@ -13263,7 +13369,9 @@ private data class QuestionnaireArtisanOptions(
     /** The ids on the loaded roster, for [outOfWorkshopNotice]. Empty whenever [loadedForWorkshop] is null. */
     val offeredIds: List<String>,
     /** Which workshop [offeredIds] describes; null before the first answer, on every change, and after a failure. */
-    val loadedForWorkshop: String?
+    val loadedForWorkshop: String?,
+    /** The roster as the server searches and pages it — what the picker's sheet lists. */
+    val search: ServerSearchState<ArtisanDto>
 )
 
 /**
@@ -13289,8 +13397,8 @@ private data class QuestionnaireArtisanOptions(
  * HUNDRED ARTISANS OVERALL \u2014 a roster that silently shrinks as the repository grows, until the
  * picker stops offering a real artisan with nothing on screen to say they were left out. That is the
  * ceiling defect `ui/RecordPickers.kt` is written about, and the answer is the same one the craft
- * roster uses: filter where the WHERE clause is. The envelope comes back with it, so the one case
- * that still cannot be served is SAID rather than hidden (`listCutNotice`).
+ * roster uses: filter where the WHERE clause is — and, since DC-A09, search and page there too
+ * (`ui/ServerSearch.kt`), so nobody at the workshop is out of reach.
  *
  * THE PLURAL `workshopIds`, NOT THE SINGULAR `workshopId`, even though exactly one workshop is ever
  * sent. The plural is broader in one specific way that matters here: it also counts an artisan who
@@ -13300,12 +13408,11 @@ private data class QuestionnaireArtisanOptions(
  * the completion matrix, the consolidated index and the browse screen, all of which count a workshop's
  * artisans the plural way. One question, one answer, on every screen that asks it.
  *
- * ── IT PAGES, TO THE SAME BUDGET THE BROWSER PAGES TO (rule 2) ──────────────────────────────────
+ * ── IT PAGES ON DEMAND (rule 2) ─────────────────────────────────────────────────────────────────
  *
- * [ARTISAN_PAGE_BUDGET], passed explicitly, for the reasons written on the constant: a single request
- * is clamped to a hundred rows, the browser has walked five pages since the scoping landed, and until
- * this call did too the two clients OFFERED DIFFERENT PEOPLE for the same workshop \u2014 up to four
- * hundred of them \u2014 while both printed an honest cut notice about it.
+ * It used to walk `ARTISAN_PAGE_BUDGET` pages up front, as the browser does. It now holds one page and
+ * the sheet's search and "Load more" go to the server for the rest, so every artisan at the workshop
+ * is reachable — the handset simply stops downloading the ones nobody asked for.
  *
  * ── THE FIRST REQUEST IS HELD ON [workshopSettled] (rule 3), AND THAT FLAG IS NEW ───────────────
  *
@@ -13414,65 +13521,38 @@ private fun rememberQuestionnaireArtisanOptions(
     /** The ids currently ticked, which must never fall out of [QuestionnaireArtisanOptions.options]. */
     selectedIds: Set<String>
 ): QuestionnaireArtisanOptions {
-    var scoped by remember { mutableStateOf<List<ArtisanDto>?>(null) }
-    var cut by remember { mutableStateOf<String?>(null) }
-    var failed by remember { mutableStateOf(false) }
-    // Which workshop `scoped` is the answer for. Null covers all three of "not asked yet", "asked and
-    // waiting" and "asked and failed", which is exactly the set of states in which nothing may be
-    // claimed about this workshop's people \u2014 see `outOfWorkshopNotice`'s first guard, and the web's
-    // `loadedForWorkshop`, which is the same variable under the same name.
-    var loadedForWorkshop by remember { mutableStateOf<String?>(null) }
-    // Every row any scope has ever returned for this form. Grows, never shrinks \u2014 see rule 6 above.
-    // Bounded by the pages one open form actually loads.
-    var everSeen by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
-
-    LaunchedEffect(workshopId, workshopSettled) {
-        if (!workshopSettled) return@LaunchedEffect
-        // Dropped BEFORE the request, not after it, and dropped to NOTHING rather than to the app-wide
-        // list. Both halves of that are load-bearing; the KDoc above argues them.
-        scoped = null
-        cut = null
-        failed = false
-        loadedForWorkshop = null
-        runCatching {
-            repository.artisansPage(
-                workshopIds = listOfNotNull(workshopId.ifBlank { null }),
-                pageBudget = ARTISAN_PAGE_BUDGET
-            )
-        }
-            .onSuccess { page ->
-                scoped = page.items
-                everSeen = mergeArtisansById(everSeen, page.items)
-                cut = listCutNotice(page.items.size, page.total, artisanScopeNoun(workshopId))
-                loadedForWorkshop = workshopId
-            }
-            .onFailure {
-                // Re-keying cancels the request in flight and `runCatching` catches that like anything
-                // else; rethrowing leaves the state to the pass that replaced this one, which would
-                // otherwise paint a failure over an answer that has already arrived.
-                if (it is kotlinx.coroutines.CancellationException) throw it
-                failed = true
-            }
-    }
-
-    // The base is the scoped page and ONLY the scoped page. `?: fallback` stood here; see the KDoc.
-    val base = scoped.orEmpty()
-    val pool = mergeArtisansById(mergeArtisansById(fallback, hydrated), everSeen)
+    // THE WORKSHOP'S ROSTER, one page at a time and searched by the server (`ui/ServerSearch.kt`).
+    // Keyed on the workshop and held until the workshop field has settled; the reset on every key
+    // change drops the previous workshop's rows to NOTHING rather than to the app-wide list, which is
+    // the rule the KDoc above argues. Nothing is cached for offline beyond what the HTTP read cache
+    // already serves, for the same reason.
+    val roster = rememberServerSearch(
+        key = workshopId,
+        cached = emptyList<ArtisanDto>(),
+        seed = null,
+        idOf = { it.id },
+        textOf = ::artisanSearchText,
+        enabled = workshopSettled
+    ) { term, page -> repository.artisansSearchPage(term, page, listOfNotNull(workshopId.ifBlank { null })) }
+    val answered = workshopSettled && roster.browseLoaded && roster.browseKey == workshopId
+    val failed = workshopSettled && !roster.browseLoaded && roster.note != null && !roster.loading
+    val base = if (answered) roster.browse else emptyList()
+    // Every row any scope or search has returned, plus what the record carries — so a ticked artisan is
+    // never missing from the options. Grows, never shrinks — see rule 6 above.
+    val pool = mergeArtisansById(mergeArtisansById(fallback, hydrated), roster.seen)
     val keep = selectedIds.mapNotNull { id -> pool.firstOrNull { it.id == id } }
     val options = remember(base, keep) { mergeArtisansById(base, keep) }
-    // The notice belongs to the scoped page and to nothing else: while no page is in hand there is no
-    // `total` this function was given, so it says nothing rather than repeating a number about a
-    // different request.
     return QuestionnaireArtisanOptions(
         options = options,
-        cut = if (scoped == null) null else cut,
-        // "In flight" is the settled-but-unanswered window, and `failed` takes it out again: a request
-        // that has come back and come back badly is not still loading, and telling the researcher to
-        // wait for an answer that will never arrive is the one sentence worse than silence.
-        loading = workshopSettled && scoped == null && !failed,
+        // Not printed: the roster pages and searches, so nothing is out of reach. Still non-null while
+        // pages remain, because an absence from a partial roster proves nothing — see
+        // `artisansNotAtWorkshop`.
+        cut = if (answered && roster.browse.size < roster.browseTotal) "partial" else null,
+        loading = workshopSettled && !answered && !failed,
         failed = failed,
         offeredIds = base.map { it.id },
-        loadedForWorkshop = loadedForWorkshop
+        loadedForWorkshop = if (answered) workshopId else null,
+        search = roster
     )
 }
 
@@ -14140,6 +14220,7 @@ private fun QuestionnaireForm(
             options = artisanPickerOptions,
             selected = selectedArtisans,
             placeholder = "Select the artisans this interview is with",
+            server = artisanOptions.search.asServerSearchRows(countsRows = true) { artisanSelectOptions(it) },
             /*
               FOUR SENTENCES AND NOT ONE, because "the request failed", "the answer has not arrived",
               "nobody is recorded at this workshop" and "nobody is recorded at all" are four different
@@ -14188,7 +14269,9 @@ private fun QuestionnaireForm(
                 // tickable here and absent from `artisans` -- and this lookup returning null is silent:
                 // the tick lands, the carried context simply never updates, and the NEXT form opens on
                 // whoever the researcher was documenting before.
-                artisanOptions.options.firstOrNull { it.id == id }?.let {
+                // `search.seen` as well: a name found by searching the roster is ticked before it is
+                // in the options, and the carry must still learn who it is.
+                (artisanOptions.options.firstOrNull { it.id == id } ?: artisanOptions.search.seen.firstOrNull { it.id == id })?.let {
                     carry.remember(
                         CarryContext(
                             artisanId = it.id,
@@ -14221,10 +14304,6 @@ private fun QuestionnaireForm(
                 fontSize = 12.sp
             )
         }
-        // What the roster above is not showing. Silent for a workshop that fits inside the ceiling,
-        // which is the ordinary case — and that is the point: a sentence that printed always would be
-        // a sentence readers learn to skip past.
-        artisanOptions.cut?.let { Text(it, color = Muted, fontSize = 12.sp) }
         /*
           WHO IS TICKED THAT THIS WORKSHOP'S ROSTER DOES NOT ACCOUNT FOR. See `outOfWorkshopNotice` for
           the wording and `artisansNotAtWorkshop` for the three-way ruling that decides whether there is

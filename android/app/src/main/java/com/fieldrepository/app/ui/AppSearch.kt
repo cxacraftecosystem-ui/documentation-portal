@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -409,6 +410,36 @@ fun rememberQuickReturnHeader(scrollState: ScrollState, pinned: Boolean): QuickR
     // Back at the top by any route (a new page, a programmatic scroll) counts as shown, even with
     // no scroll gesture to report it.
     val atTop by remember(scrollState) { derivedStateOf { scrollState.value == 0 } }
+    LaunchedEffect(atTop) { if (atTop) state.atTop() }
+    return state
+}
+
+/**
+ * How far a LAZY page has scrolled, in the one sense [quickReturnStep] needs: 0 exactly at the top,
+ * the first row's offset while it is still on screen, and "far" once it has gone — a lazy list does
+ * not know the pixel height of rows it has not measured, and the header only asks "past me or not".
+ */
+fun lazyPageScrollOffset(firstVisibleItemIndex: Int, firstVisibleItemScrollOffset: Int): Int =
+    if (firstVisibleItemIndex > 0) Int.MAX_VALUE / 4 else firstVisibleItemScrollOffset
+
+/**
+ * [rememberQuickReturnHeader] for a page whose scroller is a LazyColumn (`ui/LazyPage.kt`). The same
+ * state, the same nested-scroll hook; only the offset is read from the list instead.
+ */
+@Composable
+fun rememberQuickReturnHeader(listState: LazyListState, pinned: Boolean): QuickReturnHeaderState {
+    val density = LocalDensity.current
+    val state = remember(listState, density) {
+        QuickReturnHeaderState(
+            scrollOffset = { lazyPageScrollOffset(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) },
+            hideAfterPx = with(density) { QUICK_RETURN_HIDE_AFTER.toPx() },
+            gapPx = with(density) { QUICK_RETURN_GAP.roundToPx() }
+        )
+    }
+    state.pinned = pinned
+    val atTop by remember(listState) {
+        derivedStateOf { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 }
+    }
     LaunchedEffect(atTop) { if (atTop) state.atTop() }
     return state
 }
