@@ -30,12 +30,12 @@ const CHECKLIST = [
 ];
 
 const NEXT: Array<{ label: string; href: string; icon: LucideIcon; note: string }> = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutGrid, note: "Every screen in this guide, one tap away" },
-  { label: "Review", href: "/review", icon: ClipboardCheck, note: "What is waiting on a decision" },
-  { label: "My Activity", href: "/activity", icon: Activity, note: "Everything you have recorded so far" },
+  { label: "Dashboard", href: "/dashboard", icon: LayoutGrid, note: "Every screen" },
+  { label: "Review", href: "/review", icon: ClipboardCheck, note: "Awaiting decision" },
+  { label: "My Activity", href: "/activity", icon: Activity, note: "What you’ve recorded" },
   { label: "Search", href: "/search", icon: Search, note: "Find any record" },
-  { label: "Sharing", href: "/sharing", icon: Share2, note: "Give a colleague access to your records" },
-  { label: "Give app feedback", href: "/feedback", icon: MessageSquare, note: "Tell us what slowed you down" }
+  { label: "Sharing", href: "/sharing", icon: Share2, note: "Share your records" },
+  { label: "Give app feedback", href: "/feedback", icon: MessageSquare, note: "Tell us what to improve" }
 ];
 
 /**
@@ -61,8 +61,7 @@ export function GuideOutro() {
           The whole process, in one line
         </motion.h2>
         <motion.p variants={riseItem(reduce)} className="mt-1.5 text-sm leading-6 text-ink-700">
-          Learn this order and you can work without the guide. It is the same order on the web and in
-          the Android app, and the screens carry the same names in both.
+          The same order on web and Android.
         </motion.p>
         <motion.ol variants={staggerParent(reduce, 0.035)} className="mt-4 flex flex-wrap items-center gap-1.5">
           {GUIDE_STEPS.map((step, index) => (
@@ -94,8 +93,7 @@ export function GuideOutro() {
           Before you leave the field
         </motion.h2>
         <motion.p variants={riseItem(reduce)} className="mt-1.5 text-sm leading-6 text-ink-700">
-          A missing field is a phone call. A missing recording is another trip. Run this list while the
-          artisan is still in front of you.
+          Check these while the artisan is still with you.
         </motion.p>
         <motion.ul variants={staggerParent(reduce, 0.045)} className="mt-4 grid gap-2 sm:grid-cols-2">
           {CHECKLIST.map((item) => (

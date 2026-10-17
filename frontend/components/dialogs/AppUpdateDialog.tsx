@@ -73,8 +73,7 @@ export function AppUpdateDialog({ open, reloading, onReload }: { open: boolean; 
       }
     >
       <p className="mt-2 text-sm leading-6 text-ink-500">
-        Anything already saved is safe. Text still sitting in an open form is not — copy it out first if you
-        need it.
+        Saved work is safe. Copy any unsaved text first.
       </p>
     </FieldDialog>
   );

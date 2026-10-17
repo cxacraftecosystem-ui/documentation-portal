@@ -108,7 +108,7 @@ test.describe("Location pincode", () => {
     await page.getByRole("button", { name: "Use current GPS" }).click();
 
     // No offer, because a one-tap Yes over a 14 km circle is exactly as wrong as a silent write.
-    await expect(page.getByText(/No district was suggested/)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/choose the district yourself/)).toBeVisible({ timeout: 30_000 });
     // Three times over: in the notice, on the summary line, and in the capture confirmation. The
     // radius is the whole reason nothing was offered, so it is said wherever it can be read.
     await expect(page.getByText(/±14\.0 km/).first()).toBeVisible();
@@ -129,6 +129,6 @@ test.describe("Location pincode", () => {
     await chooseState(page, "Uttarakhand");
     await page.locator('input[name="pincode"]').fill("303007");
 
-    await expect(page.getByText(/does not match Uttarakhand/i)).toBeVisible();
+    await expect(page.getByText(/isn’t a Uttarakhand pincode/i)).toBeVisible();
   });
 });

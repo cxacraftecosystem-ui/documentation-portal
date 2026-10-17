@@ -69,6 +69,7 @@ import { fetchNotificationPreferences } from "@/lib/notifications";
 import { assignableRoles, canManageAccessRoster, roleLabel } from "@/lib/permissions";
 import type { PageResult, UserRole } from "@/lib/types";
 import { Toggle } from "@/components/ui/Toggle";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 const PAGE_SIZE = 20;
 
@@ -223,7 +224,7 @@ export default function AccessRosterPage() {
     const password = typeof form.get("password") === "string" ? String(form.get("password")) : "";
     if (!email) return;
     if (signIn === "PASSWORD" && !fullName) {
-      setError("Enter their full name — it becomes the name on the account.");
+      setError("Enter their full name.");
       return;
     }
 
@@ -245,12 +246,10 @@ export default function AccessRosterPage() {
       );
       setNotice(
         signIn === "PASSWORD"
-          ? `${created.email} can sign in now, as ${roleLabel(created.grantedRole)}, with the password you typed${
-              addRequireChange ? " — they choose their own at their first sign-in" : ""
-            }. Send it to them yourself. They can also sign in with Google, Microsoft or Yahoo on the same address.`
-          : `${created.email} is on the access roster as ${roleLabel(created.grantedRole)}. They can sign in with that address — the account is created the first time they do.${
-              sendInvite ? " An e-mail telling them so is on its way." : ""
-            }`
+          ? `${created.email} can sign in as ${roleLabel(created.grantedRole)}${
+              addRequireChange ? " and will choose a new password" : ""
+            }. Send them the password.`
+          : `${created.email} added as ${roleLabel(created.grantedRole)}.${sendInvite ? " Invitation sent." : ""}`
       );
       formElement.reset();
       setSignIn("PROVIDER");
@@ -285,9 +284,7 @@ export default function AccessRosterPage() {
         ...(invite ? { sendInvite: true } : {})
       });
       setNotice(
-        `${updated.email} can sign in, as ${roleLabel(updated.grantedRole)}. Their date of joining is ${formatDate(updated.joinedAt)}.${
-          invite ? " An e-mail telling them so is on its way." : ""
-        }`
+        `${updated.email} approved as ${roleLabel(updated.grantedRole)}.${invite ? " Invitation sent." : ""}`
       );
       await reloadEverything();
     } catch (err) {
@@ -300,11 +297,11 @@ export default function AccessRosterPage() {
   async function reject(entry: AccessRosterEntry) {
     const ok = await confirm({
       title: `Refuse access for ${entry.email}?`,
-      body: "They will be told this address is not approved, and told to contact an administrator.",
+      body: "They’ll be told to contact an administrator.",
       // The note is the part an admin actually needs, because the alternative design — a rejection
       // the applicant can undo by signing in again — is the one that makes this queue unworkable.
       note:
-        "Signing in again will NOT put them back in this queue: the entry stays refused and only the attempt counter moves, so you will not be asked about this address again unless you change it here. The entry is kept either way.",
+        "They won’t return to this queue by signing in again.",
       confirmLabel: "Refuse access",
       tone: "danger"
     });
@@ -313,7 +310,7 @@ export default function AccessRosterPage() {
     setError(null);
     try {
       const updated = await updateAccessRosterEntry(entry.id, { status: "REJECTED" });
-      setNotice(`${updated.email} is refused. The entry stays on the roster and can be approved later.`);
+      setNotice(`${updated.email} refused.`);
       await reloadEverything();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to refuse this request");
@@ -325,12 +322,12 @@ export default function AccessRosterPage() {
   async function suspend(entry: AccessRosterEntry) {
     const ok = await confirm({
       title: `Suspend ${entry.fullName || entry.accountName || entry.email}?`,
-      body: "They are signed out at their next request and refused at every sign-in after it, until the entry is restored.",
+      body: "They’re signed out and can’t sign in until restored.",
       // The tone is danger because access is being taken away, but the note has to correct the word
       // the tone implies: nothing is deleted here, and an admin who believes otherwise will hesitate
       // over something that is one click from being undone.
       note:
-        "The roster entry is kept — it records that this address was admitted, and that record outlives the access. Nothing they have recorded is touched, and Restore gives the access back with their original date of joining intact.",
+        "Their records are kept. Restore any time.",
       confirmLabel: "Suspend",
       tone: "danger"
     });
@@ -340,7 +337,7 @@ export default function AccessRosterPage() {
     try {
       const updated = await suspendAccessRosterEntry(entry.id);
       setNotice(
-        `${updated.email} is suspended${updated.decidedAt ? ` as of ${formatDate(updated.decidedAt)}` : ""}. The entry stays on the roster.`
+        `${updated.email} suspended${updated.decidedAt ? ` on ${formatDate(updated.decidedAt)}` : ""}.`
       );
       await reloadEverything();
     } catch (err) {
@@ -355,10 +352,10 @@ export default function AccessRosterPage() {
   async function restore(entry: AccessRosterEntry) {
     const ok = await confirm({
       title: `Restore access for ${entry.fullName || entry.accountName || entry.email}?`,
-      body: "They will be able to sign in again immediately.",
+      body: "They can sign in again straight away.",
       note: entry.joinedAt
-        ? `Their date of joining stays ${formatDate(entry.joinedAt)} — it is stamped once, the first time an address is admitted, and restoring never moves it.`
-        : "They have never been admitted before, so today becomes their date of joining.",
+        ? `Joined ${formatDate(entry.joinedAt)}.`
+        : "Today becomes their joining date.",
       confirmLabel: "Restore",
       tone: "warning"
     });
@@ -379,7 +376,7 @@ export default function AccessRosterPage() {
   const header = (
     <PageHeader
       title="Access roster"
-      description="Who may sign in. Addresses marked “May sign in” are admitted; everyone else waits for a decision in the queue below."
+      description="Who may sign in."
       icon={<ShieldCheck className="h-5 w-5" aria-hidden />}
     />
   );
@@ -397,8 +394,7 @@ export default function AccessRosterPage() {
         <RestrictedPanel
           title="Admin access required"
           body={
-            `The access roster decides who may sign in, so only admins can manage it. ` +
-            `An admin or the master admin can approve, refuse, suspend and restore addresses here.`
+            "Only admins can manage the access roster."
           }
         />
       </>
@@ -437,8 +433,7 @@ export default function AccessRosterPage() {
               ) : null}
             </h2>
             <p className="mt-1 text-sm leading-6 text-ink-500">
-              Somebody proved they own one of these addresses and was turned away because it is not on the roster. They
-              have been told they are waiting for an administrator, and nothing else happens until you decide.
+              People turned away at sign-in.
             </p>
           </div>
           {mailAvailable ? (
@@ -454,7 +449,7 @@ export default function AccessRosterPage() {
           <div className="p-4">
             <EmptyState
               title="Nobody is waiting"
-              body="Every address that has asked for access has been decided. New requests appear here the moment somebody is turned away."
+              body="New requests appear here."
             />
           </div>
         ) : (
@@ -476,8 +471,7 @@ export default function AccessRosterPage() {
           // Truncation is stated, never silent. The whole queue is reachable — the table below
           // filters to the same status — so the sentence also says how to reach it.
           <p className="border-t border-line-200 bg-amber-100 px-4 py-2 text-xs leading-5 text-amber-800">
-            Showing the {queueRows.length} most recent of {queueTotal} waiting requests. Set the status filter below to
-            “Awaiting approval” to page through the rest.
+            Showing {queueRows.length} of {queueTotal}. Filter by “Awaiting approval” to see all.
           </p>
         ) : null}
       </section>
@@ -486,11 +480,7 @@ export default function AccessRosterPage() {
       <form onSubmit={submit} className="panel mb-5 grid gap-4 p-4">
         <div>
           <h2 className="font-display text-lg font-bold text-ink-900">Add an address to the roster</h2>
-          <p className="mt-1 text-sm leading-6 text-ink-muted">
-            The email address is the only thing needed, and no account has to exist yet — that is how somebody is
-            admitted before they have ever opened the application. The account is created, at the tier chosen here, the
-            first time they sign in with that address.
-          </p>
+          <p className="mt-1 text-sm leading-6 text-ink-muted">Their account is created when they first sign in.</p>
         </div>
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
           <Field label="Email address" required>
@@ -514,7 +504,7 @@ export default function AccessRosterPage() {
             label="Joins as"
             // "All the users by default join as the lowest rung unless promoted there itself" — the
             // promotion is this control, and it is bounded by the admin's own tier server-side.
-            hint="Everybody joins at the lowest rung unless you promote them here."
+            hint="Defaults to the lowest role."
           />
         </div>
         <fieldset className="grid gap-2">
@@ -528,7 +518,7 @@ export default function AccessRosterPage() {
               onChange={() => setSignIn("PROVIDER")}
               className="mt-1"
             />
-            <span>With Google, Microsoft or Yahoo — the account is made at their first sign-in</span>
+            <span>Google, Microsoft or Yahoo</span>
           </label>
           <label className="flex items-start gap-2 text-sm text-ink-700">
             <input
@@ -539,7 +529,7 @@ export default function AccessRosterPage() {
               onChange={() => setSignIn("PASSWORD")}
               className="mt-1"
             />
-            <span>With a password you set now — the account is made straight away</span>
+            <span>A password you set now</span>
           </label>
           {signIn === "PASSWORD" ? (
             <div className="grid gap-2 rounded-md border border-line-200 bg-surface-50 p-3 md:max-w-md">
@@ -554,7 +544,7 @@ export default function AccessRosterPage() {
                 />
               </Field>
               <p className="text-xs leading-5 text-ink-500">
-                {passwordRuleLine("Send it to them yourself — nothing shows it again. Full name is needed for the account.")}
+                {passwordRuleLine("It won’t be shown again.")}
               </p>
               <Toggle
                 label="Ask them to choose a new password at first sign-in"
@@ -569,18 +559,18 @@ export default function AccessRosterPage() {
             name="notes"
             maxLength={2000}
             rows={2}
-            placeholder="Who they are and why they were admitted — the record you will want in a year."
+            placeholder="Who they are and why"
           />
         </Field>
         {mailAvailable ? (
           <Toggle name="sendInvite" defaultChecked label="E-mail them that they can sign in" />
         ) : null}
-        <div className="flex flex-wrap gap-2">
+        <ButtonRow>
           <button className="field-button" disabled={saving}>
             <MailPlus className="h-4 w-4" aria-hidden />
             {saving ? "Saving…" : "Add to roster"}
           </button>
-        </div>
+        </ButtonRow>
       </form>
 
       {/* ── The roster itself. ───────────────────────────────────────────────────────────── */}
@@ -617,8 +607,8 @@ export default function AccessRosterPage() {
               title="No roster entries found"
               body={
                 applied || statusFilter
-                  ? "No entry matches this search. Clear it to see every address the roster knows about, refused and suspended ones included."
-                  : "No one is on the roster yet. Add the first address above."
+                  ? "No matches."
+                  : "No one on the roster yet."
               }
             />
           </div>

@@ -125,7 +125,7 @@ test.describe("a recording is never lost to a mode switch", () => {
     await expect(section.getByText(/1 clip/)).toBeVisible();
 
     await chooseMode(page, "Record individual questions");
-    await expect(section.getByText("A whole-section take from earlier. It still uploads and saves with this interview.")).toBeVisible();
+    await expect(section.getByText("Earlier section take — still saved.")).toBeVisible();
     await expect(section.getByRole("button", { name: "Record section" })).toHaveCount(0);
     await expect(section.getByText(/1 clip/)).toBeVisible();
     await section.scrollIntoViewIfNeeded();

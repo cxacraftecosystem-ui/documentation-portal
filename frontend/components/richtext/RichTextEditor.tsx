@@ -574,7 +574,7 @@ function blockElement(
       image.setAttribute(
         "aria-label",
         url === null
-          ? "This photograph cannot be shown here. It is still embedded in the generated file."
+          ? "Photo can’t be shown here — it’s still in the file."
           : "Loading the photograph"
       );
     }
@@ -1185,7 +1185,7 @@ export function RichTextEditor({
   ariaLabelledBy,
   ariaLabel,
   explainWhenUnavailable,
-  placeholder = "Write here. Select text to format it, or type “## ” for a heading and “1. ” for a numbered list.",
+  placeholder = "Write here…",
   maxLength,
   listKind,
   upload
@@ -1416,7 +1416,7 @@ export function RichTextEditor({
         } else {
           node.setAttribute(
             "aria-label",
-            "This photograph cannot be shown here. It is still embedded in the generated file."
+            "Photo can’t be shown here — it’s still in the file."
           );
         }
       }
@@ -1871,7 +1871,7 @@ export function RichTextEditor({
       // No renderer of this document can draw a video or a PDF inline, and `ImageBlock` takes an
       // `ImageRef`. Refusing here is the only place the researcher finds out before the upload.
       if (!file.type.startsWith("image/")) {
-        setNotice(`“${file.name}” is not a photograph. Only images can be placed inside prose; video, audio and documents belong in this form's own media fields.`);
+        setNotice(`“${file.name}” isn’t a photo. Add other files under media.`);
         return;
       }
       setNotice(null);
@@ -1889,8 +1889,8 @@ export function RichTextEditor({
         if (!media) {
           setNotice(
             failed[0]?.error
-              ? `That photograph did not upload: ${failed[0].error}`
-              : "That photograph did not upload. Check the connection and try again."
+              ? `Photo didn’t upload: ${failed[0].error}`
+              : "Photo didn’t upload. Try again."
           );
           return;
         }
@@ -1905,7 +1905,7 @@ export function RichTextEditor({
         hostRef.current?.focus({ preventScroll: true });
         commit(insertImage(docRef.current, range, media.id), "image");
         setNotice(
-          "Photograph placed. The line under it is the caption — it sits beneath the picture wherever this field is shown, and it can be formatted like any other sentence."
+          "Photo added. Type its caption below it."
         );
       } catch (error) {
         // `uploadMediaBatch` throws only when NOTHING landed, so this is the whole-batch failure.
@@ -2230,14 +2230,14 @@ export function RichTextEditor({
         // screen and is missing its last twenty pages in the file, and the researcher has no way of
         // knowing which.
         setNotice(
-          `That paste is too large for one field — ${size.characters.toLocaleString()} characters against a limit of ${MAX_DOCUMENT_CHARS.toLocaleString()}. Nothing was inserted; split it across the form's fields.`
+          `Too long to paste — ${size.characters.toLocaleString()} of ${MAX_DOCUMENT_CHARS.toLocaleString()} characters.`
         );
         return;
       }
       commit(result, "paste");
       setNotice(
         hadMarkup
-          ? "Pasted as text. The source's own bold, colours and fonts are not part of this document's vocabulary, so only the words and the list structure came across — re-apply any formatting with the toolbar."
+          ? "Pasted as plain text."
           : null
       );
     }
@@ -2543,7 +2543,7 @@ export function RichTextEditor({
               label: uploading ? "Placing the photograph…" : "Place a photograph",
               // Says where it lands and what the line under it is, because this is an insertion and
               // not a toggle: pressing the button again does not undo it.
-              hint: "goes below this paragraph, with a caption under it",
+              hint: "with a caption",
               icon: <ImagePlus className={ICON} aria-hidden />,
               disabled: uploading,
               run: runImagePick
@@ -2659,7 +2659,7 @@ export function RichTextEditor({
         kind: "button",
         id: "outdent",
         label: "Outdent",
-        hint: "Shift+Tab. Nesting is stored; the generated file prints one level",
+        hint: "Shift+Tab",
         icon: <ListIndentDecrease className={ICON} aria-hidden />,
         disabled: !bar.canOutdent,
         run: () => runIndent(-1)
@@ -2668,7 +2668,7 @@ export function RichTextEditor({
         kind: "button",
         id: "indent",
         label: "Indent",
-        hint: "Tab. Nesting is stored; the generated file prints one level",
+        hint: "Tab",
         icon: <ListIndentIncrease className={ICON} aria-hidden />,
         disabled: !bar.canIndent,
         run: () => runIndent(1)
@@ -2978,22 +2978,7 @@ export function RichTextEditor({
       */}
       {savedPanelOpen ? (
         <div id={`${editorId}-saved`} className="rounded-md border border-line-200 bg-surface-50 p-3 text-xs leading-5 text-ink-700">
-          <p className="font-medium text-ink-900">This field is stored as a document, not as a web page.</p>
-          <ul className="mt-1.5 ml-4 list-disc space-y-1">
-            <li>
-              <span className="font-medium">Kept exactly, and shown here:</span> bold, italic, underline, strikethrough,
-              superscript, subscript and the yellow highlight; paragraphs, headings 1 to 4 and quotes; bulleted and
-              numbered lists; left, centre, right and justified alignment; tables; a photograph placed inside the prose
-              with its caption.
-            </li>
-            <li>
-              <span className="font-medium">Plain typing and dictation:</span> a field with no formatting applied is saved as
-              ordinary text — searchable, exportable, and identical on a handset.
-            </li>
-            <li>
-              Pasted text arrives as words and list structure only — the source&apos;s own formatting is not carried across.
-            </li>
-          </ul>
+          <p>Formatting, tables and photos are kept. Pasted text keeps only words and lists.</p>
         </div>
       ) : null}
 

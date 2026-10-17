@@ -67,9 +67,7 @@ export function GetTheAppPanel() {
         <div className="min-w-0">
           <h2 className="font-display text-base font-bold text-ink-900">Get the Android app</h2>
           <p className="mt-0.5 text-xs leading-5 text-ink-500">
-            The phone app is the one that goes into the workshop: it records interviews, captures photos and GPS with
-            no signal at all, and queues everything until you are back in range. This portal is for reviewing,
-            browsing and administration. Same account.
+            For field work — records offline and syncs later. Same account.
           </p>
         </div>
       </div>
@@ -78,9 +76,7 @@ export function GetTheAppPanel() {
         <p className="text-xs text-ink-500">Checking which build is current…</p>
       ) : status === "none" ? (
         <p className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-xs text-ink-500">
-          No build has been published yet. A master admin publishes one — from &ldquo;Publish an Android update&rdquo;
-          on this page, or from the phone&rsquo;s own &ldquo;Push update to all&rdquo; — and it appears here
-          automatically.
+          No build published yet.
         </p>
       ) : (
         <div className="grid gap-2">
@@ -93,21 +89,20 @@ export function GetTheAppPanel() {
               {release?.versionName ? ` · v${release.versionName}` : ""}
             </a>
             <span className="text-xs text-ink-500">
-              Android will ask you to allow installing from this browser the first time.
+              Allow installs from this browser when asked.
             </span>
           </div>
 
           {status === "published" ? (
             <p className="text-xs text-ink-500">
               Version {release?.versionName} (build {release?.versionCode}), published{" "}
-              {formatDate(release?.publishedAt)}. The link always fetches the newest published build — the same one
-              phones are prompted to install.
+              {formatDate(release?.publishedAt)}.
             </p>
           ) : (
             <p className="flex items-start gap-1.5 text-xs text-ink-500">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />
               <span>
-                Couldn’t check the latest version. The download still gets the newest app.
+                Couldn’t check the version. The download is still the latest.
               </span>
             </p>
           )}

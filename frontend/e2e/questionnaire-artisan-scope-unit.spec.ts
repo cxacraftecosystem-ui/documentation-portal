@@ -534,11 +534,10 @@ test.describe("outOfWorkshopNotice", () => {
   /** It NAMES people, because a count would make the reader go and look up who. */
   test("names one artisan, and does not read as an accusation", () => {
     const line = outOfWorkshopNotice(["Ramesh Kumar"]);
-    expect(line).toContain("Ramesh Kumar is not recorded at this workshop yet");
-    expect(line).toContain("They stay ticked");
+    expect(line).toContain("Ramesh Kumar is new to this workshop");
     // The whole point of the rule: saving is what creates the link, so the sentence says so rather
     // than telling a researcher they have made a mistake they have not made.
-    expect(line).toContain("saving this interview here is what links them to it");
+    expect(line).toContain("Saving links them to it");
   });
 
   test("names several, in the order given", () => {

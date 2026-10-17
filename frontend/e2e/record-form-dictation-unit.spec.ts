@@ -375,8 +375,8 @@ test("a deliberate stop says nothing; the four real failures each say something 
   recognition.onerror?.({ error: "network" });
   expect(problems.length).toBe(4);
   expect(new Set(problems).size, "four distinct next moves, not one catch-all").toBe(4);
-  expect(problems[0]).toContain("Allow it for this site");
-  expect(problems[2]).toContain("No microphone was found");
+  expect(problems[0]).toContain("Allow it in the address bar");
+  expect(problems[2]).toContain("No microphone found");
 
   // The unknown case still names the code rather than saying "dictation failed".
   expect(describeSpeechError("service-not-allowed")).toBe(describeSpeechError("not-allowed"));
@@ -420,8 +420,8 @@ test("the whole control is withheld, with a reason, where the browser has no rec
   // And the sentence that is drawn instead is not a disabled button. This repository's most-repeated
   // defect is a control that appears to work and does nothing; a dead microphone on Firefox would be
   // exactly that, and hiding it with no explanation reads as a broken build.
-  expect(NO_RECOGNISER_SENTENCE).toContain("Firefox");
-  expect(NO_RECOGNISER_SENTENCE).toContain("Type the answer in");
+  expect(NO_RECOGNISER_SENTENCE).toContain("Use Chrome, Edge or Safari");
+  expect(NO_RECOGNISER_SENTENCE).toContain("type instead");
   expect(ON_DEVICE_BUTTON, "the absent branch must render the sentence, not a disabled button").toMatch(
     /availability === "absent"[\s\S]{0,600}?\{NO_RECOGNISER_SENTENCE\}/
   );

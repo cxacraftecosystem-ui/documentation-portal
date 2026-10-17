@@ -35,13 +35,11 @@ export function RequireChangeNote({ required, when }: { required: boolean; when:
     <div aria-live="polite">
       {required ? (
         <p className="text-xs leading-5 text-ink-500">
-          The password you type works until their {when} sign-in, where they choose their own before they can do
-          anything else.
+          They’ll choose their own at their {when} sign-in.
         </p>
       ) : (
         <p className={CAUTION_CLASS}>
-          Not required: the password you type stays theirs until they change it themselves, so you — and anyone who
-          sees how you send it — will keep knowing it.
+          Not required — you’ll keep knowing their password.
         </p>
       )}
     </div>
@@ -51,7 +49,7 @@ export function RequireChangeNote({ required, when }: { required: boolean; when:
 export function EdgeSpaceNote() {
   return (
     <p className={CAUTION_CLASS}>
-      This password begins or ends with a space. It is kept exactly as typed, so they must type that space too.
+      Starts or ends with a space — they must type it too.
     </p>
   );
 }
@@ -143,13 +141,11 @@ export function TemporaryPasswordDialog({
             </p>
           ) : null}
           <p className="text-sm leading-6 text-ink-700">
-            <strong className="font-medium text-ink-900">Saving signs {who} out everywhere</strong> — every session they
-            have open, on the web and on the phone, ends at once.
+            <strong className="font-medium text-ink-900">Saving signs {who} out everywhere.</strong>
           </p>
           {hasPassword(target) ? null : (
             <p className="text-sm leading-6 text-ink-700">
-              This account has no password today. Setting one lets it sign in with this password as well as the way it
-              does now.
+              They’ll be able to sign in with this password too.
             </p>
           )}
           <div className="grid gap-1">
@@ -183,7 +179,7 @@ export function TemporaryPasswordDialog({
               </button>
             </div>
             <p className="text-xs leading-5 text-ink-500">
-              {passwordRuleLine("Send it to them yourself — once saved, nothing shows it again.")}
+              {passwordRuleLine("It won’t be shown again.")}
             </p>
           </div>
           {edgeSpace ? <EdgeSpaceNote /> : null}
@@ -278,12 +274,11 @@ export function RequirePasswordChangeDialog({
             </p>
           ) : null}
           <p className="text-sm leading-6 text-ink-700">
-            <strong className="font-medium text-ink-900">{who} is signed out everywhere now</strong>, and at their next
-            sign-in must choose a new password before they can do anything else.
+            <strong className="font-medium text-ink-900">{who} is signed out everywhere</strong> and must choose a new
+            password at next sign-in.
           </p>
           <p className="text-sm leading-6 text-ink-700">
-            Their current password still works once, to reach the screen where they choose a new one. If they do not
-            know it, they need a password link.
+            If they don’t know their current password, send a link.
           </p>
           {canLink ? (
             <Toggle

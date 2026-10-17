@@ -64,9 +64,9 @@ export async function checkPasswordLink(token: string): Promise<PasswordLinkChec
 /** One sentence per reason a link is refused, because each has a different next step. */
 export const LINK_REFUSALS: Record<string, string> = {
   missing: "This link is incomplete. Open the whole link you were sent.",
-  malformed: "This is not a link this site issued. Ask an administrator for another, or ask for one by e-mail.",
+  malformed: "This link isn’t valid. Ask for a new one.",
   expired: "This link has expired. Ask for a new one.",
-  revoked: "This link was withdrawn. Ask an administrator for a new one.",
+  revoked: "This link was withdrawn. Ask for a new one.",
   spent: "This link has already been used. Sign in with the password you set.",
   "unknown-account": "This link no longer points at an account."
 };

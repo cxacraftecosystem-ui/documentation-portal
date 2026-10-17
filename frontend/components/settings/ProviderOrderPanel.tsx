@@ -64,12 +64,13 @@ import {
 } from "lucide-react";
 
 import { ApiError, apiFetch } from "@/lib/api";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 /** Editorial copy stays here; names and key state come from the server so the two cannot drift. */
 const BLURBS: Record<string, string> = {
-  elevenlabs: "Strongest on Indian-language and accented speech. Slower, and the most expensive per minute.",
-  deepgram: "Fastest and cheapest. Very good on clear audio, weaker under heavy background noise.",
-  whisper: "The dependable fallback. Handles almost anything, with no diarisation of its own."
+  elevenlabs: "Best for Indian languages and accents. Slower, costliest.",
+  deepgram: "Fastest and cheapest. Weaker in noise.",
+  whisper: "Reliable fallback. No speaker labels."
 };
 
 /** Mirrors `app_settings.STT_KEY_*`. */
@@ -155,32 +156,28 @@ function describeTrouble(error: unknown, action: string): Trouble {
     return {
       headline: "The transcription order isn’t available right now.",
       advice:
-        `Your account and recordings are fine, and no setting has been lost. The default order is shown below. ` +
-        `Try again later.`,
+        "Showing the default order. Try again later.",
       retryable: true
     };
   }
   if (status === 403) {
     return {
-      headline: "Your account is not allowed to see or change this ranking.",
-      advice:
-        `Choosing which engine transcribes recordings needs the Admin role or above. Ask a master admin either ` +
-        `to raise your role or to make the change for you — this is a permission, not a fault, so retrying will ` +
-        `give the same answer.`,
+      headline: "You can’t change this ranking.",
+      advice: "Needs the Admin role.",
       retryable: false
     };
   }
   if (status === 401) {
     return {
       headline: "Your session has ended.",
-      advice: `Sign in again and come back to this page; the ranking itself is untouched.`,
+      advice: "Sign in again.",
       retryable: false
     };
   }
   if (status >= 500) {
     return {
       headline: "Something went wrong.",
-      advice: `It wasn’t anything you did. Try again in a minute; if it keeps happening, tell an administrator.`,
+      advice: "Try again in a minute.",
       retryable: true
     };
   }
@@ -193,7 +190,7 @@ function describeTrouble(error: unknown, action: string): Trouble {
   }
   return {
     headline: `Couldn’t ${action} the transcription order.`,
-    advice: serverSentence || `Try again, and tell an administrator if it keeps happening.`,
+    advice: serverSentence || "Try again.",
     retryable: true
   };
 }
@@ -332,7 +329,7 @@ export function ProviderOrderPanel() {
         `${blocked.name} cannot move there yet. ${blocked.frozenReason ?? "It has not passed a provider test."}`
       );
       setWarning(
-        `${blocked.name} stays below the engines that have passed a test. ${
+        `${blocked.name} must pass a test first. ${
           blocked.frozenReason ?? ""
         }`.trim()
       );
@@ -366,7 +363,7 @@ export function ProviderOrderPanel() {
         setWarning(updated.normalisedNote);
         setAnnouncement(`Saved with changes. ${updated.normalisedNote}`);
       } else {
-        setNotice("Saved. The next transcription job uses this order — nothing needs restarting.");
+        setNotice("Order saved.");
         setAnnouncement("Order saved.");
       }
     } catch (error) {
@@ -390,13 +387,13 @@ export function ProviderOrderPanel() {
       const after = updated.providers.find((candidate) => candidate.id === provider.id);
       if (after?.keyState === "PASSING") {
         // The thaw is the point: it has already happened in the rows above by the time this reads.
-        setNotice(`${provider.name} answered. It is verified now and can be ranked wherever you like.`);
+        setNotice(`${provider.name} passed.`);
         setAnnouncement(`${provider.name} passed its test and is now rankable.`);
       } else {
         setWarning(
           `${provider.name} did not pass: ${
             after?.testError ?? "the provider refused the key"
-          }. It stays below the engines that did.`
+          }.`
         );
         setAnnouncement(`${provider.name} failed its test.`);
       }
@@ -427,8 +424,7 @@ export function ProviderOrderPanel() {
         tone: "warn",
         body: (
           <>
-            None of these engines has an API key, so recordings cannot be transcribed at all yet. The ranking is
-            still saved and starts applying the moment a key is added and passes its test.
+            No engine has an API key, so nothing can be transcribed yet.
           </>
         )
       });
@@ -437,9 +433,7 @@ export function ProviderOrderPanel() {
         tone: "info",
         body: (
           <>
-            Nothing here has been tested yet, so nothing is frozen — rank the engines however you like. Press{" "}
-            <span className="font-semibold">Test</span> on the one you want first: until an engine has answered,
-            this list is a preference rather than a promise.
+            Nothing tested yet. Press <span className="font-semibold">Test</span> on your first choice.
           </>
         )
       });
@@ -448,9 +442,8 @@ export function ProviderOrderPanel() {
         tone: "warn",
         body: (
           <>
-            <span className="font-semibold">{saved[0]?.name}</span> is ranked first but has no API key, so the next
-            recording actually goes to <span className="font-semibold">{runnable[0]?.name}</span>. Add the{" "}
-            {saved[0]?.keyLabel} key to make this ranking count.
+            <span className="font-semibold">{saved[0]?.name}</span> has no key, so{" "}
+            <span className="font-semibold">{runnable[0]?.name}</span> runs first. Add the {saved[0]?.keyLabel} key.
           </>
         )
       });
@@ -462,11 +455,8 @@ export function ProviderOrderPanel() {
         tone: "warn",
         body: (
           <>
-            This saved order puts {join(stragglers.map((provider) => provider.name))} above{" "}
-            {join(verified.map((provider) => provider.name))}, which {verified.length === 1 ? "has" : "have"} passed
-            a test. The next save moves the unverified{" "}
-            {stragglers.length === 1 ? "one" : "ones"} below — the pipeline already prefers whatever actually
-            answers, so the list will simply stop disagreeing with it.
+            Untested {join(stragglers.map((provider) => provider.name))} will move below{" "}
+            {join(verified.map((provider) => provider.name))} on the next save.
           </>
         )
       });
@@ -478,9 +468,8 @@ export function ProviderOrderPanel() {
         tone: "warn",
         body: (
           <>
-            {join(failing.map((provider) => provider.name))} still {failing.length === 1 ? "has" : "have"} a key, so
-            every job keeps trying {failing.length === 1 ? "it" : "them"} and waiting for the refusal before moving
-            on. Replacing or removing the key is worth doing even though transcription still finishes.
+            {join(failing.map((provider) => provider.name))} failed {failing.length === 1 ? "its" : "their"} test and
+            slow{failing.length === 1 ? "s" : ""} every job. Replace or remove the key.
           </>
         )
       });
@@ -495,10 +484,7 @@ export function ProviderOrderPanel() {
       <div>
         <h2 className="font-display text-base font-bold text-ink-900">Transcription provider order</h2>
         <p className="mt-1 text-sm leading-6 text-ink-500">
-          Drag a provider to rank it, or use the arrows. The one at the top is tried first; if it fails, or has
-          no API key, the next one down takes the job. An engine can only be ranked once it has passed a test —
-          press <span className="font-medium text-ink-700">Test</span> to ask the provider whether its key works.
-          This applies to everyone, not just this browser.
+          Drag to rank. The top engine runs first; the next takes over if it fails. Applies to everyone.
         </p>
       </div>
 
@@ -540,7 +526,7 @@ export function ProviderOrderPanel() {
           {trouble ? (
             <p className="text-xs font-medium text-ink-500" data-testid="provider-order-stale-note">
               {
-                "Showing the default order. You can change it once the page reconnects."
+                "Showing the default order."
               }
             </p>
           ) : null}
@@ -728,19 +714,17 @@ export function ProviderOrderPanel() {
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-3">
+      <ButtonRow align="start">
         <button type="button" className="field-button" disabled={!live || !dirty || saving} onClick={save}>
           {saving ? "Saving…" : "Save order"}
         </button>
         {dirty && live ? (
-          <button
-            type="button"
-            className="rounded-sm px-2 py-1 text-xs font-semibold text-ink-500 transition hover:text-purple-700 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
-            onClick={reset}
-          >
+          <button type="button" className="field-button-secondary" onClick={reset}>
             Reset
           </button>
         ) : null}
+      </ButtonRow>
+      <div className="flex flex-wrap items-center gap-3">
         {live && !dirty && !loading && runnableChain.length > 0 ? (
           <p className="text-xs text-ink-500" data-testid="effective-chain">
             Currently transcribing with{" "}
@@ -785,7 +769,7 @@ function MoveButton({
 }) {
   const Icon = direction === "up" ? ChevronUp : ChevronDown;
   const label = blocked
-    ? `Move ${provider.name} ${direction} — not allowed until it passes a provider test`
+    ? `Move ${provider.name} ${direction} — needs a passing test`
     : // Just the direction. Naming the destination position ("up to position 0" on a disabled first
       // row) reads as nonsense; where it landed is announced instead.
       `Move ${provider.name} ${direction}`;

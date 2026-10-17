@@ -82,24 +82,24 @@ export function summaryBar(summary: TaskSummary): SummaryBar {
   const caveats: string[] = [];
   if (summary.truncated) {
     caveats.push(
-      "You have more tasks than this summary can scan in one go, so these counts are a floor rather than a total."
+      "Counts may be incomplete — too many tasks."
     );
   }
   if (summary.derivationSkipped) {
     // The server declined to count records for a list this long. Not a failure and not hidden: the
     // alternative is a bar that looks measured and is not, which is the one outcome ruled out above.
     caveats.push(
-      "You have too many tasks to count automatically, so nothing here was counted from records."
+      "Too many tasks to count automatically."
     );
   }
 
   if (summary.taskCount === 0) {
-    return { percent: null, caption: "No tasks have been assigned to you yet.", measured: "none", caveats };
+    return { percent: null, caption: "No tasks yet.", measured: "none", caveats };
   }
   if (active === 0) {
     return {
       percent: null,
-      caption: "Every task assigned to you has been withdrawn, so there is nothing left to measure.",
+      caption: "All your tasks were withdrawn.",
       measured: "none",
       caveats
     };
@@ -114,7 +114,7 @@ export function summaryBar(summary: TaskSummary): SummaryBar {
       // Both halves are said because the card cannot tell which one is true from this payload, and
       // guessing would put one of two different explanations on screen as if it were certain.
       caption:
-        "No progress to show yet. The counts above are exact.",
+        "No progress yet — the counts above are exact.",
       measured,
       caveats
     };
@@ -122,10 +122,10 @@ export function summaryBar(summary: TaskSummary): SummaryBar {
 
   const caption =
     measured === "all"
-      ? `All ${active} of your tasks are counted automatically as you record.`
+      ? `All ${active} tasks counted from records.`
       : measured === "some"
-        ? `${summary.measuredCount} of ${active} tasks counted automatically; the rest from what you reported or handed in.`
-        : "Based on what you have reported and handed in — none of these tasks could be counted from records.";
+        ? `${summary.measuredCount} of ${active} counted from records; the rest self-reported.`
+        : "Self-reported.";
 
   return { percent: summary.percentComplete, caption, measured, caveats };
 }
@@ -145,7 +145,7 @@ export function dueSentence(summary: TaskSummary): string | null {
     );
   }
   if (summary.dueSoonCount > 0) {
-    parts.push(`${summary.dueSoonCount} due within the next two days`);
+    parts.push(`${summary.dueSoonCount} due in 2 days`);
   }
   if (summary.nextDueAt) parts.push(`next due ${formatDate(summary.nextDueAt)}`);
   if (!parts.length) return null;
@@ -216,8 +216,7 @@ export function AssigneeProgressCard({
       <section className={cn("panel mb-4 w-full p-4", className)}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-ink-700">
-            Your progress summary could not be loaded, so the numbers for it are not on screen. The tasks below are
-            unaffected.
+            Couldn’t load your progress.
           </p>
           <button type="button" className="field-button-secondary" onClick={load}>
             <RefreshCw className="h-4 w-4" aria-hidden />
@@ -281,8 +280,8 @@ export function AssigneeProgressCard({
               <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
               <span>
                 {summary.awaitingReviewCount === 1
-                  ? "One task is under review. It stays on your list until an admin approves it — there is nothing more for you to do on it."
-                  : `${summary.awaitingReviewCount} tasks are under review. They stay on your list until an admin approves them — there is nothing more for you to do on them.`}
+                  ? "1 task awaiting approval."
+                  : `${summary.awaitingReviewCount} tasks awaiting approval.`}
               </span>
             </p>
           ) : null}

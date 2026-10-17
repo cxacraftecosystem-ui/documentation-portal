@@ -137,7 +137,7 @@ export const EXPORT_FORMATS = [
     attachable: true,
     /** The words on this format's take-away button. */
     download: "Download the trace (SVG)",
-    hint: "The traced paths themselves. Scales to any size without ever going blocky, and opens in Illustrator, Inkscape and CorelDRAW."
+    hint: "Scalable vector. Opens in Illustrator, Inkscape and CorelDRAW."
   },
   {
     id: "png",
@@ -151,7 +151,7 @@ export const EXPORT_FORMATS = [
     mime: "image/png",
     attachable: true,
     download: "Download the rendered image (PNG)",
-    hint: `The drawing rendered as a picture, transparent wherever the drawing is not, up to ${PNG_MAX_EDGE_PX}px on its long edge. Opens anywhere and drops straight into a letter or a slide, but it is pixels — enlarge it and it goes soft.`
+    hint: `Transparent image, up to ${PNG_MAX_EDGE_PX}px. Opens anywhere.`
   },
   {
     id: "pdf",
@@ -161,7 +161,7 @@ export const EXPORT_FORMATS = [
     mime: "application/pdf",
     attachable: false,
     download: "Download a PDF to send on",
-    hint: "Vector, and it opens on every machine you could mail it to without anybody installing anything. The one to attach to an email, or to hand to somebody who only needs to look at it."
+    hint: "Vector that opens anywhere. Best for email."
   },
   {
     id: "dxf",
@@ -171,7 +171,7 @@ export const EXPORT_FORMATS = [
     mime: "image/vnd.dxf",
     attachable: false,
     download: "Download for a CAD or cutting machine (DXF)",
-    hint: "The outlines as CAD geometry, for a laser cutter, a CNC router or a drafting package. It is DXF R12, which every controller reads: curves arrive as many short straight lines, and colour, fill and line thickness are not carried at all."
+    hint: "For laser cutters, CNC and CAD (DXF R12, outlines only)."
   },
   {
     id: "eps",
@@ -181,7 +181,7 @@ export const EXPORT_FORMATS = [
     mime: "application/postscript",
     attachable: false,
     download: "Download for a print shop (EPS)",
-    hint: "Vector PostScript, for a print shop or sign-cutting software that will not take an SVG. PostScript has no transparency, so anything part-see-through is flattened onto the background as the file is written."
+    hint: "For print shops that don’t take SVG. No transparency."
   }
 ] as const;
 
@@ -341,8 +341,7 @@ export function exportSvgFile(
  * does not depend on the connection coming back.
  */
 const WRITER_UNAVAILABLE =
-  "That format’s writer could not be loaded — check your connection and reload the page. The SVG " +
-  "download needs nothing extra and works either way.";
+  "This format didn’t load. Reload the page, or use SVG.";
 
 /**
  * Write the traced geometry as a PDF, an EPS or a DXF.
@@ -468,14 +467,14 @@ export async function exportPngFile(
 
   const canvas = createCanvas(width, height);
   if (canvas === null) {
-    return { reason: "This browser would not give the page a drawing surface, so a PNG cannot be made here. The SVG can." };
+    return { reason: "This browser can’t make a PNG. Use SVG." };
   }
   const context = canvas.getContext("2d") as
     | CanvasRenderingContext2D
     | OffscreenCanvasRenderingContext2D
     | null;
   if (context === null) {
-    return { reason: "This browser would not give the page a drawing surface, so a PNG cannot be made here. The SVG can." };
+    return { reason: "This browser can’t make a PNG. Use SVG." };
   }
 
   paintGeometry(context, input, scale);
@@ -484,14 +483,13 @@ export async function exportPngFile(
   if (blob === null) {
     return {
       reason:
-        "The drawing was traced but this browser could not turn it into a PNG — usually because the " +
-        "image is very large. Attach the SVG instead, or lower “Trace resolution” and try again."
+        "Couldn’t make a PNG — the image may be too large. Use SVG or lower “Trace resolution”."
     };
   }
   const name = derivedFileName(sourceName, "png", naming.suffix ?? ATTACH_SUFFIX);
   const note =
     scale < 1
-      ? `The PNG is ${width}x${height}, reduced from ${Math.round(sourceWidth)}x${Math.round(sourceHeight)} so it stays printable on a phone. The SVG beside it has no such limit.`
+      ? `PNG reduced to ${width}x${height} from ${Math.round(sourceWidth)}x${Math.round(sourceHeight)}. SVG is full size.`
       : null;
   return { file: new File([blob], name, { type: "image/png" }), note };
 }

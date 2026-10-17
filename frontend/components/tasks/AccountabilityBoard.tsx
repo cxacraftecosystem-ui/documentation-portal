@@ -29,6 +29,7 @@ import type {
 } from "@/components/tasks/types";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 /**
  * Who has what, and how far along they ACTUALLY are.
@@ -125,8 +126,7 @@ function TaskOverrideControls({
               notification is sent, no comment box exists, and the row will sit here until somebody
               presses one of these two buttons.
             */}
-            {assigneeName || "The assignee"} marked this finished and it is waiting on you. Check the two figures above
-            before you agree — nothing else will chase this, and the task stays on their list until you decide.
+            {assigneeName || "The assignee"} marked this finished. Check the figures above, then decide.
           </>
         ) : (
           <>
@@ -136,14 +136,13 @@ function TaskOverrideControls({
               indistinguishable the moment the page reloads. An admin who assumes the board remembers
               who pressed this would otherwise find out by reloading and finding nothing.
             */}
-            Changing this writes in {assigneeName || "the assignee"}&apos;s name. The task keeps only its status, so
-            nothing stored on it will say an admin set it.
+            This is saved in {assigneeName || "the assignee"}&apos;s name.
           </>
         )}
       </p>
 
       {targets.length ? (
-        <div className="flex flex-wrap gap-2">
+        <ButtonRow size="sm" align="start">
           {targets.map((next) => (
             <button
               key={next}
@@ -164,7 +163,7 @@ function TaskOverrideControls({
               {busy ? "Saving..." : taskDecisionLabel(task.status, next)}
             </button>
           ))}
-        </div>
+        </ButtonRow>
       ) : null}
 
       {mark ? (
@@ -408,7 +407,7 @@ export function AccountabilityBoard({
     return (
       <EmptyState
         title="Nobody has been given work here yet"
-        body="Assign work on the first tab and this becomes the accountability view: who has what, what they say they have done, and what’s actually been recorded."
+        body="Assign work to track it here."
       />
     );
   }

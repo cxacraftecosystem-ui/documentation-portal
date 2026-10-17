@@ -78,11 +78,8 @@ export default function AccessLadder() {
               whole of admission when signing in was open to anyone who could authenticate. The
               allow-list is now the first gate; a reader who knows only the ladder reads a refusal
               at the door as a bug. */}
-          An administrator admits your address to the platform first; the ladder then decides what
-          the account may do. Newly admitted accounts start at the bottom unless the admitting
-          administrator chose otherwise, and are raised by an admin from there. Individual
-          capabilities — dataset download, review, craft and workshop creation, the questionnaire
-          builder — can also be granted one at a time, without moving anyone up the ladder.
+          An administrator admits your address, then your tier sets what you can do. Single
+          capabilities can also be granted on their own.
         </motion.p>
 
         <ol className="mt-12 space-y-2.5">

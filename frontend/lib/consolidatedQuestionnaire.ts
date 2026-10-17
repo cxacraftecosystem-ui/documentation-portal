@@ -99,7 +99,7 @@ export type ConsolidatedQuestionnaire = {
 /** How a fallback date is explained in the UI, so a system timestamp is never read as a field date. */
 export const DATE_BASIS_NOTE: Record<DateBasis, string> = {
   interviewDate: "Date of interview, as recorded on the entry.",
-  recordedAt: "No interview date was entered; this is when the entry was recorded in the app.",
-  createdAt: "No interview or recording date; this is when the entry was created.",
+  recordedAt: "No interview date; showing when it was entered.",
+  createdAt: "No interview date; showing when it was created.",
   unknown: "No date of any kind is stored on this entry."
 };

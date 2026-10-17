@@ -65,10 +65,10 @@ import {
   signInProofFrom
 } from "@/lib/signIn";
 
-const CHANGED_HERE_ONLY = "Password changed. You are still signed in here; everywhere else, sign in with the new one.";
-const CHANGED = "Password changed. Use the new one the next time you sign in.";
+const CHANGED_HERE_ONLY = "Password changed. Other devices are signed out.";
+const CHANGED = "Password changed.";
 const TWO_FACTOR_CODE_MISSING = "Enter the code from your authenticator app to set a password.";
-const FIRST_SET = "Password set. You can now sign in with it as well as the way you do now.";
+const FIRST_SET = "Password set.";
 
 /**
  * Google's own button, drawn into this card. Its answer is an ID token, kept as the confirmation; it
@@ -266,8 +266,8 @@ export function ChangePasswordCard() {
       </div>
       <p className="mt-1.5 text-xs leading-5 text-ink-500">
         {setting
-          ? "You sign in with Google, Microsoft or Yahoo. Add a password to sign in with your email address too."
-          : "The password you sign in with. You need the current one to choose another."}
+          ? "Add a password to also sign in with email."
+          : "You’ll need your current password."}
       </p>
 
       <form onSubmit={submit} className="mt-3 grid max-w-md gap-3">

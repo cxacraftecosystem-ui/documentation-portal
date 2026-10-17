@@ -115,14 +115,12 @@ export function UploadReport({ report, className }: { report: QWorkbookReport; c
               </span>
             ))
           ) : (
-            <>Nothing in the workbook differed from what is already stored, so nothing was changed.</>
+            <>No changes.</>
           )}
         </p>
         {report.versionAfter !== report.versionBefore ? (
           <p className="mt-1 text-xs leading-5 text-ink-500">
-            This questionnaire moved from version {report.versionBefore} to {report.versionAfter}. The version counts
-            edits made after answers existed, so anyone holding an older copy of the form — a phone that has not
-            refreshed, an interview part-way through — can tell theirs is out of date.
+            Version {report.versionBefore} → {report.versionAfter}.
           </p>
         ) : null}
       </div>

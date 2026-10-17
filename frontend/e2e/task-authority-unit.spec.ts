@@ -171,14 +171,14 @@ test.describe("the confirmation — what an admin is told before the write happe
   test("it says out loud that this is a declaration on somebody else's behalf", () => {
     const copy = overrideConfirmCopy({ ...base, next: "DONE", progressCount: 0, targetCount: null });
     expect(copy.body).toContain("on their behalf");
-    expect(copy.body).toContain("has not reported it finished");
+    expect(copy.body).toContain("hasn’t reported");
   });
 
   test("it says the record will not remember who did this", () => {
     // There is no "overridden by" column and this change deliberately does not add one. An admin
     // who assumes the board remembers the press would otherwise learn it by reloading.
     const copy = overrideConfirmCopy({ ...base, next: "DONE", progressCount: 0, targetCount: null });
-    expect(copy.note).toContain("nothing on it will say an admin set it");
+    expect(copy.note).toContain("won’t show that an admin did this");
   });
 
   test("THE QUOTA SENTENCE: marking a quota task done rewrites the reported figure, and says so", () => {
@@ -190,7 +190,7 @@ test.describe("the confirmation — what an admin is told before the write happe
     const copy = overrideConfirmCopy({ ...base, next: "DONE", progressCount: 0, targetCount: 10 });
     expect(copy.note).toContain("0 of 10");
     expect(copy.note).toContain("10 of 10");
-    expect(copy.note).toContain("reported 0");
+    expect(copy.note).toContain("reported 0 of 10 becomes 10 of 10");
   });
 
   test("no quota, no quota sentence — the dialog may not invent a target that was never set", () => {
@@ -219,7 +219,7 @@ test.describe("the confirmation — what an admin is told before the write happe
     // `test_reopening_does_not_put_the_reported_figure_back`.
     const copy = overrideConfirmCopy({ ...base, next: "IN_PROGRESS", progressCount: 10, targetCount: 10 });
     expect(copy.note).toContain("stays at 10 of 10");
-    expect(copy.note).toContain("does not undo a quota");
+    expect(copy.note).toContain("doesn’t undo the quota");
   });
 
   test("every confirm label is a verb phrase, never a bare Yes/OK", () => {

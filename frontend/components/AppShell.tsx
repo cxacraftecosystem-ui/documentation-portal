@@ -19,6 +19,7 @@ import { FirstPasswordGate } from "@/components/FirstPasswordGate";
 import { PageSelvedge } from "@/components/PageSelvedge";
 import { isAdmin, roleLabel, routeGuardFor } from "@/lib/permissions";
 import { mustChangePassword } from "@/lib/signIn";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, loading, logout, markPasswordChanged, recentPassword } = useAuth();
@@ -133,14 +134,14 @@ function RouteLocked({ title, message, role }: { title: string; message: string;
       <p className="mt-3 text-xs text-ink-500">
         You are signed in as <span className="font-medium text-ink-700">{role}</span>. An admin can raise your access.
       </p>
-      <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
+      <ButtonRow className="mt-7">
         <Link href="/dashboard" className="field-button">
           Back to dashboard
         </Link>
         <Link href="/guide" className="field-button-secondary">
           Open the walkthrough
         </Link>
-      </div>
+      </ButtonRow>
     </section>
   );
 }
@@ -164,12 +165,9 @@ function AdminViewHidden({ route, onEnable }: { route: AdminChromeRoute; onEnabl
         {route.label} is hidden while admin view is off
       </h1>
       <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-ink-500">
-        {route.blurb} You’ve turned admin view off, so you see what a regular user sees.
+        {route.blurb} Admin view is off — your access hasn’t changed.
       </p>
-      <p className="mt-3 text-xs text-ink-500">
-        Your access has not changed — this is your own setting, not a permission you are missing.
-      </p>
-      <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
+      <ButtonRow className="mt-7">
         <button type="button" onClick={onEnable} className="field-button">
           Turn admin view back on
         </button>
@@ -181,7 +179,7 @@ function AdminViewHidden({ route, onEnable }: { route: AdminChromeRoute; onEnabl
         <Link href="/dashboard" className="field-button-secondary">
           Back to dashboard
         </Link>
-      </div>
+      </ButtonRow>
     </section>
   );
 }

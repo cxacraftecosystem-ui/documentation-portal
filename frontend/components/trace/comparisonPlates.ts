@@ -296,9 +296,7 @@ export async function buildComparisonPlates(
   if (Math.abs(traceWidth - pixels.width) > 1 || Math.abs(traceHeight - pixels.height) > 1) {
     return {
       reason:
-        `The drawing was traced in a ${traceWidth}x${traceHeight} frame and the image was read at ` +
-        `${pixels.width}x${pixels.height}, so the two cannot be laid over each other. The drawing above is ` +
-        "unaffected."
+        `Sizes differ (${traceWidth}x${traceHeight} vs ${pixels.width}x${pixels.height}), so they can’t be compared.`
     };
   }
 
@@ -308,7 +306,7 @@ export async function buildComparisonPlates(
   const traceCanvas = createCanvas(box.width, box.height);
   const originalCanvas = createCanvas(box.width, box.height);
   if (traceCanvas === null || originalCanvas === null) {
-    return { reason: "This browser would not give the page a drawing surface, so the comparison cannot be drawn here." };
+    return { reason: "This browser can’t draw the comparison." };
   }
   const traceContext = traceCanvas.getContext("2d") as
     | CanvasRenderingContext2D
@@ -319,7 +317,7 @@ export async function buildComparisonPlates(
     | OffscreenCanvasRenderingContext2D
     | null;
   if (traceContext === null || originalContext === null) {
-    return { reason: "This browser would not give the page a drawing surface, so the comparison cannot be drawn here." };
+    return { reason: "This browser can’t draw the comparison." };
   }
 
   // Decision 2. White FIRST, then the geometry — and `paintGeometry` still paints the document's own
@@ -358,8 +356,7 @@ export async function buildComparisonPlates(
   if (trace === null || original === null) {
     return {
       reason:
-        "This browser could not turn the comparison into images — usually because the image is very " +
-        "large. The drawing above is unaffected."
+        "Couldn’t draw the comparison — the image may be too large."
     };
   }
 
@@ -422,7 +419,7 @@ export function comparisonStatusFor(input: ComparisonStatusInput): string {
   if (input.compareProblem !== null) return input.compareProblem;
   if (input.tracing) return input.progress ?? "Tracing…";
   if (input.traceProblem !== null) {
-    return "The trace did not finish, so there is nothing to compare. The reason is above.";
+    return "The trace didn’t finish — see the reason above.";
   }
   if (!input.haveResult) return "The comparison appears as soon as the first trace finishes.";
   return "Preparing the comparison…";
@@ -440,9 +437,7 @@ export function comparisonStatusFor(input: ComparisonStatusInput): string {
  * rather than two.
  */
 export const COMPARISON_DIFFERENCE_NOTE =
-  "Difference subtracts the two pictures from each other: black where they agree, bright where they " +
-  "do not. A line the trace missed and a line it invented both come out bright, and the paper’s own " +
-  "tone shows as an even dim grey.";
+  "Black where they match, bright where they differ.";
 
 /**
  * What the panel says when the third plate could not be made.

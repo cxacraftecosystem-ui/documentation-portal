@@ -227,6 +227,7 @@ import {
 } from "./traceRuntime";
 import { Toggle } from "@/components/ui/Toggle";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 /**
  * The long edge the live preview is drawn at.
@@ -719,7 +720,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
         if (runtimeUp) {
           // The engine is up and only the presets failed. Say so where it is true rather than
           // disabling a panel that works.
-          setNotice("The style and subject presets could not be loaded, so only the individual controls are available.");
+          setNotice("Presets didn’t load. Individual controls still work.");
           return;
         }
         setPhase({
@@ -727,7 +728,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
           reason:
             error instanceof Error && error.message
               ? error.message
-              : "The tracing engine could not be loaded. Check your connection and reload the page."
+              : "Tracing engine didn’t load. Reload the page."
         });
       }
     })();
@@ -1036,7 +1037,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
         setProblem(
           error instanceof Error && error.message
             ? error.message
-            : "That image could not be traced. Try another, or a lower trace resolution."
+            : "Couldn’t trace this image. Try a lower resolution."
         );
         return null;
       } finally {
@@ -1507,7 +1508,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
       */
       if (pick !== pickRef.current || goneRef.current) return;
       if (latest === null) {
-        setProblem("The trace did not finish, so there is nothing to attach yet.");
+        setProblem("The trace didn’t finish.");
         return;
       }
       const input = inputFrom(latest);
@@ -1630,7 +1631,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
       */
       if (pick !== pickRef.current || goneRef.current) return;
       if (latest === null) {
-        setProblem("The trace did not finish, so there is nothing to download yet.");
+        setProblem("The trace didn’t finish.");
         return;
       }
       const input = inputFrom(latest);
@@ -1663,8 +1664,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
       }
       saveBlobToDisk(outcome.file, outcome.file.name);
       setSaved(
-        `${outcome.file.name} was saved to this device. Nothing was filed on the record and nothing was ` +
-          `uploaded.` +
+        `${outcome.file.name} saved to this device.` +
           // A cap that reduced the file is stated on screen, never swallowed. `exportPngFile` reports
           // its 2048px ceiling and `buildSvg` its shape ceiling this way, and a download that quietly
           // dropped the sentence would be the one place the ceiling is invisible.
@@ -1703,8 +1703,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
    * leaves the device — readable only after they have already committed to opening it.
    */
   const CARD_DESCRIPTION =
-    "Everything below is computed on this device — the image is not sent anywhere to be traced. The " +
-    "original stays exactly as it is; only the drawing is added.";
+    "Traced on this device. The original image is never changed.";
 
   if (phase.status === "unavailable") {
     /*
@@ -1783,7 +1782,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
         The words come from `entry.download` rather than from here, so each label lives beside the
         format it belongs to.
       */}
-      <div className="mt-1 flex flex-wrap gap-2">
+      <ButtonRow align="start" className="mt-1">
         {EXPORT_FORMATS.map((entry) => (
           <button
             key={entry.id}
@@ -1800,7 +1799,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
             {entry.download}
           </button>
         ))}
-      </div>
+      </ButtonRow>
       {/* HONEST NAMING, ONE LINE EACH. The audience is a researcher, not a developer: nobody should
           have to know what a `.dxf` is before pressing a button that makes one, and the sentence that
           says what a format is FOR is the same string the "Attach as" chooser shows, so the two
@@ -1816,29 +1815,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
         ))}
       </ul>
       <p className="mt-2 max-w-prose text-xs leading-5 text-ink-500">
-        Every one of these is re-traced at full resolution when you press it, so none of them is the
-        smaller preview above. None of them is filed on the record and none is uploaded: a drawing
-        downloaded here is a copy for you, your printer or your CAD operator. Attaching to the record is
-        the “Add the line art” button below this section.
-      </p>
-      <p className="mt-1 max-w-prose text-xs leading-5 text-ink-500">
-        Nothing here is stored: the trace lives only while this panel is open, so closing it, changing
-        the image or reloading the page discards it, and a download after that means tracing again.
-      </p>
-      {/*
-        WHAT IS WRITTEN INSIDE THE FILE ABOUT WHO MADE IT, SCOPED TO THE TWO FORMATS IT IS ACTUALLY
-        TRUE OF. `exportVectorFile` passes `includeMetadata: true`, so `pdfWriter` emits
-        `/Producer (Offline Tracer) /Creator (Offline Tracer)` and `epsWriter` emits
-        `%%Creator: Offline Tracer`. The SVG is NOT among them: this page writes its own through
-        `geometryToSvg.buildSvg` rather than through the engine's writer, and that function emits no
-        producer line at all. Re-check with
-        `grep -rn "Offline Tracer" frontend/lib/trace frontend/components/trace`.
-      */}
-      <p className="mt-1 max-w-prose text-xs leading-5 text-ink-500">
-        The PDF and the EPS record that they were made by the Offline Tracer engine, which is the
-        tracing library this app uses on the device. That is a note about the software — not about the
-        drawing, and not about you. The SVG this page writes carries no such line, because this page
-        writes it rather than the engine.
+        Full-resolution copies for you — not saved to the record. Closing this panel discards the trace.
       </p>
       {/*
         THE SAME GAP AS THE ATTACH'S, SAID IN THE OTHER HALF OF THE PANEL.
@@ -1853,10 +1830,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
       */}
       {edited !== null ? (
         <p className="mt-2 max-w-prose text-xs leading-5 text-amber-800 dark:text-amber-200">
-          The frame you chose is written into the SVG&apos;s provenance note, the PDF&apos;s title and
-          the EPS&apos;s header, so those three say how they were made. The PNG and the DXF have
-          nowhere to carry it: saved on their own, neither records that the drawing was cropped or
-          sharpened.
+          PNG and DXF don&apos;t record the crop or sharpening.
         </p>
       ) : null}
       {/* Mounted whether or not anything has been saved, so the sentence is a CHANGE to a region
@@ -1942,14 +1916,13 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
                       : pixels
                         ? ` — ${pixels.width}x${pixels.height}.`
                         : " — reading…"}
-                    {` Anything over ${DECODE_MAX_EDGE_PX}px on the long edge is reduced before tracing; the original is untouched.`}
+                    {` Images over ${DECODE_MAX_EDGE_PX}px are reduced for tracing.`}
                   </>
                 ) : (
                   <span className="flex items-start gap-2">
                     <ImageIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-500" aria-hidden />
                     <span>
-                      No image has been chosen yet. Choose one with the picker on this screen — this panel
-                      traces whatever is chosen there and never picks one of its own.
+                      Choose an image to trace.
                     </span>
                   </span>
                 )}
@@ -2109,8 +2082,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
                 ) : null}
                 {result && result.workingWidth < result.width ? (
                   <p className="mt-2 text-xs text-ink-500">
-                    This is a preview at a smaller working size. Attaching or downloading re-traces at full
-                    resolution first.
+                    Preview size. Saving uses full resolution.
                   </p>
                 ) : null}
               </div>
@@ -2219,13 +2191,8 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
                       hint nobody can see is a feature nobody can reach.
                     */}
                     <p className="mt-2 text-xs leading-5 text-ink-500">
-                      The drawing is shown first. Drag the handle — or focus it and use the arrow keys, Home and
-                      End — to reveal the image underneath. Press and hold the picture to see the image, and let
-                      go to come back: the seam stays where you left it. Hold Ctrl (or ⌘) and scroll to magnify up
-                      to {COMPARE_MAX_ZOOM}×, or press + and − with the frame focused and 0 to go back to fit;
-                      magnified, dragging moves the picture instead of the seam. The comparison paints the drawing
-                      on white so it is visible over the image; the file that is attached or downloaded keeps
-                      whatever background you chose.
+                      Drag the handle to compare. Hold to see the image. Ctrl/⌘ + scroll to zoom (up to{" "}
+                      {COMPARE_MAX_ZOOM}×).
                       {compare.reduced
                         ? ` Both pictures here are ${compare.width}x${compare.height}, reduced from ${
                             result ? `${Math.round(result.width)}x${Math.round(result.height)}` : "the traced size"
@@ -2352,7 +2319,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
                   />
                   <p className="text-xs text-ink-500">
                     {subjects.find((subject) => subject.id === subjectId)?.hint ??
-                      "A subject nudges the settings for the material in front of the camera. It leaves the style alone and can be applied more than once without compounding."}
+                      "Tunes the settings for the material."}
                   </p>
                 </div>
               </div>
@@ -2469,9 +2436,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
 
                 {!advancedOpen ? (
                   <p className="mt-2 text-xs leading-5 text-ink-500">
-                    Inside: the {ADVANCED_COUNT} settings that are not above, and the formats you can
-                    download a copy in. Nothing in there is required — the trace runs on the settings shown
-                    above.
+                    {ADVANCED_COUNT} more settings and download formats. Optional.
                   </p>
                 ) : null}
 
@@ -2581,9 +2546,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
                   loud, and this is skipped work inside a file rather than on a list. */}
               {format === "png" && edited !== null ? (
                 <p className="text-xs leading-4 text-amber-800">
-                  The frame you chose is written into the SVG&apos;s provenance note. A PNG has nowhere
-                  to carry it, so a reviewer holding only the PNG cannot tell it was cropped or
-                  sharpened.
+                  A PNG doesn’t record the crop or sharpening — the SVG does.
                 </p>
               ) : null}
             </div>
@@ -2598,7 +2561,7 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
               </p>
             ) : null}
 
-            <div className="mt-3 flex flex-wrap items-center gap-2">
+            <ButtonRow align="start" className="mt-3">
               <button
                 type="button"
                 className="field-button"
@@ -2617,14 +2580,10 @@ export function TracePanel({ image, imageName, currentFileName, onAttach, disabl
               <button type="button" className="field-button-secondary" onClick={() => setOpen(false)} disabled={busy}>
                 Keep the image as it is
               </button>
-            </div>
+            </ButtonRow>
             <p className="mt-2 text-xs leading-5 text-ink-500">
-              Nothing is filed until “Add the line art” is pressed.{" "}
-              {currentFileName
-                ? `Pressing it would replace ${currentFileName}. `
-                : ""}
-              The image itself is never altered, whichever you choose. Closing this panel — with the ×
-              above or “Collapse” below — files nothing.
+              Nothing is saved until “Add the line art”.{" "}
+              {currentFileName ? `It replaces ${currentFileName}.` : ""}
             </p>
           </>
         ) : null}

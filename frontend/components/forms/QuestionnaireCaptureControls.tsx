@@ -115,7 +115,7 @@ export function QuestionnaireCaptureControls({
         <Toggle
           checked={!prefs.hideAnswers}
           label="Show answer text boxes"
-          description="Off by default — only the record button shows. Turn on to type written answers."
+          description="Turn on to type answers."
           onChange={(next) => onChange({ hideAnswers: !next })}
         />
       </div>

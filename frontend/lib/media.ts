@@ -521,16 +521,16 @@ function putBlob({
           onProgress?.(total, total);
           resolve({ etag: (xhr.getResponseHeader("ETag") ?? "").replace(/"/g, "") || null });
         } else {
-          reject(new StorageError("The upload didn’t finish. Check your connection and try again.", xhr.status));
+          reject(new StorageError("Upload didn’t finish. Try again.", xhr.status));
         }
       });
-    xhr.onerror = () => settle(() => reject(new StorageError("The upload didn’t finish. Check your connection and try again.")));
+    xhr.onerror = () => settle(() => reject(new StorageError("Upload didn’t finish. Try again.")));
     xhr.onabort = () =>
       settle(() =>
         reject(
           new StorageError(
             stalled
-              ? "The upload stopped. Check your connection and try again."
+              ? "Upload stopped. Try again."
               : "Upload cancelled"
           )
         )
@@ -652,7 +652,7 @@ export function uploadStorageObject(options: ObjectUploadOptions): Promise<Stage
 
 async function uploadObject(options: ObjectUploadOptions): Promise<StagedObject> {
   const { file } = options;
-  if (file.size === 0) throw new Error(`"${file.name}" is empty (0 bytes) — there is nothing to upload.`);
+  if (file.size === 0) throw new Error(`"${file.name}" is empty.`);
   const mediaType = inferMediaType(file);
   const mimeType = file.type || "application/octet-stream";
   // Hashed alongside the transfer, not before it, so it never delays the bytes leaving the device.
@@ -1486,8 +1486,7 @@ export async function uploadMediaBatch({
   // already saved before this ran, so the fix is to retry the media, not redo the whole form.
   if (files.length > 0 && failed.length === files.length) {
     throw new Error(
-      `All ${files.length} media file(s) failed to upload (${failed[0]?.error ?? "network error"}). ` +
-        "Check your internet connection and try again — the record was saved, so re-open it and re-attach the media."
+      `No files uploaded (${failed[0]?.error ?? "network error"}). The record was saved — reopen it to re-attach.`
     );
   }
   return { uploaded: uploadedByIndex.filter((item): item is MediaFile => item !== null), failed };

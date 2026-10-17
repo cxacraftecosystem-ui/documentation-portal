@@ -40,6 +40,7 @@ import {
 import { createPortal } from "react-dom";
 
 import { cn } from "@/lib/utils";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 export type DialogTone = "neutral" | "danger" | "warning";
 
@@ -391,7 +392,7 @@ export function FieldDialog({
                 </button>
               ) : null}
             </div>
-            {footer ? <div className="mt-5 flex flex-wrap justify-end gap-2">{footer}</div> : null}
+            {footer ? <ButtonRow align="end" className="mt-5">{footer}</ButtonRow> : null}
           </motion.div>
         </motion.div>
       ) : null}

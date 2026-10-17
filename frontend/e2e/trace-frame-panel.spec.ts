@@ -675,7 +675,7 @@ test("a frame reaches the tracer only when it is committed, and the panel says s
   const frameWidth = page.getByLabel("Width", { exact: true });
   await frameWidth.fill("32");
   await expect(
-    page.getByText("Nothing has been applied yet: the trace is still using the whole photograph.")
+    page.getByText("Tracing the whole photo.")
   ).toBeVisible();
   // …and NOTHING has been traced from it yet. A crop that re-traced on every keystroke would also
   // re-sharpen on every keystroke, which is seconds of work per character.
@@ -700,7 +700,7 @@ test("a frame reaches the tracer only when it is committed, and the panel says s
   // Moving the frame again makes the panel say plainly that what is on screen is no longer what is
   // being traced — the alternative is a control that has silently stopped mattering.
   await frameWidth.fill("20");
-  await expect(page.getByText(/The frame on screen is not the one being traced/)).toBeVisible();
+  await expect(page.getByText(/Not applied yet — still tracing/)).toBeVisible();
 });
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -845,7 +845,7 @@ test("a half-typed number survives being typed, and a clamp that moves one says 
   // …and committing is when the impossible one is refused — with the reason, and with the way out.
   await expect(left).toHaveValue("0");
   await expect(page.getByText("Left cannot be 40", { exact: false })).toBeVisible();
-  await expect(page.getByText("Reduce Width first", { exact: false })).toBeVisible();
+  await expect(page.getByText("reduce Width first", { exact: false })).toBeVisible();
 
   // With the frame narrowed the same 40 is legal and is taken, so the sentence above was true.
   await width.click();

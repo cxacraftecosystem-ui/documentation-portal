@@ -26,6 +26,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Check, Link2, RefreshCw } from "lucide-react";
 
 import { apiFetch } from "@/lib/api";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 type MappingRow = {
   id: string;
@@ -140,11 +141,7 @@ export function WorkshopMappingPanel() {
             Records not filed under a workshop
           </h2>
           <p className="mt-1 max-w-2xl text-xs leading-5 text-ink-500">
-            A record with no workshop is excluded from every workshop scope — the search box, the map, the
-            data browser, the exports and the completion matrix — while still appearing under{" "}
-            <span className="font-medium text-ink-700">All records</span>. That reads as an empty workshop
-            rather than as a filter. This finds them and files each one where its own evidence points: the
-            record it hangs off, the artisans in it, or the workshop whose dates it was recorded inside.
+            These are hidden from workshop filters. File them using their linked records, artisans or dates.
           </p>
         </div>
         <button
@@ -171,8 +168,7 @@ export function WorkshopMappingPanel() {
           {totals.unassigned === 0 ? (
             <p className="mt-3 flex items-center gap-2 rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-xs text-ink-700">
               <Check className="h-4 w-4 shrink-0 text-success-600" aria-hidden />
-              Every record names the workshop it was captured at. Nothing is hidden from a
-              workshop scope.
+              Every record is filed under a workshop.
             </p>
           ) : (
             <>
@@ -231,7 +227,7 @@ export function WorkshopMappingPanel() {
                           <div className="mt-2 rounded border border-amber-100 bg-amber-100/40 p-2">
                             <p className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-800">
                               <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                              Left alone — open the record and choose its workshop by hand
+                              Needs a workshop chosen by hand
                             </p>
                             <ul className="mt-1 grid gap-0.5">
                               {stuck.map((row) => (
@@ -251,8 +247,7 @@ export function WorkshopMappingPanel() {
                                 to act on. */}
                             {stuck.length < bucket.unresolved ? (
                               <p className="mt-1 text-[11px] leading-4 text-ink-500">
-                                {bucket.unresolved - stuck.length} more are not listed. Re-check after
-                                filing these to see the rest.
+                                {bucket.unresolved - stuck.length} more not shown.
                               </p>
                             ) : null}
                           </div>
@@ -264,16 +259,15 @@ export function WorkshopMappingPanel() {
               </ul>
 
               {totals.resolved > 0 ? (
-                <div className="mt-3 flex flex-wrap items-center gap-3">
-                  <button type="button" onClick={apply} disabled={applying} className="field-button">
-                    {applying
-                      ? "Filing…"
-                      : `File ${totals.resolved} record${totals.resolved === 1 ? "" : "s"} under its workshop`}
-                  </button>
-                  <p className="text-[11px] leading-4 text-ink-500">
-                    Only ever fills an empty workshop — nothing already filed is moved or cleared, and
-                    pressing it twice changes nothing.
-                  </p>
+                <div className="mt-3 grid gap-1.5">
+                  <ButtonRow>
+                    <button type="button" onClick={apply} disabled={applying} className="field-button">
+                      {applying
+                        ? "Filing…"
+                        : `File ${totals.resolved} record${totals.resolved === 1 ? "" : "s"} under its workshop`}
+                    </button>
+                  </ButtonRow>
+                  <p className="text-center text-[11px] leading-4 text-ink-500">Never moves records already filed.</p>
                 </div>
               ) : null}
             </>
@@ -283,8 +277,8 @@ export function WorkshopMappingPanel() {
             <p className="mt-3 flex items-center gap-2 rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-xs text-ink-700">
               <Check className="h-4 w-4 shrink-0 text-success-600" aria-hidden />
               {applied === 0
-                ? "Nothing left to file — every record the evidence could settle was already filed."
-                : `${applied} record${applied === 1 ? "" : "s"} filed. They now appear under their workshop everywhere: the search box, the map, the data browser, the exports and the completion matrix.`}
+                ? "Nothing left to file."
+                : `${applied} record${applied === 1 ? "" : "s"} filed.`}
             </p>
           ) : null}
 
@@ -302,8 +296,7 @@ export function WorkshopMappingPanel() {
             </ul>
           ) : (
             <p className="mt-3 text-[11px] leading-4 text-ink-500">
-              No workshop has a date, so nothing can be filed by when it was recorded.
-              Adding a start and end date to a workshop makes that evidence available.
+              Add workshop dates to file records by date.
             </p>
           )}
         </>

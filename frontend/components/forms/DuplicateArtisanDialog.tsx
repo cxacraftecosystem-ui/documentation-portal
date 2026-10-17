@@ -93,8 +93,7 @@ export function DuplicateArtisanDialog({
       }
     >
       <p className="mt-2 text-xs leading-5 text-amber-800">
-        Nothing has been saved. Open the record that already exists, throw this entry away, or stay here and
-        correct the number.
+        Nothing was saved.
       </p>
     </FieldDialog>
   );

@@ -72,5 +72,5 @@ export function clampToColumn(value: string, maxLength?: number): string {
  * nothing was lost: what is in the box is exactly what will be saved.
  */
 export function columnFullSentence(maxLength: number): string {
-  return `This box is full (${maxLength.toLocaleString("en-IN")} characters). Anything spoken or typed beyond that isn’t added.`;
+  return `Limit reached (${maxLength.toLocaleString("en-IN")} characters).`;
 }

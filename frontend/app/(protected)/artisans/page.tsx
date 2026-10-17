@@ -122,8 +122,8 @@ export default function ArtisansPage() {
     const ok = await confirm(
       deleteConfirm(
         "Delete this artisan record?",
-        "This permanently deletes the record. This action cannot be undone.",
-        "Media, questionnaire answers and comments attached to this artisan go with it."
+        "Deletes the artisan with their media, answers and comments. This can’t be undone.",
+        undefined
       )
     );
     if (!ok) return;
@@ -146,7 +146,7 @@ export default function ArtisansPage() {
     <>
       <PageHeader
         title="Artisans"
-        description="Create, search and maintain artisan profiles with craft, place and contact metadata."
+        description="Artisan profiles."
         icon={<Users className="h-5 w-5" aria-hidden />}
         // Gated, not merely locked: an ungated "New …" invited every tier to press a button that
         // lands on the route guard's refusal. Below researcher the honest UI is no button, matching
@@ -178,7 +178,7 @@ export default function ArtisansPage() {
           <div className="p-4 text-sm text-ink-700">Loading...</div>
         ) : rows.length === 0 ? (
           <div className="p-4">
-            <EmptyState title="No artisans found" body="Add an artisan profile before linking product, tool or workshop records." />
+            <EmptyState title="No artisans found" body="Add the first artisan." />
           </div>
         ) : (
           <div className="overflow-x-auto">

@@ -59,7 +59,7 @@ import HeroLanding from "@/components/hero/HeroLanding";
 export const metadata: Metadata = {
   title: { absolute: "Field Repository — The interview ends. The knowledge is already preserved." },
   description:
-    "A field documentation repository for artisan crafts: artisans, crafts, products, processes, tools and workshops, with a microphone on every free-text box and structured interviews that transcribe and translate themselves against a questionnaire each workshop can be set to. Media, a peer-review ladder, tasks that are handed in and approved, tiered sharing and research-ready export — captured offline in the field, on the handset or in the browser."
+    "Field documentation for artisan crafts — interviews transcribed and translated, records linked, reviewed and exported. Works offline on Android and the web."
 };
 
 export default async function Home() {

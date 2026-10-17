@@ -256,7 +256,7 @@ test("both height boxes point at one sentence that says which is which", () => {
     note at all, because it would be confidently wrong.
   */
   expect(paragraph, "the retired instruction is gone from the screen").not.toContain("leave it empty unless");
-  expect(paragraph, "and the new truth is stated").toContain("filling either fills the other");
+  expect(paragraph, "and the new truth is stated").toContain("fill each other");
   expect(paragraph, "with the factor, so nobody has to guess what it converted by").toContain("2.54");
   // This form NEVER converts on load, so an old record can show two figures that disagree and the
   // note is the only thing that says so.

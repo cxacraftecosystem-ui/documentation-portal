@@ -470,8 +470,7 @@ function DataTablesPanel({
 
                       {sheet.truncated ? (
                         <p className="mx-4 mb-3 rounded-md bg-amber-100 px-3 py-2 text-xs text-amber-800">
-                          Showing the first part of this sheet. Download the .xlsx or open a narrower
-                          folder to see the rest.
+                          Partial preview. Download the .xlsx for the full sheet.
                         </p>
                       ) : null}
 
@@ -916,7 +915,7 @@ function BrowseByTypePanel() {
       if (failed.length) {
         zip.file(
           "_failed-downloads.txt",
-          `These files could not be fetched and are not in the archive:\n\n${failed.join("\n")}`
+          `Not downloaded:\n\n${failed.join("\n")}`
         );
       }
       const blob = await zip.generateAsync({ type: "blob" });
@@ -924,11 +923,11 @@ function BrowseByTypePanel() {
       // A capped export that presents itself as complete is the worst outcome here — the researcher
       // archives it and never learns what is missing — so the server's flag is always surfaced.
       const capNote = manifest.truncated
-        ? " This download doesn’t include every record. Narrow it down, or ask an admin for the full set."
+        ? " Not every record is included."
         : "";
       setDatasetNote(
         (failed.length
-          ? `Archive saved — ${manifest.files.length - failed.length} of ${manifest.files.length} files (${failed.length} failed, listed in _failed-downloads.txt).`
+          ? `Saved ${manifest.files.length - failed.length} of ${manifest.files.length} files — ${failed.length} failed.`
           : `Archive saved — ${manifest.files.length} file${manifest.files.length === 1 ? "" : "s"}.`) + capNote
       );
     } catch (err) {
@@ -1508,7 +1507,7 @@ export default function DataBrowserPage() {
       .map((option) => option.key)
       .join(",");
     if (!include) {
-      setError("Pick at least one content type to include in the download.");
+      setError("Pick at least one content type.");
       return;
     }
     setDownloading(true);
@@ -1518,7 +1517,7 @@ export default function DataBrowserPage() {
     try {
       const manifest = await apiFetch<ManifestResponse>(`/data/manifest${buildQuery({ path: selectedPath, include })}`);
       if (manifest.files.length === 0) {
-        setDownloadNote("Nothing in this folder matches the selected filters.");
+        setDownloadNote("Nothing matches these filters.");
         setProgress(null);
         return;
       }
@@ -1564,7 +1563,7 @@ export default function DataBrowserPage() {
       if (failed.length) {
         zip.file(
           "_failed-downloads.txt",
-          `These files could not be fetched and are not in the archive:\n\n${failed.map((f) => `${f.path} — ${f.reason}`).join("\n")}`
+          `Not downloaded:\n\n${failed.map((f) => `${f.path} — ${f.reason}`).join("\n")}`
         );
       }
       setProgress({ done, total: manifest.files.length, current: "Packaging archive…", phase: "zipping" });
@@ -1579,11 +1578,11 @@ export default function DataBrowserPage() {
       saveBlobToDevice(blob, zipFilename(selectedPath));
       setFailures(failed);
       const truncatedNote = manifest.truncated
-        ? " This folder has more files than one download can hold. Download its subfolders to get everything."
+        ? " Too many files — download subfolders for the rest."
         : "";
       setDownloadNote(
         (failed.length
-          ? `Archive saved with ${manifest.files.length - failed.length} of ${manifest.files.length} files — ${failed.length} failed (listed below and in _failed-downloads.txt).`
+          ? `Saved ${manifest.files.length - failed.length} of ${manifest.files.length} files — ${failed.length} failed (listed below).`
           : `Archive saved — ${manifest.files.length} file${manifest.files.length === 1 ? "" : "s"}.`) + truncatedNote
       );
     } catch (err) {
@@ -1606,7 +1605,7 @@ export default function DataBrowserPage() {
   const header = (
     <PageHeader
       title="Data Browser"
-      description="Browse all records as folders, preview media and transcripts, and download any folder as a zip."
+      description="Browse records as folders and download any as a zip."
       icon={<Database className="h-5 w-5" aria-hidden />}
     />
   );
@@ -1630,8 +1629,7 @@ export default function DataBrowserPage() {
           </div>
           <h2 className="font-display text-base font-semibold text-ink-900">Dataset access is restricted</h2>
           <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-ink-500">
-            Browsing and downloading the dataset is available to professors and above, or to accounts that have been granted the
-            dataset-download permission. Ask an admin to grant you access if you need it for your research.
+            Ask an admin for dataset access.
           </p>
         </section>
       </>
@@ -1782,7 +1780,7 @@ export default function DataBrowserPage() {
 
             {currentTree?.truncated ? (
               <div className="border-b border-amber-500/30 bg-amber-100 px-4 py-2 text-xs text-amber-800">
-                Showing the first part of this folder. Open its subfolders to see everything.
+                Partial list. Open subfolders to see more.
               </div>
             ) : null}
 

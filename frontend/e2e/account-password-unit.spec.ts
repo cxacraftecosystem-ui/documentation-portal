@@ -210,7 +210,7 @@ test("add a person: roles strictly below your own, and only what the chosen sign
   expect(newAccountBody({ ...form, passwordMode: "NONE" }, { mailAvailable: true }).password).toBeUndefined();
 
   const created = { ...account({ email: "p@example.org", name: "Priya" }), temporaryPassword: "Xy7kQ2mP9rT4wZ" };
-  expect(createdSentence(created, "GENERATE")).toContain("must change it when they first sign in");
+  expect(createdSentence(created, "GENERATE")).toContain("change the temporary password below at first sign-in");
   expect(createdSentence({ ...created, passwordLinkError: "Email could not be sent." }, "NONE")).toContain(
     "Email could not be sent."
   );

@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/PageHeader";
 export default function NewArtisanPage() {
   return (
     <>
-      <PageHeader title="New Artisan" description="Capture artisan identity, craft linkage, place, notes and optional GPS details." />
+      <PageHeader title="New Artisan" description="Identity, craft, place and notes." />
       <ArtisanForm />
     </>
   );

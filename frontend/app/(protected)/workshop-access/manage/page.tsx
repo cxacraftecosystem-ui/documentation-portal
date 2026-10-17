@@ -54,7 +54,7 @@ export default function WorkshopAccessManagePage() {
     <>
       <PageHeader
         title="Manage workshop access"
-        description="Approve or decline requests to work in a workshop, and manage each workshop's roster and access levels."
+        description="Requests and rosters."
         icon={<UsersRound className="h-5 w-5" aria-hidden />}
       />
       <div className="grid gap-4">

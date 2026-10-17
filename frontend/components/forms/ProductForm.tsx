@@ -38,6 +38,7 @@ import { saveOrQueue } from "@/lib/offline";
 import { hasRank } from "@/lib/permissions";
 import type { Artisan, Craft, ProductDocumentation, RecordStatus } from "@/lib/types";
 import { marketDemandOptions, productTypes } from "@/lib/types";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 /** Dropdown label for a linked artisan: always "Name · Place" (name alone if no place), never ids. */
 function artisanOptionLabel(artisan: Artisan) {
@@ -558,7 +559,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
         });
         setUploadProgress(null);
         if (failed.length) {
-          setError(`${failed.length} of ${mediaFiles.length} file(s) failed to upload: ${failed.map((f) => f.name).join(", ")}. The record was saved; re-open it to retry those files.`);
+          setError(`Saved, but ${failed.length} of ${mediaFiles.length} file(s) didn’t upload: ${failed.map((f) => f.name).join(", ")}. Reopen to retry.`);
           setSaving(false);
           return;
         }
@@ -873,15 +874,13 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
         */}
         <section className="grid gap-2 rounded-lg border border-line-200 bg-card p-4">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-sm font-semibold text-ink-900">If you cannot mark it: estimate with the vision model</h3>
+            <h3 className="text-sm font-semibold text-ink-900">Estimate with AI</h3>
             <span className="rounded-full border border-amber-500 bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
               Needs a connection
             </span>
           </div>
           <p className="text-xs leading-5 text-ink-500">
-            This asks a model to read the inches off the photograph. It is an <strong>estimate</strong>, not a
-            measurement: it carries no error bar and nobody — including the model — can re-derive it from the picture
-            afterwards. Prefer the panel above wherever the grid or a ruler is in the frame.
+            An <strong>estimate</strong>, not a measurement. Use the panel above when a grid or ruler is visible.
           </p>
           {/*
             THE MARKER THIS ONE CARRIES IS THE SERVER'S OWN, ECHOED BACK UNCHANGED. `POST
@@ -1005,18 +1004,18 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
             markDirty();
           }}
           title="Product media"
-          description="Attach or capture product images, videos, audio notes, and documents. Photo details (date, place, camera) are kept and summarised in the remarks."
+          description="Photos, video, audio and documents."
         />
         <LocationFields initial={initialLocation} onDirty={markDirty} />
         {uploadProgress ? <UploadProgress progress={uploadProgress} /> : null}
-        <div className="flex justify-end gap-2">
+        <ButtonRow align="end">
           <button type="button" className="field-button-secondary" onClick={handleBack}>
             Cancel
           </button>
           <button className="field-button" disabled={saving}>
             {saving ? "Saving..." : initial ? "Update product" : "Save product"}
           </button>
-        </div>
+        </ButtonRow>
       </form>
       <UnsavedChangesDialog
         open={backPromptOpen}

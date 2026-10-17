@@ -164,17 +164,17 @@ export function describeSpeechError(code: string): string {
   switch (code) {
     case "not-allowed":
     case "service-not-allowed":
-      return "The browser refused access to the microphone. Allow it for this site in the address-bar permissions, then press the microphone again — or type the answer in.";
+      return "Microphone blocked. Allow it in the address bar, or type instead.";
     case "no-speech":
-      return "Nothing was heard. Hold the handset closer, or check that the right microphone is selected, and try again.";
+      return "Nothing heard. Move closer and try again.";
     case "audio-capture":
-      return "No microphone was found on this device. Plug one in, or type the answer in.";
+      return "No microphone found. Type instead.";
     case "network":
-      return "This browser sends dictation to a speech service over the internet and could not reach it. Dictation needs a connection even though the rest of this form does not.";
+      return "Dictation needs a connection here.";
     case "aborted":
       return "";
     default:
-      return `Dictation stopped unexpectedly (${code}). Press the microphone to try again, or type the answer in.`;
+      return `Dictation stopped (${code}). Try again, or type instead.`;
   }
 }
 
@@ -192,7 +192,7 @@ export function describeSpeechError(code: string): string {
  * this repository's most-repeated defect; a paragraph is not that.
  */
 export const NO_RECOGNISER_SENTENCE =
-  "Dictation is not available in this browser. Chrome, Edge and Safari have built-in speech recognition; Firefox does not. Type the answer in, or open this page in one of those.";
+  "Dictation isn’t available in this browser. Use Chrome, Edge or Safari, or type instead.";
 
 /* ────────────────────────────────────────────────────────────────────────────
  * The lifecycle — written once, driven by the button and by the spec

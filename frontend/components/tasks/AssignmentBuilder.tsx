@@ -14,6 +14,7 @@ import { formatDate } from "@/lib/format";
 import { ROLES_BY_RANK, roleLabel } from "@/lib/permissions";
 import { handleFormEnter } from "@/lib/formNav";
 import type { UserRole } from "@/lib/types";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 /**
  * The assignment builder — one scope, many people, one POST.
@@ -195,7 +196,7 @@ export function AssignmentBuilder({
       <Step
         n={2}
         title="Who does the work"
-        hint="Only people ranked below you can be given a task. Narrow by tier first if the list is long — each person gets their own task."
+        hint="Each person gets their own task."
       >
         <div className="grid gap-3 md:grid-cols-2">
           <FieldBlock label="Filter by tier">
@@ -265,7 +266,7 @@ export function AssignmentBuilder({
       <Step
         n={3}
         title="What they must produce"
-        hint="Record types and questionnaire sections can be combined. Leave the artisan list empty to mean every artisan in scope."
+        hint="No artisans selected means all of them."
       >
         <div className="grid gap-3 md:grid-cols-2">
           <FieldBlock
@@ -342,13 +343,13 @@ export function AssignmentBuilder({
             <p className="text-xs text-ink-500">
               {validTarget
                 ? `Each person is asked for ${validTarget} record${validTarget === 1 ? "" : "s"}.`
-                : "Optional. Without it, record work reads as “as many as apply” and has no percentage."}
+                : "Optional."}
             </p>
           </Field>
         </div>
       </Step>
 
-      <Step n={4} title="Title, brief and deadline" hint="Leave the title empty to use the one generated from the scope.">
+      <Step n={4} title="Title, brief and deadline" hint="Title is optional.">
         <div className="grid gap-3">
           <Field label="Title">
             <TextInput
@@ -362,7 +363,7 @@ export function AssignmentBuilder({
             <TextArea
               rows={3}
               value={description}
-              placeholder="What good work looks like here. Markdown is supported."
+              placeholder="What good work looks like"
               onChange={(event) => setDescription(event.target.value)}
             />
           </Field>
@@ -387,7 +388,7 @@ export function AssignmentBuilder({
         <p className="mt-1.5 font-display text-lg font-bold leading-7 text-ink-900">
           {assigneeIds.length > 0 && hasWork
             ? assignmentPreview(assigneeIds.length, scope)
-            : "Pick the people and the work — the preview appears here."}
+            : "Pick people and work to preview."}
         </p>
         <dl className="mt-3 grid gap-x-6 gap-y-2 border-t border-line-200 pt-3 text-sm sm:grid-cols-2">
           <div>
@@ -410,14 +411,14 @@ export function AssignmentBuilder({
           </div>
         </dl>
         {!hasWork && assigneeIds.length ? (
-          <p className="mt-3 text-sm text-amber-800 dark:text-amber-200">Pick at least one record type or questionnaire section — a task with no work in it is rejected.</p>
+          <p className="mt-3 text-sm text-amber-800 dark:text-amber-200">Pick a record type or section.</p>
         ) : null}
-        {hasWork && !assigneeIds.length ? <p className="mt-3 text-sm text-amber-800 dark:text-amber-200">Pick at least one person to assign this to.</p> : null}
+        {hasWork && !assigneeIds.length ? <p className="mt-3 text-sm text-amber-800 dark:text-amber-200">Pick at least one person.</p> : null}
       </section>
 
       {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
 
-      <div className="flex flex-wrap items-center gap-3">
+      <ButtonRow align="start">
         <button type="submit" className="field-button" disabled={!canSubmit}>
           <Send className="h-4 w-4" aria-hidden />
           {busy
@@ -427,7 +428,7 @@ export function AssignmentBuilder({
         <button type="button" className="field-button-secondary" onClick={reset} disabled={busy}>
           Reset
         </button>
-      </div>
+      </ButtonRow>
     </form>
   );
 }

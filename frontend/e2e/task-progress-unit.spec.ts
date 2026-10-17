@@ -83,7 +83,7 @@ test.describe("the bar refuses to exist rather than lie", () => {
     // would pick the first reading and put it on screen as a fact about the person.
     const bar = summaryBar(summary({ taskCount: 3, remainingCount: 3, percentComplete: 0, measuredCount: 0 }));
     expect(bar.percent).toBeNull();
-    expect(bar.caption).toContain("No progress to show");
+    expect(bar.caption).toContain("No progress yet");
     // And it must not leave the reader thinking the COUNTS are unreliable too — those are exact.
     expect(bar.caption).toContain("exact");
   });
@@ -124,7 +124,7 @@ test.describe("the caption says WHICH measure the bar is showing", () => {
   });
 
   test("no source at all explains the ABSENCE of a bar rather than describing one", () => {
-    expect(progressSourceNote(null)).toContain("No progress to show");
+    expect(progressSourceNote(null)).toContain("No progress yet");
   });
 
   test("all measured, some measured and none measured are three different sentences", () => {
@@ -153,12 +153,12 @@ test.describe("what the card admits it does not know", () => {
     // with no records. Here it would be worse — the number it stops short on is how much work
     // somebody still owes.
     const bar = summaryBar(summary({ taskCount: 2000, percentComplete: 10, measuredCount: 5, truncated: true }));
-    expect(bar.caveats.join(" ")).toContain("floor");
+    expect(bar.caveats.join(" ")).toContain("may be incomplete");
   });
 
   test("declined derivation is stated, not quietly redrawn as a measured bar", () => {
     const bar = summaryBar(summary({ taskCount: 300, percentComplete: 20, measuredCount: 0, derivationSkipped: true }));
-    expect(bar.caveats.join(" ")).toContain("counted from records");
+    expect(bar.caveats.join(" ")).toContain("count automatically");
   });
 
   test("a caveat never invents the server's limit as a number", () => {
@@ -275,8 +275,8 @@ test.describe("the approval dialog — what an admin is shown before they agree"
       targetCount: null,
       derivedCount: null
     });
-    expect(copy.note).toContain("not available");
-    expect(copy.note).toContain("based on what they reported");
+    expect(copy.note).toContain("No recorded count");
+    expect(copy.note).toContain("based on their report");
     expect(copy.note).not.toMatch(/\b0 recorded\b/);
   });
 
@@ -293,7 +293,7 @@ test.describe("the approval dialog — what an admin is shown before they agree"
       derivedCount: 3
     });
     expect(copy.note).not.toContain("becomes");
-    expect(copy.note).toContain("filled in when they handed it in");
+    expect(copy.note).toContain("You can reopen it later");
     // The override branch, on an identical task that was never submitted, still warns.
     const override = overrideConfirmCopy({ ...base, next: "DONE", progressCount: 3, targetCount: 10 });
     expect(override.note).toContain("becomes");
@@ -319,8 +319,8 @@ test.describe("the approval dialog — what an admin is shown before they agree"
       targetCount: 10,
       derivedCount: 1
     });
-    expect(copy.note).toContain("won't see a reason here");
-    expect(copy.note).toContain("let them know why");
+    expect(copy.note).toContain("won’t see a reason");
+    expect(copy.note).toContain("tell them why");
     expect(copy.confirmLabel).toBe("Send back");
   });
 
@@ -330,7 +330,7 @@ test.describe("the approval dialog — what an admin is shown before they agree"
     const copy = overrideConfirmCopy({ ...base, next: "DONE", progressCount: 0, targetCount: null });
     expect(copy.title).toContain("done for them");
     expect(copy.body).toContain("on their behalf");
-    expect(copy.note).toContain("nothing on it will say an admin set it");
+    expect(copy.note).toContain("won’t show that an admin did this");
   });
 });
 
@@ -339,8 +339,8 @@ test.describe("what the assignee is told when their task does not go away", () =
     // The failure being prevented: press "Mark done", card stays, nothing says why, so the only
     // available reading is that the press failed — and the researcher presses it again.
     const copy = reviewNoticeCopy("Dr Rao");
-    expect(copy.body).toMatch(/has been recorded|recorded/);
-    expect(copy.body.indexOf("recorded")).toBeLessThan(copy.body.indexOf("approve"));
+    expect(copy.body).toMatch(/Handed in/);
+    expect(copy.body.indexOf("Handed in")).toBeLessThan(copy.body.indexOf("approve"));
   });
 
   test("it names who has to approve it, and that it stays on the list until then", () => {
@@ -369,7 +369,7 @@ test.describe("what the assignee is told when their task does not go away", () =
   test("it closes by saying there is nothing further to do", () => {
     // The sentence before it reads as an instruction to wait and do something. There is nothing to
     // do, and saying so is the difference between a queue and a problem.
-    expect(reviewNoticeCopy("Dr Rao").action).toContain("Nothing more is needed from you");
+    expect(reviewNoticeCopy("Dr Rao").action).toContain("Nothing to do");
   });
 });
 
@@ -405,7 +405,7 @@ test.describe("the wiring — claims about the JSX that no exported function can
     // decision and cannot be taken back by the person whose work it is. A button that always fails
     // is worse than no button.
     expect(myTask).not.toContain('onStatus("OPEN")');
-    expect(myTask).toContain("Only an admin or the person who assigned it can reopen it");
+    expect(myTask).toContain("Approved.");
   });
 
   test("the button still says what Android says, and the consequence is said beside it", () => {
@@ -413,7 +413,7 @@ test.describe("the wiring — claims about the JSX that no exported function can
     // somebody's hand sends DONE from a button worded exactly this way, and the server rewrites it
     // rather than refusing it. The wording stays; the outcome is explained.
     expect(myTask).toContain("Mark done");
-    expect(myTask).toContain("sends it to an admin to approve");
+    expect(myTask).toContain("sends it for approval");
   });
 
   test("the review state has its own pill tone rather than falling through to another state's", () => {

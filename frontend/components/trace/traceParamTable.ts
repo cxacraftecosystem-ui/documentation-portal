@@ -147,7 +147,7 @@ export const SLIDERS: readonly SliderSpec[] = [
   {
     key: "preprocess.workingLongEdge",
     label: "Trace resolution",
-    hint: "The long edge the trace runs at. Higher resolves finer detail and costs time; the vector is scaled back to the source size either way.",
+    hint: "Higher catches finer detail but takes longer.",
     group: GROUP_SOURCE,
     min: 256,
     // The engine allows 8192. This stops at 4096 for the reason upstream's dock stops there — asking
@@ -162,7 +162,7 @@ export const SLIDERS: readonly SliderSpec[] = [
   {
     key: "preprocess.denoiseStrength",
     label: "Noise reduction",
-    hint: "How hard the chosen filter smooths before edges are looked for. Too much erases the thinnest lines.",
+    hint: "Smooths grain first. Too much loses fine lines.",
     group: GROUP_SOURCE,
     min: 0,
     max: 1,
@@ -173,7 +173,7 @@ export const SLIDERS: readonly SliderSpec[] = [
   {
     key: "preprocess.claheClip",
     label: "Local contrast",
-    hint: "CLAHE clip limit. Higher pulls detail out of shadow and haze, and eventually amplifies grain with it.",
+    hint: "Brings out detail in shadow. Too much adds grain.",
     group: GROUP_SOURCE,
     min: 1,
     max: 8,
@@ -186,7 +186,7 @@ export const SLIDERS: readonly SliderSpec[] = [
   {
     key: "preprocess.unsharpAmount",
     label: "Sharpen amount",
-    hint: "How much of the difference between the photograph and a blurred copy of it is added back. 0 is off; past about 2 a pencil line grows a pale halo on both sides.",
+    hint: "0 is off. Above 2, pencil lines get a pale halo.",
     group: GROUP_SHARPEN,
     min: 0,
     max: 5,
@@ -197,7 +197,7 @@ export const SLIDERS: readonly SliderSpec[] = [
   {
     key: "preprocess.unsharpSigma",
     label: "Sharpen radius",
-    hint: "The width of detail sharpening acts on, in pixels. Small values crisp the hairlines; large ones lift broad tonal edges and leave the hairlines alone.",
+    hint: "Small sharpens fine lines; large sharpens broad edges.",
     group: GROUP_SHARPEN,
     min: 0.05,
     // The engine's `Limits.MAX_SIGMA` is 32. A radius that large on a line drawing is not sharpening
@@ -213,7 +213,7 @@ export const SLIDERS: readonly SliderSpec[] = [
   {
     key: "edge.sensitivity",
     label: "Edge sensitivity",
-    hint: "More ink as it rises. The one control that means the same thing in every edge engine.",
+    hint: "Higher picks up more ink.",
     group: GROUP_EDGES,
     min: 0,
     max: 1,
@@ -224,7 +224,7 @@ export const SLIDERS: readonly SliderSpec[] = [
   {
     key: "edge.blurSigma",
     label: "Pre-blur",
-    hint: "Gaussian applied before the detector. Raise it to ignore texture, lower it to keep hairlines.",
+    hint: "Raise to ignore texture; lower to keep fine lines.",
     group: GROUP_EDGES,
     min: 0.05,
     max: 8,
@@ -235,7 +235,7 @@ export const SLIDERS: readonly SliderSpec[] = [
   {
     key: "edge.flow.sigmaM",
     label: "Stroke length",
-    hint: "How far the flow-based engine follows a stroke before letting it end. Only affects the flow engine.",
+    hint: "How far a stroke is followed before it ends. Flow engine only.",
     group: GROUP_EDGES,
     min: 0.05,
     max: 12,
@@ -246,7 +246,7 @@ export const SLIDERS: readonly SliderSpec[] = [
   {
     key: "edge.xdogPhi",
     label: "Edge hardness",
-    hint: "XDoG sharpness: 3 is soft graphite, 300 is a woodcut with no soft edge anywhere.",
+    hint: "Low is soft like graphite; high is crisp like a woodcut.",
     group: GROUP_EDGES,
     min: 0.1,
     max: 300,
@@ -257,7 +257,7 @@ export const SLIDERS: readonly SliderSpec[] = [
   {
     key: "cleanup.minBlobArea",
     label: "Minimum speck",
-    hint: "Ink blobs smaller than this many pixels are dust and are dropped.",
+    hint: "Specks smaller than this are dropped as dust.",
     group: GROUP_CLEANUP,
     min: 0,
     max: 1000,
@@ -268,7 +268,7 @@ export const SLIDERS: readonly SliderSpec[] = [
   {
     key: "cleanup.closeRadius",
     label: "Close gaps",
-    hint: "Morphological closing radius: joins strokes that already nearly touch. Too large fuses neighbouring lines.",
+    hint: "Joins strokes that nearly touch. Too high merges lines.",
     group: GROUP_CLEANUP,
     min: 0,
     max: 8,
@@ -279,7 +279,7 @@ export const SLIDERS: readonly SliderSpec[] = [
   {
     key: "cleanup.maxGap",
     label: "Bridge reach",
-    hint: "How far apart two stroke ends may be and still be joined. Ignored when gap bridging is off.",
+    hint: "Largest gap between stroke ends that gets joined.",
     group: GROUP_CLEANUP,
     min: 0,
     max: 64,
@@ -290,7 +290,7 @@ export const SLIDERS: readonly SliderSpec[] = [
   {
     key: "cleanup.pruneSpurs",
     label: "Prune spurs",
-    hint: "Skeleton branches shorter than this are removed. 0 keeps every whisker thinning produced.",
+    hint: "Removes short stray branches. 0 keeps them all.",
     group: GROUP_CLEANUP,
     min: 0,
     max: 32,
@@ -301,7 +301,7 @@ export const SLIDERS: readonly SliderSpec[] = [
   {
     key: "output.simplify",
     label: "Simplify",
-    hint: "Douglas–Peucker tolerance in working pixels. Fewer nodes, straighter runs; 0 keeps every traced vertex.",
+    hint: "Higher gives fewer points and straighter lines. 0 keeps every point.",
     group: GROUP_OUTPUT,
     min: 0,
     max: 8,
@@ -312,7 +312,7 @@ export const SLIDERS: readonly SliderSpec[] = [
   {
     key: "output.corner",
     label: "Keep corners",
-    hint: "Higher keeps MORE corners: a vertex survives as a corner when its neighbours subtend a sharper angle than this.",
+    hint: "Higher keeps more sharp corners.",
     group: GROUP_OUTPUT,
     min: 0,
     max: 180,
@@ -323,7 +323,7 @@ export const SLIDERS: readonly SliderSpec[] = [
   {
     key: "output.smoothIterations",
     label: "Smoothing passes",
-    hint: "Chaikin passes over the polyline before curve fitting. Each one rounds the geometry a little more.",
+    hint: "Each pass rounds the lines a little more.",
     group: GROUP_OUTPUT,
     min: 0,
     max: 8,
@@ -334,7 +334,7 @@ export const SLIDERS: readonly SliderSpec[] = [
   {
     key: "output.strokeWidth",
     label: "Stroke width",
-    hint: "Painted width of the exported line, in document units.",
+    hint: "Line width in the exported file.",
     group: GROUP_OUTPUT,
     min: 0.05,
     max: 8,
@@ -345,7 +345,7 @@ export const SLIDERS: readonly SliderSpec[] = [
   {
     key: "output.minPathLength",
     label: "Minimum path",
-    hint: "Paths shorter than this are dropped.",
+    hint: "Shorter paths are dropped.",
     group: GROUP_OUTPUT,
     min: 0,
     max: 200,
@@ -362,7 +362,7 @@ export const TOGGLES: readonly ToggleSpec[] = [
   {
     key: "preprocess.invertInput",
     label: "Source is light-on-dark",
-    hint: "Set for chalkboards, negatives and white ink on black, so “ink” stays the dark class everywhere downstream.",
+    hint: "For chalkboards, negatives or white ink on black.",
     group: GROUP_SOURCE,
     read: (p) => p.preprocess.invertInput,
     patch: (v) => ({ preprocess: { invertInput: v } })
@@ -370,7 +370,7 @@ export const TOGGLES: readonly ToggleSpec[] = [
   {
     key: "preprocess.claheEnabled",
     label: "Equalise local contrast",
-    hint: "Turn off for a source that is already evenly lit; CLAHE will otherwise amplify its grain.",
+    hint: "Turn off for evenly lit sources to avoid extra grain.",
     group: GROUP_SOURCE,
     read: (p) => p.preprocess.claheEnabled,
     patch: (v) => ({ preprocess: { claheEnabled: v } })
@@ -378,7 +378,7 @@ export const TOGGLES: readonly ToggleSpec[] = [
   {
     key: "preprocess.perspectiveCorrect",
     label: "Rectify the page",
-    hint: "Look for a document quadrilateral and flatten to it. For photographs of paper taken at an angle.",
+    hint: "Straightens a page photographed at an angle.",
     group: GROUP_SOURCE,
     read: (p) => p.preprocess.perspectiveCorrect,
     patch: (v) => ({ preprocess: { perspectiveCorrect: v } })
@@ -386,7 +386,7 @@ export const TOGGLES: readonly ToggleSpec[] = [
   {
     key: "cleanup.skeletonize",
     label: "Reduce ink to centrelines",
-    hint: "Thins strokes to one pixel before tracing. Ignored in outline mode, where a skeleton would delete the boundary being traced.",
+    hint: "Thins strokes to single lines. Not used in outline mode.",
     group: GROUP_CLEANUP,
     read: (p) => p.cleanup.skeletonize,
     patch: (v) => ({ cleanup: { skeletonize: v } })
@@ -394,7 +394,7 @@ export const TOGGLES: readonly ToggleSpec[] = [
   {
     key: "cleanup.bridgeGaps",
     label: "Bridge stroke ends",
-    hint: "Join nearby stroke ends that point at each other. Off keeps a line that stopped, stopped.",
+    hint: "Joins nearby stroke ends that point at each other.",
     group: GROUP_CLEANUP,
     read: (p) => p.cleanup.bridgeGaps,
     patch: (v) => ({ cleanup: { bridgeGaps: v } })
@@ -402,7 +402,7 @@ export const TOGGLES: readonly ToggleSpec[] = [
   {
     key: "cleanup.removeBorderTouching",
     label: "Drop shapes touching the frame",
-    hint: "Removes the drawing board, the scanner lid and the table edge, which a photograph almost always includes.",
+    hint: "Removes the board, table edge or scanner lid around the drawing.",
     group: GROUP_CLEANUP,
     read: (p) => p.cleanup.removeBorderTouching,
     patch: (v) => ({ cleanup: { removeBorderTouching: v } })
@@ -410,7 +410,7 @@ export const TOGGLES: readonly ToggleSpec[] = [
   {
     key: "output.modulateWidth",
     label: "Vary width with the stroke",
-    hint: "Samples the distance transform per node so thick-and-thin brushwork survives. Emitted as a filled outline, because SVG has no variable-width stroke.",
+    hint: "Keeps thick-and-thin brushwork. Exported as filled shapes.",
     group: GROUP_OUTPUT,
     read: (p) => p.output.modulateWidth,
     patch: (v) => ({ output: { modulateWidth: v } })
@@ -418,7 +418,7 @@ export const TOGGLES: readonly ToggleSpec[] = [
   {
     key: "output.fillClosed",
     label: "Fill closed shapes",
-    hint: "Paints every closed region solid instead of outlining it. Outline mode with fill is the woodcut look.",
+    hint: "Fills closed shapes solid instead of outlining them.",
     group: GROUP_OUTPUT,
     read: (p) => p.output.fillClosed,
     patch: (v) => ({ output: { fillClosed: v } })
@@ -426,7 +426,7 @@ export const TOGGLES: readonly ToggleSpec[] = [
   {
     key: "output.background",
     label: "White background",
-    hint: "Off exports a transparent background.",
+    hint: "Off gives a transparent background.",
     group: GROUP_OUTPUT,
     read: (p) => p.output.background !== null,
     // `null` is a meaningful value here — it is how "transparent" is spelled — which is why this patch
@@ -439,7 +439,7 @@ export const CHOICES: readonly ChoiceSpec[] = [
   {
     key: "edge.engine",
     label: "Edge engine",
-    hint: "Which detector runs. They fail differently, which is why all of them exist.",
+    hint: "Each detector suits different drawings. Try another if lines go missing.",
     group: GROUP_EDGES,
     // MODEL is deliberately absent, and the reason is upstream's and still holds: it needs a
     // side-loaded edge model, none ships, and choosing it would silently fall back to another engine
@@ -457,7 +457,7 @@ export const CHOICES: readonly ChoiceSpec[] = [
   {
     key: "preprocess.denoise",
     label: "Noise filter",
-    hint: "Bilateral keeps edges, median kills speckle, anisotropic flattens woven texture.",
+    hint: "Bilateral keeps edges, median removes speckle, anisotropic flattens texture.",
     group: GROUP_SOURCE,
     options: [
       { value: "NONE", label: "None" },
@@ -471,7 +471,7 @@ export const CHOICES: readonly ChoiceSpec[] = [
   {
     key: "matte.mode",
     label: "Background matte",
-    hint: "Separates the subject from its background. Never applied unless you choose it, and the pipeline reports how much of the frame it removed.",
+    hint: "Removes the background around the subject. Off unless you choose it.",
     group: GROUP_SOURCE,
     // SUBJECT is absent from this list for the same reason MODEL is absent above, inverted: it is not
     // broken, it is what a subject preset selects on the researcher's behalf. Offering it twice would
@@ -487,7 +487,7 @@ export const CHOICES: readonly ChoiceSpec[] = [
   {
     key: "output.vectorMode",
     label: "Vector mode",
-    hint: "Centreline turns one stroke into one open path; outline turns one region into one closed path. The most consequential choice here.",
+    hint: "Centreline gives one path per stroke; outline gives one closed path per shape.",
     group: GROUP_OUTPUT,
     options: [
       { value: "CENTERLINE", label: "Centreline (one stroke, one path)" },
@@ -499,7 +499,7 @@ export const CHOICES: readonly ChoiceSpec[] = [
   {
     key: "cleanup.thinning",
     label: "Thinning kernel",
-    hint: "Guo–Hall keeps diagonals better and grows fewer spurs; Zhang–Suen is the classic.",
+    hint: "Guo–Hall keeps diagonals cleaner; Zhang–Suen is the classic.",
     group: GROUP_CLEANUP,
     options: [
       { value: "ZHANG_SUEN", label: "Zhang–Suen" },

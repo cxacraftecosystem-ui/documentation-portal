@@ -46,7 +46,7 @@ export function UnsavedChangesDialog({
       dismissOnBackdrop
       initialFocusRef={keepEditingRef}
       title="Unsaved changes"
-      description="You have unsaved changes, including any recordings or media you just captured. Save them before leaving, or discard them?"
+      description="Save your changes, including new recordings and media, before leaving?"
       footer={
         <>
           <button

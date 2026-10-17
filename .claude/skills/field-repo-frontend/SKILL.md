@@ -46,6 +46,12 @@ traps — check it before "simplifying" anything that looks redundant.
     checkbox-as-setting, no native date input, no single-box code input — on any surface**, here or on
     Android (`AppToggle`, `SearchableSelectField`, `SearchableMultiSelectField`, `CalendarField`,
     `OtpCodeField`).
+12. **Copy says only what the reader needs to act** — one short sentence, often a few words, or
+    nothing when the label already says it. Owner ruling, 2026-10-17. §11.14 has the rules and the
+    examples; "state it on screen" (rule 10) means one short line, never a paragraph.
+13. **Every row of buttons goes through `ButtonRow`** (`components/ui/ButtonRow.tsx`): one centred,
+    two on one line, three or more stacked on a phone and pills from `sm` up. Never hand-style a
+    button row. §11.13.
 
 ---
 
@@ -1244,6 +1250,66 @@ dark the literal purple-700 fill was 2.32:1 on the card.
   `onBrandTile*` for bars on the dark brand tile). Material's default track is `secondaryContainer`
   (surface-100, 1.12:1 on white, 1.00:1 on the audio row); `ProgressIndicatorSourceTest` refuses a
   direct `LinearProgressIndicator` / `CircularProgressIndicator` call anywhere else.
+
+### 11.13 `ButtonRow` — the one layout for buttons that sit together
+
+Owner ruling, 2026-10-17, for web and Android alike. `components/ui/ButtonRow.tsx` counts its
+rendered children (fragments unwrapped, `null` dropped) and lays them out by number:
+
+| Buttons | Below `sm` (640px) | `sm` and up |
+|---|---|---|
+| 1 | centred | centred — `align` is ignored, a lone button off to one side reads as something missing |
+| 2 | `grid-cols-2`, equal widths, a long label wraps inside its own button | one line, content width, placed by `align` |
+| 3+ | stacked, full width, `gap-2` | one row of `rounded-full` pills at one height, wrapping only when out of room |
+
+- `destructive={<button className="field-danger">…</button>}` is always drawn **last**, and from
+  `sm` up is set apart by a hairline rule. Do not put a delete in the middle of a row.
+- `align="end"` for a form footer (Cancel · Save) and dialog footers; `align="start"` where the row
+  belongs to the block above it. `size="sm"` is list-row density (`RowActions`).
+- `PageHeader` actions, `RowActions`, and `FieldDialog`'s `footer` already render through it — pass
+  plain buttons and do not wrap them in a flex `div` of your own.
+- A row that mixes a button with a note or a status line is two things: the buttons go in
+  `ButtonRow`, the sentence goes on its own line below it.
+- **Not** a button row: segmented chips/presets, toolbars (rich-text, find bar, the lightbox
+  header), icon-only arrows in a list row, and the nav sheet's account footer.
+- The dashboard card's New/Update pair IS a two-button row and shares one line, even in a ~135px
+  phone card: keep the labels to one word and drop the icons below `sm` (`max-sm:hidden`) rather
+  than stacking them.
+- Trap: the 2-button case is a `grid` below `sm`. A child with `w-fit`/`inline-flex` sizing still
+  fills its cell (`[&>*]:w-full`); do not add `shrink-0` or a fixed width to a button inside it.
+
+### 11.14 Copy — say only what the reader needs to act
+
+Owner ruling, 2026-10-17: *"keep it concise instead of the idiot blabbering … elegant, premium, and
+conscious."* Every help line, subtitle, hint, empty state, banner, dialog body, tooltip and card
+description is rewritten to that bar, and new copy starts there.
+
+- **One short sentence, often a few words — or nothing** when the label already says it.
+- **Remove:** how the software works, history and rationale (that belongs in a code comment),
+  hedging, a repeat of the label, multi-sentence paragraphs, internal terms (endpoints, schemas, "the
+  server", "this device's store", record ids) and any admission of a gap.
+- **Keep, but tighten:** consent and data-handling wording (Aadhaar masking, dictation, recording,
+  AI keys), validation messages (short and specific), and the numbers and dates a reader needs.
+  Never delete the meaning of a warning that prevents data loss — shorten it.
+- **Tone:** calm, plain, premium — a careful product designer, not a chatbot. Contractions are fine;
+  exclamation marks and "please note" are not.
+- **Sentences a test or the handset pins are changed on purpose**, never by accident: update the
+  spec's expected string in the same change and keep its intent (what the sentence must still
+  say). Where a web sentence is asserted against Android's own wording (`RecordSwitcher.kt`,
+  `RecordPickers.kt`, `WorkshopWindowTest.kt`), change both clients together or leave both alone.
+
+Before → after, from the 2026-10-17 pass:
+
+| Before | After |
+|---|---|
+| Not captured — media from this stage will be uploaded without a location | No location yet |
+| Nobody has recorded yet whether material from this workshop may be sent out, so nothing here can be proofread … until somebody does, this stays unavailable. | Needs the artisan's sharing consent first. · *Record consent* |
+| Interview artisans section by section, answer only the questions asked, and link the interview to one or more artisans. | Interview artisans section by section. |
+| This permanently deletes the interview and every answer in it. This action cannot be undone. The recordings made during the interview, and their transcripts, are deleted with it. | Deletes the interview, its answers, recordings and transcripts. This can't be undone. |
+| The email address is the only thing needed, and no account has to exist yet — that is how somebody is admitted before they have ever opened the application. … | Their account is created when they first sign in. |
+| Drag a provider to rank it, or use the arrows. The one at the top is tried first; if it fails, or has no API key, the next one down takes the job. … | Drag to rank. The top engine runs first; the next takes over if it fails. Applies to everyone. |
+| That Aadhaar number fails its checksum, so at least one digit is wrong. Please re-read the card and enter it again. | A digit is wrong — check the card. |
+| Photograph placed. The line under it is the caption — it sits beneath the picture wherever this field is shown, and it can be formatted like any other sentence. | Photo added. Type its caption below it. |
 
 ## 12. Forms and record editing
 

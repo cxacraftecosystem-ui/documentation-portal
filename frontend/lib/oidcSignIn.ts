@@ -283,5 +283,5 @@ export function providerLabel(id: OidcProviderId): string {
 export function callbackErrorMessage(id: OidcProviderId, error: string | null): string {
   const label = providerLabel(id);
   if (error === "access_denied") return `Signing in with ${label} was cancelled. You can try again.`;
-  return `Signing in with ${label} did not complete. Try again, or use another way to sign in.`;
+  return `${label} sign-in didn’t complete. Try again.`;
 }

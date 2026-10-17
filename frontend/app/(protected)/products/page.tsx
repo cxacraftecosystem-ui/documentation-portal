@@ -114,8 +114,8 @@ export default function ProductsPage() {
     const ok = await confirm(
       deleteConfirm(
         "Delete this product record?",
-        "This permanently deletes the record. This action cannot be undone.",
-        "Photos and files documenting this product are deleted with it."
+        "Deletes the product and its files. This can’t be undone.",
+        undefined
       )
     );
     if (!ok) return;
@@ -131,7 +131,7 @@ export default function ProductsPage() {
     <>
       <PageHeader
         title="Product Documentation"
-        description="Structured documentation for products, raw materials, pricing, function, demand and media links."
+        description="Products, materials and pricing."
         icon={<Boxes className="h-5 w-5" aria-hidden />}
         actions={
           <>
@@ -166,7 +166,7 @@ export default function ProductsPage() {
           <div className="p-4 text-sm text-ink-700">Loading...</div>
         ) : data.items.length === 0 ? (
           <div className="p-4">
-            <EmptyState title="No product records found" body="Create a product record from field observations and link media after upload." />
+            <EmptyState title="No product records found" body="Add the first product." />
           </div>
         ) : (
           <div className="overflow-x-auto">

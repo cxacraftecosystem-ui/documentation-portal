@@ -180,11 +180,9 @@ export default function ConsolidatedQuestionnairePage({
               body={
                 summary.interviewCount === 0
                   ? scope.workshopIds.length
-                    ? `${artisan.name} took part in no interviews at the chosen workshops. Widen the workshop scope, or choose All records.`
-                    : `${artisan.name} has not taken part in any interview yet.`
-                  : `${artisan.name} appears in ${summary.interviewCount} interview${
-                      summary.interviewCount === 1 ? "" : "s"
-                    }, but no answers or recordings have been filed against them.`
+                    ? `No interviews for ${artisan.name} in these workshops.`
+                    : `No interviews for ${artisan.name} yet.`
+                  : `In ${summary.interviewCount} interview${summary.interviewCount === 1 ? "" : "s"}, with no answers yet.`
               }
             />
           ) : null}
@@ -273,7 +271,7 @@ function AttributionChip({ row, compact = false }: { row: ConsolidatedAnswer | I
     return (
       <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-500">
         <Users className="h-3.5 w-3.5 shrink-0" aria-hidden />
-        {compact ? `Group of ${row.artisanCount}` : `Group of ${row.artisanCount} — speaker not recorded`}
+        {compact ? `Group of ${row.artisanCount}` : `Group of ${row.artisanCount}`}
       </span>
     );
   }
@@ -398,8 +396,7 @@ function RecordingBody({ row }: { row: ConsolidatedAnswer }) {
       )}
       {withheld && row.transcriptText ? (
         <p className="text-[0.7rem] italic leading-4 text-ink-500">
-          The transcript is the record here — playing or downloading the audio itself needs download
-          access to the researcher who recorded it.
+          Audio needs download access.
         </p>
       ) : null}
     </div>
@@ -416,8 +413,7 @@ function ConflictBanner({ count }: { count: number }) {
     <div className="mb-2 flex items-start gap-2 rounded-md border border-purple-300 bg-purple-50 px-3 py-2 text-xs leading-5 text-purple-700 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300">
       <GitCompareArrows className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
       <span>
-        <span className="font-semibold">Answered differently in {count} interviews.</span> Both accounts are shown,
-        most recent first. Neither has been chosen for you.
+        <span className="font-semibold">Answered differently in {count} interviews.</span> Newest first.
       </span>
     </div>
   );
@@ -458,7 +454,7 @@ function SectionBlock({ section }: { section: ConsolidatedSection }) {
             {/* Said plainly: the clip names its section and stops there. Pinning it to a question
                 would be a guess, and this page does not guess. */}
             <p className="mb-2 text-xs leading-5 text-ink-500">
-              These clips identify the section but not a specific question, so they sit under the section heading.
+              Not linked to a specific question.
             </p>
             <div className="space-y-2.5">
               {section.recordings.map((row) => (
@@ -480,8 +476,7 @@ function UnfiledBlock({ rows }: { rows: ConsolidatedAnswer[] }) {
         <div>
           <h2 className="display-title text-lg">Recordings with no section ({rows.length})</h2>
           <p className="mt-1 text-xs leading-5 text-ink-500">
-            These were recorded against this artisan&apos;s interviews but carry no section in their filename or
-            metadata, so they could not be placed in the document above. They are listed here rather than dropped.
+            Not linked to any section.
           </p>
         </div>
       </header>

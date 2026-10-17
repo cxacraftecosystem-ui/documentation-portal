@@ -67,8 +67,7 @@ export function PublishAppUpdatePanel() {
     if (!derived) return setError("Version name must be three numbers, like 1.1.18.");
     if (tooOld) {
       return setError(
-        `Version ${versionName.trim()} is code ${derived}, which is not above the published ${current?.versionCode}. ` +
-          "Devices compare version codes, so this release would reach nobody."
+        `Code ${derived} must be above the published ${current?.versionCode}.`
       );
     }
 
@@ -95,7 +94,7 @@ export function PublishAppUpdatePanel() {
       setNotes("");
       toast({
         title: `v${published.versionName} published`,
-        description: "Every device gets the prompt the next time it opens.",
+        description: "Devices are prompted on next open.",
         tone: "success"
       });
     } catch (err) {
@@ -115,8 +114,7 @@ export function PublishAppUpdatePanel() {
         <div className="min-w-0">
           <h2 className="font-display text-base font-bold text-ink-900">Publish an Android update</h2>
           <p className="mt-0.5 text-xs leading-5 text-ink-500">
-            Upload the signed APK and every device is prompted to install it the next time it opens. Same release
-            the phone&rsquo;s &ldquo;Push update to all&rdquo; publishes — this is it from where the file already is.
+            Devices are prompted to install it on next open.
           </p>
         </div>
       </div>
@@ -124,7 +122,7 @@ export function PublishAppUpdatePanel() {
       <p className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-xs text-ink-500">
         {current?.versionCode
           ? `Currently published: v${current.versionName} (code ${current.versionCode}).`
-          : "Nothing has been published yet — this will be the first release."}
+          : "Nothing published yet."}
       </p>
 
       <form className="grid gap-3" onSubmit={publish}>
@@ -145,23 +143,22 @@ export function PublishAppUpdatePanel() {
               onChange={(event) => setVersionName(event.target.value)}
               placeholder="1.1.18"
             />
-            <p className="mt-1 text-xs text-ink-500">Three numbers, e.g. 1.4.2, matching the app being published.</p>
+            <p className="mt-1 text-xs text-ink-500">e.g. 1.4.2</p>
           </Field>
           <Field label="Version code">
             <TextInput name="versionCode" value={derived ? String(derived) : ""} readOnly onChange={() => undefined} />
-            <p className="mt-1 text-xs text-ink-500">Derived from the name, exactly as the build derives it.</p>
+            <p className="mt-1 text-xs text-ink-500">From the version name.</p>
           </Field>
         </div>
 
         <Field label="Release notes">
           <TextArea name="notes" value={notes} onChange={(event) => setNotes(event.target.value)} rows={2} />
-          <p className="mt-1 text-xs text-ink-500">Shown in the update prompt on every device. Optional.</p>
+          <p className="mt-1 text-xs text-ink-500">Optional. Shown in the prompt.</p>
         </Field>
 
         {tooOld ? (
           <p className="rounded-md border border-amber-500/40 bg-amber-100/60 px-3 py-2 text-xs text-amber-800">
-            Code {derived} is not above the published {current?.versionCode}. Devices compare codes, so this would
-            upload successfully and reach nobody.
+            Code {derived} must be above {current?.versionCode}, or no device will update.
           </p>
         ) : null}
         {error ? (

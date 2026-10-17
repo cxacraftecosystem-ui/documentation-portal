@@ -89,12 +89,12 @@ export const LEVEL_LABELS: Record<WorkshopAccessLevel, string> = {
  * between three unlabelled enum values is how the wrong level gets granted.
  */
 export const FALLBACK_ACCESS_LEVELS: WorkshopAccessLevelInfo[] = [
-  { level: "VIEW", description: "Read only — see this workshop's data. Cannot create or change records in it." },
-  { level: "CONTRIBUTE", description: "Everything in View, plus add records in this workshop (the normal level)." },
+  { level: "VIEW", description: "Read only." },
+  { level: "CONTRIBUTE", description: "View and add records." },
   {
     level: "EDIT",
     description:
-      "Everything in Contribute, plus change other people's records in this workshop (every change is tracked in the edit history)."
+      "Add records and edit others’ (tracked)."
   }
 ];
 

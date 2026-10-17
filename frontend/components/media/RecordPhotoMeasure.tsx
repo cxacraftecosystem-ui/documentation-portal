@@ -124,8 +124,8 @@ const MARK_LABELS: Record<MarkId, { badge: string; name: string }> = {
   refA: { badge: "R1", name: "Reference, first end" },
   refB: { badge: "R2", name: "Reference, second end" },
   c0: { badge: "1", name: "Rectangle corner 1" },
-  c1: { badge: "2", name: "Rectangle corner 2, along the width edge from corner 1" },
-  c2: { badge: "3", name: "Rectangle corner 3, diagonally opposite corner 1" },
+  c1: { badge: "2", name: "Rectangle corner 2 (width edge)" },
+  c2: { badge: "3", name: "Rectangle corner 3 (opposite 1)" },
   c3: { badge: "4", name: "Rectangle corner 4" },
   tgtA: { badge: "A", name: "The dimension, first end" },
   tgtB: { badge: "B", name: "The dimension, second end" }
@@ -484,7 +484,7 @@ export function RecordPhotoMeasure({
         key={id}
         type="button"
         disabled={disabled}
-        aria-label={`${MARK_LABELS[id].name}${mark.placed ? "" : " — not placed yet"}. Drag it, or use the arrow keys to nudge it.`}
+        aria-label={`${MARK_LABELS[id].name}${mark.placed ? "" : " — not placed"}. Drag or use arrow keys.`}
         aria-pressed={isActive}
         className={[
           "pointer-events-auto absolute grid h-8 w-8 -translate-x-1/2 -translate-y-1/2 place-items-center",
@@ -628,11 +628,8 @@ export function RecordPhotoMeasure({
           <h3 className="font-display text-lg font-bold text-ink-900">Measure from a photograph</h3>
         </div>
         <p className="text-sm leading-6 text-ink-500">
-          Photograph the object on the 1-inch grid sheet, mark across however many squares you like — that is the
-          reference — then mark the two ends of the dimension. The answer is worked out on this device from where you
-          pointed, with an error bar, and offered for you to accept into{" "}
-          {columns.map((column) => column.label).join(", ")}. No connection needed, and no model involved. A ruler, a
-          scale card or a sheet of A4 in the frame works just as well when there is no grid.
+          Photograph the object on the grid sheet (or beside a ruler), mark a reference, then the two ends. Works
+          offline.
         </p>
         <div>
           <button
@@ -688,12 +685,11 @@ export function RecordPhotoMeasure({
         {file ? (
           <p className="text-xs leading-5 text-ink-500">
             <Camera className="mr-1 inline h-3 w-3" aria-hidden />
-            {file.name} — saved with this record when you save the form, so the measurement can be checked against the
-            photograph it was taken from.
+            {file.name} — saved with this record.
           </p>
         ) : (
           <p className="text-xs leading-5 text-ink-500">
-            Take the photograph square-on to the sheet, with the whole object and enough of the grid in the frame.
+            Shoot square-on, with the object and grid in frame.
           </p>
         )}
       </div>
@@ -737,28 +733,22 @@ export function RecordPhotoMeasure({
             <p className="flex items-start gap-2 rounded-md border border-amber-500 bg-amber-100 px-2.5 py-2 text-xs leading-5 text-amber-800">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
               <span>
-                This is only true when the reference and the thing you are measuring lie in the{" "}
-                <strong>same flat plane, square to the camera</strong>. A grid sheet on a table and a pot standing on
-                that table are not in one plane, and a dimension measured across a tilted object comes out wrong — by
-                however much the angle happens to be, with nothing later able to tell. If the photograph is at an
-                angle, use the four-corner method instead.
+                Only accurate when the reference and object lie <strong>flat, square to the camera</strong>. If the
+                photo is angled, use four corners.
               </span>
             </p>
           ) : (
             <p className="flex items-start gap-2 rounded-md border border-line-200 bg-card px-2.5 py-2 text-xs leading-5 text-ink-500">
               <Crosshair className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
               <span>
-                Mark the four corners of the rectangle <strong>in order around it</strong> — 1, 2, 3, 4 walking round
-                the edge, not in reading order. The tilt of that surface is then corrected for exactly. The object
-                still has to be lying <strong>on</strong> that surface: what is corrected is the angle of the plane,
-                not the height of something standing up off it.
+                Mark the corners <strong>in order around the edge</strong>. The object must lie flat on that surface.
               </span>
             </p>
           )}
 
           {/* Which mark the next tap moves. */}
           <div className="grid gap-1">
-            <span className="field-label">Marks — tap the photograph to place, drag or use arrow keys to adjust</span>
+            <span className="field-label">Marks — tap to place, drag to adjust</span>
             <div className="flex flex-wrap gap-1.5">
               {needed.map((id) => {
                 const mark = marks[id];
@@ -905,7 +895,7 @@ export function RecordPhotoMeasure({
           <p role="status" className="text-xs leading-5 text-ink-500">
             Zoom {zoom.toFixed(1)}×.{" "}
             {displayScale > 0
-              ? `At this zoom a mark can be placed to about ±${markSigmaForDisplayScale(displayScale).toFixed(1)} image pixels, which is what the error bar below is built from. Zooming in genuinely narrows it.`
+              ? `Mark precision ±${markSigmaForDisplayScale(displayScale).toFixed(1)} px. Zoom in to improve it.`
               : "Loading the photograph…"}
           </p>
 
@@ -1014,7 +1004,7 @@ export function RecordPhotoMeasure({
                     both are visible the instant the multiplication is printed beside the paper. */}
                 <p role="status" className="text-xs leading-5 text-ink-500">
                   {reference.ok
-                    ? `Reference: ${reference.sentence}. Mark across as many squares as the photograph allows — a longer reference is a narrower error bar, in direct proportion.`
+                    ? `Reference: ${reference.sentence}. Longer is more accurate.`
                     : reference.reason}
                 </p>
               </div>
@@ -1176,9 +1166,7 @@ function MeasurementReadout({
     const remaining = needed.filter((id) => !marks[id]?.placed);
     return (
       <p className="text-xs leading-5 text-ink-500">
-        {remaining.length} of {needed.length} marks still to place ({remaining.map((id) => MARK_LABELS[id].badge).join(", ")}
-        ). Nothing is measured until every mark is where it belongs — a reading off the marks as they were laid out
-        would be a confident number about nothing.
+        Place {remaining.length} more ({remaining.map((id) => MARK_LABELS[id].badge).join(", ")}).
       </p>
     );
   }
@@ -1213,10 +1201,7 @@ function MeasurementReadout({
         {shown.value.toFixed(shown.decimals)} ± {shownDoubt.value.toFixed(shownDoubt.decimals)} {result.unit}
       </p>
       <p className="text-xs leading-5 text-ink-500">
-        That is ±{(result.relativeUncertainty * 100).toFixed(1)}%, from a reference {Math.round(result.referencePixels)}{" "}
-        pixels long and an object {Math.round(result.targetPixels)} pixels long in this photograph. The error bar is how
-        far the answer moves when each mark is nudged by the amount a mark can be placed to at this zoom — it is not a
-        guess about the camera, and it does not include the grid being the wrong sheet.
+        ±{(result.relativeUncertainty * 100).toFixed(1)}% from mark precision.
       </p>
 
       {result.method === "RECTIFIED" && typeof result.tiltCorrection === "number" ? (
@@ -1226,9 +1211,7 @@ function MeasurementReadout({
             ? ` — two marks alone would have read ${result.uncorrectedValue.toFixed(1)} ${result.unit}`
             : ""}
           .{" "}
-          {result.tiltCorrection < 0.01
-            ? "That is small enough that the two-mark method would have done here."
-            : "That is why the four corners were worth marking."}
+          {result.tiltCorrection < 0.01 ? "Two marks would have been enough." : null}
         </p>
       ) : null}
 

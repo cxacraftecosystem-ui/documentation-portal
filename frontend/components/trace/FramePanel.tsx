@@ -148,6 +148,7 @@ import {
   type ImageEditor,
   type SharpenSettings
 } from "./imageEditRuntime";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 /** The longest edge the framing preview is drawn at. Big enough to aim a crop, small enough to be free. */
 const PREVIEW_BOX_PX = 360;
@@ -491,12 +492,10 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
         key === "x" || key === "y"
           ? `${CROP_FIELD_NAME[key]} cannot be ${typed}: the frame is ${
               key === "x" ? `${next.width} wide on a ${pixels.width}px` : `${next.height} tall on a ${pixels.height}px`
-            } photograph, so it would hang off the edge. It was set to ${next[key]}. Reduce ${
-              key === "x" ? "Width" : "Height"
-            } first to move it further ${key === "x" ? "right" : "down"}.`
+            } photo. Set to ${next[key]}; reduce ${key === "x" ? "Width" : "Height"} first.`
           : `${CROP_FIELD_NAME[key]} cannot be ${typed}: the frame is between ${minEdge} and ${
               key === "width" ? pixels.width : pixels.height
-            } pixels. It was set to ${next[key]}.`
+            } px. Set to ${next[key]}.`
       );
     },
     [clamp, crop, pixels.width, pixels.height]
@@ -724,7 +723,7 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
       setProblem(
         runtimeKnown.length > 0
           ? runtimeKnown
-          : "The photograph could not be processed on this device. The photograph itself is untouched."
+          : "Couldn’t process the photo. The original is untouched."
       );
     } finally {
       if (!goneRef.current) setBusy(false);
@@ -780,10 +779,7 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
         <div className="min-w-0">
           <h5 className="text-sm font-semibold text-ink-900">Frame and sharpen the photograph</h5>
           <p className="mt-1 max-w-prose text-xs leading-5 text-ink-500">
-            Both are arithmetic on this device and both change only what is TRACED. The photograph is
-            never altered, never re-encoded and never replaced — it stays exactly as it was taken, with
-            its full resolution and its photo details (date, place, camera), whatever you do here. Reopening this panel after
-            attaching lets you re-frame and trace again.
+            Changes only what is traced. The photo itself is never altered.
           </p>
         </div>
       </div>
@@ -962,13 +958,7 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
             own three. The keyboard half is here because it exists: the handles are real buttons and
             answer to the arrow keys. */}
         <p className="mt-2 text-xs leading-5 text-ink-500">
-          Drag across the photograph to draw a frame. Once there is one, drag inside it to move it and
-          drag a corner to resize it. Each corner is also a button: focus it and the arrow keys move it
-          {" "}
-          {nudgeStep}
-          {nudgeStep === 1 ? " pixel" : " pixels"} of the photograph at a time — one pixel of the
-          picture as it is drawn here — or {nudgeStep * 10} with Shift held. The four boxes below take
-          the numbers directly, and the row above jumps to a common shape.
+          Drag to draw a frame; drag a corner to resize. Arrow keys nudge {nudgeStep}px (Shift ×10).
         </p>
 
         {/* THE NUMBERS ARE THE PRIMARY ROUTE, NOT A FALLBACK. Every one is a real labelled input, so
@@ -1039,9 +1029,7 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
             ? `The whole photograph, ${pixels.width}x${pixels.height}.`
             : `${crop.width}x${crop.height} of ${pixels.width}x${pixels.height} — ${Math.round(
                 (cropped / (pixels.width * pixels.height)) * 100
-              )}% of the frame. Everything outside it is absent from the drawing.`}{" "}
-          The engine may still narrow the frame further on its own when it finds a subject it is
-          confident about; the notes under the traced result say when it did.
+              )}% of the frame.`}
         </p>
       </div>
 
@@ -1049,12 +1037,8 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
       <fieldset className="mt-3 rounded-md border border-line-200 bg-surface-50 p-3">
         <legend className="field-label px-1">Sharpen the photograph</legend>
         <p className="max-w-prose text-xs leading-5 text-ink-500">
-          An unsharp mask — the same one the engine uses — over the photograph&apos;s luminance, run
-          here at up to {pixels.width}x{pixels.height} rather than at the smaller size the trace runs
-          at. That is the whole difference between this and the “Sharpen amount” control in the
-          Sharpening group of the trace settings: this one lifts detail BEFORE the engine reduces the
-          image, so faint pencil survives the reduction. Both use the same arithmetic, and using both
-          compounds them.
+          Runs at full size ({pixels.width}x{pixels.height}) so faint pencil survives. Adds to the trace’s own
+          “Sharpen amount”.
         </p>
 
         <div className="mt-3 grid gap-3">
@@ -1104,9 +1088,7 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
         */}
         {sharpen.amount > 0 ? (
           <p className="mt-3 text-xs leading-5 text-ink-500">
-            Sharpening {(cropped / 1_000_000).toFixed(1)} megapixels takes under a second on a laptop; on a
-            phone a full-size photograph can take several seconds. The page stays usable while it runs,
-            and nothing is recomputed until you press the button below.
+            {(cropped / 1_000_000).toFixed(1)} MP — may take a few seconds on a phone.
           </p>
         ) : null}
 
@@ -1117,11 +1099,7 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
           >
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
             <span>
-              Sharpening runs on frames up to {(SHARPEN_MAX_PIXELS / 1_000_000).toFixed(1)} megapixels
-              on this device, and this frame is {(cropped / 1_000_000).toFixed(1)}. Crop it smaller —
-              the frame above is what does that — or leave this at 0 and use the “Sharpen amount”
-              control in the Sharpening group, which works on the smaller plane the trace itself runs
-              at.
+              Too large to sharpen ({(cropped / 1_000_000).toFixed(1)} of {(SHARPEN_MAX_PIXELS / 1_000_000).toFixed(1)} MP max). Crop smaller, or use “Sharpen amount” instead.
             </span>
           </p>
         ) : null}
@@ -1137,7 +1115,7 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
         </p>
       ) : null}
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      <ButtonRow align="start" className="mt-3">
         <button
           type="button"
           className="field-button-secondary"
@@ -1164,7 +1142,7 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
             Use the whole photograph
           </button>
         ) : null}
-      </div>
+      </ButtonRow>
 
       {/*
         THE LIVE REGION IS OUTSIDE THE CONDITIONS, ALWAYS RENDERED. A reader announces a live region's
@@ -1192,14 +1170,13 @@ export function FramePanel({ pixels, disabled, onEdited }: FramePanelProps) {
           <p className="flex items-start gap-2 text-amber-800 dark:text-amber-200">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
             <span>
-              The frame on screen is not the one being traced. The trace is still using{" "}
-              {applied?.crop.width}x{applied?.crop.height} from the last press — press “Use this frame
-              for the trace” to catch it up.
+              Not applied yet — still tracing {applied?.crop.width}x{applied?.crop.height}. Press “Use this
+              frame for the trace”.
             </span>
           </p>
         ) : null}
         {!busy && applied === null && !nothingToDo ? (
-          <p>Nothing has been applied yet: the trace is still using the whole photograph.</p>
+          <p>Tracing the whole photo.</p>
         ) : null}
       </div>
     </div>

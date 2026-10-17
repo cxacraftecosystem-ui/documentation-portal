@@ -368,10 +368,7 @@ async function runSync(): Promise<SyncResult> {
             const files = pendingFileCount(progress);
             await markFailure(
               progress,
-              "This may have been saved, but it couldn’t be confirmed and its files couldn’t be " +
-                `attached. This entry${files ? ` and its ${files} file(s)` : ""} are still on this device. If you were ` +
-                "on a wi-fi network that asks you to sign in, connect properly and check whether the record arrived " +
-                "before discarding this."
+              `Couldn’t confirm this save. Kept on this device${files ? ` with ${files} file(s)` : ""} — check the record arrived before discarding.`
             );
             failed += 1;
             continue;
@@ -389,9 +386,7 @@ async function runSync(): Promise<SyncResult> {
             const files = pendingFileCount(progress);
             await markFailure(
               progress,
-              `This looks like a duplicate. ${error.message} Nothing has been sent and nothing has been ` +
-                `thrown away — this entry${files ? ` and its ${files} file(s)` : ""} are still on this device. Open the ` +
-                "record it clashes with, carry across anything it is missing, then discard this entry."
+              `Possible duplicate. ${error.message} Kept on this device${files ? ` with ${files} file(s)` : ""}.`
             );
             failed += 1;
             continue;
@@ -442,8 +437,7 @@ async function runSync(): Promise<SyncResult> {
       if (mediaFailed.length) {
         await markFailure(
           progress,
-          `Saved, but ${mediaFailed.length} file(s) did not upload: ${mediaFailed.map((f) => f.name).join(", ")}. ` +
-            "Re-attach them on the record."
+          `Saved, but ${mediaFailed.length} file(s) didn’t upload: ${mediaFailed.map((f) => f.name).join(", ")}. Re-attach them.`
         );
         failed += 1;
         await refreshOutbox();

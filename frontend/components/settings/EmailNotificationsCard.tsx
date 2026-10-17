@@ -62,7 +62,7 @@ export function EmailNotificationsCard() {
         <Toggle
           checked={state.emailTaskUpdates}
           label={label}
-          description="An e-mail when a task you gave out is handed in for your approval, and when a task of yours is approved or sent back."
+          description="When tasks are handed in, approved or sent back."
           onChange={(next) => void change(next)}
         />
       </div>

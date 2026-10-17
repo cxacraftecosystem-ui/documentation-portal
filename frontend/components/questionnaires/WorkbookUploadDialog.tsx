@@ -111,8 +111,8 @@ export function WorkbookUploadDialog({
       }
       description={
         editing
-          ? "The workbook you downloaded from this questionnaire, with your edits. Questions are matched by the Question ID column, so rows you changed are edited rather than added again."
-          : "The .xlsx pro-forma with your questions typed into it, or a question set downloaded from another questionnaire."
+          ? "Your edited copy of this questionnaire’s workbook."
+          : "A filled-in template or a question set."
       }
       icon={<FileSpreadsheet className="h-5 w-5" aria-hidden />}
       footer={
@@ -136,29 +136,11 @@ export function WorkbookUploadDialog({
           // answered question is going to get a new question next to the old one; discovering that
           // in the change report, after the fact, reads as the import having duplicated their form.
           <p className="rounded-md border border-amber-500/30 bg-amber-100 px-3 py-2 text-sm leading-6 text-amber-800">
-            Questions that already have answers recorded in interviews keep their wording. If you have reworded one, the
-            original and its answers are kept and your new wording is added as a new question — nothing is overwritten
-            and nothing is lost. Questions you deleted from the sheet are retired, not deleted, if anyone has answered
-            them, and a section you removed is switched off rather than deleted. The report afterwards names every
-            question this happened to.
+            Answered questions are never overwritten: rewording adds a new question, and removed ones are retired.
           </p>
         ) : (
           <div className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm leading-6 text-ink-700">
-            <p className="font-medium text-ink-900">Two files work here.</p>
-            <ul className="mt-1 grid gap-1">
-              <li>
-                <span className="font-medium text-ink-900">The blank pro-forma</span>, with your questions typed into
-                it.
-              </li>
-              <li>
-                <span className="font-medium text-ink-900">A question set</span> downloaded from another questionnaire —
-                you get its questions in a new questionnaire of your own.
-              </li>
-            </ul>
-            <p className="mt-1">
-              Answers typed into the Answer column are counted and reported back to you, and are not stored. An answer
-              belongs to an interview, against an artisan, recorded by the researcher who ran it.
-            </p>
+            <p>Answers in the file are counted, not saved.</p>
           </div>
         )}
 
@@ -178,7 +160,7 @@ export function WorkbookUploadDialog({
             />
           </label>
           <p className="mt-1 text-xs leading-5 text-ink-500">
-            {file ? file.name : "Excel workbooks only. Save As → Excel Workbook (.xlsx) if yours is an older .xls."}
+            {file ? file.name : ".xlsx only."}
           </p>
         </FieldBlock>
 

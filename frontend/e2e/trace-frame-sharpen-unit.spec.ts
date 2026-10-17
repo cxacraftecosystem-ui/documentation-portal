@@ -309,7 +309,7 @@ test("planSharpen refuses over the cap, names the number, and points at the crop
   const over = planSharpen(SHARPEN_MAX_PIXELS + 1, 1.5);
   expect(over.refusal).not.toBeNull();
   // The sentence has to carry the cap AND the way through, or it is a dead end wearing an explanation.
-  expect(over.refusal).toContain("8.0 megapixels");
+  expect(over.refusal).toContain("8.0 MP max");
   expect(over.refusal).toContain("Crop it first");
 });
 

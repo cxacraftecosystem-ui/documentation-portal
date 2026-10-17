@@ -293,10 +293,7 @@ export function planSharpen(pixels: number, radius: number): SharpenPlan {
   const megapixels = n / 1_000_000;
   const refusal =
     n > SHARPEN_MAX_PIXELS
-      ? `Sharpening runs on frames up to ${(SHARPEN_MAX_PIXELS / 1_000_000).toFixed(1)} megapixels on ` +
-        `this device, and this one is ${megapixels.toFixed(1)}. Crop it first — the crop above is what ` +
-        "makes a frame smaller — or trace it unsharpened and use the “Sharpen amount” control in " +
-        "Sharpening, which works on the smaller plane the trace itself runs at."
+      ? `Too large to sharpen (${megapixels.toFixed(1)} of ${(SHARPEN_MAX_PIXELS / 1_000_000).toFixed(1)} MP max). Crop it first, or use “Sharpen amount”.`
       : null;
   return {
     pixels: n,

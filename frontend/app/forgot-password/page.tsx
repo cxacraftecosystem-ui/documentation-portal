@@ -69,7 +69,7 @@ export default function ForgotPasswordPage() {
   return (
     <AuthCard
       title="Forgot your password?"
-      subtitle="Enter the email address you sign in with. If it belongs to an account that uses a password, we will email it a link to choose a new one. The link works once and lasts 2 hours."
+      subtitle="We’ll email you a reset link. It lasts 2 hours."
     >
       <form onSubmit={submit} noValidate className="grid gap-3">
         <div role="alert" aria-live="assertive">

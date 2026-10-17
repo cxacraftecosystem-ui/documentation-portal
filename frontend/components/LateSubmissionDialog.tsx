@@ -63,8 +63,8 @@ export function LateSubmissionDialog({
           <span className="font-medium text-ink-900">{name}</span>
           {ended}.{" "}
           {needsAdminApproval
-            ? "Your entry will still be saved, but it is recorded as a late submission: it stays Pending until an admin or master admin approves it — a professor cannot approve it for you."
-            : "Your entry will still be saved, and it is recorded as a late submission."}
+            ? "It will be saved as late and needs admin approval."
+            : "It will be saved as late."}
         </>
       }
       footer={
@@ -79,7 +79,7 @@ export function LateSubmissionDialog({
       }
     >
       <p className="mt-2 text-sm leading-6 text-ink-500">
-        Pick a different workshop above if this record belongs to one that is still running.
+        Or pick a workshop that’s still running.
       </p>
     </FieldDialog>
   );

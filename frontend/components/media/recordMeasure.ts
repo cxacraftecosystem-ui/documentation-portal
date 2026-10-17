@@ -105,7 +105,7 @@ function tidy(value: number): string {
 export function gridSpan(squaresText: string, pitch: GridPitch): ResolvedReference {
   const text = squaresText.trim();
   if (!text) {
-    return { ok: false, reason: "Say how many grid squares the reference mark spans, and the measurement appears here." };
+    return { ok: false, reason: "Enter how many squares the reference spans." };
   }
   const squares = Number(text);
   if (!Number.isFinite(squares)) {
@@ -127,7 +127,7 @@ export function gridSpan(squaresText: string, pitch: GridPitch): ResolvedReferen
 export function statedLength(lengthText: string, unit: LengthUnit): ResolvedReference {
   const text = lengthText.trim();
   if (!text) {
-    return { ok: false, reason: "Type how long the reference really is, and the measurement appears here." };
+    return { ok: false, reason: "Enter the reference length." };
   }
   const length = Number(text);
   if (!Number.isFinite(length)) {
@@ -201,7 +201,7 @@ export function proposalFor(value: number, uncertainty: number, from: LengthUnit
   const converted = convertLength(value, from, to);
   const convertedDoubt = convertLength(uncertainty, from, to);
   if (converted === null || convertedDoubt === null) {
-    return { ok: false, reason: `This cannot convert ${from} to ${to}, so nothing is proposed into that box.` };
+    return { ok: false, reason: `Can’t convert ${from} to ${to}.` };
   }
   if (!Number.isFinite(converted) || !Number.isFinite(convertedDoubt) || converted <= 0) {
     return { ok: false, reason: "That is not a length this can propose." };
@@ -214,7 +214,7 @@ export function proposalFor(value: number, uncertainty: number, from: LengthUnit
   if (rounded <= 0) {
     return {
       ok: false,
-      reason: `That measures about ${converted.toPrecision(2)} ${to}, which rounds to zero in a box that stores ${COLUMN_DECIMALS} decimal places. A stored 0 would read as “measured, and it is nothing”, so nothing is proposed.`
+      reason: `Too small for this field (about ${converted.toPrecision(2)} ${to}).`
     };
   }
 

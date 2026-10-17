@@ -88,7 +88,7 @@ export function FieldProvenance({
   return (
     <section className="panel p-4">
       <h3 className="font-display font-bold text-lg text-ink-900">{title}</h3>
-      <p className="mt-1 text-sm text-ink-500">Who populated each field, and when. Visible in admin view and to users granted provenance access.</p>
+      <p className="mt-1 text-sm text-ink-500">Who filled each field, and when.</p>
 
       {recordLocation || hasReview ? (
         <div className="mt-3 grid gap-1.5 rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm">

@@ -22,13 +22,13 @@ const STEPS = [
     icon: Mic,
     title: "Capture in the field",
     copy:
-      "Record interviews, photograph products and tools, and log GPS positions on the Android app or the web — with or without a signal. Free-text boxes take dictation, so a note can be spoken. Nothing waits for connectivity."
+      "Record interviews, photos and GPS on Android or the web — with or without signal. Dictate into any text box."
   },
   {
     icon: Languages,
     title: "Transcribe & translate automatically",
     copy:
-      "Every recording is transcribed automatically and arrives as clean English text linked to its artisan, craft, and workshop."
+      "Every recording arrives as clean English text, linked to its artisan, craft and workshop."
   },
   {
     // THE THIRD SENTENCE IS ABOUT TASKS, NOT RECORDS, and the two are separate ladders — see
@@ -40,13 +40,13 @@ const STEPS = [
     icon: ClipboardCheck,
     title: "Review & approve up the ladder",
     copy:
-      "Reviewers approve, reject, or send work back for revision with comments. Each tier reviews the tiers below it, so quality climbs the same ladder as access. Assigned tasks are handed in for approval rather than closed by the person who did them."
+      "Each tier reviews the one below — approve, reject or send back with comments. Finished tasks wait for approval."
   },
   {
     icon: FolderDown,
     title: "Explore & export the dataset",
     copy:
-      "Browse every record like folders on a computer, grant collaborators tiered access, and — from Professor upwards, or with an explicit grant — export research-ready records, media, and transcripts."
+      "Browse records as folders, share with tiered access, and export research-ready data."
   }
 ];
 

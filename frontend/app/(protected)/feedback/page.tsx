@@ -10,6 +10,7 @@ import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { handleFormEnter } from "@/lib/formNav";
 import { isMasterAdmin } from "@/lib/permissions";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 /**
  * The backend keeps ONE feedback row per user (PUT /feedback/me upserts it), with an
@@ -57,25 +58,25 @@ const TEXT_FIELDS = [
   {
     key: "likeMost",
     label: "What do you like most?",
-    placeholder: "The part of the app you would not want taken away.",
+    placeholder: "What works well",
     rows: 2
   },
   {
     key: "improve",
     label: "What should we improve?",
-    placeholder: "The step that takes longest, or the screen you avoid.",
+    placeholder: "What slows you down",
     rows: 2
   },
   {
     key: "bugs",
     label: "Any bugs or issues you hit?",
-    placeholder: "What you were doing, what you expected, and what happened instead.",
+    placeholder: "What happened, and what you expected",
     rows: 2
   },
   {
     key: "featureRequests",
     label: "Features you'd like to see",
-    placeholder: "Something you currently do on paper, or in another app.",
+    placeholder: "What you’d like to do here",
     rows: 2
   },
   {
@@ -230,7 +231,7 @@ export default function FeedbackPage() {
     event.preventDefault();
     if (!anyProvided) {
       setSuccess(null);
-      setError("Add at least one rating or a written answer first.");
+      setError("Add a rating or an answer.");
       return;
     }
     setBusy(true);
@@ -246,7 +247,7 @@ export default function FeedbackPage() {
         })
       });
       setSaved(result);
-      setSuccess("Thank you — your feedback has been saved. You can revisit and change it any time.");
+      setSuccess("Thanks — feedback saved.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save feedback");
     } finally {
@@ -258,7 +259,7 @@ export default function FeedbackPage() {
     <>
       <PageHeader
         title="Give app feedback"
-        description="Tell us how the app is working for you — rate it on a few aspects and add anything you'd like in your own words. Everything is optional; fill in what's relevant. You can come back and update this at any time."
+        description="Everything is optional. Update it any time."
         icon={<MessageSquare className="h-5 w-5" aria-hidden />}
       />
       {error ? (
@@ -320,12 +321,14 @@ export default function FeedbackPage() {
             </div>
           ))}
 
-          <div className="mt-5 flex flex-wrap items-center gap-3">
+          <ButtonRow className="mt-5">
             <button className="field-button" disabled={busy || !anyProvided} type="submit">
               {busy ? "Saving..." : saved ? "Update feedback" : "Submit feedback"}
             </button>
-            {saved?.updatedAt ? <span className="text-xs text-ink-500">Last updated {formatDateTime(saved.updatedAt)}</span> : null}
-          </div>
+          </ButtonRow>
+          {saved?.updatedAt ? (
+            <p className="mt-2 text-center text-xs text-ink-500">Last updated {formatDateTime(saved.updatedAt)}</p>
+          ) : null}
         </form>
       )}
 
@@ -346,7 +349,7 @@ export default function FeedbackPage() {
             <div className="panel p-4 text-sm text-ink-500">Loading...</div>
           ) : allFeedback.length === 0 ? (
             <div className="panel p-4">
-              <EmptyState title="No feedback yet" body="Feedback users send from the web or Android apps will appear here." />
+              <EmptyState title="No feedback yet" body="Feedback will appear here." />
             </div>
           ) : (
             <div className="grid gap-3">

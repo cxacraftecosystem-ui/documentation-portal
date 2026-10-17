@@ -106,7 +106,7 @@ scope.onmessage = (event: MessageEvent<EditRequestMessage>) => {
       reason:
         error instanceof Error && error.message
           ? `The photograph could not be processed on this device: ${error.message}`
-          : "The photograph could not be processed on this device. Try a smaller crop."
+          : "Couldn’t process the photo. Try a smaller crop."
     };
     scope.postMessage(reply);
   }

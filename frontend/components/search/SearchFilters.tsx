@@ -289,7 +289,7 @@ export function SearchFilterBar({
 
       {multiple ? (
         <p className="mt-1.5 text-xs text-ink-500">
-          Searching {value.types.length} record types. A chip narrows to just that one; tick more under Filters.
+          Searching {value.types.length} record types.
         </p>
       ) : null}
 
@@ -351,7 +351,7 @@ export function SearchFilterBar({
           <div className="grid gap-1.5">
             <span className="field-label">Record types</span>
             <p className="text-xs text-ink-500">
-              The same setting as the chips above. Pick any number; nothing picked searches everything.
+              Nothing picked searches everything.
             </p>
             <SearchableMultiSelect
               values={value.types}

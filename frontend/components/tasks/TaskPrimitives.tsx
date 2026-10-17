@@ -316,27 +316,27 @@ export function overrideConfirmCopy({
     const claim = targetCount ? `${reported} of ${targetCount}` : `${reported}`;
     const found =
       derivedCount === null || derivedCount === undefined
-        ? "The recorded count is not available for this row, so this approval is based on what they reported."
-        : `${derivedCount} recorded for this task, against their ${claim}.`;
+        ? "No recorded count — based on their report."
+        : `${derivedCount} recorded, against their ${claim}.`;
 
     if (next === "DONE") {
       return {
         title: `Approve ${who}'s work on this task?`,
-        body: `"${taskTitle}" is marked as finished by ${who} and is waiting on you. Approving records it as agreed and takes it off their list.`,
+        body: `${who} marked "${taskTitle}" finished.`,
         // No quota warning on this branch, and its absence is deliberate: the fill already happened
         // when they submitted, so warning about a rewrite here would describe a write that is not
         // about to occur.
-        note: `${found} Approving changes no reported figure — that was filled in when they handed it in. You can reopen the task afterwards.`,
+        note: `${found} You can reopen it later.`,
         confirmLabel: reviewActionLabel(next)
       };
     }
     return {
       title: `Send ${who}'s task back?`,
-      body: `"${taskTitle}" goes back to ${taskStatusText(next).toLowerCase()} and returns to ${who}'s list as work still to do.`,
+      body: `"${taskTitle}" returns to ${who} as ${taskStatusText(next).toLowerCase()}.`,
       // THE ONE THING A SENT-BACK TASK CANNOT CARRY. There is no comment column on a task row, so
       // whatever the reason was travels by some other route or not at all — and an admin who
       // assumes the button delivers it would be sending silent rejections.
-      note: `${who} won't see a reason here, so let them know why. Their reported figure is left exactly as it is.`,
+      note: `${who} won’t see a reason — tell them why.`,
       confirmLabel: reviewActionLabel(next)
     };
   }
@@ -350,22 +350,22 @@ export function overrideConfirmCopy({
   if (next === "DONE") {
     const quota =
       targetCount && reported < targetCount
-        ? ` Marking a task with a quota done fills the reported figure to the target, so "${reported} of ${targetCount}" becomes "${targetCount} of ${targetCount}" even though ${who} reported ${reported}.`
+        ? ` Their reported ${reported} of ${targetCount} becomes ${targetCount} of ${targetCount}.`
         : "";
     return {
       title: `Mark ${who}'s task done for them?`,
-      body: `"${taskTitle}" will be recorded as finished. ${who} has not reported it finished — you are declaring it on their behalf.`,
-      note: `The task stores only the status, so nothing on it will say an admin set it.${quota} You can reopen it afterwards; the reported figure does not come back.`,
+      body: `${who} hasn’t reported "${taskTitle}" finished — you’re marking it on their behalf.`,
+      note: `It won’t show that an admin did this.${quota}`,
       confirmLabel
     };
   }
 
   return {
     title: `Reopen ${who}'s task?`,
-    body: `"${taskTitle}" goes back to ${taskStatusText(next).toLowerCase()} and its completion date is cleared.`,
+    body: `"${taskTitle}" returns to ${taskStatusText(next).toLowerCase()} and its completion date is cleared.`,
     note: targetCount
-      ? `The reported figure stays at ${reported} of ${targetCount}. Reopening does not undo a quota that was filled when the task was marked done — only ${who} can change what they reported.`
-      : `The reported figure is left exactly as it is — only ${who} can change what they reported.`,
+      ? `Reported figure stays at ${reported} of ${targetCount} — reopening doesn’t undo the quota fill.`
+      : `Reported figure stays ${reported}.`,
     confirmLabel
   };
 }
@@ -561,7 +561,7 @@ export function ProgressGapMeter({
       </div>
       <GapChip reported={reported} derived={derived} />
       {!hasTarget ? (
-        <p className="text-xs text-ink-500">No target count on this task — the bars compare the two figures to each other.</p>
+        <p className="text-xs text-ink-500">No target set.</p>
       ) : null}
     </div>
   );
@@ -583,10 +583,10 @@ export function ProgressGapMeter({
  * first — which is the belief the accountability board exists to correct, one screen later.
  */
 export function progressSourceNote(source: TaskProgressSource | null): string {
-  if (source === "derived") return "Counted automatically as records are saved.";
-  if (source === "reported") return "Self-reported — this only moves when the reported figure is changed.";
-  if (source === "status") return "Read from the task's status, not counted from records.";
-  return "No progress to show for this task.";
+  if (source === "derived") return "Counted automatically from records.";
+  if (source === "reported") return "Self-reported.";
+  if (source === "status") return "From the task status.";
+  return "No progress yet.";
 }
 
 /**
@@ -691,13 +691,11 @@ export function reviewNoticeCopy(assignerName?: string | null): ReviewNoticeCopy
     // "Waiting on" rather than "not accepted": the delay belongs to the reviewer, and the sentence
     // has to put it there. Naming the person who assigned it where we know them turns an anonymous
     // wait into somebody a researcher can actually go and ask.
-    body: `You marked this done and it has been recorded. ${
-      who ? `${who} or another admin` : "An admin or the master admin"
-    } has to approve it before it is finished, so it stays on your list until then.`,
+    body: `Handed in — it stays on your list until ${who || "an admin"} approves it.`,
     // The third sentence exists because the second one, alone, reads as an instruction to wait and
     // do something. There is nothing to do, and saying so is the difference between a queue and a
     // problem.
-    action: "Nothing more is needed from you unless it comes back."
+    action: "Nothing to do."
   };
 }
 

@@ -167,8 +167,7 @@ test.describe("Permission granted — the capture fills provenance and offers th
 
     // ...and named as this device's, not the artisan's, once the panel is opened.
     await provenanceGroup(page).getByText("Captured at").click();
-    await expect(provenanceGroup(page).getByText(/This device's location was captured automatically/i)).toBeVisible();
-    await expect(provenanceGroup(page).getByText(/That is where you are, not where the artisan is/)).toBeVisible();
+    await expect(provenanceGroup(page).getByText(/Device location:/i)).toBeVisible();
 
     // And offered, not applied.
     const offer = statedGroup(page).getByText(/This device is in/);
@@ -216,7 +215,7 @@ test.describe("A fix too coarse to name a district", () => {
     await openArtisanForm(page);
     await expect(page.locator('input[name="latitude"]')).toHaveValue(/26\.813/, { timeout: 30_000 });
 
-    await expect(statedGroup(page).getByText(/No district was suggested/)).toBeVisible();
+    await expect(statedGroup(page).getByText(/choose the district yourself/)).toBeVisible();
     await expect(statedGroup(page).getByText(/±2\.5 km/)).toBeVisible();
     await expect(statedGroup(page).getByText(/This device is in/)).toHaveCount(0);
     // The coordinates are still KEPT — a rough position beats none, and the radius travels with it.
@@ -240,7 +239,7 @@ test.describe("Permission denied", () => {
     await expect(page.getByRole("heading", { name: /Location of this record/ })).toBeVisible({ timeout: 30_000 });
 
     // The refusal is explained, and the panel that can fix it is open rather than folded away.
-    await expect(page.getByText(/blocking location/i)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/Location is blocked/i)).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('input[name="latitude"]')).toBeVisible();
     await expect(page.locator('input[name="latitude"]')).toHaveValue("");
 
@@ -291,7 +290,7 @@ test.describe("A stored record whose coordinates and place disagree", () => {
     await signIn(page);
     await page.goto(`/artisans/${LEGACY_ARTISAN}/edit`);
 
-    const flag = page.getByText(/Needs review — the coordinates and the recorded place disagree/);
+    const flag = page.getByText(/Check the place\./);
     await expect(flag).toBeVisible({ timeout: 30_000 });
     await expect(flag.locator("..")).toContainText("Paschim Medinipur, West Bengal");
     await expect(flag.locator("..")).toContainText("Kutch, Gujrat");
@@ -373,7 +372,7 @@ test.describe("Both groups, both themes, at 360px", () => {
       await page.screenshot({ path: `${SHOT_DIR}/${theme}-collapsed.png`, fullPage: false });
 
       await provenanceGroup(page).getByText("Captured at").click();
-      await expect(provenanceGroup(page).getByText(/Provenance, not an address/)).toBeVisible();
+      await expect(provenanceGroup(page).getByText(/Not used as the address/)).toBeVisible();
       await page.screenshot({ path: `${SHOT_DIR}/${theme}-expanded.png`, fullPage: true });
     });
   }

@@ -123,7 +123,7 @@ test.describe("transcription provider ranking", () => {
     expect(reordered[0]).toBe(target);
 
     await panel.getByRole("button", { name: /save order/i }).click();
-    await expect(panel.getByText(/Saved\. The next transcription job uses this order/)).toBeVisible();
+    await expect(panel.getByText(/Order saved\./).first()).toBeVisible();
 
     // The real assertion: a full reload, which re-reads the server rather than any local state.
     await page.reload();

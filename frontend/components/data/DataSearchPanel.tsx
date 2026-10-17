@@ -206,7 +206,7 @@ export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void
     try {
       const found = await apiFetch<LocateResult>(`/data/locate${buildQuery(row.locate)}`);
       if (found.path) onReveal(found.path);
-      else setError(`"${row.title}" is not filed under any workshop yet, so it has no folder to open.`);
+      else setError(`"${row.title}" isn’t in a workshop folder.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not locate that record in the tree");
     } finally {
@@ -219,8 +219,7 @@ export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void
       <div>
         <h2 className="font-display text-base font-bold text-ink-900">Search records</h2>
         <p className="mt-0.5 text-xs text-ink-500">
-          Artisans, products, tools, workshops and media by name, place or caption. Open a hit, or show it where it
-          sits in the folders below.
+          By name, place or caption.
         </p>
       </div>
 

@@ -38,6 +38,7 @@ import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, type Batch
 import { saveOrQueue } from "@/lib/offline";
 import { hasRank } from "@/lib/permissions";
 import type { AadhaarLookupResult, Artisan, ArtisanIdentityConflict, ArtisanIdentityMatch, Craft, RecordStatus } from "@/lib/types";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 // Android parity (MainActivity.kt genderOptions).
 const genderOptions = ["Male", "Female", "Transgender", "Other"];
@@ -70,7 +71,7 @@ const PEHCHAN_NO = "false";
  * (flip the answer to No), which is the half a researcher without a card in hand actually needs.
  */
 const PEHCHAN_NUMBER_REQUIRED =
-  "Enter the Artisan Pehchan Card number, or set the card to 'No' if the artisan does not hold one.";
+  "Enter the Pehchan Card number, or set the card to No.";
 
 /** The `detail` of an API error response, whatever shape the server chose for it. */
 function errorDetail(error: unknown): unknown {
@@ -239,10 +240,10 @@ function PehchanFields({
         />
         <p id={hintId} className="text-xs text-ink-muted">
           {!available
-            ? 'Disabled because this artisan holds no Pehchan card. Switch "available" to Yes to enter a number.'
+            ? "No Pehchan card."
             : keptMask
-              ? "On file, but hidden from you: the full card number is shown only to the researcher who recorded this artisan and to professors upwards. Saving leaves it exactly as it is."
-              : "The PM Vishwakarma artisan ID printed on the card."}
+              ? "On file and hidden. Saving keeps it."
+              : "The PM Vishwakarma ID on the card."}
           {keptMask ? (
             <>
               {" "}
@@ -309,7 +310,7 @@ function StatusField({
       <span className="field-label">Status</span>
       <span
         className="inline-flex h-10 w-fit items-center rounded-full border border-line-200 bg-surface-50 px-4 text-sm font-medium text-ink"
-        title="Submitted for review — a reviewer sets the final status."
+        title="A reviewer sets the status."
       >
         {text}
       </span>
@@ -576,7 +577,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
       // genuinely bothers a reader, rename this local.
       const newCraftName = textValue(form, "newCraftName");
       if (!craftId && !newCraftName) {
-        setError("Select an existing craft or enter a new craft name.");
+        setError("Choose a craft or enter a new one.");
         setSaving(false);
         return;
       }
@@ -715,8 +716,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         setUploadProgress(null);
         if (failed.length) {
           setError(
-            `${failed.length} of ${mediaFiles.length} file(s) failed to upload: ${failed.map((f) => f.name).join(", ")}. ` +
-              "The artisan record was saved; re-open it to retry those files."
+            `Saved, but ${failed.length} of ${mediaFiles.length} file(s) didn’t upload: ${failed.map((f) => f.name).join(", ")}. Reopen to retry.`
           );
           setSaving(false);
           return;
@@ -756,9 +756,9 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
       <div className="grid gap-6">
         <div className="panel p-4">
           <p className="text-sm font-medium text-ink">
-            Saved &ldquo;{savedRecord.name}&rdquo;. Continue documenting with the same context, or add another artisan.
+            Saved &ldquo;{savedRecord.name}&rdquo;.
           </p>
-          <div className="mt-3 flex flex-wrap gap-2">
+          <ButtonRow align="start" className="mt-3">
             <button
               type="button"
               className="field-button-secondary"
@@ -782,7 +782,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
             <button type="button" className="field-button-secondary" onClick={() => { router.push("/artisans"); router.refresh(); }}>
               Back to artisans
             </button>
-          </div>
+          </ButtonRow>
         </div>
         <CarryForwardCards
           context={{
@@ -820,7 +820,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
                 {conflict.existingArtisan.place ? ` (${conflict.existingArtisan.place})` : ""}
               </Link>
             ) : null}
-            <p className="mt-1 text-xs">Nothing was saved. Correct the number, or edit the existing record instead.</p>
+            <p className="mt-1 text-xs">Not saved. Fix the number or edit the existing record.</p>
           </div>
         ) : null}
         {/*
@@ -1097,11 +1097,8 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
                 Identity
               </h3>
               <p className="mt-0.5 text-xs text-ink-muted">
-                Government identifiers, kept so the same artisan documented at two workshops resolves
-                to one record. Stored securely and masked on every shared or exported view.
-                {aadhaarRequired
-                  ? ""
-                  : " This artisan was recorded before an Aadhaar number was required, so the record still saves without one — add it only if the artisan is willing."}
+                Masked on every shared or exported view.
+                {aadhaarRequired ? "" : " Optional for this older record — add only with the artisan’s consent."}
               </p>
             </div>
             <AadhaarField
@@ -1119,13 +1116,13 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
           <DosDontsField
             name="dos"
             label="Do's"
-            helper="Lessons from years at the craft — the things the artisan has learnt to do. Press Enter for each new point."
+            helper="One point per line."
             defaultValue={initial?.dos}
           />
           <DosDontsField
             name="donts"
             label="Don'ts"
-            helper="Lessons from years at the craft — the things the artisan has learnt not to do / to avoid. Press Enter for each new point."
+            helper="One point per line."
             defaultValue={initial?.donts}
           />
           <StatusField canSetStatus={canSetStatus} initialStatus={initial?.status} onDirty={markDirty} />
@@ -1138,7 +1135,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
             markDirty();
           }}
           title="Artisan media"
-          description="Attach or capture artisan images, audio introductions, videos, and documents. Photo details (date, place, camera) are kept and summarised in the notes."
+          description="Photos, audio, video and documents."
         />
         {/*
           `statedPlace` is the free-text box the researchers used while there was no district column
@@ -1153,14 +1150,14 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
           statedPlace={initial?.place}
         />
         {uploadProgress ? <UploadProgress progress={uploadProgress} /> : null}
-        <div className="flex justify-end gap-2">
+        <ButtonRow align="end">
           <button type="button" className="field-button-secondary" onClick={handleBack}>
             Cancel
           </button>
           <button className="field-button" disabled={saving || checkingDuplicate}>
             {checkingDuplicate ? "Checking..." : saving ? "Saving..." : initial ? "Update artisan" : "Save artisan"}
           </button>
-        </div>
+        </ButtonRow>
       </form>
       <DuplicateArtisanDialog
         open={duplicatePromptOpen}

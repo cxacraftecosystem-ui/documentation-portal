@@ -17,6 +17,7 @@ import { DictatedTextInput } from "@/components/richtext/DictatedTextInput";
 import { RequiredMark } from "@/components/ui/RequiredMark";
 import { apiFetch } from "@/lib/api";
 import type { AddressReference } from "@/lib/types";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 const maptilerKey = process.env.NEXT_PUBLIC_MAPTILER_API_KEY;
 
@@ -237,8 +238,7 @@ export function postalZoneMismatch(state: string, pincode: string): string | nul
   if (home.length === 0 || home.includes(zone)) return null;
   const aps = zone === "9" ? " (9 is the Army Postal Service)" : "";
   return (
-    `${pincode} does not match ${state}: ${state} pincodes start with ${home.join(" or ")}, ` +
-    `and this one starts with ${zone}${aps}. Re-check the state or the pincode — one of the two is wrong.`
+    `${pincode} isn’t a ${state} pincode (they start with ${home.join(" or ")}; this starts with ${zone}${aps}).`
   );
 }
 
@@ -253,11 +253,11 @@ export function postalZoneMismatch(state: string, pincode: string): string | nul
 export function pincodeValidationError(value: string | null | undefined): string | null {
   const digits = (value ?? "").trim();
   if (!digits) return null;
-  if (!/^[0-9]+$/.test(digits)) return "Pincode must be 6 digits — remove any letters or symbols.";
+  if (!/^[0-9]+$/.test(digits)) return "Pincode must be 6 digits.";
   if (digits.length !== PINCODE_LENGTH) {
-    return `Pincode must be exactly 6 digits (this one has ${digits.length}).`;
+    return `Pincode must be 6 digits (has ${digits.length}).`;
   }
-  if (digits[0] === "0") return "Pincodes never start with 0 — please re-check the first digit.";
+  if (digits[0] === "0") return "Pincodes don’t start with 0.";
   return null;
 }
 
@@ -494,8 +494,7 @@ type CaptureStatus = "idle" | "locating" | "captured" | "denied" | "unavailable"
  * already not happened and telling them so again helps nobody.
  */
 const LOCATION_REQUIRED_MESSAGE =
-  "A location is required. The form tries to capture one by itself when it opens — if that did not " +
-  "work, use 'Pick on map' to drop a pin, or type the coordinates in.";
+  "Location required. Pick on map or type coordinates.";
 
 /**
  * The same demand, made of a record that did not otherwise have to meet it, and the reason is
@@ -509,9 +508,7 @@ const LOCATION_REQUIRED_MESSAGE =
  * opened the record to add.
  */
 const ADDRESS_NEEDS_COORDINATE_MESSAGE =
-  "The state and district are stored with the coordinates, so this record needs one before they " +
-  "can be saved. Press 'Use current GPS' or drop a pin under 'Captured at' — or clear the address " +
-  "fields to save the record as it was.";
+  "State and district need coordinates. Use current GPS or drop a pin, or clear them.";
 
 /** What a point says about itself, once both closed lists have had their say. */
 type PointAddress = {
@@ -1388,8 +1385,8 @@ export function LocationFields({
         const gpuError = maplibreModule.current?.GPUInitializationError;
         setMessage(
           gpuError && error instanceof gpuError
-            ? "This browser can’t show the map. You can still type or tag coordinates."
-            : "The map could not be loaded. You can still type or tag coordinates."
+            ? "Map unavailable in this browser. Type coordinates instead."
+            : "Map didn’t load. Type coordinates instead."
         );
       });
 
@@ -1506,7 +1503,7 @@ export function LocationFields({
     stopWatching();
     if (!navigator.geolocation) {
       setCaptureStatus("unsupported");
-      setMessage("Precise location is not supported by this browser.");
+      setMessage("This browser can’t get a precise location.");
       return;
     }
     setMessage(null);
@@ -1649,7 +1646,7 @@ export function LocationFields({
     <div ref={mapRef} className="h-80 overflow-hidden rounded-md border border-line-200" />
   ) : (
     <CardNotice tone="info">
-      The map isn’t available right now. Type the coordinates instead.
+      Map unavailable. Type coordinates instead.
     </CardNotice>
   );
 
@@ -1669,12 +1666,7 @@ export function LocationFields({
             <RequiredMark when={stateRequired} />
           </h3>
           <p className="mt-1 text-sm text-ink-500">
-            Where {subjectLabel} is. This is what the map, the exports and the research dataset use.{" "}
-            <strong className="font-semibold text-ink-700">
-              Pointing at a place on the map fills the state, district and pincode in for you
-            </strong>{" "}
-            — and says so, so you can put it back. A GPS fix fills in only what is still blank, because the
-            device is very often at a desk in another state from {subjectLabel}.
+            Where {subjectLabel} is. Pick on the map to fill the address.
           </p>
         </div>
 
@@ -1695,9 +1687,8 @@ export function LocationFields({
               <span>
                 {autofill.mode === "explicit"
                   ? "Filled in from the place you pointed at:"
-                  : "Filled in from this device's location (only the boxes that were empty):"}{" "}
-                <strong className="font-semibold">{FIELD_NAMES(autofill.applied)}</strong>. Check it, and
-                change anything that is wrong — you know this place and the address lookup does not.
+                  : "Filled empty fields from this device’s location:"}{" "}
+                <strong className="font-semibold">{FIELD_NAMES(autofill.applied)}</strong>. Please check it.
               </span>
             </p>
             <div>
@@ -1720,14 +1711,11 @@ export function LocationFields({
            * have acted on it and repeating it would just be noise over their own answer.
            */
           <CardNotice tone="warn" icon={<ScanSearch className="h-4 w-4" aria-hidden />}>
-            <strong className="font-semibold">Needs review — the coordinates and the recorded place disagree.</strong>{" "}
-            The coordinates saved on this record are in{" "}
+            <strong className="font-semibold">Check the place.</strong> Coordinates say{" "}
             <strong className="font-semibold">
               {[review.found.district, review.found.state].filter(Boolean).join(", ")}
             </strong>
-            , but the place recorded is &ldquo;{review.stated}&rdquo;. Those coordinates are where the device was when
-            the record was made, not where {subjectLabel} is. Nothing
-            has been changed and nothing will be until you save. Set the state and district below if you know them.
+            ; the record says &ldquo;{review.stated}&rdquo;. Set the state and district if you know them.
           </CardNotice>
         ) : null}
 
@@ -1753,7 +1741,7 @@ export function LocationFields({
                 {subjectLabel}?
               </span>
             </p>
-            <div className="flex flex-wrap gap-2">
+            <ButtonRow align="start">
               <button type="button" className="field-button" onClick={acceptSuggestion}>
                 Yes, use this
               </button>
@@ -1770,7 +1758,7 @@ export function LocationFields({
               >
                 No, {subjectLabel} is elsewhere
               </button>
-            </div>
+            </ButtonRow>
           </div>
         ) : null}
 
@@ -1840,8 +1828,7 @@ export function LocationFields({
               // are the one part of this card that genuinely needs the network — say so, say the
               // record saves anyway, and let them get on with the interview.
               <p className="text-xs text-ink-500">
-                The district list has not loaded — it needs a connection, unlike the states. The state above is enough
-                to save this record; add the district when there is signal.
+                Districts need a connection. You can save with the state alone.
               </p>
             ) : null}
           </Field>
@@ -1937,18 +1924,13 @@ export function LocationFields({
            * district arriving from a 2.5 km circle with a one-tap Yes beside it.
            */
           <CardNotice tone="warn" icon={<TriangleAlert className="h-4 w-4" aria-hidden />}>
-            No district was suggested: this device&apos;s fix is only accurate to{" "}
-            {accuracyLabel(coarseFixMetres)}, which is its network estimate of where it is rather than a satellite
-            reading, and a circle that wide covers more than one district. The coordinates have been kept with their
-            radius, so nothing is lost. Choose the state and district yourself, or step outside for a real fix.
+            Location only accurate to {accuracyLabel(coarseFixMetres)} — choose the district yourself.
           </CardNotice>
         ) : null}
 
         {lookupFailed ? (
           <CardNotice tone="info">
-            Could not look up where this device is — no suggestion this time. The coordinates are saved either way, and
-            the lookup is retried by itself when there is signal again. The two fields above are yours to fill in
-            regardless; they need no network.
+            Couldn’t look up this place. Coordinates are still saved.
           </CardNotice>
         ) : null}
 
@@ -1987,8 +1969,7 @@ export function LocationFields({
           {mapTarget === "subject" ? (
             <>
               <p className="text-sm text-ink-500">
-                Tap the workshop, the house or the village on the map. This pin is stored separately from the device
-                coordinates below — the purple marker is {subjectLabel}, the grey one is where this record was made.
+                Tap where {subjectLabel} is. Purple is {subjectLabel}; grey is this device.
               </p>
               {mapPanel}
             </>
@@ -2035,8 +2016,7 @@ export function LocationFields({
 
           <div className="grid gap-3 border-t border-line-200 px-4 py-3">
             <p className="text-sm text-ink-500">
-              Provenance, not an address. These values say where the device was and how well it knew, so that anybody
-              reading this record later can judge it. They are never used as the location of {subjectLabel}.
+              Where this device was when recording. Not used as the address.
             </p>
 
             {/*
@@ -2051,49 +2031,41 @@ export function LocationFields({
                 >
                   Finding this device&apos;s location… {captureSeconds}s.{" "}
                   {captureSeconds >= 8
-                    ? "A first satellite fix can take up to a minute indoors — carry on filling the form, the coordinates will drop in on their own."
+                    ? "Can take a minute indoors — keep going."
                     : "Carry on filling the form."}
                 </CardNotice>
               ) : null}
               {captureStatus === "captured" && capturedMetres !== null ? (
                 <CardNotice tone="info" icon={<CheckCircle2 className="h-4 w-4 text-success-600" aria-hidden />}>
-                  This device&apos;s location was captured automatically: {latitude}, {longitude} (
-                  {accuracyLabel(capturedMetres)}). That is where you are, not where {subjectLabel} is — state that
-                  above.
+                  Device location: {latitude}, {longitude} ({accuracyLabel(capturedMetres)}).
                 </CardNotice>
               ) : null}
               {captureStatus === "denied" ? (
                 <CardNotice tone="warn" icon={<TriangleAlert className="h-4 w-4" aria-hidden />}>
-                  This browser is blocking location, so nothing could be captured
-                  {mandatory ? ", and a coordinate is required" : ""}. Use <strong>Pick on map</strong> below to drop a
-                  pin where you are — that satisfies it exactly as a GPS fix does. To use the GPS instead, allow
-                  location for this site in the address bar and press <strong>Use current GPS</strong>. The state and
-                  district above are unaffected: they never came from the GPS.
+                  Location is blocked. Use <strong>Pick on map</strong>, or allow location and press{" "}
+                  <strong>Use current GPS</strong>.
                 </CardNotice>
               ) : null}
               {captureStatus === "unavailable" ? (
                 <CardNotice tone="warn" icon={<TriangleAlert className="h-4 w-4" aria-hidden />}>
-                  This device could not produce a location — location services are usually switched off, or there is no
-                  GPS hardware (common on a desktop). Drop a pin with <strong>Pick on map</strong>, or type the
-                  coordinates in below.
+                  No location available. Use <strong>Pick on map</strong> or type coordinates.
                 </CardNotice>
               ) : null}
               {captureStatus === "timeout" ? (
                 <CardNotice tone="warn" icon={<TriangleAlert className="h-4 w-4" aria-hidden />}>
-                  No fix after a minute of trying — thick walls and tin roofs do this. Step outside and press{" "}
-                  <strong>Use current GPS</strong>, or drop a pin with <strong>Pick on map</strong>.
+                  No fix yet. Step outside and press <strong>Use current GPS</strong>, or use{" "}
+                  <strong>Pick on map</strong>.
                 </CardNotice>
               ) : null}
               {captureStatus === "unsupported" ? (
                 <CardNotice tone="warn" icon={<TriangleAlert className="h-4 w-4" aria-hidden />}>
-                  This browser has no location support at all. Drop a pin with <strong>Pick on map</strong>, or type the
-                  coordinates in below.
+                  No location support. Use <strong>Pick on map</strong> or type coordinates.
                 </CardNotice>
               ) : null}
               {message ? <CardNotice tone="info">{message}</CardNotice> : null}
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <ButtonRow align="start">
               <button type="button" className="field-button" onClick={() => capturePreciseLocation()}>
                 <LocateFixed className="h-4 w-4" aria-hidden />
                 Use current GPS
@@ -2107,7 +2079,7 @@ export function LocationFields({
                 <MapPinned className="h-4 w-4" aria-hidden />
                 Pick on map
               </button>
-            </div>
+            </ButtonRow>
             {mapTarget === "capture" ? mapPanel : null}
 
             <input type="hidden" name="capturedAt" value={capturedAt} />
@@ -2182,9 +2154,7 @@ export function LocationFields({
                * gap while they are here, and one who is at a desk should be told not to.
                */
               <CardNotice tone="info">
-                This record can be saved without coordinates. If you are at
-                the place right now, press <strong>Use current GPS</strong> to fill the gap — do not add one from
-                somewhere else.
+                Coordinates optional. Only press <strong>Use current GPS</strong> if you’re at the place.
               </CardNotice>
             ) : null}
             {!mandatory && !hasCoordinate && hasStatedAddress ? (

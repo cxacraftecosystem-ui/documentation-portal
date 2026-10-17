@@ -302,7 +302,7 @@ test.describe("geometryToDocument is the inverse of the worker's serializeGeomet
     // drawing, and must be told once, in one wording, when it was cut short.
     const built = documentFrom(drawing(), 1);
     expect(built.shapesWritten).toBe(1);
-    expect(built.truncationNote).toContain("separate paths");
+    expect(built.truncationNote).toContain("paths saved");
     expect(documentFrom(drawing(), MAX_SHAPES_PER_FILE).truncationNote).toBeNull();
   });
 });

@@ -99,7 +99,7 @@ let runtimePromise: Promise<TraceRuntime> | null = null;
  * Copied word for word from `traceClient.loadSpawn`, deliberately: three different sentences for
  * "the tracing engine did not arrive" would read as three different faults, and there is only one.
  */
-const ENGINE_UNAVAILABLE = "The tracing engine could not be loaded. Check your connection and reload the page.";
+const ENGINE_UNAVAILABLE = "Tracing engine didn’t load. Reload the page.";
 
 /**
  * Load the client and the parameter defaults, once per tab.

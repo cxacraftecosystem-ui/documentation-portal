@@ -138,33 +138,23 @@ export type MeasurementFailure = {
  */
 export const MEASUREMENT_FALLBACKS: Readonly<Record<MeasurementFailureKind, string>> = {
   "provider-unconfigured":
-    "Measuring from photos isn't switched on here, so nothing can measure the object for you. Your photograph " +
-    "is fine and there is nothing to re-take — an administrator can turn it on. Measure the object and enter " +
-    "the value manually meanwhile.",
+    "Photo measuring is off — an administrator can turn it on. Enter the value manually.",
   "provider-failed":
-    "The service that reads these photographs was reached and did not answer usefully, so there is no " +
-    "measurement to show. Nothing is wrong with your photograph. Try again in a minute, or measure the object " +
-    "and enter the value manually.",
+    "Couldn’t measure this photo. Try again, or enter the value manually.",
   "app-unconfigured":
-    "Measuring from photos isn't available right now. Measure the object and enter the value manually.",
+    "Photo measuring is unavailable. Enter the value manually.",
   offline:
-    "No connection. Measuring from a photo needs one, and nothing has been queued. Measure the object and " +
-    "enter the value manually, or try again with signal.",
+    "No connection. Enter the value manually, or retry with signal.",
   "timed-out":
-    "The photo was sent but no answer came back before the wait ran out, so there is no measurement to show and " +
-    "nothing was written anywhere. Try again on a steadier connection, or measure the object and enter the " +
-    "value manually.",
+    "Timed out. Retry on a steadier connection, or enter the value manually.",
   refused:
-    "The photo couldn't be read. Try a smaller JPEG or PNG straight from the camera, or measure the object " +
-    "and enter the value manually.",
+    "Couldn’t read this photo. Try a smaller JPEG or PNG, or enter the value manually.",
   // WORDED TO BE TRUE OF A 429 AS WELL AS A 5xx, which is why it says "busy or briefly out of order"
   // rather than "failed" — the server was reached and asked for time, explicitly or by falling over,
   // and one more kind for the difference would be a row whose only distinction is a word nobody acts
   // on differently.
   "server-failed":
-    "The photo couldn't be read right now — the service is busy or briefly unavailable. Nothing is wrong with " +
-    "your photograph and nothing was saved. Try again in a minute, or measure the object and enter the value " +
-    "manually."
+    "Service busy. Try again in a minute, or enter the value manually."
 };
 
 /**

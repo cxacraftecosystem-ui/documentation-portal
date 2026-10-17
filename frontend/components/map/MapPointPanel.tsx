@@ -96,8 +96,8 @@ export function MapPointPanel({
               {point.pinnedRecords === point.total
                 ? "Every record here carries a pin on the subject's own place."
                 : point.pinnedRecords === 0
-                  ? "No record here carries a pin on the subject's place — this point comes from the stated address."
-                  : `${point.pinnedRecords} of ${point.total} records here carry a pin on the subject's place.`}
+                  ? "Placed from the stated address."
+                  : `${point.pinnedRecords} of ${point.total} pinned on the map.`}
             </p>
           ) : null}
         </div>
@@ -144,7 +144,7 @@ export function MapPointPanel({
           </ul>
           {truncated ? (
             <p className="mt-2 text-[11px] text-ink-500">
-              Showing the most recent of each type. Open Browse records for the full list.
+              Most recent of each type.
             </p>
           ) : null}
         </>

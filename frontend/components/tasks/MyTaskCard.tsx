@@ -14,6 +14,7 @@ import {
   TaskStatusPill
 } from "@/components/tasks/TaskPrimitives";
 import type { FieldTask, TaskStatus } from "@/components/tasks/types";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 
 /**
  * One task as the person who has to do it sees it.
@@ -163,8 +164,8 @@ export function MyTaskCard({
           // and the researcher's only conclusion is that the app is not seeing their work.
           <p className="mt-2 text-xs leading-5 text-amber-800 dark:text-amber-200">
             {task.derivedBreakdown.unlinkedSections} section
-            {task.derivedBreakdown.unlinkedSections === 1 ? " has" : "s have"} answers on an interview with no artisan
-            attached, so they are not counted here. Link the interview to an artisan and they will be.
+            {task.derivedBreakdown.unlinkedSections === 1 ? " isn’t" : "s aren’t"} counted — link the interview to an
+            artisan.
           </p>
         ) : null}
         {reportable ? (
@@ -200,7 +201,7 @@ export function MyTaskCard({
 
       {editable ? (
         <div className="mt-auto grid gap-2 border-t border-line-200 pt-3">
-          <div className="flex flex-wrap gap-2">
+          <ButtonRow align="start">
             {task.status === "OPEN" ? (
               <button type="button" className="field-button-secondary" disabled={busy} onClick={() => onStatus("IN_PROGRESS")}>
                 <Play className="h-4 w-4" aria-hidden />
@@ -226,19 +227,18 @@ export function MyTaskCard({
                 Still working on it
               </button>
             ) : null}
-          </div>
+          </ButtonRow>
           {task.status === "OPEN" || task.status === "IN_PROGRESS" ? (
             // SAID BEFORE THE PRESS, NOT DISCOVERED AFTER IT. The button keeps the word Android uses
             // and every field build already sends; this sentence is what makes the outcome — a task
             // that stays on the list — an expectation rather than a surprise.
             <p className="text-xs leading-5 text-ink-500">
-              Marking this done sends it to an admin to approve. It stays on your list, marked under review, until they
-              do.
+              Marking it done sends it for approval.
             </p>
           ) : null}
           {task.status === "DONE" ? (
             <p className="text-xs leading-5 text-ink-500">
-              Approved — this one is finished. Only an admin or the person who assigned it can reopen it now.
+              Approved.
             </p>
           ) : null}
         </div>

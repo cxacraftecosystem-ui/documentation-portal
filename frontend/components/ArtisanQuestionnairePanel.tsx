@@ -90,7 +90,7 @@ export function ArtisanQuestionnairePanel({ artisanId }: { artisanId: string }) 
         <div className="mt-4 border-t border-field-200 pt-4">
           <h4 className="mb-2 text-sm font-semibold text-ink">Recordings &amp; notes</h4>
           <p className="mb-3 text-sm text-ink-muted">
-            From every interview this artisan is part of — including ones recorded with others.
+            From every interview they’re part of.
           </p>
           <div className="grid gap-3">
             {recordings.map((interview) => (

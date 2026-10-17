@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Copy, Download, ShieldCheck } from "lucide-react";
 
 import { useAuth } from "@/components/AuthProvider";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 import { OtpCodeInput } from "@/components/ui/OtpCodeInput";
 import { Toggle } from "@/components/ui/Toggle";
 import { useToast } from "@/components/ui/Toast";
@@ -293,7 +294,7 @@ export function TwoStepVerificationCard() {
           />
         </div>
       ) : null}
-      <div className="flex flex-wrap gap-2">
+      <ButtonRow align="start">
         <button
           type="submit"
           className="field-button"
@@ -304,7 +305,7 @@ export function TwoStepVerificationCard() {
         <button type="button" className="field-button-secondary" disabled={busy} onClick={onCancel}>
           Cancel
         </button>
-      </div>
+      </ButtonRow>
     </form>
   );
 
@@ -387,7 +388,7 @@ export function TwoStepVerificationCard() {
               <li key={recoveryCode}>{recoveryCode}</li>
             ))}
           </ul>
-          <div className="mt-3 flex flex-wrap gap-2">
+          <ButtonRow align="start" className="mt-3">
             <button type="button" className="field-button-secondary" onClick={() => void copy(step.codes.join("\n"), "Recovery codes")}>
               <Copy className="h-4 w-4" aria-hidden />
               Copy
@@ -399,7 +400,7 @@ export function TwoStepVerificationCard() {
             <button type="button" className="field-button" disabled={!saved} onClick={() => go({ kind: "idle" })}>
               Done
             </button>
-          </div>
+          </ButtonRow>
           {!saved ? <p className="mt-2 text-xs text-ink-500">Copy or download the codes to finish.</p> : null}
         </div>
       ) : step.kind === "confirm" ? (
