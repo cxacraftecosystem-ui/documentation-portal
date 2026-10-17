@@ -147,6 +147,8 @@ import com.fieldrepository.app.ui.MICROPHONE_PERMISSION
 import com.fieldrepository.app.ui.MICROPHONE_REFUSED_SENTENCE
 import com.fieldrepository.app.ui.holdsLocation
 import com.fieldrepository.app.ui.rememberPermissionGate
+import com.fieldrepository.app.ui.rememberKeepShootingCamera
+import com.fieldrepository.app.ui.KeepShootingToggle
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.material3.Surface
@@ -5605,6 +5607,13 @@ private fun MediaCaptureSection(
         pendingCaptureUri = null
         pendingMeasurement = false
     }
+    // The attachments camera keeps shooting (A10); the grid camera above stays one shot, since a
+    // record has one grid image.
+    val camera = rememberKeepShootingCamera(
+        newUri = { createAppFileUri(context, "field-photo-", ".jpg") },
+        onShot = { uri -> media.uris = media.uris + uri },
+        onRunEnded = onMessage
+    )
     val takeVideo = rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { success ->
         val uri = pendingCaptureUri
         if (success && uri != null) media.uris = media.uris + uri
@@ -5625,16 +5634,10 @@ private fun MediaCaptureSection(
         ActionRow {
             OutlinedButton(onClick = { pickMedia.launch("*/*") }) { Text("Pick files") }
             OutlinedButton(
-                onClick = {
-                    permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) {
-                        val uri = createAppFileUri(context, "field-photo-", ".jpg")
-                        pendingMeasurement = false
-                        pendingCaptureUri = uri
-                        takePhoto.launch(uri)
-                    }
-                },
+                onClick = { permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) { camera.shoot() } },
             ) { Text("Take photo") }
         }
+        KeepShootingToggle()
         if (emphasizeVideo) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Icon(Icons.Filled.Videocam, contentDescription = null, tint = MaterialTheme.field.muted, modifier = Modifier.size(16.dp))
@@ -8904,11 +8907,12 @@ private fun ToolStagesSection(
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         if (uris.isNotEmpty()) stages.uris = stages.uris + uris
     }
-    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-        val uri = pendingCaptureUri
-        if (success && uri != null) stages.uris = stages.uris + uri
-        pendingCaptureUri = null
-    }
+    // One photo per stage, shot after shot (A10): each photo is the next step in order.
+    val camera = rememberKeepShootingCamera(
+        newUri = { createAppFileUri(context, "stage-photo-", ".jpg") },
+        onShot = { uri -> stages.uris = stages.uris + uri },
+        onRunEnded = onMessage
+    )
     val takeVideo = rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { success ->
         val uri = pendingCaptureUri
         if (success && uri != null) stages.uris = stages.uris + uri
@@ -8926,15 +8930,10 @@ private fun ToolStagesSection(
         ActionRow {
             OutlinedButton(onClick = { pickMedia.launch("*/*") }) { Text("Add files") }
             OutlinedButton(
-                onClick = {
-                    permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) {
-                        val uri = createAppFileUri(context, "stage-photo-", ".jpg")
-                        pendingCaptureUri = uri
-                        takePhoto.launch(uri)
-                    }
-                },
+                onClick = { permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) { camera.shoot() } },
             ) { Text("Photo step") }
         }
+        KeepShootingToggle()
         ActionRow {
             OutlinedButton(
                 onClick = {
@@ -12749,11 +12748,11 @@ private fun AndroidMediaForm(
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         if (uris.isNotEmpty()) selectedUris = selectedUris + uris
     }
-    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-        val uri = pendingCaptureUri
-        if (success && uri != null) selectedUris = selectedUris + uri
-        pendingCaptureUri = null
-    }
+    val camera = rememberKeepShootingCamera(
+        newUri = { createAppFileUri(context, "media-photo-", ".jpg") },
+        onShot = { uri -> selectedUris = selectedUris + uri },
+        onRunEnded = { localMessage = it }
+    )
     val takeVideo = rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { success ->
         val uri = pendingCaptureUri
         if (success && uri != null) selectedUris = selectedUris + uri
@@ -12814,17 +12813,12 @@ private fun AndroidMediaForm(
             Text("Pick multiple files")
         }
         OutlinedButton(
-            onClick = {
-                permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) {
-                    val uri = createAppFileUri(context, "field-photo-", ".jpg")
-                    pendingCaptureUri = uri
-                    takePhoto.launch(uri)
-                }
-            },
+            onClick = { permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) { camera.shoot() } },
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Take image")
         }
+        KeepShootingToggle()
         OutlinedButton(
             onClick = {
                 permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) {
