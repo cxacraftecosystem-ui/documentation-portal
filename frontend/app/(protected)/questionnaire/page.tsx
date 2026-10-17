@@ -65,6 +65,8 @@ import { UploadsProvider, useEagerStaging, useUploads } from "@/lib/uploads";
 import type { MediaFile, PageResult, Questionnaire, QuestionnaireInterview, QuestionnaireQuestion, QuestionnaireSection } from "@/lib/types";
 import { Toggle } from "@/components/ui/Toggle";
 import { ButtonRow } from "@/components/ui/ButtonRow";
+import { ReviewNoteBanner } from "@/components/review/ReviewNoteBanner";
+import { completionVerdictLabel, nextCompletionStatus } from "@/lib/completionVerdict";
 
 /**
  * The API's own ceiling on an interview title — `QuestionnaireInterviewCreate.title` is
@@ -1805,6 +1807,7 @@ function QuestionnairePageBody() {
             </button>
           </div>
         ) : null}
+        {editing ? <ReviewNoteBanner recordType="questionnaire" recordId={editing.id} status={editing.status} /> : null}
         {deepLinkLoading ? (
           <div className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-500">
             Loading that interview...
@@ -2854,8 +2857,9 @@ function CompletionMatrixPanel({
     if (!canOverride) return;
     const key = `${artisanId}:${sectionId}`;
     const cell = cellByKey.get(key);
-    // No override yet -> force complete; forced complete -> force not complete; any other override -> clear.
-    const next = !cell?.status ? "COMPLETED" : cell.status === "COMPLETED" ? "NEEDS_REDO" : null;
+    // The admin's verdicts in Android's order: Completed -> Requires review -> Needs to be redone -> no
+    // override. "Requires review" could not be set from the web at all before (A13).
+    const next = nextCompletionStatus(cell?.status);
     setBusyCell(key);
     try {
       await apiFetch("/questionnaire/completion", {
@@ -2946,13 +2950,22 @@ function CompletionMatrixPanel({
                       const cell = cellByKey.get(key);
                       const overridden = Boolean(cell?.status);
                       const complete = cell ? (cell.status ? cell.status === "COMPLETED" : cell.derived) : false;
-                      const state = overridden
-                        ? `override ${cell?.status === "COMPLETED" ? "complete" : "not complete"}${cell?.setByName ? ` by ${cell.setByName}` : ""}`
+                      const verdict = overridden ? completionVerdictLabel(cell?.status) : null;
+                      const state = verdict
+                        ? `${verdict}${cell?.setByName ? ` (set by ${cell.setByName})` : ""}`
                         : complete
                           ? "complete"
                           : "not complete";
                       const title = `${artisan.name} — ${section.code}: ${state}`;
-                      const square = `h-6 w-6 rounded ${complete ? "bg-success-600" : "bg-line-200"}${overridden ? " ring-2 ring-amber-500" : ""}`;
+                      const fill =
+                        cell?.status === "NEEDS_REVIEW"
+                          ? "bg-amber-500"
+                          : cell?.status === "NEEDS_REDO"
+                            ? "bg-error-600"
+                            : complete
+                              ? "bg-success-600"
+                              : "bg-line-200";
+                      const square = `h-6 w-6 rounded ${fill}${overridden ? " ring-2 ring-purple-700 ring-offset-1 ring-offset-card" : ""}`;
                       return (
                         <td key={section.id} className="px-1 py-1 text-center">
                           {canOverride ? (
@@ -2983,7 +2996,13 @@ function CompletionMatrixPanel({
               <span className="h-3.5 w-3.5 rounded bg-line-200" aria-hidden /> Not complete
             </span>
             <span className="inline-flex items-center gap-1.5">
-              <span className="h-3.5 w-3.5 rounded bg-line-200 ring-2 ring-amber-500" aria-hidden /> Admin override
+              <span className="h-3.5 w-3.5 rounded bg-amber-500" aria-hidden /> Requires review
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-3.5 w-3.5 rounded bg-error-600" aria-hidden /> Needs to be redone
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-3.5 w-3.5 rounded bg-line-200 ring-2 ring-purple-700 ring-offset-1 ring-offset-card" aria-hidden /> Admin override
             </span>
           </div>
           {/* WHAT THE WORKSHOP SCOPE DOES AND DOES NOT NARROW. The green derived from recordings is scoped

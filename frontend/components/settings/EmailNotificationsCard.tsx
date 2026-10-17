@@ -46,7 +46,7 @@ export function EmailNotificationsCard() {
     }
   }
 
-  const label = "My tasks";
+  const label = "Tasks, reviews and sharing";
   return (
     <section className="panel p-5" aria-labelledby="email-notifications-heading">
       <div className="flex items-center gap-2.5">
@@ -62,7 +62,7 @@ export function EmailNotificationsCard() {
         <Toggle
           checked={state.emailTaskUpdates}
           label={label}
-          description="When tasks are handed in, approved or sent back."
+          description="Task updates, review decisions on my records, comments, and access requests."
           onChange={(next) => void change(next)}
         />
       </div>

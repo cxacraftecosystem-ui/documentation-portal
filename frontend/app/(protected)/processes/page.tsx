@@ -26,6 +26,7 @@ import { apiFetch, listResource } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { canCreateRecords } from "@/lib/permissions";
 import type { PageResult } from "@/lib/types";
+import { RecordStatusFilter, statusFilterParam } from "@/components/review/RecordStatusFilter";
 
 function ProcessesPageInner() {
   const confirm = useConfirm();
@@ -47,6 +48,7 @@ function ProcessesPageInner() {
   const [query, setQuery] = useState("");
   const [applied, setApplied] = useState("");
   const [page, setPage] = useState(1);
+  const [statusChoice, setStatusChoice] = useState("ALL");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const skipFirstDebounce = useRef(true);
@@ -76,6 +78,7 @@ function ProcessesPageInner() {
           workshopId: funnel.workshopId || undefined,
           craftId: funnel.craftId || undefined,
           artisanId: funnel.artisanId || undefined,
+          statusFilter: statusFilterParam(statusChoice),
           page: pageToLoad,
           pageSize: 20
         })
@@ -91,7 +94,7 @@ function ProcessesPageInner() {
     if (!funnelReady) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [funnelReady, page, applied, funnel]);
+  }, [funnelReady, page, applied, funnel, statusChoice]);
 
   // Live search: debounce typing by 350ms; Enter applies immediately via onSubmit.
   useEffect(() => {
@@ -299,6 +302,15 @@ function ProcessesPageInner() {
         />
       </div>
       <FunnelFilters value={funnel} onChange={onFunnelChange} showArtisan restore={listReturn.restoredFunnel} />
+      <div className="mb-3">
+        <RecordStatusFilter
+          value={statusChoice}
+          onChange={(value) => {
+            setStatusChoice(value || "ALL");
+            setPage(1);
+          }}
+        />
+      </div>
 
       <section className="panel overflow-hidden">
         {!data ? (

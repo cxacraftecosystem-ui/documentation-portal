@@ -30,6 +30,7 @@ import type {
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { ButtonRow } from "@/components/ui/ButtonRow";
+import { TaskPendingRecords } from "@/components/tasks/TaskPendingRecords";
 
 /**
  * Who has what, and how far along they ACTUALLY are.
@@ -306,6 +307,7 @@ function AssigneeRow({
                   derived={task.derivedCount}
                   target={task.targetCount ?? task.derivedTarget}
                 />
+                <TaskPendingRecords taskId={task.id} showReviewLink />
               </div>
               {canOverride ? (
                 <TaskOverrideControls

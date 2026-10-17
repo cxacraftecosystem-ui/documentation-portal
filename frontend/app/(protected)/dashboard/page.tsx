@@ -47,6 +47,7 @@ import {
   isAdmin,
   roleLabel
 } from "@/lib/permissions";
+import { SentBackCard } from "@/components/review/SentBackCard";
 
 /** The five record counters plus the pending backlog — the shape both halves of "At a glance" share. */
 type StatTotals = {
@@ -56,6 +57,9 @@ type StatTotals = {
   totalToolRecords: number;
   totalMediaFiles: number;
   pendingSubmissions: number;
+  /** This account's records a reviewer sent back, and the rejected ones its own edit reopens. */
+  sentBack?: number;
+  rejected?: number;
 };
 
 type DashboardStats = StatTotals & {
@@ -235,6 +239,11 @@ function DashboardView() {
       <PageHeader title="What would you like to do?" back={false} />
       {error ? (
         <div className="mb-4 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-red-800">{error}</div>
+      ) : null}
+      {/* "SENT BACK TO YOU (N)" (A2) — a card above the grid rather than a tile in it, so the
+          tile parity register with Android is untouched; Android draws the same card on its home. */}
+      {stats?.mine && (stats.mine.sentBack ?? 0) + (stats.mine.rejected ?? 0) > 0 ? (
+        <SentBackCard sentBack={stats.mine.sentBack ?? 0} rejected={stats.mine.rejected ?? 0} />
       ) : null}
       {/* The tiles are glass, and glass on a flat canvas refracts nothing you can see — these
           two soft orbs are what their rims bend. Purple only: `grad-mesh` carries a faint amber

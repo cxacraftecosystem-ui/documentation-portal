@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 
 import { ToolForm } from "@/components/forms/ToolForm";
 import { RecordSwitcher } from "@/components/forms/RecordSwitcher";
+import { ReviewNoteBanner } from "@/components/review/ReviewNoteBanner";
 import { FieldProvenance } from "@/components/FieldProvenance";
 import { PageHeader } from "@/components/PageHeader";
 import { apiFetch } from "@/lib/api";
@@ -35,6 +36,7 @@ export default function EditToolPage() {
             drawn over a null record it would have neither, and the "show this record's own workshop"
             shortcut would blink into existence a moment after the rest of the page had settled.
           */}
+          <ReviewNoteBanner recordType="tool" recordId={record.id} status={record.status} />
           <RecordSwitcher kind="tool" currentId={record.id} currentWorkshopId={record.workshopId} />
           {/*
             `key` IS THE FORM'S RE-KEY, AND IT IS LOAD-BEARING RATHER THAN A HINT TO REACT.

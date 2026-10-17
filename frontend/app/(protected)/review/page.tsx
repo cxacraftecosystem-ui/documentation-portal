@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState } from "react";
-import { Check, ClipboardCheck } from "lucide-react";
+import { Check, ClipboardCheck, RotateCcw, X } from "lucide-react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { useConfirm } from "@/components/dialogs/ConfirmDialog";
@@ -14,11 +14,26 @@ import { ReviewEditPanel } from "@/components/review/ReviewEditPanel";
 import { reviewEditableFields } from "@/components/review/reviewEditFields";
 import { RowActions, rowAction } from "@/components/RowActions";
 import { StatusBadge } from "@/components/StatusBadge";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, listResource } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { isAdmin, roleLabel } from "@/lib/permissions";
 import { recordViewHref } from "@/lib/recordView";
+import {
+  bulkApprove,
+  bulkReceipt,
+  fetchReviewReasons,
+  queueFiltersFrom,
+  queueQuery,
+  refusalButtonLabel,
+  refusalOutcome,
+  refusalReady,
+  type PreviousReview,
+  type QueueFilters,
+  type ReviewReason
+} from "@/lib/review";
+import type { Workshop } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
 
 /**
  * One row of the review queue. The backend only returns records whose creator ranks strictly
@@ -35,9 +50,14 @@ type PendingItem = {
   place?: string | null;
   status?: string | null;
   createdAt?: string | null;
+  /** When it entered (or came back into) the queue — the order the queue is served in. */
+  submittedAt?: string | null;
   createdBy?: { id?: string; name?: string | null; role?: string | null } | null;
   needsAdminApproval?: boolean;
   outOfWindow?: boolean;
+  /** Sent back (or rejected) before and fixed since: the reviewer sees what was asked last time. */
+  resubmitted?: boolean;
+  previousReview?: PreviousReview | null;
 };
 
 /** Identifies one queue row. Type + id, because ids are only unique within a record type. */
@@ -92,8 +112,13 @@ type PanelAction = DecisionAction | "edit";
 const ACTION_COPY: Record<DecisionAction, { noteLabel: string; confirmLabel: string }> = {
   approve: { noteLabel: "Approval note (optional)", confirmLabel: "Confirm approve" },
   revise: { noteLabel: "What must the contributor change? (required)", confirmLabel: "Send for revision" },
-  reject: { noteLabel: "Rejection note (optional)", confirmLabel: "Confirm reject" }
+  reject: { noteLabel: "Note for the contributor", confirmLabel: "Reject record" }
 };
+
+const ORDER_OPTIONS = [
+  { value: "oldest", label: "Waiting longest" },
+  { value: "newest", label: "Newest first" }
+];
 
 export default function ReviewPage() {
   const confirm = useConfirm();
@@ -125,12 +150,37 @@ export default function ReviewPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
   const viewerIsAdmin = isAdmin(user);
+  /**
+   * The queue's filters. Seeded once from the URL, because Tasks links here with a task's creator
+   * and record types ("4 pending records · Review"); after that the controls own them.
+   */
+  const [filters, setFilters] = useState<QueueFilters | null>(null);
+  const [workshops, setWorkshops] = useState<Workshop[]>([]);
+  const [reasons, setReasons] = useState<ReviewReason[]>([]);
+  const [reasonCode, setReasonCode] = useState("");
+
+  useEffect(() => {
+    setFilters(queueFiltersFrom(new URLSearchParams(window.location.search)));
+    listResource<Workshop>("/workshops", { pageSize: 100 })
+      .then((page) => setWorkshops(page.items))
+      .catch(() => setWorkshops([]));
+    fetchReviewReasons()
+      .then(setReasons)
+      .catch(() => setReasons([]));
+  }, []);
+
+  function changeFilters(next: QueueFilters) {
+    setFilters(next);
+    setPage(1);
+    setSelected(new Set());
+  }
 
   async function load(onPage: number) {
+    if (!filters) return;
     const generation = ++currentLoad.current;
     try {
       const result = await apiFetch<{ items: PendingItem[]; total: number }>(
-        `/review/pending?page=${onPage}&pageSize=${PAGE_SIZE}`
+        `/review/pending${queueQuery(onPage, PAGE_SIZE, filters)}`
       );
       if (generation !== currentLoad.current) return;
       setItems(result.items);
@@ -146,7 +196,9 @@ export default function ReviewPage() {
 
   useEffect(() => {
     load(page);
-  }, [page]);
+    // `load` reads the filters it is handed through state; re-running on them is the point.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, filters]);
 
   // Approving the last row of the final page must not strand the viewer on an empty page.
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -214,29 +266,25 @@ export default function ReviewPage() {
     setSubmitting(true);
     setError(null);
     setInfo(null);
-    const failed: string[] = [];
-    for (const [index, item] of rows.entries()) {
-      setBulkProgress({ done: index, total: rows.length });
-      try {
-        await apiFetch(`/review/${item.recordType}/${item.id}/approve`, {
-          method: "POST",
-          body: JSON.stringify({ notes: null })
-        });
-      } catch {
-        failed.push(rowKey(item));
-      }
+    setBulkProgress({ done: 0, total: rows.length });
+    // ONE request for the whole selection (B9): each record passes the same checks a single
+    // approval does, and the ones refused come back named, so they stay ticked for a retry.
+    let failed: string[] = [];
+    let approved = 0;
+    try {
+      const answer = await bulkApprove(rows.map((item) => ({ recordType: item.recordType, id: item.id })));
+      failed = answer.results.filter((r) => r.outcome === "FAILED").map((r) => `${r.recordType}-${r.id}`);
+      approved = answer.approved;
+    } catch (err) {
+      failed = rows.map(rowKey);
+      setError(err instanceof Error ? err.message : "Unable to approve these records");
     }
     setBulkProgress(null);
     setSubmitting(false);
     setSelected(new Set(failed));
-
-    const approved = rows.length - failed.length;
-    if (failed.length) {
-      setError(
-        `${approved} approved, ${failed.length} failed (still ticked).`
-      );
-    } else {
-      setInfo(`${approved} record${approved === 1 ? "" : "s"} approved.`);
+    if (approved > 0 || failed.length < rows.length) {
+      if (failed.length) setError(bulkReceipt(approved, failed.length));
+      else setInfo(bulkReceipt(approved, 0));
     }
     await load(page);
   }
@@ -244,6 +292,7 @@ export default function ReviewPage() {
   function toggleAction(item: PendingItem, action: PanelAction) {
     const key = rowKey(item);
     setNote("");
+    setReasonCode("");
     setInfo(null);
     setActive((current) => (current && current.key === key && current.action === action ? null : { key, action }));
   }
@@ -261,10 +310,12 @@ export default function ReviewPage() {
     const notes = note.trim();
     // "Send for revision" is meaningless without comments — the button stays disabled, but guard anyway.
     if (action === "revise" && !notes) return;
-    // Rejecting is the end of the road for a record, and "Send for revision" is the softer action
-    // sitting right next to it — so the difference between the two is spelled out here rather than
-    // left to the button labels.
-    if (action === "reject") {
+    const reason = reasons.find((r) => r.code === reasonCode) ?? null;
+    if (action === "reject" && reasons.length > 0 && !refusalReady(reason, notes)) return;
+    // Rejecting is the end of the road for a record (until its creator fixes it), and "Send for
+    // revision" is the softer action — so a final rejection still asks first. A FIXABLE reason is a
+    // send-back, which needs no warning.
+    if (action === "reject" && refusalOutcome(reason) === "REJECTED") {
       const ok = await confirm({
         title: "Reject this record?",
         body: (
@@ -282,12 +333,13 @@ export default function ReviewPage() {
     try {
       await apiFetch(`/review/${item.recordType}/${item.id}/${action}`, {
         method: "POST",
-        body: JSON.stringify({ notes: notes || null })
+        body: JSON.stringify(action === "reject" && reason ? { notes: notes || null, reason: reason.code } : { notes: notes || null })
       });
       setActive(null);
       setNote("");
+      setReasonCode("");
       setError(null);
-      setInfo(null);
+      setInfo(action === "reject" && refusalOutcome(reason) === "NEEDS_REVISION" ? `Sent “${item.label}” back for revision.` : null);
       await load(page);
     } catch (err) {
       const verb = action === "revise" ? "send this record for revision" : `${action} this record`;
@@ -361,10 +413,29 @@ export default function ReviewPage() {
       );
     }
     const noteId = `review-note-${rowKey(item)}`;
+    const reason = reasons.find((r) => r.code === reasonCode) ?? null;
+    const picking = activeAction === "reject" && reasons.length > 0;
+    const confirmLabel = picking ? refusalButtonLabel(reason) : ACTION_COPY[activeAction].confirmLabel;
+    const blocked =
+      submitting || (activeAction === "revise" && !note.trim()) || (picking && !refusalReady(reason, note));
     return (
       <>
+        {picking ? (
+          <div className="mb-3 grid gap-1">
+            <span className="block text-xs font-semibold uppercase tracking-wide text-ink-500">Reason</span>
+            <SearchableSelect
+              ariaLabel="Reason"
+              value={reasonCode}
+              onChange={setReasonCode}
+              advanceOnSelect={false}
+              placeholder="Pick a reason"
+              options={reasons.map((r) => ({ value: r.code, label: r.label }))}
+            />
+            {reason?.fixable ? <p className="text-xs text-ink-500">This sends it back to be fixed.</p> : null}
+          </div>
+        ) : null}
         <label htmlFor={noteId} className="block text-xs font-semibold uppercase tracking-wide text-ink-500">
-          {ACTION_COPY[activeAction].noteLabel}
+          {picking ? (reason?.needsNote ? "Note for the contributor (required)" : "Note for the contributor (optional)") : ACTION_COPY[activeAction].noteLabel}
         </label>
         <textarea
           id={noteId}
@@ -382,10 +453,10 @@ export default function ReviewPage() {
         <ButtonRow size="sm" className="mt-2">
           <button
             className="field-button h-9 min-h-0 px-3 text-xs pointer-coarse:h-11"
-            disabled={submitting || (activeAction === "revise" && !note.trim())}
+            disabled={blocked}
             onClick={() => submitDecision(item, activeAction)}
           >
-            {submitting ? "Saving..." : ACTION_COPY[activeAction].confirmLabel}
+            {submitting ? "Saving..." : confirmLabel}
           </button>
           <button
             className="field-button-secondary h-9 min-h-0 px-3 text-xs pointer-coarse:h-11"
@@ -418,6 +489,25 @@ export default function ReviewPage() {
     );
   }
 
+  function resubmittedNote(item: PendingItem) {
+    if (!item.resubmitted) return null;
+    const previous = item.previousReview;
+    return (
+      <div className="mt-1 max-w-xl">
+        <span className="inline-flex items-center gap-1 rounded-full border border-purple-300 bg-purple-50 px-2 py-0.5 text-xs font-semibold text-purple-700">
+          <RotateCcw className="h-3 w-3" aria-hidden />
+          Resubmitted
+        </span>
+        {previous?.notes ? (
+          <p className="mt-1 text-xs text-ink-500">
+            Last time{previous.reviewerName ? ` (${previous.reviewerName})` : ""}:{" "}
+            <span className="text-ink-700">{previous.notes}</span>
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
   function outOfWindowNotes(item: PendingItem) {
     return (
       <>
@@ -445,6 +535,47 @@ export default function ReviewPage() {
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       {info ? (
         <div className="mb-4 rounded-md border border-success-600/30 bg-success-100 px-3 py-2 text-sm text-success-600">{info}</div>
+      ) : null}
+      {filters ? (
+        <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-1">
+            <span className="field-label">Workshop</span>
+            <SearchableSelect
+              ariaLabel="Workshop"
+              value={filters.workshopId ?? ""}
+              onChange={(value) => changeFilters({ ...filters, workshopId: value || undefined })}
+              options={workshops.map((w) => ({ value: w.id, label: w.title }))}
+              placeholder="All workshops"
+              searchable
+              clearable
+              clearLabel="Show all workshops"
+              advanceOnSelect={false}
+            />
+          </div>
+          <div className="grid gap-1">
+            <span className="field-label">Order</span>
+            <SearchableSelect
+              ariaLabel="Order"
+              value={filters.order ?? "oldest"}
+              onChange={(value) => changeFilters({ ...filters, order: value === "newest" ? "newest" : undefined })}
+              options={ORDER_OPTIONS}
+              advanceOnSelect={false}
+            />
+          </div>
+          {filters.createdById || filters.recordType ? (
+            <div className="flex items-end">
+              <button
+                type="button"
+                className="inline-flex min-h-10 items-center gap-1.5 rounded-full border border-purple-300 bg-purple-50 px-3 text-sm text-purple-800"
+                onClick={() => changeFilters({ ...filters, createdById: undefined, recordType: undefined })}
+              >
+                From a task
+                <X className="h-4 w-4" aria-hidden />
+                <span className="sr-only">Show everyone&apos;s records</span>
+              </button>
+            </div>
+          ) : null}
+        </div>
       ) : null}
       <section className="panel overflow-hidden">
         {loading ? (
@@ -515,6 +646,7 @@ export default function ReviewPage() {
                           <ReviewTitle item={item} />
                           {outOfWindowNotes(item)}
                         </div>
+                        {resubmittedNote(item)}
                         <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs text-ink-700">
                           <dt className="text-ink-500">Type</dt>
                           <dd className="capitalize">{item.recordType}</dd>
@@ -525,8 +657,8 @@ export default function ReviewPage() {
                           </dd>
                           <dt className="text-ink-500">Place</dt>
                           <dd>{item.place ?? "-"}</dd>
-                          <dt className="text-ink-500">Submitted</dt>
-                          <dd>{formatDateTime(item.createdAt)}</dd>
+                          <dt className="text-ink-500">Waiting since</dt>
+                          <dd>{formatDateTime(item.submittedAt ?? item.createdAt)}</dd>
                         </dl>
                       </div>
                       <StatusBadge status={item.status ?? "PENDING"} />
@@ -563,7 +695,7 @@ export default function ReviewPage() {
                   <ResizableTh>Creator</ResizableTh>
                   <ResizableTh>Place or link</ResizableTh>
                   <ResizableTh>Status</ResizableTh>
-                  <ResizableTh>Submitted</ResizableTh>
+                  <ResizableTh>Waiting since</ResizableTh>
                   <ResizableTh className="text-right">Decision</ResizableTh>
                 </tr>
               </thead>
@@ -580,6 +712,7 @@ export default function ReviewPage() {
                             <ReviewTitle item={item} />
                             {outOfWindowNotes(item)}
                           </div>
+                          {resubmittedNote(item)}
                         </td>
                         <td className="px-4 py-3 capitalize text-ink-700">{item.recordType}</td>
                         <td className="px-4 py-3">
@@ -596,7 +729,7 @@ export default function ReviewPage() {
                         <td className="px-4 py-3">
                           <StatusBadge status={item.status ?? "PENDING"} />
                         </td>
-                        <td className="px-4 py-3 text-ink-700">{formatDateTime(item.createdAt)}</td>
+                        <td className="px-4 py-3 text-ink-700">{formatDateTime(item.submittedAt ?? item.createdAt)}</td>
                         <td className="px-4 py-3 text-right">{decisionButtons(item, activeAction)}</td>
                       </ReviewRow>
                       {activeAction ? (

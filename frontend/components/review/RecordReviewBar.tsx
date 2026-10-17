@@ -1,0 +1,200 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { ClipboardCheck } from "lucide-react";
+
+import { useConfirm } from "@/components/dialogs/ConfirmDialog";
+import { ButtonRow } from "@/components/ui/ButtonRow";
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
+import { apiFetch } from "@/lib/api";
+import {
+  fetchLatestReview,
+  fetchReviewReasons,
+  refusalButtonLabel,
+  refusalOutcome,
+  refusalReady,
+  type ReviewReason
+} from "@/lib/review";
+
+type Panel = "revise" | "reject" | null;
+
+/**
+ * Approve, send back or reject a PENDING record from its own read-only page (A13).
+ *
+ * A reviewer who opened a record to read it all used to have to go back to the queue and find the
+ * row again to decide. The bar is drawn only when the server says this reader may review this record
+ * (`canReview` on `GET /review/{type}/{id}/latest`), so it never offers a decision the API refuses.
+ */
+export function RecordReviewBar({
+  recordType,
+  recordId,
+  status,
+  onDecided
+}: {
+  recordType: string;
+  recordId: string;
+  status: string | null | undefined;
+  onDecided: (message: string) => void;
+}) {
+  const confirm = useConfirm();
+  const [canReview, setCanReview] = useState(false);
+  const [late, setLate] = useState(false);
+  const [panel, setPanel] = useState<Panel>(null);
+  const [note, setNote] = useState("");
+  const [reasons, setReasons] = useState<ReviewReason[]>([]);
+  const [reasonCode, setReasonCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pending = status === "PENDING";
+
+  useEffect(() => {
+    if (!pending) {
+      setCanReview(false);
+      return;
+    }
+    let cancelled = false;
+    fetchLatestReview(recordType, recordId)
+      .then((answer) => {
+        if (cancelled) return;
+        setCanReview(answer.canReview);
+        setLate(answer.needsAdminApproval);
+      })
+      .catch(() => {
+        if (!cancelled) setCanReview(false);
+      });
+    fetchReviewReasons()
+      .then((list) => {
+        if (!cancelled) setReasons(list);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [recordType, recordId, pending]);
+
+  if (!pending || !canReview) return null;
+  const reason = reasons.find((r) => r.code === reasonCode) ?? null;
+
+  async function decide(action: "approve" | "revise" | "reject") {
+    const notes = note.trim();
+    if (action === "reject" && refusalOutcome(reason) === "REJECTED") {
+      const ok = await confirm({
+        title: "Reject this record?",
+        body: "It shows as rejected to the contributor until they fix it.",
+        tone: "danger",
+        confirmLabel: "Reject record"
+      });
+      if (!ok) return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const body =
+        action === "reject" ? { notes: notes || null, reason: reason?.code ?? null } : { notes: notes || null };
+      await apiFetch(`/review/${encodeURIComponent(recordType)}/${encodeURIComponent(recordId)}/${action}`, {
+        method: "POST",
+        body: JSON.stringify(body)
+      });
+      setPanel(null);
+      setNote("");
+      onDecided(
+        action === "approve"
+          ? "Approved."
+          : action === "revise" || refusalOutcome(reason) === "NEEDS_REVISION"
+            ? "Sent back for revision."
+            : "Rejected."
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "That review action didn't go through.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="panel grid gap-3 p-4" aria-label="Review">
+      <div className="flex items-center gap-2 text-sm font-semibold text-ink-900">
+        <ClipboardCheck className="h-4 w-4 text-purple-700" aria-hidden />
+        Waiting for your review
+      </div>
+      {late ? <p className="text-xs text-amber-800">Submitted outside workshop dates — admins only can approve.</p> : null}
+      {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+      <ButtonRow
+        size="sm"
+        align="start"
+        destructive={
+          <button
+            type="button"
+            className="field-danger h-9 min-h-0 rounded-md px-3 text-xs pointer-coarse:h-11"
+            onClick={() => setPanel(panel === "reject" ? null : "reject")}
+            disabled={busy}
+          >
+            Reject
+          </button>
+        }
+      >
+        <button type="button" className="field-button h-9 min-h-0 px-3 text-xs pointer-coarse:h-11" onClick={() => decide("approve")} disabled={busy}>
+          {busy && panel === null ? "Saving…" : "Approve"}
+        </button>
+        <button
+          type="button"
+          className="field-button-secondary h-9 min-h-0 px-3 text-xs pointer-coarse:h-11"
+          onClick={() => setPanel(panel === "revise" ? null : "revise")}
+          disabled={busy}
+        >
+          Send for revision
+        </button>
+      </ButtonRow>
+      {panel ? (
+        <div className="grid gap-2 rounded-md bg-surface-50 p-3">
+          {panel === "reject" && reasons.length > 0 ? (
+            <div className="grid gap-1">
+              <span className="field-label">Reason</span>
+              <SearchableSelect
+                ariaLabel="Reason"
+                value={reasonCode}
+                onChange={setReasonCode}
+                advanceOnSelect={false}
+                placeholder="Pick a reason"
+                options={reasons.map((r) => ({ value: r.code, label: r.label }))}
+              />
+              {reason?.fixable ? <p className="text-xs text-ink-500">This sends it back to be fixed.</p> : null}
+            </div>
+          ) : null}
+          <label className="field-label" htmlFor={`record-review-note-${recordId}`}>
+            {panel === "revise" ? "What must the contributor change? (required)" : "Note for the contributor"}
+          </label>
+          <textarea
+            id={`record-review-note-${recordId}`}
+            className="field-input"
+            rows={3}
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+          />
+          <ButtonRow size="sm" align="start">
+            <button
+              type="button"
+              className="field-button h-9 min-h-0 px-3 text-xs pointer-coarse:h-11"
+              disabled={
+                busy ||
+                (panel === "revise" && !note.trim()) ||
+                (panel === "reject" && reasons.length > 0 && !refusalReady(reason, note))
+              }
+              onClick={() => decide(panel)}
+            >
+              {busy ? "Saving…" : panel === "revise" ? "Send for revision" : refusalButtonLabel(reason)}
+            </button>
+            <button
+              type="button"
+              className="field-button-secondary h-9 min-h-0 px-3 text-xs pointer-coarse:h-11"
+              onClick={() => setPanel(null)}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+          </ButtonRow>
+        </div>
+      ) : null}
+    </section>
+  );
+}

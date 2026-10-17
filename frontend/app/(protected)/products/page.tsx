@@ -25,6 +25,7 @@ import { recordUpdateHref, recordViewHref } from "@/lib/recordView";
 import { apiFetch, listResource } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import type { PageResult, ProductDocumentation } from "@/lib/types";
+import { RecordStatusFilter, statusFilterParam } from "@/components/review/RecordStatusFilter";
 
 export default function ProductsPage() {
   const { user } = useAuth();
@@ -34,6 +35,7 @@ export default function ProductsPage() {
   const [query, setQuery] = useState("");
   const [applied, setApplied] = useState("");
   const [page, setPage] = useState(1);
+  const [statusChoice, setStatusChoice] = useState("ALL");
   const [funnel, setFunnel] = useState<FunnelValue>(EMPTY_FUNNEL);
   const [funnelReady, setFunnelReady] = useState(false);
   const [activePreview, setActivePreview] = useState<PreviewMedia | null>(null);
@@ -50,6 +52,7 @@ export default function ProductsPage() {
           workshopId: funnel.workshopId || undefined,
           craftId: funnel.craftId || undefined,
           artisanId: funnel.artisanId || undefined,
+          statusFilter: statusFilterParam(statusChoice),
           page,
           pageSize: 20
         })
@@ -65,7 +68,7 @@ export default function ProductsPage() {
     if (!funnelReady) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [funnelReady, page, applied, funnel]);
+  }, [funnelReady, page, applied, funnel, statusChoice]);
 
   // Live search: debounce typing by 350ms; Enter applies immediately via onSubmit.
   useEffect(() => {
@@ -135,7 +138,7 @@ export default function ProductsPage() {
         icon={<Boxes className="h-5 w-5" aria-hidden />}
         actions={
           <>
-            {canDownloadDataset(user) ? <DownloadCsvButton path="/export/products.csv" filename="products.csv" /> : null}
+            {canDownloadDataset(user) ? <DownloadCsvButton path="/export/products.csv?status=APPROVED" filename="products-approved.csv" label="Export approved CSV" /> : null}
             {/* Gated, not merely locked: an ungated "New …" invited every tier to press a
                 button that lands on the route guard's refusal. Below researcher the honest UI is
                 no button, matching `require_record_creator` on the server. */}
@@ -160,6 +163,15 @@ export default function ProductsPage() {
         />
       </div>
       <FunnelFilters value={funnel} onChange={onFunnelChange} showArtisan restore={listReturn.restoredFunnel} />
+      <div className="mb-3">
+        <RecordStatusFilter
+          value={statusChoice}
+          onChange={(value) => {
+            setStatusChoice(value || "ALL");
+            setPage(1);
+          }}
+        />
+      </div>
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       <section className="panel overflow-hidden">
         {!data ? (
