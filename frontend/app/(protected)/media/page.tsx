@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Images, Upload } from "lucide-react";
 
 import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
@@ -21,6 +22,13 @@ import { RowActions, rowAction } from "@/components/RowActions";
 import { SearchInput } from "@/components/SearchInput";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useAdminView } from "@/components/AdminViewProvider";
+import { useAuth } from "@/components/AuthProvider";
+import { CappedListNotice } from "@/components/data/CappedListNotice";
+import { useRecordOffPage } from "@/components/forms/recordPickers";
+import { useServerSearchList } from "@/components/forms/useServerSearchList";
+import { readCarryContext } from "@/lib/carryContext";
+import { failedOriginals, initialMediaTarget } from "@/lib/mediaTarget";
+import { queueMediaOnly, uploadFailureIsOffline } from "@/lib/offline";
 import { ComboBox, Dropdown } from "@/components/ui/Dropdown";
 import { apiFetch, listResource } from "@/lib/api";
 import { bytes, formatDateTime } from "@/lib/format";
@@ -28,17 +36,7 @@ import { rowClickOpensRecord } from "@/lib/recordView";
 import { locationFromForm, textValue } from "@/lib/forms";
 import { inferMediaType, uploadMediaBatch, type BatchProgress } from "@/lib/media";
 import { UploadsProvider, useUploads } from "@/lib/uploads";
-import type {
-  Artisan,
-  Craft,
-  MediaFile,
-  MediaType,
-  PageResult,
-  ProductDocumentation,
-  QuestionnaireInterview,
-  ToolDocumentation,
-  Workshop
-} from "@/lib/types";
+import type { MediaFile, MediaType, PageResult } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Android parity: mediaLinkModes — the EXACT list + labels of record types a
@@ -65,58 +63,47 @@ type ProcessListItem = {
   createdAt?: string;
 };
 
-function sortRecent<T extends { createdAt?: string }>(items: T[]) {
-  // Most recent first, even if a backend list ever changes its default ordering.
-  return [...items].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
-}
+/** A11: each record type's list route, searched on the server when its first page is not all of it. */
+const LINK_ENDPOINT: Record<string, string> = {
+  artisan: "/artisans",
+  workshop: "/workshops",
+  craft: "/crafts",
+  tool: "/tools",
+  product: "/products",
+  process: "/processes",
+  questionnaire: "/questionnaire/interviews",
+  media: "/media"
+};
+
+type EntryRow = { id: string; createdAt?: string } & Record<string, unknown>;
 
 /** Android `loadViewEntries` parity: label each entry with its human name/title. */
-async function loadEntryOptions(type: string): Promise<Array<{ value: string; label: string }>> {
-  const params = { pageSize: 100 };
+function entryLabel(type: string, row: EntryRow): string {
+  const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
   switch (type) {
-    case "artisan": {
-      const page = await listResource<Artisan>("/artisans", params);
-      return sortRecent(page.items).map((x) => ({ value: x.id, label: `${x.name} · ${x.place}` }));
-    }
-    case "workshop": {
-      const page = await listResource<Workshop>("/workshops", params);
-      return sortRecent(page.items).map((x) => ({ value: x.id, label: x.title?.trim() || "Untitled workshop" }));
-    }
-    case "craft": {
-      const page = await listResource<Craft>("/crafts", params);
-      return sortRecent(page.items).map((x) => ({ value: x.id, label: x.place ? `${x.name} · ${x.place}` : x.name }));
-    }
-    case "tool": {
-      const page = await listResource<ToolDocumentation>("/tools", params);
-      return sortRecent(page.items).map((x) => ({ value: x.id, label: `${x.toolkitName} · ${x.artisanName}` }));
-    }
-    case "product": {
-      const page = await listResource<ProductDocumentation>("/products", params);
-      return sortRecent(page.items).map((x) => ({ value: x.id, label: `${x.productName} · ${x.artisanName}` }));
-    }
+    case "artisan":
+      return [text(row.name), text(row.place)].filter(Boolean).join(" · ") || "Artisan";
+    case "workshop":
+      return text(row.title) || "Untitled workshop";
+    case "craft":
+      return [text(row.name), text(row.place)].filter(Boolean).join(" · ") || "Craft";
+    case "tool":
+      return [text(row.toolkitName), text(row.artisanName)].filter(Boolean).join(" · ") || "Tool";
+    case "product":
+      return [text(row.productName), text(row.artisanName)].filter(Boolean).join(" · ") || "Product";
     case "process": {
-      const page = await listResource<ProcessListItem>("/processes", params);
-      return sortRecent(page.items).map((x) => ({
-        value: x.id,
-        label: x.product?.productName ? `${x.name} · ${x.product.productName}` : x.name
-      }));
+      const product = row.product as ProcessListItem["product"];
+      return [text(row.name), text(product?.productName)].filter(Boolean).join(" · ") || "Process";
     }
-    case "questionnaire": {
-      const page = await listResource<QuestionnaireInterview>("/questionnaire/interviews", params);
-      return sortRecent(page.items).map((x) => ({ value: x.id, label: x.title?.trim() || "Untitled interview" }));
-    }
+    case "questionnaire":
+      return text(row.title) || "Untitled interview";
     case "media": {
-      const page = await listResource<MediaFile>("/media", params);
-      return sortRecent(page.items).map((x) => {
-        const tag = x.linkedRecordType?.trim()
-          ? x.linkedRecordType.charAt(0).toUpperCase() + x.linkedRecordType.slice(1)
-          : null;
-        const name = x.originalFilename?.trim() || "Media";
-        return { value: x.id, label: [name, x.mediaType, tag].filter(Boolean).join(" · ") };
-      });
+      const linked = text(row.linkedRecordType);
+      const tag = linked ? linked.charAt(0).toUpperCase() + linked.slice(1) : null;
+      return [text(row.originalFilename) || "Media", text(row.mediaType), tag].filter(Boolean).join(" · ");
     }
     default:
-      return [];
+      return row.id;
   }
 }
 
@@ -171,7 +158,9 @@ const MEDIA_SECTION_LABEL = "Miscellaneous Media";
 export default function MediaPage() {
   return (
     <UploadsProvider>
-      <MediaPageBody />
+      <Suspense fallback={<div className="panel p-4 text-sm text-ink-500">Loading...</div>}>
+        <MediaPageBody />
+      </Suspense>
       <UploadTray />
     </UploadsProvider>
   );
@@ -221,11 +210,26 @@ function MediaPageBody() {
   const [mediaTitle, setMediaTitle] = useState("");
   const [resetNonce, setResetNonce] = useState(0);
 
+  const searchParams = useSearchParams();
+  const { user } = useAuth();
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [linkedType, setLinkedType] = useState("");
-  const [linkedEntryId, setLinkedEntryId] = useState("");
-  const [entryOptions, setEntryOptions] = useState<Array<{ value: string; label: string }>>([]);
-  const [loadingEntries, setLoadingEntries] = useState(false);
+  /*
+    A9 — THE TARGET IS REMEMBERED. It opens on the record named in the link or the one the researcher
+    was last working in (`initialMediaTarget`), and it STAYS after a batch: the next photographs are
+    almost always for the same record.
+  */
+  const [initialTarget] = useState(() => initialMediaTarget(searchParams, readCarryContext(user?.id ?? null)));
+  const [linkedType, setLinkedType] = useState(initialTarget?.type ?? "");
+  const [linkedEntryId, setLinkedEntryId] = useState(initialTarget?.id ?? "");
+  const [notice, setNotice] = useState<string | null>(null);
+  // A11: one page of the chosen type, searched on the server when that page is not the whole list.
+  const entryList = useServerSearchList<EntryRow>(linkedType ? LINK_ENDPOINT[linkedType] ?? null : null, "entries");
+  const offPageEntry = useRecordOffPage<EntryRow>(linkedType ? LINK_ENDPOINT[linkedType] ?? "/media" : "/media", linkedEntryId, entryList.items);
+  const entryOptions = useMemo(() => {
+    const rows = offPageEntry && !entryList.items.some((row) => row.id === offPageEntry.id) ? [offPageEntry, ...entryList.items] : entryList.items;
+    return rows.map((row) => ({ value: row.id, label: entryLabel(linkedType, row) }));
+  }, [entryList.items, offPageEntry, linkedType]);
+  const loadingEntries = Boolean(linkedType) && entryList.state === "pending";
 
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState<BatchProgress | null>(null);
@@ -249,29 +253,6 @@ function MediaPageBody() {
     const timer = setTimeout(() => load(page, search), 300);
     return () => clearTimeout(timer);
   }, [page, search, load]);
-
-  // Android parity: when the linked record type changes, load that type's entries
-  // for the optional second dropdown.
-  useEffect(() => {
-    setLinkedEntryId("");
-    setEntryOptions([]);
-    if (!linkedType) return;
-    let cancelled = false;
-    setLoadingEntries(true);
-    loadEntryOptions(linkedType)
-      .then((options) => {
-        if (!cancelled) setEntryOptions(options);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : `Unable to load ${LINK_TYPE_LABEL.get(linkedType) ?? linkedType} entries`);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingEntries(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [linkedType]);
 
   /**
    * Android parity: every uploaded object is renamed to `PREFIX_Name_TYPE_index_timestamp.ext`.
@@ -299,38 +280,59 @@ function MediaPageBody() {
     }
     setUploading(true);
     setError(null);
+    setNotice(null);
     // React nulls event.currentTarget after the first await — capture it before any async work.
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    try {
-      const { uploaded, failed } = await uploadMediaBatch({
-        files: renameForUpload(form),
-        linkedRecordType: linkedType || null,
-        linkedRecordId: linkedEntryId || null,
-        caption: textValue(form, "caption") ?? undefined,
-        location: locationFromForm(form),
-        onProgress: setProgress
-      });
-      setProgress(null);
-      // The uploaded files surface twice: as chips under this form and in the page-level tray.
-      addCompleted(MEDIA_SECTION, MEDIA_SECTION_LABEL, uploaded);
-      // Anything that got through is already in the repository, so refresh the table either way and
-      // keep the form (and its selection) intact when part of the batch still needs another attempt.
-      load(page, search);
-      if (failed.length) {
-        setError(
-          `${failed.length} of ${selectedFiles.length} file(s) didn’t upload: ${failed.map((item) => item.name).join(", ")}. The rest were saved.`
-        );
-        return;
-      }
+    const renamed = renameForUpload(form);
+    const batch = {
+      files: renamed,
+      linkedRecordType: linkedType,
+      linkedRecordId: linkedEntryId || null,
+      caption: textValue(form, "caption") ?? undefined,
+      location: locationFromForm(form)
+    };
+    /** A batch that is done with: the files and the two dictated boxes go, the TARGET stays (A9). */
+    const clearBatch = () => {
       formElement.reset();
       // The two dictated boxes, which `reset()` alone cannot clear. See the note beside their state.
       setMediaTitle("");
       setResetNonce((nonce) => nonce + 1);
       setSelectedFiles([]);
-      setLinkedType("");
-      setLinkedEntryId("");
+    };
+    const queue = async () => {
+      // A9: no connection — the files wait in this browser's outbox and upload when it returns.
+      await queueMediaOnly({ label: `Media · ${renamed.length} file${renamed.length === 1 ? "" : "s"}`, media: [batch] });
+      clearBatch();
+      setNotice(`Saved on this device. ${renamed.length === 1 ? "It uploads" : "They upload"} when you reconnect.`);
+    };
+    try {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        await queue();
+        return;
+      }
+      const { uploaded, failed } = await uploadMediaBatch({ ...batch, onProgress: setProgress });
+      setProgress(null);
+      // The uploaded files surface twice: as chips under this form and in the page-level tray.
+      addCompleted(MEDIA_SECTION, MEDIA_SECTION_LABEL, uploaded);
+      // Anything that got through is already in the repository, so refresh the table either way.
+      load(page, search);
+      if (failed.length) {
+        // A9: only the files that failed stay selected, so "Upload" retries exactly those.
+        setSelectedFiles(failedOriginals(selectedFiles, renamed, failed.map((item) => item.name)));
+        setError(`${failed.length} of ${renamed.length} didn’t upload: ${failed.map((item) => item.name).join(", ")}. Upload again to retry them.`);
+        return;
+      }
+      clearBatch();
     } catch (err) {
+      if (uploadFailureIsOffline(err)) {
+        try {
+          await queue();
+          return;
+        } catch {
+          /* fall through to the message */
+        }
+      }
       setError(err instanceof Error ? err.message : "Unable to upload media");
     } finally {
       setUploading(false);
@@ -372,6 +374,11 @@ function MediaPageBody() {
         icon={<Images className="h-5 w-5" aria-hidden />}
       />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+      {notice ? (
+        <div role="status" className="mb-4 rounded-md border border-purple-200 bg-purple-50 px-3 py-2 text-sm text-purple-950">
+          {notice}
+        </div>
+      ) : null}
 
       <form onSubmit={submit} className="panel mb-5 grid gap-4 p-4">
         <MediaCaptureField
@@ -402,7 +409,10 @@ function MediaPageBody() {
           <Field label="Linked record type" required>
             <Dropdown
               value={linkedType}
-              onChange={setLinkedType}
+              onChange={(next) => {
+                if (next !== linkedType) setLinkedEntryId("");
+                setLinkedType(next);
+              }}
               options={LINK_TYPES}
               placeholder="Choose the type of record"
               ariaLabel="Linked record type"
@@ -415,11 +425,14 @@ function MediaPageBody() {
               options={entryOptions}
               value={linkedEntryId}
               onChange={setLinkedEntryId}
+              onSearch={entryList.setQuery}
               placeholder={
                 loadingEntries ? "Loading…" : entryOptions.length === 0 ? "No entries for this type" : "Select an entry"
               }
               name="linkedRecordId"
             />
+            {entryList.searching ? <p className="mt-1 text-xs text-ink-500">Searching…</p> : null}
+            <CappedListNotice cuts={[entryList.cut]} />
           </Field>
         ) : null}
         {/* KEYED ON THE RESET NONCE. `DictatedTextArea` owns its value and re-seeds only on remount,
