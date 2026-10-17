@@ -254,7 +254,7 @@ export const GUIDE_STEPS: GuideStep[] = [
     // array and the Kotlin one equal, so the two move together — what it could never say is which
     // of them was right, which is why the contract exists.
     fields: [
-      "Interview title (required)",
+      "Interview title (optional)",
       "Place",
       "Language",
       "Workshop",
