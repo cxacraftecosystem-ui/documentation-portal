@@ -254,7 +254,9 @@ import com.fieldrepository.app.data.OidcLoginRequest
 import com.fieldrepository.app.data.OidcProvider
 import com.fieldrepository.app.data.OidcProviderId
 import com.fieldrepository.app.data.oidcCallbackErrorMessage
+import com.fieldrepository.app.ui.LocalProviderReauth
 import com.fieldrepository.app.ui.OidcProviderMark
+import com.fieldrepository.app.ui.ProviderReauth
 import com.fieldrepository.app.data.LocationRequest
 import com.fieldrepository.app.data.MeasurementMarkers
 import com.fieldrepository.app.data.geometryMarker
@@ -555,6 +557,8 @@ class MainActivity : ComponentActivity() {
                 // "Larger text" is applied here — ProvideAppPreferences scales the density every `sp`
                 // in the app resolves against, so type grows and the layout does not.
                 ProvideAppPreferences(preferences) {
+                    // The Password card runs a provider sign-in again before a first password.
+                    CompositionLocalProvider(LocalProviderReauth provides ProviderReauth(googleAuthClient, oidcAuthClient)) {
                     RepositoryApp(
                         repository = repository,
                         googleAuthClient = googleAuthClient,
@@ -569,6 +573,7 @@ class MainActivity : ComponentActivity() {
                         incomingPasswordLink = incomingPasswordLink.value,
                         onIncomingPasswordLinkConsumed = { incomingPasswordLink.value = null }
                     )
+                    }
                 }
             }
         }

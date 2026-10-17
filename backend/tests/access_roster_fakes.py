@@ -58,6 +58,8 @@ USER_DEFAULTS: dict[str, Any] = {
     "twoFactorRecoveryWindowStartedAt": None,
     "twoFactorRecoveryLockedUntil": None,
     "twoFactorRecoveryLockouts": 0,
+    "firstPasswordCodeAttempts": 0,
+    "firstPasswordCodeWindowStartedAt": None,
     # Passwords and sessions (20261018090000_account_passwords).
     "passwordSetAt": None,
     "mustChangePassword": False,
@@ -139,6 +141,9 @@ def _matches(row: Any, where: dict[str, Any] | None) -> bool:
             elif "contains" in expected:
                 needle = str(expected["contains"]).lower()
                 if needle not in str(actual or "").lower():
+                    return False
+            elif "not" in expected:
+                if actual == expected["not"]:
                     return False
             elif "equals" in expected:
                 if actual != expected["equals"]:

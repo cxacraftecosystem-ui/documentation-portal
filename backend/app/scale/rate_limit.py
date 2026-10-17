@@ -153,20 +153,25 @@ def client_address(scope: Scope) -> str:
     whatever the client typed: ``X-Forwarded-For: 1.2.3.4`` sent by a script arrives here as
     ``1.2.3.4, <real address>``, so keying on it gave every request a fresh bucket. Each proxy we run
     APPENDS the address that connected to it, so the trustworthy entries are the right-most ones.
-    ``TRUSTED_PROXY_HOPS`` (default 1: the box's nginx) says how many proxies of ours append in front
-    of the API, and the client is the entry the outermost of them wrote, ``entries[-hops]``. With
-    fewer entries than that, the left-most was still written by a proxy of ours (nothing in front of
-    it added one), so it is used. No header at all is a direct connection: the socket peer.
+    ``TRUSTED_PROXY_HOPS`` (default 2: CloudFront, then the box's nginx) says how many proxies of ours
+    append in front of the API, and the client is the entry the outermost of them wrote,
+    ``entries[-hops]``. With fewer entries than that, the left-most was still written by a proxy of
+    ours (nothing in front of it added one), so it is used. No header at all is a direct connection:
+    the socket peer.
 
-    Production today is CloudFront -> nginx -> uvicorn, so the default keys on the address nginx
-    appends, the CloudFront edge that forwarded the request: unforgeable, but shared by the viewers
-    that edge serves. ``TRUSTED_PROXY_HOPS=2`` keys on the viewer address CloudFront appends instead —
-    per person, and forgeable only by somebody who reaches the origin directly past CloudFront
-    (docs/SECURITY.md risk P1). The default is the unforgeable one.
+    Production is CloudFront -> nginx -> uvicorn, so 2 keys on the viewer address CloudFront appends:
+    per person, rather than per CloudFront edge (which 1 would key on, and which every viewer that
+    edge serves shares). It is unforgeable ONLY BECAUSE OF THE CLOUDFRONT LOCK: the box's security
+    groups admit port 80 from CloudFront's origin-facing prefix list alone and port 443 not at all
+    (checked live on 2026-10-17), so no request reaches nginx without passing CloudFront, and
+    CloudFront always appends the address it saw. Without that lock a caller could talk to nginx
+    directly and choose the entry 2 reads, so the deploy does not assume it: it tries both ports from
+    the runner and pins 2 only when the box does not answer there, 1 otherwise. Any other deployment
+    that is not locked must set ``TRUSTED_PROXY_HOPS=1`` (docs/SECURITY.md risk P1).
     """
     from app.core.config import get_settings
 
-    hops = max(1, int(getattr(get_settings(), "trusted_proxy_hops", 1) or 1))
+    hops = max(1, int(getattr(get_settings(), "trusted_proxy_hops", 2) or 2))
     forwarded = b""
     for name, value in scope.get("headers", []):
         if name == b"x-forwarded-for":

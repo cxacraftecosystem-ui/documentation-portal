@@ -42,7 +42,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.fieldrepository.app.data.SignInAgainRequired
+import com.fieldrepository.app.data.ConfirmSignInRequired
+import com.fieldrepository.app.data.ProviderProof
+import com.fieldrepository.app.data.confirmMissing
+import com.fieldrepository.app.data.confirmPrompt
+import com.fieldrepository.app.data.confirmedLine
+import com.fieldrepository.app.data.reauthProviderFor
 import com.fieldrepository.app.data.TWO_FACTOR_CODE_FOR_PASSWORD
 import com.fieldrepository.app.data.TwoFactorCodeRequired
 import com.fieldrepository.app.data.UserDto
@@ -215,10 +220,14 @@ fun AccountPasswordCard(repository: FieldRepository, onSignOut: () -> Unit) {
     var reveal by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var signInAgain by remember { mutableStateOf(false) }
+    // The provider sign-in run again, for a first password (ProviderReauth.kt). Held in memory only.
+    var proof by remember { mutableStateOf<ProviderProof?>(null) }
+    var askedProvider by remember { mutableStateOf<String?>(null) }
     var saved by remember { mutableStateOf<String?>(null) }
     // A first password on an account with two-step on also needs a code from the authenticator app.
     val needsCode = firstPasswordNeedsCode(hasPassword, user)
+    val wantedProvider = askedProvider ?: reauthProviderFor(user?.authProvider)
+    val confirmed = !hasPassword && proof?.isFresh(System.currentTimeMillis()) == true
 
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -231,6 +240,19 @@ fun AccountPasswordCard(repository: FieldRepository, onSignOut: () -> Unit) {
         ) {
             Text(passwordCardTitle(hasPassword), display = true, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
             Text(passwordCardIntro(hasPassword, user), color = MaterialTheme.field.muted, fontSize = 13.sp, lineHeight = 19.sp)
+            if (!hasPassword) {
+                if (confirmed) {
+                    Text(confirmedLine(proof?.provider ?: wantedProvider), color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
+                } else {
+                    Text(confirmPrompt(wantedProvider), fontSize = 13.sp, lineHeight = 19.sp)
+                    ProviderConfirmButtons(
+                        provider = wantedProvider,
+                        enabled = !busy,
+                        onConfirmed = { proof = it; askedProvider = null; error = null },
+                        onFailed = { error = it },
+                    )
+                }
+            }
             if (hasPassword) {
                 OutlinedTextField(
                     value = current,
@@ -293,13 +315,8 @@ fun AccountPasswordCard(repository: FieldRepository, onSignOut: () -> Unit) {
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive }
                 )
             }
-            if (signInAgain) {
-                OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) {
-                    Text(SIGN_IN_AGAIN_ACTION)
-                }
-            }
             Button(
-                enabled = !busy && (!hasPassword || current.isNotEmpty()),
+                enabled = !busy && (if (hasPassword) current.isNotEmpty() else confirmed),
                 onClick = {
                     val problem = newPasswordRefusal(next, confirm, if (hasPassword) current else "")
                     if (problem != null) {
@@ -310,16 +327,22 @@ fun AccountPasswordCard(repository: FieldRepository, onSignOut: () -> Unit) {
                         error = TWO_FACTOR_CODE_FOR_PASSWORD
                         return@Button
                     }
+                    val sending = proof?.takeIf { !hasPassword && it.isFresh(System.currentTimeMillis()) }
+                    if (!hasPassword && sending == null) {
+                        proof = null
+                        error = confirmMissing(wantedProvider)
+                        return@Button
+                    }
                     scope.launch {
                         busy = true
                         error = null
-                        signInAgain = false
                         val hadPassword = hasPassword
                         runCatching {
                             repository.saveOwnPassword(
                                 if (hadPassword) current else null,
                                 next,
-                                if (needsCode) code else null
+                                if (needsCode) code else null,
+                                sending
                             )
                         }
                             .onSuccess {
@@ -328,16 +351,21 @@ fun AccountPasswordCard(repository: FieldRepository, onSignOut: () -> Unit) {
                                 next = ""
                                 confirm = ""
                                 code = ""
+                                proof = null
                                 user = repository.cachedUser()
                             }
                             .onFailure { failure ->
-                                if (failure is SignInAgainRequired) {
+                                if (failure is ConfirmSignInRequired) {
+                                    // Missing, stale or another address: drop it and ask again.
                                     error = failure.message
-                                    signInAgain = true
+                                    proof = null
+                                    askedProvider = failure.provider
                                 } else if (failure is TwoFactorCodeRequired) {
-                                    // The form is kept; only the code is cleared for the next one.
+                                    // The form is kept; only the code is cleared for the next one. A
+                                    // sign-in already accepted comes back as what stands in for it.
                                     error = failure.message
                                     code = ""
+                                    failure.signInProof?.let { token -> proof = sending?.carried(token) ?: proof }
                                 } else {
                                     error = failure.apiErrorMessage(PASSWORD_CHANGE_NOT_SENT)
                                 }

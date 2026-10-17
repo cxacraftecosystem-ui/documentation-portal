@@ -15,8 +15,8 @@ import retrofit2.http.Path
  *     answer for a well-formed address, known or not; only a malformed address (422) or too many
  *     requests from this connection (429) answers differently, and both carry the server's sentence.
  *   * `POST /auth/change-password` with no current password — a Google, Microsoft or Yahoo account
- *     adding its first password. Allowed only on a fresh sign-in; otherwise a 400 carrying
- *     [SIGN_IN_AGAIN_HEADER].
+ *     adding its first password. Allowed only with that provider's sign-in run again (ProviderReauth.kt);
+ *     otherwise a 400 carrying [CONFIRM_SIGN_IN_HEADER].
  *   * `POST /auth/password-links` with `delivery: "EMAIL"` — an administrator e-mailing the person a
  *     link instead of copying one. The answer carries no link.
  *   * `PATCH /users/{id}` with a password — a temporary password, changed at the next sign-in.
@@ -113,7 +113,19 @@ data class ForgotPasswordAnswer(val message: String = "")
  * recovery code; the server refuses without it ([TWO_FACTOR_REQUIRED_HEADER]).
  */
 @Serializable
-data class FirstPasswordRequest(val newPassword: String, val twoFactorCode: String? = null)
+data class FirstPasswordRequest(
+    val newPassword: String,
+    val twoFactorCode: String? = null,
+    /** The provider sign-in run again ([ProviderProof]): a Google ID token, or the five OIDC fields. */
+    val googleIdToken: String? = null,
+    val oidcProvider: String? = null,
+    val oidcCode: String? = null,
+    val oidcCodeVerifier: String? = null,
+    val oidcRedirectUri: String? = null,
+    val oidcNonce: String? = null,
+    /** What a wrong-code refusal handed back ([SIGN_IN_PROOF_HEADER]), in place of the fields above. */
+    val providerProof: String? = null,
+)
 
 @Serializable
 data class PasswordLinkDeliveryRequest(
@@ -136,15 +148,6 @@ data class MailStatusDto(val available: Boolean = false)
 const val PASSWORD_LINK_BY_EMAIL = "EMAIL"
 
 /**
- * The header a refused first-password answer carries when the sign-in it was sent from is too old.
- * The person signs out and in again, then sets the password straight away.
- */
-const val SIGN_IN_AGAIN_HEADER = "X-Sign-In-Again"
-
-/** Thrown by `FieldRepository.saveOwnPassword` for the [SIGN_IN_AGAIN_HEADER] refusal. */
-class SignInAgainRequired(message: String) : Exception(message)
-
-/**
  * The header a refused first-password answer carries when the account has two-step verification on
  * and the request had no good code from the authenticator app (a missing one or a wrong one).
  */
@@ -153,8 +156,17 @@ const val TWO_FACTOR_REQUIRED_HEADER = "X-Two-Factor-Required"
 /** What the first-password form says when the code is missing — the server's own sentence. */
 const val TWO_FACTOR_CODE_FOR_PASSWORD = "Enter the code from your authenticator app to set a password."
 
-/** Thrown by `FieldRepository.saveOwnPassword` for the [TWO_FACTOR_REQUIRED_HEADER] refusal. */
-class TwoFactorCodeRequired(message: String) : Exception(message)
+/**
+ * On a wrong code AFTER the provider sign-in was accepted, the refusal also carries this: what stands
+ * in for that sign-in on the next try (a Microsoft or Yahoo code works once and is already spent).
+ */
+const val SIGN_IN_PROOF_HEADER = "X-Sign-In-Proof"
+
+/**
+ * Thrown by `FieldRepository.saveOwnPassword` for the [TWO_FACTOR_REQUIRED_HEADER] refusal, with the
+ * [SIGN_IN_PROOF_HEADER] stand-in when the server handed one back.
+ */
+class TwoFactorCodeRequired(message: String, val signInProof: String? = null) : Exception(message)
 
 /**
  * Does this account hold a password of its own?

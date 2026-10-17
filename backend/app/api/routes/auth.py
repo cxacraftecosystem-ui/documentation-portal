@@ -24,13 +24,16 @@ THREE RULES THAT MUST SURVIVE ANY REWRITE OF THIS FILE:
    remedy inside the product.
 """
 
+import hashlib
+import hmac
 import logging
-from datetime import UTC, datetime, timedelta
+import secrets
+from datetime import UTC, datetime
 from typing import Any
 
+import jwt
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from fastapi.encoders import jsonable_encoder
-from fastapi.security import HTTPAuthorizationCredentials
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
@@ -38,7 +41,6 @@ from app.core.config import get_settings
 from app.core.db import db
 from app.core.deps import (
     ROLE_RANK,
-    bearer_scheme,
     get_current_user,
     invalidate_cached_user,
     is_master_admin,
@@ -48,7 +50,6 @@ from app.core.deps import (
 )
 from app.core.security import (
     create_access_token,
-    decode_access_token,
     hash_password,
     verify_password,
     verify_password_or_decoy,
@@ -791,38 +792,88 @@ async def forgot_password(
 #: it. Must be in ``expose_headers`` in app/main.py, or the browser hides it from JavaScript.
 SESSION_TOKEN_HEADER = "X-Session-Token"
 
-#: An account with no password may SET its first one only on a session opened this recently. A
-#: provider sign-in is the proof the person is at the keyboard now; a week-old token is not.
-PASSWORD_REAUTH_MINUTES = 15
+#: THE PROVIDER SIGN-IN, RUN AGAIN (2026-10-17). An account with no password may SET its first one
+#: only with a provider sign-in this fresh, sent with the request: the ID token's ``iat`` no older than
+#: this, for the account's own address. A session token's age was the proof before; a stolen session
+#: is exactly what must not be able to add a permanent way in, so the provider is asked again.
+PROVIDER_PROOF_MAX_AGE_SECONDS = 300
+#: A token "issued" this far in the future is still accepted: phones' clocks drift.
+PROVIDER_PROOF_CLOCK_SKEW_SECONDS = 60
 
-#: The header on that refusal, so a client can offer "Sign out and sign in again" without matching
-#: prose. In ``expose_headers`` in app/main.py.
-SIGN_IN_AGAIN_HEADER = "X-Sign-In-Again"
+#: The header on a first-password refusal that wants the provider sign-in (missing, stale or not this
+#: account's). Its value is the provider to run: ``GOOGLE``, ``MICROSOFT`` or ``YAHOO``. A client
+#: re-runs that sign-in and sends again, without matching prose. In ``expose_headers`` in app/main.py.
+CONFIRM_SIGN_IN_HEADER = "X-Confirm-Sign-In"
 
 #: The header on a first-password refusal that wants the two-step code (missing or wrong), so a
 #: client can show the code box without matching prose. In ``expose_headers`` in app/main.py.
 TWO_FACTOR_REQUIRED_HEADER = "X-Two-Factor-Required"
 
+#: A wrong two-step code AFTER a provider sign-in was accepted: the 400 carries this, a short-lived
+#: token that stands in for that sign-in on the next try (body field ``providerProof``). A Microsoft or
+#: Yahoo sign-in is a single-use code the server has already redeemed, so without it a mistyped
+#: authenticator code would cost a trip back to the provider. Signed with a key of its own (never a
+#: session), bound to the account, valid only until the sign-in it stands for turns five minutes old,
+#: and single use: every refusal that consumes one hands out the next. In ``expose_headers``.
+SIGN_IN_PROOF_HEADER = "X-Sign-In-Proof"
+_SIGN_IN_PROOF_TYPE = "first-password-proof"
+#: Spent proof ids until they expire. Per process: the API runs one worker (deploy/fieldrepo.service).
+_spent_sign_in_proofs: dict[str, float] = {}
+
+
+def _sign_in_proof_key() -> bytes:
+    return hmac.new(get_settings().jwt_secret.encode("utf-8"), _SIGN_IN_PROOF_TYPE.encode(), hashlib.sha256).digest()
+
+
+def _mint_sign_in_proof(account_id: str, provider: str, expires_at: float) -> str:
+    claims = {
+        "sub": account_id,
+        "typ": _SIGN_IN_PROOF_TYPE,
+        "prv": provider,
+        "jti": secrets.token_urlsafe(16),
+        "exp": int(expires_at),
+    }
+    return jwt.encode(claims, _sign_in_proof_key(), algorithm="HS256")
+
+
+def _redeem_sign_in_proof(token: str, account_id: str) -> tuple[str, float] | None:
+    """``(provider, expires_at)`` for an unspent proof minted for ``account_id``, now spent; else None."""
+    try:
+        claims = jwt.decode(token, _sign_in_proof_key(), algorithms=["HS256"], options={"require": ["exp", "sub", "jti"]})
+    except jwt.PyJWTError:
+        return None
+    if claims.get("typ") != _SIGN_IN_PROOF_TYPE or claims.get("sub") != account_id:
+        return None
+    now = datetime.now(UTC).timestamp()
+    for spent, until in list(_spent_sign_in_proofs.items()):
+        if until < now:
+            _spent_sign_in_proofs.pop(spent, None)
+    jti = str(claims["jti"])
+    if jti in _spent_sign_in_proofs:
+        return None
+    _spent_sign_in_proofs[jti] = float(claims["exp"])
+    provider = claims.get("prv")
+    return (provider if provider in _PROVIDER_LABELS else "GOOGLE"), float(claims["exp"])
+
 TWO_FACTOR_CODE_NEEDED_DETAIL = "Enter the code from your authenticator app to set a password."
 
-SIGN_IN_AGAIN_DETAIL = (
-    f"For your security, sign out and sign in again, then set your password within "
-    f"{PASSWORD_REAUTH_MINUTES} minutes."
-)
+_PROVIDER_LABELS = {"GOOGLE": "Google", "MICROSOFT": "Microsoft", "YAHOO": "Yahoo"}
 
 
-def _session_is_recent(credentials: HTTPAuthorizationCredentials | None) -> bool:
-    """Was the bearer token on this request minted in the last :data:`PASSWORD_REAUTH_MINUTES`?"""
-    if credentials is None:
-        return False
-    try:
-        issued_at = decode_access_token(credentials.credentials).get("iat")
-    except ValueError:
-        return False
-    if not isinstance(issued_at, int | float):
-        return False
-    cutoff = datetime.now(UTC) - timedelta(minutes=PASSWORD_REAUTH_MINUTES)
-    return issued_at >= cutoff.timestamp()
+def _proof_provider(account: Any) -> str:
+    """The provider a password-less account is asked to sign in with again: its own, or Google."""
+    provider = _auth_provider(account)
+    return provider if provider in _PROVIDER_LABELS else "GOOGLE"
+
+
+def confirm_sign_in_detail(provider: str) -> str:
+    label = _PROVIDER_LABELS.get(provider, "Google")
+    return f"To set a password, first confirm it's you: sign in with {label} again, then save within 5 minutes."
+
+
+def proof_refused_detail(provider: str, email: str) -> str:
+    label = _PROVIDER_LABELS.get(provider, "Google")
+    return f"That {label} sign-in didn't match this account or has expired. Sign in with {label} again as {email}, then save."
 
 
 @router.post("/change-password")
@@ -830,7 +881,6 @@ async def change_password(
     payload: ChangePasswordRequest,
     response: Response,
     current_user: Any = Depends(get_current_user),
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> dict[str, bool]:
     """The signed-in account replacing its own password (the route ``mustChangePassword`` sends
     somebody to) or, for an account with none, setting its first one.
@@ -844,12 +894,15 @@ async def change_password(
     sent "Your password was changed" (``mailer.PASSWORD_CHANGED``).
 
     AN ACCOUNT WITH NO PASSWORD (Google, Microsoft or Yahoo only) sets its first one here, without a
-    current password, but only on a session opened in the last :data:`PASSWORD_REAUTH_MINUTES`
-    minutes (a sign-in that passed the provider and the second step if it is on); otherwise a 400
-    with ``X-Sign-In-Again``. Its provider stays: the person can now sign in either way.
+    current password, but only with that provider's sign-in RUN AGAIN and sent along — no older than
+    :data:`PROVIDER_PROOF_MAX_AGE_SECONDS`, for this account's address — and, when two-step is on, a
+    code (its own budget: ``two_factor.claim_first_password_check``). Otherwise a 400 carrying
+    ``X-Confirm-Sign-In`` or ``X-Two-Factor-Required`` (with ``X-Sign-In-Proof`` for the next try
+    when the sign-in was accepted and only the code was wrong). Its provider stays: the person can now sign
+    in either way.
     """
     if current_user.passwordHash is None:
-        return await _set_first_password(payload, response, current_user, credentials)
+        return await _set_first_password(payload, response, current_user)
     # THE PER-ACCOUNT GUESSING BUDGET (security review D1, 2026-10-16). Without it a stolen session
     # could guess the current password here without limit, and the prize is exactly the permanent
     # takeover this route exists to prevent. The SAME bucket as the sign-in, keyed on the account:
@@ -899,44 +952,142 @@ async def _write_own_password(current_user: Any, new_password: str) -> Any:
     return updated
 
 
+async def _provider_proof(payload: ChangePasswordRequest, account: Any) -> tuple[str, float]:
+    """THE PROVIDER SIGN-IN, RUN AGAIN: proved, fresh, and this account's — or a 400 carrying
+    ``X-Confirm-Sign-In``. Never a 401: the clients end the session on one. Answers the provider
+    and the moment the sign-in stops counting (``iat`` + five minutes). A ``providerProof`` handed
+    out by an earlier refusal (:data:`SIGN_IN_PROOF_HEADER`) stands in for the sign-in it was minted
+    from, until that same moment.
+
+    Any of the three providers is accepted when it vouches for this account's address: each of them
+    could sign this account in anyway. The account keeps no provider subject, so the match is on the
+    address the provider verified (normalised exactly as sign-in finds the account), and the token
+    must name a subject at all. Fresh means an ``iat`` within :data:`PROVIDER_PROOF_MAX_AGE_SECONDS`.
+    """
+    wanted = _proof_provider(account)
+    email = normalise_email(getattr(account, "email", "")) or ""
+
+    def refuse(provider: str, detail: str | None = None) -> HTTPException:
+        return HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail or proof_refused_detail(provider, email),
+            headers={CONFIRM_SIGN_IN_HEADER: wanted},
+        )
+
+    proved_email: str | None = None
+    subject: str | None = None
+    issued_at: float | None = None
+    if payload.providerProof:
+        carried = _redeem_sign_in_proof(payload.providerProof, getattr(account, "id", ""))
+        if carried is None:
+            raise refuse(wanted)
+        return carried
+    if payload.googleIdToken:
+        used = "GOOGLE"
+        try:
+            id_info = verify_google_token(payload.googleIdToken)
+        except HTTPException as exc:
+            logger.info("auth: first-password Google proof refused (%s)", exc.status_code)
+            raise refuse(used) from exc
+        if id_info.get("email_verified"):
+            proved_email = normalise_email(id_info.get("email"))
+        raw_sub, raw_iat = id_info.get("sub"), id_info.get("iat")
+        subject = raw_sub if isinstance(raw_sub, str) and raw_sub else None
+        if isinstance(raw_iat, int | float) and not isinstance(raw_iat, bool):
+            issued_at = float(raw_iat)
+    elif payload.has_oidc_proof:
+        used = payload.oidcProvider or wanted
+        if oidc_sign_in.provider(used) is None or not oidc_sign_in.acceptable_redirect_uri(
+            payload.oidcRedirectUri or ""
+        ):
+            raise refuse(used)
+        try:
+            proved = await oidc_sign_in.prove(
+                used,
+                code=payload.oidcCode or "",
+                code_verifier=payload.oidcCodeVerifier or "",
+                redirect_uri=payload.oidcRedirectUri or "",
+                raw_nonce=payload.oidcNonce or "",
+            )
+        except (oidc_sign_in.SignInRefused, oidc_sign_in.EmailNotVerified) as exc:
+            logger.info("auth: first-password %s proof refused (%s)", used, getattr(exc, "reason", "refused"))
+            raise refuse(used) from exc
+        proved_email = normalise_email(proved.email)
+        subject, issued_at = proved.subject, proved.issued_at
+    else:
+        raise refuse(wanted, confirm_sign_in_detail(wanted))
+
+    now = datetime.now(UTC).timestamp()
+    fresh = (
+        issued_at is not None
+        and now - PROVIDER_PROOF_MAX_AGE_SECONDS <= issued_at <= now + PROVIDER_PROOF_CLOCK_SKEW_SECONDS
+    )
+    if not (proved_email and email and proved_email == email and subject and fresh):
+        logger.info(
+            "auth: first-password proof refused for user %s (address %s, subject %s, fresh %s)",
+            getattr(account, "id", None),
+            "matched" if proved_email and proved_email == email else "different",
+            "present" if subject else "missing",
+            fresh,
+        )
+        raise refuse(used)
+    return used, (issued_at or 0.0) + PROVIDER_PROOF_MAX_AGE_SECONDS
+
+
+def _refuse_code(detail: str) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail, headers={TWO_FACTOR_REQUIRED_HEADER: "1"})
+
+
+async def _first_password_code_allowance(account: Any, code: str) -> Any:
+    """BEFORE the provider sign-in is redeemed: the code is there, the second factor is not locked,
+    and this account's own budget (five a quarter-hour: ``two_factor.claim_first_password_check``,
+    never the sign-in's) has a check left — which is taken now and given back by the caller when the
+    sign-in is refused or the code is right. Checked first because a Microsoft or Yahoo sign-in is a
+    single-use code: redeeming it only to refuse for a reason known beforehand would spend it for
+    nothing. Answers the account's row as it is now (the cached identity may be seconds behind a code
+    just used)."""
+    if not code:
+        raise _refuse_code(TWO_FACTOR_CODE_NEEDED_DETAIL)
+    fresh = await db.user.find_unique(where={"id": account.id}) or account
+    too_many = HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=two_factor.TOO_MANY_ATTEMPTS_DETAIL)
+    if two_factor.is_locked(fresh, two_factor.budget_for(code)):
+        raise too_many
+    if not await two_factor.claim_first_password_check(account.id):
+        raise too_many
+    return fresh
+
+
 async def _set_first_password(
     payload: ChangePasswordRequest,
     response: Response,
     current_user: Any,
-    credentials: HTTPAuthorizationCredentials | None,
 ) -> dict[str, bool]:
-    """An account with no password choosing its first one. Recency stands in for the current
-    password and, when two-step is on, the second factor is asked for AGAIN (security review B2):
-    a permanent new way in must not be added on the strength of a session alone. Nothing is written
-    on a refusal. Every other session ends (``_write_own_password``) and the owner is told by e-mail."""
-    if not _session_is_recent(credentials):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=SIGN_IN_AGAIN_DETAIL,
-            headers={SIGN_IN_AGAIN_HEADER: "1"},
-        )
-    if getattr(current_user, "twoFactorEnabled", False):
-        code = (payload.twoFactorCode or "").strip()
-        if not code:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=TWO_FACTOR_CODE_NEEDED_DETAIL,
-                headers={TWO_FACTOR_REQUIRED_HEADER: "1"},
-            )
-        # The row as it is now: the cached identity may be seconds behind a code just used.
-        fresh = await db.user.find_unique(where={"id": current_user.id}) or current_user
-        try:
-            accepted = await two_factor.check_second_factor(fresh, code)
-        except two_factor.SecondFactorLocked as exc:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=two_factor.TOO_MANY_ATTEMPTS_DETAIL
-            ) from exc
-        if not accepted:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=two_factor.WRONG_CODE_DETAIL,
-                headers={TWO_FACTOR_REQUIRED_HEADER: "1"},
-            )
+    """An account with no password choosing its first one. A provider sign-in run again in the last
+    five minutes stands in for the current password (:func:`_provider_proof`) and, when two-step is
+    on, the second factor is asked for AGAIN (security review B2), on its own budget
+    (:func:`_first_password_code_allowance`). Nothing is written on a refusal. Every other session
+    ends (``_write_own_password``) and the owner is told by e-mail.
+
+    The ORDER keeps a provider sign-in from being spent for nothing: everything the code check can
+    refuse without looking at the code is refused before the sign-in is redeemed, and a wrong code
+    after it answers :data:`SIGN_IN_PROOF_HEADER`, so the next try needs only the right code."""
+    two_step = bool(getattr(current_user, "twoFactorEnabled", False))
+    code = (payload.twoFactorCode or "").strip()
+    fresh = await _first_password_code_allowance(current_user, code) if two_step else current_user
+    try:
+        provider, proof_expires_at = await _provider_proof(payload, current_user)
+    except HTTPException:
+        if two_step:
+            await two_factor.refund_first_password_check(current_user.id)
+        raise
+    if two_step:
+        # An accepted code is still spent (replay-proof); a right one costs no check.
+        if not await two_factor.consume_any_code(fresh, code):
+            logger.info("auth: first-password two-step code refused for user %s", current_user.id)
+            refused = _refuse_code(two_factor.WRONG_CODE_DETAIL)
+            refused.headers[SIGN_IN_PROOF_HEADER] = _mint_sign_in_proof(current_user.id, provider, proof_expires_at)
+            raise refused
+        await two_factor.refund_first_password_check(current_user.id)
     updated = await _write_own_password(current_user, payload.newPassword)
     logger.warning("AUDIT first password set by the account itself: user=%s", current_user.id)
     response.headers[SESSION_TOKEN_HEADER] = _session_token(updated)

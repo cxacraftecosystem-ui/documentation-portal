@@ -5,6 +5,8 @@ from urllib.parse import parse_qsl, urlsplit, urlunsplit
 from pydantic import AnyHttpUrl, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.two_factor_keys import KeyFormatError, parse_keyring
+
 # Only symmetric HMAC signing is ever legitimate for this API's tokens. The allow-list exists to
 # stop "algorithm confusion": JWT_ALGORITHM is read from the environment (the field has no alias, so
 # pydantic-settings maps it from an env var of the same name), and a value of "none" — or an RSA/EC
@@ -133,9 +135,13 @@ class Settings(BaseSettings):
     auth_user_cache_ttl_seconds: float = Field(default=5.0, alias="AUTH_USER_CACHE_TTL_SECONDS")
     # How many proxies OF OURS append to X-Forwarded-For in front of the API (nginx on the box = 1;
     # CloudFront + nginx = 2). The "Forgot your password?" per-client limit keys on the entry the
-    # outermost of them wrote, never on the client-typed left-most one. See
-    # app.scale.rate_limit.client_address for why 1 is the default.
-    trusted_proxy_hops: int = Field(default=1, ge=1, le=5, alias="TRUSTED_PROXY_HOPS")
+    # outermost of them wrote, never on the client-typed left-most one. 2 is production's shape, and
+    # it is safe only because the origin answers CloudFront alone (the CloudFront lock: port 80 on
+    # the box's security groups admits only the com.amazonaws.global.cloudfront.origin-facing prefix
+    # list, and 443 nothing), so nobody can reach nginx with an X-Forwarded-For of their own making.
+    # The deploy checks that from outside before it pins 2, and pins 1 when the box answers directly.
+    # See app.scale.rate_limit.client_address.
+    trusted_proxy_hops: int = Field(default=2, ge=1, le=5, alias="TRUSTED_PROXY_HOPS")
     # Hard entry ceiling on a 1 GiB box. A cached row is the User model's scalar columns and no
     # relations — order 1 KB — so 512 concurrent identities is well under a megabyte, and the worst
     # case is a number chosen here rather than one decided by how many people log in.
@@ -146,6 +152,16 @@ class Settings(BaseSettings):
     # JWT_SECRET — otherwise the rotation makes every stored secret undecryptable and each one has to
     # be re-entered in the Settings hub. Accepts a Fernet key or any high-entropy passphrase.
     secrets_encryption_key: str | None = Field(default=None, alias="SECRETS_ENCRYPTION_KEY")
+    # The key two-step (authenticator) secrets are encrypted with: "<key id>:<32 bytes base64url>",
+    # see app.core.two_factor_keys. OPTIONAL for now: unset, the legacy key derived from JWT_SECRET is
+    # used and a WARNING is logged, because rotating JWT_SECRET would then lock every enrolled person
+    # out of their authenticator. PREVIOUS keys (comma-separated, same format) still open secrets
+    # sealed with them; each is re-encrypted with the current key when it is next used, or by
+    # scripts/reencrypt_two_factor_secrets.py.
+    two_factor_encryption_key: str | None = Field(default=None, alias="TWO_FACTOR_ENCRYPTION_KEY")
+    two_factor_encryption_previous_keys: str | None = Field(
+        default=None, alias="TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS"
+    )
 
     # --- Security response headers (see app.main.SecurityHeadersMiddleware) ---------------------
     # HSTS tells browsers to refuse plaintext HTTP to this host for max_age seconds. It is only
@@ -344,6 +360,9 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         populate_by_name=True,
         extra="ignore",
+        # A start-up error never echoes the environment: pydantic would otherwise print the input it
+        # refused (every setting, secrets included) truncated head and tail.
+        hide_input_in_errors=True,
     )
 
     @field_validator("jwt_algorithm")
@@ -362,6 +381,16 @@ class Settings(BaseSettings):
                 f"JWT_ALGORITHM must be one of {sorted(_ALLOWED_JWT_ALGORITHMS)}; got {value!r}"
             )
         return algorithm
+
+    @model_validator(mode="after")
+    def _check_two_factor_keys(self) -> "Settings":
+        """Refuse to start on a malformed two-step key, rather than fail at the first sign-in. The
+        error names the variable and the rule, never the value."""
+        try:
+            parse_keyring(self.two_factor_encryption_key, self.two_factor_encryption_previous_keys)
+        except KeyFormatError as exc:
+            raise ValueError(f"TWO_FACTOR_ENCRYPTION_KEY / _PREVIOUS_KEYS: {exc}") from None
+        return self
 
     @model_validator(mode="after")
     def _harden_database_url(self) -> "Settings":

@@ -124,8 +124,8 @@ class ChangePasswordRequest(APIModel):
 
     ``currentPassword`` is required for every account that HAS a password, even one carrying
     ``mustChangePassword``. An account with NO password (Google, Microsoft or Yahoo only) sends none
-    and SETS a first password instead, allowed only on a session opened in the last
-    ``auth.PASSWORD_REAUTH_MINUTES`` minutes (see ``routes/auth.change_password``).
+    and SETS a first password instead, allowed only with a provider sign-in run again in the last
+    five minutes (``auth.PROVIDER_PROOF_MAX_AGE_SECONDS``; see ``routes/auth.change_password``).
     """
 
     currentPassword: str = Field(default="", max_length=256)
@@ -134,6 +134,27 @@ class ChangePasswordRequest(APIModel):
     #: sets its FIRST password (security review, 2026-10-16): a recent session alone is not enough to
     #: add a permanent way in. Ignored when changing an existing password, which asks for that one.
     twoFactorCode: str | None = Field(default=None, max_length=64)
+    #: THE PROVIDER SIGN-IN, RUN AGAIN (2026-10-17). An account with no password proves it is the
+    #: person at the keyboard NOW by signing in with its provider again just before setting one: a
+    #: Google ID token, or a Microsoft / Yahoo authorization code with what proves this caller started
+    #: that flow (the same five fields, and bounds, as ``LoginRequest``). Ignored for a password change.
+    googleIdToken: str | None = Field(default=None, max_length=8192)
+    oidcProvider: Literal["MICROSOFT", "YAHOO"] | None = None
+    oidcCode: str | None = Field(default=None, min_length=1, max_length=4096)
+    oidcCodeVerifier: str | None = Field(
+        default=None, min_length=43, max_length=128, pattern=r"^[A-Za-z0-9\-._~]+$"
+    )
+    oidcRedirectUri: str | None = Field(default=None, min_length=1, max_length=2048)
+    oidcNonce: str | None = Field(default=None, min_length=16, max_length=256)
+    #: What a refusal for a wrong two-step code handed back in ``X-Sign-In-Proof``: it stands in for
+    #: the provider sign-in that was already accepted, so the next try needs only the right code.
+    providerProof: str | None = Field(default=None, min_length=1, max_length=2048)
+
+    @property
+    def has_oidc_proof(self) -> bool:
+        return bool(
+            self.oidcProvider and self.oidcCode and self.oidcCodeVerifier and self.oidcRedirectUri and self.oidcNonce
+        )
 
     @field_validator("newPassword")
     @classmethod
