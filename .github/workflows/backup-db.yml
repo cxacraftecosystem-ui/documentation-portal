@@ -38,9 +38,9 @@ name: Nightly database backup
 # the same minute.
 #
 # A late or missing run used to pass in silence. The `freshness` job below runs on its own
-# schedule and fails if the newest nightly dump is over 26 hours old or the newest weekly copy over
-# 8 days old. GitHub e-mails a failed scheduled run to whoever last changed the schedule. Run it by
-# hand with Run workflow → task: freshness-check.
+# schedule and fails if the newest nightly dump is over 26 hours old or not dated today, or the
+# newest weekly copy over 8 days old. GitHub e-mails a failed scheduled run to whoever last changed
+# the schedule. Run it by hand with Run workflow → task: freshness-check.
 #
 # ─── THE SECRETS ──────────────────────────────────────────────────────────────────────────
 #   DATABASE_URL                the session-pooler DSN (port 5432, NOT the transaction pooler on
@@ -336,8 +336,9 @@ jobs:
 
   freshness:
     # Restore drill gap 6 (2026-10-18). Runs on its own schedule and fails when the newest nightly
-    # dump is more than 26 hours old, or the newest weekly copy more than 8 days old. A late or
-    # skipped night then shows as a red run, and GitHub e-mails whoever last changed the schedule.
+    # dump is more than 26 hours old or not dated today (India time), or the newest weekly copy more
+    # than 8 days old. A late or skipped night then shows as a red run, and GitHub e-mails whoever
+    # last changed the schedule.
     # Same writer key: listing gives the name and the time, never the bytes.
     name: Newest dump is fresh
     if: github.event.schedule == '53 9 * * *' || inputs.task == 'freshness-check'
@@ -387,6 +388,16 @@ jobs:
           if [ "${nage}" -gt 26 ]; then
             echo "::error::the newest nightly dump is ${nage} hours old (limit 26). Last night's run did not land: check this workflow's scheduled runs and run it by hand."
             exit 1
+          fi
+          # The age limit alone can miss one skipped night if the run before it started over ~10 h
+          # late. The scheduled check runs in the India afternoon, after the dump's slot, so the
+          # newest nightly must also carry today's India date.
+          if [ "${GITHUB_EVENT_NAME}" = "schedule" ]; then
+            today="${BACKUP_PREFIX}/$(TZ=Asia/Kolkata date +%F).sql.gz"
+            if [ "${nkey}" != "${today}" ]; then
+              echo "::error::no dump for today (${today}); the newest is ${nkey}. Last night's run did not land: run it by hand."
+              exit 1
+            fi
           fi
           if [ -n "${wage}" ] && [ "${wage}" -gt 192 ]; then
             echo "::error::the newest weekly copy is ${wage} hours old (limit 8 days)."
