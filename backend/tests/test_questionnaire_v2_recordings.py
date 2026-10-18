@@ -65,7 +65,7 @@ def test_the_sha_worker_merges_a_same_session_copy_and_flags_one_on_another_sess
         ids = await seed(client)
         s, _ = await sessions.create_session(session_create(ids, ids.artisans[:2]), ids.lead)
         other, _ = await sessions.create_session(session_create(ids, ids.artisans[2:3], day="2026-06-22"), ids.other)
-        same = lambda key: (hashlib.sha256(b"identical bytes").hexdigest(), 15)  # noqa: E731
+        same = lambda key: (hashlib.sha256(f"identical bytes {ids.tag}".encode()).hexdigest(), 15)  # noqa: E731
         kept = await record_take(client, ids, s["id"], ids.lead, targets=[{"sectionId": ids.sections["B"]}], at=t(0),
                                  subjects=[{"artisanId": ids.artisans[0], "role": "ANSWERED"}])
         await client.execute_raw('UPDATE "MediaFile" SET "transcriptStatus" = \'COMPLETED\', "transcriptText" = \'words\' WHERE "id" = $1', kept["mediaFileId"])

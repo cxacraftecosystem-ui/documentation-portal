@@ -40,12 +40,14 @@ async def connect() -> Any:
 
 def patch_db(monkeypatch: pytest.MonkeyPatch, client: Any) -> None:
     """Point every loaded ``app`` module's ``db`` at ``client``."""
+    # Every module holding a Prisma client as ``db``, not only the ones holding the original: a module
+    # first imported while an earlier test had patched ``app.core.db`` keeps THAT test's client.
     import app.core.db as core_db
+    from prisma import Prisma
 
-    original = core_db.db
     monkeypatch.setattr(core_db, "db", client)
     for name, module in list(sys.modules.items()):
-        if (name.startswith("app.") or name.startswith("scripts.")) and getattr(module, "db", None) is original:
+        if (name.startswith("app.") or name.startswith("scripts.")) and isinstance(getattr(module, "db", None), Prisma):
             monkeypatch.setattr(module, "db", client)
 
 
