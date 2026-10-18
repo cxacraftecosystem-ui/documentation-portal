@@ -21,10 +21,15 @@ from app.services.app_settings import (
     transcription_mode,
     within_processing_window,
 )
+from app.services import transcript_insights
 from app.services.s3 import get_object_bytes
 
 TRANSCRIPTION = "TRANSCRIPTION"
 MEASUREMENT = "MEASUREMENT"
+#: Summary, key quotes and translation of a transcript (services/transcript_insights). Text only:
+#: it never loads the audio, and it is not held back by the processing window or the transcription
+#: rate-limit cooldown. Drained only while its AI capability flag is on.
+TRANSCRIPT_INSIGHTS = "TRANSCRIPT_INSIGHTS"
 QUEUED = "QUEUED"
 PROCESSING = "PROCESSING"
 COMPLETED = "COMPLETED"
@@ -197,8 +202,16 @@ async def process_next_media_jobs(
         (within_processing_window(app_settings) or _server_is_idle())
         and not _transcription_in_cooldown(now)
     )
+    held_back: list[str] = []
     if not allow_transcription:
-        where["jobType"] = {"not": TRANSCRIPTION}
+        held_back.append(TRANSCRIPTION)
+    if not transcript_insights.enabled():
+        # Switched off: leave queued insights jobs where they are rather than failing them.
+        held_back.append(TRANSCRIPT_INSIGHTS)
+    if len(held_back) == 1:
+        where["jobType"] = {"not": held_back[0]}
+    elif held_back:
+        where["jobType"] = {"not_in": held_back}
     jobs = await db.mediaprocessingjob.find_many(
         where=where,
         include={"mediaFile": True},
@@ -311,7 +324,10 @@ async def transcribe_media_now(media: Any, settings: Settings | None = None) -> 
                 job_data["requestedById"] = str(uploader_id)
             await db.mediaprocessingjob.create(data=job_data)
         return result
-    await db.mediafile.update(where={"id": media_id}, data=_transcript_write(result, status))
+    write = _transcript_write(result, status)
+    await db.mediafile.update(where={"id": media_id}, data=write)
+    if status == COMPLETED and write.get("transcriptText"):
+        await transcript_insights.enqueue_after_transcript(media_id)
     return result
 
 
@@ -383,8 +399,13 @@ async def _lock_job(job_id: str, worker_id: str) -> Any | None:
 
 async def _process_job(job: Any, settings: Settings) -> None:
     media = job.mediaFile
-    content = await asyncio.to_thread(get_object_bytes, media.objectKey)
+    # Insights are text only: branch BEFORE the S3 fetch so a summary never pulls the audio into
+    # memory on a 1 GiB box.
+    if job.jobType == TRANSCRIPT_INSIGHTS:
+        await _process_insights_job(job, media)
+        return
     if job.jobType == TRANSCRIPTION:
+        content = await asyncio.to_thread(get_object_bytes, media.objectKey)
         result = await transcribe_audio_bytes(
             content,
             media.originalFilename or "recording.webm",
@@ -411,6 +432,7 @@ async def _process_job(job: Any, settings: Settings) -> None:
         await _apply_transcription_result(job, result)
         return
     if job.jobType == MEASUREMENT:
+        content = await asyncio.to_thread(get_object_bytes, media.objectKey)
         result = await analyze_measurement_image_bytes(
             content,
             media.originalFilename or "measurement.jpg",
@@ -437,10 +459,33 @@ async def _apply_transcription_result(job: Any, result: dict[str, Any]) -> None:
     )
     if status in {COMPLETED, "EMPTY"}:
         await _complete_job(job.id, result)
+        if status == COMPLETED and (result.get("formattedTranscript") or result.get("text")):
+            await transcript_insights.enqueue_after_transcript(job.mediaFileId)
     elif status == UNAVAILABLE:
         await _finalize_unavailable_job(job.id, result, message)
     else:
         raise JobFailure(message or "Transcription failed")
+
+
+async def _process_insights_job(job: Any, media: Any) -> None:
+    """Summary, quotes and translation for one transcript. The requester's own key when a person
+    asked (Regenerate); the deployment's key for automatic runs and the backfill."""
+    requested_by = getattr(job, "requestedById", None)
+    if requested_by is None:
+        # An automatic run never replaces a researcher's edits, even if they edited after it was
+        # queued.
+        current = await transcript_insights.current_insight(job.mediaFileId)
+        if current is not None and current.editedAt is not None:
+            await _complete_job(job.id, {"status": "SKIPPED", "reason": "edited"})
+            return
+    try:
+        outcome = await transcript_insights.generate(media, user_id=requested_by)
+    except transcript_insights.InsightsUnavailable as exc:
+        await _finalize_unavailable_job(job.id, {"status": UNAVAILABLE}, str(exc))
+        return
+    except transcript_insights.InsightsFailed as exc:
+        raise JobFailure(str(exc)) from None
+    await _complete_job(job.id, outcome)
 
 
 async def _apply_measurement_result(job: Any, result: dict[str, Any]) -> None:

@@ -114,6 +114,7 @@ back to `backend/.env` — the same file the rest of the backend uses. **All fla
 | `AI_BACKGROUND_REMOVAL_ENABLED` | `false` | Capability 2. Needs the master switch too. |
 | `AI_FOREGROUND_SEPARATION_ENABLED` | `false` | Capability 1. Needs the master switch too. |
 | `AI_IMAGE_VECTORISATION_ENABLED` | `false` | Capability 3. Needs the master switch too. |
+| `AI_TRANSCRIPT_INSIGHTS_ENABLED` | `false` | Interview summaries, quotes and translations (§10). Needs the master switch too. |
 
 Two levels because the master switch is what an incident responder flips: one variable stops the
 whole package without having to work out which of three features is misbehaving.
@@ -125,6 +126,7 @@ whole package without having to work out which of three features is misbehaving.
 | `AI_BACKGROUND_REMOVAL_PROVIDER` | `auto` | `auto`, `remove_bg`, `rembg_local` |
 | `AI_FOREGROUND_SEPARATION_PROVIDER` | `auto` | `auto`, `remove_bg`, `rembg_local` |
 | `AI_IMAGE_VECTORISATION_PROVIDER` | `auto` | `auto`, `vtracer_local`, `vectorizer_ai` |
+| `AI_TRANSCRIPT_INSIGHTS_PROVIDER` | `auto` | `auto`, `text_verbs` (the only one; the key is resolved per run, §10) |
 
 `auto` prefers **hosted for matting** (the box cannot host U2Net) and **local for vectorisation**
 (VTracer has no model and no per-image charge). An explicit id is never silently substituted: if
@@ -421,15 +423,82 @@ expect to spend ten minutes confirming it.
   cost consequences.
 - **No fields in `app/core/config.py`.** The package reads its own settings so that a strictly
   optional feature cannot break the file that must never fail to load. When these features are
-  turned on for real, the 23 names in `ai_features/settings.py::ENV_VARS` can be moved into
+  turned on for real, the 26 names in `ai_features/settings.py::ENV_VARS` can be moved into
   `Settings` verbatim — the aliases are already the variable names — and `get_ai_settings()`
   changed to read from it. Every other module in the package goes through that one function, so it
   is a one-file change.
-- **No entry in `backend/.env.example`.** This document is the reference until somebody enables a
-  capability; adding twenty-three commented-out variables to the template would suggest they are
-  expected.
+- **No entry in `backend/.env.example` for the image capabilities.** This document is the reference
+  until somebody enables one. The three transcript-insights switches (§10) are there, commented out,
+  because they are on the launch list (D7).
 - **No local `potrace` provider.** It is the better tool for pure black-and-white line art, but it
   is an external binary rather than a wheel, and VTracer's `binary` colormode covers the block-print
   case adequately. If the tracing quality on real motifs turns out not to be good enough, potrace
   is the next provider to add: implement the interface in `providers/base.py`, add a descriptor to
   `registry.py`, keep every import inside the method.
+
+---
+
+## 10. Interview summaries, key quotes and translations
+
+**Status: built, switched off (launch list D7, which waits on D2, the transcription quota).**
+
+For every transcript, the queue writes a five-line English summary, up to five key quotes (the
+speaker's own words and their English) and, when the transcript is not in English, an English
+translation of the whole of it. Researchers see it under the transcript on the web and in the app;
+the uploader or an admin can edit it or regenerate it on the web. The app is read-only.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `AI_TRANSCRIPT_INSIGHTS_ENABLED` | `false` | On only together with `AI_FEATURES_ENABLED`. |
+| `AI_TRANSCRIPT_INSIGHTS_PROVIDER` | `auto` | `auto` or `text_verbs`. |
+| `AI_TRANSCRIPT_INSIGHTS_MAX_TRANSLATE_CHARS` | `96000` | Longest translation per run; past it the translation is PARTIAL and says how much was done. Below 4000 or unreadable falls back to the default with a probe note. |
+
+These are flags, not secrets. When they are switched on they go in the box `.env` **and** the
+deploy workflow's env.
+
+**How it runs.** Code: `backend/app/services/transcript_insights.py`. A `TRANSCRIPT_INSIGHTS` job is
+queued when a transcript lands (worker or "Transcribe now") and when a researcher replaces a
+transcript, unless the current summary was edited by a researcher; then nothing is queued and the
+summary is marked stale. The job never loads the audio and is not held back by the off-peak window
+or the transcription rate-limit cooldown. While the switches are off queued jobs stay queued. One
+summary call (task SUMMARISE, JSON reply), then translation in paragraph-bounded chunks of 12,000
+characters, one at a time (task TRANSLATE). A quote whose original words are not in the transcript
+is dropped.
+
+**Which key pays.** `user_ai_keys.resolve`: automatic runs and the backfill use the deployment's
+key; Regenerate uses the researcher's own key when they have one. About two calls per transcript.
+
+**What leaves the building.** The transcript text goes to OpenAI, Anthropic or Gemini, whichever key
+resolves. The Field Repository has no AI consent gate (the designer portal re-checks the artisan's
+consent before each send). Logs carry exception classes and ids, never text or keys.
+
+**Storage.** One `TranscriptInsight` row per run, with provider, model, model version and prompt
+version (`transcript-insights/1`). A regeneration keeps the old row with `supersededAt` set. An edit
+changes only the current row and stamps `editedAt` from the server; the machine output stays frozen
+in `generated`. See [DATA_MODEL.md](DATA_MODEL.md).
+
+**API.** Every route is 404 while the switches are off.
+
+| Route | Who | |
+|---|---|---|
+| `GET /api/media/{id}/insights` | any signed-in account | state, stale flag, the insight with its full translation |
+| `GET /api/media/insights?ids=a,b` | any signed-in account | up to 50 at once (422 past that), translation text left out |
+| `PATCH /api/media/{id}/insights` | uploader or admin | `{version, summaryLines?, quotes?, translationText?}`; 409 `VERSION_CONFLICT` |
+| `POST /api/media/{id}/insights/regenerate` | uploader or admin | `{discardEdits}`; 202; 409 `EDITS_WOULD_BE_REPLACED`; 422 with no transcript |
+
+**Backfill.** After switching on:
+
+```
+cd backend
+python -m scripts.backfill_transcript_insights                 # dry run: counts, characters, first 20 ids
+python -m scripts.backfill_transcript_insights --execute       # queue at priority 90
+```
+
+`--limit N`, `--media-id ID`, `--since YYYY-MM-DD` and `--include-stale` narrow it. `--execute`
+refuses (exit 2) while the switches are off. It only queues; the worker does the work, and re-running
+it queues nothing twice.
+
+**Tests.** `backend/tests/test_transcript_insights.py` (in-memory; runs everywhere) and
+`backend/tests/test_transcript_insights_db.py` (real Postgres, opt-in with
+`TRANSCRIPT_INSIGHTS_DB_TESTS=1`); `frontend/e2e/transcript-insights-unit.spec.ts`;
+`android/app/src/test/java/com/fieldrepository/app/data/TranscriptInsightsDtoTest.kt`.

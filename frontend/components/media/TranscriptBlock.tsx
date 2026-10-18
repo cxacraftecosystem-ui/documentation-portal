@@ -3,6 +3,7 @@
 import { Bot, Loader2, Pencil } from "lucide-react";
 
 import { Markdown } from "@/components/Markdown";
+import { TranscriptInsights } from "@/components/media/TranscriptInsights";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
 import { formatDateTime } from "@/lib/format";
 import type { MediaFile } from "@/lib/types";
@@ -109,6 +110,7 @@ export function TranscriptBlock({ media }: { media: MediaFile }) {
           </div>
           <Markdown text={media.transcriptText ?? ""} />
         </div>
+        {status === "COMPLETED" && media.id ? <TranscriptInsights mediaId={media.id} /> : null}
       </>
     );
   }

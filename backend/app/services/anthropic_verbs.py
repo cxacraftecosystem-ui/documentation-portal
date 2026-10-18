@@ -143,6 +143,9 @@ def chat_verb(
         # services/ai, which returns the same two keys for the same reason.
         "provider": "anthropic",
         "model": model,
+        # The model string the response reports, which can be a dated snapshot of ``model``.
+        # Transcript insights store it as ``modelVersion`` when it differs.
+        "responseModel": getattr(message, "model", None),
     }
 
 

@@ -124,14 +124,20 @@ def test_the_queue_does_not_clear_the_flag():
 
 def test_the_route_is_the_only_writer_of_the_stamps():
     """ONE WRITER, ASSERTED ACROSS THE WHOLE BACKEND. A second one would make the flag mean two
-    different things depending on which path set it, and the column carries no record of which."""
+    different things depending on which path set it, and the column carries no record of which.
+
+    A WRITE is the column as a data key (``"transcriptEditedAt":``). Reading it is allowed:
+    ``services/transcript_insights`` reads it to decide whether the raw text under a transcript still
+    describes it, and writes nothing."""
+    import re
     from pathlib import Path
 
     app_root = Path(__file__).resolve().parents[1] / "app"
+    write = re.compile(r"""["']transcriptEditedAt["']\s*:""")
     writers = sorted(
         path.relative_to(app_root).as_posix()
         for path in app_root.rglob("*.py")
-        if "transcriptEditedAt" in path.read_text(encoding="utf-8")
+        if write.search(path.read_text(encoding="utf-8"))
     )
 
     assert writers == ["api/routes/media.py"], writers

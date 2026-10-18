@@ -772,3 +772,46 @@ export const marketDemandOptions = ["LOW", "MEDIUM", "HIGH", "SEASONAL", "UNKNOW
 export const makerOptions = ["ARTISAN", "LOCAL_BLACKSMITH", "CARPENTER", "WORKSHOP", "FACTORY", "UNKNOWN", "OTHER"];
 export const traditionOptions = ["TRADITIONAL", "MODERN", "HYBRID", "UNKNOWN"];
 export const mediaTypes: MediaType[] = ["IMAGE", "VIDEO", "AUDIO", "PDF", "DOCUMENT", "OTHER"];
+
+/** One key quote: the speaker's own words and their English. */
+export type InsightQuote = {
+  original: string;
+  english: string;
+  speaker: string | null;
+};
+
+export type InsightTranslationStatus = "NOT_NEEDED" | "COMPLETED" | "PARTIAL" | "FAILED";
+
+/**
+ * A machine-written summary, key quotes and English translation of one transcript
+ * (`GET /media/{id}/insights`). `edited` is null until a researcher saves a change; it never names
+ * the editor, for the reason `EditedFlag` does not.
+ */
+export type TranscriptInsight = {
+  id: string;
+  version: number;
+  sourceLanguage: string | null;
+  summaryLines: string[];
+  quotes: InsightQuote[];
+  translation: { status: InsightTranslationStatus; text: string | null; note: string | null };
+  provenance: {
+    provider: string;
+    modelId: string;
+    modelVersion: string | null;
+    promptVersion: string;
+    generatedAt: string;
+  };
+  edited: { at: string } | null;
+};
+
+export type TranscriptInsightState = "READY" | "QUEUED" | "PROCESSING" | "FAILED" | "NO_TRANSCRIPT" | "NOT_GENERATED";
+
+export type TranscriptInsightView = {
+  mediaId: string;
+  state: TranscriptInsightState;
+  stale: boolean;
+  canEdit: boolean;
+  canRegenerate: boolean;
+  error: string | null;
+  insight: TranscriptInsight | null;
+};

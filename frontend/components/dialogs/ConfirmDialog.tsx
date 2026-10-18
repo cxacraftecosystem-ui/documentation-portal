@@ -171,6 +171,12 @@ export function useConfirm(): ConfirmFn {
   return context;
 }
 
+/** `useConfirm`, or undefined outside a `ConfirmProvider` (a component that is also drawn on a page
+ *  without one asks nothing rather than throwing). */
+export function useOptionalConfirm(): ConfirmFn | undefined {
+  return useContext(ConfirmContext);
+}
+
 /** Shorthand for the commonest case: a red "delete this record" confirm. */
 export function deleteConfirm(title: string, body?: ReactNode, note?: ReactNode): ConfirmOptions {
   return { title, body, note, tone: "danger", confirmLabel: "Delete" };
