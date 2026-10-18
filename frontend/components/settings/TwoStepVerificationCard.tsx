@@ -25,6 +25,7 @@ import {
   type TwoFactorSetup,
   type TwoFactorStatus
 } from "@/lib/twoFactor";
+import { exportFilename } from "@/lib/naming";
 
 /**
  * Two-step verification for THIS account, as ONE switch (owner, 2026-10-17).
@@ -228,7 +229,8 @@ export function TwoStepVerificationCard() {
     const blob = new Blob([recoveryCodesFileText(codes, user?.email ?? "")], { type: "text/plain" });
     // Through the shared helper, which revokes the object URL a minute later rather than on the
     // next line (that race made Safari save nothing, silently). See lib/saveToDevice.ts.
-    saveBlobToDevice(blob, "field-repository-recovery-codes.txt");
+    // NAMING 2.1: FieldRepository_Account_2026-10-18_Recovery-Codes.txt — never the e-mail address.
+    saveBlobToDevice(blob, exportFilename("Account", "Recovery-Codes", "txt"));
     setSaved(true);
   }
 

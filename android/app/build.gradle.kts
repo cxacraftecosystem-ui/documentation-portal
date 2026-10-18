@@ -453,6 +453,15 @@ dependencies {
     // Must equal the version in core-pipeline/build.gradle.kts — see settings.gradle.kts.
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
 
+    /**
+     * The `anyascii` table, for `data/Naming.kt` (NAMING_2026-10-18): the same table the server
+     * (`anyascii` on PyPI) and the browser (`any-ascii` on npm) transliterate with, so a name in
+     * Devanagari or Bengali comes out of all three clients spelled the same way. ICU's Any-Latin
+     * spells it differently from the other two. The tables are Java resources inside the jar,
+     * which this build packages untouched because R8 is off (see above).
+     */
+    implementation("com.anyascii:anyascii:0.3.3")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // A JVM unit-test source set, for the rules that are too important to be verifiable only by

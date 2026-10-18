@@ -199,7 +199,7 @@ def test_the_pro_forma_downloads_as_a_workbook_with_a_filename_on_it(stub_db: _D
 
     assert response.status_code == 200, response.text
     assert response.headers["content-type"] == XLSX
-    assert 'filename="questionnaire-pro-forma.xlsx"' in response.headers["content-disposition"]
+    assert 'filename="FieldRepository_Questionnaire_Pro-Forma.xlsx"' in response.headers["content-disposition"]
     assert response.content.startswith(b"PK\x03\x04")
 
 

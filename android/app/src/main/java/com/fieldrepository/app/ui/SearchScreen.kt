@@ -55,6 +55,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import com.fieldrepository.app.data.occurrenceDate
+import com.fieldrepository.app.data.workshopDisplayTitle
 import com.fieldrepository.app.data.ArtisanDto
 import com.fieldrepository.app.data.CraftDto
 import com.fieldrepository.app.data.FieldRepository
@@ -672,7 +674,7 @@ private fun SearchResultsDto.toSearchBuckets(): List<SearchBucket> {
         SearchRow(
             recordType = SearchRecordTypes.WORKSHOP,
             id = item.id,
-            title = item.title.ifBlank { "Untitled workshop" },
+            title = workshopDisplayTitle(item.title, date = item.occurrenceDate(), place = item.place),
             subtitle = item.place,
             status = item.status,
             date = item.startDate ?: item.date

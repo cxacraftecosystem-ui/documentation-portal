@@ -7,6 +7,7 @@ import { LateSubmissionDialog } from "@/components/LateSubmissionDialog";
 import { ComboBox } from "@/components/ui/Dropdown";
 import { apiFetch, listResource } from "@/lib/api";
 import type { Workshop, WorkshopSubmissionCheck } from "@/lib/types";
+import { hasTypedTitle, workshopDisplayTitle } from "@/lib/workshopTitle";
 
 /**
  * The ONE workshop picker every record form mounts, above its craft / artisan / product dropdowns.
@@ -57,7 +58,9 @@ export function sortWorkshopsByOccurrence(workshops: Workshop[]): Workshop[] {
  * label, so the same workshop reads identically on both clients.
  */
 function workshopOptionLabel(workshop: Workshop): string {
-  const title = workshop.title?.trim() || "Untitled workshop";
+  // A blank title reads as its generated default (NAMING 2.4), which already carries the day.
+  if (!hasTypedTitle(workshop)) return workshopDisplayTitle(workshop);
+  const title = workshopDisplayTitle(workshop);
   // `formatWorkshopDay`, not `formatDate`: the occurrence date is a workshop DAY, and rendering the
   // stored instant in the browser's zone is what put a workshop's own label a day off its window —
   // the same one-day skew that printed "ended on 24 Sept" for a workshop whose last day is the 23rd.

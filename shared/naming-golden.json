@@ -1,0 +1,1019 @@
+{
+  "version": 1,
+  "about": "Golden table for the naming convention (docs/conventions/NAMING_2026-10-18.md). Byte-identical in designer-portal and documentation-portal. backend/app/services/naming.py, frontend/lib/naming.ts and android data/Naming.kt must reproduce every row. Dates are ISO strings; a datetime is converted to IST. Change an expected value only together with all three implementations, in both repositories.",
+  "limits": {
+    "fileName": 150,
+    "title": 120,
+    "subjectFloor": 40
+  },
+  "fileNames": [
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Interview",
+        "date": "2026-07-01T18:24:00+05:30",
+        "time": true,
+        "place": "Bagru-Jaipur",
+        "craft": "Hand Block Printing",
+        "subject": "Giriraj Prasad Chhipa",
+        "what": "Recording",
+        "sequence": "D-Q03",
+        "ext": "m4a"
+      },
+      "name": "DesignWorkshop_Interview_2026-07-01_1824_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Recording_D-Q03.m4a"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Interview",
+        "date": "2026-07-01T12:54:00Z",
+        "time": true,
+        "place": "Bagru-Jaipur",
+        "craft": "Hand Block Printing",
+        "subject": "Giriraj Prasad Chhipa",
+        "what": "Recording",
+        "sequence": "D-Q03-T2",
+        "ext": "m4a"
+      },
+      "name": "DesignWorkshop_Interview_2026-07-01_1824_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Recording_D-Q03-T2.m4a"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Interview",
+        "date": "2026-07-01T18:24:00+05:30",
+        "time": true,
+        "place": "Bagru-Jaipur",
+        "craft": "Hand Block Printing",
+        "subject": "Giriraj Prasad Chhipa",
+        "what": "Recording",
+        "sequence": "D-All",
+        "ext": "m4a"
+      },
+      "name": "DesignWorkshop_Interview_2026-07-01_1824_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Recording_D-All.m4a"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Group-Interview",
+        "date": "2026-07-01T18:24:00+05:30",
+        "time": true,
+        "place": "Bagru-Jaipur",
+        "craft": "Hand Block Printing",
+        "subject": "6 Artisans",
+        "what": "Recording",
+        "sequence": "B-Q01",
+        "ext": "m4a"
+      },
+      "name": "DesignWorkshop_Group-Interview_2026-07-01_1824_Bagru-Jaipur_Hand-Block-Printing_6-Artisans_Recording_B-Q01.m4a"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Interview",
+        "date": "2026-07-01T18:24:00+05:30",
+        "time": true,
+        "place": "Bagru-Jaipur",
+        "craft": "Hand Block Printing",
+        "subject": "Giriraj Prasad Chhipa",
+        "what": "Transcript",
+        "sequence": "D-Q03",
+        "ext": "md"
+      },
+      "name": "DesignWorkshop_Interview_2026-07-01_1824_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Transcript_D-Q03.md"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Interview",
+        "date": "2026-07-01T18:24:00+05:30",
+        "time": true,
+        "place": "Bagru-Jaipur",
+        "craft": "Hand Block Printing",
+        "subject": "Giriraj Prasad Chhipa",
+        "what": "Subtitles-With-Speakers",
+        "sequence": "D-Q03",
+        "ext": "vtt"
+      },
+      "name": "DesignWorkshop_Interview_2026-07-01_1824_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Subtitles-With-Speakers_D-Q03.vtt"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Interview",
+        "date": "2026-07-01T18:24:00+05:30",
+        "time": true,
+        "place": "Bagru-Jaipur",
+        "craft": "Hand Block Printing",
+        "subject": "Giriraj Prasad Chhipa",
+        "what": "Recording",
+        "sequence": "D-Q03",
+        "ext": ".MP4"
+      },
+      "name": "DesignWorkshop_Interview_2026-07-01_1824_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Recording_D-Q03.mp4"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Product",
+        "date": "2026-06-22T10:43:00+05:30",
+        "time": true,
+        "place": "Bagru-Jaipur",
+        "craft": "Hand Block Printing",
+        "subject": "Indigo Dabu Saree",
+        "what": "Photo",
+        "sequence": "03",
+        "ext": "jpg"
+      },
+      "name": "DesignWorkshop_Product_2026-06-22_1043_Bagru-Jaipur_Hand-Block-Printing_Indigo-Dabu-Saree_Photo_03.jpg"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Tool",
+        "date": "2026-06-19T10:17:00+05:30",
+        "time": true,
+        "place": "Bagru-Jaipur",
+        "craft": "Hand Block Printing",
+        "subject": "tray attachment",
+        "what": "Grid-Measurement-Height",
+        "sequence": "01",
+        "ext": "jpg"
+      },
+      "name": "DesignWorkshop_Tool_2026-06-19_1017_Bagru-Jaipur_Hand-Block-Printing_Tray-Attachment_Grid-Measurement-Height_01.jpg"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Process",
+        "date": "2026-06-23T15:19:00+05:30",
+        "time": true,
+        "place": "Majuli",
+        "craft": "Bamboo Weaving",
+        "subject": "preparation of bamboo",
+        "what": "Step-4-Video",
+        "sequence": "01",
+        "ext": "mp4"
+      },
+      "name": "DesignWorkshop_Process_2026-06-23_1519_Majuli_Bamboo-Weaving_Preparation-Of-Bamboo_Step-4-Video_01.mp4"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Artisan",
+        "date": "2026-10-18",
+        "place": "Bagru-Jaipur",
+        "craft": "Hand Block Printing",
+        "subject": "Giriraj Prasad Chhipa",
+        "what": "Identity-Card",
+        "ext": "jpg"
+      },
+      "name": "DesignWorkshop_Artisan_2026-10-18_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Identity-Card.jpg"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Workshop",
+        "date": "2026-10-18",
+        "place": "Bagru-Jaipur",
+        "craft": "Hand Block Printing",
+        "subject": "DW-RJ-0012",
+        "what": "Report",
+        "ext": "pdf"
+      },
+      "name": "DesignWorkshop_Workshop_2026-10-18_Bagru-Jaipur_Hand-Block-Printing_DW-RJ-0012_Report.pdf"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Workshop",
+        "date": "2026-10-18",
+        "place": "Bagru-Jaipur",
+        "craft": "Hand Block Printing",
+        "subject": "DW:RJ:0012",
+        "what": "Artisan-Cards",
+        "ext": "pdf"
+      },
+      "name": "DesignWorkshop_Workshop_2026-10-18_Bagru-Jaipur_Hand-Block-Printing_DW-RJ-0012_Artisan-Cards.pdf"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Workshop",
+        "subject": "DW-RJ-0012-A3",
+        "what": "Record-Code",
+        "ext": "png"
+      },
+      "name": "DesignWorkshop_Workshop_DW-RJ-0012-A3_Record-Code.png"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Dataset",
+        "date": "2026-10-18",
+        "place": "Rajasthan",
+        "what": "Report",
+        "ext": "xlsx"
+      },
+      "name": "DesignWorkshop_Dataset_2026-10-18_Rajasthan_Report.xlsx"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Dataset",
+        "date": "2026-10-18",
+        "place": "Bagru-Jaipur",
+        "what": "Export",
+        "ext": "zip"
+      },
+      "name": "DesignWorkshop_Dataset_2026-10-18_Bagru-Jaipur_Export.zip"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Dataset",
+        "date": "2026-10-18",
+        "subject": "All Records",
+        "what": "Export",
+        "ext": "zip"
+      },
+      "name": "DesignWorkshop_Dataset_2026-10-18_All-Records_Export.zip"
+    },
+    {
+      "input": {
+        "portal": "FieldRepository",
+        "entity": "Dataset",
+        "date": "2026-10-18T14:30:05+05:30",
+        "time": true,
+        "place": "Bagru-Jaipur",
+        "what": "Export",
+        "ext": "zip"
+      },
+      "name": "FieldRepository_Dataset_2026-10-18_1430_Bagru-Jaipur_Export.zip"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Shared-Data",
+        "date": "2026-10-18",
+        "subject": "Ravi_Kumar",
+        "what": "Export",
+        "ext": "zip"
+      },
+      "name": "DesignWorkshop_Shared-Data_2026-10-18_Ravi-Kumar_Export.zip"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Product",
+        "date": "2026-10-18",
+        "what": "Export",
+        "ext": "csv"
+      },
+      "name": "DesignWorkshop_Product_2026-10-18_Export.csv"
+    },
+    {
+      "input": {
+        "portal": "FieldRepository",
+        "entity": "Artisan",
+        "date": "2026-10-18",
+        "what": "Export",
+        "ext": "csv"
+      },
+      "name": "FieldRepository_Artisan_2026-10-18_Export.csv"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Ministry",
+        "date": "2026-10-18",
+        "subject": "Design Prototype Workshops",
+        "what": "Export",
+        "ext": "csv"
+      },
+      "name": "DesignWorkshop_Ministry_2026-10-18_Design-Prototype-Workshops_Export.csv"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Questionnaire",
+        "date": "2026-10-18",
+        "subject": "giriraj prasad chhipa",
+        "what": "Export",
+        "ext": "csv"
+      },
+      "name": "DesignWorkshop_Questionnaire_2026-10-18_Giriraj-Prasad-Chhipa_Export.csv"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Questionnaire",
+        "date": "2026-10-18",
+        "subject": "Craft Survey 2026",
+        "what": "Export",
+        "ext": "xlsx"
+      },
+      "name": "DesignWorkshop_Questionnaire_2026-10-18_Craft-Survey-2026_Export.xlsx"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Questionnaire",
+        "date": "2026-10-18",
+        "subject": "Craft Survey 2026",
+        "what": "Questions",
+        "ext": "xlsx"
+      },
+      "name": "DesignWorkshop_Questionnaire_2026-10-18_Craft-Survey-2026_Questions.xlsx"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Annual-Plan",
+        "what": "Pro-Forma",
+        "ext": "xlsx"
+      },
+      "name": "DesignWorkshop_Annual-Plan_Pro-Forma.xlsx"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Artisan",
+        "what": "Pro-Forma",
+        "ext": "xlsx"
+      },
+      "name": "DesignWorkshop_Artisan_Pro-Forma.xlsx"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Sanction-Orders",
+        "what": "Pro-Forma",
+        "ext": "xlsx"
+      },
+      "name": "DesignWorkshop_Sanction-Orders_Pro-Forma.xlsx"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Annual-Plan",
+        "period": "FY2026-27",
+        "date": "2026-10-18",
+        "what": "Export",
+        "ext": "xlsx"
+      },
+      "name": "DesignWorkshop_Annual-Plan_FY2026-27_Export.xlsx"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Workshop",
+        "date": "2026-10-18",
+        "subject": "DW-RJ-0012",
+        "what": "Artisan-List",
+        "ext": "xlsx"
+      },
+      "name": "DesignWorkshop_Workshop_2026-10-18_DW-RJ-0012_Artisan-List.xlsx"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Account",
+        "date": "2026-10-18",
+        "what": "Recovery-Codes",
+        "ext": "txt"
+      },
+      "name": "DesignWorkshop_Account_2026-10-18_Recovery-Codes.txt"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Database",
+        "date": "2026-10-18",
+        "what": "Backup",
+        "ext": "sql.gz"
+      },
+      "name": "DesignWorkshop_Database_2026-10-18_Backup.sql.gz"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Android-App",
+        "what": "Release-Build",
+        "sequence": "v1.1.17",
+        "ext": "apk"
+      },
+      "name": "DesignWorkshop_Android-App_Release-Build_v1.1.17.apk"
+    },
+    {
+      "input": {
+        "portal": "FieldRepository",
+        "entity": "Android-App",
+        "what": "Release-Build",
+        "sequence": "v0.0.13",
+        "ext": "apk"
+      },
+      "name": "FieldRepository_Android-App_Release-Build_v0.0.13.apk"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Android-App",
+        "what": "Debug-Build",
+        "sequence": "v1.1.17",
+        "ext": "apk"
+      },
+      "name": "DesignWorkshop_Android-App_Debug-Build_v1.1.17.apk"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Interview",
+        "date": "2026-07-01T18:24:00+05:30",
+        "time": true,
+        "place": "Bagru-Jaipur",
+        "craft": "Hand Block Printing",
+        "subject": "Giriraj Prasad Chhipa",
+        "what": "Recording",
+        "sequence": "D-Q03",
+        "n": 2,
+        "ext": "m4a"
+      },
+      "name": "DesignWorkshop_Interview_2026-07-01_1824_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Recording_D-Q03_2.m4a"
+    },
+    {
+      "input": {
+        "portal": "FieldRepository",
+        "entity": "Interview",
+        "date": "2026-06-24T09:10:00+05:30",
+        "time": false,
+        "place": "Kolkata",
+        "craft": "Terracotta",
+        "subject": "Giriraj Das",
+        "what": "Recording",
+        "sequence": "F-Q07",
+        "ext": "m4a"
+      },
+      "name": "FieldRepository_Interview_2026-06-24_Kolkata_Terracotta_Giriraj-Das_Recording_F-Q07.m4a"
+    },
+    {
+      "input": {
+        "portal": "FieldRepository",
+        "entity": "Group-Interview",
+        "date": "2026-07-01",
+        "place": "Bagru-Jaipur",
+        "craft": "Hand Block Printing",
+        "subject": "6 Artisans",
+        "what": "Recordings",
+        "ext": "zip"
+      },
+      "name": "FieldRepository_Group-Interview_2026-07-01_Bagru-Jaipur_Hand-Block-Printing_6-Artisans_Recordings.zip"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Interview",
+        "date": "2026-07-01T18:24:00+05:30",
+        "time": true,
+        "place": "Bagru-Jaipur",
+        "subject": "गिरिराज प्रसाद",
+        "what": "Recording",
+        "ext": "m4a"
+      },
+      "name": "DesignWorkshop_Interview_2026-07-01_1824_Bagru-Jaipur_Giriraj-Prasad_Recording.m4a"
+    },
+    {
+      "input": {
+        "portal": "FieldRepository",
+        "entity": "Artisan",
+        "date": "2026-10-18",
+        "place": "বাঁকুড়া",
+        "craft": "ডোকরা",
+        "subject": "রবি কুমার",
+        "what": "Photo",
+        "sequence": "01",
+        "ext": "JPEG"
+      },
+      "name": "FieldRepository_Artisan_2026-10-18_Bankura_Dokara_Rabi-Kumar_Photo_01.jpeg"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Product",
+        "date": "2026-10-18",
+        "subject": "Saree · Indigo & Dabu (v2), final: OK?",
+        "what": "Photo",
+        "ext": "jpg"
+      },
+      "name": "DesignWorkshop_Product_2026-10-18_Saree-Indigo-Dabu-v2-Final-OK_Photo.jpg"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Interview",
+        "subject": "  ",
+        "craft": null,
+        "what": "Recording",
+        "ext": "m4a"
+      },
+      "name": "DesignWorkshop_Interview_Recording.m4a"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Group-Interview",
+        "date": "2026-07-01T18:24:00+05:30",
+        "time": true,
+        "place": "Shivrampur Kalan Bhagwanpura Jaipur Rural",
+        "craft": "Hand Block Printing And Natural Dye Resist Dabu Work",
+        "subject": "Giriraj Prasad Chhipa Ramesh Kumar Chhipa Suresh Chandra Chhipa And Others",
+        "what": "Subtitles-With-Speakers",
+        "sequence": "D-Q03-T2",
+        "n": 3,
+        "ext": "vtt"
+      },
+      "name": "DesignWorkshop_Group-Interview_2026-07-01_1824_Shivrampur-Kalan-Bhagwanpura_Giriraj-Prasad-Chhipa-Ramesh-Kumar_Subtitles-With-Speakers_D-Q03-T2_3.vtt"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Interview",
+        "date": "2026-07-01",
+        "place": "Bagru-Jaipur",
+        "subject": "Giriraj Prasad Chhipa Ramesh Kumar Chhipa Suresh Chandra Chhipa Mahesh Kumar Chhipa Lalit",
+        "what": "Recording",
+        "ext": "m4a"
+      },
+      "name": "DesignWorkshop_Interview_2026-07-01_Bagru-Jaipur_Giriraj-Prasad-Chhipa-Ramesh-Kumar-Chhipa-Suresh-Chandra-Chhipa-Mahesh-Kumar-Chhipa_Recording.m4a"
+    }
+  ],
+  "titles": [
+    {
+      "input": {
+        "participants": [
+          "Giriraj Prasad Chhipa"
+        ],
+        "date": "2026-07-01",
+        "place": "Bagru-Jaipur",
+        "craft": "Hand Block Printing"
+      },
+      "title": "Interview_2026-07-01_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa"
+    },
+    {
+      "input": {
+        "participantCount": 6,
+        "date": "2026-07-01",
+        "place": "Bagru-Jaipur",
+        "craft": "Hand Block Printing"
+      },
+      "title": "Group-Interview_2026-07-01_Bagru-Jaipur_Hand-Block-Printing_6-Artisans"
+    },
+    {
+      "input": {
+        "participants": [
+          "A",
+          "B"
+        ],
+        "date": "2026-07-07",
+        "place": "Kolkata",
+        "craft": "Terracotta"
+      },
+      "title": "Group-Interview_2026-07-07_Kolkata_Terracotta_2-Artisans"
+    },
+    {
+      "input": {
+        "participants": [
+          "Giriraj Prasad Chhipa"
+        ],
+        "date": "2026-10-18"
+      },
+      "title": "Interview_2026-10-18_Giriraj-Prasad-Chhipa"
+    },
+    {
+      "input": {
+        "participants": [
+          "A",
+          "B",
+          "C"
+        ],
+        "date": "2026-09-16",
+        "place": "Bankura"
+      },
+      "title": "Group-Interview_2026-09-16_Bankura_3-Artisans"
+    },
+    {
+      "input": {
+        "participants": [],
+        "date": "2026-09-23",
+        "place": "Bankura",
+        "craft": "Dokra"
+      },
+      "title": "Interview_2026-09-23_Bankura_Dokra"
+    },
+    {
+      "input": {
+        "participants": [
+          "गिरिराज प्रसाद"
+        ],
+        "date": "2026-07-01",
+        "place": "Bagru-Jaipur",
+        "craft": "Hand Block Printing"
+      },
+      "title": "Interview_2026-07-01_Bagru-Jaipur_Hand-Block-Printing_गिरिराज-प्रसाद"
+    },
+    {
+      "input": {
+        "participants": [
+          {
+            "name": "गिरिराज प्रसाद",
+            "romanisedName": "Giriraj Prasad"
+          }
+        ],
+        "date": "2026-07-01",
+        "place": "Bagru-Jaipur",
+        "craft": "Hand Block Printing"
+      },
+      "title": "Interview_2026-07-01_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad"
+    },
+    {
+      "input": {
+        "participants": [
+          "Giriraj Prasad Chhipa"
+        ],
+        "date": null,
+        "place": "Bagru-Jaipur",
+        "craft": "Hand Block Printing"
+      },
+      "title": "Interview_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa"
+    },
+    {
+      "input": {
+        "entity": "Workshop",
+        "subject": "DW-RJ-0012",
+        "date": "2026-06-18",
+        "place": "Bagru-Jaipur",
+        "craft": "Hand Block Printing"
+      },
+      "title": "Workshop_2026-06-18_Bagru-Jaipur_Hand-Block-Printing_DW-RJ-0012"
+    },
+    {
+      "input": {
+        "participants": [
+          "Giriraj"
+        ],
+        "date": "2026-07-01T20:00:00Z",
+        "place": "Bagru-Jaipur"
+      },
+      "title": "Interview_2026-07-02_Bagru-Jaipur_Giriraj"
+    },
+    {
+      "input": {
+        "participants": [
+          "Giriraj Prasad Chhipa Ramesh Kumar Chhipa Suresh Chandra Chhipa Mahesh"
+        ],
+        "date": "2026-07-01",
+        "place": "Shivrampur Kalan Bhagwanpura Jaipur Rural",
+        "craft": "Hand Block Printing And Natural Dye Resist Dabu Work"
+      },
+      "title": "Interview_2026-07-01_Shivrampur-Kalan-Bhagwanpura-Jaipur-Rural_Hand-Block-Printing_Giriraj-Prasad-Chhipa-Ramesh-Kumar"
+    }
+  ],
+  "transliteration": [
+    {
+      "input": "गिरिराज प्रसाद",
+      "field": "Giriraj-Prasad"
+    },
+    {
+      "input": "गिरीराज प्रसाद छीपा",
+      "field": "Giriraj-Prasad-Chipa"
+    },
+    {
+      "input": "রবি কুমার",
+      "field": "Rabi-Kumar"
+    },
+    {
+      "input": "বাঁকুড়া",
+      "field": "Bankura"
+    },
+    {
+      "input": "শান্তিনিকেতন",
+      "field": "Santiniketan"
+    },
+    {
+      "input": "ৰাম",
+      "field": "Ram"
+    },
+    {
+      "input": "ಕನ್ನಡ",
+      "field": "Kannada"
+    },
+    {
+      "input": "ગુજરાત",
+      "field": "Gujarat"
+    },
+    {
+      "input": "ਸਿੰਘ",
+      "field": "Singh"
+    },
+    {
+      "input": "ଓଡ଼ିଆ",
+      "field": "Oria"
+    },
+    {
+      "input": "ராஜா",
+      "field": "Raja"
+    },
+    {
+      "input": "मोहम्मद",
+      "field": "Mohammad"
+    },
+    {
+      "input": "हं",
+      "field": "Han"
+    },
+    {
+      "input": "Crème brûlée",
+      "field": "Creme-Brulee"
+    },
+    {
+      "input": "Ñandú",
+      "field": "Nandu"
+    },
+    {
+      "input": "Øresund",
+      "field": "Oresund"
+    },
+    {
+      "input": "D'Souza",
+      "field": "DSouza"
+    }
+  ],
+  "fields": [
+    {
+      "input": "hand block printing",
+      "field": "Hand-Block-Printing"
+    },
+    {
+      "input": "GIRIRAJ PRASAD",
+      "field": "Giriraj-Prasad"
+    },
+    {
+      "input": "SHG cluster",
+      "field": "SHG-Cluster"
+    },
+    {
+      "input": "DW:RJ:0012",
+      "field": "DW-RJ-0012"
+    },
+    {
+      "input": "McDonald's",
+      "field": "McDonalds"
+    },
+    {
+      "input": "  ",
+      "field": ""
+    },
+    {
+      "input": "Cane, Bamboo & Block-Printing",
+      "field": "Cane-Bamboo-Block-Printing"
+    },
+    {
+      "input": "6 artisans",
+      "field": "6-Artisans"
+    },
+    {
+      "input": "2nd Toolkit Workshop",
+      "field": "2nd-Toolkit-Workshop"
+    }
+  ],
+  "places": [
+    {
+      "input": {
+        "locality": "Bagru",
+        "district": "Jaipur",
+        "state": "Rajasthan"
+      },
+      "place": "Bagru-Jaipur"
+    },
+    {
+      "input": {
+        "district": "Jaipur",
+        "state": "Rajasthan"
+      },
+      "place": "Jaipur"
+    },
+    {
+      "input": {
+        "locality": "Bagru",
+        "state": "Rajasthan"
+      },
+      "place": "Rajasthan"
+    },
+    {
+      "input": {
+        "locality": "Jaipur",
+        "district": "jaipur"
+      },
+      "place": "Jaipur"
+    },
+    {
+      "input": {},
+      "place": ""
+    },
+    {
+      "input": {
+        "locality": "Majuli",
+        "district": "माजुली"
+      },
+      "place": "Majuli"
+    }
+  ],
+  "sequences": [
+    {
+      "input": {
+        "section": "D",
+        "question": 3
+      },
+      "sequence": "D-Q03"
+    },
+    {
+      "input": {
+        "section": "d",
+        "question": 12,
+        "take": 2
+      },
+      "sequence": "D-Q12-T2"
+    },
+    {
+      "input": {
+        "section": "D",
+        "question": 3,
+        "part": 2
+      },
+      "sequence": "D-Q03-P2"
+    },
+    {
+      "input": {
+        "section": "K",
+        "question": 1,
+        "take": 1
+      },
+      "sequence": "K-Q01"
+    },
+    {
+      "input": {
+        "section": "RESP",
+        "question": 4
+      },
+      "sequence": "RESP-Q04"
+    },
+    {
+      "input": {
+        "section": "D",
+        "question": null
+      },
+      "sequence": ""
+    },
+    {
+      "input": {
+        "section": "d"
+      },
+      "sequence": "D-All"
+    }
+  ],
+  "asciiLeaves": [
+    {
+      "input": "गिरिराज.jpg",
+      "leaf": "giriraj.jpg"
+    },
+    {
+      "input": "con.txt",
+      "leaf": "con-File.txt"
+    },
+    {
+      "input": "../x/IMG 0001 (1).JPG",
+      "leaf": "IMG-0001-1.jpg"
+    },
+    {
+      "input": "",
+      "leaf": "File"
+    },
+    {
+      "input": "....",
+      "leaf": "File"
+    },
+    {
+      "input": "D_SEC_GIRIRAJ_001046_010720261824.wav",
+      "leaf": "D_SEC_GIRIRAJ_001046_010720261824.wav"
+    },
+    {
+      "input": "Saree · Indigo.final.png",
+      "leaf": "Saree-Indigo.final.png"
+    },
+    {
+      "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.m4a",
+      "leaf": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.m4a"
+    },
+    {
+      "input": "backup.sql.gz",
+      "leaf": "backup.sql.gz"
+    }
+  ],
+  "workshops": [
+    {
+      "input": {
+        "workshop": {
+          "workshopCode": "DW-RJ-0012",
+          "title": "Bagru block print",
+          "clusterName": "Bagru",
+          "district": "Jaipur",
+          "state": "Rajasthan",
+          "craftName": "Hand Block Printing"
+        },
+        "what": "Report",
+        "ext": "pdf",
+        "at": "2026-10-18"
+      },
+      "name": "DesignWorkshop_Workshop_2026-10-18_Bagru-Jaipur_Hand-Block-Printing_DW-RJ-0012_Report.pdf"
+    },
+    {
+      "input": {
+        "workshop": {
+          "workshopCode": "DW-RJ-0012",
+          "title": "Bagru block print",
+          "clusterName": "Bagru",
+          "district": "Jaipur",
+          "state": "Rajasthan",
+          "craftName": "Hand Block Printing"
+        },
+        "what": "Report",
+        "ext": "docx",
+        "at": "2026-10-18T20:00:00Z"
+      },
+      "name": "DesignWorkshop_Workshop_2026-10-19_Bagru-Jaipur_Hand-Block-Printing_DW-RJ-0012_Report.docx"
+    },
+    {
+      "input": {
+        "workshop": {
+          "workshopCode": "DW-RJ-0012",
+          "title": "Bagru block print",
+          "clusterName": "Bagru",
+          "district": "Jaipur",
+          "state": "Rajasthan",
+          "craftName": "Hand Block Printing"
+        },
+        "what": "Artisan-Cards",
+        "ext": "pdf",
+        "at": "2026-10-18"
+      },
+      "name": "DesignWorkshop_Workshop_2026-10-18_Bagru-Jaipur_Hand-Block-Printing_DW-RJ-0012_Artisan-Cards.pdf"
+    },
+    {
+      "input": {
+        "workshop": {
+          "title": "ସମ୍ବଲପୁରୀ ଇକତ କର୍ମଶାଳା",
+          "district": "Bargarh",
+          "state": "Odisha"
+        },
+        "what": "Report",
+        "ext": "pdf",
+        "at": "2026-10-18"
+      },
+      "name": "DesignWorkshop_Workshop_2026-10-18_Bargarh_Sambalapuri-Ikata-Karmasala_Report.pdf"
+    },
+    {
+      "input": {
+        "workshop": {
+          "workshopCode": "DW-RJ-0012",
+          "state": "Rajasthan"
+        },
+        "what": "Artisan-List",
+        "ext": "xlsx",
+        "at": "2026-10-18"
+      },
+      "name": "DesignWorkshop_Workshop_2026-10-18_Rajasthan_DW-RJ-0012_Artisan-List.xlsx"
+    }
+  ],
+  "dedupe": [
+    {
+      "input": [
+        "a_X.m4a",
+        "A_x.m4a",
+        "a_X.m4a",
+        "b.sql.gz",
+        "b.sql.gz",
+        "c",
+        "c"
+      ],
+      "names": [
+        "a_X.m4a",
+        "A_x_2.m4a",
+        "a_X_3.m4a",
+        "b.sql.gz",
+        "b_2.sql.gz",
+        "c",
+        "c_2"
+      ]
+    }
+  ]
+}

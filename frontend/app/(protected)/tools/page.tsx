@@ -27,6 +27,7 @@ import { apiFetch, listResource } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import type { PageResult, ToolDocumentation } from "@/lib/types";
 import { RecordStatusFilter, statusFilterParam } from "@/components/review/RecordStatusFilter";
+import { exportFilename } from "@/lib/naming";
 
 export default function ToolsPage() {
   const { user } = useAuth();
@@ -148,7 +149,7 @@ export default function ToolsPage() {
         icon={<Hammer className="h-5 w-5" aria-hidden />}
         actions={
           <>
-            {canDownloadDataset(user) ? <DownloadCsvButton path="/export/tools.csv?status=APPROVED" filename="tools-approved.csv" label="Export approved CSV" /> : null}
+            {canDownloadDataset(user) ? <DownloadCsvButton path="/export/tools.csv?status=APPROVED" filename={exportFilename("Tool", "Export", "csv", { subject: "Approved" })} label="Export approved CSV" /> : null}
             {/* Gated, not merely locked: an ungated "New …" invited every tier to press a
                 button that lands on the route guard's refusal. Below researcher the honest UI is
                 no button, matching `require_record_creator` on the server. */}

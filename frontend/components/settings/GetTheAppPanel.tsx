@@ -83,7 +83,8 @@ export function GetTheAppPanel() {
         <div className="grid gap-2">
           <div className="flex flex-wrap items-center gap-3">
             {/* No `download` attribute: it is ignored on a cross-origin link, and the API already
-                sends the filename — field-repository-v<version>.apk — in Content-Disposition. */}
+                sends the filename — FieldRepository_Android-App_Release-Build_v<version>.apk — in
+                Content-Disposition (app_release._download_filename, NAMING 2.1). */}
             <a className="field-button" href={DOWNLOAD_URL}>
               <Download className="h-4 w-4" aria-hidden />
               Download the APK

@@ -16,6 +16,7 @@
 
 import { API_BASE, ApiError, apiFetch, assertApiConfigured, describeApiDetail } from "@/lib/api";
 import { saveBlobToDevice } from "@/lib/saveToDevice";
+import { exportFilename } from "@/lib/naming";
 
 export type QWorkbookProblem = {
   sheet: string | null;
@@ -119,7 +120,7 @@ async function fetchWorkbook(path: string, fallbackName: string): Promise<QWorkb
   };
 }
 
-function fileNameFromDisposition(header: string | null): string | null {
+export function fileNameFromDisposition(header: string | null): string | null {
   if (!header) return null;
   const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(header);
   if (!match) return null;
@@ -134,7 +135,7 @@ function fileNameFromDisposition(header: string | null): string | null {
 
 /** The blank workbook the questionnaire is typed into. */
 export function downloadProForma() {
-  return fetchWorkbook("/questionnaires/pro-forma", "questionnaire-pro-forma.xlsx");
+  return fetchWorkbook("/questionnaires/pro-forma", exportFilename("Questionnaire", "Pro-Forma", "xlsx", { dated: false }));
 }
 
 /**
@@ -145,7 +146,7 @@ export function downloadProForma() {
  * rather than to a fresh pro-forma when they want to change an existing instrument in Excel.
  */
 export function downloadQuestionnaireWorkbook(id: string) {
-  return fetchWorkbook(`/questionnaires/${id}/xlsx`, "questionnaire.xlsx");
+  return fetchWorkbook(`/questionnaires/${id}/xlsx`, exportFilename("Questionnaire", "Export", "xlsx"));
 }
 
 /**
@@ -157,7 +158,7 @@ export function downloadQuestionnaireWorkbook(id: string) {
  * live instrument.
  */
 export function downloadQuestionSet(id: string) {
-  return fetchWorkbook(`/questionnaires/${id}/question-set.xlsx`, "questionnaire-questions.xlsx");
+  return fetchWorkbook(`/questionnaires/${id}/question-set.xlsx`, exportFilename("Questionnaire", "Questions", "xlsx"));
 }
 
 /**

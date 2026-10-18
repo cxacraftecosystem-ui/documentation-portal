@@ -1,5 +1,6 @@
 package com.fieldrepository.app
 
+import com.fieldrepository.app.data.workshopDisplayTitle
 import com.fieldrepository.app.data.AnswerDrafts
 import com.fieldrepository.app.ui.AnswerDraftsCard
 import com.fieldrepository.app.ui.SharingConsentRow
@@ -5288,7 +5289,9 @@ private fun WorkshopDropdown(
 
 /** "Chanderi weaving · 2026-07-12" — the date it took place separates repeat visits to one place. */
 private fun workshopOptionLabel(workshop: WorkshopDetailDto): String {
-    val title = workshop.title.ifBlank { "Untitled workshop" }
+    // A blank title reads as its generated default (NAMING 2.4), which already carries the day.
+    if (workshop.title.isBlank()) return workshopDisplayTitle(null, date = workshop.occurrenceDate(), place = workshop.place)
+    val title = workshop.title
     val day = workshop.occurrenceDate().take(10)
     return if (day.isBlank()) title else "$title · $day"
 }
@@ -10201,7 +10204,7 @@ private suspend fun recordRowsPage(
             RecordRow(it.id, recordOptionLabel(it), "${it.toolkitName} ${it.artisanName} ${it.craftName}")
         }
         EntryMode.WORKSHOP -> repository.workshopsSearchPage(search, page).rows {
-            val title = it.title.ifBlank { "Untitled workshop" }
+            val title = workshopDisplayTitle(it.title, date = it.occurrenceDate(), place = it.place)
             RecordRow(it.id, title, "$title ${it.place.orEmpty()}")
         }
         EntryMode.MEDIA -> repository.mediaSearchPage(search, page).rows { m ->
@@ -10300,7 +10303,7 @@ private suspend fun loadMyActivity(repository: FieldRepository, userId: String):
     }
     collect("crafts", { repository.myCrafts(userId) }) { ActivityItem(EntryMode.CRAFT, it.id, it.name, "Craft", it.createdAt) }
     collect("workshops", { repository.myWorkshops(userId) }) {
-        ActivityItem(EntryMode.WORKSHOP, it.id, it.title.ifBlank { "Untitled workshop" }, "Workshop", it.createdAt)
+        ActivityItem(EntryMode.WORKSHOP, it.id, workshopDisplayTitle(it.title, date = it.occurrenceDate(), place = it.place), "Workshop", it.createdAt)
     }
     collect("interviews", { repository.myInterviews(userId) }) {
         ActivityItem(EntryMode.QUESTIONNAIRE, it.id, it.title.ifBlank { "Untitled interview" }, "Interview", it.createdAt)
@@ -11318,7 +11321,7 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
                     "tool" -> repository.tools().map { it.id to "${it.toolkitName} · ${it.artisanName}" }
                     "artisan" -> repository.artisans().map { it.id to it.name }
                     "craft" -> repository.crafts().map { it.id to it.name }
-                    "workshop" -> repository.workshops().map { it.id to it.title.ifBlank { "Untitled workshop" } }
+                    "workshop" -> repository.workshops().map { it.id to workshopDisplayTitle(it.title, date = it.occurrenceDate(), place = it.place) }
                     else -> emptyList()
                 }
             }.onSuccess { map[t] = it }

@@ -64,6 +64,8 @@ import { Toggle } from "@/components/ui/Toggle";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
 import { DATA_STATUS_OPTIONS, DEFAULT_DATA_STATUS, dataStatusLabel, statusQuery } from "@/lib/review";
+import { exportFilename } from "@/lib/naming";
+import { fileNameFromDisposition } from "@/components/questionnaires/workbookApi";
 
 // ---------------------------------------------------------------------------
 // Local types for the /data browsing endpoints
@@ -181,9 +183,8 @@ function mp4Path(path: string) {
   return `${path.replace(/\.[^./\\]+$/, "")}.mp4`;
 }
 
-function zipFilename(path: string) {
-  const base = path.split("/").filter(Boolean).pop() ?? "dataset";
-  return `${base.replace(/[^A-Za-z0-9._-]+/g, "_") || "dataset"}.zip`;
+function zipFilename(folderName: string) {
+  return exportFilename("Dataset", "Export", "zip", { subject: folderName });
 }
 
 /** Filename without its extension — used to pair a transcript with its media file. */
@@ -277,8 +278,12 @@ function pillTextColor(cssHex: string) {
   return (r * 299 + g * 587 + b * 114) / 1000 > 160 ? "#1e1b2e" : "#ffffff";
 }
 
-function reportFilename(folderName: string) {
-  return `${folderName.replace(/[^A-Za-z0-9._-]+/g, "_") || "dataset"}.xlsx`;
+/** The server names the workbook (NAMING 2.1); this is only the fallback when no header arrives. */
+function reportFilename(folderName: string, disposition: string | null) {
+  return (
+    fileNameFromDisposition(disposition) ??
+    exportFilename("Dataset", "Report", "xlsx", { subject: folderName === "Repository" ? "All Records" : folderName })
+  );
 }
 
 /**
@@ -363,7 +368,7 @@ function DataTablesPanel({
       const response = await fetch(`${API_BASE}/api/data/report${buildQuery({ path, format: "xlsx", status })}`);
       if (!response.ok) throw new Error("The report didn’t download. Try again.");
       const blob = await response.blob();
-      saveBlobToDevice(blob, reportFilename(folderName));
+      saveBlobToDevice(blob, reportFilename(folderName, response.headers.get("content-disposition")));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to download the report");
     } finally {
@@ -922,7 +927,9 @@ function BrowseByTypePanel() {
         );
       }
       const blob = await zip.generateAsync({ type: "blob" });
-      saveBlobToDevice(blob, "field-repository-dataset.zip");
+      // NAMING 2.1: FieldRepository_Dataset_2026-10-18_All-Records_Export.zip — dated, so a second
+      // download never collides with the first.
+      saveBlobToDevice(blob, exportFilename("Dataset", "Export", "zip", { subject: "All Records" }));
       // A capped export that presents itself as complete is the worst outcome here — the researcher
       // archives it and never learns what is missing — so the server's flag is always surfaced.
       const capNote = manifest.truncated
@@ -1596,7 +1603,10 @@ export default function DataBrowserPage() {
           phase: "zipping"
         });
       });
-      saveBlobToDevice(blob, zipFilename(selectedPath));
+      saveBlobToDevice(
+        blob,
+        zipFilename(treeByPath[selectedPath]?.crumbs?.at(-1)?.name ?? (selectedPath.split("/").filter(Boolean).pop() || "All Records"))
+      );
       setFailures(failed);
       const truncatedNote = manifest.truncated
         ? " Too many files — download subfolders for the rest."

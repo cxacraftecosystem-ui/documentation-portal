@@ -1305,7 +1305,7 @@ jobs:
           put_cfg="${RUNNER_TEMP}/curl-put.cfg"
           put_out="${RUNNER_TEMP}/put-response.txt"
 
-          code="$(jq -nc --arg name "field-repository-v${VERSION_NAME}.apk" --argjson size "$APK_BYTES" \
+          code="$(jq -nc --arg name "FieldRepository_Android-App_Release-Build_v${VERSION_NAME}.apk" --argjson size "$APK_BYTES" \
                 '{filename: $name,
                   mimeType: "application/vnd.android.package-archive",
                   mediaType: "DOCUMENT",
@@ -1883,7 +1883,7 @@ jobs:
           # `app-release.apk` is Gradle's name for its output and means nothing to somebody with it in
           # their downloads folder next to three others. The server sends the same shape in
           # Content-Disposition on GET /api/app/download.
-          mv apk/app-release.apk "apk/field-repository-v${{ needs.publish.outputs.version }}.apk"
+          mv apk/app-release.apk "apk/FieldRepository_Android-App_Release-Build_v${{ needs.publish.outputs.version }}.apk"
           ls -l apk/
 
       - name: Cut the Release, with the tag's own message as its body

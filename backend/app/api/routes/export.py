@@ -27,6 +27,7 @@ from app.services.access import owner_download_scope
 from app.services.csv_export import records_to_csv
 from app.services.record_fields import info_panel, info_text, interview_label
 from app.services.records import owned_or_granted_where
+from app.services import naming
 
 router = APIRouter(prefix="/export", tags=["export"])
 
@@ -43,7 +44,7 @@ def csv_response(filename: str, body: str) -> Response:
     return Response(
         content=body,
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": naming.content_disposition(filename)},
     )
 
 
@@ -472,7 +473,7 @@ async def export_products(
         order={"createdAt": "desc"},
     )
     body = records_to_csv("product", records, truncated=len(records) >= EXPORT_TAKE)
-    return csv_response("products.csv", body)
+    return csv_response(naming.export_filename("Product", "Export", "csv"), body)
 
 
 @router.get("/tools.csv")
@@ -488,4 +489,4 @@ async def export_tools(
         order={"createdAt": "desc"},
     )
     body = records_to_csv("tool", records, truncated=len(records) >= EXPORT_TAKE)
-    return csv_response("tools.csv", body)
+    return csv_response(naming.export_filename("Tool", "Export", "csv"), body)

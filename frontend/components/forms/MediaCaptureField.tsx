@@ -16,6 +16,7 @@ import {
 import { useEagerStaging } from "@/lib/uploads";
 import type { MediaType } from "@/lib/types";
 import { TraceFromCapture } from "@/components/trace/TraceFromCapture";
+import { recordingFilename } from "@/lib/naming";
 
 const imageAccept = "image/*,.jpg,.jpeg,.png,.gif,.webp,.heic,.heif,.tif,.tiff,.bmp,.avif";
 const audioAccept = "audio/*,.mp3,.wav,.m4a,.aac,.ogg,.oga,.opus,.webm,.flac,.amr";
@@ -138,7 +139,10 @@ export function MediaCaptureField({
     recorder.onstop = () => {
       const mimeType = recorder.mimeType || preferredType || "audio/webm";
       const blob = new Blob(chunksRef.current, { type: mimeType });
-      const file = new File([blob], `field-recording-${Date.now()}.${audioExtensionForMimeType(mimeType)}`, { type: mimeType });
+      // NAMING 2.1. The field does not know its record; the form that owns it renames the file when it
+      // does (renameMediaFile), and otherwise this is still a dated, conventional name.
+      const name = recordingFilename(null, audioExtensionForMimeType(mimeType), { capturedAt: new Date() });
+      const file = new File([blob], name, { type: mimeType });
       onFilesChange([...filesRef.current, file]);
       liveStream.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
