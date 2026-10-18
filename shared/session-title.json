@@ -1,0 +1,844 @@
+{
+  "contract": "session-title",
+  "version": 1,
+  "owner": "feature/q-backend (written once; WEB, ANDROID and the designer portal copy this file verbatim)",
+  "convention": "C:/dev/IIT/docs/conventions/NAMING_2026-10-18.md",
+  "enforcedBy": [
+    "backend/tests/test_naming.py",
+    "frontend/e2e/naming-unit.spec.ts",
+    "android/app/src/test/java/com/fieldrepository/app/data/NamingTest.kt"
+  ],
+  "rules": {
+    "titleGrammar": "Entity_Date_Place_Craft_Subject",
+    "fileGrammar": "Portal_Entity_Date[_Time]_Place_Craft_Subject_What[_Sequence][_n].ext",
+    "portal": "FieldRepository (designer portal: DesignWorkshop)",
+    "separators": "'_' between fields, '-' between the words of one field. Nothing else is a separator.",
+    "unknownField": "Left out entirely. Never 'Unknown', 'NA' or a guess.",
+    "entity": "Interview for 0 or 1 participant; Group-Interview for 2 or more. An explicit `entity` (designer portal: Workshop) overrides.",
+    "date": "Titles: sessionDate as YYYY-MM-DD. Recordings: the IST date of capturedAt. Exports and reports: the IST generation day.",
+    "time": "Recordings only: HHMM (24 h, IST) of capturedAt. Left out when capturedAtSource is SESSION_DATE, UPLOAD_TIME or UPLOAD_TIME_OUT_OF_WINDOW.",
+    "place": "The session place; else the workshop's 'locality district' (district dropped when it equals the locality); else locality; else district; else state.",
+    "craft": "The workshop's craft; else the craft every participant shares (compared case-insensitively over words); else left out.",
+    "subject": "1 participant: the artisan's name (file names prefer a stored ASCII name, name then localName, before transliterating). 2 or more: '<N> Artisans'. None: left out. An explicit `subject` (a code) overrides.",
+    "words": "Text is NFC-normalised and split into words at every character that is not a letter (L*), a mark (M*), a decimal digit (Nd), ZWNJ or ZWJ. Each word is Title-Cased: first character upper, the rest lower, except a word containing a digit or an all-upper-case ASCII word of 2-3 letters, which keeps its case. Words without case (Devanagari) are unchanged.",
+    "transliteration": "File names only. (1) Indic inherent vowel: in the blocks starting U+0900, 0980, 0A00, 0A80, 0B00, 0B80, 0C00, 0C80 and 0D00, a consonant (block offset 0x15-0x39 or 0x58-0x5F), after every nukta (0x3C) has been dropped, gets an ASCII 'a' inserted after it when the next character is in the same block, is not a vowel sign or virama (0x3E-0x4D, 0x55-0x57, 0x62-0x63) and is a letter (consonant, independent vowel 0x05-0x14 or 0x60-0x61, or candrabindu/anusvara/visarga 0x01-0x03). A consonant at the end of a word gets nothing. (2) anyascii 0.3.x (Python anyascii, npm any-ascii, Java com.anyascii:anyascii). (3) The words rule, keeping only [A-Za-z0-9] inside a word. Android must use the anyascii Java library, not ICU Any-Latin, or its rows will differ (ICU writes the inherent vowels anyascii drops).",
+    "sequence": "One question target: <Section>-Q<nn> from the display code (F7 -> F-Q07). A section target: <Section>-All. Several questions of one section: <Section>-Q<first>-Q<last>. Several sections: their pieces joined with '-' in target order. Whole session: left out. Then '-P<n>' for a continuation (part n >= 2), else '-T<n>' for a solo take (rosterCount 1) at position n >= 2. Group takes never carry -T. With no section piece the suffix stands alone.",
+    "length": "Counted in Unicode code points. Titles <= 120, file names <= 150 including the extension. Shorten in order: drop Subject's last word while Subject is longer than 40; then Craft's last word down to one; then Place's down to one; then Subject's down to one; then drop Craft; then drop Place; then cut Subject's last character; then drop Subject. Portal, Entity, Date, Time, What, Sequence, n and the extension are never cut.",
+    "collisions": "Within one folder or zip, the 2nd, 3rd ... identical name (case-insensitive) gets _2, _3 before the extension (.sql.gz counts as one extension), in (createdAt, id) order.",
+    "reservedStems": "A stem equal to CON, PRN, AUX, NUL, COM1-9 or LPT1-9 gets '-File' appended.",
+    "s3Key": "media/<userId>/<uuid32hex>/<file name>; the server mints the leaf at presign. Existing keys are never renamed."
+  },
+  "golden": [
+    {
+      "kind": "title",
+      "case": "Individual",
+      "input": {
+        "sessionDate": "2026-07-01",
+        "place": null,
+        "workshop": {
+          "locality": "Bagru",
+          "district": "Jaipur",
+          "state": "Rajasthan",
+          "craft": "Hand block printing"
+        },
+        "participants": [
+          {
+            "name": "Giriraj Prasad Chhipa",
+            "craft": "Hand Block Printing"
+          }
+        ]
+      },
+      "title": "Interview_2026-07-01_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa"
+    },
+    {
+      "kind": "title",
+      "case": "Group of 6",
+      "input": {
+        "sessionDate": "2026-07-01",
+        "place": null,
+        "workshop": {
+          "locality": "Bagru",
+          "district": "Jaipur",
+          "state": "Rajasthan",
+          "craft": "Hand block printing"
+        },
+        "participants": [
+          {
+            "name": "Artisan 1",
+            "craft": "Hand Block Printing"
+          },
+          {
+            "name": "Artisan 2",
+            "craft": "Hand Block Printing"
+          },
+          {
+            "name": "Artisan 3",
+            "craft": "Hand Block Printing"
+          },
+          {
+            "name": "Artisan 4",
+            "craft": "Hand Block Printing"
+          },
+          {
+            "name": "Artisan 5",
+            "craft": "Hand Block Printing"
+          },
+          {
+            "name": "Artisan 6",
+            "craft": "Hand Block Printing"
+          }
+        ]
+      },
+      "title": "Group-Interview_2026-07-01_Bagru-Jaipur_Hand-Block-Printing_6-Artisans"
+    },
+    {
+      "kind": "title",
+      "case": "Pair",
+      "input": {
+        "sessionDate": "2026-07-07",
+        "place": null,
+        "workshop": {
+          "locality": null,
+          "district": "Kolkata",
+          "state": "West Bengal",
+          "craft": "Terracotta"
+        },
+        "participants": [
+          {
+            "name": "Giriraj Das",
+            "craft": "Terracotta"
+          },
+          {
+            "name": "Meena Pal",
+            "craft": "Terracotta"
+          }
+        ]
+      },
+      "title": "Group-Interview_2026-07-07_Kolkata_Terracotta_2-Artisans"
+    },
+    {
+      "kind": "title",
+      "case": "Field visit, no workshop, no place",
+      "input": {
+        "sessionDate": "2026-10-18",
+        "place": null,
+        "workshop": null,
+        "participants": [
+          {
+            "name": "Giriraj Prasad Chhipa"
+          }
+        ]
+      },
+      "title": "Interview_2026-10-18_Giriraj-Prasad-Chhipa"
+    },
+    {
+      "kind": "title",
+      "case": "Group with mixed crafts",
+      "input": {
+        "sessionDate": "2026-09-16",
+        "place": null,
+        "workshop": {
+          "locality": null,
+          "district": "Bankura",
+          "state": "West Bengal",
+          "craft": null
+        },
+        "participants": [
+          {
+            "name": "Meena Pal",
+            "craft": "Terracotta"
+          },
+          {
+            "name": "Ravi Karmakar",
+            "craft": "Dokra"
+          },
+          {
+            "name": "Sabita Dutta",
+            "craft": "Dokra"
+          }
+        ]
+      },
+      "title": "Group-Interview_2026-09-16_Bankura_3-Artisans"
+    },
+    {
+      "kind": "title",
+      "case": "No participants yet",
+      "input": {
+        "sessionDate": "2026-09-23",
+        "place": null,
+        "workshop": {
+          "locality": null,
+          "district": "Bankura",
+          "state": "West Bengal",
+          "craft": "Dokra"
+        },
+        "participants": []
+      },
+      "title": "Interview_2026-09-23_Bankura_Dokra"
+    },
+    {
+      "kind": "title",
+      "case": "Devanagari name, no English name",
+      "input": {
+        "sessionDate": "2026-07-01",
+        "place": null,
+        "workshop": {
+          "locality": "Bagru",
+          "district": "Jaipur",
+          "state": "Rajasthan",
+          "craft": "Hand block printing"
+        },
+        "participants": [
+          {
+            "name": "गिरिराज प्रसाद"
+          }
+        ]
+      },
+      "title": "Interview_2026-07-01_Bagru-Jaipur_Hand-Block-Printing_गिरिराज-प्रसाद"
+    },
+    {
+      "kind": "title",
+      "case": "Legacy row before its date is set",
+      "input": {
+        "sessionDate": null,
+        "place": null,
+        "workshop": {
+          "locality": "Bagru",
+          "district": "Jaipur",
+          "state": "Rajasthan",
+          "craft": "Hand block printing"
+        },
+        "participants": [
+          {
+            "name": "Giriraj Prasad Chhipa",
+            "craft": "Hand Block Printing"
+          }
+        ]
+      },
+      "title": "Interview_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa"
+    },
+    {
+      "kind": "title",
+      "case": "Session place wins over the workshop",
+      "input": {
+        "sessionDate": "2026-07-02",
+        "place": "Sanganer, Jaipur",
+        "workshop": {
+          "locality": "Bagru",
+          "district": "Jaipur",
+          "state": "Rajasthan",
+          "craft": "Hand block printing"
+        },
+        "participants": [
+          {
+            "name": "Giriraj Prasad Chhipa",
+            "craft": "Hand Block Printing"
+          }
+        ]
+      },
+      "title": "Interview_2026-07-02_Sanganer-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa"
+    },
+    {
+      "kind": "title",
+      "case": "Workshop with locality only",
+      "input": {
+        "sessionDate": "2026-07-03",
+        "place": null,
+        "workshop": {
+          "locality": "Bishnupur",
+          "district": null,
+          "state": "West Bengal",
+          "craft": "Terracotta"
+        },
+        "participants": []
+      },
+      "title": "Interview_2026-07-03_Bishnupur_Terracotta"
+    },
+    {
+      "kind": "title",
+      "case": "Craft every participant shares, no workshop",
+      "input": {
+        "sessionDate": "2026-07-04",
+        "place": "Majuli",
+        "workshop": null,
+        "participants": [
+          {
+            "name": "Ranu Das",
+            "craft": "bamboo weaving"
+          },
+          {
+            "name": "Bina Doley",
+            "craft": "Bamboo Weaving"
+          }
+        ]
+      },
+      "title": "Group-Interview_2026-07-04_Majuli_Bamboo-Weaving_2-Artisans"
+    },
+    {
+      "kind": "title",
+      "case": "Punctuation, middle dots and slashes become hyphens",
+      "input": {
+        "sessionDate": "2026-07-05",
+        "place": "Bagru · Jaipur / Rajasthan",
+        "workshop": null,
+        "participants": [
+          {
+            "name": "D'Souza, Maria"
+          }
+        ]
+      },
+      "title": "Interview_2026-07-05_Bagru-Jaipur-Rajasthan_D-Souza-Maria"
+    },
+    {
+      "kind": "title",
+      "case": "Codes keep their case",
+      "input": {
+        "sessionDate": "2026-06-18",
+        "place": null,
+        "workshop": {
+          "locality": "Bagru",
+          "district": "Jaipur",
+          "state": "Rajasthan",
+          "craft": "Hand block printing"
+        },
+        "participants": [],
+        "entity": "Workshop",
+        "subject": "DW:RJ:0012"
+      },
+      "title": "Workshop_2026-06-18_Bagru-Jaipur_Hand-Block-Printing_DW-RJ-0012"
+    },
+    {
+      "kind": "title",
+      "case": "120-character limit cuts Subject first, at a word boundary",
+      "input": {
+        "sessionDate": "2026-07-06",
+        "place": "Bagru Jaipur",
+        "workshop": {
+          "craft": "Hand Block Printing And Natural Dyeing With Indigo And Pomegranate Rind"
+        },
+        "participants": [
+          {
+            "name": "Giriraj Prasad Chhipa Son Of Ramnarayan Chhipa Of Mahaveer Colony Ward Number Twelve"
+          }
+        ]
+      },
+      "title": "Interview_2026-07-06_Bagru-Jaipur_Hand-Block-Printing-And-Natural-Dyeing-With_Giriraj-Prasad-Chhipa-Son-Of-Ramnarayan"
+    },
+    {
+      "kind": "recording",
+      "case": "Question take",
+      "input": {
+        "session": {
+          "sessionDate": "2026-07-01",
+          "workshop": {
+            "locality": "Bagru",
+            "district": "Jaipur",
+            "state": "Rajasthan",
+            "craft": "Hand block printing"
+          },
+          "participants": [
+            {
+              "name": "Giriraj Prasad Chhipa",
+              "craft": "Hand Block Printing"
+            }
+          ]
+        },
+        "capturedAt": "2026-07-01T12:54:00Z",
+        "capturedAtSource": "DEVICE",
+        "targets": [
+          {
+            "sectionCode": "D",
+            "displayCode": "D3"
+          }
+        ],
+        "position": 1,
+        "rosterCount": 1,
+        "part": null,
+        "what": "Recording",
+        "ext": "m4a"
+      },
+      "fileName": "FieldRepository_Interview_2026-07-01_1824_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Recording_D-Q03.m4a"
+    },
+    {
+      "kind": "recording",
+      "case": "Second solo take",
+      "input": {
+        "session": {
+          "sessionDate": "2026-07-01",
+          "workshop": {
+            "locality": "Bagru",
+            "district": "Jaipur",
+            "state": "Rajasthan",
+            "craft": "Hand block printing"
+          },
+          "participants": [
+            {
+              "name": "Giriraj Prasad Chhipa",
+              "craft": "Hand Block Printing"
+            }
+          ]
+        },
+        "capturedAt": "2026-07-01T13:32:00Z",
+        "capturedAtSource": "DEVICE",
+        "targets": [
+          {
+            "sectionCode": "D",
+            "displayCode": "D3"
+          }
+        ],
+        "position": 2,
+        "rosterCount": 1,
+        "part": null,
+        "what": "Recording",
+        "ext": "m4a"
+      },
+      "fileName": "FieldRepository_Interview_2026-07-01_1902_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Recording_D-Q03-T2.m4a"
+    },
+    {
+      "kind": "recording",
+      "case": "Section take, group",
+      "input": {
+        "session": {
+          "sessionDate": "2026-07-01",
+          "workshop": {
+            "locality": "Bagru",
+            "district": "Jaipur",
+            "state": "Rajasthan",
+            "craft": "Hand block printing"
+          },
+          "participants": [
+            {
+              "name": "Artisan 1",
+              "craft": "Hand Block Printing"
+            },
+            {
+              "name": "Artisan 2",
+              "craft": "Hand Block Printing"
+            },
+            {
+              "name": "Artisan 3",
+              "craft": "Hand Block Printing"
+            },
+            {
+              "name": "Artisan 4",
+              "craft": "Hand Block Printing"
+            },
+            {
+              "name": "Artisan 5",
+              "craft": "Hand Block Printing"
+            },
+            {
+              "name": "Artisan 6",
+              "craft": "Hand Block Printing"
+            }
+          ]
+        },
+        "capturedAt": "2026-07-01T12:54:00Z",
+        "capturedAtSource": "DEVICE",
+        "targets": [
+          {
+            "sectionCode": "B",
+            "displayCode": null
+          }
+        ],
+        "position": 2,
+        "rosterCount": 6,
+        "part": null,
+        "what": "Recording",
+        "ext": "m4a"
+      },
+      "fileName": "FieldRepository_Group-Interview_2026-07-01_1824_Bagru-Jaipur_Hand-Block-Printing_6-Artisans_Recording_B-All.m4a"
+    },
+    {
+      "kind": "recording",
+      "case": "Whole-session take",
+      "input": {
+        "session": {
+          "sessionDate": "2026-07-01",
+          "workshop": {
+            "locality": "Bagru",
+            "district": "Jaipur",
+            "state": "Rajasthan",
+            "craft": "Hand block printing"
+          },
+          "participants": [
+            {
+              "name": "Giriraj Prasad Chhipa",
+              "craft": "Hand Block Printing"
+            }
+          ]
+        },
+        "capturedAt": "2026-07-01T12:54:00Z",
+        "capturedAtSource": "DEVICE",
+        "targets": [],
+        "position": 1,
+        "rosterCount": 1,
+        "part": null,
+        "what": "Recording",
+        "ext": "m4a"
+      },
+      "fileName": "FieldRepository_Interview_2026-07-01_1824_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Recording.m4a"
+    },
+    {
+      "kind": "recording",
+      "case": "Estimated legacy clip",
+      "input": {
+        "session": {
+          "sessionDate": "2026-06-24",
+          "workshop": {
+            "district": "Kolkata",
+            "state": "West Bengal",
+            "craft": "Terracotta"
+          },
+          "participants": [
+            {
+              "name": "Giriraj Das",
+              "craft": "Terracotta"
+            }
+          ]
+        },
+        "capturedAt": "2026-06-24T06:30:00Z",
+        "capturedAtSource": "UPLOAD_TIME_OUT_OF_WINDOW",
+        "targets": [
+          {
+            "sectionCode": "F",
+            "displayCode": "F7"
+          }
+        ],
+        "position": 1,
+        "rosterCount": 1,
+        "part": null,
+        "what": "Recording",
+        "ext": "m4a"
+      },
+      "fileName": "FieldRepository_Interview_2026-06-24_Kolkata_Terracotta_Giriraj-Das_Recording_F-Q07.m4a"
+    },
+    {
+      "kind": "recording",
+      "case": "Transcript download",
+      "input": {
+        "session": {
+          "sessionDate": "2026-07-01",
+          "workshop": {
+            "locality": "Bagru",
+            "district": "Jaipur",
+            "state": "Rajasthan",
+            "craft": "Hand block printing"
+          },
+          "participants": [
+            {
+              "name": "Giriraj Prasad Chhipa",
+              "craft": "Hand Block Printing"
+            }
+          ]
+        },
+        "capturedAt": "2026-07-01T12:54:00Z",
+        "capturedAtSource": "DEVICE",
+        "targets": [
+          {
+            "sectionCode": "D",
+            "displayCode": "D3"
+          }
+        ],
+        "position": 1,
+        "rosterCount": 1,
+        "part": null,
+        "what": "Transcript",
+        "ext": "md"
+      },
+      "fileName": "FieldRepository_Interview_2026-07-01_1824_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Transcript_D-Q03.md"
+    },
+    {
+      "kind": "recording",
+      "case": "Part 2 shares its parent's position",
+      "input": {
+        "session": {
+          "sessionDate": "2026-07-01",
+          "workshop": {
+            "locality": "Bagru",
+            "district": "Jaipur",
+            "state": "Rajasthan",
+            "craft": "Hand block printing"
+          },
+          "participants": [
+            {
+              "name": "Giriraj Prasad Chhipa",
+              "craft": "Hand Block Printing"
+            }
+          ]
+        },
+        "capturedAt": "2026-07-01T13:10:00Z",
+        "capturedAtSource": "DEVICE",
+        "targets": [
+          {
+            "sectionCode": "D",
+            "displayCode": "D3"
+          }
+        ],
+        "position": 1,
+        "rosterCount": 1,
+        "part": 2,
+        "what": "Recording",
+        "ext": "m4a"
+      },
+      "fileName": "FieldRepository_Interview_2026-07-01_1840_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Recording_D-Q03-P2.m4a"
+    },
+    {
+      "kind": "recording",
+      "case": "Several questions in one section",
+      "input": {
+        "session": {
+          "sessionDate": "2026-06-20",
+          "workshop": {
+            "district": "Kolkata",
+            "craft": "Terracotta"
+          },
+          "participants": [
+            {
+              "name": "Giriraj Das"
+            },
+            {
+              "name": "Meena Pal"
+            }
+          ]
+        },
+        "capturedAt": "2026-06-20T05:28:00Z",
+        "capturedAtSource": "DEVICE",
+        "targets": [
+          {
+            "sectionCode": "F",
+            "displayCode": "F3"
+          },
+          {
+            "sectionCode": "F",
+            "displayCode": "F1"
+          },
+          {
+            "sectionCode": "F",
+            "displayCode": "F6"
+          },
+          {
+            "sectionCode": "F",
+            "displayCode": "F2"
+          },
+          {
+            "sectionCode": "F",
+            "displayCode": "F5"
+          },
+          {
+            "sectionCode": "F",
+            "displayCode": "F4"
+          }
+        ],
+        "position": 1,
+        "rosterCount": 2,
+        "part": null,
+        "what": "Recording",
+        "ext": "m4a"
+      },
+      "fileName": "FieldRepository_Group-Interview_2026-06-20_1058_Kolkata_Terracotta_2-Artisans_Recording_F-Q01-Q06.m4a"
+    },
+    {
+      "kind": "recording",
+      "case": "Devanagari-only name is transliterated",
+      "input": {
+        "session": {
+          "sessionDate": "2026-07-01",
+          "workshop": {
+            "locality": "Bagru",
+            "district": "Jaipur",
+            "state": "Rajasthan",
+            "craft": "Hand block printing"
+          },
+          "participants": [
+            {
+              "name": "गिरिराज प्रसाद"
+            }
+          ]
+        },
+        "capturedAt": "2026-07-01T12:54:00Z",
+        "capturedAtSource": "DEVICE",
+        "targets": [
+          {
+            "sectionCode": "D",
+            "displayCode": "D3"
+          }
+        ],
+        "position": 1,
+        "rosterCount": 1,
+        "part": null,
+        "what": "Recording",
+        "ext": "m4a"
+      },
+      "fileName": "FieldRepository_Interview_2026-07-01_1824_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad_Recording_D-Q03.m4a"
+    },
+    {
+      "kind": "recording",
+      "case": "Stored English name wins over transliteration",
+      "input": {
+        "session": {
+          "sessionDate": "2026-07-01",
+          "workshop": {
+            "locality": "Bagru",
+            "district": "Jaipur",
+            "state": "Rajasthan",
+            "craft": "Hand block printing"
+          },
+          "participants": [
+            {
+              "name": "मीना पाल",
+              "localName": "Meena Pal"
+            }
+          ]
+        },
+        "capturedAt": "2026-07-01T12:54:00Z",
+        "capturedAtSource": "SESSION_DATE",
+        "targets": [
+          {
+            "sectionCode": "A",
+            "displayCode": "A1"
+          }
+        ],
+        "position": 1,
+        "rosterCount": 1,
+        "part": null,
+        "what": "Recording",
+        "ext": "webm"
+      },
+      "fileName": "FieldRepository_Interview_2026-07-01_Bagru-Jaipur_Hand-Block-Printing_Meena-Pal_Recording_A-Q01.webm"
+    },
+    {
+      "kind": "transliteration",
+      "case": "गिरिराज प्रसाद",
+      "input": "गिरिराज प्रसाद",
+      "ascii": "Giriraj-Prasad"
+    },
+    {
+      "kind": "transliteration",
+      "case": "गिरिराज प्रसाद छीपा",
+      "input": "गिरिराज प्रसाद छीपा",
+      "ascii": "Giriraj-Prasad-Chipa"
+    },
+    {
+      "kind": "transliteration",
+      "case": "মীনা দাস",
+      "input": "মীনা দাস",
+      "ascii": "Mina-Das"
+    },
+    {
+      "kind": "transliteration",
+      "case": "বিষ্ণুপুর",
+      "input": "বিষ্ণুপুর",
+      "ascii": "Bisnupur"
+    },
+    {
+      "kind": "transliteration",
+      "case": "Śrī Kṛṣṇa",
+      "input": "Śrī Kṛṣṇa",
+      "ascii": "Sri-Krsna"
+    },
+    {
+      "kind": "transliteration",
+      "case": "संत कबीर",
+      "input": "संत कबीर",
+      "ascii": "Samt-Kabir"
+    },
+    {
+      "kind": "transliteration",
+      "case": "क़लम",
+      "input": "क़लम",
+      "ascii": "Kalam"
+    },
+    {
+      "kind": "transliteration",
+      "case": "Ravi Kumar",
+      "input": "Ravi Kumar",
+      "ascii": "Ravi-Kumar"
+    },
+    {
+      "kind": "export",
+      "case": "Artisan record CSV",
+      "input": {
+        "entity": "Questionnaire",
+        "what": "Export",
+        "ext": "csv",
+        "day": "2026-10-18",
+        "subject": "Giriraj Prasad Chhipa"
+      },
+      "fileName": "FieldRepository_Questionnaire_2026-10-18_Giriraj-Prasad-Chhipa_Export.csv"
+    },
+    {
+      "kind": "export",
+      "case": "Corpus, answers",
+      "input": {
+        "entity": "Questionnaire",
+        "what": "Corpus-Answers",
+        "ext": "jsonl",
+        "day": "2026-10-18",
+        "subject": "Craft Survey 2026"
+      },
+      "fileName": "FieldRepository_Questionnaire_2026-10-18_Craft-Survey-2026_Corpus-Answers.jsonl"
+    },
+    {
+      "kind": "export",
+      "case": "Corpus, recordings",
+      "input": {
+        "entity": "Questionnaire",
+        "what": "Corpus-Recordings",
+        "ext": "csv",
+        "day": "2026-10-18",
+        "subject": "Craft Survey 2026"
+      },
+      "fileName": "FieldRepository_Questionnaire_2026-10-18_Craft-Survey-2026_Corpus-Recordings.csv"
+    },
+    {
+      "kind": "export",
+      "case": "Backfill dry-run report",
+      "input": {
+        "entity": "Questionnaire",
+        "what": "Backfill-Dry-Run-Report",
+        "ext": "md",
+        "day": "2026-10-25"
+      },
+      "fileName": "FieldRepository_Questionnaire_2026-10-25_Backfill-Dry-Run-Report.md"
+    },
+    {
+      "kind": "export",
+      "case": "Consent backfill report",
+      "input": {
+        "entity": "Artisan",
+        "what": "Consent-Backfill-Dry-Run-Report",
+        "ext": "csv",
+        "day": "2026-10-18"
+      },
+      "fileName": "FieldRepository_Artisan_2026-10-18_Consent-Backfill-Dry-Run-Report.csv"
+    },
+    {
+      "kind": "export",
+      "case": "Orphan report",
+      "input": {
+        "entity": "Dataset",
+        "what": "Orphan-Objects-Report",
+        "ext": "csv",
+        "day": "2026-10-25"
+      },
+      "fileName": "FieldRepository_Dataset_2026-10-25_Orphan-Objects-Report.csv"
+    },
+    {
+      "kind": "collision",
+      "case": "Identical names in one zip",
+      "input": [
+        "FieldRepository_Interview_2026-07-01_1824_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Recording_D-Q03.m4a",
+        "FieldRepository_Interview_2026-07-01_1824_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Recording_D-Q03.m4a",
+        "FieldRepository_Database_2026-10-18_Backup.sql.gz",
+        "FieldRepository_Database_2026-10-18_Backup.sql.gz"
+      ],
+      "names": [
+        "FieldRepository_Interview_2026-07-01_1824_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Recording_D-Q03.m4a",
+        "FieldRepository_Interview_2026-07-01_1824_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Recording_D-Q03_2.m4a",
+        "FieldRepository_Database_2026-10-18_Backup.sql.gz",
+        "FieldRepository_Database_2026-10-18_Backup_2.sql.gz"
+      ]
+    }
+  ]
+}
