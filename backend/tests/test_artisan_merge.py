@@ -290,6 +290,31 @@ async def test_an_undo_keeps_a_survivor_edit_made_since(world):
     assert await w.db.artisan.find_unique(where={"id": w.gone.id}) is not None
 
 
+async def test_an_undo_keeps_a_whole_field_group_when_one_of_its_columns_was_edited(world):
+    w = world
+    gone_letter = _letter(w.pair, w.gone.id)
+    await w.db.artisan.update(where={"id": w.gone.id}, data={"status": "NEEDS_REVISION", "reviewNotes": "Check the spelling"})
+    result = await _merge(w, choices={"status": gone_letter})
+    await w.db.artisan.update(where={"id": w.keep.id}, data={"status": "APPROVED", "reviewedAt": datetime.now(UTC)})
+    undone = await am.undo(result["merge"]["id"], user=w.admin)
+    assert "status" in undone["keptSurvivorEdits"]
+    survivor = await w.db.artisan.find_unique(where={"id": w.keep.id})
+    # The group stays as the survivor has it now, not half put back.
+    assert survivor.status == "APPROVED" and survivor.reviewNotes == "Check the spelling"
+
+
+async def test_a_pair_merges_again_after_an_undo(world):
+    w = world
+    first = await _merge(w)
+    await am.undo(first["merge"]["id"], user=w.admin)
+    w.pair = await _pair(w.db, w.keep.id, w.gone.id)
+    second = await _merge(w)
+    assert second["merge"]["id"] != first["merge"]["id"]
+    assert await am.resolve(w.gone.id) == w.keep.id
+    rows = await w.db.artisanmerge.find_many(where={"mergedId": w.gone.id})
+    assert sorted(r.undoneAt is None for r in rows) == [False, True]
+
+
 async def test_undo_refuses_when_expired_chained_or_conflicting(world):
     w = world
     result = await _merge(w)

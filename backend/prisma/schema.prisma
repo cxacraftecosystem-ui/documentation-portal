@@ -2237,7 +2237,8 @@ model ArtisanMerge {
   /// No foreign key: the survivor may itself be merged later.
   survivorId       String
   /// The deleted record's id.
-  mergedId         String    @unique
+  /// Unique among live merges only: a partial index in the migration (`undoneAt` IS NULL).
+  mergedId         String
   mergedById       String?
   reason           String?
   /// {field: "A" | "B" | "BOTH"}. Keys only, never values.
@@ -2260,6 +2261,7 @@ model ArtisanMerge {
   undoneBy User? @relation("ArtisanMergeUndoneBy", fields: [undoneById], references: [id], onDelete: SetNull)
 
   @@index([survivorId])
+  @@index([mergedId])
   @@index([createdAt])
   @@index([mergedById])
   @@index([undoneById])

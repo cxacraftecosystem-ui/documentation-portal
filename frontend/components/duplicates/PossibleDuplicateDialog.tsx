@@ -35,7 +35,7 @@ export function PossibleDuplicateDialog({
       dismissOnBackdrop
       busy={busy}
       initialFocusRef={keepRef}
-      title="May already be recorded"
+      title="Already recorded?"
       description={hold?.message ?? null}
       footer={
         <>

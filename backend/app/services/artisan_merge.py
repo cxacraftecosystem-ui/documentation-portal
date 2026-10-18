@@ -976,9 +976,11 @@ async def _merge_tx(
 
         # 3. Free the unique keys, then write the survivor.
         # The last four go with the fingerprint: "Artisan_aadhaarFingerprint_pair" wants both or neither.
+        legacy = '"aadhaarNumber" = NULL, ' if aadhaar_fingerprint.LEGACY_COLUMN_PRESENT else ""
         await tx.execute_raw(
-            'UPDATE "Artisan" SET "aadhaarFingerprint" = NULL, "aadhaarLast4" = NULL, "aadhaarNumber" = NULL, '
-            '"pehchanCardNumber" = NULL WHERE "id" = $1',
+            'UPDATE "Artisan" SET "aadhaarFingerprint" = NULL, "aadhaarLast4" = NULL, '
+            + legacy
+            + '"pehchanCardNumber" = NULL WHERE "id" = $1',
             gone_id,
         )
         await _write_survivor(tx, keep_id, writes)
@@ -1108,12 +1110,13 @@ async def undo(merge_id: str, *, user: Any, settings: Any = None) -> dict[str, A
         fp, pc = merged_row.get("aadhaarFingerprint"), merged_row.get("pehchanCardNumber")
         before = snapshot.get("survivorBefore") or {}
         after = snapshot.get("survivorAfter") or {}
-        revert: dict[str, Any] = {}
-        for col, wrote in after.items():
-            if _values_equal(current.get(col), wrote):
-                revert[col] = before.get(col)
-            else:
-                kept_edits.append(col)
+        # A FIELD GOES BACK WHOLE OR NOT AT ALL. A group's columns travel together (the fingerprint
+        # and its last four are "both or neither" in the database), so one edited column keeps the
+        # survivor's current value for every column of its group.
+        group_of = {c: g.key for g in FIELD_GROUPS for c in g.columns}
+        edited = {group_of.get(col, col) for col, wrote in after.items() if not _values_equal(current.get(col), wrote)}
+        kept_edits.extend(sorted(edited))
+        revert: dict[str, Any] = {col: before.get(col) for col in after if group_of.get(col, col) not in edited}
         clauses = []
         if fp:
             clauses.append({"aadhaarFingerprint": fp})

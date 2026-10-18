@@ -506,7 +506,9 @@ async def create_artisan(
     acknowledged_ids = set(acknowledged or [])
     found: list[tuple[artisan_duplicates.Profile, artisan_duplicates.Score]] = []
     try:
-        found = await artisan_duplicates.candidates_for_profile(_duplicate_profile(data, location_input))
+        found = await artisan_duplicates.candidates_for_profile(
+            _duplicate_profile(data, location_input), viewer=current_user
+        )
     except Exception:  # noqa: BLE001 - the hold must never turn a save into a 500
         logger.exception("duplicate scoring at create failed")
     if acknowledged is not None and get_settings().artisan_duplicate_hold:

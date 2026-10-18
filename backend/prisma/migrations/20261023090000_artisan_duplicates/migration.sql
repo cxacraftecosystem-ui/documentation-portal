@@ -73,7 +73,10 @@ CREATE TABLE "ArtisanMerge" (
     CONSTRAINT "ArtisanMerge_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "ArtisanMerge_mergedId_key" ON "ArtisanMerge"("mergedId");
+-- One live merge per deleted id. An undone merge stays as history, so the same pair can be merged
+-- again after an undo; the redirect reads only rows with "undoneAt" IS NULL.
+CREATE UNIQUE INDEX "ArtisanMerge_mergedId_live_key" ON "ArtisanMerge"("mergedId") WHERE "undoneAt" IS NULL;
+CREATE INDEX "ArtisanMerge_mergedId_idx" ON "ArtisanMerge"("mergedId");
 CREATE INDEX "ArtisanMerge_survivorId_idx" ON "ArtisanMerge"("survivorId");
 CREATE INDEX "ArtisanMerge_createdAt_idx" ON "ArtisanMerge"("createdAt");
 CREATE INDEX "ArtisanMerge_mergedById_idx" ON "ArtisanMerge"("mergedById");
@@ -83,3 +86,20 @@ ALTER TABLE "ArtisanMerge" ADD CONSTRAINT "ArtisanMerge_mergedById_fkey"
     FOREIGN KEY ("mergedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "ArtisanMerge" ADD CONSTRAINT "ArtisanMerge_undoneById_fkey"
     FOREIGN KEY ("undoneById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- The hosted database's HTTP data API: deny-all. The web-facing roles were revoked together with
+-- the default privileges that would re-grant them, and both are stated here as well. The merge
+-- snapshot holds identity data for 30 days. The app connects as the table owner, which RLS does
+-- not restrict. The two roles exist only on the hosted project. The SQL is the same in both portals.
+ALTER TABLE "ArtisanDuplicateCandidate" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "ArtisanMerge" ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    EXECUTE 'REVOKE ALL ON TABLE "ArtisanDuplicateCandidate", "ArtisanMerge" FROM anon';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    EXECUTE 'REVOKE ALL ON TABLE "ArtisanDuplicateCandidate", "ArtisanMerge" FROM authenticated';
+  END IF;
+END
+$$;

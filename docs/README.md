@@ -50,6 +50,7 @@ flowchart TD
 |---|---|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | What are the pieces, how does a request travel, where is the latency, how does transcription fail over, how does the offline outbox replay? |
 | [DATA_MODEL.md](DATA_MODEL.md) | What is stored, how does it relate, and which four parts of the schema are not what they look like? |
+| [ARTISAN_DUPLICATES.md](ARTISAN_DUPLICATES.md) | Duplicate artisans — the server-side score and its bands, the hold at save time on web and Android (offline creates are asked on sync), the admin merge screen, the 30-day undo and redirect, and the ids-only match the designer portal calls |
 | [PERMISSIONS.md](PERMISSIONS.md) | The six-tier ladder, the full capability matrix, the review state machine, the late-submission gate, and the three access systems layered on top |
 | [MEDIA_PIPELINE.md](MEDIA_PIPELINE.md) | Every tactic both clients use to get a photograph off a phone on a bad network without losing it |
 | [SECURITY.md](SECURITY.md) | Transport, secrets, PII and Aadhaar handling, the authorisation model's security properties, and the open risk register |

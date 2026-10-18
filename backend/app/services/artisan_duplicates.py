@@ -523,8 +523,13 @@ async def candidates_for_profile(
     exclude_id: str | None = None,
     limit: int | None = None,
     client: Any = None,
+    viewer: Any = None,
 ) -> list[tuple[Profile, Score]]:
-    """Every stored artisan scoring at least 0.60 against ``profile``, best first."""
+    """Every stored artisan scoring at least 0.60 against ``profile``, best first.
+
+    ``viewer`` is the signed-in person a list is shown to (/check, the create hold): the candidates
+    are narrowed by ``records.viewable_where`` exactly as ``list_artisans`` is. The worker's scan
+    passes none, since its pairs are only ever shown to admins."""
     found: list[tuple[Profile, Score]] = []
     for other in await prefilter(profile, exclude_id=exclude_id, client=client):
         if other.id == profile.id:
@@ -532,6 +537,16 @@ async def candidates_for_profile(
         result = score_pair(profile, other)
         if result is not None:
             found.append((other, result))
+    if viewer is not None and found:
+        from app.services.records import viewable_where
+
+        vis = await viewable_where(viewer)
+        if vis:
+            rows = await _client(client).artisan.find_many(
+                where={"AND": [vis, {"id": {"in": [other.id for other, _ in found]}}]}
+            )
+            seen = {row.id for row in rows}
+            found = [pair for pair in found if pair[0].id in seen]
     found.sort(key=lambda pair: (-pair[1].score, str(pair[0].display.get("createdAt") or "")))
     return found[:limit] if limit else found
 

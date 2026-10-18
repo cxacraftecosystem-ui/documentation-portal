@@ -71,6 +71,22 @@ def test_designer_portal_vectors_are_skipped_here_not_lost():
     assert "SAME_FIELD_REPOSITORY_LINK" not in dup.REASON_CODES
 
 
+@pytest.mark.parametrize("vector", VECTORS["vectors"], ids=lambda v: v["name"])
+def test_vectors(vector):
+    """The designer portal's flat-profile vectors. Below 0.60 the scorer stores nothing."""
+    a, b = dup.profile_from_dict(vector["a"]), dup.profile_from_dict(vector["b"])
+    expect = vector["expect"]
+    for left, right in ((a, b), (b, a)):
+        result = dup.score_pair(left, right)
+        if expect["band"] is None:
+            assert result is None
+            continue
+        assert result is not None
+        assert result.score == pytest.approx(expect["score"], abs=1e-9)
+        assert result.band == expect["band"]
+        assert sorted(result.codes) == sorted(expect["reasons"])
+
+
 def test_no_label_ever_carries_a_value():
     a = dup.profile_from_dict(
         {"id": "a", "name": "Giriraj Prasad", "phone": "9825012345", "dateOfBirth": "1971-04-02",

@@ -135,12 +135,12 @@ async def check_duplicates(
         fingerprint=fingerprint,
         pehchanCardNumber=payload.pehchanCardNumber,
     )
-    # Reading the repository is open to every signed-in account (records.viewable_where), so the
-    # candidates need no narrowing beyond the cap.
+    # Narrowed by records.viewable_where, the same read rule as the artisan list.
     found = await artisan_duplicates.candidates_for_profile(
         profile,
         exclude_id=payload.excludeArtisanId,
         limit=artisan_duplicates.CHECK_MAX_CANDIDATES,
+        viewer=current_user,
     )
     return {
         "candidates": [

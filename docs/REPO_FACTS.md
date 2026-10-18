@@ -18,7 +18,7 @@ API lags the tree by however many commits have not been deployed; see
 |---|---|
 | Prisma models | **50** |
 | Prisma enums | **20** |
-| `@@index` declarations | 120 |
+| `@@index` declarations | 121 |
 | `@@unique` declarations | 17 |
 
 Models: `User`, `PasswordResetToken`, `PasswordResetRequest`, `AccessRoster`, `AssignedTask`, `Feedback`, `UserPreference`, `AppRelease`, `Craft`, `CraftCode`, `CraftSpelling`, `ArtisanSharingConsent`, `CrossPortalArtisanLink`, `CrossPortalAccessLog`, `Location`, `Artisan`, `Workshop`, `WorkshopArtisan`, `WorkshopCraft`, `ProductDocumentation`, `ToolDocumentation`, `ToolArtisan`, `ToolCraft`, `MediaFile`, `MediaProcessingJob`, `Questionnaire`, `QuestionnaireSection`, `QuestionnaireSectionStatus`, `QuestionnaireQuestion`, `QuestionnaireInterview`, `QuestionnaireInterviewArtisan`, `QuestionnaireResponse`, `QuestionnaireAnswerDraft`, `Process`, `ProcessStep`, `ReviewLog`, `AppSetting`, `WorkshopAssignment`, `ManagedSecret`, `SecretTestResult`, `DataAccessGrant`, `DataAccessScopeItem`, `EntryComment`, `RecordRevision`, `UserAiCredential`, `EmailMessage`, `TwoFactorChallenge`, `IdempotencyKey`, `ArtisanDuplicateCandidate`, `ArtisanMerge`.
@@ -108,7 +108,7 @@ no key is skipped wherever it sits.
 
 | Surface | Files | Cases | Runner |
 |---|---|---|---|
-| Backend unit (`backend/tests/`) | 87 | 1373 `def test_` | `python -m pytest -q` from `backend/` |
+| Backend unit (`backend/tests/`) | 87 | 1377 `def test_` | `python -m pytest -q` from `backend/` |
 | Web end-to-end (`frontend/e2e/`) | 61 | 832 `test(` | Playwright, `frontend/playwright.config.ts` |
 | Android unit (`android/app/src/test/`) | 72 | 864 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
 | Android instrumented | **none** — the `src/androidTest` source set does not exist | — | not run in CI |
@@ -121,7 +121,7 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 
 | Area | Tracked files | Tracked lines | Tree files | Tree lines |
 |---|---|---|---|---|
-| `backend/app` | 140 | 54,016 | 140 | 54,016 |
+| `backend/app` | 140 | 54,036 | 140 | 54,036 |
 | `frontend/app` | 59 | 20,730 | 59 | 20,730 |
 | `frontend/components` | 200 | 56,785 | 200 | 56,785 |
 | `frontend/lib` | 84 | 29,337 | 84 | 29,337 |

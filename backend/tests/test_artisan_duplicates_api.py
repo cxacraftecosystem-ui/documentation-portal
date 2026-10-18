@@ -143,6 +143,24 @@ async def test_check_excludes_the_record_being_edited(world):
     assert a.id not in [c["artisan"]["id"] for c in out["candidates"]]
 
 
+@dbt.skip_without_db
+async def test_check_reads_through_the_record_read_rule(world, monkeypatch):
+    from app.services import records
+
+    name = dbt.person()
+    rows = [await dbt.make_artisan(world.db, world.admin, name=name, phone="9825012345") for _ in range(3)]
+    hidden = [rows[0].id, rows[1].id]
+
+    async def narrowed(user, owner_field="createdById"):
+        return {"id": {"not_in": hidden}}
+
+    monkeypatch.setattr(records, "viewable_where", narrowed)
+    out = await routes.check_duplicates(
+        DuplicateCheckIn(name=name, phone="9825012345", state="Gujarat", district="Kachchh"), current_user=world.admin
+    )
+    assert [c["artisan"]["id"] for c in out["candidates"]] == [rows[2].id]
+
+
 async def _create(world, body):
     return await artisan_routes.create_artisan(ArtisanCreate(**body), current_user=world.admin)
 
