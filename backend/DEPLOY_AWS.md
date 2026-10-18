@@ -768,3 +768,32 @@ SELECT count(*) FROM "Artisan" WHERE "aadhaarFingerprint" IS NOT NULL AND "aadha
 
 Step 2 changes nothing older code reads, so it does not change this. Step 3 is not reversible: the
 numbers are gone, which is its purpose.
+
+## Artisan cards: the run order (2026-10-21)
+
+Printable artisan cards with a signed QR (`backend/app/services/artisan_card.py`; settings in
+`docs/ENVIRONMENT.md`, "Artisan cards"). The key is THIS portal's own and never the designer
+portal's: 32 random bytes, base64, in the GitHub Actions secret `ARTISAN_CARD_KEY`, the box `.env`,
+and the SSM SecureString `/iit/field-repository/artisan-card-key`.
+
+1. **This portal ships before the designer portal.** The peer link body is `extra="forbid"`, so a
+   designer portal sending `remoteCardCode` to a release without this migration gets 422 on every
+   link. The backend also ships before its own clients.
+2. **Release with migration `20261023090000_artisan_cards`.** Two new tables and one nullable unique
+   column on `CrossPortalArtisanLink`; nothing existing changes. Cards are drawn only once the key is
+   in the release `.env`.
+3. **Backfill, on the box, after that release is live:**
+
+   ```
+   cd /home/ubuntu/app/current/backend
+   .venv/bin/python -m scripts.backfill_artisan_cards            # dry run: counts only
+   .venv/bin/python -m scripts.backfill_artisan_cards --apply    # issues the missing cards
+   ```
+
+   Idempotent (a second run issues nothing), batches of 500, counts only. Exit 2 means cards are not
+   active on this box: the key is missing.
+
+**Rotation:** set `ARTISAN_CARD_KEY_PREVIOUS` to the current key, put a new one in `ARTISAN_CARD_KEY`
+and bump `ARTISAN_CARD_KEY_VERSION`. Cards printed under the old key keep verifying; reissuing them is
+optional. **Rollback** is safe: older code ignores the new tables and column.
+

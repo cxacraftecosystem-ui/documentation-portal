@@ -78,6 +78,7 @@ _RELATION_KEYS = {
     "crossPortalLinks",
     "duplicatePairsA",
     "duplicatePairsB",
+    "cards",
 }
 
 # Columns a create must not be handed back.
@@ -145,6 +146,7 @@ MOVE_LABELS: tuple[tuple[str, str, str], ...] = (
     ("scopeItems", "sharing scope entry", "sharing scope entries"),
     ("tasks", "task", "tasks"),
     ("crossPortalLink", "designer-portal link", "designer-portal links"),
+    ("cards", "artisan card", "artisan cards"),
 )
 
 
@@ -373,6 +375,7 @@ async def _read_children(merged_id: str, survivor_id: str) -> dict[str, Any]:
         portal_links,
         survivor_portal_links,
         consents,
+        cards,
     ) = await gather_reads(
         db.workshopartisan.find_many(where={"artisanId": merged_id}),
         db.workshopartisan.find_many(where={"artisanId": survivor_id}),
@@ -397,6 +400,8 @@ async def _read_children(merged_id: str, survivor_id: str) -> dict[str, Any]:
         db.crossportalartisanlink.find_many(where={"artisanId": merged_id}),
         db.crossportalartisanlink.find_many(where={"artisanId": survivor_id}),
         db.artisansharingconsent.find_many(where={"artisanId": {"in": [merged_id, survivor_id]}}),
+        # A printed card is in someone's hand: it keeps opening the person, so it moves too.
+        db.artisancard.find_many(where={"artisanId": merged_id}),
     )
     tasks: dict[str, Any] = {}
     for task in [*tasks_listing, *tasks_record]:
@@ -417,6 +422,7 @@ async def _read_children(merged_id: str, survivor_id: str) -> dict[str, Any]:
         "tasks": list(tasks.values()),
         "crossPortalLink": (portal_links, survivor_portal_links),
         "consent": {row.artisanId: row for row in consents},
+        "cards": cards,
     }
 
 
@@ -561,6 +567,7 @@ async def plan_moves(merged: Any, survivor: Any, final_name: str) -> tuple[dict[
     moves["comments"] = [row.id for row in children["comments"]]
     moves["revisions"] = [row.id for row in children["revisions"]]
     moves["reviewLogs"] = [row.id for row in children["reviewLogs"]]
+    moves["cards"] = [row.id for row in children["cards"]]
 
     # Sharing scope: unique on (grantId, recordType, recordId), so a grant that already lists the
     # survivor folds.
@@ -903,6 +910,7 @@ async def merge_artisans(keep_id: str, merge_id: str, picks: dict[str, str] | No
     await _repoint(db.entrycomment, moves["comments"], "recordId", frm=merge_id, to=keep_id)
     await _repoint(db.recordrevision, moves["revisions"], "recordId", frm=merge_id, to=keep_id)
     await _repoint(db.reviewlog, moves["reviewLogs"], "recordId", frm=merge_id, to=keep_id)
+    await _repoint(db.artisancard, moves.get("cards") or [], "artisanId", frm=merge_id, to=keep_id)
     scope = moves["scopeItems"]
     if scope["folded"]:
         await db.dataaccessscopeitem.delete_many(where={"id": {"in": [snap["id"] for snap in scope["folded"]]}})
@@ -1119,6 +1127,7 @@ async def undo_merge(merge_id: str, user: Any) -> dict[str, Any]:
     await _repoint(db.entrycomment, moves.get("comments") or [], "recordId", frm=survivor_id, to=merged_id)
     await _repoint(db.recordrevision, moves.get("revisions") or [], "recordId", frm=survivor_id, to=merged_id)
     await _repoint(db.reviewlog, moves.get("reviewLogs") or [], "recordId", frm=survivor_id, to=merged_id)
+    await _repoint(db.artisancard, moves.get("cards") or [], "artisanId", frm=survivor_id, to=merged_id)
     scope = moves.get("scopeItems") or {}
     await _repoint(db.dataaccessscopeitem, scope.get("moved") or [], "recordId", frm=survivor_id, to=merged_id)
     await _recreate(db.dataaccessscopeitem, scope.get("folded") or [])

@@ -562,3 +562,29 @@ yet backfilled, and is dropped by the deferred migration — run order in `backe
 "Aadhaar fingerprint". The edit history (`RecordRevision`) records an Aadhaar change under
 `aadhaarNumber` with no value; entries written before 2026-10-17 held real old and new numbers, are
 served valueless from now on, and are rewritten by the backfill.
+
+## Artisan cards — added 2026-10-21
+
+**A printable card per artisan, with a QR that says nothing about them.** `ArtisanCard` holds one
+row per card ever issued: `code` (10 Crockford base32 characters from `secrets`, `@unique`, never
+derived from the artisan), the `keyVersion` of `ARTISAN_CARD_KEY` that signs its QR, and who issued
+and revoked it. At most one card per artisan is live (`revokedAt` null), held by the partial unique
+index `ArtisanCard_one_live_per_artisan` — raw SQL in `20261023090000_artisan_cards`, because Prisma
+cannot declare it. A lost or damaged card is revoked with a reason (`LOST`, `DAMAGED`, `OTHER`), never
+deleted, so its code answers "replaced" rather than "unknown". The QR and the short code are drawn on
+every read (`backend/app/services/artisan_card.py`) and never stored.
+
+`ArtisanCardEvent` is the log: every issue, reissue, print (with `count` for a bulk sheet), lookup,
+miss and peer lookup, with the account and the source (`WEB`, `ANDROID`, `PEER`). `RESOLVE_MISS` rows
+are also the per-account miss budget behind the 429.
+
+`CrossPortalArtisanLink.remoteCardCode` (nullable, `@unique`) is the Design Prototype Workshop's live
+card code for the linked record, pushed by that portal at link time and after a reissue. It is the only
+way a designer card (issuer `D`) opens an artisan here; this server never calls the other one.
+
+The card's cluster line is derived, not stored: `Location.village`, then `Location.district`, then
+`Artisan.place`. The face carries the name, local name, craft, cluster, the photo (the artisan's first
+image, switchable per print) and `aadhaarLast4` as `XXXX XXXX 9012` — never the fingerprint, phone,
+address, date of birth or Pehchan number. Cards are issued by `backend/scripts/backfill_artisan_cards.py`
+at deploy (dry run by default, `--apply` to write, idempotent) and lazily on first read.
+

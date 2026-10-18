@@ -1,0 +1,287 @@
+{
+  "description": "Artisan card codes (services/artisan_card.py, lib/artisanCard.ts, data/ArtisanCardCode.kt). Identical in both repositories. The key under 'tags' is a TEST key, used only by backend tests; clients never hold a card key.",
+  "alphabet": "0123456789ABCDEFGHJKMNPQRSTVWXYZ",
+  "shortCodes": [
+    {
+      "issuer": "D",
+      "code": "7K3QM9XA2F",
+      "check": "HQ",
+      "shortCode": "D-7K3QM-9XA2F-HQ"
+    },
+    {
+      "issuer": "F",
+      "code": "0123456789",
+      "check": "S5",
+      "shortCode": "F-01234-56789-S5"
+    },
+    {
+      "issuer": "F",
+      "code": "ABCDEFGHJK",
+      "check": "KH",
+      "shortCode": "F-ABCDE-FGHJK-KH"
+    },
+    {
+      "issuer": "D",
+      "code": "ZZZZZZZZZZ",
+      "check": "2W",
+      "shortCode": "D-ZZZZZ-ZZZZZ-2W"
+    },
+    {
+      "issuer": "F",
+      "code": "MNPQRSTVWX",
+      "check": "18",
+      "shortCode": "F-MNPQR-STVWX-18"
+    }
+  ],
+  "parse": [
+    {
+      "input": "D-7K3QM-9XA2F-HQ",
+      "expect": {
+        "issuer": "D",
+        "code": "7K3QM9XA2F",
+        "keyVersion": null,
+        "tag": null,
+        "typed": true
+      }
+    },
+    {
+      "input": "F-01234-56789-S5",
+      "expect": {
+        "issuer": "F",
+        "code": "0123456789",
+        "keyVersion": null,
+        "tag": null,
+        "typed": true
+      }
+    },
+    {
+      "input": "F-ABCDE-FGHJK-KH",
+      "expect": {
+        "issuer": "F",
+        "code": "ABCDEFGHJK",
+        "keyVersion": null,
+        "tag": null,
+        "typed": true
+      }
+    },
+    {
+      "input": "d-7k3qm-9xa2f-hq",
+      "expect": {
+        "issuer": "D",
+        "code": "7K3QM9XA2F",
+        "keyVersion": null,
+        "tag": null,
+        "typed": true
+      }
+    },
+    {
+      "input": "D 7K3QM 9XA2F HQ",
+      "expect": {
+        "issuer": "D",
+        "code": "7K3QM9XA2F",
+        "keyVersion": null,
+        "tag": null,
+        "typed": true
+      }
+    },
+    {
+      "input": "D7K3QM9XA2FHQ",
+      "expect": {
+        "issuer": "D",
+        "code": "7K3QM9XA2F",
+        "keyVersion": null,
+        "tag": null,
+        "typed": true
+      }
+    },
+    {
+      "input": "D.7K3QM.9XA2F.HQ",
+      "expect": {
+        "issuer": "D",
+        "code": "7K3QM9XA2F",
+        "keyVersion": null,
+        "tag": null,
+        "typed": true
+      }
+    },
+    {
+      "input": "  D-7K3QM-9XA2F-HQ  ",
+      "expect": {
+        "issuer": "D",
+        "code": "7K3QM9XA2F",
+        "keyVersion": null,
+        "tag": null,
+        "typed": true
+      }
+    },
+    {
+      "input": "F-OI234-56789-S5",
+      "expect": {
+        "issuer": "F",
+        "code": "0123456789",
+        "keyVersion": null,
+        "tag": null,
+        "typed": true
+      }
+    },
+    {
+      "input": "F-0l234-56789-S5",
+      "expect": {
+        "issuer": "F",
+        "code": "0123456789",
+        "keyVersion": null,
+        "tag": null,
+        "typed": true
+      }
+    },
+    {
+      "input": "CXA1:D1:7K3QM9XA2F:QQPZR8FHGZPJXHBM",
+      "expect": {
+        "issuer": "D",
+        "code": "7K3QM9XA2F",
+        "keyVersion": 1,
+        "tag": "QQPZR8FHGZPJXHBM",
+        "typed": false
+      }
+    },
+    {
+      "input": "cxa1:d1:7k3qm9xa2f:qqpzr8fhgzpjxhbm",
+      "expect": {
+        "issuer": "D",
+        "code": "7K3QM9XA2F",
+        "keyVersion": 1,
+        "tag": "QQPZR8FHGZPJXHBM",
+        "typed": false
+      }
+    },
+    {
+      "input": "CXA1:F2:0123456789:GMYVRM528C9HQT18",
+      "expect": {
+        "issuer": "F",
+        "code": "0123456789",
+        "keyVersion": 2,
+        "tag": "GMYVRM528C9HQT18",
+        "typed": false
+      }
+    },
+    {
+      "input": "D-7K3QM-9XA2F-H0",
+      "error": "BAD_CHECK"
+    },
+    {
+      "input": "X-7K3QM-9XA2F-HQ",
+      "error": "BAD_ISSUER"
+    },
+    {
+      "input": "CXA1:X1:7K3QM9XA2F:QQPZR8FHGZPJXHBM",
+      "error": "BAD_ISSUER"
+    },
+    {
+      "input": "D-7U3QM-9XA2F-HQ",
+      "error": "BAD_CHARACTER"
+    },
+    {
+      "input": "DPW1:A:clx0abc123:7K",
+      "error": "NOT_A_CARD"
+    },
+    {
+      "input": "DPW1:P:cm1q2w3e4r5t:2B",
+      "error": "NOT_A_CARD"
+    },
+    {
+      "input": "",
+      "error": "NOT_A_CARD"
+    },
+    {
+      "input": "hello",
+      "error": "NOT_A_CARD"
+    },
+    {
+      "input": "D-7K3QM-9XA2F-",
+      "error": "NOT_A_CARD"
+    },
+    {
+      "input": "CXA1:D0:7K3QM9XA2F:QQPZR8FHGZPJXHBM",
+      "error": "NOT_A_CARD"
+    },
+    {
+      "input": "CXA1:D1:7K3QM9XA2F",
+      "error": "NOT_A_CARD"
+    }
+  ],
+  "tags": {
+    "key": "test-only-artisan-card-key-not-a-secret-0123456789",
+    "cases": [
+      {
+        "issuer": "D",
+        "keyVersion": 1,
+        "code": "7K3QM9XA2F",
+        "tag": "QQPZR8FHGZPJXHBM",
+        "payload": "CXA1:D1:7K3QM9XA2F:QQPZR8FHGZPJXHBM"
+      },
+      {
+        "issuer": "D",
+        "keyVersion": 2,
+        "code": "7K3QM9XA2F",
+        "tag": "FGD6Y5W3C0AY61H1",
+        "payload": "CXA1:D2:7K3QM9XA2F:FGD6Y5W3C0AY61H1"
+      },
+      {
+        "issuer": "F",
+        "keyVersion": 1,
+        "code": "0123456789",
+        "tag": "E1F267E8DEG092DJ",
+        "payload": "CXA1:F1:0123456789:E1F267E8DEG092DJ"
+      },
+      {
+        "issuer": "F",
+        "keyVersion": 2,
+        "code": "0123456789",
+        "tag": "GMYVRM528C9HQT18",
+        "payload": "CXA1:F2:0123456789:GMYVRM528C9HQT18"
+      },
+      {
+        "issuer": "F",
+        "keyVersion": 1,
+        "code": "ABCDEFGHJK",
+        "tag": "CWXR74D3WC8HEWRQ",
+        "payload": "CXA1:F1:ABCDEFGHJK:CWXR74D3WC8HEWRQ"
+      },
+      {
+        "issuer": "F",
+        "keyVersion": 2,
+        "code": "ABCDEFGHJK",
+        "tag": "VDZ49TFSPBT692VV",
+        "payload": "CXA1:F2:ABCDEFGHJK:VDZ49TFSPBT692VV"
+      },
+      {
+        "issuer": "D",
+        "keyVersion": 1,
+        "code": "ZZZZZZZZZZ",
+        "tag": "G1D87ARMSK6SNXWX",
+        "payload": "CXA1:D1:ZZZZZZZZZZ:G1D87ARMSK6SNXWX"
+      },
+      {
+        "issuer": "D",
+        "keyVersion": 2,
+        "code": "ZZZZZZZZZZ",
+        "tag": "JXEKFAH68WN1EQXS",
+        "payload": "CXA1:D2:ZZZZZZZZZZ:JXEKFAH68WN1EQXS"
+      },
+      {
+        "issuer": "F",
+        "keyVersion": 1,
+        "code": "MNPQRSTVWX",
+        "tag": "XVJGCPTD3DFNGTAD",
+        "payload": "CXA1:F1:MNPQRSTVWX:XVJGCPTD3DFNGTAD"
+      },
+      {
+        "issuer": "F",
+        "keyVersion": 2,
+        "code": "MNPQRSTVWX",
+        "tag": "FR9SWW98Q1YNWSWF",
+        "payload": "CXA1:F2:MNPQRSTVWX:FR9SWW98Q1YNWSWF"
+      }
+    ]
+  }
+}

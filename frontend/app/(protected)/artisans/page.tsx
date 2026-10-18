@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Plus, Users } from "lucide-react";
 
+import { ArtisanCardSheetActions, useArtisanCardsEnabled } from "@/components/artisans/ArtisanCardSheetActions";
 import { CollabDialog } from "@/components/CollabDialog";
 import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
@@ -46,6 +47,10 @@ export default function ArtisansPage() {
   const [error, setError] = useState<string | null>(null);
   /** C18: only the artisans who did not share an Aadhaar — the follow-up list. */
   const [followUp, setFollowUp] = useState(false);
+  // Rows ticked for "Print cards". Kept across pages and searches, so a workshop's people can be
+  // gathered from several pages into one sheet.
+  const cardsEnabled = useArtisanCardsEnabled();
+  const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const skipFirstDebounce = useRef(true);
   /**
    * Which fetch is the current one. Search is debounced and the funnel and pager fire the same
@@ -154,6 +159,15 @@ export default function ArtisansPage() {
     ? new Set(funnelWorkshop.artisans.map((link) => link.artisan.id))
     : null;
   const rows = data ? (workshopArtisanIds ? data.items.filter((artisan) => workshopArtisanIds.has(artisan.id)) : data.items) : [];
+  const allRowsPicked = rows.length > 0 && rows.every((artisan) => picked.has(artisan.id));
+
+  function togglePicked(ids: string[], on: boolean) {
+    setPicked((current) => {
+      const next = new Set(current);
+      ids.forEach((id) => (on ? next.add(id) : next.delete(id)));
+      return next;
+    });
+  }
 
   return (
     <>
@@ -211,6 +225,17 @@ export default function ArtisansPage() {
           }}
         />
       </div>
+      {cardsEnabled && picked.size > 0 ? (
+        <section className="panel mb-4 grid gap-3 p-4" aria-label="Print artisan cards">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium text-ink-900">{picked.size === 1 ? "1 artisan selected" : `${picked.size} artisans selected`}</p>
+            <button type="button" className="text-sm font-medium text-purple-700 hover:underline dark:text-purple-300" onClick={() => setPicked(new Set())}>
+              Clear
+            </button>
+          </div>
+          <ArtisanCardSheetActions source={{ artisanIds: [...picked] }} count={picked.size} />
+        </section>
+      ) : null}
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       <section className="panel overflow-hidden">
         {!data ? (
@@ -224,6 +249,17 @@ export default function ArtisansPage() {
             <table className="w-full min-w-[1000px] text-left text-sm">
               <thead className="bg-surface-50 text-xs uppercase text-ink-500">
                 <tr>
+                  {cardsEnabled ? (
+                    <th className="w-10 px-4 py-3">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-purple-700"
+                        aria-label="Select every artisan on this page"
+                        checked={allRowsPicked}
+                        onChange={(event) => togglePicked(rows.map((artisan) => artisan.id), event.target.checked)}
+                      />
+                    </th>
+                  ) : null}
                   <ResizableTh>Name</ResizableTh>
                   <ResizableTh>Craft</ResizableTh>
                   <ResizableTh>Place</ResizableTh>
@@ -236,6 +272,17 @@ export default function ArtisansPage() {
               <tbody className="divide-y divide-line-200">
                 {rows.map((artisan) => (
                   <OpenableRow key={artisan.id} href={recordViewHref("artisan", artisan.id)!} onOpen={rememberPlace}>
+                    {cardsEnabled ? (
+                      <td className="w-10 px-4 py-3" onClick={(event) => event.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-purple-700"
+                          aria-label={`Select ${artisan.name}`}
+                          checked={picked.has(artisan.id)}
+                          onChange={(event) => togglePicked([artisan.id], event.target.checked)}
+                        />
+                      </td>
+                    ) : null}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <RowCompletenessRing block={artisan.completeness} />

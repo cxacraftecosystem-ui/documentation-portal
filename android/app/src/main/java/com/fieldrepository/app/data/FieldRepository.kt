@@ -1784,6 +1784,68 @@ class FieldRepository(
     suspend fun artisansForWorkshopPage(workshopId: String, search: String? = null): PageResponse<ArtisanDto> =
         api.artisans(pageSize = 100, workshopId = workshopId.ifBlank { null }, search = search?.ifBlank { null })
 
+    // --- Artisan cards (backend/app/api/routes/artisan_cards.py) ---
+
+    /** Whether cards are on. Offline, the last answer this phone kept; no answer at all reads as off. */
+    suspend fun artisanCardsEnabled(): Boolean = try {
+        api.artisanCardStatus().enabled
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Throwable) {
+        false
+    }
+
+    /**
+     * The register pages this phone already holds, read from its cache and never the network: the
+     * same `GET /artisans?page=N&pageSize=100` pages the artisan pickers walk ([artisansPage]), so
+     * every artisan a picker has shown can be matched by card with no signal. Stops at the first
+     * page that was never fetched.
+     */
+    suspend fun cachedArtisanRegister(): List<ArtisanDto> {
+        val rows = mutableListOf<ArtisanDto>()
+        for (page in 1..ARTISAN_PAGE_BUDGET) {
+            val answer = try {
+                api.artisansFromCache(page = page, pageSize = LIST_PAGE_CEILING)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                break
+            }
+            rows += answer.items
+            if (page >= answer.pages) break
+        }
+        return rows
+    }
+
+    /** A scanned QR or a typed short code: the cached register first, then the server. */
+    suspend fun resolveArtisanCard(input: String): ArtisanCardResolution =
+        resolveArtisanCardWith(input, ::cachedArtisanRegister) { text ->
+            api.resolveArtisanCard(ResolveArtisanCardRequest(input = text))
+        }
+
+    /**
+     * A queued entry's pending cards (`card:<shortCode>`, kept by a picker when a card was scanned with
+     * no signal), swapped for the artisan ids they resolve to and written back before the entry is
+     * sent. A card the server refuses HOLDS the entry with its sentence; it is never dropped.
+     */
+    private suspend fun resolvePendingCards(context: Context, queued: PendingEntry): PendingCardOutcome {
+        val bodies = listOf(queued.payloadJson) + queued.steps.map { it.payloadJson }
+        if (bodies.none { ArtisanCardCode.pendingIn(it).isNotEmpty() }) return PendingCardOutcome.Resolved(queued.payloadJson)
+        val resolve: suspend (String) -> ArtisanCardResolution = { short -> resolveArtisanCard(short) }
+        val payload = when (val outcome = substitutePendingCards(queued.payloadJson, resolve)) {
+            is PendingCardOutcome.Resolved -> outcome.payloadJson
+            else -> return outcome
+        }
+        val steps = queued.steps.map { step ->
+            when (val outcome = substitutePendingCards(step.payloadJson, resolve)) {
+                is PendingCardOutcome.Resolved -> step.copy(payloadJson = outcome.payloadJson)
+                else -> return outcome
+            }
+        }
+        OfflineOutbox.update(context, queued.copy(payloadJson = payload, steps = steps))
+        return PendingCardOutcome.Resolved(payload)
+    }
+
     /** One workshop's crafts. See [artisansForWorkshopPage]. */
     suspend fun craftsForWorkshopPage(workshopId: String, search: String? = null): PageResponse<CraftDto> =
         api.crafts(pageSize = 100, workshopId = workshopId.ifBlank { null }, search = search?.ifBlank { null })
@@ -3293,7 +3355,21 @@ class FieldRepository(
                 }
                 // Already triaged as permanent: this one is waiting on a person, not on the network.
                 if (queued.failure != null) continue
-                when (val outcome = replayEntry(context, queued)) {
+                // A CARD SCANNED WITH NO SIGNAL links now: the pending card is resolved and the body
+                // rewritten before anything is sent. Refused: held with the server's sentence.
+                if (queued.createdId == null) {
+                    when (val cards = resolvePendingCards(context, queued)) {
+                        is PendingCardOutcome.Held -> {
+                            OfflineOutbox.markFailure(context, queued.id, cards.reason)
+                            notifyUser(context, "\"${queued.label}\" is held. ${cards.reason}")
+                            continue
+                        }
+                        PendingCardOutcome.Retry -> return@withLock synced
+                        is PendingCardOutcome.Resolved -> Unit
+                    }
+                }
+                val current = OfflineOutbox.all(context).firstOrNull { it.id == queued.id } ?: queued
+                when (val outcome = replayEntry(context, current)) {
                     ReplayOutcome.Synced -> {
                         OfflineOutbox.remove(context, queued)
                         synced++

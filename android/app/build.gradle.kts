@@ -429,6 +429,20 @@ dependencies {
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.6.3")
     implementation("io.coil-kt.coil3:coil-video:3.6.3")
 
+    /*
+     * Scanning an artisan card (ui/CardScanner.kt): a CameraX preview read by ML Kit's on-device
+     * barcode reader, narrowed to QR. The BUNDLED model (`barcode-scanning`, about 9.9 MB) rather
+     * than the Play-services shim, which downloads its model on first use and so fails on exactly
+     * the offline first scan this exists for. Same versions as the designer app (17.3.0, 1.6.2);
+     * upgrade the two apps together. The CAMERA permission and the not-required camera feature were
+     * already declared for photo capture.
+     */
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    implementation("androidx.camera:camera-core:1.6.2")
+    implementation("androidx.camera:camera-camera2:1.6.2")
+    implementation("androidx.camera:camera-lifecycle:1.6.2")
+    implementation("androidx.camera:camera-compose:1.6.2")
+
     // In-app video/audio playback
     implementation("androidx.media3:media3-exoplayer:1.11.1")
     implementation("androidx.media3:media3-ui:1.11.1")

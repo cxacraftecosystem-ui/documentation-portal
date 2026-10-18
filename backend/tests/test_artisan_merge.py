@@ -666,3 +666,11 @@ def test_the_kept_records_own_newer_decision_stands_and_a_shared_link_folds(db: 
     assert [(row.artisanId, row.granted) for row in db.artisansharingconsent.rows] == [("keep", True)]
     links = sorted((row.artisanId, row.remoteArtisanId) for row in db.crossportalartisanlink.rows)
     assert links == [("keep", "dp1"), ("keep", "dp3")]
+
+
+def test_a_printed_card_follows_the_person_and_goes_back_on_undo(db: _Db) -> None:
+    _seed(db, "artisancard", {"id": "card1", "artisanId": "dup", "code": "F7K2M9Q4XZ", "revokedAt": None})
+    merge_id = _merge().json()["id"]
+    assert _row(db, "artisancard", "card1").artisanId == "keep"
+    assert _call("POST", f"/artisans/merge/{merge_id}/undo").status_code == 200
+    assert _row(db, "artisancard", "card1").artisanId == "dup"

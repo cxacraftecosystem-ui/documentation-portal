@@ -18,7 +18,7 @@ from app.services import cross_portal_codes
 from app.services.access import guard_record_edit
 from app.services.artisan_merge import created_merged_record, survivor_of
 from app.services.artisan_form_contract import assert_required_dates, take_form_contract
-from app.services import aadhaar_fingerprint, artisan_duplicates
+from app.services import aadhaar_fingerprint, artisan_card, artisan_card_store, artisan_duplicates
 from app.services.artisan_identity import aadhaar_error, mask_aadhaar, normalize_aadhaar
 from app.services import completeness as completeness_module
 from app.services.concurrency import gather_reads
@@ -521,7 +521,39 @@ async def list_artisans(
     # decision per artisan rather than one blanket decision for the page: the two the caller
     # recorded come back raw, the rest masked.
     encoded = await completeness_module.attach("artisan", public_encode(items, current_user), client=db)
+    await _attach_cards(encoded, current_user)
     return page_payload(encoded, total, page, page_size)
+
+
+async def _attach_cards(encoded: list[dict[str, Any]], current_user: Any) -> None:
+    """Each row's card codes, so the Android register can match a scanned card with no signal.
+
+    ``card`` is this portal's live card (issued here if the row has none yet), ``linkedCardCodes``
+    the designer portal's codes for records linked to it. Sent only while cards are active. A
+    failure here leaves the page as it was rather than failing the list (the Android register).
+    """
+    settings = get_settings()
+    if not encoded or not artisan_card.active(settings):
+        return
+    ids = [row["id"] for row in encoded if isinstance(row, dict) and row.get("id")]
+    try:
+        cards = await artisan_card_store.ensure_cards(
+            db, ids, settings=settings, user_id=getattr(current_user, "id", None)
+        )
+        links = await db.crossportalartisanlink.find_many(
+            where={"artisanId": {"in": ids}, "remoteCardCode": {"not": None}}
+        )
+    except Exception:
+        logger.warning("artisan list: card fields left off this page", exc_info=True)
+        return
+    linked: dict[str, list[str]] = {}
+    for link in links:
+        linked.setdefault(link.artisanId, []).append(link.remoteCardCode)
+    for row in encoded:
+        card = cards.get(row.get("id"))
+        row["card"] = artisan_card_store.card_codes(settings, card) if card else None
+        row.setdefault("aadhaarLast4", None)
+        row["linkedCardCodes"] = linked.get(row.get("id"), [])
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -587,6 +619,16 @@ async def create_artisan(
             )
         except Exception:  # noqa: BLE001 - the record is saved; the nightly scan finds its pairs again
             logger.exception("storing duplicate pairs at create failed")
+    # Every new artisan has a card from the start, so the register a phone caches can match it.
+    settings = get_settings()
+    if artisan_card.active(settings):
+        try:
+            await artisan_card_store.ensure_card(
+                db, created.id, settings=settings, user_id=current_user.id
+            )
+        except Exception:
+            # The artisan is saved; its card is issued on first read instead.
+            logger.warning("artisan create: card not issued yet", exc_info=True)
     # The creator is by definition entitled, but pass the viewer anyway rather than relying on
     # that: a future change to who may create an artisan would otherwise silently leak.
     return await completeness_module.attach("artisan", public_encode(created, current_user), client=db)

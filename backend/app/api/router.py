@@ -5,8 +5,9 @@ from app.api.routes import (
     answer_drafts,
     access_roster,
     app_release,
-    artisan_merge,
+    artisan_cards,
     artisan_duplicates,
+    artisan_merge,
     artisans,
     auth,
     completeness,
@@ -56,6 +57,8 @@ api_router.include_router(access_roster.router)
 api_router.include_router(artisan_merge.router)
 api_router.include_router(artisans.router)
 api_router.include_router(artisan_duplicates.router)
+# The artisan card: /artisans/{id}/card*, and /artisan-cards/* for status, sheets and resolving.
+api_router.include_router(artisan_cards.router)
 api_router.include_router(crafts.router)
 api_router.include_router(craft_codes.router)
 api_router.include_router(cross_portal.router)

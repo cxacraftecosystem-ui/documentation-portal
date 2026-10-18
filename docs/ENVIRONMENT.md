@@ -304,6 +304,29 @@ artisan already recorded (score 0.75 or more) is held with a 409 until the perso
 |---|---|---|---|---|
 | `ARTISAN_DUPLICATE_HOLD` | No | **`true`** | No | Kill switch for the hold at save time. Off: every create saves straight away, and its likely pairs are still stored for review. Scoring and the admin screen stay on. The thresholds (show 0.60, hold 0.75) and the 30-day undo window are constants in code, not settings. |
 
+### Artisan cards — on once the key is set
+
+A printable card per artisan (ID-1, A6, or A4 sheets of ten for a workshop) with a QR and a short
+code under it. Both carry an opaque card code and, in the QR, a tag signed with `ARTISAN_CARD_KEY` —
+never the record id or anything personal. Typing the short code works without the QR. A card from the
+Design Prototype Workshop opens an artisan here only when that portal has linked the two records
+(cross-portal link, above); this portal answers that portal's card lookups only for an artisan whose
+sharing consent is recorded.
+
+Without a key of 32 characters or more every card route answers 404, `/api/artisan-cards/status`
+says `enabled: false`, and no client draws the card. Store the key in the GitHub Actions secrets,
+the box `.env` and an SSM SecureString backup. Then run `python -m scripts.backfill_artisan_cards
+--apply` from `backend/` once, so every artisan has a card before phones cache the register.
+
+| Variable | Required | Default | Secret | Notes |
+|---|---|---|---|---|
+| `ARTISAN_CARDS_ENABLED` | No | `true` | No | The switch. Cards still need the key. |
+| `ARTISAN_CARD_KEY` | For cards | — | **Yes** | 32 random bytes, base64. **Different from the designer portal's**; never shared. Losing it stops QR verification only: typed codes still resolve. |
+| `ARTISAN_CARD_KEY_VERSION` | No | `1` | No | One digit, printed in every QR. Bump it to rotate. |
+| `ARTISAN_CARD_KEY_PREVIOUS` | No | — | **Yes** | The key before the last rotation, so cards printed under it keep verifying. |
+| `ARTISAN_CARD_RESOLVE_MISS_LIMIT` | No | `20` | No | Unmatched card lookups one account may make in ten minutes before 429. Hits never count. |
+| `ARTISAN_CARD_ISSUER` | No | `F` | No | The letter on this portal's cards. `D` belongs to the designer portal. |
+
 ### AI-drafted interview answers (C28) — shipped OFF
 
 | Variable | Required | Default | Secret | Notes |

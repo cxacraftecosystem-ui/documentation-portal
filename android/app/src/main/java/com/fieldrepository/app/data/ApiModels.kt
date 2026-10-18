@@ -168,7 +168,54 @@ data class ArtisanDto(
     val createdById: String? = null,
     val createdAt: String? = null,
     /** Which fields this record still lacks, computed by the server on read (`data/RecordCompleteness.kt`). */
-    val completeness: CompletenessDto? = null
+    val completeness: CompletenessDto? = null,
+    /**
+     * The artisan card (`backend/app/services/artisan_card.py`), sent only while cards are on: this
+     * portal's live card, the last four Aadhaar digits the card prints (never more), and the
+     * designer portal's card codes for records linked to this one. Cached with the register, so a
+     * scanned card is matched with no signal ([ArtisanCardCode.matchInRegister]).
+     */
+    val card: ArtisanCardCodesDto? = null,
+    val aadhaarLast4: String? = null,
+    val linkedCardCodes: List<String> = emptyList()
+)
+
+/** One artisan's live card: its code, the short code printed under the QR, and the QR payload. */
+@Serializable
+data class ArtisanCardCodesDto(
+    val code: String,
+    val shortCode: String,
+    val token: String
+)
+
+@Serializable
+data class ArtisanCardStatusDto(val enabled: Boolean = false, val issuer: String? = null)
+
+@Serializable
+data class ResolveArtisanCardRequest(
+    val input: String,
+    val source: String = "ANDROID",
+    val consent: Boolean = false
+)
+
+/** What `POST /artisan-cards/resolve` names: enough to confirm the right person, no more. */
+@Serializable
+data class CardArtisanDto(
+    val id: String,
+    val name: String,
+    val craft: String? = null,
+    val cluster: String? = null,
+    val place: String? = null,
+    val aadhaarLast4: String? = null
+)
+
+/** `FOUND` (with [artisan]) or `REPLACED` (with [artisanId]); every miss is an HTTP 404 instead. */
+@Serializable
+data class ResolveArtisanCardDto(
+    val status: String,
+    val via: String? = null,
+    val artisan: CardArtisanDto? = null,
+    val artisanId: String? = null
 )
 
 @Serializable

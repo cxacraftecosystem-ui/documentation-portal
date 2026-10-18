@@ -19,7 +19,9 @@ import {
   type AcceptedMeasurements
 } from "@/components/forms/measurementMethods";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
+import { CardCodeLookup } from "@/components/artisans/CardCodeLookup";
 import {
+  artisanForCard,
   craftNameFor,
   craftsChangeClearsArtisans,
   craftsKey,
@@ -1562,6 +1564,28 @@ function ToolFormBody({
             ) : null}
             <CappedListNotice cuts={[craftIds.length ? craftArtisanCut : null]} />
           </Field>
+          {/* Or the code under an artisan's card: adds them, and ticks their craft. */}
+          <CardCodeLookup
+            compact
+            actionLabel="Add"
+            onFound={(found) => {
+              void artisanForCard(found.id)
+                .then((artisan) => {
+                  if (artisan.craftId && !craftIds.includes(artisan.craftId)) setCraftIds([...craftIds, artisan.craftId]);
+                  if (!artisanIds.includes(artisan.id)) {
+                    const next = [...artisanIds, artisan.id];
+                    setArtisanIds(next);
+                    // The first artisan fills the two NOT NULL columns, as a pick in the list does.
+                    if (next.length === 1) {
+                      setArtisanName(artisan.name);
+                      setPlace(artisan.place);
+                    }
+                  }
+                  markDirty();
+                })
+                .catch((err) => setError(err instanceof Error ? err.message : "Couldn't add that artisan."));
+            }}
+          />
           </div>
           <DictatedTextInput
             name="artisanName"

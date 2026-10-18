@@ -389,7 +389,8 @@ async def test_links_need_consent_and_withdrawal_removes_them(world, monkeypatch
     linked = await routes.peer_link(
         "a1", routes.PeerLink(remoteArtisanId="dp1", matchedBy="AADHAAR"), link_req, _settings()
     )
-    assert _body(linked, link_req) == {"linked": True}
+    # ``cardCode`` is this portal's artisan card code; null here because cards are off in this world.
+    assert _body(linked, link_req) == {"linked": True, "cardCode": None}
     assert len(world.crossportalartisanlink.rows) == 1
     refused = await routes.peer_link(
         "a2", routes.PeerLink(remoteArtisanId="dp2", matchedBy="PEHCHAN"), _req(), _settings()

@@ -15,6 +15,8 @@ import {
   Users
 } from "lucide-react";
 
+import { ArtisanCardPanel } from "@/components/artisans/ArtisanCardPanel";
+import { ArtisanCardSheetActions } from "@/components/artisans/ArtisanCardSheetActions";
 import { ArtisanQuestionnairePanel } from "@/components/ArtisanQuestionnairePanel";
 import { useAuth } from "@/components/AuthProvider";
 import { CollabPanel } from "@/components/CollabPanel";
@@ -252,14 +254,21 @@ function TypeExtras({
       return (
         <>
           <ArtisanNextSteps artisan={record as unknown as Artisan} user={user} />
+          <ArtisanCardPanel artisanId={record.id} canReissue={canUpdateRecord(user, "artisan")} />
           <ExistingMedia linkedRecordType="artisan" linkedRecordId={record.id} title="Attached media" readOnly />
           <ArtisanQuestionnairePanel artisanId={record.id} />
+        </>
+      );
+    case "workshop":
+      return (
+        <>
+          <WorkshopCards workshopId={record.id} />
+          <ExistingMedia linkedRecordType={type} linkedRecordId={record.id} title="Attached media" readOnly />
         </>
       );
     case "product":
     case "tool":
     case "craft":
-    case "workshop":
       return <ExistingMedia linkedRecordType={type} linkedRecordId={record.id} title="Attached media" readOnly />;
     case "process": {
       const steps = (record.steps as Array<{ id: string; name: string; stepType: string; sortOrder?: number; notes?: string | null; media?: MediaFile[] }> | undefined) ?? [];
@@ -353,6 +362,15 @@ function InterviewTranscripts({
         </button>
       </ButtonRow>
       {note ? <p className="text-xs text-ink-500" role="status">{note}</p> : null}
+    </section>
+  );
+}
+
+/** "Print artisan cards" for everyone on this workshop's roster, in one PDF. Hidden while cards are off. */
+function WorkshopCards({ workshopId }: { workshopId: string }) {
+  return (
+    <section className="panel grid gap-3 p-4 empty:hidden" aria-label="Artisan cards">
+      <ArtisanCardSheetActions source={{ workshopId }} primaryLabel="Print artisan cards" />
     </section>
   );
 }

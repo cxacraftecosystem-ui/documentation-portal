@@ -22,6 +22,7 @@ refresh answers with the CURRENT id, which is how a merge (or its undo) reaches 
 without this server ever calling it.
 """
 
+import logging
 from datetime import UTC, datetime, time
 from types import SimpleNamespace
 from typing import Any
@@ -33,11 +34,20 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.core.config import get_settings
 from app.core.db import db
 from app.core.deps import get_current_user, get_value
-from app.services import aadhaar_fingerprint, artisan_merge, coverage, cross_portal, cross_portal_peer
+from app.services import (
+    aadhaar_fingerprint,
+    artisan_card,
+    artisan_card_store,
+    artisan_merge,
+    coverage,
+    cross_portal,
+    cross_portal_peer,
+)
 from app.services.access import record_edit_privilege, record_revision
 from app.services.artisan_identity import normalize_pehchan
 
 router = APIRouter(prefix="/cross-portal", tags=["cross-portal"])
+logger = logging.getLogger("app.cross_portal")
 
 
 def _active_or_404() -> Any:
@@ -64,6 +74,11 @@ ACTION_SCAN = "SCAN"
 #: calls per UTC day. Its nightly job sends every unlinked artisan holding a key, 100 at a time.
 MATCH_BATCH_LIMIT = 100
 MATCH_CALLS_PER_DAY = 50
+ACTION_CARD_RESOLVE = "CARD_RESOLVE"
+ACTION_CARD_UPDATE = "CARD_UPDATE"
+
+#: A card code as both portals print it: 10 Crockford characters (services/artisan_card.py).
+CARD_CODE_PATTERN = "^[0-9A-HJKMNP-TV-Z]{10}$"
 
 
 async def _log_access(
@@ -101,7 +116,23 @@ class PeerLink(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     remoteArtisanId: str = Field(min_length=1, max_length=64)
-    matchedBy: str = Field(pattern="^(PEHCHAN|AADHAAR)$")
+    matchedBy: str = Field(pattern="^(PEHCHAN|AADHAAR|CARD)$")
+    # The designer portal's live card code for its record, so its card opens this artisan here.
+    remoteCardCode: str | None = Field(default=None, pattern=CARD_CODE_PATTERN)
+
+
+class PeerCardResolve(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cardCode: str = Field(pattern=CARD_CODE_PATTERN)
+    tag: str | None = Field(default=None, pattern="^[0-9A-HJKMNP-TV-Z]{16}$")
+    keyVersion: int | None = Field(default=None, ge=1, le=9)
+
+
+class PeerCardUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    remoteCardCode: str = Field(pattern=CARD_CODE_PATTERN)
 
 
 class PeerMatchItem(BaseModel):
@@ -155,6 +186,31 @@ def _answer(artisan: Any, matched_by: str) -> dict[str, Any]:
             else None
         ),
     }
+
+
+async def _card_code(artisan_id: str, settings: Any) -> str | None:
+    """This portal's live card code for the artisan, issuing one if cards are on; else ``None``."""
+    if not artisan_card.active(settings):
+        return None
+    try:
+        card, _ = await artisan_card_store.ensure_card(
+            db, artisan_id, settings=settings, user_id=None, source="PEER"
+        )
+    except Exception:
+        # The link stands without it; the next refresh carries the code.
+        logger.warning("cross-portal: card code left off this answer", exc_info=True)
+        return None
+    return card.code
+
+
+async def _hold_remote_card_code(link_id: str | None, code: str | None) -> None:
+    """Free ``code`` from any other link before it is written (the column is unique)."""
+    if not code:
+        return
+    where: dict[str, Any] = {"remoteCardCode": code}
+    if link_id:
+        where["NOT"] = {"id": link_id}
+    await db.crossportalartisanlink.update_many(where=where, data={"remoteCardCode": None})
 
 
 @router.post("/peer/artisans/lookup")
@@ -336,7 +392,11 @@ async def peer_refresh(
         remote_artisan_id=remoteArtisanId,
         matched_by=link.matchedBy,
     )
-    return _signed(settings, request, {"match": _answer(artisan, link.matchedBy)})
+    return _signed(
+        settings,
+        request,
+        {"match": _answer(artisan, link.matchedBy), "cardCode": await _card_code(artisan.id, settings)},
+    )
 
 
 @router.post("/peer/artisans/{artisan_id}/links")
@@ -353,13 +413,19 @@ async def peer_link(
     existing = await db.crossportalartisanlink.find_first(
         where={"artisanId": artisan_id, "remoteArtisanId": payload.remoteArtisanId}
     )
+    await _hold_remote_card_code(getattr(existing, "id", None), payload.remoteCardCode)
     if existing is None:
         await db.crossportalartisanlink.create(
             data={
                 "artisanId": artisan_id,
                 "remoteArtisanId": payload.remoteArtisanId,
                 "matchedBy": payload.matchedBy,
+                "remoteCardCode": payload.remoteCardCode,
             }
+        )
+    elif payload.remoteCardCode and payload.remoteCardCode != getattr(existing, "remoteCardCode", None):
+        await db.crossportalartisanlink.update(
+            where={"id": existing.id}, data={"remoteCardCode": payload.remoteCardCode}
         )
     await _log_access(
         request,
@@ -369,7 +435,88 @@ async def peer_link(
         remote_artisan_id=payload.remoteArtisanId,
         matched_by=payload.matchedBy,
     )
-    return _signed(settings, request, {"linked": True})
+    return _signed(
+        settings, request, {"linked": True, "cardCode": await _card_code(artisan_id, settings)}
+    )
+
+
+@router.put("/peer/artisans/{artisan_id}/links/{remote_artisan_id}/card")
+async def peer_update_card(
+    artisan_id: str,
+    remote_artisan_id: str,
+    payload: PeerCardUpdate,
+    request: Request,
+    settings: Any = Depends(require_peer),
+) -> Response:
+    """The designer portal reissued its card: its new code replaces the one on the link."""
+    link = await db.crossportalartisanlink.find_first(
+        where={"artisanId": artisan_id, "remoteArtisanId": remote_artisan_id}
+    )
+    if link is None:
+        await _log_access(
+            request, ACTION_CARD_UPDATE, "NO_MATCH", remote_artisan_id=remote_artisan_id
+        )
+        return _signed(settings, request, {"updated": False}, status_code=404)
+    await _hold_remote_card_code(link.id, payload.remoteCardCode)
+    await db.crossportalartisanlink.update(
+        where={"id": link.id}, data={"remoteCardCode": payload.remoteCardCode}
+    )
+    await _log_access(
+        request,
+        ACTION_CARD_UPDATE,
+        "UPDATED",
+        artisan_id=artisan_id,
+        remote_artisan_id=remote_artisan_id,
+        matched_by=link.matchedBy,
+    )
+    return _signed(settings, request, {"updated": True})
+
+
+@router.post("/peer/cards/resolve")
+async def peer_resolve_card(
+    payload: PeerCardResolve, request: Request, settings: Any = Depends(require_peer)
+) -> Response:
+    """The artisan behind one of THIS portal's cards, if their sharing consent is recorded here.
+
+    Answers only for a live card with a valid tag (when one is sent), an artisan who is not
+    REJECTED, and a granted consent. Every other case is the same ``match: null``.
+    """
+    match = None
+    card = None
+    if artisan_card.active(settings):
+        parsed = artisan_card.ParsedCard(
+            artisan_card.issuer_of(settings),
+            payload.cardCode,
+            payload.keyVersion,
+            payload.tag,
+            payload.tag is None,
+        )
+        if payload.tag is None or artisan_card.verify(settings, parsed):
+            card = await db.artisancard.find_unique(where={"code": payload.cardCode})
+    if card is not None and card.revokedAt is None:
+        row = await db.artisan.find_unique(where={"id": card.artisanId})
+        if row is not None and getattr(row, "status", None) != "REJECTED":
+            artisan = await _consenting(row.id)
+            if artisan is not None:
+                match = {**_answer(artisan, cross_portal.MATCHED_BY_CARD), "cardCode": card.code}
+    if match is None:
+        await _log_access(request, ACTION_CARD_RESOLVE, "NO_MATCH")
+        return _signed(settings, request, {"match": None})
+    await _log_access(
+        request,
+        ACTION_CARD_RESOLVE,
+        "MATCH",
+        artisan_id=match["artisanId"],
+        matched_by=cross_portal.MATCHED_BY_CARD,
+    )
+    await artisan_card_store.log_event(
+        db,
+        artisan_card_store.ACTION_PEER_RESOLVE,
+        "PEER",
+        artisan_id=match["artisanId"],
+        card_code=card.code if card else None,
+    )
+    return _signed(settings, request, {"match": match})
 
 
 @router.delete("/peer/artisans/{artisan_id}/links/{remote_artisan_id}")

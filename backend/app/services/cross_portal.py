@@ -69,7 +69,9 @@ MIN_NONCE_LENGTH = 16
 #: ``CrossPortalArtisanLink.matchedBy`` values.
 MATCHED_BY_PEHCHAN = "PEHCHAN"
 MATCHED_BY_AADHAAR = "AADHAAR"
-MATCHED_BY = (MATCHED_BY_PEHCHAN, MATCHED_BY_AADHAAR)
+#: Linked from a scanned or typed artisan card (services/artisan_card.py).
+MATCHED_BY_CARD = "CARD"
+MATCHED_BY = (MATCHED_BY_PEHCHAN, MATCHED_BY_AADHAAR, MATCHED_BY_CARD)
 
 _TWELVE_DIGITS = re.compile(r"[0-9]{12}")
 _CODE = re.compile(r"[0-9a-f]{64}")

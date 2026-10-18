@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.fieldrepository.app.data.ArtisanCardCode
 import com.fieldrepository.app.data.ArtisanDto
 import com.fieldrepository.app.data.CraftDto
 import com.fieldrepository.app.data.FieldRepository
@@ -643,7 +644,8 @@ fun rememberArtisanPicker(
     // A row supplied for an id that is no longer selected must never stay in the options: the
     // researcher has unticked it and it would show as an entry that is neither on a page nor chosen.
     // The rule is the same for a row the record embedded as for one fetched by id.
-    val wantedArtisans = artisanIds.filter { it.isNotBlank() }.distinct()
+    // A card scanned with no signal (`card:<shortCode>`) names no row yet: it is never fetched by id.
+    val wantedArtisans = artisanIds.filter { it.isNotBlank() && !ArtisanCardCode.isPending(it) }.distinct()
     val embedded = hydrated.filter { it.id in wantedArtisans }
     val rescued = offPage.filter { it.id in wantedArtisans }
     // EVERY row a search or a page has answered stays offered, not only the selected ones: the forms

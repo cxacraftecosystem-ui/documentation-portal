@@ -264,6 +264,26 @@ interface FieldRepositoryApi {
         @Body body: ReviewEditRequest
     ): JsonElement
 
+    /** Whether artisan cards are on here (`backend/app/api/routes/artisan_cards.py`). */
+    @GET("artisan-cards/status")
+    suspend fun artisanCardStatus(): ArtisanCardStatusDto
+
+    /** A scanned QR payload or a typed short code. 404 for every kind of miss, 422 for a bad check. */
+    @POST("artisan-cards/resolve")
+    suspend fun resolveArtisanCard(@Body body: ResolveArtisanCardRequest): ResolveArtisanCardDto
+
+    /**
+     * One page of the register FROM THIS PHONE'S CACHE ONLY (`OfflineReadCache`), never the network:
+     * the offline half of a card scan. `Cache-Control: only-if-cached, max-stale=…` makes OkHttp
+     * answer a synthetic 504 when the page was never fetched, which the caller reads as "not here".
+     */
+    @GET("artisans")
+    suspend fun artisansFromCache(
+        @Query("page") page: Int,
+        @Query("pageSize") pageSize: Int,
+        @Header("Cache-Control") cacheControl: String = "only-if-cached, max-stale=2147483647"
+    ): PageResponse<ArtisanDto>
+
     @GET("artisans")
     suspend fun artisans(
         @Query("page") page: Int = 1,
