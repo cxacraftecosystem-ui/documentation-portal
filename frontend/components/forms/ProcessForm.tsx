@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Lock, Plus } from "lucide-react";
+import { Images, ListRestart, Lock, Plus } from "lucide-react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { LIST_PAGE_CEILING, listCut, mergeById, type ListCut } from "@/components/data/cappedList";
@@ -12,6 +12,10 @@ import { FieldProvenance } from "@/components/FieldProvenance";
 import { CarryContextBanner, carryScope, useCarryContext, type CarryScopeState } from "@/components/forms/CarryContextBanner";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { useRecordOffPage } from "@/components/forms/recordPickers";
+import { exifTimeToMs, inCaptureOrder, templateStepsFrom, unnamedStepCount } from "@/components/forms/processSteps";
+import { useServerSearchList } from "@/components/forms/useServerSearchList";
+import { DraftOfferCard, useFormDraft } from "@/components/forms/FormDraft";
+import { ComboBox } from "@/components/ui/Dropdown";
 import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/WorkshopSelect";
 import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
 import { DictatedTextInput } from "@/components/richtext/DictatedTextInput";
@@ -23,7 +27,7 @@ import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { apiFetch, listResource } from "@/lib/api";
 import { handleFormEnter } from "@/lib/formNav";
-import { describePreProcess, describeProcessStep, renameMediaFile, uploadMediaFile } from "@/lib/media";
+import { describePreProcess, describeProcessStep, extractImageExifMetadata, renameMediaFile, uploadMediaFile } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
 import { hasRank } from "@/lib/permissions";
 import type { Artisan, ExtraMetadata, MediaFile, ProductDocumentation, RecordStatus, User, Workshop } from "@/lib/types";
@@ -31,6 +35,7 @@ import { useConfirm } from "@/components/dialogs";
 import { Toggle } from "@/components/ui/Toggle";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { ReviewNoteBanner } from "@/components/review/ReviewNoteBanner";
+import { Badge } from "@/components/ui/Badge";
 
 // ---------------------------------------------------------------------------
 // Types for the /processes endpoints (hydrated detail: media on the process =
@@ -95,6 +100,8 @@ type StepUi = {
   files: File[];
   existingMedia: MediaFile[];
   nameError?: string | null;
+  /** C22: copied from the craft's last process and not yet edited — marked "From last process". */
+  template?: boolean;
 };
 
 function stepTypeLabel(stepType: string): string {
@@ -357,10 +364,15 @@ export function ProcessForm({
   const [preFiles, setPreFiles] = useState<File[]>([]);
   const [existingPreMedia, setExistingPreMedia] = useState<MediaFile[]>(initial?.media ?? []);
 
-  const [artisans, setArtisans] = useState<Artisan[]>([]);
-  // "Can I see this artisan?" and "is there any signal?" are different answers, and the carry-
-  // forward prefill treats them differently — see useCarryContext.
-  const [artisanListState, setArtisanListState] = useState<CarryScopeState>("pending");
+  /*
+    A11 — THE ARTISAN PICKER SEARCHES THE SERVER. One page is held; when the table is longer than
+    that page, typing in the picker re-asks `GET /artisans?search=` (see `useServerSearchList`).
+    "Can I see this artisan?" and "is there any signal?" stay different answers — `state` is the
+    carry-forward prefill's scope, as before.
+  */
+  const artisanList = useServerSearchList<Artisan>("/artisans", "artisans");
+  const artisans = artisanList.items;
+  const artisanListState: CarryScopeState = artisanList.state;
   const [artisanProducts, setArtisanProducts] = useState<ProductDocumentation[]>([]);
   /**
    * WHAT THE TWO PICKERS ARE NOT SHOWING — see `components/data/cappedList`.
@@ -371,7 +383,7 @@ export function ProcessForm({
    * search box and no page two. The products load is per artisan and is therefore whole in practice
    * — but "in practice" is not a property of the code, so it is reported the same way.
    */
-  const [artisanCut, setArtisanCut] = useState<ListCut | null>(null);
+  const artisanCut = artisanList.cut;
   const [productCut, setProductCut] = useState<ListCut | null>(null);
   const [productsLoading, setProductsLoading] = useState(false);
   const [productLoadError, setProductLoadError] = useState<string | null>(null);
@@ -388,16 +400,6 @@ export function ProcessForm({
   const [guardOpen, setGuardOpen] = useState(false);
 
   const statusChoices = initial?.status && !STATUS_OPTIONS.includes(String(initial.status)) ? [String(initial.status), ...STATUS_OPTIONS] : STATUS_OPTIONS;
-
-  useEffect(() => {
-    listResource<Artisan>("/artisans", { pageSize: LIST_PAGE_CEILING })
-      .then((result) => {
-        setArtisans(result.items);
-        setArtisanCut(listCut(result, "artisans"));
-        setArtisanListState("loaded");
-      })
-      .catch(() => setArtisanListState("unavailable"));
-  }, []);
 
   /**
    * THE ARTISAN THIS PROCESS IS ALREADY FILED UNDER, whatever page they are on.
@@ -555,6 +557,68 @@ export function ProcessForm({
     setAddMenu(false);
   }
 
+  /** C22 — "Steps from photos": one unnamed step per file, in the order the photos were taken. */
+  async function addStepsFromFiles(list: FileList | null) {
+    const files = Array.from(list ?? []);
+    if (!files.length) return;
+    const capturedAt = await Promise.all(
+      files.map(async (file) => {
+        const exif = await extractImageExifMetadata(file);
+        return exifTimeToMs(exif?.DateTimeOriginal ?? exif?.CreateDate ?? null);
+      })
+    );
+    const ordered = inCaptureOrder(files, capturedAt);
+    setSteps((current) => [
+      ...current,
+      ...ordered.map((file) => ({
+        key: makeKey(),
+        name: "",
+        stepType: "SEQUENTIAL",
+        recordAdditional: false,
+        notes: "",
+        files: [file],
+        existingMedia: []
+      }))
+    ]);
+  }
+
+  /** C22 — the craft this process's product is of, for "Start from last process". */
+  const productCraftId = artisanProducts.find((product) => product.id === productId)?.craftId ?? null;
+  const [templateBusy, setTemplateBusy] = useState(false);
+  const [templateNote, setTemplateNote] = useState<string | null>(null);
+  async function startFromLastProcess() {
+    if (!productCraftId) return;
+    setTemplateBusy(true);
+    setTemplateNote(null);
+    try {
+      const page = await listResource<ProcessRecord>("/processes", { craftId: productCraftId, pageSize: 5 });
+      const last = page.items.find((row) => row.id !== initial?.id && templateStepsFrom(row.steps).length > 0);
+      const template = templateStepsFrom(last?.steps);
+      if (!template.length) {
+        setTemplateNote("No earlier process for this craft.");
+        return;
+      }
+      setSteps((current) => [
+        ...current,
+        ...template.map((step) => ({
+          key: makeKey(),
+          name: step.name,
+          stepType: step.stepType,
+          recordAdditional: false,
+          notes: "",
+          files: [],
+          existingMedia: [],
+          template: true
+        }))
+      ]);
+    } catch (err) {
+      setTemplateNote(err instanceof Error ? err.message : "Couldn't load the last process.");
+    } finally {
+      setTemplateBusy(false);
+    }
+  }
+  const unnamed = unnamedStepCount(steps);
+
   /**
    * HAND THE PROMPT TO EVERY CONTROL THAT CAN LEAVE THIS FORM, not just to this form's own Cancel.
    *
@@ -571,6 +635,56 @@ export function ProcessForm({
    * researcher had just asked for, and what fixing it properly would cost.
    */
   useLeaveGuard(dirty, () => setGuardOpen(true));
+
+  /*
+    B6 — THIS FORM KEEPS A DRAFT. Everything the researcher typed or attached is autosaved (debounced,
+    only while `dirty`) and offered back after a closed tab. The notes editor seeds once, so a
+    restored note remounts it through `notesSeed`.
+  */
+  const [notesSeed, setNotesSeed] = useState<{ value: string; nonce: number }>({ value: initial?.notes ?? "", nonce: 0 });
+  const draft = useFormDraft({
+    kind: "process",
+    recordId: initial?.id ?? null,
+    dirty,
+    label: name.trim(),
+    fields: {
+      name,
+      artisanId,
+      productId,
+      notes,
+      status,
+      preProcessAvailable,
+      preFiles,
+      workshopId: workshop.workshopId,
+      steps: steps.map((step) => ({ ...step, existingMedia: [] }))
+    },
+    onRestore: (fields) => {
+      if (typeof fields.name === "string") setName(fields.name);
+      if (typeof fields.artisanId === "string") setArtisanId(fields.artisanId);
+      if (typeof fields.productId === "string") {
+        carriedProductRef.current = fields.productId;
+        setProductId(fields.productId);
+      }
+      if (typeof fields.notes === "string") {
+        setNotes(fields.notes);
+        setNotesSeed((current) => ({ value: fields.notes as string, nonce: current.nonce + 1 }));
+      }
+      if (typeof fields.status === "string") setStatus(fields.status);
+      if (typeof fields.preProcessAvailable === "boolean") setPreProcessAvailable(fields.preProcessAvailable);
+      if (Array.isArray(fields.preFiles)) setPreFiles(fields.preFiles as File[]);
+      if (typeof fields.workshopId === "string" && fields.workshopId) workshop.setWorkshopId(fields.workshopId);
+      if (Array.isArray(fields.steps)) {
+        const stored = new Map(steps.map((step) => [step.serverId, step.existingMedia]));
+        setSteps(
+          (fields.steps as StepUi[]).map((step) => ({
+            ...step,
+            key: makeKey(),
+            existingMedia: step.serverId ? (stored.get(step.serverId) ?? []) : []
+          }))
+        );
+      }
+    }
+  });
 
   function requestCancel() {
     if (dirty) setGuardOpen(true);
@@ -608,15 +722,7 @@ export function ProcessForm({
       setStepsError("Add at least one step");
       blocked = true;
     }
-    setSteps((current) =>
-      current.map((step) => ({ ...step, nameError: step.name.trim() ? null : "This field cannot be empty" }))
-    );
-    steps.forEach((step) => {
-      if (!step.name.trim()) {
-        blocked = true;
-        focusId = focusId ?? `step-name-${step.key}`;
-      }
-    });
+    // C22: a step may be saved without a name; it is flagged "Unnamed step" until somebody names it.
     if (blocked) {
       setError("Please fill the required fields highlighted above.");
       setGuardOpen(false);
@@ -710,6 +816,8 @@ export function ProcessForm({
         workshopId: workshop.workshopId,
         workshopName: workshop.workshops.find((w) => w.id === workshop.workshopId)?.title ?? null
       });
+      // Saved or queued: the draft has done its job.
+      draft.clear();
       if (outcome.queued) {
         // OutboxBanner at the top of the page names the entry and says where it lives.
         setGuardOpen(false);
@@ -846,6 +954,7 @@ export function ProcessForm({
         </p>
       </div>
       {initial ? <FieldProvenance extraMetadata={initial.extraMetadata} /> : null}
+      <DraftOfferCard draft={draft} />
       {error ? <div className="rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-red-800">{error}</div> : null}
       <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
 
@@ -898,10 +1007,16 @@ export function ProcessForm({
 
       <div>
         <Field label="Artisan" required>
-          <Select
+          <ComboBox
             value={artisanId}
-            onChange={(event) => {
-              const picked = event.target.value;
+            options={artisanOptions.map((artisan) => ({
+              value: artisan.id,
+              label: artisan.place?.trim() ? `${artisan.name} · ${artisan.place}` : artisan.name
+            }))}
+            placeholder="Select the artisan"
+            emptyLabel={artisanListState === "pending" ? "Loading…" : "No artisans yet"}
+            onSearch={artisanList.setQuery}
+            onChange={(picked) => {
               if (picked !== artisanId) {
                 setArtisanId(picked);
                 setProductId("");
@@ -913,17 +1028,8 @@ export function ProcessForm({
                 }
               }
             }}
-          >
-            {/* This placeholder is also what a browser falls back to when `value` matches no
-                <option>, so until `artisanOptions` carried the record's own artisan it doubled as
-                "filed under an artisan who is not on page one" — see `offPageArtisan` above. */}
-            <option value="">Select the artisan</option>
-            {artisanOptions.map((artisan) => (
-              <option key={artisan.id} value={artisan.id}>
-                {artisan.name} · {artisan.place}
-              </option>
-            ))}
-          </Select>
+          />
+          {artisanList.searching ? <p className="mt-1 text-xs text-ink-500">Searching all artisans…</p> : null}
           <CappedListNotice cuts={[artisanCut]} />
         </Field>
         {artisanError ? <p className="mt-1 text-xs text-error-600">{artisanError}</p> : null}
@@ -1013,9 +1119,10 @@ export function ProcessForm({
         columns are different and only one of them gets an editor.
       */}
       <RichTextField
+        key={notesSeed.nonce}
         name="notes"
         label="What happens in this process"
-        defaultValue={initial?.notes ?? ""}
+        defaultValue={notesSeed.value}
         helper="The sequence in your own words."
         onValueChange={setNotes}
         // Said once at the top of this form by `DictationUnavailableNotice`.
@@ -1055,8 +1162,15 @@ export function ProcessForm({
           {steps.map((step, index) => (
             <div key={step.key} className="grid gap-3 rounded-xl border border-line-200 bg-surface-50 p-4">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-semibold text-ink-900">
-                  Step {index + 1} · {stepTypeLabel(step.stepType)}
+                <span className="flex flex-wrap items-center gap-2 text-sm font-semibold text-ink-900">
+                  <span>
+                    Step {index + 1} · {stepTypeLabel(step.stepType)}
+                  </span>
+                  {!step.name.trim() ? (
+                    <Badge tone="attention">Unnamed step</Badge>
+                  ) : step.template ? (
+                    <Badge>From last process</Badge>
+                  ) : null}
                 </span>
                 <button
                   type="button"
@@ -1077,12 +1191,12 @@ export function ProcessForm({
                 <DictatedTextInput
                   id={`step-name-${step.key}`}
                   label="Name of the step"
-                  required
+                  placeholder="Add a name when you can"
                   explainWhenUnavailable={false}
                   value={step.name}
                   aria-invalid={!!step.nameError}
                   aria-describedby={step.nameError ? `step-name-${step.key}-error` : undefined}
-                  onChange={(next) => updateStep(step.key, { name: next })}
+                  onChange={(next) => updateStep(step.key, { name: next, template: false })}
                 />
                 {step.nameError ? (
                   <p id={`step-name-${step.key}-error`} className="mt-1 text-xs text-error-600">
@@ -1120,6 +1234,34 @@ export function ProcessForm({
           ))}
         </div>
 
+        {unnamed > 0 ? (
+          <p className="mt-3 text-xs font-medium text-amber-800 dark:text-amber-200">
+            {unnamed} step{unnamed === 1 ? "" : "s"} still need{unnamed === 1 ? "s" : ""} a name.
+          </p>
+        ) : null}
+        <ButtonRow align="start" className="mt-3">
+          <label className="field-button-secondary cursor-pointer">
+            <Images className="h-4 w-4" aria-hidden />
+            Steps from photos
+            <input
+              className="hidden"
+              type="file"
+              accept="image/*,video/*"
+              multiple
+              onChange={(event) => {
+                void addStepsFromFiles(event.target.files);
+                event.target.value = "";
+              }}
+            />
+          </label>
+          {steps.length === 0 && productCraftId ? (
+            <button type="button" className="field-button-secondary" onClick={startFromLastProcess} disabled={templateBusy}>
+              <ListRestart className="h-4 w-4" aria-hidden />
+              {templateBusy ? "Loading…" : "Start from last process"}
+            </button>
+          ) : null}
+        </ButtonRow>
+        {templateNote ? <p className="mt-1 text-xs text-ink-500">{templateNote}</p> : null}
         <div className="relative mt-3">
           <button type="button" className="field-button-secondary w-full" onClick={() => setAddMenu((value) => !value)}>
             <Plus className="h-4 w-4" aria-hidden />

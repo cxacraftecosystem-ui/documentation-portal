@@ -141,9 +141,10 @@ export const GUIDE_STEPS: GuideStep[] = [
       "Local name",
       "Workshop",
       "Product type",
+      "Artisan (required)",
+      "Artisan not on record",
       "Linked craft (fills craft name)",
       "Craft name (required)",
-      "Linked artisan (fills artisan + place)",
       "Artisan name (required)",
       "Place (required)",
       "Time taken to complete",
@@ -162,9 +163,9 @@ export const GUIDE_STEPS: GuideStep[] = [
       "Location (GPS fix or map pin)"
     ],
     watch: [
-      "Pick the craft first; it filters the artisans.",
+      "Pick the artisan first; it fills the craft, name and place.",
       "\"Document using grid\" measures the piece from a photo.",
-      "Linked craft and artisan fill their names for you."
+      "Artisan not on record? Switch it on and type the names."
     ]
   },
   {
@@ -180,7 +181,7 @@ export const GUIDE_STEPS: GuideStep[] = [
       "Name of the process (required)",
       "Artisan (required)",
       "Product (required)",
-      "Per step: Name of the step (required)",
+      "Per step: Name of the step",
       "Per step: additional context notes (optional)",
       "Per step: attached media"
     ],
@@ -254,7 +255,7 @@ export const GUIDE_STEPS: GuideStep[] = [
     // array and the Kotlin one equal, so the two move together — what it could never say is which
     // of them was right, which is why the contract exists.
     fields: [
-      "Interview title (required)",
+      "Interview title",
       "Place",
       "Language",
       "Workshop",

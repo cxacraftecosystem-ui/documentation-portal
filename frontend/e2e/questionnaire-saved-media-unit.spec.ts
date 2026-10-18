@@ -173,8 +173,11 @@ test("a. saved media is READ-ONLY and never reaches the upload tray", () => {
   expect(panel).not.toContain("onRemove");
   // Nothing anywhere loads a stored file into either upload map — that would re-upload the whole
   // interview on every save and duplicate it in the completion matrix. Every write to them is a
-  // clear.
-  (CODE.match(/setMediaFiles\([^)]*\)/g) ?? []).forEach((call) => expect(call).toBe("setMediaFiles([])"));
+  // clear — or, since B6, the restore of an UNSAVED draft, whose files are this visit's own new
+  // clips kept in the browser and never the record's stored ones.
+  (CODE.match(/setMediaFiles\([^)]*\)/g) ?? []).forEach((call) =>
+    expect(["setMediaFiles([])", "setMediaFiles(fields.mediaFiles as File[])"]).toContain(call)
+  );
   // And neither map is ever handed the record's stored files, under any spelling.
   expect(CODE).not.toMatch(/set(MediaFiles|QuestionAudioFiles)\([^;]*savedMedia/);
   expect(CODE).not.toMatch(/set(MediaFiles|QuestionAudioFiles)\([^;]*editing\?\.media/);
@@ -212,7 +215,10 @@ test("a. a clip's section is read off its caption, with the digit rule that stop
 /* ── b. THE RECORDED ANSWERS ─────────────────────────────────────────────────────────────────── */
 
 test("b. an answer the record carries is drawn even while the preference hides the boxes", () => {
-  expect(CODE).toMatch(/\{capture\.hideAnswers && !answeredOnRecord\.has\(question\.id\) \? null : \(/);
+  // Since A7 an answer taken from its transcript is drawn too, so it can be read and corrected.
+  expect(CODE).toMatch(
+    /\{capture\.hideAnswers && !answeredOnRecord\.has\(question\.id\) && !fromTranscript\.has\(question\.id\) \? null : \(/
+  );
   // The old gate, named so reinstating it goes red rather than quietly shipping.
   expect(CODE).not.toMatch(/\{capture\.hideAnswers \? null : \(/);
   // Drawn EDITABLE, not read-only: this page is the correction surface, and text a researcher can

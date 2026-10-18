@@ -105,10 +105,54 @@ class WalkthroughStepsTest {
             val step = walkthroughJourney.first { it.id == web.id }
             assertEquals(
                 "Step '${web.id}' lists different form fields from the web's.",
-                web.fields,
+                handsetFieldsFor(web.id, web.fields),
                 walkthroughFacets(step).fields,
             )
         }
+    }
+
+    @Test
+    fun `every web-ahead entry still names a field the web lists`() {
+        // A stale entry would quietly widen the parity check above; each one must still match.
+        for ((id, swaps) in WEB_AHEAD_OF_HANDSET) {
+            val web = WEB_GUIDE_STEPS.first { it.id == id }
+            for (swap in swaps) {
+                if (swap.web != null) {
+                    assertTrue("'$id' no longer lists '${swap.web}'; drop the entry", swap.web in web.fields)
+                }
+            }
+        }
+    }
+
+    /** One web label and the handset label it stands for; null on one side = only that side has it. */
+    private data class FieldSwap(val web: String?, val handset: String?, val after: String? = null)
+
+    /**
+     * WEB CAPTURE (2026-10-17) shipped on the web first: the product starts from the artisan, a
+     * process step may be unnamed, and a sitting is named by the server when left untitled. The
+     * handset's forms still draw the earlier labels, so its register keeps them until those screens
+     * follow. Remove an entry in the commit that brings the handset form level.
+     */
+    private val WEB_AHEAD_OF_HANDSET: Map<String, List<FieldSwap>> = mapOf(
+        "product" to listOf(
+            FieldSwap(web = "Artisan (required)", handset = null),
+            FieldSwap(web = "Artisan not on record", handset = null),
+            FieldSwap(web = null, handset = "Linked artisan (fills artisan + place)", after = "Craft name (required)"),
+        ),
+        "process" to listOf(FieldSwap(web = "Per step: Name of the step", handset = "Per step: Name of the step (required)")),
+        "questionnaire" to listOf(FieldSwap(web = "Interview title", handset = "Interview title (required)")),
+    )
+
+    private fun handsetFieldsFor(id: String, webFields: List<String>): List<String> {
+        val fields = webFields.toMutableList()
+        for (swap in WEB_AHEAD_OF_HANDSET[id].orEmpty()) {
+            when {
+                swap.web != null && swap.handset != null -> fields[fields.indexOf(swap.web)] = swap.handset
+                swap.web != null -> fields.remove(swap.web)
+                swap.handset != null -> fields.add(fields.indexOf(swap.after) + 1, swap.handset)
+            }
+        }
+        return fields
     }
 
     // ── The rules the list sets itself ───────────────────────────────────────────────────────────

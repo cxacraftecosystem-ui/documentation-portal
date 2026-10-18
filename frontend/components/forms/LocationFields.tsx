@@ -18,6 +18,13 @@ import { RequiredMark } from "@/components/ui/RequiredMark";
 import { apiFetch } from "@/lib/api";
 import type { AddressReference } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
+import {
+  EMPTY_STATED,
+  prefillStillStands,
+  statedPrefillFor,
+  type StatedAddress,
+  type StatedAddressSource
+} from "@/components/forms/statedPrefill";
 
 const maptilerKey = process.env.NEXT_PUBLIC_MAPTILER_API_KEY;
 
@@ -664,7 +671,8 @@ export function LocationFields({
   onDirty,
   required,
   subjectLabel = "this record",
-  statedPlace
+  statedPlace,
+  prefillFrom
 }: {
   initial?: LocationInitialValues | null;
   /** Raise the surrounding form's unsaved-changes flag; see the state dropdown below for why. */
@@ -685,6 +693,11 @@ export function LocationFields({
    * coordinate in West Bengal has nothing to disagree with.
    */
   statedPlace?: string | null;
+  /**
+   * C17: the record this one is ABOUT (the artisan), whose stated address fills the empty stated
+   * group — marked "From …" and the researcher's to change. See `statedPrefill.ts` for the rule.
+   */
+  prefillFrom?: StatedAddressSource | null;
 }) {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapInstance = useRef<maplibregl.Map | null>(null);
@@ -820,6 +833,46 @@ export function LocationFields({
   useEffect(() => {
     autofillRef.current = autofill;
   }, [autofill]);
+
+  /*
+    C17 — THE ARTISAN'S STATED ADDRESS, OFFERED INTO AN EMPTY CARD. App-filled, so it does not raise
+    the form's dirty flag; marked under the heading for as long as every box still holds it; and
+    re-offered when the source changes (a different artisan picked) only over boxes nobody typed in.
+  */
+  const [statedPrefill, setStatedPrefill] = useState<{ label: string; values: StatedAddress } | null>(null);
+  const statedNow: StatedAddress = { state: stateName, district, village, pincode };
+  const statedNowRef = useRef(statedNow);
+  useEffect(() => {
+    statedNowRef.current = { state: stateName, district, village, pincode };
+  }, [stateName, district, village, pincode]);
+  const statedPrefillRef = useRef(statedPrefill);
+  useEffect(() => {
+    statedPrefillRef.current = statedPrefill;
+  }, [statedPrefill]);
+  const prefillKey = prefillFrom?.key ?? null;
+  useEffect(() => {
+    if (!prefillFrom) return;
+    const device = autofillRef.current?.mode === "passive" ? autofillRef.current.applied : [];
+    const next = statedPrefillFor(prefillFrom, statedNowRef.current, statedPrefillRef.current?.values ?? null, device);
+    if (!next) return;
+    setStateName(next.state);
+    setDistrict(next.district);
+    setVillage(next.village);
+    setPincode(next.pincode);
+    setAutofill(null);
+    setStatedPrefill({ label: prefillFrom.label, values: next });
+    // Keyed on the source alone: the address of ONE artisan is offered once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillKey]);
+  const prefillShown = statedPrefill !== null && prefillStillStands(statedNow, statedPrefill.values);
+  function clearStatedPrefill() {
+    setStateName(EMPTY_STATED.state);
+    setDistrict(EMPTY_STATED.district);
+    setVillage(EMPTY_STATED.village);
+    setPincode(EMPTY_STATED.pincode);
+    setStatedPrefill(null);
+    onDirty?.();
+  }
 
   const pincodeProblem = pincodeValidationError(pincode);
   const zoneProblem = postalZoneMismatch(stateName, pincode);
@@ -1669,6 +1722,22 @@ export function LocationFields({
             Where {subjectLabel} is. Pick on the map to fill the address.
           </p>
         </div>
+
+        {prefillShown && statedPrefill ? (
+          <div
+            data-testid="stated-prefill"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-purple-200 bg-purple-50 px-3 py-2 text-sm text-purple-950"
+          >
+            <span>From {statedPrefill.label}&rsquo;s record.</span>
+            <button
+              type="button"
+              className="field-button-secondary min-h-8 px-3 py-1 text-xs"
+              onClick={clearStatedPrefill}
+            >
+              Clear
+            </button>
+          </div>
+        ) : null}
 
         {/*
           WHAT WAS JUST WRITTEN, and how to undo it. A form that fills itself in silently is the bug the

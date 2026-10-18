@@ -167,10 +167,11 @@ test("the instrument picker is disabled on an edit, as it is on the handset", ()
 });
 
 test("the form remounts per record, so the uncontrolled boxes re-seed", () => {
-  expect(CODE).toMatch(/key=\{editing\?\.id \?\? "new"\}/);
+  // Keyed on the record, plus the draft nonce (B6): continuing a draft remounts it the same way.
+  expect(CODE).toMatch(/key=\{`\$\{editing\?\.id \?\? "new"\}-\$\{draftNonce\}`\}/);
   expect(CODE).toMatch(/ref=\{formRef\}/);
   // The uncontrolled half reads its value once per mount, which is what the key is for.
-  expect(CODE).toMatch(/defaultValue=\{editing\?\.notes \?\? null\}/);
+  expect(CODE).toMatch(/defaultValue=\{restoredNotes \?\? editing\?\.notes \?\? null\}/);
   expect(CODE).toMatch(/defaultValue=\{editing\?\.status \?\? "APPROVED"\}/);
 });
 

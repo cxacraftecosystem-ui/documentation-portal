@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import Field, model_validator
+from typing import Literal
+
+from pydantic import Field, field_validator, model_validator
 
 from app.schemas.common import (
     APIModel,
@@ -82,6 +84,32 @@ class QuestionnaireSectionReorder(APIModel):
 # import path, rather than two literals that drift.
 MAX_HELP_CHARS = 2000
 
+#: THE ARTISAN FIELDS A QUESTION MAY BE ANSWERED FROM (B8), plus two facts of the sitting itself.
+#: The question builder offers exactly these; the capture form fills an EMPTY answer from the picked
+#: artisan. Spelled as the Artisan column names so both clients read them off the record directly.
+ARTISAN_FIELD_KEYS: tuple[str, ...] = (
+    "name",
+    "localName",
+    "craft",
+    "place",
+    "gender",
+    "phone",
+    "email",
+    "dateOfBirth",
+    "experienceYears",
+    "address",
+    "interviewDate",
+    "interviewer",
+)
+
+
+def _check_artisan_field(value: str | None) -> str | None:
+    if value is None or value == "":
+        return None
+    if value not in ARTISAN_FIELD_KEYS:
+        raise ValueError(f"artisanField must be one of {', '.join(ARTISAN_FIELD_KEYS)}")
+    return value
+
 
 class QuestionnaireQuestionCreate(APIModel):
     sectionId: str = Field(min_length=1)
@@ -95,6 +123,9 @@ class QuestionnaireQuestionCreate(APIModel):
     isRequired: bool = False
     sortOrder: int | None = Field(default=None, ge=1)
     isActive: bool = True
+    artisanField: str | None = None
+
+    _artisan_field = field_validator("artisanField")(lambda cls, v: _check_artisan_field(v))
 
 
 class QuestionnaireQuestionUpdate(APIModel):
@@ -104,6 +135,10 @@ class QuestionnaireQuestionUpdate(APIModel):
     isRequired: bool | None = None
     sortOrder: int | None = Field(default=None, ge=1)
     isActive: bool | None = None
+    # Null (or "") removes the mapping.
+    artisanField: str | None = None
+
+    _artisan_field = field_validator("artisanField")(lambda cls, v: _check_artisan_field(v))
     # `retiredAt` AND `supersededById` ARE DELIBERATELY ABSENT FROM BOTH. They belong to the
     # retirement machinery and are written only by the workbook import, never by an editor: a person
     # who could set `retiredAt` by hand could mark a question "retired because it has answers" when
@@ -120,10 +155,16 @@ class QuestionnaireResponseInput(APIModel):
     questionId: str = Field(min_length=1)
     answerText: str | None = None
     notes: str | None = None
+    # "TRANSCRIPT" when the words were taken from the question's transcribed clip (A7). Omitted for
+    # a typed answer; a save that changes the text without it stores the answer as typed.
+    answerSource: Literal["TRANSCRIPT"] | None = None
 
 
 class QuestionnaireInterviewCreate(APIModel):
-    title: str = Field(min_length=1, max_length=220)
+    # OPTIONAL SINCE B8 (2026-10-17): left out or blank, the server names the sitting
+    # "<artisan> · <questionnaire> · <17 Oct>" (``routes/questionnaire.automatic_interview_title``).
+    # Every older client still sends one and keeps its own.
+    title: str | None = Field(default=None, max_length=220)
     interviewDate: datetime | None = None
     place: str | None = None
     language: str | None = None

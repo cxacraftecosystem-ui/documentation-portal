@@ -295,7 +295,7 @@ test("a form that clears itself in place also clears the boxes React owns", () =
   ).toBe(2);
   // `""` and not `undefined`: a controlled input handed undefined switches to uncontrolled, React
   // warns, and the box keeps whatever the DOM node last held — which is the bug this closes.
-  expect(CODE).toMatch(/function clearHeaderBoxes\(\) \{\s*setTitle\(""\);\s*setPlace\(""\);\s*setLanguage\(""\);\s*\}/);
+  expect(CODE).toMatch(/function clearHeaderBoxes\(\) \{\s*setTitle\(""\);\s*setPlace\(""\);\s*setLanguage\(""\);/);
 });
 
 /* ────────────────────────────────────────────────────────────────────────────

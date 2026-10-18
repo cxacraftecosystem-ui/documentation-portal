@@ -558,7 +558,7 @@ test("the artisan form collects the craft start date and clears it with an expli
   const box = ARTISAN_FORM.slice(ARTISAN_FORM.lastIndexOf("<CalendarField", at), ARTISAN_FORM.indexOf("/>", at) + 2);
   expect(box, "a date, because a stated number of years is wrong within a year").toContain("<CalendarField");
   expect(box, "seeded from the record, trimmed to the yyyy-mm-dd the field understands").toContain(
-    'defaultValue={initial?.craftStartDate ? String(initial.craftStartDate).slice(0, 10) : ""}'
+    'defaultValue={restored.craftStartDate ?? (initial?.craftStartDate ? String(initial.craftStartDate).slice(0, 10) : "")}'
   );
   expect(box, "a craft taken up next year is refused: today, in LOCAL parts").toContain("max={toIsoDate(new Date())}");
   expect(box, "a themed field fires no native input event, so the guard is armed by hand").toContain(
@@ -591,8 +591,8 @@ test("the months box is a closed 0..11 picker and keeps null and zero apart", ()
   );
   const picker = elementFor(ARTISAN_FORM, "experienceMonths", "<Select", "</Select>", "ArtisanForm");
   expect(picker, '"Not stated" is a real row, and it is not "0 months"').toContain('<option value="">Not stated</option>');
-  expect(picker, "seeded from the record, and NOT collapsed with ?? — 0 is a real stored answer").toContain(
-    'defaultValue={initial?.experienceMonths != null ? String(initial.experienceMonths) : ""}'
+  expect(picker, "seeded from a continued draft, else the record — and the record side NOT collapsed with ??: 0 is a real stored answer").toContain(
+    'defaultValue={restored.experienceMonths ?? (initial?.experienceMonths != null ? String(initial.experienceMonths) : "")}'
   );
   expect(picker, "a themed dropdown is a <button> and fires no input event").toContain("onChange={markDirty}");
   expect(ARTISAN_FORM, "no microphone on a closed twelve-row picker").not.toMatch(

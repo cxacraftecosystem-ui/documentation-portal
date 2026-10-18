@@ -11,8 +11,12 @@ import { CarryForwardCards } from "@/components/CarryForwardCards";
 import { Field, Select, TextInput } from "@/components/FormControls";
 import { AadhaarField, aadhaarValidationError, isMaskedIdentityNumber } from "@/components/forms/AadhaarField";
 import { CarryContextBanner, carryScope, useCarryContext, type CarryScopeState } from "@/components/forms/CarryContextBanner";
+import { DraftOfferCard, useFormDraft } from "@/components/forms/FormDraft";
 import { DosDontsField } from "@/components/forms/DosDontsField";
 import { DuplicateArtisanDialog } from "@/components/forms/DuplicateArtisanDialog";
+import { ArtisanLookup, type ArtisanLookupStart } from "@/components/forms/ArtisanLookup";
+import { failedFilesOf, RetryFailedUploads } from "@/components/media/RetryFailedUploads";
+import { Toggle } from "@/components/ui/Toggle";
 import { LocationFields, type LocationInitialValues } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { PhoneField } from "@/components/forms/PhoneField";
@@ -172,14 +176,16 @@ function PehchanFields({
   initialNumber,
   onDirty
 }: {
-  initialAvailable: boolean;
+  /** `null` = not answered yet: a NEW artisan starts here (C18), so the answer is always a choice. */
+  initialAvailable: boolean | null;
   initialNumber?: string | null;
   onDirty: () => void;
 }) {
   const baseId = useId();
   const numberId = `${baseId}-pehchan-number`;
   const hintId = `${baseId}-pehchan-hint`;
-  const [available, setAvailable] = useState(initialAvailable);
+  const [answer, setAnswer] = useState<boolean | null>(initialAvailable);
+  const available = answer === true;
   const storedMask = isMaskedIdentityNumber(initialNumber) ? String(initialNumber).trim() : null;
   // Set when the editor chooses to type a new card number over one they were never shown.
   const [replacing, setReplacing] = useState(false);
@@ -195,17 +201,19 @@ function PehchanFields({
         <span className="field-label">Artisan Pehchan Card available</span>
         <Select
           name="pehchanCardAvailable"
-          value={available ? PEHCHAN_YES : PEHCHAN_NO}
+          value={answer === null ? "" : answer ? PEHCHAN_YES : PEHCHAN_NO}
           aria-label="Artisan Pehchan Card available"
+          required
           onChange={(event) => {
             const next = event.target.value === PEHCHAN_YES;
-            setAvailable(next);
+            setAnswer(event.target.value === "" ? null : next);
             if (!next) setNumber("");
             // The themed Dropdown is a button, so it fires no native input event for the form's
             // onInput to catch: the dirty flag has to be raised by hand.
             onDirty();
           }}
         >
+          <option value="">Select…</option>
           <option value={PEHCHAN_YES}>Yes</option>
           <option value={PEHCHAN_NO}>No</option>
         </Select>
@@ -221,7 +229,7 @@ function PehchanFields({
           className="field-input read-only:bg-surface-50 read-only:text-ink-500 disabled:cursor-not-allowed disabled:bg-surface-50 disabled:text-ink-500"
           type="text"
           autoComplete="off"
-          placeholder={available ? "As printed on the card" : "No card on record"}
+          placeholder={available ? "As printed on the card" : answer === null ? "Answer the card question first" : "No card on record"}
           value={keptMask ?? number}
           // A read-only box is exempt from constraint validation, which is the right answer here:
           // `required` must not demand a number the editor is not permitted to read.
@@ -240,7 +248,9 @@ function PehchanFields({
           }}
         />
         <p id={hintId} className="text-xs text-ink-muted">
-          {!available
+          {answer === null
+            ? "Has the artisan a Pehchan card?"
+            : !available
             ? "No Pehchan card."
             : keptMask
               ? "On file and hidden. Saving keeps it."
@@ -357,6 +367,9 @@ function StatusField({
  * `DictationUnavailableNotice` sits once at the top. Seven microphones down one form is seven copies
  * of the Firefox paragraph, which is how a true sentence becomes wallpaper.
  */
+/** B6: the uncontrolled boxes an artisan draft reads from the form. No identity number is among them. */
+const ARTISAN_DRAFT_FORM_FIELDS = ["gender", "dateOfBirth", "craftStartDate", "experienceYears", "experienceMonths", "phone", "address", "notes", "dos", "donts"];
+
 export function ArtisanForm({ initial }: { initial?: Artisan }) {
   const router = useRouter();
   const { user } = useAuth();
@@ -407,6 +420,16 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
   // the state living inside the field components — the Aadhaar digits, the Pehchan pair, the notes
   // rows, the Do's/Don'ts lists — which no amount of `form.reset()` can reach.
   const [formKey, setFormKey] = useState(0);
+  /*
+    C18 — FIND BEFORE TYPING. A new artisan opens on a lookup by Aadhaar or name, so a duplicate is
+    found before ten fields are typed, not after. "Record a new artisan" (or a search with no match)
+    opens the form, carrying what was typed into the Name or Aadhaar box.
+  */
+  const [lookup, setLookup] = useState<ArtisanLookupStart | null>(initial ? { name: "", aadhaar: "" } : null);
+  /** C18 — "Not shared by artisan": the explicit outcome that saves without an Aadhaar, flagged. */
+  const [aadhaarNotShared, setAadhaarNotShared] = useState(Boolean(initial?.aadhaarNotShared));
+  /** B7: files of a saved artisan that did not upload, held for one-tap retry. */
+  const [retry, setRetry] = useState<{ files: File[]; upload: (files: File[]) => Promise<{ failed: Array<{ name: string; error?: string }> }> } | null>(null);
   const { dirty, markDirty, resetDirty } = useUnsavedChanges();
   const [backPromptOpen, setBackPromptOpen] = useState(false);
   // Hands the prompt to the round back control in the page header, which is now the only back
@@ -426,13 +449,65 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
    * real number this caller may not read — and AadhaarField satisfies the requirement by posting the
    * mask straight back.
    */
-  const aadhaarRequired = !initial || Boolean(initial.aadhaarNumber?.trim());
+  // A record flagged "Not shared by artisan" that has the outcome switched off needs the number:
+  // Aadhaar is optional only through that explicit outcome (C18), and the server refuses the save.
+  const aadhaarRequired =
+    (!initial || Boolean(initial.aadhaarNumber?.trim()) || Boolean(initial.aadhaarNotShared)) && !aadhaarNotShared;
+  /** The outcome is offered only where no number is on file: it never retracts a stored Aadhaar. */
+  const notSharedOffered = !initial?.aadhaarNumber?.trim();
   // The workshop this artisan was documented at: shared picker, shared most-recent defaulting, and
   // the late-submission gate (see components/forms/WorkshopSelect).
   const workshop = useWorkshopSelection({
     initialWorkshopId: initial?.workshopId,
     isEdit: Boolean(initial),
     resetKey: initial?.id ?? null
+  });
+  /*
+    B6 — THIS FORM KEEPS A DRAFT, WITHOUT THE IDENTITY NUMBERS. Aadhaar and Pehchan are never written
+    to this device's draft store (field laptops are shared — the carry-forward allowlist's rule), so a
+    continued draft asks for them again. Everything else is kept as the product form keeps it.
+  */
+  const [restored, setRestored] = useState<Record<string, string>>({});
+  const [draftTick, setDraftTick] = useState(0);
+  const draft = useFormDraft({
+    kind: "artisan",
+    recordId: initial?.id ?? null,
+    dirty,
+    label: name.trim(),
+    fields: { name, localName, craftId, newCraftName, place, email, mediaFiles, workshopId: workshop.workshopId, tick: draftTick },
+    collect: () => {
+      const form = formRef.current ? new FormData(formRef.current) : null;
+      const out: Record<string, string> = {};
+      for (const field of ARTISAN_DRAFT_FORM_FIELDS) {
+        const value = form?.get(field);
+        if (typeof value === "string") out[`form.${field}`] = value;
+      }
+      return out;
+    },
+    onRestore: (fields) => {
+      const text = (key: string) => (typeof fields[key] === "string" ? (fields[key] as string) : null);
+      const setters: Array<[string, (value: string) => void]> = [
+        ["name", setName],
+        ["localName", setLocalName],
+        ["craftId", setCraftId],
+        ["newCraftName", setNewCraftName],
+        ["place", setPlace],
+        ["email", setEmail]
+      ];
+      for (const [key, set] of setters) {
+        const value = text(key);
+        if (value !== null) set(value);
+      }
+      if (Array.isArray(fields.mediaFiles)) setMediaFiles(fields.mediaFiles as File[]);
+      const workshopId = text("workshopId");
+      if (workshopId) workshop.setWorkshopId(workshopId);
+      const seeded: Record<string, string> = {};
+      for (const [key, value] of Object.entries(fields)) {
+        if (key.startsWith("form.") && typeof value === "string") seeded[key.slice(5)] = value;
+      }
+      setRestored(seeded);
+      setFormKey((key) => key + 1);
+    }
   });
 
   const emailError =
@@ -529,6 +604,8 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
     setLocalName(initial?.localName ?? "");
     setNewCraftName("");
     setPlace(initial?.place ?? "");
+    setRestored({});
+    draft.clear();
     resetDirty();
     setFormKey((key) => key + 1);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
@@ -543,7 +620,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
     // Ask about a duplicate BEFORE the late-submission prompt: there is no point weighing up a late
     // save that is about to be abandoned anyway.
     setCheckingDuplicate(true);
-    const existing = await findArtisanByAadhaar(textValue(form, "aadhaarNumber"), initial?.id ?? null);
+    const existing = aadhaarNotShared ? null : await findArtisanByAadhaar(textValue(form, "aadhaarNumber"), initial?.id ?? null);
     setCheckingDuplicate(false);
     if (existing) {
       setConflict({
@@ -669,7 +746,9 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         // explicit null, when the artisan holds no card, so an edit that flips the answer to No
         // clears the stored number instead of orphaning it: `aadhaarNumber` and `pehchanCardNumber`
         // are both clearable server-side.
-        aadhaarNumber: textValue(form, "aadhaarNumber"),
+        aadhaarNumber: aadhaarNotShared ? null : textValue(form, "aadhaarNumber"),
+        // C18: sent only when it says something, so a body without the outcome is today's shape.
+        ...(aadhaarNotShared || initial?.aadhaarNotShared ? { aadhaarNotShared } : {}),
         pehchanCardAvailable: pehchanAvailable,
         ...(pehchanUnchanged ? {} : { pehchanCardNumber: pehchanAvailable ? pehchanNumber : null }),
         dos: requiredText(form, "dos"),
@@ -711,6 +790,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
       if (outcome.queued) {
         // No per-form "queued" banner: OutboxBanner at the top of the page already names the entry
         // and is the one place that says where it lives. Scroll so it is the next thing seen.
+        draft.clear();
         resetDirty();
         if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
         setSaving(false);
@@ -718,26 +798,31 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
       }
       const saved = outcome.saved;
       if (mediaFiles.length) {
-        const { failed } = await uploadMediaBatch({
-          files: mediaFiles,
-          linkedRecordType: "artisan",
-          linkedRecordId: saved.id,
-          caption: `Field media for ${saved.name}`,
-          location,
-          recordedAt,
-          recordedTimezone,
-          extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined,
-          onProgress: setUploadProgress
-        });
+        const uploadTo = (files: File[]) =>
+          uploadMediaBatch({
+            files,
+            linkedRecordType: "artisan",
+            linkedRecordId: saved.id,
+            caption: `Field media for ${saved.name}`,
+            location,
+            recordedAt,
+            recordedTimezone,
+            extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined,
+            onProgress: setUploadProgress
+          });
+        const { failed } = await uploadTo(mediaFiles);
         setUploadProgress(null);
         if (failed.length) {
-          setError(
-            `Saved, but ${failed.length} of ${mediaFiles.length} file(s) didn’t upload: ${failed.map((f) => f.name).join(", ")}. Reopen to retry.`
-          );
+          // B7: the artisan is saved; only the files that failed are kept, for one-tap retry.
+          draft.clear();
+          resetDirty();
+          setRetry({ files: failedFilesOf(mediaFiles, failed), upload: uploadTo });
+          if (!initial) setSavedRecord(saved);
           setSaving(false);
           return;
         }
       }
+      draft.clear();
       resetDirty();
       if (initial) {
         router.push("/artisans");
@@ -770,6 +855,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
   if (savedRecord) {
     return (
       <div className="grid gap-6">
+        {retry ? <RetryFailedUploads files={retry.files} upload={retry.upload} onDone={() => setRetry(null)} /> : null}
         <div className="panel p-4">
           <p className="text-sm font-medium text-ink">
             Saved &ldquo;{savedRecord.name}&rdquo;.
@@ -780,8 +866,12 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
               className="field-button-secondary"
               onClick={() => {
                 setSavedRecord(null);
+                setRetry(null);
                 setMediaFiles([]);
                 setEmail("");
+                setAadhaarNotShared(false);
+                // C18: the next artisan starts on the lookup too.
+                setLookup(null);
                 // Blank literals rather than `initial?.…`: this panel is only ever reached from the
                 // create path, so "what the record said" is by definition nothing. Dismissing it
                 // re-renders the form and the uncontrolled boxes come back blank because the whole
@@ -815,17 +905,43 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
     );
   }
 
+  if (!lookup) {
+    return (
+      <ArtisanLookup
+        onStart={(start) => {
+          setLookup(start);
+          if (start.name) setName(start.name);
+        }}
+      />
+    );
+  }
+
   return (
     <>
+      {retry && initial ? (
+        <RetryFailedUploads
+          files={retry.files}
+          upload={retry.upload}
+          onDone={() => {
+            setRetry(null);
+            router.push("/artisans");
+            router.refresh();
+          }}
+        />
+      ) : null}
       <form
         key={formKey}
         ref={formRef}
         onSubmit={submit}
-        onInput={markDirty}
+        onInput={() => {
+          markDirty();
+          setDraftTick((tick) => tick + 1);
+        }}
         onKeyDown={handleFormEnter}
         className="panel grid gap-4 p-4"
       >
         {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+        <DraftOfferCard draft={draft} />
         <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
         {conflict ? (
           <div role="alert" className="rounded-md border border-amber-500 bg-amber-100 px-3 py-2 text-sm text-amber-800">
@@ -941,7 +1057,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
           {/* UX audit DC-08: this box opened on "Male", so a form nobody touched saved a claim about a
               person and skewed the dataset. It opens empty now and saves nothing until answered. */}
           <Field label="Gender">
-            <Select name="gender" defaultValue={initial?.gender?.trim() ?? ""} onChange={markDirty}>
+            <Select name="gender" defaultValue={restored.gender ?? initial?.gender?.trim() ?? ""} onChange={markDirty}>
               <option value="">Select gender</option>
               {genderOptions.map((option) => (
                 <option key={option}>{option}</option>
@@ -969,7 +1085,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
             <CalendarField
               id={`${dateFieldsId}-dob`}
               name="dateOfBirth"
-              defaultValue={initial?.dateOfBirth ? String(initial.dateOfBirth).slice(0, 10) : ""}
+              defaultValue={restored.dateOfBirth ?? (initial?.dateOfBirth ? String(initial.dateOfBirth).slice(0, 10) : "")}
               max={toIsoDate(new Date())}
               required
               clearable
@@ -989,7 +1105,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
             <CalendarField
               id={`${dateFieldsId}-craft-start`}
               name="craftStartDate"
-              defaultValue={initial?.craftStartDate ? String(initial.craftStartDate).slice(0, 10) : ""}
+              defaultValue={restored.craftStartDate ?? (initial?.craftStartDate ? String(initial.craftStartDate).slice(0, 10) : "")}
               max={toIsoDate(new Date())}
               required
               clearable
@@ -1006,7 +1122,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
               min={0}
               max={90}
               step={1}
-              defaultValue={initial?.experienceYears ?? ""}
+              defaultValue={restored.experienceYears ?? initial?.experienceYears ?? ""}
               onChange={markDirty}
             />
           </Field>
@@ -1034,7 +1150,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
           <Field label="Experience (months)">
             <Select
               name="experienceMonths"
-              defaultValue={initial?.experienceMonths != null ? String(initial.experienceMonths) : ""}
+              defaultValue={restored.experienceMonths ?? (initial?.experienceMonths != null ? String(initial.experienceMonths) : "")}
               onChange={markDirty}
             >
               <option value="">Not stated</option>
@@ -1046,7 +1162,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
             </Select>
           </Field>
           <Field label="Phone">
-            <PhoneField name="phone" defaultValue={initial?.phone} onValueChange={markDirty} />
+            <PhoneField name="phone" defaultValue={restored.phone ?? initial?.phone} onValueChange={markDirty} />
           </Field>
           <Field label="Email">
             <TextInput
@@ -1071,7 +1187,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
           <DictatedTextArea
             name="address"
             label="Address"
-            defaultValue={initial?.address ?? ""}
+            defaultValue={restored.address ?? initial?.address ?? ""}
             // Said once at the top of this form by `DictationUnavailableNotice`.
             explainWhenUnavailable={false}
             onDirty={markDirty}
@@ -1099,7 +1215,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
           <RichTextField
             name="notes"
             label="Notes"
-            defaultValue={initial?.notes ?? ""}
+            defaultValue={restored.notes ?? initial?.notes ?? ""}
             join="paragraph"
             className="md:col-span-2"
             // Said once at the top of this form by `DictationUnavailableNotice`. `join="paragraph"`
@@ -1122,32 +1238,53 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
               </h3>
               <p className="mt-0.5 text-xs text-ink-muted">
                 Masked on every shared or exported view.
-                {aadhaarRequired ? "" : " Optional for this older record — add only with the artisan’s consent."}
+                {aadhaarRequired || aadhaarNotShared ? "" : " Optional for this older record — add only with the artisan’s consent."}
               </p>
             </div>
-            <AadhaarField
-              defaultValue={initial?.aadhaarNumber}
-              excludeArtisanId={initial?.id ?? null}
-              required={aadhaarRequired}
-              onValueChange={markDirty}
-            />
+            {aadhaarNotShared ? (
+              <div className="grid content-start gap-1">
+                <span className="field-label">Aadhaar number</span>
+                <p className="rounded-md border border-amber-500 bg-amber-100 px-3 py-2 text-xs text-amber-800">
+                  Not shared by artisan — flagged for follow-up.
+                </p>
+              </div>
+            ) : (
+              <AadhaarField
+                defaultValue={initial?.aadhaarNumber ?? (lookup.aadhaar || null)}
+                excludeArtisanId={initial?.id ?? null}
+                required={aadhaarRequired}
+                onValueChange={markDirty}
+              />
+            )}
             <PehchanFields
-              initialAvailable={initial?.pehchanCardAvailable ?? true}
+              initialAvailable={initial ? (initial.pehchanCardAvailable ?? true) : null}
               initialNumber={initial?.pehchanCardNumber}
               onDirty={markDirty}
             />
+            {notSharedOffered ? (
+              <Toggle
+                className="md:col-span-3"
+                label="Not shared by artisan"
+                description="Save without an Aadhaar number. The record is flagged for follow-up."
+                checked={aadhaarNotShared}
+                onChange={(next) => {
+                  setAadhaarNotShared(next);
+                  markDirty();
+                }}
+              />
+            ) : null}
           </div>
           <DosDontsField
             name="dos"
             label="Do's"
             helper="One point per line."
-            defaultValue={initial?.dos}
+            defaultValue={restored.dos ?? initial?.dos}
           />
           <DosDontsField
             name="donts"
             label="Don'ts"
             helper="One point per line."
-            defaultValue={initial?.donts}
+            defaultValue={restored.donts ?? initial?.donts}
           />
           <StatusField canSetStatus={canSetStatus} initialStatus={initial?.status} onDirty={markDirty} />
         </div>

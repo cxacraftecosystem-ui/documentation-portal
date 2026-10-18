@@ -7,6 +7,7 @@ import {
   ClipboardList,
   GitBranch,
   Hammer,
+  ImagePlus,
   Layers,
   type LucideIcon,
   MapPin,
@@ -32,10 +33,13 @@ import {
 import { StatusBadge } from "@/components/StatusBadge";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
-import { canCreateRecords, canReview as mayReview } from "@/lib/permissions";
+import { canCreateRecords, canReview } from "@/lib/permissions";
+import { TRANSCRIPT_SOURCE } from "@/lib/transcriptAnswer";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 import { canUpdateRecord, recordUpdateHref, type RecordViewType } from "@/lib/recordView";
 import { fetchRecordMediaReview, type RecordMediaReview } from "@/lib/review";
 import type { Artisan, MediaFile, QuestionnaireResponse, RecordStatus, User } from "@/lib/types";
+import { Badge } from "@/components/ui/Badge";
 
 const ICON: Record<RecordViewType, LucideIcon> = {
   artisan: Users,
@@ -72,7 +76,7 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
   const [decided, setDecided] = useState<string | null>(null);
   /** What this reviewer may do with the record's files: the approval's count and each file's Reject. */
   const [mediaReview, setMediaReview] = useState<RecordMediaReview | null>(null);
-  const reviewer = mayReview(user);
+  const reviewer = canReview(user);
   const noun = RECORD_VIEW_NOUN[type];
 
   useEffect(() => {
@@ -120,11 +124,25 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
         description={`Read-only view of this ${noun}.`}
         icon={<Icon className="h-5 w-5" aria-hidden />}
         actions={
-          record && updateHref && canUpdateRecord(user, type) ? (
-            <Link className="field-button" href={updateHref}>
-              <Pencil className="h-4 w-4" aria-hidden />
-              Update
-            </Link>
+          record ? (
+            <>
+              {/* A9: the media page opens on this record, so its files need no second pick. */}
+              {canCreateRecords(user) ? (
+                <Link
+                  className="field-button-secondary"
+                  href={`/media?linkedType=${encodeURIComponent(type)}&linkedId=${encodeURIComponent(record.id)}`}
+                >
+                  <ImagePlus className="h-4 w-4" aria-hidden />
+                  Add media
+                </Link>
+              ) : null}
+              {updateHref && canUpdateRecord(user, type) ? (
+                <Link className="field-button" href={updateHref}>
+                  <Pencil className="h-4 w-4" aria-hidden />
+                  Update
+                </Link>
+              ) : null}
+            </>
           ) : null
         }
       />
@@ -185,7 +203,7 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
                 : null
             }
           >
-            <TypeExtras type={type} record={record} user={user} />
+            <TypeExtras type={type} record={record} user={user} onRecordChange={setRecord} />
           </MediaReviewProvider>
           <section className="panel p-4">
             <CollabPanel recordType={type} recordId={record.id} />
@@ -206,7 +224,17 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 /** What one type shows below its fields: its files, and the parts that are lists of their own. */
-function TypeExtras({ type, record, user }: { type: RecordViewType; record: LoadedRecord; user: User | null | undefined }) {
+function TypeExtras({
+  type,
+  record,
+  user,
+  onRecordChange
+}: {
+  type: RecordViewType;
+  record: LoadedRecord;
+  user: User | null | undefined;
+  onRecordChange: (record: LoadedRecord) => void;
+}) {
   switch (type) {
     case "artisan":
       return (
@@ -235,8 +263,15 @@ function TypeExtras({ type, record, user }: { type: RecordViewType; record: Load
                 .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
                 .map((step, index) => (
                   <li key={step.id} className="grid gap-2 rounded-md border border-line-200 p-3">
-                    <div className="text-sm font-semibold text-ink-900">
-                      Step {index + 1} · {step.stepType === "SEQUENTIAL" ? "Sequential" : "Group of activities"} — {step.name}
+                    <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-ink-900">
+                      <span>
+                        Step {index + 1} · {step.stepType === "SEQUENTIAL" ? "Sequential" : "Group of activities"}
+                        {step.name?.trim() ? ` — ${step.name}` : ""}
+                      </span>
+                      {/* C22: a step saved before it was named is flagged until somebody names it. */}
+                      {step.name?.trim() ? null : (
+                        <Badge tone="attention">Unnamed step</Badge>
+                      )}
                     </div>
                     {step.notes?.trim() ? <p className="whitespace-pre-line text-sm text-ink-700">{step.notes}</p> : null}
                     <RecordMediaList items={step.media ?? []} empty="No media for this step." />
@@ -250,6 +285,7 @@ function TypeExtras({ type, record, user }: { type: RecordViewType; record: Load
     case "questionnaire":
       return (
         <>
+          <InterviewTranscripts record={record} user={user} onRecordChange={onRecordChange} />
           <InterviewAnswers responses={(record.responses as QuestionnaireResponse[] | undefined) ?? []} />
           <Section title="Recordings & media">
             <RecordMediaList items={(record.media as MediaFile[] | undefined) ?? []} empty="No media attached." />
@@ -257,6 +293,56 @@ function TypeExtras({ type, record, user }: { type: RecordViewType; record: Load
         </>
       );
   }
+}
+
+/**
+ * A7 — "Use transcripts as answers" for a whole sitting, one tap (a reviewer's shortcut). The server
+ * fills only EMPTY answers from each question's transcribed clip and marks them "From transcript";
+ * a typed answer is never touched. Offered while the sitting has a transcribed clip at all.
+ */
+function InterviewTranscripts({
+  record,
+  user,
+  onRecordChange
+}: {
+  record: LoadedRecord;
+  user: User | null | undefined;
+  onRecordChange: (record: LoadedRecord) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const media = (record.media as MediaFile[] | undefined) ?? [];
+  const transcribed = media.filter((item) => (item.caption ?? "").trim().toLowerCase().startsWith("question audio:") && item.transcriptText?.trim());
+  if (!transcribed.length || !(canReview(user) || canCreateRecords(user))) return null;
+  async function apply() {
+    setBusy(true);
+    setNote(null);
+    try {
+      const result = await apiFetch<{ applied: number; skipped: number; interview: LoadedRecord }>(
+        `/questionnaire/interviews/${encodeURIComponent(record.id)}/apply-transcripts`,
+        { method: "POST" }
+      );
+      onRecordChange(result.interview);
+      setNote(result.applied ? `Filled ${result.applied} answer${result.applied === 1 ? "" : "s"}.` : "Nothing to fill — every one is answered.");
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Couldn't fill the answers.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="panel grid gap-2 p-4">
+      <p className="text-sm text-ink-700">
+        {transcribed.length} transcribed clip{transcribed.length === 1 ? "" : "s"}.
+      </p>
+      <ButtonRow align="start">
+        <button type="button" className="field-button-secondary" onClick={apply} disabled={busy}>
+          {busy ? "Filling…" : "Use transcripts as answers"}
+        </button>
+      </ButtonRow>
+      {note ? <p className="text-xs text-ink-500" role="status">{note}</p> : null}
+    </section>
+  );
 }
 
 /** An interview's answers, in questionnaire order, each under its section code and prompt. */
@@ -278,6 +364,11 @@ function InterviewAnswers({ responses }: { responses: QuestionnaireResponse[] })
               {response.question ? `${response.question.sectionCode}${response.question.sortOrder} · ${response.question.prompt}` : "Answer"}
             </dt>
             <dd className="mt-1 whitespace-pre-line text-sm text-ink-900">{response.answerText}</dd>
+            {response.answerSource === TRANSCRIPT_SOURCE ? (
+              <Badge as="dd" className="mt-1">
+                From transcript
+              </Badge>
+            ) : null}
             {response.answeredBy?.name ? <dd className="mt-1 text-xs text-ink-muted">Answered by {response.answeredBy.name}</dd> : null}
           </div>
         ))}

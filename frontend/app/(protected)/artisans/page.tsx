@@ -20,6 +20,7 @@ import { useAdminView } from "@/components/AdminViewProvider";
 import { useListReturn } from "@/components/hooks/useListReturn";
 import { OpenableRow, RecordTitleLink } from "@/components/records/OpenableRow";
 import { apiFetch, listResource } from "@/lib/api";
+import { Toggle } from "@/components/ui/Toggle";
 import { formatDate } from "@/lib/format";
 import { recordUpdateHref, recordViewHref } from "@/lib/recordView";
 import type { Artisan, PageResult } from "@/lib/types";
@@ -39,6 +40,8 @@ export default function ArtisansPage() {
   const [funnelReady, setFunnelReady] = useState(false);
   const [collabId, setCollabId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** C18: only the artisans who did not share an Aadhaar — the follow-up list. */
+  const [followUp, setFollowUp] = useState(false);
   const skipFirstDebounce = useRef(true);
   /**
    * Which fetch is the current one. Search is debounced and the funnel and pager fire the same
@@ -57,6 +60,7 @@ export default function ArtisansPage() {
         search: applied || undefined,
         craftId: funnel.craftId || undefined,
         statusFilter: statusFilterParam(statusChoice),
+        aadhaarNotShared: followUp ? "true" : undefined,
         page,
         pageSize: 20
       });
@@ -74,7 +78,7 @@ export default function ArtisansPage() {
     if (!funnelReady) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [funnelReady, page, applied, funnel, statusChoice]);
+  }, [funnelReady, page, applied, funnel, statusChoice, followUp]);
 
   // Live search: debounce typing by 350ms; Enter applies immediately via onSubmit.
   useEffect(() => {
@@ -175,11 +179,21 @@ export default function ArtisansPage() {
         />
       </div>
       <FunnelFilters value={funnel} onChange={onFunnelChange} restore={listReturn.restoredFunnel} />
-      <div className="mb-3">
+      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start">
         <RecordStatusFilter
           value={statusChoice}
           onChange={(value) => {
             setStatusChoice(value || "ALL");
+            setPage(1);
+          }}
+        />
+        <Toggle
+          className="sm:max-w-md"
+          label="Aadhaar not shared"
+          description="Artisans flagged for an Aadhaar follow-up."
+          checked={followUp}
+          onChange={(next) => {
+            setFollowUp(next);
             setPage(1);
           }}
         />

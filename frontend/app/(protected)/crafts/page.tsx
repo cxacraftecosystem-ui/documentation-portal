@@ -40,6 +40,9 @@ import { canManageCrafts } from "@/lib/permissions";
 import { UploadsProvider, useUploads } from "@/lib/uploads";
 import type { Craft, PageResult } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
+import Link from "next/link";
+import { UserPlus } from "lucide-react";
+import { carryContextToParams } from "@/lib/carryContext";
 
 /** Section id the craft media batch publishes under, so the page-level tray can aggregate it. */
 const MEDIA_SECTION = "craft-media";
@@ -122,6 +125,8 @@ function CraftsPageBody() {
   const [dirty, setDirty] = useState(false);
   const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
   const [saving, setSaving] = useState(false);
+  /** A8: the craft just created, for the "Add an artisan" next step. */
+  const [savedCraft, setSavedCraft] = useState<Craft | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const afterSaveRef = useRef<(() => void) | null>(null);
   const skipFirstDebounce = useRef(true);
@@ -317,6 +322,8 @@ function CraftsPageBody() {
           return;
         }
       }
+      // A8: a NEW craft is followed by its artisans, so offer that as the next step.
+      setSavedCraft(editing ? null : saved);
       resetForm(null);
       setConfirmAction(null);
       formElement.reset();
@@ -358,6 +365,27 @@ function CraftsPageBody() {
     <>
       <PageHeader title="Crafts" description="The list of crafts." icon={<Landmark className="h-5 w-5" aria-hidden />} />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+      {savedCraft ? (
+        <div className="panel mb-5 flex flex-wrap items-center justify-between gap-3 p-4">
+          <p className="text-sm font-medium text-ink">Saved &ldquo;{savedCraft.name}&rdquo;.</p>
+          <ButtonRow align="end">
+            <Link
+              className="field-button"
+              href={`/artisans/new?${carryContextToParams({
+                craftId: savedCraft.id,
+                craftName: savedCraft.name,
+                workshopId: savedCraft.workshopId ?? null
+              }).toString()}`}
+            >
+              <UserPlus className="h-4 w-4" aria-hidden />
+              Add an artisan
+            </Link>
+            <button type="button" className="field-button-secondary" onClick={() => setSavedCraft(null)}>
+              Done
+            </button>
+          </ButtonRow>
+        </div>
+      ) : null}
       {deepLinkLoading ? (
         <div className="mb-4 rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-muted">
           Loading the craft you asked to edit...

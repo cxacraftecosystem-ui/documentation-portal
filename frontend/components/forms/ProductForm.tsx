@@ -4,6 +4,13 @@ import { useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/components/AuthProvider";
+import { CarryForwardCards } from "@/components/CarryForwardCards";
+import { artisanStatedSource } from "@/components/forms/statedPrefill";
+import { useServerSearchList } from "@/components/forms/useServerSearchList";
+import { DraftOfferCard, useFormDraft } from "@/components/forms/FormDraft";
+import { failedFilesOf, RetryFailedUploads } from "@/components/media/RetryFailedUploads";
+import { ComboBox } from "@/components/ui/Dropdown";
+import { Toggle } from "@/components/ui/Toggle";
 import { mergeById } from "@/components/data/cappedList";
 import { CappedListNotice } from "@/components/data/CappedListNotice";
 import { Field, Select, TextInput } from "@/components/FormControls";
@@ -40,12 +47,11 @@ import type { Artisan, Craft, ProductDocumentation, RecordStatus } from "@/lib/t
 import { marketDemandOptions, productTypes } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 
-/** Dropdown label for a linked artisan: always "Name · Place" (name alone if no place), never ids. */
-function artisanOptionLabel(artisan: Artisan) {
-  const name = artisan.name?.trim() || "Unnamed artisan";
-  // "·" (middle dot), not "•" — Android joins every record label with the middle dot, and the
-  // process form already does; using both marks in one product form reads as two conventions.
-  return artisan.place?.trim() ? `${name} · ${artisan.place.trim()}` : name;
+/** B5: the artisan picker's row — "Ramesh Chhipa · Block printing · Bagru", the parts that exist. */
+export function artisanPickerLabel(artisan: Artisan) {
+  return [artisan.name?.trim() || "Unnamed artisan", artisan.craft?.name?.trim(), artisan.place?.trim()]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 /**
@@ -166,6 +172,21 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
   const [artisanName, setArtisanName] = useState(initial?.artisanName ?? searchParams.get("artisanName") ?? "");
   const [place, setPlace] = useState(initial?.place ?? searchParams.get("place") ?? "");
   /*
+    B5 — THE ARTISAN COMES FIRST. One searchable artisan picker sets the craft, the artisan's name and
+    the place (the server fills the three from the links too — A12). The typed boxes are only for an
+    artisan who is NOT on record, behind the "Artisan not on record" switch; an unlinked product
+    opens with it on, so its typed names stay editable.
+  */
+  const [offRecord, setOffRecord] = useState(() =>
+    initial ? !initial.artisanId : !searchParams.get("artisanId") && Boolean(searchParams.get("artisanName"))
+  );
+  const artisanSearch = useServerSearchList<Artisan>("/artisans", "artisans");
+  /** A8: the product just created, for the next-step panel; and the form's remount key. */
+  const [savedProduct, setSavedProduct] = useState<ProductDocumentation | null>(null);
+  const [formKey, setFormKey] = useState(0);
+  /** B7: files of a saved product that did not upload, held for one-tap retry. */
+  const [retry, setRetry] = useState<{ files: File[]; upload: (files: File[]) => Promise<{ failed: Array<{ name: string; error?: string }> }> } | null>(null);
+  /*
     HOISTED FOR THE MICROPHONE. These four were uncontrolled `defaultValue` boxes; `DictatedTextInput`
     is controlled by its caller and has exactly one mode, for the reason written out in that file (a
     self-controlled box repaints stale text on a form cleared by `formElement.reset()`). This form
@@ -232,9 +253,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
     artisans,
     crafts,
     referenceState,
-    craftCut,
-    craftArtisanCut,
-    artisansLoadedForCrafts
+    craftCut
   } = useCraftAndArtisanOptions({ craftIds: craftIdList, artisanIds: artisanIdList });
   /**
    * THIS PRODUCT'S OWN CRAFT IS ALWAYS AN OPTION, wherever it sorts.
@@ -255,6 +274,8 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
    * to be missing it.
    */
   const offPageCraft = useRecordOffPage<Craft>("/crafts", craftId, crafts);
+  const pickerArtisans = useMemo(() => mergeById(artisanSearch.items, artisans), [artisanSearch.items, artisans]);
+  const pickedArtisan = pickerArtisans.find((artisan) => artisan.id === artisanId) ?? null;
   const craftOptions = useMemo(() => (offPageCraft ? mergeById(crafts, [offPageCraft]) : crafts), [crafts, offPageCraft]);
   const { dirty, markDirty, resetDirty } = useUnsavedChanges();
   const [backPromptOpen, setBackPromptOpen] = useState(false);
@@ -267,6 +288,13 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
     ? ((initial as ProductDocumentation & { location?: LocationInitialValues | null }).location ?? null)
     : undefined;
   const isEdit = Boolean(initial);
+  /*
+    B6 — THIS FORM KEEPS A DRAFT (`components/forms/FormDraft.tsx`). The controlled boxes and the
+    attached files come from state; the uncontrolled ones are read from the form at write time and,
+    on Continue, seed the remounted form through `restored`.
+  */
+  const [restored, setRestored] = useState<Record<string, string>>({});
+  const [draftTick, setDraftTick] = useState(0);
   // The workshop this product was documented at: shared picker, shared most-recent defaulting, and
   // the late-submission gate (see components/forms/WorkshopSelect).
   const workshop = useWorkshopSelection({ initialWorkshopId: initial?.workshopId, isEdit, resetKey: initial?.id ?? null });
@@ -295,17 +323,79 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
    * wired to a bare `setLength` would keep its marker through an edit, and the mistake would be
    * invisible on screen.
    */
+  const draft = useFormDraft({
+    kind: "product",
+    recordId: initial?.id ?? null,
+    parentId: initial ? null : searchParams.get("artisanId"),
+    parentLabel: initial ? null : searchParams.get("artisanName"),
+    dirty,
+    label: productName.trim(),
+    fields: {
+      productName,
+      localName,
+      timeTaken,
+      size,
+      length,
+      breadth,
+      height,
+      craftId,
+      artisanId,
+      craftName,
+      artisanName,
+      place,
+      offRecord,
+      mediaFiles,
+      workshopId: workshop.workshopId,
+      tick: draftTick
+    },
+    collect: () => {
+      const form = formRef.current ? new FormData(formRef.current) : null;
+      const out: Record<string, string> = {};
+      for (const name of ["productType", "costOfMaking", "sellingPrice", "marketDemand", "rawMaterialsUsed", "mainToolsUsed", "productFunctionUse", "remarks"]) {
+        const value = form?.get(name);
+        if (typeof value === "string") out[`form.${name}`] = value;
+      }
+      return out;
+    },
+    onRestore: (fields) => {
+      const text = (key: string) => (typeof fields[key] === "string" ? (fields[key] as string) : null);
+      const setters: Array<[string, (value: string) => void]> = [
+        ["productName", setProductName],
+        ["localName", setLocalName],
+        ["timeTaken", setTimeTaken],
+        ["size", setSize],
+        ["length", setLength],
+        ["breadth", setBreadth],
+        ["height", setHeight],
+        ["craftId", setCraftId],
+        ["artisanId", setArtisanId],
+        ["craftName", setCraftName],
+        ["artisanName", setArtisanName],
+        ["place", setPlace]
+      ];
+      for (const [key, set] of setters) {
+        const value = text(key);
+        if (value !== null) set(value);
+      }
+      if (typeof fields.offRecord === "boolean") setOffRecord(fields.offRecord);
+      if (Array.isArray(fields.mediaFiles)) setMediaFiles(fields.mediaFiles as File[]);
+      const workshopId = text("workshopId");
+      if (workshopId) workshop.setWorkshopId(workshopId);
+      const seeded: Record<string, string> = {};
+      for (const [key, value] of Object.entries(fields)) {
+        if (key.startsWith("form.") && typeof value === "string") seeded[key.slice(5)] = value;
+      }
+      setRestored(seeded);
+      setFormKey((key) => key + 1);
+    }
+  });
+
   const typeInto =
     (set: (value: string) => void, key: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
       set(event.target.value);
       setAccepted((current) => forgetAcceptance(current, key));
     };
 
-  // Task 6: once a craft is linked, the artisan dropdown only offers artisans of that craft. The
-  // currently-selected artisan is always kept visible even if the data predates the craft link.
-  const artisansForCraft = craftId
-    ? artisans.filter((artisan) => artisan.craftId === craftId || artisan.id === artisanId)
-    : artisans;
 
   // Offer the sitting this researcher was last working in, however they got here — the query string
   // only survives a click straight through from the save screen (lib/carryContext). The PRODUCT in
@@ -318,7 +408,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
     // `craftOptions`, not `crafts`: a carried craft that is merely off the picker's first page IS
     // reachable — the by-id lookup fetched it — and pruning it would drop a perfectly good link from
     // the bag for the same "absent from page one" reason the artisan side already corrects.
-    scopes: [carryScope("artisan", referenceState, artisans), carryScope("craft", referenceState, craftOptions)],
+    scopes: [carryScope("artisan", referenceState, pickerArtisans), carryScope("craft", referenceState, craftOptions)],
     // This form has no product, tool or process field, so it neither fills those in nor lets the
     // banner claim it did — they stay in the bag for the forms that do.
     applies: ["craft", "artisan", "workshop"],
@@ -347,10 +437,82 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
     else router.back();
   }
 
+  /** B5: one pick fills the craft, the name and the place from the artisan's record. */
+  function pickArtisan(nextId: string) {
+    setArtisanId(nextId);
+    const artisan = pickerArtisans.find((candidate) => candidate.id === nextId);
+    if (artisan) {
+      setArtisanName(artisan.name);
+      setPlace(artisan.place);
+      if (artisan.craftId) setCraftId(artisan.craftId);
+      if (artisan.craft?.name) setCraftName(artisan.craft.name);
+      carry.remember(
+        {
+          artisanId: artisan.id,
+          artisanName: artisan.name,
+          place: artisan.place,
+          craftId: artisan.craftId ?? craftId,
+          craftName: artisan.craft?.name ?? craftName
+        },
+        { explicit: true }
+      );
+    }
+    markDirty();
+  }
+
+  /**
+   * A8 — BACK TO A BLANK PRODUCT FOR THE SAME ARTISAN. The artisan, craft, place and workshop stay:
+   * the researcher is still in front of the same person. Everything about the product itself goes.
+   */
+  function startAnother() {
+    setSavedProduct(null);
+    setRetry(null);
+    setMediaFiles([]);
+    setProductName("");
+    setLocalName("");
+    setTimeTaken("");
+    setSize("");
+    setLength("");
+    setBreadth("");
+    setHeight("");
+    setAccepted(NO_ACCEPTED_MEASUREMENTS);
+    setGridFiles({});
+    setMeasurePhoto(null);
+    setRestored({});
+    setError(null);
+    resetDirty();
+    setFormKey((key) => key + 1);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  /** What follows a successful save: the next-step panel, another blank form, or the list (edit). */
+  function finishSave(saved: ProductDocumentation, addAnother: boolean) {
+    resetDirty();
+    if (initial) {
+      router.push("/products");
+      router.refresh();
+      return;
+    }
+    if (addAnother) {
+      startAnother();
+      return;
+    }
+    setSavedProduct(saved);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     // Read the form synchronously: React nulls event.currentTarget across the await below.
     const form = new FormData(event.currentTarget);
+    // A8: the intent rides on the button that submitted, so a save blocked by validation leaves
+    // nothing behind for the next plain "Save product".
+    const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLElement | null;
+    const addAnother = submitter?.dataset.intent === "add-another";
+    if (!offRecord && !artisanId) {
+      setError("Pick the artisan, or switch on “Artisan not on record”.");
+      return;
+    }
     // A workshop that has already ended makes this a late submission needing admin approval — say so
     // before anything is written. Resolves true immediately when there is nothing to warn about.
     if (!(await workshop.confirmSubmission())) return;
@@ -364,10 +526,13 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
       const recordedAt = recordedAtFromForm(form);
       const recordedTimezone = recordedTimezoneFromForm(form);
       const location = locationFromForm(form);
+      // From state, not FormData: with a linked artisan the three typed boxes are not on screen.
+      // They are still sent on a create (an older server requires them), and the server re-derives
+      // them from the links anyway (A12). On an edit a blank one is left out: it means "unchanged".
+      const names = { craftName: craftName.trim(), place: place.trim(), artisanName: artisanName.trim() };
+      const sentNames = initial ? Object.fromEntries(Object.entries(names).filter(([, value]) => value)) : names;
       const payload = {
-        craftName: requiredText(form, "craftName"),
-        place: requiredText(form, "place"),
-        artisanName: requiredText(form, "artisanName"),
+        ...sentNames,
         productName: requiredText(form, "productName"),
         localName: textValue(form, "localName"),
         productType: requiredText(form, "productType") || "OTHER",
@@ -422,7 +587,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
         // helper appends INTO the document when there is one and is byte-for-byte the old behaviour
         // when there is not.
         remarks: appendStoredParagraph(textValue(form, "remarks") as string | null, exifRemark),
-        artisanId: artisanId || null,
+        artisanId: offRecord ? null : artisanId || null,
         craftId: craftId || null,
         workshopId: workshop.workshopId || null,
         // Below professor no status control is rendered: create submits PENDING, edit resubmits the
@@ -485,13 +650,15 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
       // dashboard already knows where the researcher is.
       const sitting = {
         artisanId,
-        artisanName: payload.artisanName,
-        place: payload.place,
+        artisanName: names.artisanName,
+        place: names.place,
         craftId,
-        craftName: payload.craftName,
+        craftName: names.craftName,
         workshopId: workshop.workshopId,
         workshopName: workshop.workshops.find((w) => w.id === workshop.workshopId)?.title ?? null
       };
+      // Saved or queued: the draft has done its job.
+      draft.clear();
       if (outcome.queued) {
         // Offline is the normal case, but a queued product has no id yet, so no process form could
         // link to it. Whatever product was in the bag is dropped rather than left to stand in for
@@ -500,7 +667,8 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
         carry.remember(sitting);
         // OutboxBanner at the top of the page names the entry and says where it lives.
         resetDirty();
-        if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+        if (addAnother) startAnother();
+        else if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
         setSaving(false);
         return;
       }
@@ -546,27 +714,37 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
         }
       }
       if (mediaFiles.length) {
-        const { failed } = await uploadMediaBatch({
-          files: mediaFiles,
-          linkedRecordType: "product",
-          linkedRecordId: saved.id,
-          caption: `Field media for ${saved.productName}`,
-          location,
-          recordedAt,
-          recordedTimezone,
-          extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined,
-          onProgress: setUploadProgress
-        });
+        const uploadTo = (files: File[]) =>
+          uploadMediaBatch({
+            files,
+            linkedRecordType: "product",
+            linkedRecordId: saved.id,
+            caption: `Field media for ${saved.productName}`,
+            location,
+            recordedAt,
+            recordedTimezone,
+            extraMetadata: exifItems.length ? { mediaExif: exifItems } : undefined,
+            onProgress: setUploadProgress
+          });
+        const { failed } = await uploadTo(mediaFiles);
         setUploadProgress(null);
         if (failed.length) {
-          setError(`Saved, but ${failed.length} of ${mediaFiles.length} file(s) didn’t upload: ${failed.map((f) => f.name).join(", ")}. Reopen to retry.`);
+          // B7: the record is saved; the files that did not make it are kept for one-tap retry.
+          resetDirty();
+          setRetry({
+            files: failedFilesOf(mediaFiles, failed),
+            upload: async (files) => {
+              const result = await uploadTo(files);
+              setUploadProgress(null);
+              return result;
+            }
+          });
+          setSavedProduct(saved);
           setSaving(false);
           return;
         }
       }
-      resetDirty();
-      router.push("/products");
-      router.refresh();
+      finishSave(saved, addAnother);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save product record");
     } finally {
@@ -575,10 +753,56 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
     }
   }
 
+  if (savedProduct && !initial) {
+    return (
+      <div className="grid gap-6">
+        {retry ? <RetryFailedUploads files={retry.files} upload={retry.upload} onDone={() => setRetry(null)} /> : null}
+        <div className="panel p-4">
+          <p className="text-sm font-medium text-ink">Saved &ldquo;{savedProduct.productName}&rdquo;.</p>
+          <ButtonRow align="start" className="mt-3">
+            <button type="button" className="field-button" onClick={startAnother}>
+              Add another product
+            </button>
+            <button type="button" className="field-button-secondary" onClick={() => { router.push("/products"); router.refresh(); }}>
+              Back to products
+            </button>
+          </ButtonRow>
+        </div>
+        {/* A8: the next steps carry this artisan and this product into the next form. */}
+        <CarryForwardCards
+          heading="Next for this product"
+          context={{
+            artisanId: savedProduct.artisanId ?? artisanId,
+            artisanName: savedProduct.artisanName,
+            place: savedProduct.place,
+            craftId: savedProduct.craftId ?? craftId,
+            craftName: savedProduct.craftName,
+            productId: savedProduct.id,
+            productName: savedProduct.productName,
+            workshopId: workshop.workshopId,
+            workshopName: workshop.workshops.find((w) => w.id === workshop.workshopId)?.title ?? null
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <>
-      <form ref={formRef} onSubmit={submit} onInput={markDirty} onKeyDown={handleFormEnter} className="panel grid gap-4 p-4">
+      {retry && initial ? <RetryFailedUploads files={retry.files} upload={retry.upload} onDone={() => finishSave(initial, false)} /> : null}
+      <form
+        key={formKey}
+        ref={formRef}
+        onSubmit={submit}
+        onInput={() => {
+          markDirty();
+          setDraftTick((tick) => tick + 1);
+        }}
+        onKeyDown={handleFormEnter}
+        className="panel grid gap-4 p-4"
+      >
         {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+        <DraftOfferCard draft={draft} />
         <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
         {/*
           THE ONE PLACE THIS FORM EXPLAINS A MISSING MICROPHONE — see `DictationUnavailableNotice`.
@@ -627,118 +851,139 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
             }}
           />
           <Field label="Product type">
-            <Select name="productType" defaultValue={initial?.productType ?? "OTHER"} onChange={markDirty}>
+            <Select name="productType" defaultValue={restored.productType ?? initial?.productType ?? "OTHER"} onChange={markDirty}>
               {productTypes.map((option) => (
                 <option key={option}>{option}</option>
               ))}
             </Select>
           </Field>
-          <Field label="Linked craft (fills craft name)">
-            <Select
-              name="craftId"
-              value={craftId}
-              onChange={(event) => {
-                const next = event.target.value;
-                setCraftId(next);
-                const craft = craftOptions.find((c) => c.id === next);
-                if (craft) setCraftName(craft.name);
-                // Drop the artisan ONLY when this form actually knows they practise a different
-                // craft — never merely because it cannot see them. The distinction, and the silent
-                // link deletion that made it necessary, are argued in `forms/recordPickers`.
-                if (craftChangeClearsArtisan({ nextCraftId: next, artisanId, artisans })) {
-                  setArtisanId("");
-                }
+          {/* B5: the artisan first — one pick sets the craft, the name and the place. */}
+          {offRecord ? null : (
+            <div className="grid content-start gap-1 md:col-span-2">
+              <Field label="Artisan" required>
+                <ComboBox
+                  value={artisanId}
+                  options={pickerArtisans.map((artisan) => ({ value: artisan.id, label: artisanPickerLabel(artisan) }))}
+                  placeholder="Search by name or place"
+                  emptyLabel={referenceState === "pending" ? "Loading…" : "No artisans yet"}
+                  onSearch={artisanSearch.setQuery}
+                  onChange={pickArtisan}
+                />
+              </Field>
+              {pickedArtisan ? <p className="text-xs text-ink-500">{artisanPickerLabel(pickedArtisan)}</p> : null}
+              {artisanSearch.searching ? <p className="text-xs text-ink-500">Searching all artisans…</p> : null}
+              <CappedListNotice cuts={[artisanSearch.cut]} />
+            </div>
+          )}
+          {/* A record that lacks a craft or a place cannot supply it, so that one box is asked for. */}
+          {!offRecord && pickedArtisan && !pickedArtisan.craftId ? (
+            <DictatedTextInput
+              name="craftName"
+              label="Craft name"
+              required
+              titleCased
+              explainWhenUnavailable={false}
+              value={craftName}
+              onChange={(next) => {
+                setCraftName(next);
                 markDirty();
               }}
-            >
-              {/* "Unlinked" must mean unlinked. It is the placeholder a browser falls back to when
-                  `value` matches no <option>, so it doubled as "linked to a craft that is not on
-                  page one" until `craftOptions` carried that craft — see `offPageCraft` above. */}
-              <option value="">Unlinked / type below</option>
-              {craftOptions.map((craft) => (
-                <option key={craft.id} value={craft.id}>
-                  {craft.name}
-                </option>
-              ))}
-            </Select>
-            <CappedListNotice cuts={[craftCut]} />
-          </Field>
-          <DictatedTextInput
-            name="craftName"
-            label="Craft name"
-            required
-            titleCased
-            explainWhenUnavailable={false}
-            value={craftName}
-            onChange={(next) => {
-              setCraftName(next);
-              markDirty();
-            }}
-          />
-          <Field label="Linked artisan (fills artisan + place)">
-            <Select
-              name="artisanId"
-              value={artisanId}
-              onChange={(event) => {
-                const next = event.target.value;
-                setArtisanId(next);
-                const artisan = artisans.find((a) => a.id === next);
-                if (artisan) {
-                  setArtisanName(artisan.name);
-                  setPlace(artisan.place);
-                  // An explicit pick replaces the remembered context and retires the banner: from
-                  // here on the artisan on screen is the researcher's own choice, not a suggestion.
-                  carry.remember(
-                    { artisanId: artisan.id, artisanName: artisan.name, place: artisan.place, craftId, craftName },
-                    { explicit: true }
-                  );
-                }
+            />
+          ) : null}
+          {!offRecord && pickedArtisan && !pickedArtisan.place?.trim() ? (
+            <DictatedTextInput
+              name="place"
+              label="Place"
+              required
+              titleCased
+              explainWhenUnavailable={false}
+              value={place}
+              onChange={(next) => {
+                setPlace(next);
                 markDirty();
               }}
-              disabled={!craftId}
-            >
-              <option value="">{craftId ? "Unlinked / type below" : "Select a linked craft first"}</option>
-              {artisansForCraft.map((artisan) => (
-                <option key={artisan.id} value={artisan.id}>
-                  {artisanOptionLabel(artisan)}
-                </option>
-              ))}
-            </Select>
-            {/* A claim about the REPOSITORY, so it waits for the repository's answer about THIS
-                craft. Printed off a stale roster it said "no artisans are linked to this craft yet"
-                over a craft with a dozen of them — the silent-emptiness failure in one sentence, and
-                the reason `artisansLoadedForCrafts` records WHICH crafts the loaded rows are for
-                rather than a bare boolean. For a form that links one craft the key IS that craft's
-                id, so this comparison reads exactly as it always did. */}
-            {craftId && artisansLoadedForCrafts === craftId && artisansForCraft.length === 0 ? (
-              <p className="mt-1 text-xs text-ink-muted">No artisans are linked to this craft yet.</p>
-            ) : null}
-            <CappedListNotice cuts={[craftId ? craftArtisanCut : null]} />
-          </Field>
-          <DictatedTextInput
-            name="artisanName"
-            label="Artisan name"
-            required
-            titleCased
-            explainWhenUnavailable={false}
-            value={artisanName}
+            />
+          ) : null}
+          <Toggle
+            className="self-end"
+            label="Artisan not on record"
+            checked={offRecord}
             onChange={(next) => {
-              setArtisanName(next);
+              setOffRecord(next);
+              if (next) setArtisanId("");
               markDirty();
             }}
           />
-          <DictatedTextInput
-            name="place"
-            label="Place"
-            required
-            titleCased
-            explainWhenUnavailable={false}
-            value={place}
-            onChange={(next) => {
-              setPlace(next);
-              markDirty();
-            }}
-          />
+          {offRecord ? (
+            <>
+              <Field label="Linked craft (fills craft name)">
+                <Select
+                  name="craftId"
+                  value={craftId}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setCraftId(next);
+                    const craft = craftOptions.find((c) => c.id === next);
+                    if (craft) setCraftName(craft.name);
+                    // Drop the artisan ONLY when this form actually knows they practise a different
+                    // craft — never merely because it cannot see them. The distinction, and the silent
+                    // link deletion that made it necessary, are argued in `forms/recordPickers`.
+                    if (craftChangeClearsArtisan({ nextCraftId: next, artisanId, artisans })) {
+                      setArtisanId("");
+                    }
+                    markDirty();
+                  }}
+                >
+                  {/* "Unlinked" must mean unlinked. It is the placeholder a browser falls back to when
+                      `value` matches no <option>, so it doubled as "linked to a craft that is not on
+                      page one" until `craftOptions` carried that craft — see `offPageCraft` above. */}
+                  <option value="">Unlinked / type below</option>
+                  {craftOptions.map((craft) => (
+                    <option key={craft.id} value={craft.id}>
+                      {craft.name}
+                    </option>
+                  ))}
+                </Select>
+                <CappedListNotice cuts={[craftCut]} />
+              </Field>
+              <DictatedTextInput
+                name="craftName"
+                label="Craft name"
+                required
+                titleCased
+                explainWhenUnavailable={false}
+                value={craftName}
+                onChange={(next) => {
+                  setCraftName(next);
+                  markDirty();
+                }}
+              />
+              <DictatedTextInput
+                name="artisanName"
+                label="Artisan name"
+                required
+                titleCased
+                explainWhenUnavailable={false}
+                value={artisanName}
+                onChange={(next) => {
+                  setArtisanName(next);
+                  markDirty();
+                }}
+              />
+              <DictatedTextInput
+                name="place"
+                label="Place"
+                required
+                titleCased
+                explainWhenUnavailable={false}
+                value={place}
+                onChange={(next) => {
+                  setPlace(next);
+                  markDirty();
+                }}
+              />
+            </>
+          ) : null}
           {/* DICTATED ON PURPOSE, BESIDE THE NUMBERS THAT ARE NOT. Neither of these is a
               measurement: both are `String?` columns nothing parses, and what researchers write in
               them is a sentence. Not title-cased — both are absent from the API's title-cased set,
@@ -920,13 +1165,13 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
         </section>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           <Field label="Cost of making">
-            <TextInput name="costOfMaking" type="number" step="0.01" min={0} defaultValue={initial?.costOfMaking ?? ""} />
+            <TextInput name="costOfMaking" type="number" step="0.01" min={0} defaultValue={restored.costOfMaking ?? initial?.costOfMaking ?? ""} />
           </Field>
           <Field label="Selling price">
-            <TextInput name="sellingPrice" type="number" step="0.01" min={0} defaultValue={initial?.sellingPrice ?? ""} />
+            <TextInput name="sellingPrice" type="number" step="0.01" min={0} defaultValue={restored.sellingPrice ?? initial?.sellingPrice ?? ""} />
           </Field>
           <Field label="Market demand">
-            <Select name="marketDemand" defaultValue={initial?.marketDemand ?? "UNKNOWN"} onChange={markDirty}>
+            <Select name="marketDemand" defaultValue={restored.marketDemand ?? initial?.marketDemand ?? "UNKNOWN"} onChange={markDirty}>
               {marketDemandOptions.map((option) => (
                 <option key={option}>{option}</option>
               ))}
@@ -965,7 +1210,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
           <RichTextField
             name="rawMaterialsUsed"
             label="Raw materials used"
-            defaultValue={initial?.rawMaterialsUsed ?? ""}
+            defaultValue={restored.rawMaterialsUsed ?? initial?.rawMaterialsUsed ?? ""}
             className="md:col-span-2"
             explainWhenUnavailable={false}
             onDirty={markDirty}
@@ -973,7 +1218,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
           <RichTextField
             name="mainToolsUsed"
             label="Main tools used"
-            defaultValue={initial?.mainToolsUsed ?? ""}
+            defaultValue={restored.mainToolsUsed ?? initial?.mainToolsUsed ?? ""}
             className="md:col-span-2"
             explainWhenUnavailable={false}
             onDirty={markDirty}
@@ -981,7 +1226,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
           <RichTextField
             name="productFunctionUse"
             label="Function or use"
-            defaultValue={initial?.productFunctionUse ?? ""}
+            defaultValue={restored.productFunctionUse ?? initial?.productFunctionUse ?? ""}
             className="md:col-span-2"
             explainWhenUnavailable={false}
             onDirty={markDirty}
@@ -989,7 +1234,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
           <RichTextField
             name="remarks"
             label="Remarks"
-            defaultValue={initial?.remarks ?? ""}
+            defaultValue={restored.remarks ?? initial?.remarks ?? ""}
             className="md:col-span-2"
             explainWhenUnavailable={false}
             onDirty={markDirty}
@@ -1006,12 +1251,22 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
           title="Product media"
           description="Photos, video, audio and documents."
         />
-        <LocationFields initial={initialLocation} onDirty={markDirty} />
+        {/* C17: a new product opens with its artisan's stated address, marked and editable. */}
+        <LocationFields
+          initial={initialLocation}
+          onDirty={markDirty}
+          prefillFrom={initial || offRecord ? null : artisanStatedSource(pickedArtisan)}
+        />
         {uploadProgress ? <UploadProgress progress={uploadProgress} /> : null}
         <ButtonRow align="end">
           <button type="button" className="field-button-secondary" onClick={handleBack}>
             Cancel
           </button>
+          {initial ? null : (
+            <button className="field-button-secondary" data-intent="add-another" disabled={saving}>
+              Save and add another
+            </button>
+          )}
           <button className="field-button" disabled={saving}>
             {saving ? "Saving..." : initial ? "Update product" : "Save product"}
           </button>

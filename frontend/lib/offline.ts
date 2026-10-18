@@ -166,6 +166,12 @@ export type OutboxMediaBatch = {
    * them. Resolved on replay from the create response's `steps[]`, in the order they were sent.
    */
   stepIndex?: number;
+  /**
+   * A9 — the record a MEDIA-ONLY entry's files link to (the Miscellaneous Media page), or null for
+   * files linked to a type and no entry. Read only on an entry whose `mediaOnly` is true; a record
+   * save's batches link to the record it creates, as before.
+   */
+  linkedRecordId?: string | null;
 };
 
 export type OutboxEntry = {
@@ -195,6 +201,11 @@ export type OutboxEntry = {
   createdStepIds?: string[];
   /** Indices into `media` whose files have already been sent; never sent twice. */
   uploadedBatches?: number[];
+  /**
+   * A9 — files with no record to create: the Miscellaneous Media page's upload, queued while
+   * offline. The replay skips the create and sends each batch to its own `linkedRecordId`.
+   */
+  mediaOnly?: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -323,6 +334,14 @@ function isTransient(error: unknown): boolean {
   return true; // TypeError from fetch, an abort, a DNS failure — all "try again later".
 }
 
+/**
+ * A9 — should a failed upload be QUEUED rather than shown? Only when nothing reached a server: the
+ * same rule `saveOrQueue` keeps for a record (a server's "no" is never banked to replay).
+ */
+export function uploadFailureIsOffline(error: unknown): boolean {
+  return isTransient(error) && !(error instanceof ApiError);
+}
+
 export type SyncResult = { synced: number; failed: number; remaining: number; stoppedOffline: boolean };
 
 let syncing: Promise<SyncResult> | null = null;
@@ -351,6 +370,10 @@ async function runSync(): Promise<SyncResult> {
     // that an interruption resumes rather than restarts. See the resumability note at the top.
     const progress: OutboxEntry = { ...entry };
     try {
+      if (progress.mediaOnly) {
+        // Nothing to create: the files link to records that already exist (or to none).
+        progress.created = true;
+      }
       if (!progress.created) {
         try {
           const saved = await apiFetch<{ id: string; steps?: Array<{ id: string }> }>(progress.endpoint, {
@@ -400,14 +423,17 @@ async function runSync(): Promise<SyncResult> {
 
       const mediaFailed: Array<{ name: string }> = [];
       const uploaded = new Set(progress.uploadedBatches ?? []);
-      if (progress.createdId) {
+      if (progress.createdId || progress.mediaOnly) {
         for (const [index, batch] of progress.media.entries()) {
           if (uploaded.has(index) || !batch.files.length) continue;
           // A step batch has to wait for the server to mint the step; if the create came back with
           // fewer steps than were queued, say so rather than silently attaching to the wrong one.
-          const linkedRecordId =
-            batch.stepIndex === undefined ? progress.createdId : (progress.createdStepIds?.[batch.stepIndex] ?? null);
-          if (!linkedRecordId) {
+          const linkedRecordId = progress.mediaOnly
+            ? (batch.linkedRecordId ?? null)
+            : batch.stepIndex === undefined
+              ? progress.createdId
+              : (progress.createdStepIds?.[batch.stepIndex] ?? null);
+          if (!linkedRecordId && !progress.mediaOnly) {
             mediaFailed.push(...batch.files.map((file) => ({ name: file.name })));
             continue;
           }
@@ -458,6 +484,23 @@ async function runSync(): Promise<SyncResult> {
 
   const remaining = (await refreshOutbox()).length;
   return { synced, failed, remaining, stoppedOffline };
+}
+
+/**
+ * A9 — queue files that belong to no new record (the Miscellaneous Media page, offline). The drain
+ * uploads each batch to its own `linkedRecordId` when the connection returns, exactly once.
+ */
+export async function queueMediaOnly({ label, media }: { label: string; media: OutboxMediaBatch[] }): Promise<void> {
+  await queueOffline({
+    label,
+    endpoint: "",
+    method: "POST",
+    body: "",
+    media: media.filter((batch) => batch.files.length),
+    mediaOnly: true,
+    created: true,
+    createdId: null
+  });
 }
 
 // ---------------------------------------------------------------------------
