@@ -11,6 +11,16 @@ designer portal; both web clients and both Android clients are written against t
     POST /api/notifications/read  {"ids": [...]} or {"all": true}
                                                   -> {"updated": n, "unreadCount": n}
 
+THE MONDAY SUMMARY (``app/services/weekly_digest.py``) rides the same prefix:
+
+    GET  /api/notifications/digest                -> {"eligible", "enabled", "emailAvailable",
+                                                      "schedule", "latest": summary | null}
+    PUT  /api/notifications/digest  {"enabled": b} -> the same shape; 403 for an account that gets none
+    GET  /api/notifications/digests/{id}          -> one summary; the caller's own, else 404
+
+The switch has its own route (not ``/preferences/notifications``) so it shows and saves while mail
+is off: the in-app half still goes.
+
 Marking read is idempotent (an already-read notice keeps its first ``readAt``), so the handset's
 offline queue may replay a mark as often as it likes. An id that is not the caller's is ignored by
 the batch route and is a 404 on the single one — never a 403, which would confirm it exists.
@@ -21,13 +31,15 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import Field
 
 from app.core.db import db
 from app.core.deps import get_current_user
 from app.schemas.common import APIModel
-from app.services.notifications import serialize
+from app.schemas.notifications import DigestPreferenceUpdate
+from app.services import mailer, weekly_digest
+from app.services.notifications import serialize, wants_email
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -82,6 +94,64 @@ async def list_notifications(
         "unreadCount": await _unread(current_user.id),
         "hasMore": len(rows) > limit,
     }
+
+
+# ---------------------------------------------------------------------------------------------
+# The Monday summary. Literal paths, declared before any ``/{notification_id}`` route.
+# ---------------------------------------------------------------------------------------------
+
+
+async def _digest_state(user: Any) -> dict[str, Any]:
+    state: dict[str, Any] = {
+        "eligible": False,
+        "enabled": False,
+        "emailAvailable": mailer.mail_configured(),
+        "schedule": weekly_digest.SCHEDULE,
+        "latest": None,
+    }
+    if not weekly_digest.is_authority(user):
+        return state
+    latest = await db.weeklydigest.find_first(
+        where={"userId": user.id, "status": weekly_digest.DELIVERED},
+        order=[{"weekStart": "desc"}, {"createdAt": "desc"}],
+    )
+    state.update(
+        eligible=True,
+        enabled=await wants_email(user.id, weekly_digest.PREFERENCE),
+        latest=weekly_digest.summarize_digest(latest) if latest is not None else None,
+    )
+    return state
+
+
+@router.get("/digest")
+async def digest_preference(current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return await _digest_state(current_user)
+
+
+@router.put("/digest")
+async def save_digest_preference(
+    payload: DigestPreferenceUpdate, current_user: Any = Depends(get_current_user)
+) -> dict[str, Any]:
+    """Save the switch. Stored even while mail is off; read again at send time."""
+    if not weekly_digest.is_authority(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=weekly_digest.NOT_ELIGIBLE_DETAIL)
+    fields = {weekly_digest.PREFERENCE: payload.enabled}
+    await db.userpreference.upsert(
+        where={"userId": current_user.id},
+        data={"create": {**fields, "user": {"connect": {"id": current_user.id}}}, "update": fields},
+    )
+    return await _digest_state(current_user)
+
+
+@router.get("/digests/{digest_id}")
+async def read_digest(digest_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """One delivered summary, the caller's own. Anybody else's — or one never sent — is a 404."""
+    row = await db.weeklydigest.find_first(
+        where={"id": digest_id, "userId": current_user.id, "status": weekly_digest.DELIVERED}
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Summary not found")
+    return weekly_digest.serialize_digest(row)
 
 
 @router.get("/unread-count")

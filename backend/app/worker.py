@@ -35,6 +35,7 @@ from app.core.db import connect_db, disconnect_db, ensure_db_connected
 from app.services.email_outbox import process_next_email_jobs
 from app.services.media_queue import process_next_media_jobs
 from app.services.workshop_auto_map import maybe_run_nightly_auto_map
+from app.services.weekly_digest import run_weekly_digests
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("app.worker")
@@ -82,6 +83,12 @@ async def _run() -> None:
                 await maybe_run_nightly_auto_map()
             except Exception:  # one bad iteration must never kill the worker
                 logger.exception("Nightly workshop filing failed; will retry")
+            # The Monday summary, in its own try after the outbox. It runs with mail off too (the
+            # in-app half still goes), and outside Monday 08:00-23:59 IST it returns without a query.
+            try:
+                await run_weekly_digests(settings=settings)
+            except Exception:  # one bad pass must never kill the worker
+                logger.exception("Weekly digest pass failed")
             # Sleep for the interval but wake immediately on shutdown.
             with suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(stop.wait(), timeout=interval)

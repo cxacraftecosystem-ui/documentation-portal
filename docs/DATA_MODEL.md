@@ -476,7 +476,8 @@ path, so an edit that goes through the normal PATCH is captured; a direct databa
 | `SecretTestResult` | the last reachability check per key | so "is this key working" has an answer that is not a guess |
 | `AppRelease` | published Android APKs | the OTA channel; `versionCode` is what devices compare |
 | `AssignedTask` | one row per assignee | a batch of five researchers is five rows sharing a `batchId` |
-| `Feedback`, `UserPreference` | one row per user each | |
+| `Feedback`, `UserPreference` | one row per user each | `UserPreference.weeklyDigest` is the Monday summary's opt-out (default on) |
+| `WeeklyDigest` | one row per person per reported week | the Monday summary's ledger (`services/weekly_digest.py`): unique `(userId, weekStart)` is the idempotency key; `status` PENDING → DELIVERED, SKIPPED_EMPTY or SKIPPED_OPTOUT; `payload` is counts and app paths only; purged after 26 weeks |
 | `ReviewLog` | one row per review decision | append-only; an edit-then-approve writes two rows |
 | `TwoFactorChallenge` | one row per sign-in waiting for its authenticator code | keyed by the challenge token's `jti`; counts attempts (five, then dead), deleted by a correct code, swept when expired. The account's own two-step columns (`User.twoFactor*`: the encrypted secret and pending secret, hashed recovery codes, the last accepted time step, and the per-account failure budget and lock) are in [SECURITY.md §3.3B](SECURITY.md) |
 

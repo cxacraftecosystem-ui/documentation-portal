@@ -1161,6 +1161,12 @@ class FieldRepository(
             highContrast = preferences.highContrast
         )
 
+    /** The Monday summary's switch for this account (`eligible` false: draw nothing). */
+    suspend fun weeklyDigestPreference(): WeeklyDigestPreferenceDto = api.weeklyDigestPreference()
+
+    suspend fun saveWeeklyDigestPreference(enabled: Boolean): WeeklyDigestPreferenceDto =
+        api.updateWeeklyDigestPreference(WeeklyDigestPreferenceBody(enabled = enabled))
+
     // --- Global search ---
 
     /**

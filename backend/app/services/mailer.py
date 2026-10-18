@@ -21,7 +21,7 @@ from __future__ import annotations
 import html
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any
 
@@ -59,6 +59,10 @@ ACCESS_REQUESTED = "ACCESS_REQUESTED"
 ACCESS_DECIDED = "ACCESS_DECIDED"
 WORKSHOP_ACCESS_REQUESTED = "WORKSHOP_ACCESS_REQUESTED"
 WORKSHOP_ACCESS_DECIDED = "WORKSHOP_ACCESS_DECIDED"
+#: THE MONDAY SUMMARY for reviewers and administrators (app/services/weekly_digest.py): counts only,
+#: never a record label. Opt-out through ``UserPreference.weeklyDigest``.
+WEEKLY_DIGEST = "WEEKLY_DIGEST"
+
 KINDS = frozenset(
     {
         ACCESS_GRANTED,
@@ -77,6 +81,7 @@ KINDS = frozenset(
         ACCESS_DECIDED,
         WORKSHOP_ACCESS_REQUESTED,
         WORKSHOP_ACCESS_DECIDED,
+        WEEKLY_DIGEST,
     }
 )
 TASK_ONLY_KINDS = frozenset({TASK_SUBMITTED, TASK_SENT_BACK, TASK_APPROVED})
@@ -89,6 +94,9 @@ SHARING_KINDS = frozenset(
 TASK_KINDS = TASK_ONLY_KINDS | REVIEW_KINDS | SHARING_KINDS
 
 PRODUCT_NAME = "Field Repository"
+
+#: India Standard Time, the clock every schedule in this product is written in. No DST, so a fixed offset.
+IST = timezone(timedelta(hours=5, minutes=30), "IST")
 
 #: SESv2 error codes after which sending the same message again cannot succeed.
 PERMANENT_ERROR_CODES = frozenset(
@@ -233,6 +241,169 @@ def locked_until_words(value: Any) -> str:
     return f"{moment:%H:%M} UTC on {moment.day} {moment:%B %Y}"
 
 
+# --------------------------------------------------------------------------------------
+# The Monday summary (WEEKLY_DIGEST)
+# --------------------------------------------------------------------------------------
+
+_MUTED = "#5d5874"
+_ACCENT = "#5b3fa8"
+_DIGEST_BLOCKS = (("waiting", "Waiting for you"), ("overdue", "Overdue"), ("new", "New this week"))
+
+
+def _count(value: Any) -> int:
+    try:
+        return max(int(value or 0), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _digest_sections(params: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {str(s.get("key")): s for s in params.get("sections") or [] if isinstance(s, dict)}
+
+
+def digest_figures(params: dict[str, Any]) -> tuple[int, int, int]:
+    """(waiting, overdue, new this week) from a summary's ``sections``."""
+    by_key = _digest_sections(params)
+    return tuple(_count((by_key.get(key) or {}).get("total")) for key, _label in _DIGEST_BLOCKS)  # type: ignore[return-value]
+
+
+def digest_title(waiting: int, overdue: int) -> str:
+    """The subject, and the in-app title: the same words in both places."""
+    if overdue:
+        return f"Your week: {waiting} waiting, {overdue} overdue"
+    return f"Your week: {waiting} waiting"
+
+
+def coverage_figure(coverage: Any) -> str:
+    """"71%" when there is a whole to measure against, else the bare count ("41")."""
+    if not isinstance(coverage, dict):
+        return "0"
+    if coverage.get("percent") is not None:
+        return f"{_count(coverage.get('percent'))}%"
+    return str(_count(coverage.get("value")))
+
+
+def digest_line_words(lines: Any) -> str:
+    """"3 records to review · 1 task to check": each non-zero line, lower-cased after its count."""
+    words = []
+    for line in lines or []:
+        if isinstance(line, dict) and _count(line.get("count")):
+            label = str(line.get("label") or "").strip()
+            words.append(f"{_count(line.get('count'))} {label[:1].lower()}{label[1:]}".strip())
+    return " · ".join(words)
+
+
+def _digest_items(section: dict[str, Any]) -> list[dict[str, Any]]:
+    return [item for item in section.get("items") or [] if isinstance(item, dict)]
+
+
+def _digest_html(
+    sections: list[dict[str, Any]],
+    coverage: dict[str, Any] | None,
+    button: tuple[str, str],
+    *,
+    greeting: str = "Hello,",
+    settings_link: str = "",
+) -> str:
+    """The summary on the house shell (``_html``'s page, card and button): a greeting, four compact
+    blocks — a small uppercase label over a large figure — and one button. Values are escaped HERE,
+    unlike ``_html``, because every one of them arrives raw. The Field Repository's summary is counts
+    only; ``items`` (titles) is drawn when present so the template matches the designer portal's."""
+    small = "font-size:13px;line-height:1.45;margin-top:4px;"
+
+    def cell(label: str, figure: str, detail: str = "", items: list[dict[str, Any]] | None = None) -> str:
+        extra = f'<div style="{small}color:{_MUTED};">{_e(detail)}</div>' if detail else ""
+        shown = (items or [])[:3]
+        for item in shown:
+            path = str(item.get("link") or "")
+            title = _e(item.get("title"))
+            if path.startswith("/") and not path.startswith("//"):
+                extra += (
+                    f'<div style="{small}"><a href="{_e(app_url(path))}" '
+                    f'style="color:{_ACCENT};text-decoration:none;">{title}</a></div>'
+                )
+            else:
+                extra += f'<div style="{small}">{title}</div>'
+        more = len(items or []) - len(shown)
+        if more > 0:
+            extra += f'<div style="{small}color:{_MUTED};">and {more} more</div>'
+        return (
+            '<td style="padding:12px 8px 12px 0;vertical-align:top;width:50%;">'
+            f'<div style="font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:{_MUTED};">{_e(label)}</div>'
+            f'<div style="font-size:22px;font-weight:600;line-height:1.3;margin-top:2px;">{_e(figure)}</div>'
+            f"{extra}</td>"
+        )
+
+    by_key = {str(s.get("key")): s for s in sections if isinstance(s, dict)}
+    cells = []
+    for key, label in _DIGEST_BLOCKS:
+        section = by_key.get(key) or {}
+        cells.append(
+            cell(
+                label,
+                str(_count(section.get("total"))),
+                digest_line_words(section.get("lines")),
+                _digest_items(section) if key != "new" else None,
+            )
+        )
+    cover = coverage if isinstance(coverage, dict) else {}
+    cells.append(cell(str(cover.get("label") or "Coverage"), coverage_figure(cover), str(cover.get("scope") or "")))
+    label, href = button
+    return "".join(
+        [
+            (
+                '<!doctype html><html><body style="margin:0;padding:24px;background:#f6f5fb;'
+                'font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1f2328;">'
+            ),
+            (
+                '<div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e2e0ea;'
+                'border-radius:8px;padding:24px;">'
+            ),
+            f'<p style="margin:0 0 16px;font-size:13px;letter-spacing:.04em;color:{_MUTED};">{_e(PRODUCT_NAME)}</p>',
+            f'<p style="margin:0 0 8px;font-size:15px;line-height:1.55;">{_e(greeting)}</p>',
+            '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">',
+            f"<tr>{cells[0]}{cells[1]}</tr><tr>{cells[2]}{cells[3]}</tr>",
+            "</table>",
+            (
+                f'<p style="margin:20px 0;"><a href="{_e(href)}" style="display:inline-block;background:{_ACCENT};'
+                'color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:6px;font-size:15px;">'
+                f"{_e(label)}</a></p>"
+            ),
+            (
+                f'<p style="margin:0;font-size:13px;line-height:1.5;color:{_MUTED};">You get this every Monday. '
+                f'Turn it off in <a href="{_e(settings_link)}" style="color:{_MUTED};">Settings</a>.</p>'
+            ),
+            "</div></body></html>",
+        ]
+    )
+
+
+def _digest_text(params: dict[str, Any], greeting: str, link: str, settings_link: str, sign_off: str) -> str:
+    """The plain-text part: the same four figures, the same line words, the same link."""
+    by_key = _digest_sections(params)
+    rows = [greeting]
+    for key, label in _DIGEST_BLOCKS:
+        section = by_key.get(key) or {}
+        row = f"{label}: {_count(section.get('total'))}"
+        words = digest_line_words(section.get("lines"))
+        if words:
+            row += f" ({words})"
+        items = _digest_items(section) if key != "new" else []
+        for item in items[:3]:
+            row += f"\n  - {item.get('title') or ''}"
+        if len(items) > 3:
+            row += f"\n  and {len(items) - 3} more"
+        rows.append(row)
+    cover = params.get("coverage") if isinstance(params.get("coverage"), dict) else {}
+    rows.append(f"{cover.get('label') or 'Coverage'}: {coverage_figure(cover)}")
+    rows += [
+        f"Open your digest: {link}",
+        f"You get this every Monday. Turn it off in Settings: {settings_link}",
+        sign_off,
+    ]
+    return "\n\n".join(rows) + "\n"
+
+
 def subject_for(kind: str, params: dict[str, Any]) -> str:
     title = str(params.get("taskTitle") or "a task").strip()
     if kind == PASSWORD_LINK:
@@ -275,6 +446,9 @@ def subject_for(kind: str, params: dict[str, Any]) -> str:
     if kind == WORKSHOP_ACCESS_DECIDED:
         verb = "granted" if params.get("decision") == "GRANTED" else "declined"
         return f"Workshop access {verb}: {params.get('workshopTitle') or 'a workshop'}"
+    if kind == WEEKLY_DIGEST:
+        waiting, overdue, _new = digest_figures(params)
+        return digest_title(waiting, overdue)
     raise ValueError(f"Unknown e-mail kind {kind!r}")
 
 
@@ -383,6 +557,17 @@ def render(
         return Rendered(
             subject, text, _html([_e(greeting), _e(lead), _e(act)], button=("Open the sign-in page", _e(link)))
         )
+
+    if kind == WEEKLY_DIGEST:
+        link = app_url(f"/digest/{params.get('digestId') or ''}", settings)
+        settings_link = app_url("/settings", settings)
+        coverage = params.get("coverage") if isinstance(params.get("coverage"), dict) else None
+        sections = [s for s in params.get("sections") or [] if isinstance(s, dict)]
+        text = _digest_text(params, greeting, link, settings_link, sign_off)
+        body = _digest_html(
+            sections, coverage, ("Open your digest", link), greeting=greeting, settings_link=settings_link
+        )
+        return Rendered(subject, text, body)
 
     if kind in REVIEW_KINDS or kind in SHARING_KINDS:
         lead, extra, label, path = _notice_lines(kind, params)

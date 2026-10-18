@@ -16,19 +16,19 @@ API lags the tree by however many commits have not been deployed; see
 
 | | Count |
 |---|---|
-| Prisma models | **51** |
+| Prisma models | **52** |
 | Prisma enums | **17** |
-| `@@index` declarations | 124 |
-| `@@unique` declarations | 18 |
+| `@@index` declarations | 125 |
+| `@@unique` declarations | 19 |
 
-Models: `User`, `PasswordResetToken`, `PasswordResetRequest`, `AccessRoster`, `AssignedTask`, `Feedback`, `UserPreference`, `AppRelease`, `Craft`, `CraftCode`, `CraftSpelling`, `ArtisanSharingConsent`, `CrossPortalArtisanLink`, `CrossPortalAccessLog`, `Location`, `Artisan`, `Workshop`, `WorkshopArtisan`, `WorkshopCraft`, `ProductDocumentation`, `ToolDocumentation`, `ToolArtisan`, `ToolCraft`, `MediaFile`, `TranscriptInsight`, `MediaProcessingJob`, `Questionnaire`, `QuestionnaireSection`, `QuestionnaireSectionStatus`, `QuestionnaireQuestion`, `QuestionnaireInterview`, `QuestionnaireInterviewArtisan`, `QuestionnaireResponse`, `QuestionnaireAnswerDraft`, `Process`, `ProcessStep`, `ReviewLog`, `AppSetting`, `ArtisanMerge`, `WorkshopAssignment`, `ManagedSecret`, `SecretTestResult`, `DataAccessGrant`, `DataAccessScopeItem`, `EntryComment`, `RecordRevision`, `UserAiCredential`, `EmailMessage`, `TwoFactorChallenge`, `IdempotencyKey`, `Notification`.
+Models: `User`, `PasswordResetToken`, `PasswordResetRequest`, `AccessRoster`, `AssignedTask`, `Feedback`, `UserPreference`, `AppRelease`, `Craft`, `CraftCode`, `CraftSpelling`, `ArtisanSharingConsent`, `CrossPortalArtisanLink`, `CrossPortalAccessLog`, `Location`, `Artisan`, `Workshop`, `WorkshopArtisan`, `WorkshopCraft`, `ProductDocumentation`, `ToolDocumentation`, `ToolArtisan`, `ToolCraft`, `MediaFile`, `TranscriptInsight`, `MediaProcessingJob`, `Questionnaire`, `QuestionnaireSection`, `QuestionnaireSectionStatus`, `QuestionnaireQuestion`, `QuestionnaireInterview`, `QuestionnaireInterviewArtisan`, `QuestionnaireResponse`, `QuestionnaireAnswerDraft`, `Process`, `ProcessStep`, `ReviewLog`, `AppSetting`, `ArtisanMerge`, `WorkshopAssignment`, `ManagedSecret`, `SecretTestResult`, `DataAccessGrant`, `DataAccessScopeItem`, `EntryComment`, `RecordRevision`, `UserAiCredential`, `EmailMessage`, `TwoFactorChallenge`, `IdempotencyKey`, `Notification`, `WeeklyDigest`.
 
 Enums: `UserRole`, `AuthProvider`, `AccessStatus`, `RecordStatus`, `WorkshopType`, `MediaType`, `ProductType`, `MarketDemand`, `MakerType`, `TraditionType`, `ReviewRecordType`, `MediaProcessingJobType`, `MediaProcessingJobStatus`, `ProcessStepType`, `DataAccessTier`, `DataAccessStatus`, `CredentialLinkPurpose`.
 
 ## API surface
 
-**214 operations** in the working tree — 99 GET, 71 POST, 20 DELETE,
-12 PATCH, 12 PUT. 2 of them (`/health`, `/health/ready`) are declared
+**217 operations** in the working tree — 101 GET, 71 POST, 20 DELETE,
+12 PATCH, 13 PUT. 2 of them (`/health`, `/health/ready`) are declared
 on the app rather than on a router; the rest are spread across `backend/app/api/routes/`:
 
 | Route module | Operations |
@@ -43,6 +43,7 @@ on the app rather than on a router; the rest are spread across `backend/app/api/
 | `tools.py` | 8 |
 | `users.py` | 8 |
 | `cross_portal.py` | 7 |
+| `notifications.py` | 7 |
 | `two_factor.py` | 7 |
 | `access_roster.py` | 5 |
 | `ai_keys.py` | 5 |
@@ -56,7 +57,6 @@ on the app rather than on a router; the rest are spread across `backend/app/api/
 | `secrets.py` | 5 |
 | `settings.py` | 5 |
 | `craft_codes.py` | 4 |
-| `notifications.py` | 4 |
 | `preferences.py` | 4 |
 | `transcript_insights.py` | 4 |
 | `app_release.py` | 3 |
@@ -111,9 +111,9 @@ no key is skipped wherever it sits.
 
 | Surface | Files | Cases | Runner |
 |---|---|---|---|
-| Backend unit (`backend/tests/`) | 97 | 1556 `def test_` | `python -m pytest -q` from `backend/` |
-| Web end-to-end (`frontend/e2e/`) | 69 | 916 `test(` | Playwright, `frontend/playwright.config.ts` |
-| Android unit (`android/app/src/test/`) | 88 | 972 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
+| Backend unit (`backend/tests/`) | 99 | 1586 `def test_` | `python -m pytest -q` from `backend/` |
+| Web end-to-end (`frontend/e2e/`) | 70 | 924 `test(` | Playwright, `frontend/playwright.config.ts` |
+| Android unit (`android/app/src/test/`) | 89 | 977 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
 | Android instrumented | **none** — the `src/androidTest` source set does not exist | — | not run in CI |
 
 The backend case count is `def test_` occurrences; pytest reports a larger number because
@@ -124,11 +124,11 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 
 | Area | Tracked files | Tracked lines | Tree files | Tree lines |
 |---|---|---|---|---|
-| `backend/app` | 148 | 56,880 | 148 | 56,880 |
-| `frontend/app` | 67 | 21,662 | 67 | 21,662 |
-| `frontend/components` | 220 | 59,696 | 220 | 59,696 |
-| `frontend/lib` | 97 | 31,038 | 97 | 31,038 |
-| `android/app/src/main/java` | 147 | 91,823 | 147 | 91,823 |
+| `backend/app` | 151 | 57,714 | 151 | 57,714 |
+| `frontend/app` | 68 | 21,798 | 68 | 21,798 |
+| `frontend/components` | 221 | 59,778 | 221 | 59,778 |
+| `frontend/lib` | 98 | 31,221 | 98 | 31,221 |
+| `android/app/src/main/java` | 148 | 91,970 | 148 | 91,970 |
 
 Two columns because the two numbers get quoted interchangeably and disagree by however much work is
 uncommitted. **Tracked** is `git ls-files`, which is the figure to use in a write-up — it is

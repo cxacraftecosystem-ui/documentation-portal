@@ -2815,11 +2815,16 @@ private fun HomeScreen(
                 api = repository.notificationApi(),
                 userId = user.id,
                 onOpenLink = { link ->
-                    when (notificationTarget(link)) {
-                        NotificationTarget.TASKS -> screen = screenFor(EntryMode.TASKS)
-                        NotificationTarget.REVIEW -> screen = screenFor(EntryMode.VIEW_DATA)
-                        NotificationTarget.SETTINGS -> screen = Screen.Appearance
-                        null -> Unit
+                    when {
+                        // The Monday summary has no handset screen, on purpose: the notice's title
+                        // and body line are the whole summary here. Opening it does nothing.
+                        link.startsWith("/digest/") -> Unit
+                        else -> when (notificationTarget(link)) {
+                            NotificationTarget.TASKS -> screen = screenFor(EntryMode.TASKS)
+                            NotificationTarget.REVIEW -> screen = screenFor(EntryMode.VIEW_DATA)
+                            NotificationTarget.SETTINGS -> screen = Screen.Appearance
+                            null -> Unit
+                        }
                     }
                 }
             )

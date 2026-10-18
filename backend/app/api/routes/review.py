@@ -20,7 +20,6 @@ from app.core.deps import (
     is_admin,
     is_master_admin,
     require_reviewer,
-    role_rank,
     values_match,
 )
 from app.schemas.common import APIModel, ReviewAction
@@ -39,6 +38,7 @@ from app.services.records import clean_data, decimal_to_string, jsonify_metadata
 from app.services.records import review_update
 from app.services.records import public_encode
 from app.services.review_reasons import reason_label
+from app.services.review_queue import reviewable_creator_roles
 from app.services.workshop_access import record_needs_admin_approval, stamp_workshop_submission
 
 logger = logging.getLogger(__name__)
@@ -100,17 +100,9 @@ PENDING_TAKE = 200
 
 
 def _reviewable_creator_roles(reviewer: Any) -> list[str] | None:
-    """The creator roles this reviewer may act on, or None for "everyone" (the master admin).
-
-    The peer-review ladder as DATA, so it can go into the query: the same comparison
-    ``can_review_record`` makes — ranks STRICTLY below the reviewer — against the creator's role
-    column. Every reviewable model has a required ``createdById`` and ``UserRole`` is NOT NULL, so the
-    "no creator role on file" case ``can_review_record`` defends against does not arise here.
-    """
-    if is_master_admin(reviewer):
-        return None
-    rank = role_rank(reviewer)
-    return [role for role, value in ROLE_RANK.items() if value < rank]
+    """The creator roles this reviewer may act on, or None for everyone. The rule lives in
+    :func:`app.services.review_queue.reviewable_creator_roles`, shared with the Monday summary."""
+    return reviewable_creator_roles(reviewer)
 
 
 def _label_for(row: Any, fields: tuple[str, ...]) -> str:

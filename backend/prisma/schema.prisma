@@ -257,6 +257,7 @@ model User {
   /// Every e-mail queued for this account. See `EmailMessage`.
   emailMessages EmailMessage[] @relation("EmailMessageRecipient")
   notifications Notification[] @relation("NotificationUser")
+  weeklyDigests WeeklyDigest[] @relation("WeeklyDigestUser")
   sectionStatusesSet QuestionnaireSectionStatus[] @relation("SectionStatusSetBy")
   workshopAssignments     WorkshopAssignment[] @relation("WorkshopAssignmentUser")
   workshopAssignmentsMade WorkshopAssignment[] @relation("WorkshopAssignmentAssignedBy")
@@ -522,6 +523,9 @@ model UserPreference {
   /// Opt-out, so true until the person turns it off in Settings: e-mail me when a task of mine is
   /// handed in for my approval, approved, or sent back. Read only when mail is configured.
   emailTaskUpdates Boolean @default(true)
+  /// Opt-out, so true until the person turns it off: the Monday summary (in-app, and by e-mail when
+  /// mail is on). Read only for accounts that get one (app/services/weekly_digest.is_authority).
+  weeklyDigest     Boolean @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -2307,4 +2311,27 @@ model Notification {
   @@index([userId, createdAt])
   /// The badge's read: one person's unread count.
   @@index([userId, readAt])
+}
+
+/// THE WEEKLY SUMMARY'S LEDGER (app/services/weekly_digest.py): one row per person per reported week.
+/// The unique (userId, weekStart) pair IS the idempotency key — a second worker, or a second pass, meets
+/// the unique violation and skips. `weekStart` is the IST Monday of the send. `status` is PENDING while
+/// the summary is being written, then DELIVERED, SKIPPED_EMPTY (nothing waiting, overdue or new) or
+/// SKIPPED_OPTOUT. `payload` holds only what the summary shows (counts and app paths, never a record
+/// label); rows older than 26 weeks are purged. `notificationId` and `emailMessageId` carry no foreign
+/// key, like `Notification.emailMessageId`: the send log can be pruned on its own.
+model WeeklyDigest {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation("WeeklyDigestUser", fields: [userId], references: [id], onDelete: Cascade)
+  weekStart      DateTime @db.Date
+  status         String   @default("PENDING")
+  payload        Json?
+  notificationId String?
+  emailMessageId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, weekStart])
+  @@index([weekStart, status])
 }

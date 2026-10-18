@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Accessibility
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhoneAndroid
@@ -57,6 +58,8 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.PreferencesDto
+import com.fieldrepository.app.data.WeeklyDigestPreferenceDto
+import com.fieldrepository.app.data.WeeklyDigestRules
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -521,6 +524,9 @@ fun AppearanceScreen(
             OutlinedButton(onClick = onOpenMyAiKeys) { Text("Open my AI keys") }
         }
 
+        // The Monday summary, for reviewers and administrators only (the server says who).
+        WeeklyDigestCard(repository = repository)
+
         // The password, beside the two-step lock: change it, or set a first one. See AccountRecovery.kt.
         AccountPasswordCard(repository = repository, onSignOut = onSignOut)
 
@@ -615,6 +621,48 @@ private fun ThemeChoiceRow(option: ThemeOption, selected: Boolean, onSelect: () 
             }
             Text(option.helper, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
         }
+    }
+}
+
+/**
+ * The Monday summary's switch: drawn only once the server says this account gets one, flipped at
+ * once and put back if the save fails. A failed first read draws nothing (an older server).
+ */
+@Composable
+private fun WeeklyDigestCard(repository: FieldRepository) {
+    val scope = rememberCoroutineScope()
+    var state by remember { mutableStateOf<WeeklyDigestPreferenceDto?>(null) }
+    var saving by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        state = runCatching { repository.weeklyDigestPreference() }.getOrNull()
+    }
+    val current = state
+    if (current == null || !WeeklyDigestRules.showSwitch(current)) return
+    PreferenceCard {
+        PreferenceCardHeading(Icons.Filled.Event, WeeklyDigestRules.LABEL)
+        AppToggle(
+            label = WeeklyDigestRules.LABEL,
+            description = WeeklyDigestRules.description(current),
+            checked = current.enabled,
+            busy = saving,
+            busyLabel = "Saving",
+            onCheckedChange = { next ->
+                error = null
+                scope.launch {
+                    saving = true
+                    val (_, failure) = WeeklyDigestRules.toggle(
+                        current,
+                        next,
+                        save = { repository.saveWeeklyDigestPreference(it) },
+                        show = { state = it }
+                    )
+                    error = failure?.apiErrorMessage("Couldn't save. Try again.")
+                    saving = false
+                }
+            }
+        )
+        SaveStatusLine(saving = saving, error = error)
     }
 }
 
