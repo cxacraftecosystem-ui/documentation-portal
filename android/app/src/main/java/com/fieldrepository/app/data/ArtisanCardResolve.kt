@@ -60,7 +60,8 @@ suspend fun resolveArtisanCardWith(
     } catch (e: CancellationException) {
         throw e
     } catch (e: HttpException) {
-        if (e.code() >= 500 || e.code() == 408) ArtisanCardResolution.Pending(card)
+        // 401: the session expired. Kept pending so the outbox resumes after sign-in, not held.
+        if (e.code() >= 500 || e.code() == 408 || e.code() == 401) ArtisanCardResolution.Pending(card)
         else ArtisanCardResolution.Refused(e.apiErrorMessage("No artisan matches this card."))
     } catch (_: IOException) {
         ArtisanCardResolution.Pending(card)

@@ -464,7 +464,7 @@ served valueless from now on, and are rewritten by the backfill.
 row per card ever issued: `code` (10 Crockford base32 characters from `secrets`, `@unique`, never
 derived from the artisan), the `keyVersion` of `ARTISAN_CARD_KEY` that signs its QR, and who issued
 and revoked it. At most one card per artisan is live (`revokedAt` null), held by the partial unique
-index `ArtisanCard_one_live_per_artisan` — raw SQL in `20261021100000_artisan_cards`, because Prisma
+index `ArtisanCard_one_live_per_artisan` — raw SQL in `20261023090000_artisan_cards`, because Prisma
 cannot declare it. A lost or damaged card is revoked with a reason (`LOST`, `DAMAGED`, `OTHER`), never
 deleted, so its code answers "replaced" rather than "unknown". The QR and the short code are drawn on
 every read (`backend/app/services/artisan_card.py`) and never stored.

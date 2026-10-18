@@ -4,7 +4,7 @@ Cards are also issued lazily (on the first card read, register page or print), s
 what makes every row carry a card from the day the release goes out: the Android register caches
 card codes, and a phone can only match a scanned card it has already been told about.
 
-Run it on the box after the release with the ``20261021100000_artisan_cards`` migration is live,
+Run it on the box after the release with the ``20261023090000_artisan_cards`` migration is live,
 with the release's own ``.env`` (it needs ARTISAN_CARD_KEY so that cards are active).
 
 IDEMPOTENT. It only ever adds a card where none is live, in batches of 500 inside one transaction

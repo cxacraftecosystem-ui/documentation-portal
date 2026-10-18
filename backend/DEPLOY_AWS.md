@@ -732,7 +732,7 @@ and the SSM SecureString `/iit/field-repository/artisan-card-key`.
 1. **This portal ships before the designer portal.** The peer link body is `extra="forbid"`, so a
    designer portal sending `remoteCardCode` to a release without this migration gets 422 on every
    link. The backend also ships before its own clients.
-2. **Release with migration `20261021100000_artisan_cards`.** Two new tables and one nullable unique
+2. **Release with migration `20261023090000_artisan_cards`.** Two new tables and one nullable unique
    column on `CrossPortalArtisanLink`; nothing existing changes. Cards are drawn only once the key is
    in the release `.env`.
 3. **Backfill, on the box, after that release is live:**

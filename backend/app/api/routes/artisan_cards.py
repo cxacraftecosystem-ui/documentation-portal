@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.core.config import get_settings
 from app.core.db import db
 from app.core.deps import get_current_user, get_value
-from app.services import artisan_card, artisan_card_pdf, cross_portal
+from app.services import artisan_card, artisan_card_pdf, cross_portal, naming
 from app.services import artisan_card_store as store
 from app.services.access import record_edit_privilege
 from app.services.records import ALL_MEDIA_URLS, media_url_owners
@@ -136,6 +136,18 @@ def _face(settings: Any, artisan: Any, card: Any, photo: bytes | None) -> artisa
         short_code=codes["shortCode"],
         photo=photo,
     )
+
+
+PORTAL = naming.PORTAL_FIELD_REPOSITORY
+def _card_file_name(faces: list[Any]) -> str:
+    """One card names its artisan; a sheet is the day's artisan cards (services/naming.py)."""
+    if len(faces) == 1:
+        face = faces[0]
+        return naming.file_name(
+            PORTAL, "Artisan", "Artisan-Card", "pdf",
+            day=naming.ist_date(), place=face.cluster, craft=face.craft, subject=face.name,
+        )
+    return naming.file_name(PORTAL, "Artisan", "Artisan-Cards", "pdf", day=naming.ist_date())
 
 
 def _pdf(content: bytes, filename: str) -> Response:
@@ -250,8 +262,7 @@ async def card_pdf(
         artisan_id=artisan_id,
         card_code=card.code,
     )
-    short = artisan_card.short_code(artisan_card.issuer_of(settings), card.code)
-    return _pdf(content, f"artisan-card-{short}.pdf")
+    return _pdf(content, _card_file_name([_face(settings, artisan, card, None)]))
 
 
 class SheetIn(BaseModel):
@@ -334,7 +345,7 @@ async def sheet_pdf(payload: SheetIn, current_user: Any = Depends(get_current_us
         count=len(ids),
     )
     pages = len(ids) if payload.size == "a6" else math.ceil(len(ids) / artisan_card_pdf.PER_SHEET)
-    response = _pdf(content, f"artisan-cards-{len(ids)}.pdf")
+    response = _pdf(content, _card_file_name(faces))
     response.headers["X-Card-Pages"] = str(pages)
     return response
 

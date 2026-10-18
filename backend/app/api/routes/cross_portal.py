@@ -18,6 +18,7 @@ with. Every consent change is a ``RecordRevision`` on the artisan, so a withdraw
 """
 
 import json
+import logging
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
@@ -34,6 +35,7 @@ from app.services.access import record_edit_privilege, record_revision
 from app.services.artisan_identity import normalize_pehchan
 
 router = APIRouter(prefix="/cross-portal", tags=["cross-portal"])
+logger = logging.getLogger("app.cross_portal")
 
 
 def _active_or_404() -> Any:
@@ -185,9 +187,14 @@ async def _card_code(artisan_id: str, settings: Any) -> str | None:
     """This portal's live card code for the artisan, issuing one if cards are on; else ``None``."""
     if not artisan_card.active(settings):
         return None
-    card, _ = await artisan_card_store.ensure_card(
-        db, artisan_id, settings=settings, user_id=None, source="PEER"
-    )
+    try:
+        card, _ = await artisan_card_store.ensure_card(
+            db, artisan_id, settings=settings, user_id=None, source="PEER"
+        )
+    except Exception:
+        # The link stands without it; the next refresh carries the code.
+        logger.warning("cross-portal: card code left off this answer", exc_info=True)
+        return None
     return card.code
 
 

@@ -33,7 +33,7 @@ KEY = json.loads((ROOT / "shared" / "artisan-card-vectors.json").read_text(encod
     "tags"
 ]["key"]
 MIGRATION = (
-    ROOT / "backend" / "prisma" / "migrations" / "20261021100000_artisan_cards" / "migration.sql"
+    ROOT / "backend" / "prisma" / "migrations" / "20261023090000_artisan_cards" / "migration.sql"
 )
 MM = 72 / 25.4
 
@@ -309,7 +309,8 @@ async def test_single_card_pdf_is_id1_and_masks_aadhaar(world):
     assert not re.search(r"\d{12}", text)
     card = await routes.get_card("a1", current_user=USER)
     assert card["shortCode"] in text
-    assert f"artisan-card-{card['shortCode']}.pdf" in response.headers["Content-Disposition"]
+    disposition = response.headers["Content-Disposition"]
+    assert re.search(r'filename="FieldRepository_Artisan_\d{4}-\d{2}-\d{2}_[A-Za-z0-9_-]*Artisan-1_Artisan-Card\.pdf"', disposition)
     assert len(_events(world.db, "PRINT")) == 1
 
 
@@ -426,6 +427,20 @@ async def test_register_rows_carry_card_last4_and_linked_codes(world, monkeypatc
     plain = [{"id": "a1"}]
     await artisan_routes._attach_cards(plain, USER)
     assert plain == [{"id": "a1"}]
+
+
+async def test_a_card_failure_never_fails_the_register_or_a_create(world, monkeypatch):
+    async def broken(*args, **kwargs):
+        raise RuntimeError("ArtisanCard table missing")
+
+    monkeypatch.setattr(store, "ensure_cards", broken)
+    monkeypatch.setattr(store, "ensure_card", broken)
+    rows = [{"id": "a1", "name": "Artisan 1"}]
+    await artisan_routes._attach_cards(rows, USER)
+    assert rows == [{"id": "a1", "name": "Artisan 1"}]
+    from app.api.routes import cross_portal as peer_routes
+
+    assert await peer_routes._card_code("a1", world.state["settings"]) is None
 
 
 async def test_backfill_is_idempotent(world):

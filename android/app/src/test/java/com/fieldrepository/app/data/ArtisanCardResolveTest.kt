@@ -74,6 +74,8 @@ class ArtisanCardResolveTest {
             refused
         )
         assertTrue(resolveArtisanCardWith(own, { emptyList() }) { throw http(503, "down") } is ArtisanCardResolution.Pending)
+        // An expired session waits for sign-in rather than holding the outbox entry.
+        assertTrue(resolveArtisanCardWith(own, { emptyList() }) { throw http(401, "Sign in again.") } is ArtisanCardResolution.Pending)
     }
 
     @Test

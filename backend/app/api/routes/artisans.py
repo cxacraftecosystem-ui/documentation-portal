@@ -422,18 +422,23 @@ async def _attach_cards(encoded: list[dict[str, Any]], current_user: Any) -> Non
     """Each row's card codes, so the Android register can match a scanned card with no signal.
 
     ``card`` is this portal's live card (issued here if the row has none yet), ``linkedCardCodes``
-    the designer portal's codes for records linked to it. Sent only while cards are active.
+    the designer portal's codes for records linked to it. Sent only while cards are active. A
+    failure here leaves the page as it was rather than failing the list (the Android register).
     """
     settings = get_settings()
     if not encoded or not artisan_card.active(settings):
         return
     ids = [row["id"] for row in encoded if isinstance(row, dict) and row.get("id")]
-    cards = await artisan_card_store.ensure_cards(
-        db, ids, settings=settings, user_id=getattr(current_user, "id", None)
-    )
-    links = await db.crossportalartisanlink.find_many(
-        where={"artisanId": {"in": ids}, "remoteCardCode": {"not": None}}
-    )
+    try:
+        cards = await artisan_card_store.ensure_cards(
+            db, ids, settings=settings, user_id=getattr(current_user, "id", None)
+        )
+        links = await db.crossportalartisanlink.find_many(
+            where={"artisanId": {"in": ids}, "remoteCardCode": {"not": None}}
+        )
+    except Exception:
+        logger.warning("artisan list: card fields left off this page", exc_info=True)
+        return
     linked: dict[str, list[str]] = {}
     for link in links:
         linked.setdefault(link.artisanId, []).append(link.remoteCardCode)
@@ -482,9 +487,13 @@ async def create_artisan(
     # Every new artisan has a card from the start, so the register a phone caches can match it.
     settings = get_settings()
     if artisan_card.active(settings):
-        await artisan_card_store.ensure_card(
-            db, created.id, settings=settings, user_id=current_user.id
-        )
+        try:
+            await artisan_card_store.ensure_card(
+                db, created.id, settings=settings, user_id=current_user.id
+            )
+        except Exception:
+            # The artisan is saved; its card is issued on first read instead.
+            logger.warning("artisan create: card not issued yet", exc_info=True)
     # The creator is by definition entitled, but pass the viewer anyway rather than relying on
     # that: a future change to who may create an artisan would otherwise silently leak.
     return public_encode(created, current_user)
