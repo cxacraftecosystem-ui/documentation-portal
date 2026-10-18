@@ -48,6 +48,8 @@ from app.core.deps import get_value
 BACKFILL_NOTE = "Approved with its {kind} record (backfill)."
 #: One batch's transaction: up to ``--batch-size`` records and two statements per file.
 BATCH_TX_TIMEOUT = timedelta(seconds=120)
+#: How long to wait for a connection to start a batch; Prisma's 2 s default is short on the slow box.
+BATCH_TX_MAX_WAIT = timedelta(seconds=15)
 
 
 @dataclass
@@ -121,7 +123,7 @@ async def run(client: Any, *, apply: bool, batch_size: int = 200, kinds: tuple[s
                     plan.append((row, eligible))
             if not apply or not plan:
                 continue
-            async with client.tx(timeout=BATCH_TX_TIMEOUT) as tx:
+            async with client.tx(max_wait=BATCH_TX_MAX_WAIT, timeout=BATCH_TX_TIMEOUT) as tx:
                 written = 0
                 for row, eligible in plan:
                     written += await approve_media_with_record(

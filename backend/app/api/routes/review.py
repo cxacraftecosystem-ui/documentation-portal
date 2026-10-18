@@ -639,6 +639,9 @@ async def approve_record_media(
 # How long one approval's transaction may run: the record, its log line, and a write and a log line
 # per file. An interview with forty recordings is ~80 statements; the slow box needs the headroom.
 REVIEW_TX_TIMEOUT = timedelta(seconds=30)
+# How long to wait for a connection to START that transaction. Prisma's default is 2 s, and the
+# swap-bound box can take longer than that under load: an approval should be slow, never refused.
+REVIEW_TX_MAX_WAIT = timedelta(seconds=15)
 
 
 async def set_review_status(
@@ -700,7 +703,7 @@ async def set_review_status(
     # never a record approved over files that silently stayed pending. Rejecting or sending a record
     # back does not touch its files; each file keeps its own Reject.
     media_approved = 0
-    async with db.tx(timeout=REVIEW_TX_TIMEOUT) as tx:
+    async with db.tx(max_wait=REVIEW_TX_MAX_WAIT, timeout=REVIEW_TX_TIMEOUT) as tx:
         tx_delegate, _log_type, _relation = delegate_for(record_type, tx)
         updated = await tx_delegate.update(where={"id": record_id}, data=data)
         await tx.reviewlog.create(data=log_data)

@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { alsoApprovesLine, approvedReceipt, fileRefusalLabel, type ReviewReason } from "@/lib/review";
+import { alsoApprovesLine, approvedReceipt, bulkReceipt, fileRefusalLabel, type ReviewReason } from "@/lib/review";
 
 /**
  * FILES APPROVED WITH THEIR RECORD (owner decision 2026-10-18).
@@ -31,6 +31,9 @@ test.describe("the count that goes with an approval", () => {
     expect(approvedReceipt(3)).toBe("Approved, with 3 files.");
     expect(approvedReceipt(0)).toBe("Approved.");
     expect(approvedReceipt(undefined)).toBe("Approved.");
+    expect(bulkReceipt(3, 0, 4)).toBe("3 records approved, with 4 files.");
+    expect(bulkReceipt(2, 1, 1)).toBe("2 approved with 1 file, 1 failed (still ticked).");
+    expect(bulkReceipt(3, 0)).toBe("3 records approved.");
   });
 
   test("the queue's approve panel, the bulk confirmation and the record's bar all carry it", () => {

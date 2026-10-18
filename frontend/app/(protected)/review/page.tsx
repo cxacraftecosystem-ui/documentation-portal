@@ -301,10 +301,12 @@ export default function ReviewPage() {
     // approval does, and the ones refused come back named, so they stay ticked for a retry.
     let failed: string[] = [];
     let approved = 0;
+    let filesApproved = 0;
     try {
       const answer = await bulkApprove(rows.map((item) => ({ recordType: item.recordType, id: item.id })));
       failed = answer.results.filter((r) => r.outcome === "FAILED").map((r) => `${r.recordType}-${r.id}`);
       approved = answer.approved;
+      filesApproved = answer.mediaApproved ?? 0;
     } catch (err) {
       failed = rows.map(rowKey);
       setError(err instanceof Error ? err.message : "Unable to approve these records");
@@ -313,8 +315,8 @@ export default function ReviewPage() {
     setSubmitting(false);
     setSelected(new Set(failed));
     if (approved > 0 || failed.length < rows.length) {
-      if (failed.length) setError(bulkReceipt(approved, failed.length));
-      else setInfo(bulkReceipt(approved, 0));
+      if (failed.length) setError(bulkReceipt(approved, failed.length, filesApproved));
+      else setInfo(bulkReceipt(approved, 0, filesApproved));
     }
     await load(page);
   }

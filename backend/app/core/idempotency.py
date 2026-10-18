@@ -1,11 +1,13 @@
-"""``Idempotency-Key`` on POST: a create that lands twice writes once.
+"""``Idempotency-Key`` on POST: a create or a review decision that lands twice writes once.
 
 THE DUPLICATE THIS CLOSES. A client POSTs a create, this server writes the row, and the answer is
 lost on the way back (a tunnel, a captive portal, the app killed mid-request). The client learned
 nothing, so it sends the same create again and a second record appears. The Android outbox now
 moves such a create into its queue and replays it, so the replay has to be safe.
 
-THE CONTRACT. A POST to one of the CREATE routes in ``CREATE_ROUTES`` carrying
+THE CONTRACT. A POST to one of the CREATE routes in ``CREATE_ROUTES``, or to a review decision
+(``REVIEW_DECISION_ROUTE``: approve, reject or revise one record or file) or ``REVIEW_BULK_ROUTE``,
+carrying
 ``Idempotency-Key: <8-128 of [A-Za-z0-9_-]>``:
 
 * first time: runs normally. A 2xx answer is stored for 30 days under (caller, key). Thirty and not
@@ -26,7 +28,7 @@ THE CONTRACT. A POST to one of the CREATE routes in ``CREATE_ROUTES`` carrying
 * a non-2xx answer or an exception is not stored, so a failed create can be retried.
 
 It is ADDITIVE AND NARROW. A request without the header, a request that is not a POST, a request to
-any route outside ``CREATE_ROUTES`` (sign-in, two-step, dataset tokens, secrets and AI keys among
+any route outside that allow-list (sign-in, two-step, dataset tokens, secrets and AI keys among
 them, whose answers must never be written to a table) and a request with no valid bearer token (the
 route answers 401 itself) pass straight through and nothing is stored.
 

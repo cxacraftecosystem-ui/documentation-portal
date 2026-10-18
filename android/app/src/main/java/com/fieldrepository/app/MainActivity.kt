@@ -11669,7 +11669,7 @@ private fun ReviewApprovalCard(
                     done.forEach { selected.remove(it) }
                     pending = pending.filterNot { "${it.recordType}:${it.id}" in done }
                     total = (total - done.size).coerceAtLeast(0)
-                    info = ReviewFeedbackCopy.bulkReceipt(answer.approved, answer.failed)
+                    info = ReviewFeedbackCopy.bulkReceipt(answer.approved, answer.failed, answer.mediaApproved)
                 }
                 .onFailure {
                     if (it is kotlinx.coroutines.CancellationException) throw it

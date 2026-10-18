@@ -34,6 +34,8 @@ class ReviewFeedbackTest {
         assertEquals("1 record to fix", ReviewFeedbackCopy.note(1, 0))
         assertEquals("3 records approved.", ReviewFeedbackCopy.bulkReceipt(3, 0))
         assertEquals("2 approved, 1 failed (still ticked).", ReviewFeedbackCopy.bulkReceipt(2, 1))
+        assertEquals("3 records approved, with 4 files.", ReviewFeedbackCopy.bulkReceipt(3, 0, 4))
+        assertEquals("2 approved with 1 file, 1 failed (still ticked).", ReviewFeedbackCopy.bulkReceipt(2, 1, 1))
     }
 
     @Test

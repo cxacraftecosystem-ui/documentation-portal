@@ -202,9 +202,10 @@ export async function bulkApprove(items: { recordType: string; id: string }[]): 
 }
 
 /** The receipt after a bulk approval. */
-export function bulkReceipt(approved: number, failed: number): string {
-  if (failed === 0) return `${plural(approved, "record")} approved.`;
-  return `${approved} approved, ${failed} failed (still ticked).`;
+export function bulkReceipt(approved: number, failed: number, files = 0): string {
+  const withFiles = files > 0 ? `, with ${plural(files, "file")}` : "";
+  if (failed === 0) return `${plural(approved, "record")} approved${withFiles}.`;
+  return `${approved} approved${withFiles.replace(",", "")}, ${failed} failed (still ticked).`;
 }
 
 /**

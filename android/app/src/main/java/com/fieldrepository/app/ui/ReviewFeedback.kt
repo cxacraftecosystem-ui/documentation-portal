@@ -85,9 +85,11 @@ object ReviewFeedbackCopy {
     /** "Approve 3", the bulk bar's button. */
     fun approveLabel(count: Int): String = "Approve $count"
 
-    fun bulkReceipt(approved: Int, failed: Int): String =
-        if (failed == 0) "$approved record${if (approved == 1) "" else "s"} approved."
-        else "$approved approved, $failed failed (still ticked)."
+    fun bulkReceipt(approved: Int, failed: Int, fileCount: Int = 0): String {
+        val withFiles = if (fileCount > 0) ", with ${files(fileCount)}" else ""
+        return if (failed == 0) "$approved record${if (approved == 1) "" else "s"} approved$withFiles."
+        else "$approved approved${withFiles.removePrefix(",")}, $failed failed (still ticked)."
+    }
 
     // --- The reason a reviewer picks (C19), the web's `lib/review.ts` word for word ---
 
