@@ -356,7 +356,7 @@ def test_every_public_site_craft_slug_is_a_shared_code():
         pytest.skip("no cxa-cms checkout beside this one")
     text = corpus.read_text(encoding="utf-8")
     crafts_block = text[text.index("export const CRAFTS") :]
-    slugs = re.findall(r'^\s{4}slug:\s*"([^"]+)"', crafts_block, flags=re.M)
+    slugs = re.findall(r'^\s{4}slug:\s*"([^"]+)"', crafts_block, flags=re.MULTILINE)
     assert len(slugs) >= 40
     codes = {c.code for c in cpc.shared().crafts}
     assert [s for s in slugs if s not in codes] == []
