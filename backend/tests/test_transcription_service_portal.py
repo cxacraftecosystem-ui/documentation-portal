@@ -349,6 +349,9 @@ def _load_backfill():
     path = Path(__file__).resolve().parents[1] / "scripts" / "backfill_consent_owner_attestation.py"
     spec = importlib.util.spec_from_file_location("backfill_consent_owner_attestation", path)
     module = importlib.util.module_from_spec(spec)
+    import sys
+
+    sys.modules[spec.name] = module  # dataclasses resolve their module through sys.modules
     spec.loader.exec_module(module)
     return module
 
