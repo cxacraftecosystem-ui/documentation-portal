@@ -399,6 +399,18 @@ class WorkshopCreate(APIModel):
             raise ValueError(f"workshopType must be one of {', '.join(sorted(WORKSHOP_TYPES))}")
         return self
 
+    @model_validator(mode="after")
+    def _has_a_date(self) -> "WorkshopCreate":
+        """Refuse a create that carries neither ``date`` nor ``startDate``.
+
+        ``date`` is a required column. ``normalize_workshop_dates`` fills it from ``startDate``, so
+        either one is enough, but with neither Prisma refuses the insert and the route answered a
+        bare 500 instead of telling the client which field is missing.
+        """
+        if self.date is None and self.startDate is None:
+            raise ValueError("date or startDate is required")
+        return self
+
 
 class WorkshopUpdate(APIModel):
     title: str | None = Field(default=None, min_length=1, max_length=220)

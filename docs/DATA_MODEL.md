@@ -260,6 +260,49 @@ name is refused, and on an edit only a CHANGED link re-derives them); and a proc
 (it is shown as *Unnamed step* until somebody names it). An interview created without a title is
 named "<artisan> · <questionnaire> · <17 Oct>" by the server.
 
+### Record completeness (2026-10-18)
+
+Every artisan, product, tool, interview and workshop the API returns carries a `completeness` block:
+which of the fields a complete record holds are still empty. It is computed on read. There is no
+column, no migration and nothing stored, and no `RecordRevision` is written.
+
+- **One table.** `shared/record-completeness.json` names the fields per kind and how each is
+  checked (`present`, `notIn`, `anyPresent`, `count`). It is byte-identical in both portals. It is
+  committed four times in this repository and the copies are held equal by
+  `backend/tests/test_record_completeness.py`: `shared/`, `backend/app/services/` (what the server
+  loads; the deploy ships `backend/` only), `frontend/lib/generated/` and
+  `android/app/src/main/assets/`.
+- **The block.** `{rulesVersion, filled, total, percent, requiredMissing, missing: [{key, label,
+  words, level}]}`. It carries field names only, never values. `percent` is floored, as in the
+  designer portal, so 100 means complete.
+- **Sentence.** `N field(s) left: ` and the first three `words`, then `, +K more`. Required items
+  come first, then file order. At nothing missing the sentence is `Complete`.
+- **Required means the form refuses without it.** The artisan's `required` items are the two dates of
+  the artisan form contract (read from the column only, like `missing_required_dates`), the craft,
+  Do's and Don'ts. The meter reports and enforces nothing. The artisans saved before 2026-10-17
+  without a date (29 on the live repository) are the ones listed under *Missing required*.
+- **What it never covers.** No prose (rich-text) column, because an empty editor document is not an
+  empty string and the list filter could not agree with the meter. No Aadhaar, Pehchan, phone,
+  email, address or gender: these are recorded only with the artisan's consent.
+- **Counts.** Photos are `MediaFile` rows of type `IMAGE` that are not `REJECTED`. Recordings are
+  `AUDIO`/`VIDEO`. Workshop artisans and crafts count through either link (join rows or the
+  record's own `workshopId`). `services/completeness.attach` counts from a relation the route has
+  already loaded and reads every other source in one grouped query for the whole page, through
+  the route's own Prisma client. If a count cannot be read, the record goes out without a block
+  (a save that already landed never answers 500) and the clients use their own evaluator.
+- **Filter.** `GET /artisans`, `/products`, `/tools`, `/workshops` and `/questionnaire/interviews`
+  accept `completeness=incomplete|required|complete` (anything else is 422). The clause comes from
+  the same table (`missing_where`) and is AND-combined with the other filters. The test checks that
+  the filter and the meter agree row for row. One edge is accepted: a string holding only
+  whitespace reads as missing to the meter and as filled to SQL, and no form writes one.
+- **Rules endpoint.** `GET /records/completeness-rules` returns the file with an `ETag`
+  (`"<version>-<sha256 first 8>"`, exposed to the browser through CORS) and answers `304` to a
+  matching `If-None-Match`. The web keeps the answer in `localStorage`; Android keeps it in the OkHttp
+  disk cache and a `filesDir` copy. Both start from their bundled copy and switch to the server's only
+  when its `version` is higher, so the meter works offline and on outbox drafts.
+- **Not in scope.** Processes, crafts and media have no rules. Exports and the cross-portal feed
+  carry no completeness.
+
 ## 3. Media, and the polymorphic link
 
 `MediaFile` is the one table almost everything points at, and it uses **two different linking

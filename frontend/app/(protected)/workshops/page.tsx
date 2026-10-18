@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MapPinned } from "lucide-react";
 
@@ -25,6 +25,9 @@ import { ResizableTh } from "@/components/ResizableTh";
 import { RowActions, rowAction } from "@/components/RowActions";
 import { SearchInput } from "@/components/SearchInput";
 import { useListReturn } from "@/components/hooks/useListReturn";
+import { CompletenessFilter } from "@/components/records/CompletenessFilter";
+import { RowCompletenessRing } from "@/components/records/CompletenessRing";
+import { LiveCompleteness } from "@/components/records/LiveCompleteness";
 import { OpenableRow, RecordTitleLink } from "@/components/records/OpenableRow";
 import { recordViewHref } from "@/lib/recordView";
 import { StatusBadge, statusLabel } from "@/components/StatusBadge";
@@ -37,7 +40,8 @@ import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, listResource } from "@/lib/api";
 import { countNoun, formatDate, formatDateTime } from "@/lib/format";
-import { locationFromForm, requiredText, sameIdSet, textValue } from "@/lib/forms";
+import { parseCompletenessFilter, type CompletenessFilter as CompletenessValue } from "@/lib/completenessCore";
+import { locationFromForm, requiredText, sameIdSet, textValue, useFocusField } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
 import { uploadMediaBatch, type BatchProgress } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
@@ -171,6 +175,7 @@ function WorkshopsPageBody() {
   const [query, setQuery] = useState("");
   const [applied, setApplied] = useState("");
   const [page, setPage] = useState(1);
+  const [completeness, setCompleteness] = useState<CompletenessValue>("");
   const [editing, setEditing] = useState<Workshop | null>(null);
   /*
     THE TWO DICTATED ONE-LINE BOXES, AND THE KEY THAT CLEARS THE THIRD.
@@ -242,7 +247,14 @@ function WorkshopsPageBody() {
 
   async function load() {
     try {
-      setData(await listResource<Workshop>("/workshops", { search: applied || undefined, page, pageSize: 20 }));
+      setData(
+        await listResource<Workshop>("/workshops", {
+          search: applied || undefined,
+          completeness: completeness || undefined,
+          page,
+          pageSize: 20
+        })
+      );
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load workshops");
@@ -252,7 +264,7 @@ function WorkshopsPageBody() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, applied]);
+  }, [page, applied, completeness]);
 
   // The linked-artisan / craft pickers only need loading once.
   useEffect(() => {
@@ -297,10 +309,11 @@ function WorkshopsPageBody() {
       setApplied(note.query);
     }
     setPage(note.page);
+    setCompleteness(parseCompletenessFilter(note.completeness));
   }, [listReturn.restored]);
   const restoreListScroll = listReturn.restoreScroll;
   useEffect(() => restoreListScroll(Boolean(data)), [data, restoreListScroll]);
-  const rememberPlace = () => listReturn.remember({ query: applied, page });
+  const rememberPlace = () => listReturn.remember({ query: applied, page, completeness });
 
   // Warn on hard navigation (close tab / reload) while the workshop form has unsaved edits.
   useEffect(() => {
@@ -513,6 +526,17 @@ function WorkshopsPageBody() {
   // The API already returns workshops createdAt-descending; re-sorting keeps the guarantee local
   // so the list stays newest-first even if a caller ever changes the server ordering.
   const rows = data ? [...data.items].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")) : [];
+  // `?focus=<key>` from a meter pill on the workshop's page, applied once the deep-linked workshop is
+  // in the form. The live line counts what the form holds: the two rosters and the photographs picked.
+  useFocusField(Boolean(editing) && !deepLinkLoading);
+  const liveCounts = useMemo(
+    () => ({
+      artisans: artisanIds.length,
+      crafts: craftIds.length,
+      photos: mediaFiles.filter((file) => file.type.startsWith("image/")).length
+    }),
+    [artisanIds, craftIds, mediaFiles]
+  );
 
   return (
     <>
@@ -560,6 +584,7 @@ function WorkshopsPageBody() {
           </div>
         ) : null}
         {editing ? <ReviewNoteBanner recordType="workshop" recordId={editing.id} status={editing.status} /> : null}
+        <LiveCompleteness kind="workshop" formRef={formRef} stored={editing} counts={liveCounts} />
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
           {/*
             THE ONE PLACE THIS FORM EXPLAINS A MISSING MICROPHONE — see `DictationUnavailableNotice`.
@@ -649,7 +674,7 @@ function WorkshopsPageBody() {
           <MultiNoteField defaultValue={editing?.notes ?? ""} />
           {/* Both link pickers use the same themed multi-select as every other one in the app; the
               selections are React state, not FormData (see the note on `artisanIds` above). */}
-          <Field label="Linked artisans">
+          <Field label="Linked artisans" fieldKey="artisans">
             <MultiSelectDropdown
               values={artisanIds}
               onChange={(next) => {
@@ -662,7 +687,7 @@ function WorkshopsPageBody() {
               confirmLabel="Link artisans"
             />
           </Field>
-          <Field label="Crafts covered">
+          <Field label="Crafts covered" fieldKey="crafts">
             {crafts.length === 0 ? (
               <p className="rounded-md border border-line-200 bg-field-50 px-3 py-2 text-sm text-ink-muted">
                 No crafts available yet. Create a craft first.
@@ -682,15 +707,17 @@ function WorkshopsPageBody() {
             )}
           </Field>
         </div>
-        <MediaCaptureField
-          files={mediaFiles}
-          onFilesChange={(files) => {
-            setMediaFiles(files);
-            setDirty(true);
-          }}
-          title="Workshop media"
-          description="Photos, video, audio and documents."
-        />
+        <div data-field="photo">
+          <MediaCaptureField
+            files={mediaFiles}
+            onFilesChange={(files) => {
+              setMediaFiles(files);
+              setDirty(true);
+            }}
+            title="Workshop media"
+            description="Photos, video, audio and documents."
+          />
+        </div>
         <UploadProgress progress={uploadProgress} sectionId={MEDIA_SECTION} label={MEDIA_SECTION_LABEL} />
         {/* Editing an existing workshop: everything already attached to it, with per-file delete. */}
         {editing ? <ExistingMedia linkedRecordType="workshop" linkedRecordId={editing.id} title="Previously uploaded workshop media" /> : null}
@@ -738,6 +765,15 @@ function WorkshopsPageBody() {
           placeholder="Search workshops by title, place or description"
         />
       </div>
+      <div className="mb-3">
+        <CompletenessFilter
+          value={completeness}
+          onChange={(next) => {
+            setCompleteness(next);
+            setPage(1);
+          }}
+        />
+      </div>
       <section className="panel overflow-hidden">
         {!data ? (
           <div className="p-4 text-sm text-ink-700">Loading...</div>
@@ -763,9 +799,12 @@ function WorkshopsPageBody() {
                 {rows.map((workshop) => (
                   <OpenableRow key={workshop.id} href={recordViewHref("workshop", workshop.id)!} onOpen={rememberPlace} navigate={openThroughGuard}>
                     <td className="px-4 py-3">
-                      <RecordTitleLink href={recordViewHref("workshop", workshop.id)!} onOpen={rememberPlace} navigate={openThroughGuard}>
-                        {workshop.title}
-                      </RecordTitleLink>
+                      <div className="flex items-center gap-2">
+                        <RowCompletenessRing block={workshop.completeness} />
+                        <RecordTitleLink href={recordViewHref("workshop", workshop.id)!} onOpen={rememberPlace} navigate={openThroughGuard}>
+                          {workshop.title}
+                        </RecordTitleLink>
+                      </div>
                       <div className="text-xs text-ink-500">{workshop.description ?? "-"}</div>
                     </td>
                     <td className="px-4 py-3 text-ink-700">

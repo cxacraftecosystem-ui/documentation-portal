@@ -29,6 +29,7 @@ import {
 } from "@/components/forms/recordPickers";
 import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/WorkshopSelect";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
+import { LiveCompleteness, photosPicked } from "@/components/records/LiveCompleteness";
 import { GridMeasurement, type GridFiles, type GridGroup } from "@/components/media/GridMeasurement";
 import { RecordPhotoMeasure, type MeasureColumn } from "@/components/media/RecordPhotoMeasure";
 import { UploadProgress } from "@/components/media/UploadProgress";
@@ -41,7 +42,17 @@ import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 import { statusLabel } from "@/components/StatusBadge";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { apiFetch } from "@/lib/api";
-import { locationFromForm, numericValue, recordedAtFromForm, recordedTimezoneFromForm, requiredText, sameIdSet, textValue, useUnsavedChanges } from "@/lib/forms";
+import {
+  locationFromForm,
+  numericValue,
+  recordedAtFromForm,
+  recordedTimezoneFromForm,
+  requiredText,
+  sameIdSet,
+  textValue,
+  useFocusField,
+  useUnsavedChanges
+} from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
 import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, uploadMediaFile, type BatchProgress } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
@@ -496,6 +507,14 @@ function ToolFormBody({
   const [material, setMaterial] = useState(initial?.material ?? "");
   // Android parity: ordered "Process stages" captures, archived as STAGE_STEP_1, STAGE_STEP_2, …
   const [stageFiles, setStageFiles] = useState<File[]>([]);
+  // A meter pill's `?focus=<key>` (record completeness): the edit page mounts this form with the record.
+  useFocusField();
+  // The artisan picker is React state, and both photo pickers attach images to this tool.
+  const completenessValues = useMemo(() => ({ artisanId: artisanId || null }), [artisanId]);
+  const completenessCounts = useMemo(
+    () => ({ photos: photosPicked(mediaFiles) + photosPicked(stageFiles) }),
+    [mediaFiles, stageFiles]
+  );
   // Grid-measurable dimensions are controlled so the "Document using grid" capture can auto-fill them.
   const [length, setLength] = useState(initial?.lengthInches != null ? String(initial.lengthInches) : "");
   const [breadth, setBreadth] = useState(initial?.breadthInches != null ? String(initial.breadthInches) : "");
@@ -1353,6 +1372,7 @@ function ToolFormBody({
         {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
         <DraftOfferCard draft={draft} />
         <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
+        <LiveCompleteness kind="tool" formRef={formRef} stored={initial} values={completenessValues} counts={completenessCounts} />
         {/*
           THE ONE PLACE THIS FORM EXPLAINS A MISSING MICROPHONE — see `DictationUnavailableNotice`.
           Every dictated control below passes `explainWhenUnavailable={false}`, including the two
@@ -1387,16 +1407,18 @@ function ToolFormBody({
             value={toolkitName}
             onChange={(next) => applyToolkitName(next, { user: true })}
           />
-          <DictatedTextInput
-            name="localName"
-            label="Local name"
-            explainWhenUnavailable={false}
-            value={localName}
-            onChange={(next) => {
-              setLocalName(next);
-              markDirty();
-            }}
-          />
+          <div className="min-w-0" data-field="localName">
+            <DictatedTextInput
+              name="localName"
+              label="Local name"
+              explainWhenUnavailable={false}
+              value={localName}
+              onChange={(next) => {
+                setLocalName(next);
+                markDirty();
+              }}
+            />
+          </div>
           {/* TOUCHING THIS BOX ENDS THE MIRROR, PERMANENTLY, AND CLEARING IT COUNTS.
               Every route into this handler is a person: a keystroke, a paste, a dictated phrase, or
               backspacing it to nothing. Each of them is the researcher saying the English name is
@@ -1476,6 +1498,7 @@ function ToolFormBody({
             options ARE the ticked crafts' rosters, so an enabled control with nothing in it says
             "there is nobody" where the truth is "you have not said which craft yet".
           */}
+          <div className="min-w-0" data-field="artisan">
           <Field label="Linked artisans (fills artisan + place)">
             <MultiSelectDropdown
               values={artisanIds}
@@ -1539,6 +1562,7 @@ function ToolFormBody({
             ) : null}
             <CappedListNotice cuts={[craftIds.length ? craftArtisanCut : null]} />
           </Field>
+          </div>
           <DictatedTextInput
             name="artisanName"
             label="Artisan name"
@@ -1578,16 +1602,18 @@ function ToolFormBody({
           />
           {/* Free prose — "mango wood with an iron collar" — neither a measurement nor a vocabulary,
               and the answer most likely to be given while holding the tool. */}
-          <DictatedTextInput
-            name="material"
-            label="Material"
-            explainWhenUnavailable={false}
-            value={material}
-            onChange={(next) => {
-              setMaterial(next);
-              markDirty();
-            }}
-          />
+          <div className="min-w-0" data-field="material">
+            <DictatedTextInput
+              name="material"
+              label="Material"
+              explainWhenUnavailable={false}
+              value={material}
+              onChange={(next) => {
+                setMaterial(next);
+                markDirty();
+              }}
+            />
+          </div>
           <Field label="Years in use">
             <TextInput name="yearsInUse" type="number" min={0} defaultValue={restored.yearsInUse ?? initial?.yearsInUse ?? ""} />
           </Field>
@@ -1645,7 +1671,7 @@ function ToolFormBody({
               partner. See that helper for why a marker must not outlive the number it describes, and
               why the centimetre boxes are not wired through it. Length is STANDALONE: no centimetre
               partner, no new column, so it passes no third argument. */}
-          <Field label="Length (inches)">
+          <Field label="Length (inches)" fieldKey="dimensions">
             <TextInput
               name="lengthInches"
               type="number"
@@ -1875,21 +1901,21 @@ function ToolFormBody({
           />
         </section>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          <Field label="Maker">
+          <Field label="Maker" fieldKey="maker">
             <Select name="maker" defaultValue={restored.maker ?? initial?.maker ?? "UNKNOWN"} onChange={markDirty}>
               {makerOptions.map((option) => (
                 <option key={option}>{option}</option>
               ))}
             </Select>
           </Field>
-          <Field label="Tradition type">
+          <Field label="Tradition type" fieldKey="traditionType">
             <Select name="traditionType" defaultValue={restored.traditionType ?? initial?.traditionType ?? "UNKNOWN"} onChange={markDirty}>
               {traditionOptions.map((option) => (
                 <option key={option}>{option}</option>
               ))}
             </Select>
           </Field>
-          <Field label="Replacement cost">
+          <Field label="Replacement cost" fieldKey="replacementCost">
             <TextInput name="replacementCost" type="number" step="0.01" min={0} defaultValue={restored.replacementCost ?? initial?.replacementCost ?? ""} />
           </Field>
         </div>
@@ -1938,16 +1964,18 @@ function ToolFormBody({
           title="Process stages"
           description="One photo per step, in order."
         />
-        {initial ? <ExistingMedia linkedRecordType="tool" linkedRecordId={initial.id} /> : null}
-        <MediaCaptureField
-          files={mediaFiles}
-          onFilesChange={(files) => {
-            setMediaFiles(files);
-            markDirty();
-          }}
-          title="Tool media"
-          description="Photos, video, audio and documents."
-        />
+        <div className="grid gap-4" data-field="photo">
+          {initial ? <ExistingMedia linkedRecordType="tool" linkedRecordId={initial.id} /> : null}
+          <MediaCaptureField
+            files={mediaFiles}
+            onFilesChange={(files) => {
+              setMediaFiles(files);
+              markDirty();
+            }}
+            title="Tool media"
+            description="Photos, video, audio and documents."
+          />
+        </div>
         {/* C17: a new tool opens with its first artisan's stated address, marked and editable. */}
         <LocationFields
           initial={initialLocation}

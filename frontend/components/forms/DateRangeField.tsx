@@ -63,7 +63,7 @@ export function DateRangeField({
       <input type="hidden" name="startDate" value={startOfUtcDay(from)} />
       <input type="hidden" name="endDate" value={endOfUtcDay(to)} />
       <input type="hidden" name="date" value={startOfUtcDay(from)} />
-      <DateRangePicker from={range.from} to={range.to} onChange={setRange} />
+      <DateRangePicker from={range.from} to={range.to} onChange={setRange} startFieldKey="startDate" endFieldKey="endDate" />
       {/* Not a restatement of the two inputs: between the first and second click of a range the End
           field is legitimately empty, and this is the line that shows the end date the form would
           actually submit for it — the start day, per the fallback above. */}

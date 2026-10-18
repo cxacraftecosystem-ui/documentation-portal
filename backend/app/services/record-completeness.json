@@ -1,0 +1,58 @@
+{
+  "contract": "record-completeness",
+  "version": 1,
+  "checks": ["present", "notIn", "anyPresent", "count"],
+  "kinds": {
+    "artisan": [
+      {"key":"dateOfBirth","label":"Date of birth","words":"date of birth","level":"required","check":"present","path":"dateOfBirth","source":"artisan-form-contract"},
+      {"key":"craftStartDate","label":"Craft start date","words":"craft start date","level":"required","check":"present","path":"craftStartDate","source":"artisan-form-contract"},
+      {"key":"craft","label":"Craft","words":"craft","level":"required","check":"present","path":"craftId"},
+      {"key":"dos","label":"Do's","words":"do's","level":"required","check":"present","path":"dos"},
+      {"key":"donts","label":"Don'ts","words":"don'ts","level":"required","check":"present","path":"donts"},
+      {"key":"location","label":"Location","words":"location","level":"recommended","check":"present","path":"locationId"},
+      {"key":"photo","label":"Photo","words":"photo","level":"recommended","check":"count","of":"photos","min":1}
+    ],
+    "product": [
+      {"key":"artisan","label":"Artisan","words":"artisan","level":"recommended","check":"present","path":"artisanId"},
+      {"key":"sellingPrice","label":"Selling price","words":"product price","level":"recommended","check":"present","path":"sellingPrice"},
+      {"key":"costOfMaking","label":"Cost of making","words":"cost of making","level":"recommended","check":"present","path":"costOfMaking"},
+      {"key":"timeTaken","label":"Time taken","words":"time taken","level":"recommended","check":"present","path":"timeTakenToCompleteProduct"},
+      {"key":"dimensions","label":"Dimensions","words":"dimensions","level":"recommended","check":"anyPresent","paths":["lengthInches","breadthInches","heightInches"]},
+      {"key":"marketDemand","label":"Market demand","words":"market demand","level":"recommended","check":"notIn","path":"marketDemand","empty":["UNKNOWN"]},
+      {"key":"photo","label":"Photo","words":"photo","level":"recommended","check":"count","of":"photos","min":1}
+    ],
+    "tool": [
+      {"key":"artisan","label":"Artisan","words":"artisan","level":"recommended","check":"present","path":"artisanId"},
+      {"key":"localName","label":"Local name","words":"local name","level":"recommended","check":"present","path":"localName"},
+      {"key":"material","label":"Material","words":"material","level":"recommended","check":"present","path":"material"},
+      {"key":"dimensions","label":"Dimensions","words":"dimensions","level":"recommended","check":"anyPresent","paths":["lengthInches","breadthInches","heightInches"]},
+      {"key":"maker","label":"Maker","words":"maker","level":"recommended","check":"notIn","path":"maker","empty":["UNKNOWN"]},
+      {"key":"traditionType","label":"Tradition","words":"tradition","level":"recommended","check":"notIn","path":"traditionType","empty":["UNKNOWN"]},
+      {"key":"replacementCost","label":"Replacement cost","words":"replacement cost","level":"recommended","check":"present","path":"replacementCost"},
+      {"key":"photo","label":"Photo","words":"photo","level":"recommended","check":"count","of":"photos","min":1}
+    ],
+    "interview": [
+      {"key":"interviewDate","label":"Interview date","words":"interview date","level":"recommended","check":"present","path":"interviewDate"},
+      {"key":"place","label":"Place","words":"place","level":"recommended","check":"present","path":"place"},
+      {"key":"language","label":"Language","words":"language","level":"recommended","check":"present","path":"language"},
+      {"key":"artisans","label":"Artisans","words":"artisan","level":"recommended","check":"count","of":"artisans","min":1},
+      {"key":"answers","label":"Answers","words":"answers","level":"recommended","check":"count","of":"answers","min":1},
+      {"key":"recording","label":"Recording","words":"recording","level":"recommended","check":"count","of":"recordings","min":1}
+    ],
+    "workshop": [
+      {"key":"startDate","label":"Start date","words":"start date","level":"recommended","check":"present","path":"startDate"},
+      {"key":"endDate","label":"End date","words":"end date","level":"recommended","check":"present","path":"endDate"},
+      {"key":"artisans","label":"Artisans","words":"artisans","level":"recommended","check":"count","of":"artisans","min":1},
+      {"key":"crafts","label":"Crafts","words":"crafts","level":"recommended","check":"count","of":"crafts","min":1},
+      {"key":"photo","label":"Photo","words":"photo","level":"recommended","check":"count","of":"photos","min":1}
+    ]
+  },
+  "counts": {
+    "photos": "MediaFile linked by FK, mediaType IMAGE, status != REJECTED",
+    "recordings": "MediaFile linked to the interview, mediaType AUDIO or VIDEO, status != REJECTED",
+    "artisans": "interview: QuestionnaireInterviewArtisan rows; workshop: WorkshopArtisan rows OR Artisan.workshopId",
+    "crafts": "WorkshopCraft rows OR Craft.workshop link",
+    "answers": "QuestionnaireResponse rows on the interview"
+  },
+  "vectors": [ {"kind":"artisan","record":{"dateOfBirth":null,"craftStartDate":"1994-06-01","craftId":"c1","dos":"a","donts":"b","locationId":"l"},"counts":{"photos":0},"expect":{"filled":5,"total":7,"missing":["dateOfBirth","photo"],"requiredMissing":1,"sentence":"2 fields left: date of birth, photo"}} ]
+}

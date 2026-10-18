@@ -23,6 +23,7 @@ import { PhoneField } from "@/components/forms/PhoneField";
 import { useRecordOffPage } from "@/components/forms/recordPickers";
 import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/WorkshopSelect";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
+import { LiveCompleteness, locationOnForm, photosPicked } from "@/components/records/LiveCompleteness";
 import { UploadProgress } from "@/components/media/UploadProgress";
 import { DictatedTextArea } from "@/components/richtext/DictatedTextArea";
 import { DictatedTextInput } from "@/components/richtext/DictatedTextInput";
@@ -37,7 +38,15 @@ import { statusLabel } from "@/components/StatusBadge";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { ApiError, apiFetch, listResource } from "@/lib/api";
 import { ARTISAN_FORM_CONTRACT, missingArtisanDatesSentence } from "@/lib/artisanFormContract";
-import { locationFromForm, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue, useUnsavedChanges } from "@/lib/forms";
+import {
+  locationFromForm,
+  recordedAtFromForm,
+  recordedTimezoneFromForm,
+  requiredText,
+  textValue,
+  useFocusField,
+  useUnsavedChanges
+} from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
 import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, type BatchProgress } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
@@ -389,6 +398,9 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
   const [craftListState, setCraftListState] = useState<CarryScopeState>("pending");
   const [craftCut, setCraftCut] = useState<ListCut | null>(null);
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
+  // A meter pill's `?focus=<key>` (record completeness): the edit page mounts this form with the record.
+  useFocusField();
+  const completenessCounts = useMemo(() => ({ photos: photosPicked(mediaFiles) }), [mediaFiles]);
   const [error, setError] = useState<string | null>(null);
   // A rejected duplicate is not a generic error: it names an existing artisan the researcher should
   // open instead, so it gets its own state and its own panel with a link.
@@ -947,6 +959,13 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
         <DraftOfferCard draft={draft} />
         <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
+        <LiveCompleteness
+          kind="artisan"
+          formRef={formRef}
+          stored={initial}
+          derive={artisanCompletenessFields}
+          counts={completenessCounts}
+        />
         {conflict ? (
           <div role="alert" className="rounded-md border border-amber-500 bg-amber-100 px-3 py-2 text-sm text-amber-800">
             <p className="font-medium">{conflict.message}</p>
@@ -1006,7 +1025,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
               markDirty();
             }}
           />
-          <Field label="Craft" required>
+          <Field label="Craft" required fieldKey="craft">
             <Select
               name="craftId"
               value={craftId}
@@ -1079,7 +1098,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
           {/* CalendarField, never the browser's native date input; labelled as a SIBLING because it holds buttons
               (a wrapping <label> would fold "Open calendar" into its name). `max` is today in LOCAL
               parts — toISOString() is UTC and, before 05:30 in India, still yesterday. */}
-          <div className="grid min-w-0 gap-1">
+          <div className="grid min-w-0 gap-1" data-field="dateOfBirth">
             <label htmlFor={`${dateFieldsId}-dob`} className="field-label">
               Date of birth
               <RequiredMark when />
@@ -1101,7 +1120,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
               the legacy metadata, and a form that asks for the weakest answer first teaches the
               opposite. `max` is today for the same reason date of birth carries one — a craft taken
               up next year is a typo, and the browser can refuse it by name. */}
-          <div className="grid min-w-0 gap-1">
+          <div className="grid min-w-0 gap-1" data-field="craftStartDate">
             <label htmlFor={`${dateFieldsId}-craft-start`} className="field-label">
               Craft start date
               <RequiredMark when />
@@ -1281,40 +1300,46 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
           </div>
           <DosDontsField
             name="dos"
+            fieldKey="dos"
             label="Do's"
             helper="One point per line."
             defaultValue={restored.dos ?? initial?.dos}
           />
           <DosDontsField
             name="donts"
+            fieldKey="donts"
             label="Don'ts"
             helper="One point per line."
             defaultValue={restored.donts ?? initial?.donts}
           />
           <StatusField canSetStatus={canSetStatus} initialStatus={initial?.status} onDirty={markDirty} />
         </div>
-        {initial ? <ExistingMedia linkedRecordType="artisan" linkedRecordId={initial.id} /> : null}
-        <MediaCaptureField
-          files={mediaFiles}
-          onFilesChange={(files) => {
-            setMediaFiles(files);
-            markDirty();
-          }}
-          title="Artisan media"
-          description="Photos, audio, video and documents."
-        />
+        <div className="grid gap-4" data-field="photo">
+          {initial ? <ExistingMedia linkedRecordType="artisan" linkedRecordId={initial.id} /> : null}
+          <MediaCaptureField
+            files={mediaFiles}
+            onFilesChange={(files) => {
+              setMediaFiles(files);
+              markDirty();
+            }}
+            title="Artisan media"
+            description="Photos, audio, video and documents."
+          />
+        </div>
         {/*
           `statedPlace` is the free-text box the researchers used while there was no district column
           — "Bagru, Jaipur, Rajasthan", "Rudraprayag, Dehradun" — and it is passed READ ONLY, so the
           card can tell a researcher that this record's Kharagpur coordinates disagree with the
           Rajasthan place they typed. Nothing is parsed out of it and written back.
         */}
-        <LocationFields
-          initial={initialLocation}
-          onDirty={markDirty}
-          subjectLabel="the artisan"
-          statedPlace={initial?.place}
-        />
+        <div data-field="location">
+          <LocationFields
+            initial={initialLocation}
+            onDirty={markDirty}
+            subjectLabel="the artisan"
+            statedPlace={initial?.place}
+          />
+        </div>
         {uploadProgress ? <UploadProgress progress={uploadProgress} /> : null}
         <ButtonRow align="end">
           <button type="button" className="field-button-secondary" onClick={handleBack}>
@@ -1356,4 +1381,17 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
       />
     </>
   );
+}
+
+/**
+ * The two artisan rule paths the form answers under other names: a typed new craft is a craft, and a
+ * fix on the location card is a location. Module-level so the live line's effect is not re-armed on
+ * every render.
+ */
+function artisanCompletenessFields(data: FormData): Record<string, unknown> {
+  const newCraft = data.get("newCraftName");
+  return {
+    ...(typeof newCraft === "string" && newCraft.trim() ? { craftId: "new" } : {}),
+    ...locationOnForm(data)
+  };
 }

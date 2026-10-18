@@ -24,6 +24,7 @@ from app.services.workshop_access import (
     pin_pending_if_late,
     stamp_workshop_submission,
 )
+from app.services import completeness as completeness_module
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
     Relation,
@@ -664,6 +665,8 @@ async def list_tools(
     # My Activity page had to fetch page 1 of the WHOLE repository and sift it client-side, which
     # silently under-reported the moment the repository outgrew one page.
     createdBy: str | None = None,
+    # incomplete | required | complete — see services/completeness.py.
+    completeness: str | None = None,
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
@@ -715,6 +718,8 @@ async def list_tools(
         where["status"] = statusFilter
     if createdBy:
         where["createdById"] = createdBy
+    # Into the AND list beside visibility, never onto ``where`` itself.
+    completeness_module.add_filter(where, "tool", completeness)
     add_date_range(where, "createdAt", dateFrom, dateTo)
     total, items = await count_and_page(
         db.tooldocumentation,
@@ -724,7 +729,8 @@ async def list_tools(
         order={"createdAt": "desc"},
         relations=RELATIONS,
     )
-    return page_payload(_tool_page(items), total, page, page_size)
+    encoded = await completeness_module.attach("tool", _tool_page(items), client=db)
+    return page_payload(encoded, total, page, page_size)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -752,7 +758,7 @@ async def create_tool(
             replayed.id, _clean_link_ids(payload.craftIds), _clean_link_ids(payload.artisanIds)
         ):
             await hydrate_relations([replayed], _LINK_RELATIONS)
-        return _tool_payload(replayed)
+        return await completeness_module.attach("tool", _tool_payload(replayed), client=db)
     # A queued write naming an artisan merged away since lands on the survivor (services/artisan_merge).
     await redirect_merged_artisans(payload)
     data = decimal_to_string(clean_data(payload.model_dump()))
@@ -798,7 +804,7 @@ async def create_tool(
             raise
         if await _repair_empty_links(raced.id, craft_ids, artisan_ids):
             await hydrate_relations([raced], _LINK_RELATIONS)
-        return _tool_payload(raced)
+        return await completeness_module.attach("tool", _tool_payload(raced), client=db)
     # AFTER the row, because both link tables have a foreign key onto it, and outside the handler
     # above for the reason that handler gives. There is no transaction to put the three statements in
     # — this backend has no ``db.tx()`` call site at all — so a failure here leaves a tool whose links
@@ -807,14 +813,14 @@ async def create_tool(
         # ``include=INCLUDE`` described the links as they were BEFORE those inserts, which for a new
         # row is two empty arrays. Re-read just the two relations rather than the whole tool again.
         await hydrate_relations([created], _LINK_RELATIONS)
-    return _tool_payload(created)
+    return await completeness_module.attach("tool", _tool_payload(created), client=db)
 
 
 @router.get("/{tool_id}")
 async def get_tool(tool_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     tool = await require_record(db.tooldocumentation, tool_id)
     await hydrate_relations([tool], RELATIONS)
-    return _tool_payload(tool)
+    return await completeness_module.attach("tool", _tool_payload(tool), client=db)
 
 
 @router.patch("/{tool_id}")
@@ -921,7 +927,7 @@ async def update_tool(
         # are re-read; everything else on ``updated`` is already current — and an unchanged list is
         # already current too, which is why this is the same condition as the writes.
         await hydrate_relations([updated], _LINK_RELATIONS)
-    return _tool_payload(updated)
+    return await completeness_module.attach("tool", _tool_payload(updated), client=db)
 
 
 @router.delete("/{tool_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -27,6 +27,7 @@ import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { craftChangeClearsArtisan, useCraftAndArtisanOptions, useRecordOffPage } from "@/components/forms/recordPickers";
 import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/WorkshopSelect";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
+import { LiveCompleteness, photosPicked } from "@/components/records/LiveCompleteness";
 import { GridMeasurement, type GridFiles, type GridGroup } from "@/components/media/GridMeasurement";
 import { RecordPhotoMeasure, type MeasureColumn } from "@/components/media/RecordPhotoMeasure";
 import { UploadProgress } from "@/components/media/UploadProgress";
@@ -38,7 +39,16 @@ import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 import { statusLabel } from "@/components/StatusBadge";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { apiFetch } from "@/lib/api";
-import { locationFromForm, numericValue, recordedAtFromForm, recordedTimezoneFromForm, requiredText, textValue, useUnsavedChanges } from "@/lib/forms";
+import {
+  locationFromForm,
+  numericValue,
+  recordedAtFromForm,
+  recordedTimezoneFromForm,
+  requiredText,
+  textValue,
+  useFocusField,
+  useUnsavedChanges
+} from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
 import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, uploadMediaFile, type BatchProgress } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
@@ -162,6 +172,9 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
   const canSetStatus = hasRank(user, "PROFESSOR");
   const formRef = useRef<HTMLFormElement>(null);
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
+  // A meter pill's `?focus=<key>` (record completeness): the edit page mounts this form with the record.
+  useFocusField();
+  const completenessCounts = useMemo(() => ({ photos: photosPicked(mediaFiles) }), [mediaFiles]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<BatchProgress | null>(null);
@@ -805,6 +818,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
         {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
         <DraftOfferCard draft={draft} />
         <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />
+        <LiveCompleteness kind="product" formRef={formRef} stored={initial} counts={completenessCounts} />
         {/*
           THE ONE PLACE THIS FORM EXPLAINS A MISSING MICROPHONE — see `DictationUnavailableNotice`.
           Every dictated control below passes `explainWhenUnavailable={false}`, including the four
@@ -861,7 +875,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
           {/* B5: the artisan first — one pick sets the craft, the name and the place. */}
           {offRecord ? null : (
             <div className="grid content-start gap-1 md:col-span-2">
-              <Field label="Artisan" required>
+              <Field label="Artisan" required fieldKey="artisan">
                 <ComboBox
                   value={artisanId}
                   options={pickerArtisans.map((artisan) => ({ value: artisan.id, label: artisanPickerLabel(artisan) }))}
@@ -989,16 +1003,18 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
               measurement: both are `String?` columns nothing parses, and what researchers write in
               them is a sentence. Not title-cased — both are absent from the API's title-cased set,
               so a hint here would promise a normalisation that never happens. */}
-          <DictatedTextInput
-            name="timeTakenToCompleteProduct"
-            label="Time taken to complete"
-            explainWhenUnavailable={false}
-            value={timeTaken}
-            onChange={(next) => {
-              setTimeTaken(next);
-              markDirty();
-            }}
-          />
+          <div className="min-w-0" data-field="timeTaken">
+            <DictatedTextInput
+              name="timeTakenToCompleteProduct"
+              label="Time taken to complete"
+              explainWhenUnavailable={false}
+              value={timeTaken}
+              onChange={(next) => {
+                setTimeTaken(next);
+                markDirty();
+              }}
+            />
+          </div>
           <DictatedTextInput
             name="size"
             label="Size"
@@ -1030,7 +1046,7 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
           {/* All three go through `typeInto`, which writes the box AND forgets whatever a machine
               proposed into it — see that helper for why a marker must not outlive the number it
               describes. */}
-          <Field label="Length (inches)">
+          <Field label="Length (inches)" fieldKey="dimensions">
             <TextInput
               name="lengthInches"
               type="number"
@@ -1165,13 +1181,13 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
           />
         </section>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          <Field label="Cost of making">
+          <Field label="Cost of making" fieldKey="costOfMaking">
             <TextInput name="costOfMaking" type="number" step="0.01" min={0} defaultValue={restored.costOfMaking ?? initial?.costOfMaking ?? ""} />
           </Field>
-          <Field label="Selling price">
+          <Field label="Selling price" fieldKey="sellingPrice">
             <TextInput name="sellingPrice" type="number" step="0.01" min={0} defaultValue={restored.sellingPrice ?? initial?.sellingPrice ?? ""} />
           </Field>
-          <Field label="Market demand">
+          <Field label="Market demand" fieldKey="marketDemand">
             <Select name="marketDemand" defaultValue={restored.marketDemand ?? initial?.marketDemand ?? "UNKNOWN"} onChange={markDirty}>
               {marketDemandOptions.map((option) => (
                 <option key={option}>{option}</option>
@@ -1242,16 +1258,18 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
           />
           <StatusField canSetStatus={canSetStatus} initialStatus={initial?.status} onDirty={markDirty} />
         </div>
-        {initial ? <ExistingMedia linkedRecordType="product" linkedRecordId={initial.id} /> : null}
-        <MediaCaptureField
-          files={mediaFiles}
-          onFilesChange={(files) => {
-            setMediaFiles(files);
-            markDirty();
-          }}
-          title="Product media"
-          description="Photos, video, audio and documents."
-        />
+        <div className="grid gap-4" data-field="photo">
+          {initial ? <ExistingMedia linkedRecordType="product" linkedRecordId={initial.id} /> : null}
+          <MediaCaptureField
+            files={mediaFiles}
+            onFilesChange={(files) => {
+              setMediaFiles(files);
+              markDirty();
+            }}
+            title="Product media"
+            description="Photos, video, audio and documents."
+          />
+        </div>
         {/* C17: a new product opens with its artisan's stated address, marked and editable. */}
         <LocationFields
           initial={initialLocation}

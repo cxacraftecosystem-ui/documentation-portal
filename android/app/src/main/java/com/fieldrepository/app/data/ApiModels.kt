@@ -166,7 +166,9 @@ data class ArtisanDto(
      */
     val location: LocationDto? = null,
     val createdById: String? = null,
-    val createdAt: String? = null
+    val createdAt: String? = null,
+    /** Which fields this record still lacks, computed by the server on read (`data/RecordCompleteness.kt`). */
+    val completeness: CompletenessDto? = null
 )
 
 @Serializable
@@ -1323,7 +1325,9 @@ data class ArtisanDetailDto(
     val createdById: String? = null,
     val createdAt: String? = null,
     val createdBy: UserDto? = null,
-    val extraMetadata: JsonObject? = null
+    val extraMetadata: JsonObject? = null,
+    /** Which fields this record still lacks, computed by the server on read (`data/RecordCompleteness.kt`). */
+    val completeness: CompletenessDto? = null
 )
 
 /**
@@ -1385,7 +1389,9 @@ data class ProductDetailDto(
     val createdById: String? = null,
     val createdAt: String? = null,
     val createdBy: UserDto? = null,
-    val extraMetadata: JsonObject? = null
+    val extraMetadata: JsonObject? = null,
+    /** Which fields this record still lacks, computed by the server on read (`data/RecordCompleteness.kt`). */
+    val completeness: CompletenessDto? = null
 )
 
 /**
@@ -1495,7 +1501,9 @@ data class ToolDetailDto(
     val createdById: String? = null,
     val createdAt: String? = null,
     val createdBy: UserDto? = null,
-    val extraMetadata: JsonObject? = null
+    val extraMetadata: JsonObject? = null,
+    /** Which fields this record still lacks, computed by the server on read (`data/RecordCompleteness.kt`). */
+    val completeness: CompletenessDto? = null
 )
 
 @Serializable
@@ -1544,7 +1552,9 @@ data class WorkshopDetailDto(
     val questionnaireId: String? = null,
     /** The instrument row itself, hydrated by the server alongside the id above. */
     val questionnaire: QuestionnaireDto? = null,
-    val extraMetadata: JsonObject? = null
+    val extraMetadata: JsonObject? = null,
+    /** Which fields this record still lacks, computed by the server on read (`data/RecordCompleteness.kt`). */
+    val completeness: CompletenessDto? = null
 )
 
 @Serializable
@@ -1616,7 +1626,11 @@ data class QuestionnaireInterviewDetailDto(
     val createdById: String? = null,
     val createdAt: String? = null,
     val createdBy: UserDto? = null,
-    val extraMetadata: JsonObject? = null
+    val extraMetadata: JsonObject? = null,
+    /** The sitting's date as the server derived it (from when the capture happened). */
+    val interviewDate: String? = null,
+    /** Which fields this record still lacks, computed by the server on read (`data/RecordCompleteness.kt`). */
+    val completeness: CompletenessDto? = null
 )
 
 // ---------------------------------------------------------------------------

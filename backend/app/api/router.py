@@ -10,6 +10,7 @@ from app.api.routes import (
     auth,
     craft_codes,
     cross_portal,
+    completeness,
     crafts,
     dashboard,
     data_access,
@@ -53,6 +54,8 @@ api_router.include_router(artisans.router)
 api_router.include_router(crafts.router)
 api_router.include_router(craft_codes.router)
 api_router.include_router(cross_portal.router)
+# The completeness rules file (GET /records/completeness-rules), for the clients' offline copies.
+api_router.include_router(completeness.router)
 api_router.include_router(workshops.router)
 api_router.include_router(products.router)
 api_router.include_router(processes.router)

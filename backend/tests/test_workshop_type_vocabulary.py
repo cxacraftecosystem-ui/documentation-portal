@@ -26,6 +26,7 @@ from app.schemas.records import WORKSHOP_TYPES, WorkshopCreate, WorkshopUpdate
 _BODY = {
     "title": "Bhuj toolkit workshop",
     "place": "Bhuj",
+    "date": "2026-09-03T00:00:00Z",
     "location": {"latitude": 23.24, "longitude": 69.66, "state": "Gujarat", "district": "Kachchh"},
 }
 

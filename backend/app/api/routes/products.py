@@ -14,6 +14,7 @@ from app.services.workshop_access import (
     pin_pending_if_late,
     stamp_workshop_submission,
 )
+from app.services import completeness as completeness_module
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
     Relation,
@@ -109,6 +110,8 @@ async def list_products(
     # My Activity page had to fetch page 1 of the WHOLE repository and sift it client-side, which
     # silently under-reported the moment the repository outgrew one page.
     createdBy: str | None = None,
+    # incomplete | required | complete — see services/completeness.py.
+    completeness: str | None = None,
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
@@ -161,6 +164,8 @@ async def list_products(
         where["status"] = statusFilter
     if createdBy:
         where["createdById"] = createdBy
+    if completeness_mode := completeness_module.parse_mode(completeness):
+        and_filters.append(completeness_module.missing_where("product", completeness_mode))
     if and_filters:
         where["AND"] = and_filters
     add_date_range(where, "createdAt", dateFrom, dateTo)
@@ -172,7 +177,8 @@ async def list_products(
         order={"createdAt": "desc"},
         relations=RELATIONS,
     )
-    return page_payload(public_encode(items), total, page, page_size)
+    encoded = await completeness_module.attach("product", public_encode(items), client=db)
+    return page_payload(encoded, total, page, page_size)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -199,7 +205,7 @@ async def create_product(
         db.productdocumentation, payload.clientKey, user_id=current_user.id, include=INCLUDE
     )
     if replayed is not None:
-        return public_encode(replayed)
+        return await completeness_module.attach("product", public_encode(replayed), client=db)
     # A queued write naming an artisan merged away since lands on the survivor (services/artisan_merge).
     await redirect_merged_artisans(payload)
     data = decimal_to_string(clean_data(payload.model_dump()))
@@ -232,15 +238,15 @@ async def create_product(
         )
         if raced is None:
             raise
-        return public_encode(raced)
-    return public_encode(created)
+        return await completeness_module.attach("product", public_encode(raced), client=db)
+    return await completeness_module.attach("product", public_encode(created), client=db)
 
 
 @router.get("/{product_id}")
 async def get_product(product_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     product = await require_record(db.productdocumentation, product_id)
     await hydrate_relations([product], RELATIONS)
-    return public_encode(product)
+    return await completeness_module.attach("product", public_encode(product), client=db)
 
 
 @router.patch("/{product_id}")
@@ -280,7 +286,7 @@ async def update_product(
     merge_field_provenance(data, current_user, previous=product)
     resubmit_status(product, current_user, data)
     updated = await db.productdocumentation.update(where={"id": product_id}, data=data, include=INCLUDE)
-    return public_encode(updated)
+    return await completeness_module.attach("product", public_encode(updated), client=db)
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
