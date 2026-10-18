@@ -664,8 +664,13 @@ class FieldRepository(
         throw refused
     }
 
-    fun logout() {
+    /** [context] lets the activity list be forgotten too; every caller in the app passes it. */
+    fun logout(context: Context? = null) {
+        val signedOut = tokenStore.getUser()?.id
         tokenStore.clear()
+        // The activity list holds this account's notices: the device copy, the alerts in the shade
+        // and the in-memory list all go.
+        if (context != null) runCatching { NotificationSync.signOut(context, signedOut) }
         // The read cache holds this account's records; the next person to sign in must not be shown
         // them offline. The outbox is NOT cleared: its entries carry their owner and wait for them.
         OfflineReadCache.clear()
@@ -751,6 +756,18 @@ class FieldRepository(
 
     /** How many people are waiting on an administrator. THE NOTIFICATION. */
     suspend fun accessRosterPendingCount(): Int = api.accessRosterPendingCount().pending
+
+    /** The activity list's two calls, for [NotificationSync] (data/AppNotifications.kt). */
+    fun notificationApi(): NotificationApi = object : NotificationApi {
+        override suspend fun list(limit: Int): NotificationPageDto = api.notifications(limit)
+        override suspend fun markRead(body: NotificationReadBody): NotificationReadResultDto = api.markNotificationsRead(body)
+    }
+
+    /** One pass of the activity list for the signed-in account; null when it could not be reached. */
+    suspend fun syncNotifications(context: Context): Int? {
+        val userId = tokenStore.getUser()?.id ?: return null
+        return NotificationSync.sync(context, notificationApi(), userId)
+    }
 
     suspend fun addToAccessRoster(
         email: String,

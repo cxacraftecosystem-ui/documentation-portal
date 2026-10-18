@@ -294,6 +294,13 @@ import com.fieldrepository.app.data.QuestionnaireSectionCreateRequest
 import com.fieldrepository.app.data.QuestionnaireSectionDto
 import com.fieldrepository.app.data.QuestionnaireSectionUpdateRequest
 import com.fieldrepository.app.data.TokenStore
+import com.fieldrepository.app.data.LocalAlerts
+import com.fieldrepository.app.data.NotificationInboxRules
+import com.fieldrepository.app.data.NotificationState
+import com.fieldrepository.app.data.NotificationSyncWorker
+import com.fieldrepository.app.data.NotificationTarget
+import com.fieldrepository.app.data.notificationTarget
+import com.fieldrepository.app.ui.NotificationsScreen
 import com.fieldrepository.app.data.ToolCreateRequest
 import com.fieldrepository.app.data.UserDto
 import com.fieldrepository.app.data.WorkshopCreateRequest
@@ -553,6 +560,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         takePasswordLink(intent)
+        LocalAlerts.takeTap(intent)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -571,6 +579,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         takePasswordLink(intent, restored = savedInstanceState != null)
+        if (savedInstanceState == null) LocalAlerts.takeTap(intent)
         val tokenStore = TokenStore(applicationContext)
         val repository = FieldRepository(ApiClient.create(tokenStore, OutboxSyncWorker.readCacheDir(applicationContext)), tokenStore)
         com.fieldrepository.app.data.PreviewCache.install(java.io.File(applicationContext.noBackupFilesDir, "media-previews")) {
@@ -686,6 +695,8 @@ private sealed interface Screen {
     data object MyActivity : Screen
     data object ToolAssign : Screen
     data object Feedback : Screen
+    /** The in-app activity list (C25): `ui/NotificationsScreen.kt`. */
+    data object Notifications : Screen
     data object Settings : Screen
     /** This account's Appearance + Accessibility — /settings on the web. Open to every user. */
     data object Appearance : Screen
@@ -816,6 +827,8 @@ private fun RepositoryApp(
     // ui/LocalNetworkAccess.kt. Renders nothing; in a release build it is a no-op.
     LocalNetworkAccessForDevelopmentBackend()
     val scope = rememberCoroutineScope()
+    /** For sign-out: it forgets this account's activity list on the device. */
+    val signOutContext = LocalContext.current.applicationContext
     var user by remember { mutableStateOf(repository.cachedUser()) }
     var loading by remember { mutableStateOf(user == null && repository.hasToken()) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -922,20 +935,20 @@ private fun RepositoryApp(
                         if (held != null) {
                             user = held
                         } else {
-                            repository.logout()
+                            repository.logout(signOutContext)
                             user = null
                             error = err.apiErrorMessage("Sign in again to continue.")
                         }
                     }
                     SessionVerdict.REFUSED -> {
-                        repository.logout()
+                        repository.logout(signOutContext)
                         user = null
                         val failure = err.apiFailure("Your access to this application has ended.")
                         error = failure.message
                         refusalCode = failure.code
                     }
                     SessionVerdict.EXPIRED -> {
-                        repository.logout()
+                        repository.logout(signOutContext)
                         user = null
                         doorPassword = ""
                         error = SESSION_ENDED_SENTENCE
@@ -1022,9 +1035,15 @@ private fun RepositoryApp(
         OutboxSyncWorker.schedule(appContext)
         // Capture files no draft refers to any more, from earlier runs. Nothing is open yet.
         runCatching { DraftStore.sweep(appContext) }
+        // The activity list's background half (C25): a periodic pass that posts the local alerts
+        // while the app is closed. KEEP, so signing in again does not reset its clock.
+        NotificationSyncWorker.schedule(appContext)
         while (true) {
             runCatching { repository.syncOutbox(appContext) }
             pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
+            // The activity list (C25) rides the same loop: the device copy for offline, and a local
+            // alert for anything new. A failure keeps the copy it has.
+            runCatching { repository.syncNotifications(appContext) }
             delay(if (pendingUploads > 0) 12_000L else 45_000L)
         }
     }
@@ -1217,7 +1236,7 @@ private fun RepositoryApp(
                 onSignOut = {
                     scope.launch {
                         runCatching { googleAuthClient.clear() }
-                        repository.logout()
+                        repository.logout(signOutContext)
                         doorPassword = ""
                         user = null
                     }
@@ -1225,7 +1244,7 @@ private fun RepositoryApp(
                 onSessionEnded = { message ->
                     scope.launch {
                         runCatching { googleAuthClient.clear() }
-                        repository.logout()
+                        repository.logout(signOutContext)
                         doorPassword = ""
                         refusalCode = null
                         error = message
@@ -1246,7 +1265,7 @@ private fun RepositoryApp(
                         // Counted BEFORE the session goes: the count is this account's entries.
                         val waiting = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
                         runCatching { googleAuthClient.clear() }
-                        repository.logout()
+                        repository.logout(signOutContext)
                         user = null
                         if (waiting > 0) {
                             Toast.makeText(
@@ -1486,6 +1505,13 @@ private fun HomeScreen(
     var crafts by remember { mutableStateOf<List<CraftDto>>(emptyList()) }
     var artisans by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
+    // A tap on a posted activity alert (C25) opens the list it came from.
+    val notificationOpenRequest by NotificationState.openRequests.collectAsState()
+    LaunchedEffect(notificationOpenRequest) {
+        if (notificationOpenRequest > 0L) screen = Screen.Notifications
+    }
+    val notificationInbox by NotificationState.inbox.collectAsState()
+    val unreadNotifications = notificationInbox?.takeIf { it.userId == user.id }?.let { NotificationInboxRules.unread(it) } ?: 0
     /*
      * BACK FROM A RECORD RETURNS TO THE SAME PLACE IN THE LIST. A tap on a record now opens its
      * read-only view, so the list it came from is left on every tap. Each screen's scroll position
@@ -1851,6 +1877,7 @@ private fun HomeScreen(
             // what is left for the person themselves is Appearance & accessibility.
             NavDestination.SETTINGS -> screen = Screen.Appearance
             NavDestination.GIVE_FEEDBACK -> screen = Screen.Feedback
+            NavDestination.NOTIFICATIONS -> screen = Screen.Notifications
         }
     }
 
@@ -1889,6 +1916,7 @@ private fun HomeScreen(
             is Screen.MyActivity -> Screen.Dashboard
             is Screen.ToolAssign -> Screen.Dashboard
             is Screen.Feedback -> Screen.Dashboard
+            is Screen.Notifications -> Screen.Dashboard
             is Screen.Settings -> Screen.Dashboard
             is Screen.Appearance -> Screen.Dashboard
             is Screen.MyAiKeys -> Screen.Appearance
@@ -1925,6 +1953,7 @@ private fun HomeScreen(
         is Screen.MyActivity -> "My Activity"
         is Screen.ToolAssign -> "Assign tools to artisans"
         is Screen.Feedback -> "App feedback"
+        is Screen.Notifications -> "Notifications"
         is Screen.Settings -> "Settings"
         is Screen.Appearance -> "Appearance & accessibility"
         is Screen.MyAiKeys -> null
@@ -1952,6 +1981,7 @@ private fun HomeScreen(
         is Screen.MyActivity -> NavDestination.MY_ACTIVITY
         is Screen.ToolAssign -> NavDestination.ASSIGN_TOOLS
         is Screen.Feedback -> NavDestination.GIVE_FEEDBACK
+        is Screen.Notifications -> NavDestination.NOTIFICATIONS
         is Screen.Appearance -> NavDestination.SETTINGS
         is Screen.MyAiKeys -> NavDestination.SETTINGS
         is Screen.TwoStepVerification -> NavDestination.SETTINGS
@@ -2050,10 +2080,11 @@ private fun HomeScreen(
                         // The notification. A map rather than a named parameter per destination so
                         // the next surface that grows a count is one entry, not a new signature —
                         // and so the drawer never has to know what an access request IS.
-                        badges = pendingAccessRequests
-                            ?.takeIf { it > 0 }
-                            ?.let { mapOf(NavDestination.ACCESS_ROSTER to it) }
-                            ?: emptyMap(),
+                        badges = buildMap {
+                            pendingAccessRequests?.takeIf { it > 0 }?.let { put(NavDestination.ACCESS_ROSTER, it) }
+                            // The activity list's unread count (C25).
+                            unreadNotifications.takeIf { it > 0 }?.let { put(NavDestination.NOTIFICATIONS, it) }
+                        },
                         onNavigate = ::navigate,
                         pushingUpdate = pushingUpdate,
                         onToggleAdminView = { requestAdminView(!adminView) },
@@ -2665,6 +2696,21 @@ private fun HomeScreen(
             is Screen.Feedback -> FeedbackScreen(
                 repository = repository,
                 onError = { showMessage(it) }
+            )
+
+            // The activity list (C25). A notice's link is a web path; the ones a handset can open
+            // in place are tasks, the review queue and the account's own settings.
+            is Screen.Notifications -> NotificationsScreen(
+                api = repository.notificationApi(),
+                userId = user.id,
+                onOpenLink = { link ->
+                    when (notificationTarget(link)) {
+                        NotificationTarget.TASKS -> screen = screenFor(EntryMode.TASKS)
+                        NotificationTarget.REVIEW -> screen = screenFor(EntryMode.VIEW_DATA)
+                        NotificationTarget.SETTINGS -> screen = Screen.Appearance
+                        null -> Unit
+                    }
+                }
             )
 
             is Screen.Settings -> SettingsScreen(

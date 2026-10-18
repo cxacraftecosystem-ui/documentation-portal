@@ -59,7 +59,7 @@ from app.core.deps import invalidate_cached_user
 from app.core.security import hash_password, verify_password
 from app.core.two_factor_keys import parse_keyring
 from app.core.user_fields import SECRET_USER_FIELDS as _SECRET_USER_FIELDS
-from app.services import email_outbox, mailer
+from app.services import mailer
 
 logger = logging.getLogger(__name__)
 
@@ -701,16 +701,23 @@ async def notify_second_factor_locked(user: Any, until: datetime, budget: Attemp
     """Tell the owner. Only somebody holding the password reaches a second-factor lock, so this is the
     owner's one signal that the password is known. Through the existing outbox (a no-op when mail is
     off); never raises — the lock is already written and must stand whatever the mail does."""
+    from app.services.notifications import notify
+
     try:
-        await email_outbox.enqueue(
+        params = {
+            "recipientName": _user_field(user, "name"),
+            "lockedUntil": until.isoformat(),
+            "codeKind": budget.name,
+        }
+        # In-app as well (C25): the owner sees it in their activity list after signing in, mail or no.
+        await notify(
+            user,
             mailer.SECOND_FACTOR_LOCKED,
-            to_address=_user_field(user, "email") or "",
-            recipient_id=_user_field(user, "id"),
-            params={
-                "recipientName": _user_field(user, "name"),
-                "lockedUntil": until.isoformat(),
-                "codeKind": budget.name,
-            },
+            mailer.subject_for(mailer.SECOND_FACTOR_LOCKED, params),
+            None,
+            "/settings",
+            email_kind=mailer.SECOND_FACTOR_LOCKED,
+            email_params=params,
         )
     except Exception:  # see the docstring
         logger.exception("mail: could not queue a second-factor lock notice for %s", _user_field(user, "id"))
