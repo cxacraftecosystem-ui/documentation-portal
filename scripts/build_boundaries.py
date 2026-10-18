@@ -147,7 +147,7 @@ def fetch(cache: pathlib.Path, fetch_now: bool) -> tuple[list, list, list]:
         if path.exists():
             return path
         print(f"  downloading {name} …", flush=True)
-        raw = urllib.request.urlopen(url, timeout=600).read()  # noqa: S310 - fixed, documented URLs
+        raw = urllib.request.urlopen(url, timeout=600).read()
         if unzip_member:
             with zipfile.ZipFile(io.BytesIO(raw)) as archive:
                 raw = archive.read(unzip_member)
@@ -541,7 +541,7 @@ def outline_rings() -> list[list[Point]]:
     payload = "".join(part for part in body.split('"')[1::2])
     rings = []
     for _hole, points in _decode_stream(payload, hole_flag=True):
-        rings.append(points + [points[0]])
+        rings.append([*points, points[0]])
     return rings
 
 
@@ -549,7 +549,7 @@ def decode_ring(encoded: str) -> list[Point]:
     """One ring of ``district-shapes.json`` back to coordinates (closed)."""
     records = _decode_stream(encoded, hole_flag=False)
     points = records[0][1] if records else []
-    return points + [points[0]] if points else []
+    return [*points, points[0]] if points else []
 
 
 class EdgeIndex:
@@ -650,7 +650,7 @@ def encode_ring(ring: list[Point]) -> str:
     return encode_web([kept])
 
 
-def _outline_shape():  # noqa: ANN202 - a shapely geometry; shapely is a build-only dependency
+def _outline_shape():
     """The national outline as one shapely geometry, even-odd like the SVG draws it."""
     from shapely.geometry import Polygon as ShapelyPolygon
 

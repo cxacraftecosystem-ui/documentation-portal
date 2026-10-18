@@ -152,7 +152,7 @@ async def _call(world, **params):
 
 
 async def test_the_body_is_signed_over_the_request(world):
-    request, response = await _call(world)
+    _, response = await _call(world)
     signature = response.headers[cross_portal.SIGNATURE_HEADER]
     assert cross_portal.signature_matches(
         TOKEN, response.body, signature, method="GET", path=PATH, nonce=NONCE
@@ -176,9 +176,10 @@ async def test_every_request_is_logged_with_the_asking_account(world):
 async def test_the_payload_is_aggregate_counts_only(world):
     _, response = await _call(world)
     body = json.loads(response.body)
-    assert set(body) == {"asOf", "listVersion", "units", "craftCodesDocumented"}
+    assert set(body) == {"asOf", "listVersion", "units", "craftCodesDocumented", "craftCodesByState"}
     assert body["listVersion"] == lgd.register().list_version
     assert body["craftCodesDocumented"] == ["ajrakh"]
+    assert body["craftCodesByState"] == {str(lgd.state_lgd("Rajasthan")): ["ajrakh"]}
     for unit in body["units"]:
         assert set(unit) == {"stateLgd", "districtLgd", "counts"}
         assert set(unit["counts"]) == {"workshops", "artisans", "products", "tools", "media"}

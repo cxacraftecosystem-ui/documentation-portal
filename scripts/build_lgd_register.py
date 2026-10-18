@@ -80,18 +80,18 @@ def fetch(cache: pathlib.Path, refresh: bool) -> None:
     for name in ("1-state.csv", "2-district.csv"):
         path = cache / name
         if refresh or not path.exists():
-            path.write_bytes(urllib.request.urlopen(f"{MIRROR}/{name}", timeout=120).read())  # noqa: S310
+            path.write_bytes(urllib.request.urlopen(f"{MIRROR}/{name}", timeout=120).read())
     states_path = cache / "lgd" / "states.json"
     if refresh or not states_path.exists():
         request = urllib.request.Request(f"{LGD_SERVICE}/stateList", data=b"", method="POST")
-        states_path.write_bytes(urllib.request.urlopen(request, timeout=120).read())  # noqa: S310
+        states_path.write_bytes(urllib.request.urlopen(request, timeout=120).read())
     for row in json.loads(states_path.read_text(encoding="utf-8")):
         code = int(row["stateCode"])
         path = cache / "lgd" / f"state-{code}.json"
         if refresh or not path.exists():
             body = urllib.parse.urlencode({"stateCode": code}).encode()
             request = urllib.request.Request(f"{LGD_SERVICE}/districtList", data=body, method="POST")
-            path.write_bytes(urllib.request.urlopen(request, timeout=120).read())  # noqa: S310
+            path.write_bytes(urllib.request.urlopen(request, timeout=120).read())
 
 
 def build(cache: pathlib.Path, as_of: str) -> dict:
@@ -188,7 +188,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fetch", action="store_true", help="re-download the sources")
     parser.add_argument("--cache", default=str(ROOT / ".boundary-cache"))
-    parser.add_argument("--as-of", default=dt.date.today().isoformat(), help="the day LGD was read")
+    parser.add_argument(
+        "--as-of",
+        default=dt.datetime.now(dt.timezone(dt.timedelta(hours=5, minutes=30))).date().isoformat(),
+        help="the day LGD was read (IST)",
+    )
     args = parser.parse_args()
     cache = pathlib.Path(args.cache)
     fetch(cache, args.fetch)

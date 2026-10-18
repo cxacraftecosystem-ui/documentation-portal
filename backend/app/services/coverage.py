@@ -409,9 +409,7 @@ class Filters:
             return False
         if self.fys and row.fy not in self.fys:
             return False
-        if self.state_lgd is not None and row.state_lgd != self.state_lgd:
-            return False
-        return True
+        return self.state_lgd is None or row.state_lgd == self.state_lgd
 
     def echo(self) -> dict[str, Any]:
         scheme_names = {v: k for k, v in _SCHEME_ALIASES.items() if k != "DESIGN_PROTOTYPE"}
@@ -739,10 +737,13 @@ def peer_payload(fold: Fold, filters: Filters) -> dict[str, Any]:
     """Aggregate counts per district for the designer portal. No id, name or stub leaves."""
     units: dict[tuple[int, int | None], dict[str, int]] = {}
     documented: set[str] = set()
+    by_state: dict[int, set[str]] = defaultdict(set)
     for row in fold.rows:
         if not filters.passes(row):
             continue
         documented.update(row.craft_codes)
+        if row.state_lgd is not None:
+            by_state[row.state_lgd].update(row.craft_codes)
         key = unit_key(row, LEVEL_DISTRICT)
         if key is None:
             continue
@@ -757,6 +758,8 @@ def peer_payload(fold: Fold, filters: Filters) -> dict[str, Any]:
             for (s, d), counts in sorted(units.items(), key=lambda item: (item[0][0], item[0][1] or 0))
         ],
         "craftCodesDocumented": sorted(documented),
+        # Per state, so a Regional Director's "never documented" list counts only their states.
+        "craftCodesByState": {str(s): sorted(codes) for s, codes in sorted(by_state.items()) if codes},
     }
 
 

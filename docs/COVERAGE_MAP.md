@@ -71,7 +71,7 @@ All on the `/map` router (`backend/app/api/routes/map_coverage.py`, `services/co
 | `GET /map/coverage/unmatched` | admin | Every unmatched spelling, grouped, with row counts. |
 | `POST /map/coverage/aliases` | admin | Map a spelling. 409 if it is mapped, 422 if the district is not in the state. |
 | `DELETE /map/coverage/aliases/{id}` | admin | Remove a mapping. |
-| `GET /cross-portal/peer/coverage` | designer portal's server | Aggregate counts per district for its ministry map. Off by default (`CROSS_PORTAL_COVERAGE_ENABLED`, see `docs/ENVIRONMENT.md`). |
+| `GET /cross-portal/peer/coverage` | designer portal's server | Aggregate counts per district and documented craft codes, national and per state, for its ministry map. Off by default (`CROSS_PORTAL_COVERAGE_ENABLED`, see `docs/ENVIRONMENT.md`). |
 
 Every row is read through `record_filters.build_record_wheres`, exactly as `/map/points` reads it;
 the coverage code writes no `where` of its own and runs no raw SQL. A bucket reads at most 20,000 rows

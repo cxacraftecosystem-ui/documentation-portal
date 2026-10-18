@@ -157,7 +157,7 @@ export function CoverageUnitPanel({
                     type="button"
                     onClick={() => more(key)}
                     disabled={loadingMore === key}
-                    className="mt-1 text-xs font-semibold text-purple-700 hover:underline disabled:opacity-60 dark:text-purple-300"
+                    className="mx-auto mt-1 block text-xs font-semibold text-purple-700 hover:underline disabled:opacity-60 dark:text-purple-300"
                   >
                     {loadingMore === key ? "Loading…" : `Show more (${bucket.total - bucket.items.length} left)`}
                   </button>
@@ -169,7 +169,7 @@ export function CoverageUnitPanel({
             <p className="text-xs text-ink-500">No records under these filters.</p>
           ) : null}
           {data.peerHref ? (
-            <a href={data.peerHref} className="field-button-secondary w-fit" target="_blank" rel="noreferrer">
+            <a href={data.peerHref} className="field-button-secondary mx-auto w-fit" target="_blank" rel="noreferrer">
               Open in Field Repository <ExternalLink className="h-4 w-4" aria-hidden />
             </a>
           ) : null}
