@@ -309,7 +309,7 @@ export function recordSingular(kind: RecordKind): string {
  * A row whose every labelled field is blank still has to be pickable — it is a real record and the
  * researcher may well be opening it BECAUSE its name is empty — so it falls back to naming its type
  * rather than rendering an empty option the eye slides straight past. "Untitled artisan" is the same
- * shape as the "Untitled workshop" the workshop pickers already print for the same reason.
+ * shape as the generated default title the workshop pickers already print for the same reason.
  */
 export function recordOptionLabel(kind: RecordKind, record: SwitchableRecord): string {
   const label = RECORD_KIND_SPECS[kind].label(record).trim();

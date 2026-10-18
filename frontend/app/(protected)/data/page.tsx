@@ -66,6 +66,7 @@ import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
 import { DATA_STATUS_OPTIONS, DEFAULT_DATA_STATUS, dataStatusLabel, statusQuery } from "@/lib/review";
 import { exportFilename } from "@/lib/naming";
 import { fileNameFromDisposition } from "@/components/questionnaires/workbookApi";
+import { workshopDisplayTitle } from "@/lib/workshopTitle";
 
 // ---------------------------------------------------------------------------
 // Local types for the /data browsing endpoints
@@ -673,7 +674,7 @@ const BROWSE_TYPES: Record<string, BrowseTypeDef> = {
     load: async () => ({
       rows: sortRecent((await listResource<Workshop>("/workshops", { pageSize: 100 })).items).map((x) => ({
         id: x.id,
-        name: x.title?.trim() || "Untitled workshop",
+        name: workshopDisplayTitle(x),
         creator: x.createdBy?.name ?? "-",
         createdAt: x.createdAt
       })),

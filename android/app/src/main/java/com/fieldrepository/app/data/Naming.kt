@@ -8,170 +8,110 @@ import java.time.LocalDateTime
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /**
- * One naming convention for every name either portal generates (owner correction, 18 Oct 2026).
+ * THE one naming convention for generated names (owner correction a, 18 Oct 2026).
  *
- * The handset's half of `backend/app/services/naming.py` and `frontend/lib/naming.ts`. All three
- * reproduce `shared/naming-golden.json` row for row (`NamingTest`). This file is identical in
+ * The handset's half of `backend/app/services/naming.py` and `frontend/lib/naming.ts`, rule for
+ * rule. All three reproduce two golden tables row for row (`NamingTest`): `shared/session-title.json`
+ * (the frozen questionnaire contract: titles, recording names, transliteration, exports, collisions)
+ * and `shared/naming-golden.json` (every other generated name). This file is identical in
  * designer-portal and documentation-portal apart from its package line; the portal word comes from
  * [NAMING_PORTAL].
  *
- *   File names:      Portal_Entity_Date[_Time]_Place_Craft_Subject_What[_Sequence][_n].ext
- *   Display titles:  Entity_Date_Place_Craft_Subject   (generated defaults only)
+ *   title      Entity_Date_Place_Craft_Subject                                  (<= 120, any script)
+ *   file name  Portal_Entity_Date[_Time]_Place_Craft_Subject_What[_Sequence][_n].ext   (<= 150, ASCII)
  *
- * Transliteration is the `anyascii` table, the same one the server and the browser use, so a
- * Devanagari name comes out of all three identically. (ICU's Any-Latin would spell it differently
- * from the other two.) Private storage names stay exempt and are not built here.
+ * Transliteration is the `anyascii` table plus the contract's Indic inherent-vowel rule, the same as
+ * the server and the browser, so a Devanagari name comes out of all three identically (ICU's
+ * Any-Latin would spell it differently). The questionnaire screens use [SessionFields] and
+ * [RecordingFields]; the rest of the app passes plain fields. Both are one implementation.
  */
 object Naming {
-    const val MAX_FILE_NAME = 150
-    const val MAX_TITLE = 120
-    const val MIN_SUBJECT = 40
+    const val PORTAL = NAMING_PORTAL
+    const val TITLE_MAX = 120
+    const val FILE_MAX = 150
+    const val SUBJECT_MIN = 40
+    const val MAX_FILE_NAME = FILE_MAX
+    const val MAX_TITLE = TITLE_MAX
+    const val MIN_SUBJECT = SUBJECT_MIN
 
     val IST: ZoneOffset = ZoneOffset.ofHoursMinutes(5, 30)
+
+    /** Capture-time sources that state a guessed time; a file name built from one carries no Time. */
+    val ESTIMATED_SOURCES = setOf("SESSION_DATE", "UPLOAD_TIME", "UPLOAD_TIME_OUT_OF_WINDOW")
 
     private val RESERVED_STEMS: Set<String> =
         setOf("CON", "PRN", "AUX", "NUL") + (1..9).map { "COM$it" } + (1..9).map { "LPT$it" }
     private val DOUBLE_EXTENSIONS = listOf(".sql.gz", ".tar.gz")
     private val VERSION = Regex("^v\\d+(?:\\.\\d+)*$")
-    private val APOSTROPHES = Regex("['’ʼ`]")
-    private val KEEP_FORMAT = setOf(0x200c, 0x200d)
+    private val DISPLAY_CODE = Regex("^([A-Za-z]+)[\\s.-]*0*(\\d+)$")
+    private val ZW = setOf(0x200c, 0x200d)
 
-    // ── Transliteration ──────────────────────────────────────────────────────────────────────────
+    // ── Indic inherent vowel (session-title.json rules.transliteration) ─────────────────────────
 
-    private const val INDIC_FIRST = 0x0900
-    private const val INDIC_LAST = 0x0D7F
-    private const val FINAL_SCHWA_DROPS_BELOW = 0x0B00
-    private val EXTRA_CONSONANTS = setOf(0x09F0, 0x09F1)
-    private val NASALS = setOf(0x0A70)
-    private val NUKTA_FORMS = mapOf(
-        0x0915 to 0x0958, 0x0916 to 0x0959, 0x0917 to 0x095A, 0x091C to 0x095B, 0x0921 to 0x095C,
-        0x0922 to 0x095D, 0x092B to 0x095E, 0x092F to 0x095F, 0x09A1 to 0x09DC, 0x09A2 to 0x09DD,
-        0x09AF to 0x09DF, 0x0A16 to 0x0A59, 0x0A17 to 0x0A5A, 0x0A1C to 0x0A5B, 0x0A2B to 0x0A5E,
-        0x0A32 to 0x0A33, 0x0A38 to 0x0A36, 0x0B21 to 0x0B5C, 0x0B22 to 0x0B5D,
-    )
+    private val INDIC_BLOCKS = intArrayOf(0x0900, 0x0980, 0x0A00, 0x0A80, 0x0B00, 0x0B80, 0x0C00, 0x0C80, 0x0D00)
 
-    private fun indicOffset(cp: Int?): Int? =
-        if (cp == null || cp < INDIC_FIRST || cp > INDIC_LAST) null else (cp - INDIC_FIRST) % 0x80
-
-    private fun isConsonant(cp: Int?): Boolean {
-        val off = indicOffset(cp) ?: return false
-        return off in 0x15..0x39 || off in 0x58..0x5F || cp in EXTRA_CONSONANTS
+    private fun indic(cp: Int): Pair<Int, Int>? {
+        for (base in INDIC_BLOCKS) if (cp >= base && cp < base + 0x80) return base to (cp - base)
+        return null
     }
 
-    private fun isNasal(cp: Int?): Boolean {
-        val off = indicOffset(cp)
-        return off == 0x01 || off == 0x02 || (cp != null && cp in NASALS)
-    }
-
-    private fun isSign(cp: Int?): Boolean {
-        val off = indicOffset(cp) ?: return false
-        return off in 0x3A..0x3B || off in 0x3E..0x4D || off in 0x55..0x57 || off in 0x62..0x63
-    }
-
-    private fun isIndicLetter(cp: Int?): Boolean {
-        val off = indicOffset(cp) ?: return false
-        return off in 0x01..0x63 || cp in EXTRA_CONSONANTS || cp in NASALS
-    }
+    private fun isConsonant(off: Int) = off in 0x15..0x39 || off in 0x58..0x5F
+    private fun isVowelSignOrVirama(off: Int) = off in 0x3E..0x4D || off in 0x55..0x57 || off == 0x62 || off == 0x63
+    private fun isWordLetter(off: Int) = isConsonant(off) || off in 0x05..0x14 || off in 0x01..0x03 || off == 0x60 || off == 0x61
 
     private fun codePoints(text: String): List<Int> = text.codePoints().toArray().toList()
-
-    private fun fromCodePoints(cps: List<Int>): String =
-        buildString { cps.forEach { appendCodePoint(it) } }
-
+    private fun fromCodePoints(cps: List<Int>): String = buildString { cps.forEach { appendCodePoint(it) } }
     private fun nfc(text: String): String = Normalizer.normalize(text, Normalizer.Form.NFC)
-
-    private fun composeNukta(cps: List<Int>): List<Int> {
-        val out = ArrayList<Int>(cps.size)
-        for (cp in cps) {
-            val last = out.lastOrNull()
-            if (last != null && indicOffset(cp) == 0x3C && last in NUKTA_FORMS) {
-                out[out.size - 1] = NUKTA_FORMS.getValue(last)
-            } else {
-                out.add(cp)
-            }
-        }
-        return out
-    }
-
-    /** ASCII for any script, with the Brahmic inherent vowel kept where it is spoken. */
-    fun transliterate(text: String?): String {
-        val cps = composeNukta(codePoints(nfc(text ?: "")))
-        val out = StringBuilder()
-        var wordHasVowel = false
-        for (i in cps.indices) {
-            val cp = cps[i]
-            val off = indicOffset(cp)
-            if (off != 0x3C && off != 0x3D) {
-                out.append(if (isNasal(cp)) "n" else AnyAscii.transliterate(fromCodePoints(listOf(cp))))
-            }
-            if (!isIndicLetter(cp)) {
-                wordHasVowel = false
-                continue
-            }
-            if (!isConsonant(cp)) {
-                if (off != 0x4D && !isNasal(cp)) wordHasVowel = true
-                continue
-            }
-            var j = i + 1
-            while (j < cps.size && indicOffset(cps[j]) == 0x3C) j++
-            val next = cps.getOrNull(j)
-            if (isSign(next)) {
-                if (indicOffset(next) != 0x4D) wordHasVowel = true
-                continue
-            }
-            val wordEnd = !isIndicLetter(next) || (isNasal(next) && !isIndicLetter(cps.getOrNull(j + 1)))
-            val drops = cp < FINAL_SCHWA_DROPS_BELOW && wordHasVowel
-            if (!(wordEnd && drops)) {
-                out.append('a')
-                wordHasVowel = true
-            }
-        }
-        return out.toString()
-    }
-
-    // ── Fields ───────────────────────────────────────────────────────────────────────────────────
-
     private fun cpLength(text: String): Int = text.codePointCount(0, text.length)
 
-    private fun cpTake(text: String, n: Int): String = fromCodePoints(codePoints(text).take(n))
-
-    private fun isUpperWord(word: String): Boolean =
-        word == word.uppercase() && word != word.lowercase()
-
-    private fun titleWord(word: String): String {
-        if (word.isEmpty() || codePoints(word).any { Character.isDigit(it) || isNumberCategory(it) }) return word
-        val cps = codePoints(word)
-        val first = fromCodePoints(cps.take(1))
-        val rest = fromCodePoints(cps.drop(1))
-        if (isUpperWord(word)) return if (cps.size <= 3) word else first + rest.lowercase()
-        return first.uppercase() + rest
+    /** Drop every nukta, then insert the Indic inherent "a" that anyascii leaves out (shared rules). */
+    fun indicInherentVowels(value: String): String {
+        val chars = codePoints(value).filter { indic(it)?.second != 0x3C }
+        val out = ArrayList<Int>(chars.size * 2)
+        for (i in chars.indices) {
+            out.add(chars[i])
+            val info = indic(chars[i]) ?: continue
+            if (isConsonant(info.second) && i + 1 < chars.size) {
+                val next = indic(chars[i + 1])
+                if (next != null && next.first == info.first && !isVowelSignOrVirama(next.second) && isWordLetter(next.second)) {
+                    out.add('a'.code)
+                }
+            }
+        }
+        return fromCodePoints(out)
     }
 
-    private fun isNumberCategory(cp: Int): Boolean = when (Character.getType(cp).toByte()) {
-        Character.DECIMAL_DIGIT_NUMBER, Character.LETTER_NUMBER, Character.OTHER_NUMBER -> true
-        else -> false
+    /** Transliterate to ASCII: the inherent-vowel pass, then anyascii (the table Python and npm use). */
+    fun toAscii(value: String?): String =
+        if (value.isNullOrEmpty()) "" else AnyAscii.transliterate(indicInherentVowels(nfc(value)))
+
+    /** ASCII for any script: the same as [toAscii]. */
+    fun transliterate(text: String?): String = toAscii(text)
+
+    // ── Words and fields ─────────────────────────────────────────────────────────────────────────
+
+    private fun isWordChar(cp: Int): Boolean {
+        if (cp in ZW) return true
+        return when (Character.getType(cp).toByte()) {
+            Character.UPPERCASE_LETTER, Character.LOWERCASE_LETTER, Character.TITLECASE_LETTER,
+            Character.MODIFIER_LETTER, Character.OTHER_LETTER,
+            Character.NON_SPACING_MARK, Character.COMBINING_SPACING_MARK, Character.ENCLOSING_MARK,
+            Character.DECIMAL_DIGIT_NUMBER -> true
+            else -> false
+        }
     }
 
-    private fun isMark(cp: Int): Boolean = when (Character.getType(cp).toByte()) {
-        Character.NON_SPACING_MARK, Character.COMBINING_SPACING_MARK, Character.ENCLOSING_MARK -> true
-        else -> false
-    }
+    private fun text(value: Any?): String = value?.toString().orEmpty()
 
-    private fun isAsciiAlnum(cp: Int): Boolean =
-        cp in 'A'.code..'Z'.code || cp in 'a'.code..'z'.code || cp in '0'.code..'9'.code
-
-    private fun splitWords(text: String, asciiOnly: Boolean): List<String> {
+    /** Words end at every character that is not a letter, a mark, a decimal digit, ZWNJ or ZWJ. */
+    fun splitWords(value: Any?): List<String> {
         val words = ArrayList<String>()
         val current = StringBuilder()
-        for (cp in codePoints(text.replace(APOSTROPHES, ""))) {
-            val keep = if (asciiOnly) {
-                isAsciiAlnum(cp)
-            } else {
-                Character.isLetter(cp) || isNumberCategory(cp) || isMark(cp) || cp in KEEP_FORMAT
-            }
-            if (keep) {
+        for (cp in codePoints(nfc(text(value)))) {
+            if (isWordChar(cp)) {
                 current.appendCodePoint(cp)
             } else if (current.isNotEmpty()) {
                 words.add(current.toString())
@@ -179,61 +119,219 @@ object Naming {
             }
         }
         if (current.isNotEmpty()) words.add(current.toString())
-        return words.map(::titleWord)
+        return words
     }
+
+    private val ACRONYM = Regex("^[A-Z]{2,3}$")
+
+    /** Title-Case one word; a word with a digit, or a 2-3 letter upper-case Latin word, keeps its case. */
+    fun titleCaseWord(word: String): String {
+        val cps = codePoints(word)
+        if (cps.any { Character.getType(it).toByte() == Character.DECIMAL_DIGIT_NUMBER }) return word
+        if (ACRONYM.matches(word)) return word
+        val first = cps.firstOrNull() ?: return word
+        val head = fromCodePoints(listOf(first))
+        if (Character.isLetter(first) && head.uppercase(Locale.ROOT) != head.lowercase(Locale.ROOT)) {
+            return head.uppercase(Locale.ROOT) + fromCodePoints(cps.drop(1)).lowercase(Locale.ROOT)
+        }
+        return word
+    }
+
+    private fun isAsciiAlnum(c: Char) = c in 'A'..'Z' || c in 'a'..'z' || c in '0'..'9'
+
+    fun fieldWords(value: Any?, asciiOnly: Boolean): List<String> {
+        val raw = text(value)
+        var words = splitWords(if (asciiOnly) toAscii(raw) else raw)
+        if (asciiOnly) words = words.map { w -> w.filter(::isAsciiAlnum) }.filter { it.isNotEmpty() }
+        return words.map(::titleCaseWord)
+    }
+
+    private fun joinField(words: List<String>) = words.joinToString("-")
+    private fun fields(vararg parts: String?) = parts.filter { !it.isNullOrEmpty() }.joinToString("_")
 
     /** One field: words Title-Cased and joined by `-`. ASCII unless [asciiOnly] is false. */
-    fun field(value: Any?, asciiOnly: Boolean = true): String {
-        if (value == null) return ""
-        var text = nfc(value.toString()).trim()
-        if (text.isEmpty()) return ""
-        if (asciiOnly) text = transliterate(text)
-        return splitWords(text, asciiOnly).joinToString("-")
+    fun field(value: Any?, asciiOnly: Boolean = true): String = joinField(fieldWords(value, asciiOnly))
+
+    /** The same words, ignoring case; also when one is written in another script (Majuli, माजुली). */
+    private fun same(a: Any?, b: Any?): Boolean {
+        if (splitWords(a).joinToString(" ").lowercase(Locale.ROOT) == splitWords(b).joinToString(" ").lowercase(Locale.ROOT)) return true
+        val fa = field(a).lowercase(Locale.ROOT)
+        return fa.isNotEmpty() && fa == field(b).lowercase(Locale.ROOT)
     }
 
-    /** `Locality-District`, else `District`, else `State`. A locality alone is not a place. */
-    fun placeField(locality: Any? = null, district: Any? = null, state: Any? = null, asciiOnly: Boolean = true): String {
-        val dist = field(district, asciiOnly)
-        val loc = field(locality, asciiOnly)
-        if (dist.isNotEmpty()) {
-            return if (loc.isNotEmpty() && !loc.equals(dist, ignoreCase = true)) "$loc-$dist" else dist
+    private fun placeText(locality: Any?, district: Any?, state: Any?): String? {
+        val loc = text(locality).trim()
+        val dist = text(district).trim()
+        val st = text(state).trim()
+        if (loc.isNotEmpty() && dist.isNotEmpty() && !same(loc, dist)) return "$loc $dist"
+        return loc.ifEmpty { null } ?: dist.ifEmpty { null } ?: st.ifEmpty { null }
+    }
+
+    /** The Place field: `Locality-District`, else `Locality`, else `District`, else `State`. */
+    fun placeField(locality: Any? = null, district: Any? = null, state: Any? = null, asciiOnly: Boolean = true): String =
+        field(placeText(locality, district, state), asciiOnly)
+
+    // ── The inputs ───────────────────────────────────────────────────────────────────────────────
+
+    /** The questionnaire shape of a title's inputs. */
+    data class SessionFields(
+        val sessionDate: LocalDate?,
+        /** The session's own place text, e.g. "Bagru, Jaipur". */
+        val place: String? = null,
+        val workshopLocality: String? = null,
+        val workshopDistrict: String? = null,
+        val workshopState: String? = null,
+        /** The workshop's craft; else [participantCrafts] decide. */
+        val workshopCraft: String? = null,
+        /** One entry per participant (null when that artisan has no craft). */
+        val participantCrafts: List<String?> = emptyList(),
+        /** Participant names: romanised name when stored, else the name as written. */
+        val participantNames: List<String> = emptyList(),
+        /** Each participant's name in its own script, when [participantNames] holds the romanised one. */
+        val participantLocalNames: List<String?> = emptyList(),
+        /** Override (designer portal: "Workshop"); else derived from the participants. */
+        val entity: String? = null,
+        /** Override (a design workshop's code). */
+        val subject: String? = null,
+    )
+
+    /** One participant in the plain-field shape: the stored romanised name wins over the name as written. */
+    data class Participant(val name: String?, val romanisedName: String? = null) {
+        val shown: String get() = (romanisedName?.takeIf { it.isNotEmpty() } ?: name).orEmpty()
+    }
+
+    private class Person(val name: String?, val localName: String? = null)
+
+    private class Input(
+        val sessionDate: LocalDate?,
+        val place: String?,
+        val locality: String? = null,
+        val district: String? = null,
+        val state: String? = null,
+        val craft: String? = null,
+        val people: List<Person> = emptyList(),
+        val crafts: List<String?> = emptyList(),
+        val entity: String? = null,
+        val subject: String? = null,
+        val participantCount: Int? = null,
+    )
+
+    private fun SessionFields.input() = Input(
+        sessionDate = sessionDate, place = place, locality = workshopLocality, district = workshopDistrict,
+        state = workshopState, craft = workshopCraft, crafts = participantCrafts, entity = entity, subject = subject,
+        people = participantNames.mapIndexed { i, name -> Person(name, participantLocalNames.getOrNull(i)) },
+    )
+
+    private fun placeSource(inp: Input): String? =
+        inp.place?.takeIf { it.isNotBlank() } ?: placeText(inp.locality, inp.district, inp.state)
+
+    private fun craftSource(inp: Input): String? {
+        inp.craft?.takeIf { it.isNotBlank() }?.let { return it }
+        val crafts = inp.crafts.map { it?.trim().orEmpty() }
+        if (crafts.isNotEmpty() && crafts.all { it.isNotEmpty() } && crafts.all { same(it, crafts[0]) }) return crafts[0]
+        return null
+    }
+
+    private fun count(inp: Input): Int = if (inp.people.isNotEmpty()) inp.people.size else (inp.participantCount ?: 0)
+
+    /** Interview for 0 or 1 participant; Group-Interview for 2 or more. */
+    fun entity(participantCount: Int): String = if (participantCount >= 2) "Group-Interview" else "Interview"
+
+    private fun entityOf(inp: Input): String = inp.entity?.takeIf { it.isNotEmpty() } ?: entity(count(inp))
+
+    private fun subjectSource(inp: Input, asciiOnly: Boolean): String? {
+        inp.subject?.takeIf { it.isNotEmpty() }?.let { return it }
+        val n = count(inp)
+        if (n >= 2) return "$n Artisans"
+        if (n == 1 && inp.people.isNotEmpty()) {
+            val person = inp.people[0]
+            if (asciiOnly) {
+                // A stored romanised name wins over transliteration.
+                for (candidate in listOf(person.name, person.localName)) {
+                    if (!candidate.isNullOrBlank() && candidate.all { it.code < 128 }) return candidate
+                }
+            }
+            return person.name?.takeIf { it.isNotEmpty() } ?: person.localName
         }
-        return field(state, asciiOnly)
+        return null
     }
 
-    /** `D-Q03`, `D-Q03-T2` (a solo take at position 2 or more), `D-Q03-P2` (part 2). */
-    fun questionSequence(section: Any?, question: Any?, take: Int? = null, part: Int? = null): String {
-        val sec = field(section).uppercase()
-        val q = question?.toString()?.trim().orEmpty()
-        if (sec.isEmpty() || q.isEmpty()) return ""
-        val number = q.toDoubleOrNull()?.toInt() ?: return ""
-        val out = StringBuilder("$sec-Q${number.toString().padStart(2, '0')}")
-        if (part != null && part >= 2) out.append("-P$part")
-        if (take != null && take >= 2) out.append("-T$take")
-        return out.toString()
+    /** Subject first (to 40, at a word boundary), then Craft, Place, Subject again, drop Craft, Place, cut Subject. */
+    private fun fit(
+        render: (List<String>, List<String>, List<String>) -> String,
+        placeWords: List<String>,
+        craftWords: List<String>,
+        subjectWords: List<String>,
+        limit: Int,
+    ): String {
+        val place = placeWords.toMutableList()
+        val craft = craftWords.toMutableList()
+        val subject = subjectWords.toMutableList()
+        fun tooLong() = cpLength(render(place, craft, subject)) > limit
+        while (tooLong() && subject.size > 1 && cpLength(joinField(subject)) > SUBJECT_MIN) subject.removeAt(subject.size - 1)
+        while (tooLong() && craft.size > 1) craft.removeAt(craft.size - 1)
+        while (tooLong() && place.size > 1) place.removeAt(place.size - 1)
+        while (tooLong() && subject.size > 1) subject.removeAt(subject.size - 1)
+        if (tooLong() && craft.isNotEmpty()) craft.clear()
+        if (tooLong() && place.isNotEmpty()) place.clear()
+        while (tooLong() && subject.isNotEmpty() && cpLength(subject[0]) > 1) {
+            val cps = codePoints(subject[0])
+            subject[0] = fromCodePoints(cps.dropLast(1))
+        }
+        if (tooLong()) subject.clear()
+        return render(place, craft, subject)
     }
 
-    /** `D-All`: a recording that covers a whole section. */
-    fun sectionSequence(section: Any?): String {
-        val sec = field(section).uppercase()
-        return if (sec.isEmpty()) "" else "$sec-All"
+    // ── Titles ───────────────────────────────────────────────────────────────────────────────────
+
+    private fun title(inp: Input): String {
+        val entityField = joinField(fieldWords(entityOf(inp), false))
+        val day = inp.sessionDate?.format(DAY)
+        return fit(
+            { p, c, s -> fields(entityField, day, joinField(p), joinField(c), joinField(s)) },
+            fieldWords(placeSource(inp), false),
+            fieldWords(craftSource(inp), false),
+            fieldWords(subjectSource(inp, false), false),
+            TITLE_MAX,
+        )
     }
 
-    private fun sequenceField(value: Any?): String {
-        val text = value?.toString()?.trim().orEmpty()
-        return if (VERSION.matches(text)) text else field(text)
-    }
+    /** `Interview_2026-07-01_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa`. Original script kept. */
+    fun sessionTitle(fields: SessionFields): String = title(fields.input())
+
+    /** `Entity_Date_Place_Craft_Subject` for a generated interview, session or workshop title. */
+    fun sessionTitle(
+        participants: List<Participant> = emptyList(),
+        participantCount: Int? = null,
+        date: Any? = null,
+        place: Any? = null,
+        craft: Any? = null,
+        entity: String? = null,
+        subject: Any? = null,
+    ): String = title(
+        Input(
+            sessionDate = asIst(date)?.let { LocalDate.parse(it.date) },
+            place = place?.toString(),
+            craft = craft?.toString(),
+            people = participants.filter { it.shown.isNotEmpty() }.map { p ->
+                if (!p.romanisedName.isNullOrEmpty()) Person(p.romanisedName, p.name) else Person(p.name)
+            },
+            entity = entity,
+            subject = subject?.toString()?.takeIf { it.isNotEmpty() },
+            participantCount = participantCount?.takeIf { it > 0 },
+        )
+    )
 
     // ── Dates (IST) ──────────────────────────────────────────────────────────────────────────────
 
     data class IstMoment(val date: String, val time: String?)
 
-    private val DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
-    private val HHMM: DateTimeFormatter = DateTimeFormatter.ofPattern("HHmm")
+    private val DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.ROOT)
+    private val HHMM: DateTimeFormatter = DateTimeFormatter.ofPattern("HHmm", Locale.ROOT)
     private val DATE_ONLY = Regex("^\\d{4}-\\d{2}-\\d{2}$")
     private val ZONED = Regex("(?:Z|[+-]\\d{2}:?\\d{2})$", RegexOption.IGNORE_CASE)
 
-    /** The IST day and HHMM of a moment: [Instant], epoch millis, [LocalDate] or an ISO string. */
+    /** The IST day and HHMM of a moment: [Instant], epoch millis, [LocalDate] or an ISO string. Naive = UTC. */
     fun asIst(value: Any?): IstMoment? {
         val instant: Instant = when (value) {
             null -> return null
@@ -244,12 +342,12 @@ object Naming {
             is Long -> Instant.ofEpochMilli(value)
             is java.util.Date -> value.toInstant()
             is String -> {
-                val text = value.trim()
-                if (text.isEmpty()) return null
-                if (DATE_ONLY.matches(text)) return IstMoment(text, null)
+                val t = value.trim()
+                if (t.isEmpty()) return null
+                if (DATE_ONLY.matches(t)) return IstMoment(t, null)
                 runCatching {
-                    if (ZONED.containsMatchIn(text)) OffsetDateTime.parse(text).toInstant()
-                    else LocalDateTime.parse(text).toInstant(ZoneOffset.UTC)
+                    if (ZONED.containsMatchIn(t)) OffsetDateTime.parse(t).toInstant()
+                    else LocalDateTime.parse(t).toInstant(ZoneOffset.UTC)
                 }.getOrNull() ?: return null
             }
             else -> return null
@@ -258,49 +356,26 @@ object Naming {
         return IstMoment(local.format(DAY), local.format(HHMM))
     }
 
-    // ── Assembly and truncation ──────────────────────────────────────────────────────────────────
+    // ── File names ───────────────────────────────────────────────────────────────────────────────
 
-    private class Cuttable(var place: String, var craft: String, var subject: String) {
-        operator fun get(key: String): String = when (key) {
-            "place" -> place
-            "craft" -> craft
-            else -> subject
-        }
+    private fun guard(stem: String) = if (stem.uppercase(Locale.ROOT) in RESERVED_STEMS) "$stem-File" else stem
 
-        operator fun set(key: String, value: String) {
-            when (key) {
-                "place" -> place = value
-                "craft" -> craft = value
-                else -> subject = value
-            }
-        }
+    private fun extension(ext: Any?): String =
+        text(ext).trim().trimStart('.').filter { isAsciiAlnum(it) || it == '.' }.lowercase(Locale.ROOT)
+            .replace(Regex("\\.{2,}"), ".").trim('.')
+
+    private fun sequenceText(value: Any?): String? {
+        val t = text(value).trim()
+        if (t.isEmpty()) return null
+        if (VERSION.matches(t)) return t
+        return joinField(fieldWords(t, true)).ifEmpty { null }
     }
 
-    private fun dropLastWord(text: String): String {
-        val at = text.lastIndexOf('-')
-        return if (at >= 0) text.substring(0, at) else ""
-    }
-
-    private fun fit(parts: Cuttable, render: (Cuttable) -> String, limit: Int): String {
-        var name = render(parts)
-        for ((key, floor) in listOf("subject" to MIN_SUBJECT, "craft" to 0, "place" to 0, "subject" to 0)) {
-            while (cpLength(name) > limit && cpLength(parts[key]) > floor) {
-                var shorter = dropLastWord(parts[key])
-                if (floor > 0 && shorter.isEmpty()) shorter = cpTake(parts[key], floor)
-                parts[key] = shorter
-                name = render(parts)
-            }
-        }
-        return name
-    }
-
-    private fun extension(ext: String?): String {
-        var text = ext.orEmpty().trim().lowercase().trimStart('.')
-        text = text.replace(Regex("[^a-z0-9.]"), "").replace(Regex("\\.{2,}"), ".").trim('.')
-        return if (text.isEmpty()) "" else ".$text"
-    }
-
-    /** `Portal_Entity_Date[_Time]_Place_Craft_Subject_What[_Sequence][_n].ext`, ASCII, <= 150. */
+    /**
+     * `Portal_Entity_Date[_Time]_Place_Craft_Subject_What[_Sequence][_n].ext`, ASCII, <= 150. The Date
+     * field is [period] (a field such as `FY2026-27`), else the IST day of [date]; [time] adds that
+     * moment's HHMM, [clock] gives an HHMM directly. An empty [ext] gives a bare stem.
+     */
     fun fileName(
         entity: Any? = null,
         what: Any? = null,
@@ -314,27 +389,165 @@ object Naming {
         subject: Any? = null,
         sequence: Any? = null,
         n: Int? = null,
+        clock: String? = null,
     ): String {
         val hasPeriod = period != null && period.toString().isNotEmpty()
         val moment = if (hasPeriod) null else asIst(date)
-        val fixedPortal = field(if (portal.isNullOrEmpty()) NAMING_PORTAL else portal)
-        val fixedEntity = field(entity)
-        val fixedDate = if (hasPeriod) field(period) else moment?.date.orEmpty()
-        val fixedTime = if (time && !hasPeriod) moment?.time.orEmpty() else ""
-        val fixedWhat = field(what)
-        val fixedSequence = sequenceField(sequence)
-        val fixedN = if (n != null && n >= 2) n.toString() else ""
-        val extText = extension(ext)
-        val parts = Cuttable(field(place), field(craft), field(subject))
-        val render = { p: Cuttable ->
-            listOf(fixedPortal, fixedEntity, fixedDate, fixedTime, p.place, p.craft, p.subject, fixedWhat, fixedSequence, fixedN)
-                .filter { it.isNotEmpty() }
-                .joinToString("_") + extText
+        val day = if (hasPeriod) joinField(fieldWords(period, true)) else moment?.date
+        val hhmm = when {
+            !clock.isNullOrEmpty() -> clock
+            time && !hasPeriod -> moment?.time
+            else -> null
         }
-        return fit(parts, render, MAX_FILE_NAME)
+        val extText = extension(ext)
+        val portalField = (if (portal.isNullOrEmpty()) PORTAL else portal).filter { isAsciiAlnum(it) || it == '-' }
+        val entityField = joinField(fieldWords(entity, true))
+        val whatField = joinField(fieldWords(what, true))
+        val sequenceField = sequenceText(sequence)
+        val nField = if (n != null && n > 1) n.toString() else null
+        return fit(
+            { p, c, s ->
+                val stem = guard(fields(portalField, entityField, day, hhmm, joinField(p), joinField(c), joinField(s), whatField, sequenceField, nField))
+                if (extText.isEmpty()) stem else "$stem.$extText"
+            },
+            fieldWords(place, true),
+            fieldWords(craft, true),
+            fieldWords(subject, true),
+            FILE_MAX,
+        )
     }
 
-    /** A download, export, report or backup, dated the day it is generated (IST). */
+    /** A recording target as the name sees it: a section code, or a question display code ("D3"). */
+    data class NameTarget(val sectionCode: String? = null, val displayCode: String? = null)
+
+    private fun questionNumber(displayCode: String): Pair<String, Int>? {
+        val m = DISPLAY_CODE.matchEntire(displayCode.trim()) ?: return null
+        val number = m.groupValues[2].toIntOrNull() ?: return null
+        return m.groupValues[1].uppercase(Locale.ROOT) to number
+    }
+
+    /** `D-Q03`, `B-All`, `F-Q01-Q06`, plus `-P2` for a continuation or `-T2` for a solo repeat. */
+    fun recordingSequence(targets: List<NameTarget>, part: Int? = null, position: Int? = null, rosterCount: Int? = null): String? {
+        val bySection = LinkedHashMap<String, Pair<Boolean, MutableList<Int>>>()
+        for (t in targets) {
+            var code = t.sectionCode?.takeIf { it.isNotEmpty() }?.let { joinField(fieldWords(it, true)).uppercase(Locale.ROOT) }.orEmpty()
+            if (code.isEmpty() && !t.displayCode.isNullOrEmpty()) code = questionNumber(t.displayCode)?.first.orEmpty()
+            if (code.isEmpty()) continue
+            val entry = bySection.getOrPut(code) { false to mutableListOf() }
+            if (!t.displayCode.isNullOrEmpty()) {
+                questionNumber(t.displayCode)?.let { entry.second.add(it.second) }
+            } else {
+                bySection[code] = true to entry.second
+            }
+        }
+        fun q(n: Int) = "Q" + n.toString().padStart(2, '0')
+        val pieces = bySection.map { (code, entry) ->
+            val numbers = entry.second.distinct().sorted()
+            when {
+                entry.first || numbers.isEmpty() -> "$code-All"
+                numbers.size == 1 -> "$code-${q(numbers[0])}"
+                else -> "$code-${q(numbers.first())}-${q(numbers.last())}"
+            }
+        }
+        val suffix = when {
+            part != null && part >= 2 -> "P$part"
+            rosterCount == 1 && position != null && position >= 2 -> "T$position"
+            else -> null
+        }
+        var sequence: String? = if (pieces.isEmpty()) null else pieces.joinToString("-")
+        if (suffix != null) sequence = if (sequence != null) "$sequence-$suffix" else suffix
+        return sequence
+    }
+
+    /** `D-Q03`; `-P2` for part 2, else `-T2` for a solo take at position 2 or more. */
+    fun questionSequence(section: Any?, question: Any?, take: Int? = null, part: Int? = null): String {
+        val sec = joinField(fieldWords(section, true)).uppercase(Locale.ROOT)
+        val q = question?.toString()?.trim().orEmpty()
+        if (sec.isEmpty() || q.isEmpty()) return ""
+        val number = q.toDoubleOrNull()?.toInt() ?: return ""
+        return recordingSequence(listOf(NameTarget(sec, "$sec$number")), part = part, position = take, rosterCount = 1).orEmpty()
+    }
+
+    /** `D-All`: a recording that covers a whole section. */
+    fun sectionSequence(section: Any?): String {
+        val sec = joinField(fieldWords(section, true)).uppercase(Locale.ROOT)
+        return if (sec.isEmpty()) "" else recordingSequence(listOf(NameTarget(sec))).orEmpty()
+    }
+
+    /** The questionnaire shape of a recording's inputs. */
+    data class RecordingFields(
+        val session: SessionFields,
+        val capturedAt: Instant,
+        val capturedAtSource: String = "DEVICE",
+        val targets: List<NameTarget> = emptyList(),
+        /** 1-based take position; only a SOLO take at 2 or more carries `-T<n>`. */
+        val position: Int = 1,
+        val rosterCount: Int = 1,
+        val partTwo: Boolean = false,
+        val extension: String = "m4a",
+        val what: String = "Recording",
+        /** A continuation's part number (2 or more); [partTwo] is the older spelling of part 2. */
+        val part: Int? = null,
+    )
+
+    /** `D3` → `D-Q03`; a section → `D-All`; several questions of one section → `F-Q01-Q06`. */
+    fun sequenceField(fields: RecordingFields): String? =
+        recordingSequence(
+            fields.targets, part = fields.part ?: if (fields.partTwo) 2 else null, position = fields.position,
+            rosterCount = fields.rosterCount,
+        )
+
+    /** §3.13: the recording, transcript or subtitle file name of one questionnaire take. */
+    fun recordingFileName(fields: RecordingFields): String {
+        val inp = fields.session.input()
+        val moment = asIst(fields.capturedAt)
+        return fileName(
+            entity = entityOf(inp),
+            what = fields.what,
+            ext = fields.extension,
+            date = moment?.date,
+            clock = if (fields.capturedAtSource.uppercase(Locale.ROOT) in ESTIMATED_SOURCES) null else moment?.time,
+            place = placeSource(inp),
+            craft = craftSource(inp),
+            subject = subjectSource(inp, true),
+            sequence = sequenceField(fields),
+        )
+    }
+
+    /** A capture with its fields passed directly, dated and timed when it was captured. An estimated time is left out. */
+    fun recordingFilename(
+        entity: Any?,
+        ext: String,
+        capturedAt: Any? = null,
+        timeKnown: Boolean = true,
+        place: Any? = null,
+        craft: Any? = null,
+        subject: Any? = null,
+        sequence: Any? = null,
+        what: Any? = "Recording",
+        n: Int? = null,
+        portal: String? = null,
+        capturedAtSource: String? = null,
+    ): String = fileName(
+        entity = entity, what = what, ext = ext, portal = portal, date = capturedAt,
+        time = timeKnown && capturedAtSource?.uppercase(Locale.ROOT) !in ESTIMATED_SOURCES,
+        place = place, craft = craft, subject = subject, sequence = sequence, n = n,
+    )
+
+    /** A file about a whole session (the zip of its recordings): no time, no sequence. */
+    fun sessionFilename(session: SessionFields, what: String, ext: String): String {
+        val inp = session.input()
+        return fileName(
+            entity = entityOf(inp), what = what, ext = ext, date = inp.sessionDate,
+            place = placeSource(inp), craft = craftSource(inp), subject = subjectSource(inp, true),
+        )
+    }
+
+    /**
+     * A download, export, report or backup, dated the day it is generated (IST) unless [day] or [at]
+     * says otherwise. [withTime] adds HHMM for snapshots that can repeat within a day; `dated = false`
+     * is for templates (pro formas), which carry no date at all.
+     */
     fun exportFilename(
         entity: Any?,
         what: Any?,
@@ -349,32 +562,19 @@ object Naming {
         sequence: Any? = null,
         n: Int? = null,
         portal: String? = null,
+        day: String? = null,
     ): String {
         val hasPeriod = period != null && period.toString().isNotEmpty()
-        val whenValue = if (dated && !hasPeriod) (at ?: Instant.now()) else null
+        val whenValue: Any? = when {
+            !dated || hasPeriod -> null
+            !day.isNullOrBlank() -> day.trim().take(10)
+            else -> at ?: Instant.now()
+        }
         return fileName(
             entity = entity, what = what, ext = ext, portal = portal, date = whenValue, time = withTime,
             period = period, place = place, craft = craft, subject = subject, sequence = sequence, n = n,
         )
     }
-
-    /** A capture, dated and timed when it was captured. An estimated time is left out. */
-    fun recordingFilename(
-        entity: Any?,
-        ext: String,
-        capturedAt: Any? = null,
-        timeKnown: Boolean = true,
-        place: Any? = null,
-        craft: Any? = null,
-        subject: Any? = null,
-        sequence: Any? = null,
-        what: Any? = "Recording",
-        n: Int? = null,
-        portal: String? = null,
-    ): String = fileName(
-        entity = entity, what = what, ext = ext, portal = portal, date = capturedAt, time = timeKnown,
-        place = place, craft = craft, subject = subject, sequence = sequence, n = n,
-    )
 
     /**
      * A design workshop's report, cards or list: `..._Workshop_Date_Place_Craft_Code_What.ext`. The
@@ -399,51 +599,17 @@ object Naming {
         ext = ext,
         at = at,
         dated = dated,
-        place = placeField(clusterName, district, state),
+        place = placeText(clusterName, district, state),
         craft = craftName,
         subject = workshopCode?.takeIf { it.isNotEmpty() } ?: title,
         n = n,
         portal = portal,
     )
 
-    /** One participant of a session: the stored romanised name wins over the name as written. */
-    data class Participant(val name: String?, val romanisedName: String? = null) {
-        val shown: String get() = (romanisedName?.takeIf { it.isNotEmpty() } ?: name).orEmpty()
-    }
-
-    /** `Entity_Date_Place_Craft_Subject` for a generated interview, session or workshop title. */
-    fun sessionTitle(
-        participants: List<Participant> = emptyList(),
-        participantCount: Int? = null,
-        date: Any? = null,
-        place: Any? = null,
-        craft: Any? = null,
-        entity: String? = null,
-        subject: Any? = null,
-    ): String {
-        val people = participants.filter { it.shown.isNotEmpty() }
-        val count = if (people.isNotEmpty()) people.size else (participantCount ?: 0)
-        val fixedEntity = field(if (entity.isNullOrEmpty()) (if (count >= 2) "Group-Interview" else "Interview") else entity)
-        var subjectValue: Any? = subject?.takeIf { it.toString().isNotEmpty() }
-        if (subjectValue == null) {
-            subjectValue = when {
-                count >= 2 -> "$count Artisans"
-                people.isNotEmpty() -> people.first().shown
-                else -> null
-            }
-        }
-        val fixedDate = asIst(date)?.date.orEmpty()
-        val parts = Cuttable(field(place, false), field(craft, false), field(subjectValue, false))
-        val render = { p: Cuttable ->
-            listOf(fixedEntity, fixedDate, p.place, p.craft, p.subject).filter { it.isNotEmpty() }.joinToString("_")
-        }
-        return fit(parts, render, MAX_TITLE)
-    }
-
     // ── Leaves and collisions ────────────────────────────────────────────────────────────────────
 
     fun splitExtension(name: String): Pair<String, String> {
-        val lower = name.lowercase()
+        val lower = name.lowercase(Locale.ROOT)
         for (double in DOUBLE_EXTENSIONS) {
             if (lower.endsWith(double) && name.length > double.length) {
                 return name.substring(0, name.length - double.length) to name.substring(name.length - double.length)
@@ -452,44 +618,75 @@ object Naming {
         val at = name.lastIndexOf('.')
         if (at > 0) {
             val ext = name.substring(at + 1)
-            if (ext.length in 1..10 && ext.all { it.code < 128 && it.isLetterOrDigit() }) {
-                return name.substring(0, at) to ".$ext"
-            }
+            if (ext.length in 1..10 && ext.all(::isAsciiAlnum)) return name.substring(0, at) to ".$ext"
         }
         return name to ""
     }
 
-    /** Any name made safe as an S3 leaf or a download name: ASCII `[A-Za-z0-9._-]`, <= 150. */
-    fun asciiLeaf(name: Any?): String {
-        var text = nfc(name?.toString().orEmpty()).trim().replace('\\', '/')
-        text = text.substring(text.lastIndexOf('/') + 1)
-        val (rawStem, rawExt) = splitExtension(text)
-        val ext = extension(rawExt)
-        var stem = transliterate(rawStem).replace(APOSTROPHES, "")
-        stem = stem.replace(Regex("[^A-Za-z0-9._-]+"), "-").replace(Regex("-{2,}"), "-").replace(Regex("_{2,}"), "_")
-        stem = stem.trim('-', '.', '_')
-        if (stem.isEmpty()) stem = "File"
-        if (stem.substringBefore('.').uppercase() in RESERVED_STEMS) stem = "$stem-File"
-        val room = MAX_FILE_NAME - ext.length
-        if (stem.length > room) stem = stem.substring(0, room).trimEnd('-', '.', '_').ifEmpty { "File" }
-        return stem + ext
+    private val NOT_LEAF = Regex("[^A-Za-z0-9._-]+")
+    private val HYPHENS = Regex("-{2,}")
+
+    /** Any file name as an ASCII leaf: `[A-Za-z0-9._-]`, at most 150 characters, never empty or reserved. */
+    fun asciiLeaf(name: Any?, fallback: String = "upload.bin"): String {
+        val raw = text(name).replace('\\', '/').substringAfterLast('/').trim()
+        val cleaned = toAscii(raw).replace(NOT_LEAF, "-").replace(HYPHENS, "-").trim('-', '.')
+        if (cleaned.isEmpty()) return fallback
+        val dot = cleaned.lastIndexOf('.')
+        var stem = if (dot >= 0) cleaned.substring(0, dot) else cleaned
+        var ext = if (dot >= 0) cleaned.substring(dot + 1) else ""
+        stem = guard(stem.trim('-', '.').ifEmpty { "upload" })
+        ext = ext.take(16).lowercase(Locale.ROOT)
+        val budget = FILE_MAX - (if (ext.isEmpty()) 0 else ext.length + 1)
+        stem = stem.take(budget).trimEnd('-', '.').ifEmpty { "upload" }
+        return if (ext.isEmpty()) stem else "$stem.$ext"
     }
 
-    /** The second and later copies of a name get `_2`, `_3`, in the order given (createdAt, then id). */
+    /** `..._D-Q03.m4a` → `..._D-Q03_2.m4a`; `.sql.gz` counts as one extension. */
+    fun withN(name: String, n: Int): String {
+        if (n <= 1) return name
+        if (name.endsWith(".sql.gz")) return "${name.dropLast(7)}_$n.sql.gz"
+        val dot = name.lastIndexOf('.')
+        return if (dot >= 0) "${name.substring(0, dot)}_$n${name.substring(dot)}" else "${name}_$n"
+    }
+
+    /** `_2`, `_3` for colliding names, in the order given (callers sort by createdAt, then id). */
     fun dedupeNames(names: Iterable<String>): List<String> {
-        val used = HashSet<String>()
-        val out = ArrayList<String>()
-        for (name in names) {
-            val (stem, ext) = splitExtension(name)
-            var candidate = name
-            var n = 1
-            while (candidate.lowercase() in used) {
-                n += 1
-                candidate = "${stem}_$n$ext"
+        val seen = HashMap<String, Int>()
+        val taken = HashSet<String>()
+        return names.map { name ->
+            val key = name.lowercase(Locale.ROOT)
+            var count = (seen[key] ?: 0) + 1
+            seen[key] = count
+            var candidate = withN(name, count)
+            while (candidate.lowercase(Locale.ROOT) in taken) {
+                count += 1
+                seen[key] = count
+                candidate = withN(name, count)
             }
-            used.add(candidate.lowercase())
-            out.add(candidate)
+            taken.add(candidate.lowercase(Locale.ROOT))
+            candidate
         }
-        return out
+    }
+}
+
+/**
+ * A phone number for display: `+91 98765 43210` (owner correction b). The country code lives in its
+ * own column and the national number is digits only; +91 numbers are grouped 5 + 5, others are shown
+ * as stored digits after the code. An empty number displays as nothing.
+ */
+object PhoneDisplay {
+    fun format(countryCode: String?, national: String?): String {
+        val digits = national.orEmpty().filter { it in '0'..'9' }
+        if (digits.isEmpty()) return ""
+        val code = countryCode?.trim()?.takeIf { it.isNotEmpty() }?.let { if (it.startsWith("+")) it else "+$it" } ?: "+91"
+        val body = if (code == "+91" && digits.length == 10) "${digits.take(5)} ${digits.drop(5)}" else digits
+        return "$code $body"
+    }
+
+    /** Valid national digits for [countryCode]: exactly 10 for +91, 4 to 14 elsewhere. */
+    fun isValid(countryCode: String?, national: String?): Boolean {
+        val digits = national.orEmpty().filter { it in '0'..'9' }
+        if (digits.isEmpty()) return true
+        return if ((countryCode ?: "+91").trim().removePrefix("+") == "91") digits.length == 10 else digits.length in 4..14
     }
 }

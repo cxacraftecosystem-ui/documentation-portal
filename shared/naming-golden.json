@@ -494,7 +494,7 @@
         "sequence": "01",
         "ext": "JPEG"
       },
-      "name": "FieldRepository_Artisan_2026-10-18_Bankura_Dokara_Rabi-Kumar_Photo_01.jpeg"
+      "name": "FieldRepository_Artisan_2026-10-18_Bamkuda_Dokara_Rabi-Kumar_Photo_01.jpeg"
     },
     {
       "input": {
@@ -532,7 +532,7 @@
         "n": 3,
         "ext": "vtt"
       },
-      "name": "DesignWorkshop_Group-Interview_2026-07-01_1824_Shivrampur-Kalan-Bhagwanpura_Giriraj-Prasad-Chhipa-Ramesh-Kumar_Subtitles-With-Speakers_D-Q03-T2_3.vtt"
+      "name": "DesignWorkshop_Group-Interview_2026-07-01_1824_Shivrampur-Kalan_Hand_Giriraj-Prasad-Chhipa-Ramesh-Kumar_Subtitles-With-Speakers_D-Q03-T2_3.vtt"
     },
     {
       "input": {
@@ -693,7 +693,7 @@
     },
     {
       "input": "বাঁকুড়া",
-      "field": "Bankura"
+      "field": "Bamkuda"
     },
     {
       "input": "শান্তিনিকেতন",
@@ -705,7 +705,7 @@
     },
     {
       "input": "ಕನ್ನಡ",
-      "field": "Kannada"
+      "field": "Kannad"
     },
     {
       "input": "ગુજરાત",
@@ -713,11 +713,11 @@
     },
     {
       "input": "ਸਿੰਘ",
-      "field": "Singh"
+      "field": "Simgh"
     },
     {
       "input": "ଓଡ଼ିଆ",
-      "field": "Oria"
+      "field": "Odia"
     },
     {
       "input": "ராஜா",
@@ -729,7 +729,7 @@
     },
     {
       "input": "हं",
-      "field": "Han"
+      "field": "Ham"
     },
     {
       "input": "Crème brûlée",
@@ -745,7 +745,7 @@
     },
     {
       "input": "D'Souza",
-      "field": "DSouza"
+      "field": "D-Souza"
     }
   ],
   "fields": [
@@ -767,7 +767,7 @@
     },
     {
       "input": "McDonald's",
-      "field": "McDonalds"
+      "field": "Mcdonald-S"
     },
     {
       "input": "  ",
@@ -807,7 +807,7 @@
         "locality": "Bagru",
         "state": "Rajasthan"
       },
-      "place": "Rajasthan"
+      "place": "Bagru"
     },
     {
       "input": {
@@ -896,11 +896,11 @@
     },
     {
       "input": "",
-      "leaf": "File"
+      "leaf": "upload.bin"
     },
     {
       "input": "....",
-      "leaf": "File"
+      "leaf": "upload.bin"
     },
     {
       "input": "D_SEC_GIRIRAJ_001046_010720261824.wav",
@@ -979,7 +979,7 @@
         "ext": "pdf",
         "at": "2026-10-18"
       },
-      "name": "DesignWorkshop_Workshop_2026-10-18_Bargarh_Sambalapuri-Ikata-Karmasala_Report.pdf"
+      "name": "DesignWorkshop_Workshop_2026-10-18_Bargarh_Sambalapuri-Ikat-Karmasala_Report.pdf"
     },
     {
       "input": {

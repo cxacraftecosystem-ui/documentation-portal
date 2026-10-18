@@ -6,22 +6,100 @@ import { expect, test } from "@playwright/test";
 import {
   asciiLeaf,
   dedupeNames,
+  exportFilename,
+  type ExportNameInput,
   field,
+  fieldWords,
   fileName,
   type FileNameInput,
+  formatPhone,
+  PORTAL,
   placeField,
   questionSequence,
+  recordingFilename,
+  type RecordingNameInput,
   sectionSequence,
   sessionTitle,
   type TitleFields,
+  type TitleInput,
   workshopFilename
 } from "@/lib/naming";
 
 /**
- * The browser's half of the naming convention, held to the same golden table as `naming.py` and
- * `Naming.kt` (`shared/naming-golden.json`, byte-identical in both portals). No browser is opened.
+ * The browser's half of the naming convention, held to the same two golden tables as `naming.py`
+ * and `Naming.kt` (byte-identical in both portals): `shared/session-title.json`, the frozen
+ * questionnaire contract (DESIGN test 60, web half), and `shared/naming-golden.json`, every other
+ * generated name. No browser is opened.
  */
 const GOLDEN = JSON.parse(readFileSync(join(__dirname, "..", "..", "shared", "naming-golden.json"), "utf8"));
+
+type Row =
+  | { kind: "title"; case: string; input: TitleInput; title: string }
+  | { kind: "recording"; case: string; input: RecordingNameInput; fileName: string }
+  | { kind: "transliteration"; case: string; input: string; ascii: string }
+  | { kind: "export"; case: string; input: ExportNameInput; fileName: string }
+  | { kind: "collision"; case: string; input: string[]; names: string[] };
+
+const CONTRACT = JSON.parse(readFileSync(join(__dirname, "..", "..", "shared", "session-title.json"), "utf8")) as { golden: Row[] };
+
+/** The contract's rows are written for documentation-portal; designer-portal's word replaces it. */
+const here = (name: string) => name.replace("FieldRepository_", `${PORTAL}_`);
+
+test("the contract table covers every kind", () => {
+  const kinds = new Set(CONTRACT.golden.map((r) => r.kind));
+  expect([...kinds].sort()).toEqual(["collision", "export", "recording", "title", "transliteration"]);
+});
+
+for (const row of CONTRACT.golden) {
+  test(`contract ${row.kind}: ${row.case}`, () => {
+    switch (row.kind) {
+      case "title":
+        expect(sessionTitle(row.input)).toBe(row.title);
+        break;
+      case "recording": {
+        const name = recordingFilename(row.input);
+        expect(name).toBe(here(row.fileName));
+        expect(name).toMatch(/^[A-Za-z0-9._-]{1,150}$/);
+        break;
+      }
+      case "transliteration":
+        expect(fieldWords(row.input, true).join("-")).toBe(row.ascii);
+        break;
+      case "export":
+        expect(exportFilename(row.input)).toBe(here(row.fileName));
+        break;
+      case "collision":
+        expect(dedupeNames(row.input)).toEqual(row.names);
+        break;
+    }
+  });
+}
+
+test("an estimated time is left out and never invented", () => {
+  const session = { sessionDate: "2026-07-01", participants: [{ name: "Meena Pal" }] };
+  for (const source of ["SESSION_DATE", "UPLOAD_TIME", "UPLOAD_TIME_OUT_OF_WINDOW"]) {
+    expect(recordingFilename({ session, capturedAt: "2026-07-01T06:30:00Z", capturedAtSource: source })).toBe(
+      `${PORTAL}_Interview_2026-07-01_Meena-Pal_Recording.m4a`
+    );
+  }
+  expect(recordingFilename({ session, capturedAt: "2026-07-01T06:30:00Z", capturedAtSource: "DEVICE" })).toContain("_1200_");
+  expect(recordingFilename("Interview", "m4a", { capturedAt: "2026-07-01T06:30:00Z", timeKnown: false, subject: "Meena Pal" })).toBe(
+    `${PORTAL}_Interview_2026-07-01_Meena-Pal_Recording.m4a`
+  );
+});
+
+test("a non-ASCII leaf is impossible and Windows reserved stems are guarded", () => {
+  expect(asciiLeaf("गिरिराज.m4a")).toBe("giriraj.m4a");
+  expect(asciiLeaf("CON.txt")).toBe("CON-File.txt");
+  expect(asciiLeaf("")).toBe("upload.bin");
+});
+
+test("phone display is +91 98765 43210 (owner correction b)", () => {
+  expect(formatPhone("+91", "9876543210")).toBe("+91 98765 43210");
+  expect(formatPhone("91", "98765 43210")).toBe("+91 98765 43210");
+  expect(formatPhone("+44", "2079460000")).toBe("+44 2079460000");
+  expect(formatPhone("+91", "")).toBe("");
+});
 
 test("the golden table is present and not empty", () => {
   expect(GOLDEN.version).toBe(1);
@@ -37,7 +115,7 @@ test("file names match the golden table", () => {
   }
 });
 
-test("display titles match the golden table", () => {
+test("plain-field titles match the golden table", () => {
   for (const row of GOLDEN.titles as { input: TitleFields; title: string }[]) {
     expect(sessionTitle(row.input), JSON.stringify(row.input)).toBe(row.title);
   }

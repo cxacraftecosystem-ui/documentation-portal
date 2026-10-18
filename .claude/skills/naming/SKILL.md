@@ -19,7 +19,7 @@ Portal_Entity_Date[_Time]_Place_Craft_Subject_What[_Sequence][_n].ext
 - **Entity:** `Workshop`, `Interview`, `Group-Interview`, `Artisan`, `Product`, `Tool`, `Process`, `Questionnaire`, `Dataset`, `Annual-Plan`, `Sanction-Orders`, `Ministry`, `Shared-Data`, `Account`, `Database`, `Android-App`.
 - **Date:** `YYYY-MM-DD` in IST. Use the capture day for captures and recordings, and the generation day for exports, reports and backups. A plan period (`FY2026-27`) replaces the date.
 - **Time:** `HHMM` in IST, 24-hour. Only for captures and for snapshots that can repeat within a day. Never seconds.
-- **Place:** `Locality-District`, else `District`, else `State`.
+- **Place:** `Locality-District` (district dropped when it is the locality), else `Locality`, else `District`, else `State`.
 - **Craft:** Title-Case words, e.g. `Hand-Block-Printing`.
 - **Subject:** the record's name or code, e.g. `Giriraj-Prasad-Chhipa` or `DW-RJ-0012`.
 - **What:** `Recording`, `Photo`, `Video`, `Transcript`, `Subtitles`, `Subtitles-With-Speakers`, `Report`, `Export`, `Pro-Forma`, `Questions`, `Artisan-Cards`, `Artisan-List`, `Record-Code`, `Identity-Card`, `Recovery-Codes`, `Backup`, `Release-Build`, `Debug-Build`, and similar.
@@ -30,7 +30,7 @@ Portal_Entity_Date[_Time]_Place_Craft_Subject_What[_Sequence][_n].ext
 
 - File names are ASCII only: `[A-Za-z0-9-]` inside a field, `_` between fields.
 - Title-Case each word. Codes, acronyms and versions keep their own case. Colons in codes become `-`.
-- Transliteration: use the stored romanised name if there is one. Otherwise use Python `anyascii`, web `any-ascii`, or Android `Transliterator.getInstance("Any-Latin; Latin-ASCII")`, then Title-Case. Never let a name collapse to `_`. If the result is empty, leave the field out.
+- Transliteration: use the stored romanised name if there is one. Otherwise the shared rule in `shared/session-title.json` (`rules.transliteration`): the Indic inherent-vowel pass, then `anyascii` (Python `anyascii`, web `any-ascii`, Android `com.anyascii:anyascii`; not ICU, which spells differently), then Title-Case. Never let a name collapse to `_`. If the result is empty, leave the field out.
 - At most 150 characters in total. Truncate Subject first (to 40), then Craft, then Place. Never cut Portal, Entity, Date, Time, What, Sequence, `n` or the extension.
 - Guard Windows reserved stems (CON, PRN, AUX, NUL, COM1-9, LPT1-9).
 
@@ -64,5 +64,5 @@ Portal_Entity_Date[_Time]_Place_Craft_Subject_What[_Sequence][_n].ext
 ## How to apply
 
 1. Never format a name inline. Call the runtime's single helper: Python `app/services/naming.py`, web `frontend/lib/naming.ts`, Android `data/Naming.kt`. If the helper does not exist yet, add it rather than hand-building the string.
-2. Add a golden test row for every new kind of name, and keep the three runtimes' tables identical.
+2. Add a golden test row for every new kind of name: questionnaire titles, recordings and exports in `shared/session-title.json` (the frozen contract), everything else in `shared/naming-golden.json`. All three runtimes run both tables, and both repositories carry the same bytes.
 3. Exempt: Android private storage directories, scratch temp files, and parts inside a docx. These are not data names.

@@ -1,6 +1,7 @@
 package com.fieldrepository.app.data
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -12,23 +13,122 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Instant
+import java.time.LocalDate
 
 /**
- * The handset's half of the naming convention, held to `shared/naming-golden.json`: the same table
- * `naming.py` and `naming.ts` answer to, byte-identical in both portals. Found by walking up from
- * the module, like `DwTextFormatParityTest`'s table.
+ * The handset's half of the naming convention, held to the same two tables `naming.py` and
+ * `naming.ts` answer to, byte-identical in both portals: `shared/session-title.json` (the frozen
+ * questionnaire contract, DESIGN §9 test 60) and `shared/naming-golden.json` (every other generated
+ * name). Found by walking up from the module, like `DwTextFormatParityTest`'s table.
  */
 class NamingTest {
-    private fun golden(): JsonObject {
+    private fun table(name: String): JsonObject {
         var dir: java.io.File? = java.io.File("").absoluteFile
         while (dir != null) {
-            val candidate = java.io.File(dir, "shared/naming-golden.json")
+            val candidate = java.io.File(dir, "shared/$name")
             if (candidate.isFile) return Json.parseToJsonElement(candidate.readText(Charsets.UTF_8)).jsonObject
             dir = dir.parentFile
         }
-        error("shared/naming-golden.json was not found above ${java.io.File("").absolutePath}")
+        error("shared/$name was not found above ${java.io.File("").absolutePath}")
+    }
+
+    private fun golden(): JsonObject = table("naming-golden.json")
+
+    private fun contract(kind: String): List<JsonObject> =
+        table("session-title.json")["golden"]!!.jsonArray.map { it.jsonObject }.filter { it.str("kind") == kind }
+
+    /** The contract's rows are written for documentation-portal; designer-portal's word replaces it. */
+    private fun here(name: String): String = name.replaceFirst("FieldRepository_", "${Naming.PORTAL}_")
+
+    private fun session(o: JsonObject): Naming.SessionFields {
+        val ws = o["workshop"] as? JsonObject
+        val people = (o["participants"] as? JsonArray).orEmpty().map { it.jsonObject }
+        return Naming.SessionFields(
+            sessionDate = o.str("sessionDate")?.let { LocalDate.parse(it.take(10)) },
+            place = o.str("place"),
+            workshopLocality = ws?.str("locality"),
+            workshopDistrict = ws?.str("district"),
+            workshopState = ws?.str("state"),
+            workshopCraft = ws?.str("craft"),
+            participantCrafts = people.map { it.str("craft") },
+            participantNames = people.map { it.str("name") ?: it.str("localName").orEmpty() },
+            participantLocalNames = people.map { it.str("localName") },
+            entity = o.str("entity"),
+            subject = o.str("subject"),
+        )
+    }
+
+    @Test
+    fun contractTitlesMatch() {
+        for (row in contract("title")) {
+            assertEquals(row.str("case"), row.str("title"), Naming.sessionTitle(session(row["input"]!!.jsonObject)))
+        }
+    }
+
+    @Test
+    fun contractRecordingNamesMatch() {
+        for (row in contract("recording")) {
+            val i = row["input"]!!.jsonObject
+            val targets = i["targets"]!!.jsonArray.map { t ->
+                Naming.NameTarget(t.jsonObject.str("sectionCode"), t.jsonObject.str("displayCode"))
+            }
+            val got = Naming.recordingFileName(
+                Naming.RecordingFields(
+                    session = session(i["session"]!!.jsonObject),
+                    capturedAt = Instant.parse(i.str("capturedAt")),
+                    capturedAtSource = i.str("capturedAtSource") ?: "DEVICE",
+                    targets = targets,
+                    position = i.int("position") ?: 1,
+                    rosterCount = i.int("rosterCount") ?: 1,
+                    extension = i.str("ext") ?: "m4a",
+                    what = i.str("what") ?: "Recording",
+                    part = i.int("part"),
+                )
+            )
+            assertEquals(row.str("case"), here(row.str("fileName")!!), got)
+            assertTrue(got, Regex("^[A-Za-z0-9._-]{1,150}$").matches(got))
+        }
+    }
+
+    @Test
+    fun contractTransliterationExportsAndCollisionsMatch() {
+        for (row in contract("transliteration")) {
+            assertEquals(row.str("case"), row.str("ascii"), Naming.fieldWords(row.str("input"), true).joinToString("-"))
+        }
+        for (row in contract("export")) {
+            val i = row["input"]!!.jsonObject
+            val got = Naming.exportFilename(i.str("entity"), i.str("what"), i.str("ext")!!, day = i.str("day"), subject = i.str("subject"))
+            assertEquals(row.str("case"), here(row.str("fileName")!!), got)
+        }
+        for (row in contract("collision")) {
+            assertEquals(row["names"]!!.jsonArray.map { it.text() }, Naming.dedupeNames(row["input"]!!.jsonArray.map { it.text() }))
+        }
+    }
+
+    @Test
+    fun anEstimatedTimeIsLeftOut() {
+        val meena = Naming.SessionFields(LocalDate.of(2026, 7, 1), participantNames = listOf("Meena Pal"))
+        for (source in Naming.ESTIMATED_SOURCES) {
+            assertEquals(
+                "${Naming.PORTAL}_Interview_2026-07-01_Meena-Pal_Recording.m4a",
+                Naming.recordingFileName(Naming.RecordingFields(meena, Instant.parse("2026-07-01T06:30:00Z"), source)),
+            )
+        }
+        assertTrue(Naming.recordingFileName(Naming.RecordingFields(meena, Instant.parse("2026-07-01T06:30:00Z"))).contains("_1200_"))
+    }
+
+    @Test
+    fun phoneDisplaysAsPlus91() {
+        assertEquals("+91 98765 43210", PhoneDisplay.format("+91", "9876543210"))
+        assertEquals("+91 98765 43210", PhoneDisplay.format("91", "98765-43210"))
+        assertEquals("", PhoneDisplay.format("+91", ""))
+        assertEquals("+44 7911123456", PhoneDisplay.format("+44", "7911123456"))
+        assertTrue(PhoneDisplay.isValid("+91", "9876543210"))
+        assertFalse(PhoneDisplay.isValid("+91", "98765"))
     }
 
     private fun JsonObject.str(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.contentOrNull
@@ -73,7 +173,7 @@ class NamingTest {
     fun titlesMatchTheGoldenTable() {
         for (row in golden()["titles"]!!.jsonArray) {
             val input = row.jsonObject["input"]!!.jsonObject
-            val people = (input["participants"] as? kotlinx.serialization.json.JsonArray).orEmpty().map { p ->
+            val people = (input["participants"] as? JsonArray).orEmpty().map { p ->
                 if (p is JsonObject) Naming.Participant(p.str("name"), p.str("romanisedName")) else Naming.Participant(p.text())
             }
             val got = Naming.sessionTitle(

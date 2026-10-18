@@ -42,6 +42,7 @@ import {
   sortWorkshopsByOccurrence,
   workshopOccurrenceDate
 } from "@/components/forms/WorkshopSelect";
+import { workshopDisplayTitle } from "@/lib/workshopTitle";
 
 /**
  * The reserved id meaning "records not linked to any workshop". Byte-for-byte
@@ -138,7 +139,7 @@ export function useWorkshopScope({
     if (!workshopIds.length) return "Every workshop, and records not linked to one.";
     const named = workshopIds
       .filter((id) => id !== UNASSIGNED_WORKSHOP)
-      .map((id) => workshops.find((workshop) => workshop.id === id)?.title?.trim() || "Untitled workshop");
+      .map((id) => workshopDisplayTitle(workshops.find((workshop) => workshop.id === id)));
     const includesUnassigned = workshopIds.includes(UNASSIGNED_WORKSHOP);
     if (!named.length) return "Only records not linked to a workshop.";
     const list = named.length <= 3 ? named.join(", ") : `${named.slice(0, 3).join(", ")} and ${named.length - 3} more`;
@@ -158,7 +159,7 @@ export function useWorkshopScope({
  * spellings of one label is four chances for one workshop to read four ways down one session.
  */
 export function workshopScopeLabel(workshop: Workshop): string {
-  const title = workshop.title?.trim() || "Untitled workshop";
+  const title = workshopDisplayTitle(workshop);
   const when = formatDate(workshopOccurrenceDate(workshop) || null);
   return when === "-" ? title : `${title} · ${when}`;
 }
