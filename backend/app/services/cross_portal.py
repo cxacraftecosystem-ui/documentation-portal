@@ -141,9 +141,7 @@ def active(settings: Any, *, needs_url: bool = False) -> bool:
         return False
     if not _secret_ok(aadhaar_key(settings)):
         return False
-    if needs_url and not (getattr(settings, "field_repository_api_url", None) or "").strip():
-        return False
-    return True
+    return not (needs_url and not (getattr(settings, "field_repository_api_url", None) or "").strip())
 
 
 def aadhaar_key(settings: Any) -> str | None:
