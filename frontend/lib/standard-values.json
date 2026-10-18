@@ -1,0 +1,69 @@
+{
+  "_about": "Standard values shared by the Designer Portal and the Field Repository (convergence point 10). This file is byte-identical in both repositories; tests/test_standard_values.py holds that. Stored values are the 'code' of each entry (gender stores its 'label', which is what both portals have always stored). 'aliases' are input spellings that normalise to the entry; matching folds case, accents, punctuation and spaces. A code, once published, is never reused or renamed. Change both repositories together.",
+  "version": 1,
+  "phone": {
+    "defaultCountryCode": "+91",
+    "nationalDigits": {
+      "+91": [10, 10]
+    },
+    "otherNationalDigits": [4, 14],
+    "e164MaxDigits": 15
+  },
+  "languages": [
+    {"code": "hi", "name": "Hindi", "aliases": ["हिन्दी", "हिंदी", "hindi language"]},
+    {"code": "en", "name": "English", "aliases": ["eng"]},
+    {"code": "bn", "name": "Bengali", "aliases": ["Bangla", "Bengla", "Bangali", "Bengoli", "Bongali", "বাংলা"]},
+    {"code": "mr", "name": "Marathi", "aliases": ["मराठी"]},
+    {"code": "te", "name": "Telugu", "aliases": ["తెలుగు"]},
+    {"code": "ta", "name": "Tamil", "aliases": ["தமிழ்"]},
+    {"code": "gu", "name": "Gujarati", "aliases": ["ગુજરાતી"]},
+    {"code": "ur", "name": "Urdu", "aliases": ["اردو"]},
+    {"code": "kn", "name": "Kannada", "aliases": ["ಕನ್ನಡ"]},
+    {"code": "or", "name": "Odia", "aliases": ["Oriya", "Odiya", "ଓଡ଼ିଆ"]},
+    {"code": "ml", "name": "Malayalam", "aliases": ["മലയാളം"]},
+    {"code": "pa", "name": "Punjabi", "aliases": ["Panjabi", "ਪੰਜਾਬੀ"]},
+    {"code": "as", "name": "Assamese", "aliases": ["Asamiya", "অসমীয়া"]},
+    {"code": "mai", "name": "Maithili", "aliases": ["मैथिली"]},
+    {"code": "sa", "name": "Sanskrit", "aliases": ["संस्कृतम्", "संस्कृत"]},
+    {"code": "kok", "name": "Konkani", "aliases": ["कोंकणी"]},
+    {"code": "ne", "name": "Nepali", "aliases": ["नेपाली"]},
+    {"code": "mni", "name": "Manipuri (Meitei)", "aliases": ["Manipuri", "Meitei", "Meetei"]},
+    {"code": "brx", "name": "Bodo", "aliases": ["बड़ो"]},
+    {"code": "doi", "name": "Dogri", "aliases": ["डोगरी"]},
+    {"code": "ks", "name": "Kashmiri", "aliases": ["کٲشُر"]},
+    {"code": "sat", "name": "Santali", "aliases": ["Santhali", "ᱥᱟᱱᱛᱟᱲᱤ"]},
+    {"code": "sd", "name": "Sindhi", "aliases": ["سنڌي"]},
+    {"code": "mis", "name": "Other", "aliases": []}
+  ],
+  "genders": [
+    {"code": "MALE", "label": "Male", "aliases": ["M", "Man", "पुरुष"]},
+    {"code": "FEMALE", "label": "Female", "aliases": ["F", "Woman", "महिला", "स्त्री"]},
+    {"code": "TRANSGENDER", "label": "Transgender", "aliases": ["Third gender", "Trans"]},
+    {"code": "OTHER", "label": "Other", "aliases": []}
+  ],
+  "traditionTypes": [
+    {"code": "TRADITIONAL", "label": "Traditional", "aliases": []},
+    {"code": "MODERN", "label": "Modern", "aliases": ["CONTEMPORARY"]},
+    {"code": "HYBRID", "label": "Hybrid", "aliases": ["TRANSITIONAL", "Traditional form, contemporary use"]},
+    {"code": "UNKNOWN", "label": "Unknown", "aliases": ["Not known"]}
+  ],
+  "materialFamilies": [
+    {"code": "COTTON", "label": "Cotton", "aliases": []},
+    {"code": "SILK", "label": "Silk", "aliases": ["Tussar", "Tasar", "Muga", "Eri"]},
+    {"code": "WOOL", "label": "Wool", "aliases": ["Woollen", "Pashmina"]},
+    {"code": "JUTE", "label": "Jute", "aliases": []},
+    {"code": "LINEN", "label": "Linen", "aliases": []},
+    {"code": "BLEND", "label": "Blended yarn", "aliases": ["Blend", "Blended"]},
+    {"code": "BAMBOO", "label": "Bamboo / cane", "aliases": ["Bamboo", "Cane", "Rattan"]},
+    {"code": "WOOD", "label": "Wood", "aliases": ["Wooden", "Timber", "Teak", "Sheesham", "Mango wood", "Lakdi", "लकड़ी"]},
+    {"code": "CLAY", "label": "Clay / terracotta", "aliases": ["Clay", "Terracotta", "Mitti", "मिट्टी"]},
+    {"code": "METAL", "label": "Metal", "aliases": ["Iron", "Steel", "Brass", "Copper", "Bronze", "Aluminium", "Aluminum", "Bell metal", "Loha", "लोहा"]},
+    {"code": "STONE", "label": "Stone", "aliases": ["Granite", "Marble", "Sandstone", "Pathar", "पत्थर"]},
+    {"code": "LEATHER", "label": "Leather", "aliases": ["Hide"]},
+    {"code": "GRASS", "label": "Grass / fibre", "aliases": ["Grass", "Fibre", "Fiber", "Sabai", "Moonj", "Coir"]},
+    {"code": "PAPER", "label": "Paper", "aliases": []},
+    {"code": "NATURAL_DYE", "label": "Natural dye", "aliases": []},
+    {"code": "CHEMICAL_DYE", "label": "Chemical dye", "aliases": []},
+    {"code": "OTHER", "label": "Other", "aliases": []}
+  ]
+}

@@ -19,6 +19,7 @@ from app.schemas.records import (
 )
 from app.services.access import guard_record_edit, record_edit_privilege
 from app.services.concurrency import gather_reads
+from app.services.standard_values import StandardValueError, apply_tool_values
 from app.services.workshop_access import (
     enforce_workshop_submission,
     pin_pending_if_late,
@@ -124,6 +125,7 @@ _LINK_RELATIONS = tuple(rel for rel in RELATIONS if rel.field in ("artisanLinks"
 # "clear the links" would be indistinguishable from "leave them alone". ``ToolCreate.craftIds``
 # refuses the null outright rather than letting the two answers collapse.
 _CLEARABLE_COLUMNS = (
+    "materialFamily",
     "localName",
     "englishName",
     "processUsedIn",
@@ -756,6 +758,7 @@ async def create_tool(
     # A queued write naming an artisan merged away since lands on the survivor (services/artisan_merge).
     await redirect_merged_artisans(payload)
     data = decimal_to_string(clean_data(payload.model_dump()))
+    _standardise(apply_tool_values, data)
     # THE TWO LINK LISTS COME OUT OF THE BODY HERE, above everything that reads ``data`` as columns,
     # and the ids are checked before the first write. ``craftId``/``craftName``/``artisanId`` are
     # derived from them, so ``merge_field_provenance`` below stamps the values that will actually be
@@ -832,6 +835,7 @@ async def update_tool(
     data = decimal_to_string(
         clean_data(payload.model_dump(exclude_unset=True), clearable=_CLEARABLE_COLUMNS)
     )
+    _standardise(apply_tool_values, data, tool)
     # The precondition is a QUESTION, not a column — popped before anything reads ``data``, and
     # checked above ``guard_record_edit`` because that call ends in a COMMITTED ``RecordRevision``
     # row and this backend has no transaction to roll one back with.
@@ -1040,3 +1044,11 @@ async def _may_manage_tool_links(tool: Any, current_user: Any) -> bool:
     ``POST /tools/{id}/artisans`` and ``DELETE /tools/{id}/artisans/{artisan_id}``, and all three
     mean the same thing by it."""
     return await record_edit_privilege(tool, current_user, "tool")
+
+
+def _standardise(apply: Any, data: dict[str, Any], stored: Any = None) -> None:
+    """The shared standard values (``services/standard_values``): a value off its list is a 422."""
+    try:
+        apply(data, stored)
+    except StandardValueError as exc:
+        raise HTTPException(status_code=422, detail=exc.message) from exc

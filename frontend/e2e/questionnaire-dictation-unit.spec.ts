@@ -167,7 +167,8 @@ test("every microphone on this page is silent about Firefox, and the page says i
     countOf(CODE, /<DictatedTextInput\b/g) +
     countOf(CODE, /<DictatedTextArea\b/g) +
     countOf(CODE, /<OnDeviceDictationButton\b/g);
-  expect(controls, "this page carries the dictation controls the sweep added").toBe(8);
+  // Seven since convergence point 10: Language became the shared list (a picker, no microphone).
+  expect(controls, "this page carries the dictation controls the sweep added").toBe(7);
   expect(
     countOf(CODE, /explainWhenUnavailable=\{false\}/g),
     "EVERY control is silenced — one that is not prints the paragraph beside itself"
@@ -203,9 +204,8 @@ test("the dictated boxes on this page are exactly the free-text ones, named", ()
     // would then have to be written in an order that reads like a mistake.
     (match) => /name="([^"]+)"/.exec(match[1])?.[1] ?? "(no name)"
   );
-  expect([...named].sort(), "title, place and language in the header; prompt and title in the builder").toEqual([
+  expect([...named].sort(), "title and place in the header; prompt and title in the builder").toEqual([
     "(no name)",
-    "language",
     "place",
     "prompt",
     "title",
@@ -251,9 +251,13 @@ test("the three header boxes keep the names their own submit reads them by", () 
   // renders identically, type-checks, submits nothing, and the API answers 201. The interview saves
   // with a generated title, no place and no language, and nobody finds out until the record is read
   // back — by which time the artisan has gone home.
-  for (const name of ["title", "place", "language"] as const) {
+  for (const name of ["title", "place"] as const) {
     expect(CODE, `${name} must submit under its own name`).toMatch(new RegExp(`<DictatedTextInput\\s+name="${name}"`));
   }
+  // Language is the shared list since convergence point 10: a picker whose value submits through a
+  // hidden input of the same name, so `textValue(form, "language")` below still reads it.
+  expect(CODE, "language must submit under its own name").toMatch(/<Select name="language" value=\{language\}/);
+  expect(CODE, "language is picked from the shared list").toMatch(/languageOptions\(language\)\.map/);
   expect(CODE, "and submit still reads all three out of the FormData").toMatch(/textValue\(form, "title"\)/);
   expect(CODE).toMatch(/place: textValue\(form, "place"\)/);
   expect(CODE).toMatch(/language: textValue\(form, "language"\)/);
@@ -265,10 +269,6 @@ test("the three header boxes keep the names their own submit reads them by", () 
   // and nobody typed it, so without it the value changes silently after saving.
   expect(CODE).toMatch(/name="title"[\s\S]*?titleCased/);
   expect(CODE).toMatch(/name="place"[\s\S]*?titleCased/);
-  const languageBox = /<DictatedTextInput\s+name="language"([\s\S]*?)\/>/.exec(CODE)?.[1] ?? "";
-  expect(languageBox, "language is not title-cased server-side, so it must not claim to be").not.toMatch(
-    /titleCased/
-  );
 
   // The API's own ceiling, enforced in React state where the DOM attribute cannot reach. Dictation is
   // the one path that can carry a value past a column's limit, and an over-long title 422s the WHOLE

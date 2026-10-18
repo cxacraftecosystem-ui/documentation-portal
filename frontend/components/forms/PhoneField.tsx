@@ -44,13 +44,29 @@ function parsePhone(raw: string | null | undefined): { iso2: string; digits: str
 export function PhoneField({
   name = "phone",
   defaultValue,
-  onValueChange
+  onValueChange,
+  countryCode,
+  countryCodeName
 }: {
   name?: string;
   defaultValue?: string | null;
   onValueChange?: (value: string) => void;
+  /** The stored `phoneCountryCode` beside a digits-only `defaultValue` (the record columns). */
+  countryCode?: string | null;
+  /**
+   * Set on a record form: the mirror then submits the digits under `name` and the dial code under
+   * this name, the two columns the server stores (lib/standardValues). Unset, it submits the one
+   * "+91 9876543210" string.
+   */
+  countryCodeName?: string;
 }) {
-  const [{ iso2, digits }, setState] = useState(() => parsePhone(defaultValue));
+  const [{ iso2, digits }, setState] = useState(() =>
+    parsePhone(
+      countryCode && defaultValue && !defaultValue.trim().startsWith("+")
+        ? `${countryCode} ${defaultValue.trim()}`
+        : defaultValue
+    )
+  );
   const country = countryByIso2(iso2) ?? countryByIso2(DEFAULT_ISO2)!;
   const dialCode = country.dialCode;
   const combined = digits ? `${dialCode} ${digits}` : "";
@@ -120,16 +136,32 @@ export function PhoneField({
       {error ? <p className="text-xs text-error-600">{error}</p> : null}
       {/* Zero-size (not hidden) mirror input: submits the single combined value under the existing
           field name AND participates in native constraint validation via the pattern. */}
-      <input
-        type="text"
-        name={name}
-        value={combined}
-        pattern={digits ? (dialCode === DEFAULT_DIAL_CODE ? "\\+91 \\d{10}" : "\\+\\d{1,4} \\d{4,14}") : undefined}
-        onChange={() => undefined}
-        tabIndex={-1}
-        aria-hidden="true"
-        className="pointer-events-none absolute h-0 w-0 border-0 p-0 opacity-0"
-      />
+      {countryCodeName ? (
+        <>
+          <input
+            type="text"
+            name={name}
+            value={digits}
+            pattern={digits ? (dialCode === DEFAULT_DIAL_CODE ? "\\d{10}" : "\\d{4,14}") : undefined}
+            onChange={() => undefined}
+            tabIndex={-1}
+            aria-hidden="true"
+            className="pointer-events-none absolute h-0 w-0 border-0 p-0 opacity-0"
+          />
+          <input type="hidden" name={countryCodeName} value={digits ? dialCode : ""} />
+        </>
+      ) : (
+        <input
+          type="text"
+          name={name}
+          value={combined}
+          pattern={digits ? (dialCode === DEFAULT_DIAL_CODE ? "\\+91 \\d{10}" : "\\+\\d{1,4} \\d{4,14}") : undefined}
+          onChange={() => undefined}
+          tabIndex={-1}
+          aria-hidden="true"
+          className="pointer-events-none absolute h-0 w-0 border-0 p-0 opacity-0"
+        />
+      )}
     </div>
   );
 }

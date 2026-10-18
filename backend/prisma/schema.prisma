@@ -778,8 +778,13 @@ model Artisan {
   id            String       @id @default(cuid())
   name          String
   localName     String?
+  /// One of the shared gender labels (app/data/standard_values.json): Male, Female, Transgender, Other.
   gender        String?
+  /// The national number, ASCII digits only (10 for +91). The country code is the column below.
   phone         String?
+  /// The phone's country code, "+91" unless the number is from elsewhere; null when there is no
+  /// phone. Shown together as "+91 98765 43210" (app/services/standard_values.py).
+  phoneCountryCode String?
   email         String?
   place         String
   /// The artisan's Aadhaar number, stored as the bare 12 digits. This is the DEDUPLICATION KEY:
@@ -1156,6 +1161,9 @@ model ToolDocumentation {
   englishName                   String?
   processUsedIn                 String?
   material                      String?
+  /// The material family from the shared list (app/data/standard_values.json, the same 17 codes
+  /// as the stage registry's MATERIAL_FAMILY). `material` stays the free description.
+  materialFamily                String?
   yearsInUse                    Int?
   height                        Decimal?      @db.Decimal(10, 2)
   width                         Decimal?      @db.Decimal(10, 2)

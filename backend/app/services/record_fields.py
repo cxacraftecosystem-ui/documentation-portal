@@ -39,6 +39,7 @@ from typing import Any, Callable, Iterable
 
 from app.services.artisan_identity import mask_aadhaar
 from app.services.records import derive_age, derive_experience_years
+from app.services.standard_values import language_name, material_family_label, phone_of
 
 # ---------------------------------------------------------------------------
 # Value coercion
@@ -346,7 +347,7 @@ ARTISAN = RecordSpec(
             lambda a: _rel(a, "location", "pincode")
             or meta_val(meta_of(a), "pincode", "pinCode", "postalCode"),
         ),
-        _f("Phone", lambda a: a.phone),
+        _f("Phone", phone_of),
         _f("Email", lambda a: a.email),
         # Aadhaar and the Pehchan (PM Vishwakarma) card are regulated personal data and this spec
         # feeds every SHARED surface — the data browser, the .xlsx workbook, generated details.txt,
@@ -458,6 +459,7 @@ TOOL = RecordSpec(
         _f("Place", lambda t: t.place),
         _f("Usage", lambda t: t.processUsedIn),
         _f("Material", lambda t: t.material),
+        _f("Material type", lambda t: material_family_label(t.materialFamily)),
         _f("Years in use", lambda t: t.yearsInUse),
         _f("Dimensions (LxBxH in)", lambda t: dims(t.lengthInches, t.breadthInches, t.heightInches)),
         # THIS CELL WAS "Dimensions (LxB in)" AND PRINTED TWO NUMBERS, because `ToolDocumentation`
@@ -539,7 +541,7 @@ INTERVIEW = RecordSpec(
             lambda i: getattr(getattr(i, "questionnaire", None), "title", None),
         ),
         _f("Location", lambda i: i.place),
-        _f("Language", lambda i: i.language),
+        _f("Language", lambda i: language_name(i.language)),
         _f("Recorded at", lambda i: date_str(i.interviewDate or i.recordedAt)),
         _f("Notes", lambda i: i.notes),
     ),

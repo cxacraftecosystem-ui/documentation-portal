@@ -20,6 +20,7 @@ import { Toggle } from "@/components/ui/Toggle";
 import { LocationFields, type LocationInitialValues } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { PhoneField } from "@/components/forms/PhoneField";
+import { GENDER_OPTIONS } from "@/lib/standardValues";
 import { useRecordOffPage } from "@/components/forms/recordPickers";
 import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/WorkshopSelect";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
@@ -46,8 +47,8 @@ import type { AadhaarLookupResult, Artisan, ArtisanIdentityConflict, ArtisanIden
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SharingConsentToggle } from "@/components/forms/SharingConsentToggle";
 
-// Android parity (MainActivity.kt genderOptions).
-const genderOptions = ["Male", "Female", "Transgender", "Other"];
+// The shared gender list (lib/standardValues, the same file in both portals and on Android).
+const genderOptions = GENDER_OPTIONS;
 
 /**
  * The rows of the "Experience (months)" picker: 0..11, built rather than typed out.
@@ -369,7 +370,7 @@ function StatusField({
  * of the Firefox paragraph, which is how a true sentence becomes wallpaper.
  */
 /** B6: the uncontrolled boxes an artisan draft reads from the form. No identity number is among them. */
-const ARTISAN_DRAFT_FORM_FIELDS = ["gender", "dateOfBirth", "craftStartDate", "experienceYears", "experienceMonths", "phone", "address", "notes", "dos", "donts"];
+const ARTISAN_DRAFT_FORM_FIELDS = ["gender", "dateOfBirth", "craftStartDate", "experienceYears", "experienceMonths", "phone", "phoneCountryCode", "address", "notes", "dos", "donts"];
 
 export function ArtisanForm({ initial }: { initial?: Artisan }) {
   const router = useRouter();
@@ -728,6 +729,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
         */
         experienceMonths: experienceMonthsText === null ? null : Number(experienceMonthsText),
         phone: textValue(form, "phone"),
+        phoneCountryCode: textValue(form, "phoneCountryCode"),
         email: textValue(form, "email"),
         place: requiredText(form, "place"),
         address: textValue(form, "address"),
@@ -1163,7 +1165,13 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
             </Select>
           </Field>
           <Field label="Phone">
-            <PhoneField name="phone" defaultValue={restored.phone ?? initial?.phone} onValueChange={markDirty} />
+            <PhoneField
+              name="phone"
+              countryCodeName="phoneCountryCode"
+              countryCode={restored.phone !== undefined ? restored.phoneCountryCode : initial?.phoneCountryCode}
+              defaultValue={restored.phone ?? initial?.phone}
+              onValueChange={markDirty}
+            />
           </Field>
           <Field label="Email">
             <TextInput

@@ -48,6 +48,7 @@ from app.core.db import db
 from app.core.deps import get_value, values_match
 from app.services.artisan_identity import mask_aadhaar
 from app.services.concurrency import gather_reads
+from app.services.standard_values import phone_of
 
 UNDO_WINDOW = timedelta(days=30)
 
@@ -97,7 +98,7 @@ FIELDS: tuple[Field, ...] = (
     Field("name", "Name"),
     Field("localName", "Local name"),
     Field("gender", "Gender"),
-    Field("phone", "Phone"),
+    Field("phone", "Phone", ("phone", "phoneCountryCode")),
     Field("email", "Email"),
     Field("place", "Place"),
     Field("address", "Address"),
@@ -283,6 +284,8 @@ def display_value(row: dict[str, Any], field: Field, names: dict[str, str]) -> s
         if row.get("pehchanCardAvailable") is False:
             return "No card"
         return None
+    if field.key == "phone":
+        return phone_of(row)
     if field.key in ("craftId", "workshopId"):
         value = row.get(field.key)
         return names.get(value, "Unknown") if value else None

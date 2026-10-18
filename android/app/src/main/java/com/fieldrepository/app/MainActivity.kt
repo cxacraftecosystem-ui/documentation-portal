@@ -103,6 +103,7 @@ import com.fieldrepository.app.ui.rememberFormDraft
 import com.fieldrepository.app.ui.FormDraftAutosave
 import com.fieldrepository.app.ui.DraftOfferCard
 import com.fieldrepository.app.data.DraftStore
+import com.fieldrepository.app.data.StandardValues
 import com.fieldrepository.app.data.countNoun
 import com.fieldrepository.app.data.DraftValues
 import com.fieldrepository.app.data.OutboxStep
@@ -4024,7 +4025,6 @@ private fun Stat(
 private val productTypeOptions = listOf("FINISHED_GOOD", "SAMPLE", "RAW_MATERIAL", "COMPONENT", "PACKAGING", "OTHER")
 private val marketDemandOptions = listOf("LOW", "MEDIUM", "HIGH", "SEASONAL", "UNKNOWN")
 private val makerOptions = listOf("ARTISAN", "LOCAL_BLACKSMITH", "CARPENTER", "WORKSHOP", "FACTORY", "UNKNOWN", "OTHER")
-private val traditionOptions = listOf("TRADITIONAL", "MODERN", "HYBRID", "UNKNOWN")
 private val statusOptions = listOf("DRAFT", "PENDING", "APPROVED", "REJECTED")
 
 /** The word a person reads for a record status: the badges say "Approved", so the picker does too. */
@@ -4119,7 +4119,8 @@ private fun UserDto.canManageUsers(): Boolean = roleRank(role) >= RANK_PROFESSOR
 
 /** The status a NEW record defaults to for the given role: APPROVED for professor+, PENDING below. */
 private fun defaultCreateStatus(role: String?): String = if (canSetRecordStatus(role)) "APPROVED" else "PENDING"
-private val genderOptions = listOf("Male", "Female", "Transgender", "Other")
+/** The shared gender list (StandardValues; the same in both portals and on the web). */
+private val genderOptions = StandardValues.GENDER_LABELS
 
 /**
  * App-level controller that lets a record form tell the back navigation "I have unsaved work, and
@@ -6952,7 +6953,9 @@ private fun ArtisanForm(
     var localName by remember(editing) { mutableStateOf(editing?.localName ?: "") }.drafted(draft, "localName")
     // Unset until somebody answers: a box nobody touched must not save a claim about a person.
     var gender by remember(editing) { mutableStateOf(editing?.gender?.takeIf { it.isNotBlank() } ?: "") }.drafted(draft, "gender")
-    var phone by remember(editing) { mutableStateOf(editing?.phone ?: "") }.drafted(draft, "phone")
+    var phone by remember(editing) {
+        mutableStateOf(StandardValues.phoneForEditing(editing?.phoneCountryCode, editing?.phone))
+    }.drafted(draft, "phone")
     var email by remember(editing) { mutableStateOf(editing?.email ?: "") }.drafted(draft, "email")
     var place by remember(editing) { mutableStateOf(editing?.place ?: prefill?.place ?: "") }.drafted(draft, "place")
     var address by remember(editing) { mutableStateOf(editing?.address ?: "") }.drafted(draft, "address")
@@ -7200,7 +7203,10 @@ private fun ArtisanForm(
                 name = name.trim(),
                 localName = localName.blankToNull(),
                 gender = gender.blankToNull(),
-                phone = phone.blankToNull(),
+                // The two columns the server stores: digits and the code beside them. A value the
+                // rule cannot read goes as typed, and the server says why.
+                phone = StandardValues.normalizePhone(null, phone).digits ?: phone.blankToNull(),
+                phoneCountryCode = StandardValues.normalizePhone(null, phone).code,
                 email = email.blankToNull(),
                 place = place.trim(),
                 address = address.blankToNull(),
@@ -8397,6 +8403,7 @@ private fun ToolForm(
 
     var processUsedIn by remember(editing) { mutableStateOf(editing?.processUsedIn ?: "") }.drafted(draft, "processUsedIn")
     var material by remember(editing) { mutableStateOf(editing?.material ?: "") }.drafted(draft, "material")
+    var materialFamily by remember(editing) { mutableStateOf(editing?.materialFamily.orEmpty()) }.drafted(draft, "materialFamily")
     var yearsInUse by remember(editing) { mutableStateOf(editing?.yearsInUse?.toString() ?: "") }.drafted(draft, "yearsInUse")
     /*
      * THE CENTIMETRE PAIR AND THE INCH TRIPLE — five boxes, and the rule that stops two of them from
@@ -8744,6 +8751,7 @@ private fun ToolForm(
                 place = place.trim(),
                 processUsedIn = processUsedIn.blankToNull(),
                 material = material.blankToNull(),
+                materialFamily = materialFamily.blankToNull(),
                 yearsInUse = yearsInUse.toIntOrNull(),
                 height = height.toDoubleOrNull(),
                 width = width.toDoubleOrNull(),
@@ -9138,6 +9146,8 @@ private fun ToolForm(
         }
         TextInput("Process used in", processUsedIn, dictate = dictates("processUsedIn")) { processUsedIn = it }
         TextInput("Material", material, dictate = dictates("material")) { material = it }
+        // The material FAMILY from the shared list; the box above stays the free description.
+        DropdownField("Material type", StandardValues.MATERIAL_FAMILY_OPTIONS, materialFamily, placeholder = "Select material type") { materialFamily = it }
         TextInput("Years in use", yearsInUse, keyboardType = KeyboardType.Number, dictate = dictates("yearsInUse")) { yearsInUse = it }
         /*
          * THE CENTIMETRE PAIR. The labels say "(cm)" as of 2026-09-15 and the LABELS ARE THE ONLY
@@ -9269,7 +9279,7 @@ private fun ToolForm(
             onHeight = { value, marker -> heightInches = numToText(value); markers.accept("heightInches", heightInches, visionMarker(marker)); cmTextFromInches(heightInches)?.let { height = it } }
         )
         DropdownField("Maker", makerOptions.map { it to it }, maker, includeNone = false) { maker = it }
-        DropdownField("Tradition type", traditionOptions.map { it to it }, traditionType, includeNone = false) { traditionType = it }
+        DropdownField("Tradition type", StandardValues.TRADITION_OPTIONS, traditionType, includeNone = false) { traditionType = it }
         TextInput("Replacement cost", replacementCost, keyboardType = KeyboardType.Decimal, dictate = dictates("replacementCost")) { replacementCost = it }
         // The tool form's two narrative columns. `processUsedIn` above stays single-line and takes
         // no editor — it is single-line on the web form too, and `components/forms/ToolForm.tsx`'s
@@ -13166,7 +13176,7 @@ private fun ViewDataDetail(
                 DetailRow("Craft", v.craft?.name)
                 DetailRow("Place", v.place)
                 DetailRow("Gender", v.gender)
-                DetailRow("Phone", v.phone)
+                DetailRow("Phone", StandardValues.formatPhone(v.phoneCountryCode, v.phone))
                 DetailRow("Email", v.email)
                 DetailRow("Address", v.address)
                 DetailRow("Notes", v.notes)
@@ -13220,6 +13230,7 @@ private fun ViewDataDetail(
                 DetailRow("Artisan", v.artisanName)
                 DetailRow("Place", v.place)
                 DetailRow("Material", v.material)
+                DetailRow("Material type", StandardValues.materialFamilyLabel(v.materialFamily))
                 DetailRow("Maker", v.maker)
                 DetailRow("Tradition", v.traditionType)
                 DetailRow("Used in", v.processUsedIn)
@@ -13293,7 +13304,7 @@ private fun ViewDataDetail(
                 if (showProvenance) ProvenanceSection(meta = rep.extraMetadata, createdByName = rep.createdBy?.name)
                 DetailRow("Artisans", rep.artisans.mapNotNull { it.artisan?.name }.joinToString(", ").ifBlank { null })
                 DetailRow("Place", rep.place)
-                DetailRow("Language", rep.language)
+                DetailRow("Language", StandardValues.languageName(rep.language))
                 DetailRow("Notes", rep.notes)
                 DetailRow("Status", rep.status)
                 val researchers = g.mapNotNull { it.createdBy?.name }.distinct().joinToString(", ")
@@ -14947,24 +14958,10 @@ private fun QuestionnaireForm(
         if (autoPlace != null && place == autoPlace) {
             Text("From the artisan's record. Change it to override.", color = Muted, style = MaterialTheme.typography.bodySmall)
         }
-        /*
-          -- LANGUAGE IS FREE TEXT, AND THE DROPDOWN THAT STOOD HERE WAS THE DRIFT -------------------
-
-          What was here: twenty-four scheduled languages plus "Other", preserving any pre-existing
-          free-text value as an extra row. A careful control, and the wrong one. The column is
-          `str | None` with no enum behind it on either client, and the artisan's own answer --
-          "Kutchi, and some Gujarati" -- is a perfectly good value that no list of language names can
-          hold. A dropdown here is not a narrower version of this control; it is a DIFFERENT control
-          that cannot express the answer, and the "Other" row is the proof: it records that the
-          researcher had an answer and then throws the answer away. The web argues the same where it
-          draws it (page.tsx:1012-1018) and the contract records the ruling.
-
-          THE "Hindi" DEFAULT GOES WITH THE DROPDOWN. The argument for it was real -- Hindi is the
-          commonest answer on this deployment and pre-filling saved a tap -- but a value nobody typed
-          is indistinguishable in the archive from one they did, and this is the column the archive
-          reports language BY. The browser opens this box blank. So does this one.
-        */
-        TextInput("Language", language) { language = it }
+        // The shared language list (StandardValues, convergence point 10, owner decision 18 Oct 2026,
+        // superseding the free-text ruling): a standard code stored ("bn"), its name shown ("Bengali").
+        // A value stored before the list stays selectable, first, so no save overwrites it.
+        DropdownField(label = "Language", options = StandardValues.languageOptions(language), selectedValue = language, placeholder = "Select language", includeNone = false) { language = it }
         // The workshop no longer leads the form but still leads everything under it in MEANING: it
         // is the context the interview belongs to, it chooses the instrument in the next field, and
         // it scopes the artisan roster two fields down.

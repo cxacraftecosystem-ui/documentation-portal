@@ -55,6 +55,8 @@ class ArtisanCreate(APIModel):
     localName: str | None = None
     gender: str | None = None
     phone: str | None = None
+    # The country code beside it (services/standard_values); +91 when a number carries none.
+    phoneCountryCode: str | None = Field(default=None, max_length=8)
     email: str | None = None
     place: str = Field(min_length=1, max_length=180)
     address: str | None = None
@@ -199,6 +201,8 @@ class ArtisanUpdate(APIModel):
     localName: str | None = None
     gender: str | None = None
     phone: str | None = None
+    # The country code beside it (services/standard_values); +91 when a number carries none.
+    phoneCountryCode: str | None = Field(default=None, max_length=8)
     email: str | None = None
     place: str | None = Field(default=None, min_length=1, max_length=180)
     address: str | None = None
@@ -751,6 +755,8 @@ class ToolCreate(APIModel):
     englishName: str | None = None
     processUsedIn: str | None = None
     material: str | None = None
+    # A code from the shared material list (services/standard_values); `material` stays free text.
+    materialFamily: str | None = Field(default=None, max_length=40)
     yearsInUse: int | None = Field(default=None, ge=0)
     # ge=0 across the measurements and the price — see ``ProductCreate.lengthInches`` for the whole
     # argument and for the pre-deploy audit query, which covers both tables.
@@ -854,6 +860,8 @@ class ToolUpdate(APIModel):
     englishName: str | None = None
     processUsedIn: str | None = None
     material: str | None = None
+    # A code from the shared material list (services/standard_values); `material` stays free text.
+    materialFamily: str | None = Field(default=None, max_length=40)
     yearsInUse: int | None = Field(default=None, ge=0)
     # ge=0 on the UPDATE too — see ``ProductCreate.lengthInches``. Bounding create alone would leave
     # the number correctable through a PATCH and therefore not bounded at all.

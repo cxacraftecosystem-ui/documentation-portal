@@ -1,5 +1,6 @@
 import { formatDate } from "@/lib/format";
 import type { RecordViewType } from "@/lib/recordView";
+import { languageName, phoneOf } from "@/lib/standardValues";
 
 /**
  * WHAT A RECORD'S READ-ONLY VIEW PRINTS, as plain label/value rows.
@@ -81,7 +82,7 @@ export function recordFieldRows(type: RecordViewType, record: Loose): RecordFiel
         { label: "Craft", value: name(record.craft) },
         { label: "Place", value: text(record.place) },
         { label: "Gender", value: text(record.gender) },
-        { label: "Phone", value: text(record.phone) },
+        { label: "Phone", value: text(phoneOf(record)) },
         { label: "Email", value: text(record.email) },
         { label: "Address", value: text(record.address) },
         { label: "Experience", value: experience(record) },
@@ -177,7 +178,7 @@ export function recordFieldRows(type: RecordViewType, record: Loose): RecordFiel
         },
         { label: "Interview date", value: record.interviewDate ? formatDate(record.interviewDate as string) : NOT_RECORDED },
         { label: "Place", value: text(record.place) },
-        { label: "Language", value: text(record.language) },
+        { label: "Language", value: text(languageName(record.language as string | null | undefined)) },
         { label: "Interviewer", value: name(record.createdBy) },
         { label: "Notes", value: text(record.notes) },
         { label: "Workshop", value: workshopTitle(record) }

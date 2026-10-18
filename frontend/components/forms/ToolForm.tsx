@@ -47,7 +47,8 @@ import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, uploadMedi
 import { saveOrQueue } from "@/lib/offline";
 import { hasRank } from "@/lib/permissions";
 import type { Artisan, Craft, RecordStatus, ToolDocumentation } from "@/lib/types";
-import { makerOptions, traditionOptions } from "@/lib/types";
+import { MATERIAL_FAMILY_OPTIONS, TRADITION_OPTIONS } from "@/lib/standardValues";
+import { makerOptions } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { CarryForwardCards } from "@/components/CarryForwardCards";
 import { artisanStatedSource } from "@/components/forms/statedPrefill";
@@ -284,7 +285,7 @@ type ToolRetry = { files: File[]; upload: (files: File[]) => Promise<{ failed: F
  * tap retry, on create and on edit.
  */
 /** B6: the uncontrolled boxes a tool draft reads from the form at write time. */
-const TOOL_DRAFT_FORM_FIELDS = ["yearsInUse", "thickness", "weight", "radius", "maker", "traditionType", "replacementCost", "suggestionsForToolImprovement", "remarks"];
+const TOOL_DRAFT_FORM_FIELDS = ["yearsInUse", "thickness", "weight", "radius", "maker", "traditionType", "materialFamily", "replacementCost", "suggestionsForToolImprovement", "remarks"];
 
 export function ToolForm({ initial }: { initial?: ToolDocumentation }) {
   const router = useRouter();
@@ -1021,6 +1022,7 @@ function ToolFormBody({
         englishName: textValue(form, "englishName"),
         processUsedIn: textValue(form, "processUsedIn"),
         material: textValue(form, "material"),
+        materialFamily: textValue(form, "materialFamily"),
         yearsInUse: numericValue(form, "yearsInUse"),
         height: toNum(height),
         // `toNum` and not `numericValue`, for the same reason as `heightInches` below: the box is
@@ -1588,6 +1590,18 @@ function ToolFormBody({
               markDirty();
             }}
           />
+          {/* The material FAMILY from the shared list (lib/standardValues, both portals and both apps);
+              the box above stays the free description ("mango wood with an iron collar"). */}
+          <Field label="Material type">
+            <Select name="materialFamily" defaultValue={restored.materialFamily ?? initial?.materialFamily ?? ""} onChange={markDirty}>
+              <option value="">Select material type</option>
+              {MATERIAL_FAMILY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
           <Field label="Years in use">
             <TextInput name="yearsInUse" type="number" min={0} defaultValue={restored.yearsInUse ?? initial?.yearsInUse ?? ""} />
           </Field>
@@ -1884,8 +1898,10 @@ function ToolFormBody({
           </Field>
           <Field label="Tradition type">
             <Select name="traditionType" defaultValue={restored.traditionType ?? initial?.traditionType ?? "UNKNOWN"} onChange={markDirty}>
-              {traditionOptions.map((option) => (
-                <option key={option}>{option}</option>
+              {TRADITION_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
               ))}
             </Select>
           </Field>

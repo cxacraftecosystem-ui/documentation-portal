@@ -753,6 +753,8 @@ data class ArtisanCreateRequest(
     val localName: String? = null,
     val gender: String? = null,
     val phone: String? = null,
+    /** The phone's country code; `phone` is digits only (StandardValues). */
+    val phoneCountryCode: String? = null,
     val email: String? = null,
     val place: String,
     val address: String? = null,
@@ -906,6 +908,8 @@ data class ToolCreateRequest(
     val englishName: String? = null,
     val processUsedIn: String? = null,
     val material: String? = null,
+    /** A code from the shared material list (StandardValues); `material` stays free text. */
+    val materialFamily: String? = null,
     val yearsInUse: Int? = null,
     val height: Double? = null,
     val width: Double? = null,
@@ -1294,6 +1298,8 @@ data class ArtisanDetailDto(
     val localName: String? = null,
     val gender: String? = null,
     val phone: String? = null,
+    /** The phone's country code; `phone` is digits only (StandardValues). */
+    val phoneCountryCode: String? = null,
     val email: String? = null,
     val place: String = "",
     val address: String? = null,
@@ -1440,6 +1446,8 @@ data class ToolDetailDto(
     val place: String = "",
     val processUsedIn: String? = null,
     val material: String? = null,
+    /** A code from the shared material list (StandardValues); `material` stays free text. */
+    val materialFamily: String? = null,
     val yearsInUse: Int? = null,
     // Decimal columns arrive as JSON strings; typed String? to keep list parsing from failing.
     val height: String? = null,

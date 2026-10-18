@@ -48,6 +48,8 @@ import hmac
 import re
 from typing import Any
 
+from app.services.standard_values import compose_phone
+
 #: Shortest secret either server accepts. A shorter one leaves the feature off.
 MIN_SECRET_LENGTH = 32
 
@@ -219,6 +221,10 @@ def shared_fields(artisan: Any) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for key in SHARED_FIELDS:
         value = getattr(artisan, key, None)
+        if key == "phone":
+            # One string, "+91 9876543210", which either portal's save splits into its country
+            # code and digits whichever release the peer is on.
+            value = compose_phone(getattr(artisan, "phoneCountryCode", None), value)
         if hasattr(value, "isoformat"):
             value = value.isoformat()
         out[key] = value

@@ -1,0 +1,486 @@
+{
+ "_about": "Input -> output pairs for app/services/standard_values.py and its web and Android ports. Byte-identical in both repositories. Regenerate only by changing both portals together.",
+ "phone": [
+  {
+   "countryCode": null,
+   "number": "9876543210",
+   "code": "+91",
+   "digits": "9876543210",
+   "display": "+91 98765 43210"
+  },
+  {
+   "countryCode": "+91",
+   "number": "9876543210",
+   "code": "+91",
+   "digits": "9876543210",
+   "display": "+91 98765 43210"
+  },
+  {
+   "countryCode": "+91",
+   "number": "98765 43210",
+   "code": "+91",
+   "digits": "9876543210",
+   "display": "+91 98765 43210"
+  },
+  {
+   "countryCode": "+91",
+   "number": "098765-43210",
+   "code": "+91",
+   "digits": "9876543210",
+   "display": "+91 98765 43210"
+  },
+  {
+   "countryCode": "+91",
+   "number": "+91 98765 43210",
+   "code": "+91",
+   "digits": "9876543210",
+   "display": "+91 98765 43210"
+  },
+  {
+   "countryCode": "+91",
+   "number": "919876543210",
+   "code": "+91",
+   "digits": "9876543210",
+   "display": "+91 98765 43210"
+  },
+  {
+   "countryCode": "91",
+   "number": "9876543210",
+   "code": "+91",
+   "digits": "9876543210",
+   "display": "+91 98765 43210"
+  },
+  {
+   "countryCode": "0091",
+   "number": "9876543210",
+   "code": "+91",
+   "digits": "9876543210",
+   "display": "+91 98765 43210"
+  },
+  {
+   "countryCode": "",
+   "number": "+919876543210",
+   "code": "+91",
+   "digits": "9876543210",
+   "display": "+91 98765 43210"
+  },
+  {
+   "countryCode": null,
+   "number": "+91 9876543210",
+   "code": "+91",
+   "digits": "9876543210",
+   "display": "+91 98765 43210"
+  },
+  {
+   "countryCode": "+91",
+   "number": "987654321",
+   "error": "Enter a 10-digit number for +91."
+  },
+  {
+   "countryCode": "+91",
+   "number": "98765432100",
+   "error": "Enter a 10-digit number for +91."
+  },
+  {
+   "countryCode": "+91",
+   "number": "abc9876543210",
+   "error": "Enter a 10-digit number for +91."
+  },
+  {
+   "countryCode": "+91",
+   "number": "98765 43210",
+   "code": "+91",
+   "digits": "9876543210",
+   "display": "+91 98765 43210"
+  },
+  {
+   "countryCode": "+91",
+   "number": "१२३४५६७८९०",
+   "error": "Enter a 10-digit number for +91."
+  },
+  {
+   "countryCode": "+44",
+   "number": "020 7123 4567",
+   "code": "+44",
+   "digits": "2071234567",
+   "display": "+44 2071234567"
+  },
+  {
+   "countryCode": "+44",
+   "number": "2071234567",
+   "code": "+44",
+   "digits": "2071234567",
+   "display": "+44 2071234567"
+  },
+  {
+   "countryCode": null,
+   "number": "+44 20 7123 4567",
+   "code": "+44",
+   "digits": "2071234567",
+   "display": "+44 2071234567"
+  },
+  {
+   "countryCode": "+977",
+   "number": "9812345678",
+   "code": "+977",
+   "digits": "9812345678",
+   "display": "+977 9812345678"
+  },
+  {
+   "countryCode": "+1",
+   "number": "2025550123",
+   "code": "+1",
+   "digits": "2025550123",
+   "display": "+1 2025550123"
+  },
+  {
+   "countryCode": "+44",
+   "number": "12",
+   "error": "Enter a valid phone number (4–13 digits)."
+  },
+  {
+   "countryCode": "+880",
+   "number": "1234567890123",
+   "error": "Enter a valid phone number (4–12 digits)."
+  },
+  {
+   "countryCode": "abc",
+   "number": "9876543210",
+   "error": "Choose a country code, such as +91."
+  },
+  {
+   "countryCode": "+0",
+   "number": "123456",
+   "error": "Choose a country code, such as +91."
+  },
+  {
+   "countryCode": "+91",
+   "number": "",
+   "code": null,
+   "digits": null,
+   "display": null
+  },
+  {
+   "countryCode": null,
+   "number": null,
+   "code": null,
+   "digits": null,
+   "display": null
+  },
+  {
+   "countryCode": "+91",
+   "number": "   ",
+   "code": null,
+   "digits": null,
+   "display": null
+  },
+  {
+   "countryCode": "+91",
+   "number": "9876543210 call his son",
+   "error": "Enter a 10-digit number for +91."
+  },
+  {
+   "countryCode": "+971",
+   "number": "501234567",
+   "code": "+971",
+   "digits": "501234567",
+   "display": "+971 501234567"
+  }
+ ],
+ "language": [
+  {
+   "input": "Bengali",
+   "value": "bn"
+  },
+  {
+   "input": "Bangla",
+   "value": "bn"
+  },
+  {
+   "input": "bengla",
+   "value": "bn"
+  },
+  {
+   "input": "BENGALI",
+   "value": "bn"
+  },
+  {
+   "input": "  bengali ",
+   "value": "bn"
+  },
+  {
+   "input": "bn",
+   "value": "bn"
+  },
+  {
+   "input": "bn-IN",
+   "value": "bn"
+  },
+  {
+   "input": "Hindi",
+   "value": "hi"
+  },
+  {
+   "input": "hindi",
+   "value": "hi"
+  },
+  {
+   "input": "हिंदी",
+   "value": "hi"
+  },
+  {
+   "input": "Oriya",
+   "value": "or"
+  },
+  {
+   "input": "Odia",
+   "value": "or"
+  },
+  {
+   "input": "or",
+   "value": "or"
+  },
+  {
+   "input": "Manipuri",
+   "value": "mni"
+  },
+  {
+   "input": "English",
+   "value": "en"
+  },
+  {
+   "input": "Kutchi",
+   "error": "Choose a language from the list."
+  },
+  {
+   "input": "Hindi/English",
+   "error": "Choose a language from the list."
+  },
+  {
+   "input": "",
+   "value": null
+  },
+  {
+   "input": "mis",
+   "value": "mis"
+  },
+  {
+   "input": "Other",
+   "value": "mis"
+  },
+  {
+   "input": "sat",
+   "value": "sat"
+  }
+ ],
+ "gender": [
+  {
+   "input": "Male",
+   "value": "Male"
+  },
+  {
+   "input": "male",
+   "value": "Male"
+  },
+  {
+   "input": "M",
+   "value": "Male"
+  },
+  {
+   "input": "f",
+   "value": "Female"
+  },
+  {
+   "input": "Female",
+   "value": "Female"
+  },
+  {
+   "input": "woman",
+   "value": "Female"
+  },
+  {
+   "input": "महिला",
+   "value": "Female"
+  },
+  {
+   "input": "Transgender",
+   "value": "Transgender"
+  },
+  {
+   "input": "third gender",
+   "value": "Transgender"
+  },
+  {
+   "input": "Other",
+   "value": "Other"
+  },
+  {
+   "input": "Unknown",
+   "error": "Choose a gender from the list."
+  },
+  {
+   "input": "",
+   "value": null
+  },
+  {
+   "input": null,
+   "value": null
+  }
+ ],
+ "traditionType": [
+  {
+   "input": "TRADITIONAL",
+   "value": "TRADITIONAL"
+  },
+  {
+   "input": "MODERN",
+   "value": "MODERN"
+  },
+  {
+   "input": "Modern",
+   "value": "MODERN"
+  },
+  {
+   "input": "CONTEMPORARY",
+   "value": "MODERN"
+  },
+  {
+   "input": "TRANSITIONAL",
+   "value": "HYBRID"
+  },
+  {
+   "input": "HYBRID",
+   "value": "HYBRID"
+  },
+  {
+   "input": "hybrid",
+   "value": "HYBRID"
+  },
+  {
+   "input": "UNKNOWN",
+   "value": "UNKNOWN"
+  },
+  {
+   "input": "Not known",
+   "value": "UNKNOWN"
+  },
+  {
+   "input": "traditional form, contemporary use",
+   "value": "HYBRID"
+  },
+  {
+   "input": "Classical",
+   "error": "Choose a tradition type from the list."
+  }
+ ],
+ "materialFamily": [
+  {
+   "input": "METAL",
+   "value": "METAL"
+  },
+  {
+   "input": "metal",
+   "value": "METAL"
+  },
+  {
+   "input": "Metal",
+   "value": "METAL"
+  },
+  {
+   "input": "WOOD",
+   "value": "WOOD"
+  },
+  {
+   "input": "Bamboo / cane",
+   "value": "BAMBOO"
+  },
+  {
+   "input": "bamboo",
+   "value": "BAMBOO"
+  },
+  {
+   "input": "NATURAL_DYE",
+   "value": "NATURAL_DYE"
+  },
+  {
+   "input": "natural dye",
+   "value": "NATURAL_DYE"
+  },
+  {
+   "input": "Plastic",
+   "error": "Choose a material type from the list."
+  },
+  {
+   "input": "OTHER",
+   "value": "OTHER"
+  }
+ ],
+ "materialFamilyFromText": [
+  {
+   "input": "Iron",
+   "value": "METAL"
+  },
+  {
+   "input": "iron",
+   "value": "METAL"
+  },
+  {
+   "input": "Mango wood",
+   "value": "WOOD"
+  },
+  {
+   "input": "mango wood with an iron collar",
+   "value": null
+  },
+  {
+   "input": "Bamboo",
+   "value": "BAMBOO"
+  },
+  {
+   "input": "Brass",
+   "value": "METAL"
+  },
+  {
+   "input": "steel blade",
+   "value": "METAL"
+  },
+  {
+   "input": "Plastic",
+   "value": null
+  },
+  {
+   "input": "Teak wood",
+   "value": "WOOD"
+  },
+  {
+   "input": "Stone and wood",
+   "value": null
+  },
+  {
+   "input": "",
+   "value": null
+  }
+ ],
+ "languageName": [
+  {
+   "input": "bn",
+   "value": "Bengali"
+  },
+  {
+   "input": "hi",
+   "value": "Hindi"
+  },
+  {
+   "input": "mni",
+   "value": "Manipuri (Meitei)"
+  },
+  {
+   "input": "Kutchi",
+   "value": "Kutchi"
+  },
+  {
+   "input": "",
+   "value": null
+  }
+ ]
+}

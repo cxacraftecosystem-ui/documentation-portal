@@ -373,6 +373,29 @@ nginx — no `:8000`), then `./gradlew.bat :app:assembleDebug` and reinstall.
 
 ### 8.5 ffmpeg note
 
+### 11.2 Standard values: phone, gender, language, tool material (convergence point 10)
+
+The release that adds `phoneCountryCode` and `materialFamily` checks new values against the shared
+lists (`backend/app/data/standard_values.json`, the same file in both portals). Rows saved before it
+keep their old spellings until this runs: phones become digits plus a country code (`+91` when none
+is given), genders take their list label, interview languages their standard code (`Bangla` and
+`Bengali` become `bn`), and a tool's material family is set where its free `material` text names
+exactly one family. Crafts with no shared code are listed with candidate codes for the owner; the
+script never writes a craft code. Writes leave `updatedAt` alone, so no offline edit conflicts.
+
+**The owner reads the dry-run report and approves it before `--apply`.**
+
+```bash
+cd /home/ubuntu/app/backend
+.venv/bin/python scripts/standardise_values.py --report-dir /tmp   # dry run: counts, every unmappable value, craft proposal
+.venv/bin/python scripts/standardise_values.py --apply              # only after the owner approves the report
+.venv/bin/python scripts/standardise_values.py                      # again: expect 0 to change
+```
+
+The report file is named `FieldRepository_Database_<date>_<time>_Standard-Values_Report.json`. A value no
+list entry matches is left as it is and listed with its row ids; phone numbers print with their last
+four digits only (`--show-values` prints them in full; the JSON report holds them in full).
+
 The long-audio Whisper chunking (`pydub`) needs the **ffmpeg** binary. Terraform's
 `user_data.sh` installs it (`apt-get install -y ffmpeg`). If you provision a box
 by hand, run `sudo apt install -y ffmpeg`, otherwise long recordings fall back to

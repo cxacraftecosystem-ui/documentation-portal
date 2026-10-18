@@ -1,5 +1,6 @@
 package com.fieldrepository.app.ui
 
+import com.fieldrepository.app.data.StandardValues
 import com.fieldrepository.app.data.ArtisanDetailDto
 import com.fieldrepository.app.data.ArtisanDto
 import com.fieldrepository.app.data.MediaFileDto
@@ -64,7 +65,7 @@ fun artisanFieldValue(field: String, artisan: ArtisanDetailDto, interviewer: Str
         "craft" -> artisan.craft?.name.orEmpty()
         "place" -> artisan.place
         "gender" -> artisan.gender.orEmpty()
-        "phone" -> artisan.phone.orEmpty()
+        "phone" -> StandardValues.formatPhone(artisan.phoneCountryCode, artisan.phone).orEmpty()
         "email" -> artisan.email.orEmpty()
         "dateOfBirth" -> artisan.dateOfBirth?.take(10).orEmpty()
         "experienceYears" -> artisan.experienceYears?.toString().orEmpty()
