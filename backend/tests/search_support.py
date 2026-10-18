@@ -30,15 +30,28 @@ needs_search_db = pytest.mark.skipif(
     reason="needs SEARCH_DB_TESTS=1 and a throwaway, migrated DATABASE_URL",
 )
 
-AADHAAR = "234123412346"
 PHONE = "9876501234"
-PEHCHAN = "PEHX77441"
 EMAIL = "ramesh.private@example.net"
 ADDRESS = "House 42 Gali Seven"
 DOB = datetime(1971, 3, 9, tzinfo=UTC)
 
-#: Strings that must never appear in a document's title, subtitle or body.
-SECRETS = (AADHAAR, PHONE, PEHCHAN, EMAIL, ADDRESS, "1971-03-09")
+
+
+def _aadhaar_for(stamp: str) -> str:
+    """A Verhoeff-valid number unique to this seed: ``aadhaarNumber`` is unique and the database is
+    never truncated, so a fixed literal collides with the previous module's seed."""
+    from app.services.artisan_identity import verhoeff_ok
+
+    body = "2" + str(int(stamp[1:], 16) % 10**10).zfill(10)
+    for last in "0123456789":
+        if verhoeff_ok(body + last):
+            return body + last
+    raise AssertionError("no Verhoeff check digit for " + body)
+
+
+def _secrets(w: SimpleNamespace) -> tuple[str, ...]:
+    """Strings that must never appear in a document's title, subtitle or body."""
+    return (w.aadhaar, PHONE, w.pehchan, EMAIL, ADDRESS, "1971-03-09")
 
 
 def new_stamp() -> str:
@@ -77,6 +90,9 @@ async def seed(stamp: str) -> SimpleNamespace:
     from app.core.db import db
 
     w = SimpleNamespace(stamp=stamp)
+    w.aadhaar = _aadhaar_for(stamp)
+    w.pehchan = "PEHX" + stamp[1:].upper()  # pehchanCardNumber is unique too
+    w.secrets = _secrets(w)
     w.professor = await _user(stamp, "professor", "PROFESSOR")
     w.researcher = await _user(stamp, "researcher", "RESEARCHER")
     w.contributor = await _user(stamp, "contributor", "FIELD_CONTRIBUTOR")
@@ -111,11 +127,11 @@ async def seed(stamp: str) -> SimpleNamespace:
             "localName": "रमेश कुमार",
             "craftId": w.craft.id,
             "workshopId": w.workshop.id,
-            "aadhaarNumber": AADHAAR,
+            "aadhaarNumber": w.aadhaar,
             "phone": PHONE,
             "email": EMAIL,
             "pehchanCardAvailable": True,
-            "pehchanCardNumber": PEHCHAN,
+            "pehchanCardNumber": w.pehchan,
             "address": ADDRESS,
             "dateOfBirth": DOB,
             "notes": f"Reach at {PHONE}.",
@@ -238,7 +254,7 @@ async def seed(stamp: str) -> SimpleNamespace:
             "interviewId": w.interview.id,
             "questionId": w.question_id.id,
             "answeredById": owner,
-            "answerText": AADHAAR,
+            "answerText": w.aadhaar,
         }
     )
     await db.questionnaireresponse.create(
@@ -283,7 +299,11 @@ async def document(entity_type: str, entity_id: str) -> dict[str, Any] | None:
     from app.core.db import db
 
     rows = await db.query_raw(
-        'SELECT * FROM "SearchDocument" WHERE "entityType" = $1 AND "entityId" = $2',
+        # Not SELECT *: the engine cannot deserialize the tsvector (or the raw-SQL-only embedding).
+        'SELECT "id", "entityType", "entityId", "title", "subtitle", "body", "place", "craftIds",'
+        ' "craftCodes", "workshopIds", "artisanIds", "designWorkshopId", "audience", "shareable",'
+        ' "openPath", "recordDate", "contentHash", "embeddedHash", "updatedAt"'
+        ' FROM "SearchDocument" WHERE "entityType" = $1 AND "entityId" = $2',
         entity_type,
         entity_id,
     )

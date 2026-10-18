@@ -8,7 +8,7 @@ identity values are seeded on purpose and must reach no title, subtitle, body or
 from __future__ import annotations
 
 import pytest
-from search_support import SECRETS, consent, every_record, needs_search_db, new_stamp, seed
+from search_support import consent, every_record, needs_search_db, new_stamp, seed
 
 from app.services import search_index, unified_search
 
@@ -52,7 +52,7 @@ async def test_no_identity_value_reaches_the_index(world):
         if doc is None:
             continue
         text = " ".join(str(doc.get(f) or "") for f in ("title", "subtitle", "body", "place"))
-        for secret in SECRETS:
+        for secret in world.secrets:
             assert secret not in text, (key, secret)
 
 

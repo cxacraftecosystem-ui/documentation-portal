@@ -141,7 +141,7 @@ async def embed_pending(batch: int = 32, *, settings: Any | None = None) -> int:
     rows = await db.query_raw(
         """
         SELECT "id", "contentHash",
-               concat_ws(E'\\n', "title", "subtitle", left("body", $2)) AS text
+               concat_ws(E'\\n', "title", "subtitle", left("body", $2::int)) AS text
           FROM "SearchDocument"
          WHERE "embeddedHash" IS DISTINCT FROM "contentHash"
          ORDER BY "updatedAt"

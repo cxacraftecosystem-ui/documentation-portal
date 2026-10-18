@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 from fastapi import HTTPException
-from search_support import SECRETS, consent, document, index_world, needs_search_db, new_stamp, seed
+from search_support import consent, document, index_world, needs_search_db, new_stamp, seed
 from starlette.requests import Request
 
 from app.api.routes import cross_portal_search as routes
@@ -213,7 +213,7 @@ async def test_items_carry_only_the_projection(world, monkeypatch):
         world, monkeypatch, requester=_requester(world, email="nobody@example.invalid")
     )
     raw = response.body.decode()
-    for secret in SECRETS:
+    for secret in world.secrets:
         assert secret not in raw
     for forbidden in ("objectKey", "bucket", "aadhaar", "phone", '"email"', "dateOfBirth"):
         assert forbidden not in raw
@@ -278,7 +278,7 @@ async def test_a_record_is_a_read_only_card_or_404(world, monkeypatch):
     assert record["title"] == f"Indigo stole {world.stamp}"
     assert record["openUrl"] == f"{OPEN_BASE}/products/{world.product_title.id}"
     assert {f["label"] for f in record["fields"]} >= {"Type", "Place"}
-    for secret in SECRETS:
+    for secret in world.secrets:
         assert secret not in ok.body.decode()
 
     for kind, entity_id in (
