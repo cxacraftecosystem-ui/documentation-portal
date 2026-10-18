@@ -40,7 +40,7 @@ export default function EditArtisanPage() {
           <ReviewNoteBanner recordType="artisan" recordId={record.id} status={record.status} />
           <RecordSwitcher kind="artisan" currentId={record.id} currentWorkshopId={record.workshopId} />
           <ArtisanForm initial={record} />
-          <ArtisanQuestionnairePanel artisanId={record.id} />
+          <ArtisanQuestionnairePanel artisanId={record.id} artisanName={record.name} />
           <FieldProvenance extraMetadata={record.extraMetadata} title="Artisan field contributions" />
         </div>
       ) : (

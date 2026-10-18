@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { ClipboardList } from "lucide-react";
 
+import { ArtisanQuestionnaireRecord } from "@/components/questionnaire/ArtisanQuestionnaireRecord";
+import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
 import { Markdown } from "@/components/Markdown";
 import { apiFetch } from "@/lib/api";
@@ -14,7 +16,20 @@ import type { ArtisanAnswer, ArtisanQuestionnaire } from "@/lib/types";
  * section. Only answered questions are returned by the backend so the page is never crowded with
  * blank prompts.
  */
-export function ArtisanQuestionnairePanel({ artisanId }: { artisanId: string }) {
+export function ArtisanQuestionnairePanel({ artisanId, artisanName = "" }: { artisanId: string; artisanName?: string }) {
+  // Questionnaire v2: the artisan's record (sessions, takes, the document) replaces this panel.
+  const config = useQuestionnaireConfig();
+  if (config?.v2Enabled) {
+    return (
+      <div id="questionnaire" className="scroll-mt-28">
+        <ArtisanQuestionnaireRecord artisanId={artisanId} artisanName={artisanName} />
+      </div>
+    );
+  }
+  return <LegacyArtisanQuestionnairePanel artisanId={artisanId} />;
+}
+
+function LegacyArtisanQuestionnairePanel({ artisanId }: { artisanId: string }) {
   const [data, setData] = useState<ArtisanQuestionnaire | null>(null);
   const [failed, setFailed] = useState(false);
 

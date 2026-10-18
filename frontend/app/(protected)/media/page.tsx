@@ -23,6 +23,7 @@ import { SearchInput } from "@/components/SearchInput";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
+import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
 import { CappedListNotice } from "@/components/data/CappedListNotice";
 import { useRecordOffPage } from "@/components/forms/recordPickers";
 import { useServerSearchList } from "@/components/forms/useServerSearchList";
@@ -55,6 +56,12 @@ const LINK_TYPES: Array<{ value: string; label: string }> = [
 ];
 
 const LINK_TYPE_LABEL = new Map(LINK_TYPES.map((t) => [t.value, t.label]));
+
+/**
+ * QUESTIONNAIRE V2 (DESIGN §4.1): interview audio enters only through the session workspace, so the
+ * upload form stops offering "Questionnaire" as a link type. Existing rows keep their label above.
+ */
+const V2_LINK_TYPES = LINK_TYPES.filter((t) => t.value !== "questionnaire");
 
 type ProcessListItem = {
   id: string;
@@ -212,6 +219,8 @@ function MediaPageBody() {
 
   const searchParams = useSearchParams();
   const { user } = useAuth();
+  const questionnaireConfig = useQuestionnaireConfig();
+  const linkTypes = questionnaireConfig?.v2Enabled ? V2_LINK_TYPES : LINK_TYPES;
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   /*
     A9 — THE TARGET IS REMEMBERED. It opens on the record named in the link or the one the researcher
@@ -413,7 +422,7 @@ function MediaPageBody() {
                 if (next !== linkedType) setLinkedEntryId("");
                 setLinkedType(next);
               }}
-              options={LINK_TYPES}
+              options={linkTypes}
               placeholder="Choose the type of record"
               ariaLabel="Linked record type"
             />

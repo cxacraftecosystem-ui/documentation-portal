@@ -123,9 +123,9 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 | Area | Tracked files | Tracked lines | Tree files | Tree lines |
 |---|---|---|---|---|
 | `backend/app` | 143 | 54,850 | 143 | 54,850 |
-| `frontend/app` | 67 | 21,572 | 73 | 21,670 |
-| `frontend/components` | 215 | 58,916 | 235 | 61,995 |
-| `frontend/lib` | 96 | 30,846 | 106 | 32,974 |
+| `frontend/app` | 73 | 21,670 | 73 | 21,670 |
+| `frontend/components` | 235 | 61,995 | 235 | 61,995 |
+| `frontend/lib` | 106 | 32,974 | 106 | 32,974 |
 | `android/app/src/main/java` | 141 | 90,289 | 141 | 90,289 |
 
 Two columns because the two numbers get quoted interchangeably and disagree by however much work is

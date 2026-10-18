@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { ArrowDown, ArrowUp, ClipboardList, GripVertical, Lock, Mic, Pencil, Plus, Save, Square, Trash2 } from "lucide-react";
 
 import { CappedListNotice } from "@/components/data/CappedListNotice";
@@ -74,6 +74,8 @@ import { ARTISAN_FIELD_OPTIONS, artisanFieldLabel, artisanPrefill, automaticInte
 import { applyTranscripts, TRANSCRIPT_SOURCE, transcriptAnswerText, transcriptOffer } from "@/lib/transcriptAnswer";
 import { Badge } from "@/components/ui/Badge";
 import { AnswerDraftsPanel, isMachineSuggested, MachineSuggestedBadge } from "@/components/questionnaire/AnswerDraftsPanel";
+import { SessionsList } from "@/components/questionnaire/SessionsList";
+import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
 
 /**
  * The API's own ceiling on an interview title — `QuestionnaireInterviewCreate.title` is
@@ -318,6 +320,13 @@ function conflictFieldLabel(field: string): string {
 }
 
 export default function QuestionnairePage() {
+  // QUESTIONNAIRE V2 (DESIGN §4.1): with `GET /questionnaire/config` reporting v2 on, this route is
+  // the sessions list. `/questionnaire/builder` renders this same page and always gets the screen
+  // below, which still owns the instrument builder. With v2 off (or no config route), nothing changes.
+  const config = useQuestionnaireConfig();
+  const pathname = usePathname();
+  if (config === null) return <div className="panel p-4 text-sm text-ink-500">Loading...</div>;
+  if (config.v2Enabled && !pathname.startsWith("/questionnaire/builder")) return <SessionsList />;
   return (
     <UploadsProvider>
       {/* Next 16: `useEditDeepLink` reads useSearchParams, which must sit inside a Suspense boundary. */}

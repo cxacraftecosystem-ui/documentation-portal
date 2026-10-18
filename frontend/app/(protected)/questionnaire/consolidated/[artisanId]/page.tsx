@@ -10,6 +10,7 @@ import { DownloadCsvButton } from "@/components/DownloadCsvButton";
 import { EmptyState } from "@/components/EmptyState";
 import { Markdown } from "@/components/Markdown";
 import { PageHeader } from "@/components/PageHeader";
+import { useV2Redirect } from "@/components/questionnaire/V2Redirect";
 import { OpenableBlock } from "@/components/records/OpenableRow";
 import { StatusBadge } from "@/components/StatusBadge";
 import {
@@ -49,6 +50,13 @@ export default function ConsolidatedQuestionnairePage({
   params: Promise<{ artisanId: string }>;
 }) {
   const { artisanId } = use(params);
+  // Questionnaire v2: the artisan's record on `/artisans/[id]` is the one document; this URL lands there.
+  const redirecting = useV2Redirect(`/artisans/${encodeURIComponent(artisanId)}?tab=questionnaire`);
+  if (redirecting) return null;
+  return <ConsolidatedQuestionnaireBody artisanId={artisanId} />;
+}
+
+function ConsolidatedQuestionnaireBody({ artisanId }: { artisanId: string }) {
   const searchParams = useSearchParams();
   const [data, setData] = useState<ConsolidatedQuestionnaire | null>(null);
   const [error, setError] = useState<string | null>(null);
