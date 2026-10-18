@@ -284,6 +284,15 @@ def _probe_deepgram(value: str) -> tuple[bool, str | None]:
     )
 
 
+def _probe_meta(value: str) -> tuple[bool, str | None]:
+    """Meta Model API: list models. No audio is sent and nothing is billed."""
+    return _probe_http(
+        "https://api.meta.ai/v1/models",
+        headers={"Authorization": f"Bearer {value}"},
+        secret=value,
+    )
+
+
 def _probe_gemini(value: str) -> tuple[bool, str | None]:
     return _probe_http(
         "https://generativelanguage.googleapis.com/v1beta/models",
@@ -361,6 +370,16 @@ MANAGED_KEYS: dict[str, ManagedKey] = {
             description="Second-choice speech-to-text (Nova-3, multilingual), used when ElevenLabs fails.",
             settings_attr="deepgram_api_key",
             probe=_probe_deepgram,
+        ),
+        ManagedKey(
+            key="META_MODEL_API_KEY",
+            label="Meta Muse",
+            description=(
+                "Meta Muse Voice Transcribe, the fourth speech-to-text provider. Switched off "
+                "until the owner accepts where Meta processes the audio."
+            ),
+            settings_attr="meta_model_api_key",
+            probe=_probe_meta,
         ),
         ManagedKey(
             key="GEMINI_API_KEY",

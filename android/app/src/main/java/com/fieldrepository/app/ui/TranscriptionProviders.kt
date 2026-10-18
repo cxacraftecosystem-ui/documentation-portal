@@ -192,7 +192,8 @@ val STT_PROVIDER_BLURBS: Map<String, String> = mapOf(
 val BUILT_IN_STT_PROVIDERS: List<SttProviderDto> = listOf(
     SttProviderDto(id = "elevenlabs", name = "ElevenLabs", keyLabel = "ElevenLabs Scribe", keyName = "ELEVENLABS_API_KEY"),
     SttProviderDto(id = "deepgram", name = "Deepgram", keyLabel = "Deepgram", keyName = "DEEPGRAM_API_KEY"),
-    SttProviderDto(id = "whisper", name = "Whisper (OpenAI)", keyLabel = "OpenAI", keyName = "OPENAI_API_KEY")
+    SttProviderDto(id = "whisper", name = "Whisper (OpenAI)", keyLabel = "OpenAI", keyName = "OPENAI_API_KEY"),
+    SttProviderDto(id = "muse", name = "Meta Muse", keyLabel = "Meta Muse", keyName = "META_MODEL_API_KEY")
 )
 
 // ---------------------------------------------------------------------------------------------

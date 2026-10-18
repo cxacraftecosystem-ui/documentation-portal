@@ -13,6 +13,10 @@ docs/SECURITY.md):
 """
 
 import logging
+import os
+import tempfile
+import threading
+from dataclasses import dataclass
 from pathlib import PurePath
 from typing import Any
 from urllib.parse import urlsplit
@@ -247,6 +251,104 @@ def get_object_bytes(object_key: str) -> bytes:
         return response["Body"].read()
     finally:
         response["Body"].close()
+
+
+# --- Streaming a stored object to disk (ported from designer-portal, 18 Oct 2026) ----------------
+#
+# The transcription queue used to read every recording whole into the heap with get_object_bytes.
+# These stream it to a temp file instead, so the box trades RAM it does not have for disk it does.
+
+
+@dataclass(frozen=True, slots=True)
+class ObjectHead:
+    size_bytes: int
+    mime_type: str | None = None
+
+
+class ObjectTooLarge(Exception):
+    def __init__(self, object_key: str, size_bytes: int, limit_bytes: int) -> None:
+        self.object_key = object_key
+        self.size_bytes = size_bytes
+        self.limit_bytes = limit_bytes
+        super().__init__(f"{object_key} is {size_bytes} bytes, over the {limit_bytes}-byte limit")
+
+
+def head_object(object_key: str) -> ObjectHead | None:
+    """The object's real length without fetching it, or None when storage will not say."""
+    settings = get_settings()
+    try:
+        response = _client().head_object(Bucket=settings.aws_s3_bucket, Key=object_key)
+        return ObjectHead(int(response.get("ContentLength") or 0), response.get("ContentType") or None)
+    except Exception:  # noqa: BLE001 - None means unknown, never small
+        return None
+
+
+class _BoundedWriter:
+    """Refuses the first write that would reach past *limit* (offset-based, so retried parts count once)."""
+
+    def __init__(self, handle: Any, object_key: str, limit: int) -> None:
+        self._handle = handle
+        self._object_key = object_key
+        self._limit = limit
+        self._lock = threading.Lock()
+
+    def write(self, data: Any) -> int:
+        with self._lock:
+            reach = self._handle.tell() + len(data)
+            if reach > self._limit:
+                raise ObjectTooLarge(self._object_key, reach, self._limit)
+            return self._handle.write(data)
+
+    def seek(self, *args: Any, **kwargs: Any) -> int:
+        with self._lock:
+            return self._handle.seek(*args, **kwargs)
+
+    def tell(self) -> int:
+        with self._lock:
+            return self._handle.tell()
+
+    def seekable(self) -> bool:
+        return self._handle.seekable()
+
+    def flush(self) -> None:
+        self._handle.flush()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._handle, name)
+
+
+def download_to_temp(object_key: str, *, suffix: str = "", max_bytes: int | None = None) -> str:
+    """Stream one stored object to a temp file and return its path. The caller deletes it with
+    :func:`discard_temp` in a ``finally``."""
+    settings = get_settings()
+    if max_bytes is not None:
+        head = head_object(object_key)
+        if head is not None and head.size_bytes > max_bytes:
+            raise ObjectTooLarge(object_key, head.size_bytes, max_bytes)
+    handle = tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix="s3obj-")  # noqa: SIM115
+    path = handle.name
+    try:
+        target: Any = handle if max_bytes is None else _BoundedWriter(handle, object_key, max_bytes)
+        _client().download_fileobj(settings.aws_s3_bucket, object_key, target)
+        handle.flush()
+    except BaseException:
+        handle.close()
+        discard_temp(path)
+        raise
+    handle.close()
+    return path
+
+
+def discard_temp(path: str | None) -> None:
+    """Delete a :func:`download_to_temp` file. Safe to call twice, and on None."""
+    if not path:
+        return
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        logger.warning("Could not remove the temporary object file %s: %s", path, exc)
 
 
 def delete_object(object_key: str) -> None:

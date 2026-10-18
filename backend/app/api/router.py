@@ -1,16 +1,16 @@
 from fastapi import APIRouter
 
 from app.api.routes import (
+    access_roster,
     ai_keys,
     answer_drafts,
-    access_roster,
     app_release,
     artisan_merge,
     artisans,
     auth,
     craft_codes,
-    cross_portal,
     crafts,
+    cross_portal,
     dashboard,
     data_access,
     data_browser,
@@ -25,6 +25,7 @@ from app.api.routes import (
     products,
     public,
     questionnaire,
+    recording_consent,
     reference,
     review,
     search,
@@ -32,6 +33,7 @@ from app.api.routes import (
     settings,
     tasks,
     tools,
+    transcription_admin,
     two_factor,
     users,
     workshops,
@@ -74,6 +76,10 @@ api_router.include_router(feedback.router)
 api_router.include_router(notifications.router)
 api_router.include_router(preferences.router)
 api_router.include_router(settings.router)
+# The shared transcription service's admin panel: pause, providers, budgets (18 Oct 2026).
+api_router.include_router(transcription_admin.router)
+# Whether an artisan's recordings may be sent for transcription (the consent rule, 18 Oct 2026).
+api_router.include_router(recording_consent.router)
 api_router.include_router(secrets.router)
 api_router.include_router(data_access.router)
 api_router.include_router(tasks.router)

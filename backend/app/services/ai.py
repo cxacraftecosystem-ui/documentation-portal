@@ -22,7 +22,17 @@ from app.services.measurement_provenance import (
     MeasurementProvenance,
     vision_model_provenance,
 )
+from app.services.transcription_store import PrismaTranscriptionStore
 from app.services.user_ai_keys import AiCredential
+from app.transcription import audio as transcription_audio
+from app.transcription import service as transcription_service
+from app.transcription.chain import ChainHooks, ChainState, run_chain
+from app.transcription.contract import DISABLED_BY_DEFAULT, ApiKey, AudioInput, SttOptions
+from app.transcription.format import diarized_markdown, speaker_count, speaker_turns
+from app.transcription.providers import ADAPTERS
+from app.transcription.providers import deepgram as deepgram_adapter
+from app.transcription.providers import elevenlabs as elevenlabs_adapter
+from app.transcription.store import StoreHooks
 
 logger = logging.getLogger(__name__)
 
@@ -179,15 +189,7 @@ def craft_keyterms() -> tuple[str, ...]:
 
 def _deepgram_keyterms() -> list[str]:
     """Craft terms for Deepgram, inside both its term guidance and its 500-token request ceiling."""
-    chosen: list[str] = []
-    spent = 0
-    for term in craft_keyterms()[:_DEEPGRAM_KEYTERM_LIMIT]:
-        cost = max(1, -(-len(term) // 3))  # ~3 characters a token, deliberately pessimistic
-        if spent + cost > _DEEPGRAM_KEYTERM_TOKEN_BUDGET:
-            break
-        chosen.append(term)
-        spent += cost
-    return chosen
+    return deepgram_adapter.keyterms_within_budget(craft_keyterms())
 
 
 # --- Diarization ------------------------------------------------------------------------------
@@ -205,54 +207,50 @@ def _deepgram_keyterms() -> list[str]:
 
 def _speaker_turns(fragments: list[tuple[Any, str]]) -> list[tuple[Any, str]]:
     """``(speaker, fragment)`` pairs merged into one turn per uninterrupted stretch of a voice."""
-    turns: list[tuple[Any, str]] = []
-    for speaker, fragment in fragments:
-        text = fragment.strip()
-        if not text:
-            continue
-        if turns and turns[-1][0] == speaker:
-            turns[-1] = (speaker, f"{turns[-1][1]} {text}")
-        else:
-            turns.append((speaker, text))
-    return turns
+    return speaker_turns(fragments)
 
 
 def _speaker_count(turns: list[tuple[Any, str]]) -> int:
-    return len({speaker for speaker, _ in turns if speaker is not None})
+    return speaker_count(turns)
 
 
 def _diarized_markdown(turns: list[tuple[Any, str]]) -> str | None:
-    """Turns as ``**Speaker 1:** …`` paragraphs, or None when only one voice was heard.
+    """Turns as ``**Speaker 1:** ...`` paragraphs, or None when only one voice was heard."""
+    return diarized_markdown(turns)
 
-    Speakers are numbered in order of first appearance rather than by the provider's own id, which
-    is arbitrary and can skip values — "Speaker 3" in a transcript with two voices reads as a
-    mistake. A solo interview returns None so it is not decorated with a label that says nothing.
-    """
-    order: list[Any] = []
-    for speaker, _ in turns:
-        if speaker is not None and speaker not in order:
-            order.append(speaker)
-    if len(order) < 2:
-        return None
-    numbers = {speaker: index + 1 for index, speaker in enumerate(order)}
-    return "\n\n".join(
-        f"**Speaker {numbers[speaker]}:** {text}" if speaker in numbers else text
-        for speaker, text in turns
+
+def _post_openai_transcription(
+    content: bytes | None,
+    filename: str,
+    mime_type: str,
+    settings: Settings | None,
+    *,
+    source_path: str | None = None,
+) -> dict[str, Any]:
+    """Whisper, one shot, through the shared adapter."""
+    result = ADAPTERS["whisper"].transcribe(
+        _audio(content, filename, mime_type, source_path),
+        _stt_options(settings),
+        _provider_key("whisper"),
     )
+    return _transcription_result(result.text, None)
 
 
-def _post_openai_transcription(content: bytes, filename: str, mime_type: str, settings: Settings) -> dict[str, Any]:
-    response = requests.post(
-        "https://api.openai.com/v1/audio/transcriptions",
-        headers={"Authorization": f"Bearer {_key('OPENAI_API_KEY')}"},
-        data={"model": settings.openai_transcription_model, "response_format": "json"},
-        files={"file": (filename, content, mime_type or "application/octet-stream")},
-        timeout=180,
+def _post_muse_transcription(
+    content: bytes | None,
+    filename: str,
+    mime_type: str,
+    settings: Settings | None,
+    *,
+    source_path: str | None = None,
+) -> dict[str, Any]:
+    """Meta Muse, one normalised part. The chain cuts longer recordings before calling it."""
+    result = ADAPTERS["muse"].transcribe(
+        _audio(content, filename, mime_type, source_path),
+        _stt_options(settings),
+        _provider_key("muse"),
     )
-    response.raise_for_status()
-    payload = response.json()
-    text = str(payload.get("text") or "").strip()
-    return _transcription_result(text, payload)
+    return _legacy_result(result, language=False)
 
 
 # A 400/422 means the provider refused the REQUEST, not the audio in it — a renamed option, a model
@@ -260,6 +258,99 @@ def _post_openai_transcription(content: bytes, filename: str, mime_type: str, se
 # silently, each one retries ONCE with the option set that predates this work: the transcript comes
 # back without diarization or boosting instead of not at all, and the log says so. The cost is a
 # second upload of the same bytes, paid only on a refusal and never twice.
+# --- The shared transcription service ------------------------------------------------------------
+#
+# Every provider call below goes through ``app/transcription`` (byte-identical in both portals; see
+# shared/transcription.sha256). The functions that follow keep their old names and result shapes so
+# every caller and test written before the package keeps working; their bodies are now thin wrappers.
+# What this portal SAYS about a failure stays its own copy, in ``_TRANSCRIPTION_MESSAGES``.
+
+_TRANSCRIPTION_MESSAGES = transcription_service.Messages(
+    key_rejected=lambda name: f"{name}'s key isn't working; an admin can update it in Settings",
+    failed=lambda name, status: f"{name} couldn't transcribe this recording",
+    unreachable=lambda name: f"{name} couldn't be reached",
+    too_large=lambda name: f"{name}: file larger than the provider limit",
+    busy=lambda name: f"{name} is busy",
+    rate_limited=lambda name: "Transcription is busy; it will retry automatically.",
+    over_budget=lambda name: f"{name}'s transcription budget is used up",
+    all_failed=lambda sentences: (
+        f"Transcription failed: {'; '.join(sentences)}." if sentences else "Transcription failed."
+    ),
+    unavailable=(
+        "Transcription isn't available right now. An administrator can turn it on in Settings."
+    ),
+    budget_deferred="The transcription budget is used up; it will continue in the next window.",
+)
+
+
+def _stt_options(
+    settings: Settings | None,
+    *,
+    language_bias: list[str] | None = None,
+    session_id: str | None = None,
+    keep_payload: bool = False,
+) -> SttOptions:
+    """The options every provider is asked with: craft keyterms, diarization, models, language hint."""
+    models = {"elevenlabs": _elevenlabs_model(settings)}
+    deepgram_model = getattr(settings, "deepgram_stt_model", None)
+    if deepgram_model:
+        models["deepgram"] = deepgram_model
+    whisper_model = getattr(settings, "openai_transcription_model", None)
+    if whisper_model:
+        models["whisper"] = whisper_model
+    muse_model = getattr(settings, "muse_stt_model", None)
+    if muse_model:
+        models["muse"] = muse_model
+    return SttOptions(
+        language_bias=list(language_bias or []),
+        keyterms=list(craft_keyterms()),
+        models=models,
+        session_id=session_id,
+        keep_payload=keep_payload,
+    )
+
+
+def transcription_options(
+    settings: Settings | None, *, language_bias: list[str] | None = None
+) -> SttOptions:
+    """The options a queued recording is transcribed with; the dedup cache keys on them."""
+    return _stt_options(settings, language_bias=language_bias)
+
+
+def _audio(
+    content: bytes | None, filename: str, mime_type: str, source_path: str | None = None
+) -> AudioInput:
+    duration = None
+    if source_path is not None and transcription_audio.ffmpeg_available():
+        try:
+            duration = transcription_audio.probe_duration_ms(source_path)
+        except Exception:  # noqa: BLE001 - the probe only sharpens the budget estimate
+            duration = None
+    return AudioInput(
+        None if source_path is not None else content,
+        source_path,
+        filename,
+        mime_type or "application/octet-stream",
+        duration,
+    )
+
+
+def _provider_key(provider: str) -> ApiKey:
+    name = _PROVIDER_KEYS[provider]
+    return ApiKey(name, _key(name))
+
+
+def _legacy_result(result: Any, *, language: bool) -> dict[str, Any]:
+    """An adapter's ``SttResult`` as the dictionary the ``_post_*`` functions always returned."""
+    out = _transcription_result(result.text, None)
+    out["model"] = result.model
+    out["speakers"] = result.speakers
+    out["segments"] = [segment.as_json() for segment in result.segments]
+    if language and result.language:
+        out["languageCode"] = result.language
+    return out
+
+
 _OPTION_REJECTED_STATUSES = {400, 422}
 
 # Scribe v2 is the current batch model, and every one of its advantages is one this audio needs:
@@ -273,183 +364,65 @@ _ELEVENLABS_MODEL = "scribe_v2"
 _ELEVENLABS_LEGACY_MODEL = "scribe_v1"
 
 
-def _elevenlabs_model(settings: Settings) -> str:
-    configured = (settings.elevenlabs_stt_model or "").strip()
-    return configured if configured and configured != _ELEVENLABS_LEGACY_MODEL else _ELEVENLABS_MODEL
+def _elevenlabs_model(settings: Settings | None) -> str:
+    configured = (getattr(settings, "elevenlabs_stt_model", None) or "").strip()
+    return (
+        configured if configured and configured != _ELEVENLABS_LEGACY_MODEL else _ELEVENLABS_MODEL
+    )
 
 
-def _elevenlabs_fields(settings: Settings, *, conservative: bool) -> list[tuple[str, str]]:
-    """The multipart fields for one Scribe request. A list, not a dict: ``keyterms`` is an array
-    parameter and multipart carries an array as the same field name repeated.
-
-    ``language_code`` is deliberately absent. Scribe auto-detects, and naming a language would be a
-    worse guess than its own: these interviews code-switch into English mid-sentence, and several
-    are in regional languages (Marwari, Garhwali) that have no code to name.
-
-    ``tag_audio_events`` stays off. It is on by default and it would interleave the workshop —
-    hammering, a passing motorbike — into the speech as ``(banging)``, which the refinement pass
-    then has to carry through translation as if someone had said it.
-    """
-    fields = [
-        ("model_id", _ELEVENLABS_LEGACY_MODEL if conservative else _elevenlabs_model(settings)),
-        ("diarize", "true"),
-        ("tag_audio_events", "false"),
-        # Speakers are reported per word, so word timestamps are what makes diarization readable.
-        ("timestamps_granularity", "word"),
-    ]
-    if conservative:
-        return fields
-    # num_speakers is left unset on purpose: the sittings on record run from one artisan to five
-    # plus an interviewer, and a wrong count is worse than none — it forces voices to merge.
-    return fields + [("keyterms", term) for term in craft_keyterms()[:_ELEVENLABS_KEYTERM_LIMIT]]
+def _elevenlabs_fields(settings: Settings | None, *, conservative: bool) -> list[tuple[str, str]]:
+    """The multipart fields for one Scribe request (see app/transcription/providers/elevenlabs.py)."""
+    return ADAPTERS["elevenlabs"].fields(_stt_options(settings), conservative=conservative)
 
 
 def _elevenlabs_text(payload: dict[str, Any]) -> tuple[str, int]:
-    """``(transcript, speakers)`` from a Scribe response, speaker-labelled when several voices spoke.
-
-    Words carry ``speaker_id``; the spacing entries between them carry the whitespace, and
-    ``audio_event`` entries are dropped in case tagging is ever turned back on. Falling back to the
-    flat ``text`` field keeps a non-diarized response working exactly as it used to.
-    """
-    fragments = [
-        (word.get("speaker_id"), str(word.get("text") or ""))
-        for word in (payload.get("words") or [])
-        if word.get("type") != "audio_event"
-    ]
-    turns = _speaker_turns(fragments)
-    plain = str(payload.get("text") or "").strip()
-    return (_diarized_markdown(turns) or plain), _speaker_count(turns)
+    """``(transcript, speakers)`` from a Scribe response, speaker-labelled when several voices spoke."""
+    return elevenlabs_adapter.parse_text(payload)
 
 
-def _post_elevenlabs_transcription(content: bytes, filename: str, mime_type: str, settings: Settings) -> dict[str, Any]:
-    """ElevenLabs Scribe v2 speech-to-text: the batch model, diarized, biased towards craft terms.
-
-    Accepts files up to 3 GB and 10 hours, so nothing is chunked locally.
-    """
-
-    def send(conservative: bool) -> Any:
-        return requests.post(
-            "https://api.elevenlabs.io/v1/speech-to-text",
-            headers={"xi-api-key": _key("ELEVENLABS_API_KEY")},
-            data=_elevenlabs_fields(settings, conservative=conservative),
-            files={"file": (filename, content, mime_type or "application/octet-stream")},
-            timeout=600,
-        )
-
-    response = send(conservative=False)
-    degraded = response.status_code in _OPTION_REJECTED_STATUSES
-    if degraded:
-        logger.warning(
-            "ElevenLabs rejected the request options (HTTP %s: %s); retrying without diarization "
-            "extras or term boosting",
-            response.status_code,
-            str(response.text)[:200],
-        )
-        response = send(conservative=True)
-    response.raise_for_status()
-    payload = response.json()
-    text, speakers = _elevenlabs_text(payload)
-    result = _transcription_result(text, None)  # word-level payload is huge; don't persist it
-    result["model"] = _ELEVENLABS_LEGACY_MODEL if degraded else _elevenlabs_model(settings)
-    result["speakers"] = speakers
-    if payload.get("language_code"):
-        result["languageCode"] = payload.get("language_code")
-    return result
+def _post_elevenlabs_transcription(
+    content: bytes | None,
+    filename: str,
+    mime_type: str,
+    settings: Settings | None,
+    *,
+    source_path: str | None = None,
+) -> dict[str, Any]:
+    """ElevenLabs Scribe, through the shared adapter. Raises ``requests.HTTPError`` subclasses."""
+    result = ADAPTERS["elevenlabs"].transcribe(
+        _audio(content, filename, mime_type, source_path),
+        _stt_options(settings),
+        _provider_key("elevenlabs"),
+    )
+    return _legacy_result(result, language=True)
 
 
-def _deepgram_params(settings: Settings, *, conservative: bool) -> dict[str, Any]:
-    """Query parameters for one Deepgram pre-recorded request.
-
-    ``language=multi`` is the whole reason Nova-3 is the right model here: it transcribes
-    code-switched audio across ten languages including Hindi, without being told when a sentence
-    changes language. Naming ``language=hi`` instead would force every English clause through a
-    Hindi decoder, and these interviews switch several times a minute.
-
-    ``smart_format`` brings punctuation, paragraphing and numeral formatting; ``paragraphs`` is
-    asked for explicitly because smart formatting only promises its extras "where available" for
-    non-English audio, and the paragraph objects are what carry a speaker per block of speech.
-    """
-    params: dict[str, Any] = {
-        "model": settings.deepgram_stt_model,
-        "language": "multi",
-        "smart_format": "true",
-    }
-    if conservative:
-        # The deprecated boolean, which routes to the v1 diarizer. Deepgram REJECTS a request that
-        # sets both this and diarize_model, so the two forms can never appear together.
-        params["diarize"] = "true"
-        return params
-    params["paragraphs"] = "true"
-    params["diarize_model"] = "latest"
-    keyterms = _deepgram_keyterms()
-    if keyterms:
-        # Keyterm prompting is Nova-3's replacement for the old weighted `keywords`, which Nova-3
-        # ignores. Repeating the parameter is how the array is expressed in a query string.
-        params["keyterm"] = keyterms
-    return params
+def _deepgram_params(settings: Settings | None, *, conservative: bool) -> dict[str, Any]:
+    """Query parameters for one Deepgram request (see app/transcription/providers/deepgram.py)."""
+    return ADAPTERS["deepgram"].params(_stt_options(settings), conservative=conservative)
 
 
 def _deepgram_text(payload: dict[str, Any]) -> tuple[str, int]:
-    """``(transcript, speakers)`` from a Deepgram response, speaker-labelled where voices differ.
-
-    Paragraphs are preferred over words: they already group a speaker's sentences into blocks, so
-    the turns read as speech rather than as a re-assembled word list. Words are the fallback for a
-    response that carries diarization without paragraph formatting, and the flat ``transcript``
-    field for one that carries neither.
-    """
-    channels = (payload.get("results") or {}).get("channels") or []
-    alternatives = (channels[0].get("alternatives") if channels else None) or []
-    alternative = alternatives[0] if alternatives else {}
-
-    fragments: list[tuple[Any, str]] = []
-    for paragraph in (alternative.get("paragraphs") or {}).get("paragraphs") or []:
-        sentences = paragraph.get("sentences") or []
-        text = " ".join(str(sentence.get("text") or "").strip() for sentence in sentences).strip()
-        if text:
-            fragments.append((paragraph.get("speaker"), text))
-    if not fragments:
-        fragments = [
-            (word.get("speaker"), str(word.get("punctuated_word") or word.get("word") or ""))
-            for word in (alternative.get("words") or [])
-        ]
-
-    turns = _speaker_turns(fragments)
-    plain = str(alternative.get("transcript") or "").strip()
-    return (_diarized_markdown(turns) or plain), _speaker_count(turns)
+    """``(transcript, speakers)`` from a Deepgram response, speaker-labelled where voices differ."""
+    return deepgram_adapter.parse_text(payload)
 
 
-def _post_deepgram_transcription(content: bytes, filename: str, mime_type: str, settings: Settings) -> dict[str, Any]:
-    """Deepgram pre-recorded STT on Nova-3, multilingual, diarized and craft-vocabulary biased."""
-
-    def send(conservative: bool) -> Any:
-        return requests.post(
-            "https://api.deepgram.com/v1/listen",
-            params=_deepgram_params(settings, conservative=conservative),
-            headers={
-                "Authorization": f"Token {_key('DEEPGRAM_API_KEY')}",
-                "Content-Type": mime_type or "application/octet-stream",
-            },
-            data=content,
-            timeout=600,
-        )
-
-    response = send(conservative=False)
-    degraded = response.status_code in _OPTION_REJECTED_STATUSES
-    if degraded:
-        logger.warning(
-            "Deepgram rejected the request options (HTTP %s: %s); retrying with the v1 diarizer and "
-            "no term boosting",
-            response.status_code,
-            str(response.text)[:200],
-        )
-        response = send(conservative=True)
-    response.raise_for_status()
-    payload = response.json()
-    text, speakers = _deepgram_text(payload)
-    result = _transcription_result(text, None)  # word/paragraph payload is huge; don't persist it
-    result["model"] = settings.deepgram_stt_model
-    result["speakers"] = speakers
-    return result
+def _post_deepgram_transcription(
+    content: bytes | None,
+    filename: str,
+    mime_type: str,
+    settings: Settings | None,
+    *,
+    source_path: str | None = None,
+) -> dict[str, Any]:
+    """Deepgram Nova-3, through the shared adapter. Raises ``requests.HTTPError`` subclasses."""
+    result = ADAPTERS["deepgram"].transcribe(
+        _audio(content, filename, mime_type, source_path),
+        _stt_options(settings),
+        _provider_key("deepgram"),
+    )
+    return _legacy_result(result, language=False)
 
 
 def _split_audio_into_chunks(content: bytes) -> list[tuple[bytes, str, str]] | None:
@@ -507,6 +480,7 @@ _PROVIDER_KEYS = {
     "elevenlabs": "ELEVENLABS_API_KEY",
     "deepgram": "DEEPGRAM_API_KEY",
     "whisper": "OPENAI_API_KEY",
+    "muse": "META_MODEL_API_KEY",
 }
 
 # How each engine is named to a human. Here rather than in the web client because the Settings hub
@@ -515,6 +489,7 @@ _PROVIDER_NAMES = {
     "elevenlabs": "ElevenLabs",
     "deepgram": "Deepgram",
     "whisper": "Whisper (OpenAI)",
+    "muse": "Meta Muse",
 }
 
 
@@ -536,26 +511,21 @@ def transcription_provider_configured() -> dict[str, bool]:
 def transcription_provider_chain(
     settings: Settings | None = None,
     order: list[str] | None = None,
+    *,
+    disabled: set[str] | frozenset[str] | list[str] | None = None,
 ) -> list[str]:
-    """Configured STT providers in priority order, skipping every one whose key is unset.
-
-    ``order`` is the master admin's ranking (see ``app_settings.stt_provider_order``); omitting it
-    falls back to the order that applied before ranking existed. A provider is dropped wherever it
-    sits the moment its key is missing — ranking expresses a preference, not a requirement, so
-    promoting Deepgram on a deployment that has no Deepgram key must not stop transcription.
-
-    ``settings`` is accepted but unused — the keys that decide the chain now come from the managed
-    secret layer, so adding a Deepgram key in the UI extends the chain immediately. The parameter is
-    kept so existing callers (and the sync transcription path, which passes it along) don't break.
-    """
+    """Configured STT providers in priority order, skipping every one whose key is unset or that an
+    admin switched off. ``disabled=None`` means the shipped default (Muse off)."""
     ranked = order if order is not None else list(app_settings.DEFAULT_STT_PROVIDER_ORDER)
-    return [p for p in ranked if p in _PROVIDER_KEYS and _key(_PROVIDER_KEYS[p])]
+    off = set(DISABLED_BY_DEFAULT) if disabled is None else set(disabled)
+    return [p for p in ranked if p in _PROVIDER_KEYS and p not in off and _key(_PROVIDER_KEYS[p])]
 
 
 _PROVIDER_CALLS = {
     "elevenlabs": (_post_elevenlabs_transcription, ELEVENLABS_MAX_BYTES),
     "deepgram": (_post_deepgram_transcription, DEEPGRAM_MAX_BYTES),
-    "whisper": (_transcribe_whisper_sync, None),  # chunks internally, no hard cap
+    "whisper": (_transcribe_whisper_sync, None),  # cut into parts by the chain, no hard cap
+    "muse": (_post_muse_transcription, None),  # always normalised and cut into parts by the chain
 }
 
 
@@ -595,81 +565,31 @@ def _rate_limited_result(provider: str, response: Any, code: int) -> dict[str, A
 
 
 def _transcribe_sync(
-    content: bytes,
+    content: bytes | None,
     filename: str,
     mime_type: str,
-    settings: Settings,
+    settings: Settings | None,
     chain: list[str],
+    *,
+    source_path: str | None = None,
+    state: ChainState | None = None,
+    hooks: ChainHooks | None = None,
+    opts: SttOptions | None = None,
 ) -> dict[str, Any]:
-    """Walk *chain* until one provider produces a transcript.
-
-    A provider that hard-fails or is throttled falls through to the next; an EMPTY result is kept as
-    a fallback but the next provider still gets a chance (codecs/languages one engine can't decode are
-    sometimes fine on another). Resolution when nothing returned text: a definitive EMPTY wins (the
-    clip is silent — done); a PURE throttle (no hard failures) returns RATE_LIMITED so the queue backs
-    off without burning attempts; a throttle mixed with hard failures returns FAILED so the job's
-    normal retry/backoff applies and a permanently-broken clip still terminates after maxAttempts.
-    """
-    rate_limited: dict[str, Any] | None = None
-    empty: dict[str, Any] | None = None
-    errors: list[str] = []
-    for provider in chain:
-        call, max_bytes = _PROVIDER_CALLS[provider]
-        if max_bytes is not None and len(content) > max_bytes:
-            errors.append(f"{provider}: file larger than the provider limit")
-            continue
-        try:
-            result = call(content, filename, mime_type, settings)
-        except requests.HTTPError as exc:
-            response = exc.response
-            code = response.status_code if response is not None else None
-            if code in _DEFER_STATUSES:
-                rate_limited = rate_limited or _rate_limited_result(provider, response, code)
-                logger.warning("%s transcription throttled (HTTP %s); trying next provider", provider, code)
-            elif code in _AUTH_STATUSES:
-                name = _PROVIDER_NAMES.get(provider, provider)
-                errors.append(f"{name}'s key isn't working; an admin can update it in Settings")
-                logger.error(
-                    "%s rejected the configured API key (HTTP %s); trying next provider", provider, code
-                )
-            else:
-                name = _PROVIDER_NAMES.get(provider, provider)
-                errors.append(f"{name} couldn't transcribe this recording")
-                logger.warning(
-                    "%s transcription failed (%s); trying next provider",
-                    provider,
-                    redact_secrets(str(exc)),
-                )
-            continue
-        except requests.RequestException as exc:
-            errors.append(f"{_PROVIDER_NAMES.get(provider, provider)} couldn't be reached")
-            logger.warning(
-                "%s transcription network error (%s); trying next provider",
-                provider,
-                redact_secrets(str(exc)),
-            )
-            continue
-        if result.get("status") == "COMPLETED":
-            result["provider"] = provider
-            return result
-        if result.get("status") == "EMPTY" and empty is None:
-            result["provider"] = provider
-            empty = result
-    if empty:
-        return empty
-    if rate_limited and not errors:
-        return rate_limited
-    if rate_limited:
-        errors.append(f"{_PROVIDER_NAMES.get(rate_limited.get('provider'), 'a provider')} is busy")
-    return {
-        "available": True,
-        "status": "FAILED",
-        "text": None,
-        "formattedTranscript": None,
-        "message": (
-            f"Transcription failed: {'; '.join(errors)}." if errors else "Transcription failed."
+    """Walk *chain* through the shared service (app/transcription/chain.py) until one provider
+    produces a transcript. Per-provider cooldowns and budgets come in on *state*; usage, cooldowns
+    and finished parts go out through *hooks* as they happen."""
+    outcome = run_chain(
+        _audio(content, filename, mime_type, source_path),
+        transcription_service.build_slots(chain, _key),
+        opts or _stt_options(settings),
+        state,
+        hooks,
+        cutter_factory=(
+            transcription_audio.PartCutter if transcription_audio.ffmpeg_available() else None
         ),
-    }
+    )
+    return transcription_service.outcome_dict(outcome, _TRANSCRIPTION_MESSAGES)
 
 
 # ``transcribe_audio(file: UploadFile, ...)`` USED TO LIVE HERE AND IS GONE ON PURPOSE — A30-10.
@@ -767,6 +687,10 @@ async def transcribe_audio_bytes(
     settings: Settings,
     *,
     user_id: str | None = None,
+    media_id: str | None = None,
+    job_id: str | None = None,
+    language_bias: list[str] | None = None,
+    skip_providers: set[str] | None = None,
 ) -> dict[str, Any]:
     # Prime the managed-secret cache on the event loop BEFORE any thread hop, so both the provider
     # chain below and the header reads inside the thread see keys saved in the UI.
@@ -804,7 +728,11 @@ async def transcribe_audio_bytes(
     # Resolve the chain here, per job, and hand it to the thread: the ranking lives in the database
     # and awaiting it is impossible once inside `to_thread`. Reading it now is also what makes a
     # reorder apply to the very next job in both the API and the queue process, with no restart.
-    chain = transcription_provider_chain(settings, await app_settings.load_stt_provider_order())
+    chain = transcription_provider_chain(
+        settings,
+        await app_settings.load_stt_provider_order(),
+        disabled=app_settings.stt_providers_disabled(await app_settings.load_app_settings()),
+    )
     if not chain:
         return {
             "available": False,
@@ -816,6 +744,13 @@ async def transcribe_audio_bytes(
                 "Settings."
             ),
         }
+    # Cooldowns, budgets and any parts this job already paid for, read before the thread hop;
+    # usage, cooldowns and parts are written back from the thread as they happen.
+    store = PrismaTranscriptionStore()
+    state = await store.load_state(job_id=job_id, providers=chain)
+    state.skip |= set(skip_providers or ())
+    hooks = StoreHooks(store, asyncio.get_running_loop(), media_id=media_id, job_id=job_id)
+    opts = _stt_options(settings, language_bias=language_bias, session_id=media_id)
     try:
         return await asyncio.to_thread(
             _transcribe_sync,
@@ -824,6 +759,9 @@ async def transcribe_audio_bytes(
             mime_type,
             settings,
             chain,
+            state=state,
+            hooks=hooks,
+            opts=opts,
         )
     except requests.HTTPError as exc:
         # A 429 (or a 503 "overloaded") is transient throttling, not a real failure — surface it as

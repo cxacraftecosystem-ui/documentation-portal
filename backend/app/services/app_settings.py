@@ -20,7 +20,10 @@ DEFAULT_TIMEZONE = "Asia/Kolkata"
 # The speech-to-text providers a master admin may rank, listed in the order that was compiled into the
 # transcription chain before ranking existed. Doubles as the tie-breaker for anything a stored ranking
 # does not mention, so introducing a fourth engine here never leaves it stranded behind an old row.
-DEFAULT_STT_PROVIDER_ORDER = ("elevenlabs", "deepgram", "whisper")
+DEFAULT_STT_PROVIDER_ORDER = ("elevenlabs", "deepgram", "whisper", "muse")
+# Providers a ranking saved by an older client may leave out without being refused: they joined
+# after that client was built, and are appended where they are missing (Muse, 18 Oct 2026).
+LATE_STT_PROVIDERS = ("muse",)
 
 
 async def load_app_settings() -> Any | None:
@@ -91,7 +94,7 @@ def invalid_stt_provider_order(value: list[str]) -> str | None:
     repeated = sorted({p for p in value if value.count(p) > 1})
     if repeated:
         return f"repeats {repeated}; each provider may appear once"
-    missing = [p for p in known if p not in value]
+    missing = [p for p in known if p not in value and p not in LATE_STT_PROVIDERS]
     if missing:
         return f"is missing {missing}; it must rank every provider, not just the preferred ones"
     return None
@@ -226,3 +229,45 @@ def within_processing_window(row: Any | None, now: datetime | None = None) -> bo
     if start < end:
         return start <= current < end
     return current >= start or current < end
+
+
+# --- The transcription service's switches (18 Oct 2026) ---------------------------------------
+#
+# The pause is checked by every path that could send audio out: the queue, "Transcribe now",
+# server dictation, subtitles and the retry tools. A missing row reads as PAUSED (fail closed).
+
+
+def transcription_paused(row: Any | None) -> bool:
+    from app.transcription import schedule
+
+    return schedule.is_paused(row)
+
+
+def stt_providers_disabled(row: Any | None) -> set[str]:
+    from app.transcription.contract import DISABLED_BY_DEFAULT
+
+    if row is None:
+        return set(DISABLED_BY_DEFAULT)
+    stored = getattr(row, "sttProvidersDisabled", None)
+    return set(DISABLED_BY_DEFAULT if stored is None else stored)
+
+
+async def load_transcription_paused() -> bool:
+    return transcription_paused(await load_app_settings())
+
+
+async def save_transcription_switches(
+    *,
+    paused: bool | None = None,
+    disabled: list[str] | None = None,
+    updated_by_id: str | None = None,
+) -> Any:
+    """Persist the pause and the per-provider on/off list; returns the stored row."""
+    await get_or_create_app_settings(updated_by_id)
+    data: dict[str, Any] = {"updatedById": updated_by_id}
+    if paused is not None:
+        data["transcriptionPaused"] = bool(paused)
+    if disabled is not None:
+        known = [p for p in DEFAULT_STT_PROVIDER_ORDER if p in set(disabled)]
+        data["sttProvidersDisabled"] = {"set": known}
+    return await db.appsetting.update(where={"id": SINGLETON_ID}, data=data)

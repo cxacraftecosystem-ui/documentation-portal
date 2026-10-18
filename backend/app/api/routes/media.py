@@ -9,6 +9,8 @@ from prisma.errors import UniqueViolationError
 from app.core.config import get_settings
 from app.core.db import db
 from app.services.artisan_merge import redirect_merged_artisans
+from app.services import recording_consent, transcription_jobs
+from app.services.app_settings import load_transcription_paused
 from app.core.deps import get_current_user, is_admin, require_admin
 from app.schemas.media import (
     MediaCompleteRequest,
@@ -304,6 +306,10 @@ async def transcribe_media_audio(
             "background."
         ),
     )
+    # The owner's hold (18 Oct 2026): while paused, nothing leaves for a provider. UNAVAILABLE is
+    # what both clients already show calmly, and the web falls back to the browser's own speech.
+    if await load_transcription_paused():
+        return transcription_jobs.paused_result()
     return await transcribe_audio_bytes(
         content,
         file.filename or "recording.webm",
@@ -725,7 +731,14 @@ async def transcribe_media_now_route(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Only audio files can be transcribed.",
         )
-    await transcribe_media_now(media, get_settings())
+    try:
+        await transcribe_media_now(media, get_settings())
+    except transcription_jobs.TranscriptionPaused as exc:
+        # The owner's hold (18 Oct 2026): "Transcribe now" bypasses the queue, never the pause.
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except recording_consent.ConsentRefused as exc:
+        # 409: the admin may press the button; the recording's consent does not permit the send.
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     updated = await db.mediafile.find_unique(where={"id": media_id}, include=INCLUDE)
     return await _public(updated, current_user)
 
