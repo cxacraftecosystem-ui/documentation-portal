@@ -14,16 +14,24 @@ Vercel account. Sister documents:
 
 | Piece | Where it runs | Notes |
 |---|---|---|
-| Next.js web app | **Vercel** | Deployed by `.github/workflows/deploy-frontend.yml`, **after** the backend deploy succeeds and the Checks run for the same commit is green ([docs/CI.md](CI.md)) — not by Vercel's Git integration (§3). Every page under a dynamic segment renders on demand in a function pinned to `bom1` (Mumbai); every other page prerenders to static HTML (§8). No route handlers, no server actions, no `fs` access — see §8. |
+| Next.js web app | **Vercel** | Deployed by `.github/workflows/deploy-frontend.yml`, **after** the backend deploy succeeds and the Checks run for the same commit is green ([docs/CI.md](CI.md)) — not by Vercel's Git integration (§3). Every page under a dynamic segment renders on demand in a function pinned to `bom1` (Mumbai); every other page prerenders to static HTML (§8). Route handlers: the App Link file and, since 2026-10-17, the seven session routes and `proxy.ts` (below); no server actions, no `fs` access — see §8. |
 | FastAPI API | **AWS EC2** `t3.micro`, behind nginx | Not deployed by Vercel. Auto-deployed by `.github/workflows/deploy-backend.yml`. |
 | HTTPS + IPv6 edge for the API | **CloudFront** `https://d2b34i3e92al6i.cloudfront.net` | The value the browser actually talks to. |
 | Database | **Supabase** Postgres | Reached only by the backend. |
 | Media | **S3** `fieldrepo-media-626159998512` (dual-stack endpoints) | Browsers upload straight to S3 with signed PUT URLs — the bytes never pass through Vercel. |
 
-The browser calls the backend **directly**; there is no Next.js proxy or rewrite in front of it.
-That is deliberate: no API traffic and no media bytes pass through a Vercel Function, so the
-deployment stays off Vercel's bandwidth and function-invocation budget. It also means **CORS on the
-backend is not optional** (§4).
+**Since the cookie-session release (2026-10-17) the browser calls `/api/*` on the web app itself,**
+not CloudFront. `frontend/proxy.ts` turns the HttpOnly session cookie into a bearer token and
+REWRITES each call to the API; Vercel forwards rewrites without a function in the path, so uploads
+and downloads stream at any size. Seven small session routes (`frontend/app/api/auth/*`,
+`frontend/app/api/session/*`) are route handlers, because they must read the answer to set or clear
+the cookie. Media bytes still go straight from the browser to S3. The design, the CSRF check and the
+proxy secret are in [SECURITY.md](SECURITY.md) §3.4. Before that release the browser called the API
+directly, which is why CORS on the backend is still configured for pages loaded earlier.
+
+One more server variable comes with it: `WEB_PROXY_SECRET` (Production and Preview, Sensitive), the
+secret the proxy sends so the API believes the visitor's address for its rate limits. Never a
+`NEXT_PUBLIC_` name; never sent to the browser.
 
 ---
 

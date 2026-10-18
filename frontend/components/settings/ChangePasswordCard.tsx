@@ -22,7 +22,6 @@ import { CheckCircle2, Eye, EyeOff, KeyRound } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { OtpCodeInput } from "@/components/ui/OtpCodeInput";
 import { Toggle } from "@/components/ui/Toggle";
-import { setToken } from "@/lib/api";
 import { isCompleteCode } from "@/lib/otp";
 import {
   REAUTH_STATE_PREFIX,
@@ -227,7 +226,7 @@ export function ChangePasswordCard() {
       setConfirm("");
       setShow(false);
       if (fresh) {
-        setToken(fresh);
+        // Renewed: the fresh session is already in the cookie (this site's change-password route).
         void refreshMe();
         setChanged(setting ? FIRST_SET : CHANGED_HERE_ONLY);
       } else {

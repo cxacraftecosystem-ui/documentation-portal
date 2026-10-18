@@ -5,5 +5,19 @@
   "buildCommand": "next build",
   "outputDirectory": ".next",
   "ignoreCommand": "exit 0",
-  "regions": ["bom1"]
+  "regions": [
+    "bom1"
+  ],
+  "skipMiddlewareRequestBody": true,
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        }
+      ]
+    }
+  ]
 }

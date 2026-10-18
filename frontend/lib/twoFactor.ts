@@ -48,7 +48,8 @@ export type TwoFactorChallenge = {
 export const CHALLENGE_ENDED_DETAIL = "This sign-in has timed out. Sign in again.";
 
 /** The two things a sign-in can answer: a session, or a request for the second step. */
-export type SignInResult = { accessToken: string; user: User } | TwoFactorChallenge;
+/** The token itself never reaches the page: this site's sign-in route moves it into the session cookie. */
+export type SignInResult = { user: User } | TwoFactorChallenge;
 
 export function isTwoFactorChallenge(value: unknown): value is TwoFactorChallenge {
   return (

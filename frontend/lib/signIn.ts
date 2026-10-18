@@ -19,6 +19,7 @@
 
 import { ApiError, apiFetch, apiFetchWithHeaders } from "@/lib/api";
 import type { User, UserRole } from "@/lib/types";
+import { SESSION_ROTATED_HEADER } from "@/lib/sessionCookie";
 
 /* ── Password links ─────────────────────────────────────────────────────────────────────────── */
 
@@ -128,8 +129,17 @@ export function describeRetryAfter(header: string | null | undefined): string | 
 
 /* ── Changing your own password ─────────────────────────────────────────────────────────────── */
 
-/** The header `POST /auth/change-password` hands the fresh session token back in. */
+/** The header `POST /auth/change-password` hands the fresh session token back in — to the SITE. */
 export const SESSION_TOKEN_HEADER = "x-session-token";
+
+/**
+ * What the page sees instead since the cookie session (2026-10-17): this site's change-password route
+ * (`lib/server/apiProxy.ts::handleChangePassword`) moves the token from {@link SESSION_TOKEN_HEADER}
+ * into the HttpOnly session cookie and answers `X-Session-Rotated: 1`.
+ */
+function sessionRotated(headers: Headers): boolean {
+  return (headers.get(SESSION_ROTATED_HEADER) ?? "").trim() === "1";
+}
 
 /**
  * The header a set-first-password refusal carries when the request lacked a provider sign-in RUN
@@ -170,10 +180,10 @@ export function asksToConfirmSignIn(error: unknown): string | null {
 }
 
 /**
- * Change (or, with no current password, SET) the signed-in account's password. Returns the fresh
- * session token from {@link SESSION_TOKEN_HEADER}, or null when the answer carried none. The token
- * this call was sent with is retired by its own success, so the caller adopts the fresh one BEFORE
- * re-reading `/me`.
+ * Change (or, with no current password, SET) the signed-in account's password. Returns whether the
+ * session was renewed: the session this call was sent with is retired by its own success, and the
+ * fresh one is already in the cookie when this resolves, so a `/me` re-read afterwards goes out
+ * with it. Nothing for the caller to adopt.
  */
 export async function changeOwnPassword(
   currentPassword: string,
@@ -181,7 +191,7 @@ export async function changeOwnPassword(
   twoFactorCode?: string,
   /** A FIRST password only: the provider sign-in run again (`ProviderProof.fields`). */
   providerProof?: Record<string, string>
-): Promise<string | null> {
+): Promise<boolean> {
   const code = twoFactorCode?.trim();
   const body = currentPassword
     ? { currentPassword, newPassword }
@@ -190,8 +200,7 @@ export async function changeOwnPassword(
     method: "POST",
     body: JSON.stringify(body)
   });
-  const token = headers.get(SESSION_TOKEN_HEADER)?.trim();
-  return token ? token : null;
+  return sessionRotated(headers);
 }
 
 /* ── An administrator looking after somebody's account ──────────────────────────────────────── */

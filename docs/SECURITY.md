@@ -252,8 +252,8 @@ change this; SSE-S3 protects the physical disks, not URL holders. See risk P0.
 | Data | Where it sits | State |
 |---|---|---|
 | Media object keys / public URLs | `MediaFile.url` in Postgres, and in every client | Plaintext, and the URL alone grants read access |
-| Auth token (web) | `localStorage["field_repo_token"]` | Plaintext, readable by any script on the origin |
-| Auth token (Android) | `SharedPreferences("field_repository_auth")`, `MODE_PRIVATE` | Plaintext file in app-private storage; readable on a rooted device, and `android:allowBackup="true"` means it can leave the device in a backup |
+| Auth token (web) | `__Host-session` cookie on the web app's own domain, since the cookie-session release (§3.4); `localStorage["field_repo_token"]` before it | `HttpOnly`: no script can read it. Plaintext inside the browser's cookie store, like every cookie |
+| Auth token (Android) | `SharedPreferences("field_repository_auth")`, `MODE_PRIVATE`, key `jwt_sealed` | AES-256-GCM under a non-exportable Android Keystore key since 2026-10-17 (`TokenStore`); the file is excluded from backup and device transfer. A phone whose Keystore does not work keeps the old plain `jwt` value rather than signing the person out |
 | `.env` on EC2 | `/home/ubuntu/app/backend/.env`, `EnvironmentFile=` | Plaintext, on a root volume that is **not** encrypted on the box running on 2026-10-09 (read from AWS that day; §5 P3); holds `DATABASE_URL`, `JWT_SECRET`, AWS keys, every AI provider key |
 | Temporary media during processing | `tempfile` on the EC2 disk (ffmpeg/transcription) | Plaintext; removed after the job |
 | CSV / dataset exports | Streamed to the downloader | Plaintext; once downloaded the data is outside every control in this document |
@@ -291,10 +291,11 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 
 ### 3.2 Known weaknesses (accepted, with mitigations listed in §5)
 
-- **Token storage is `localStorage` on the web.** Any successful XSS on the frontend origin reads
-  the token and impersonates the user for up to 7 days. `HttpOnly; Secure; SameSite` cookies would
-  make the token unreadable to script, at the cost of a CSRF defence and a change to both clients.
-  The strict CSP on API responses does not help here — the risk lives on the *frontend* origin.
+- **Token storage was `localStorage` on the web until the cookie-session release (§3.4).** Any
+  successful XSS on the frontend origin could read the token and use it anywhere for up to 7 days.
+  Since §3.4 the token is in an `HttpOnly` cookie: a script running on the page can still act as the
+  user while the page is open (it can call `/api/*`, and the browser adds the cookie), but it can no
+  longer carry the token off.
 - **No refresh tokens and no revocation.** A token is valid until `exp`. Deleting or demoting a
   user does not invalidate their existing token for role checks embedded in the token; note that
   `get_current_user` re-loads the user row on every request, so a *deleted* user is rejected
@@ -440,6 +441,95 @@ Android. RFC 6238: SHA-1, 6 digits, 30-second steps, ±1 step accepted. Implemen
   phone keeps working offline.
 
 ---
+
+### 3.4 The web sign-in session is an HttpOnly cookie (2026-10-17)
+
+**State: built on `feature/cookie-session`, ships with the next release.** Until then the web token
+is in `localStorage` (§5 P4).
+
+The web app no longer holds the session token. The browser calls the API **same-origin**, through
+the web app's own server, and the token lives in a cookie no script can read.
+
+```
+browser ──/api/* (same origin, cookie)──> Vercel: proxy.ts / app/api/* route handlers
+        ──https, Authorization: Bearer <token from the cookie>──> CloudFront ──> nginx ──> API
+```
+
+The web app (`*.vercel.app`) and the API (`*.cloudfront.net`) are different sites, so a cookie set
+by the API would be a third-party cookie, which browsers block. The cookie is therefore the web
+app's own, and only the web app's server turns it into a bearer token.
+
+| Piece | Where | What it does |
+|---|---|---|
+| Session cookie | `__Host-session` | The token. `HttpOnly; Secure; SameSite=Lax; Path=/`, no `Domain`, `Max-Age` = what is left of the token's `exp`. The `__Host-` prefix makes the browser refuse it unless it is Secure, host-only and `Path=/`. |
+| Marker cookie | `__Host-session-marker` | A random id, readable by scripts, that changes whenever the session does. The page uses it for "is anybody signed in" and "did the session change while this request was out" (`lib/session.ts`). It is never sent to the API and grants nothing. |
+| Sign-in | `app/api/auth/login`, `app/api/auth/two-factor/verify`, `app/api/auth/google` | Forward to the API, take `accessToken` out of the JSON answer, set both cookies. The page gets the account and nothing else. A two-step challenge passes through untouched (it opens nothing). |
+| Password change | `app/api/auth/change-password` | Sent with the cookie's token. The API's fresh token (`X-Session-Token`, §3.6) goes into the cookie; the header is removed and the page sees `X-Session-Rotated: 1`. |
+| Sign-out | `app/api/auth/logout` | Tell the API, then clear both cookies whatever it answered. |
+| A refused session | `app/api/session/end` | When the API refuses the token (401), the page asks for the cookie to be cleared, naming the marker it saw, so a session that replaced it meanwhile is left alone. |
+| Everything else | `proxy.ts` | Cross-site check, cookie → `Authorization: Bearer`, then a **rewrite** to the API. |
+
+**Uploads and downloads stream.** `proxy.ts` rewrites; it does not fetch. Vercel forwards a rewrite
+itself, so no Vercel Function sits in the path, the 4.5 MB function payload limit does not apply,
+and nothing is held in memory. `vercel.json` sets `skipMiddlewareRequestBody`, so the request body
+never even reaches the Proxy code, and `x-vercel-enable-rewrite-caching: 0`, so Vercel's CDN never
+stores an answer. Photos, video and audio still go straight from the browser to S3 on presigned URLs.
+The public Android download link still points at the API directly.
+
+**What the API is sent: an allowlist (2026-10-18).** `upstreamHeaders` copies only the browser
+headers it names (`FORWARDED_REQUEST_HEADERS`): `content-type`, `accept*`, `range` and `if-*`,
+`user-agent`, `origin`, `x-forwarded-for`, `idempotency-key`, `x-client-app` and the sign-in
+confirmation headers. It then sets `Authorization` from the cookie and adds the two proxy headers.
+The `Cookie` header is never sent on, and neither is anything Vercel or Next.js added on the way in.
+A new request header from a client must be added to that list, with its reason, or the API never
+sees it.
+
+Checked on a preview on 2026-10-18, with the proxy pointed at a temporary header echo. Before the
+change the API also got `x-vercel-proxy-signature` (a bearer value), `x-vercel-proxy-signature-ts`,
+`x-vercel-ja4-digest` and `x-vercel-proxied-for`. After it, none of them arrived. Vercel's edge still
+adds a few headers on the way out that no project code can remove: `x-vercel-id` (a request id), the
+visitor's address in `x-vercel-forwarded-for`, `x-real-ip`, `x-forwarded-for` and `forwarded` (the
+API already gets it in `X-Viewer-Address`), plus `x-forwarded-host` and `x-forwarded-proto`. No
+`x-vercel-oidc-token` reached the API on either build, though the project has OIDC federation
+turned on. The same run showed that no `Cookie` arrived and `Authorization: Bearer` did, and that
+`X-Web-Proxy-Secret` matched the SSM copy. `X-Viewer-Address` carried the visitor's real address,
+not a forged one sent by the caller. A 5,000,000-byte upload and a 20 MiB download went through
+whole, and a cross-site POST got 403. The check ran on a `designer-repository` preview; `lib/server/apiProxy.ts` is the same file in both portals.
+
+**Cross-site request forgery.** Two locks. `SameSite=Lax` keeps the cookie off cross-site POSTs.
+And every state-changing request (anything but GET/HEAD/OPTIONS) must carry
+`Sec-Fetch-Site: same-origin`, or, from a browser too old to send that header, an `Origin` equal to
+this host; anything else gets 403 before the API is asked. `same-site` is refused on purpose:
+`vercel.app` is a public suffix, so every other Vercel project is "same-site". The session adoption
+route is under the same check, which stops a login-forgery page from planting its own session.
+
+**Rate limits still see the visitor.** Every web call now reaches CloudFront from a Vercel address.
+The proxy sends the visitor's address (Vercel's `x-real-ip`, which Vercel overwrites, so it cannot
+be typed) in `X-Viewer-Address`, beside the shared secret `WEB_PROXY_SECRET` in `X-Web-Proxy-Secret`.
+The API believes the address only when the secret matches, compared in constant time, and only if it
+parses as an IP (`rate_limit.trusted_viewer_address`). `X-Origin-Verify` cannot do this job:
+CloudFront adds it to every request it forwards, from anybody, replacing what the caller sent.
+Without the secret, the API counts web visitors by the Vercel egress address, as one.
+
+**Moving people who were already signed in.** A browser signed in before this change still has its
+token in `localStorage["field_repo_token"]`. On its first load, `AuthProvider` posts it once to
+`/api/session/adopt`, which checks it with `GET /api/me` before making it the cookie, and then
+deletes it from storage. Nobody is signed out by the release. Only a load with no network answer at
+all keeps the stored token, for the next try.
+
+**What did not change.** The Android app sends `Authorization: Bearer` as before. Since 2026-10-17
+its token is encrypted at rest with an AES-256-GCM key kept in the Android Keystore (§5 P5). CORS
+stays configured: the browser no longer calls the API cross-origin, but pages loaded before the
+release, and the public download link, still can. Narrow `BACKEND_CORS_ORIGINS` after a release
+or two.
+
+**`WEB_PROXY_SECRET`.** 48 letters and digits, generated with a CSPRNG. It lives in four places:
+the Vercel project's server variables (Production and Preview, marked Sensitive), the Actions secret
+`WEB_PROXY_SECRET`, the box's release `.env` (pinned by "Pin the web proxy secret" in
+`deploy-backend.yml`), and an SSM SecureString backup at `/iit/documentation-portal/web-proxy-secret`. To rotate it: set the new value on
+Vercel and as the Actions secret, update the SSM copy, deploy the backend, then redeploy the web app.
+Between the two deploys the API ignores the viewer header (per-address limits count web visitors
+together for a few minutes). Nothing else is affected.
 
 ## 4. Authorisation: the six-tier ladder
 
@@ -658,16 +748,20 @@ for the box it builds; the old box is stopped, not encrypted in place.
 
 ### P4 — Web token in `localStorage`
 
-See §3.2. **Action:** none in a console; a frontend + backend change to `HttpOnly` cookies with CSRF
-protection. Interim mitigation: keep `JWT_EXPIRES_MINUTES` no longer than the field workflow needs,
-and rotate `JWT_SECRET` on any suspicion of theft (this logs everyone out).
+**State: fixed on `feature/cookie-session` (2026-10-17), closes when that release ships.** See §3.4.
+Until it ships: keep `JWT_EXPIRES_MINUTES` no longer than the field workflow needs, and rotate
+`JWT_SECRET` on any suspicion of theft (this logs everyone out).
 
 ### P5 — Android local storage and backup
 
-The auth token sits in plain `SharedPreferences` with `allowBackup="true"`.
-
-**Action (code, in the Android app):** switch `TokenStore` to `EncryptedSharedPreferences`, and add a
-`dataExtractionRules`/`fullBackupContent` resource excluding `field_repository_auth`.
+**State: fixed.** The backup rules (`backup_rules.xml`, `data_extraction_rules.xml`) exclude
+`field_repository_auth`. Since 2026-10-17 `TokenStore` seals the token with AES-256-GCM under a key
+kept in the Android Keystore, and seals a plain token left by an older build on its first read. Not
+`EncryptedSharedPreferences`: that library is deprecated, and one value needs sealing.
+Since 2026-10-18 the sealed token is deleted only when it can never open: no key under the alias,
+a failed GCM check, or a value this code did not write (`OpenResult.Unreadable`). If the Keystore
+cannot be asked at that moment (`OpenResult.Unavailable`, for example just after a boot), the token
+is kept and the next read tries again. Before this, a passing failure signed the person out.
 
 ### P6 — Secret rotation hygiene
 
@@ -721,6 +815,7 @@ advisory. `npm audit --omit=dev`, the packages that ship, reads 0.
 | `AUTH_USER_CACHE_TTL_SECONDS` | `5.0` | How long a demoted or deleted account can keep working after a write **this process cannot see** (psql, the seed script, another worker). In-process writes invalidate explicitly and have no window. |
 | `AUTH_USER_CACHE_MAX_ENTRIES` | `512` | LRU ceiling, so worst-case memory is a number chosen here rather than one decided by how many people log in. |
 | `SECRETS_ENCRYPTION_KEY` | derived from `JWT_SECRET` | Fernet key for `ManagedSecret`. **Set it explicitly before you ever rotate `JWT_SECRET`** — otherwise rotation makes every stored provider key undecryptable and each must be re-entered. |
+| `WEB_PROXY_SECRET` | unset | Shared with the web app's server (§3.4). When set, `X-Viewer-Address` from a request carrying the same value in `X-Web-Proxy-Secret` is the client address for the rate limits. Unset: that header is ignored. |
 
 ---
 

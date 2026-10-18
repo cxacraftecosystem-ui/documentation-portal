@@ -46,7 +46,7 @@ import { CappedListNotice } from "@/components/data/CappedListNotice";
 import { listCut, type ListCut } from "@/components/data/cappedList";
 import { DataSearchPanel } from "@/components/data/DataSearchPanel";
 import { useWorkshopScope, WorkshopScopeSelect } from "@/components/WorkshopScopeSelect";
-import { API_BASE, apiFetch, buildQuery, getToken, listResource } from "@/lib/api";
+import { API_BASE, apiFetch, buildQuery, listResource } from "@/lib/api";
 import { bytes, formatDateTime } from "@/lib/format";
 import { canDownloadDataset } from "@/lib/permissions";
 import { canUpdateRecord, recordViewHref } from "@/lib/recordView";
@@ -242,7 +242,7 @@ function TranscriptMarkdown({ children }: { children: string }) {
 
 // ---------------------------------------------------------------------------
 // Data tables accordion — lazy /data/report?format=json per folder, styled
-// sheets + a Bearer-authenticated .xlsx download of the same subtree.
+// sheets + a session-authenticated .xlsx download of the same subtree.
 // ---------------------------------------------------------------------------
 
 type ReportSheet = {
@@ -360,10 +360,7 @@ function DataTablesPanel({
     setDownloading(true);
     setError(null);
     try {
-      const token = getToken();
-      const response = await fetch(`${API_BASE}/api/data/report${buildQuery({ path, format: "xlsx", status })}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {}
-      });
+      const response = await fetch(`${API_BASE}/api/data/report${buildQuery({ path, format: "xlsx", status })}`);
       if (!response.ok) throw new Error("The report didn’t download. Try again.");
       const blob = await response.blob();
       saveBlobToDevice(blob, reportFilename(folderName));
@@ -1551,7 +1548,6 @@ export default function DataBrowserPage() {
       const { default: JSZip } = await import("jszip");
       const zip = new JSZip();
       const failed: DownloadFailure[] = [];
-      const token = getToken();
       let done = 0;
       for (const file of manifest.files) {
         setProgress({ done, total: manifest.files.length, current: file.path, phase: "fetching" });
@@ -1559,10 +1555,8 @@ export default function DataBrowserPage() {
           if (file.content != null) {
             zip.file(file.path, file.content);
           } else if (file.convertToMp4 && file.mediaId) {
-            // Audio needing conversion is streamed from the backend as MP4 (Bearer-authenticated).
-            const response = await fetch(`${API_BASE}/api/data/media/${file.mediaId}/download?format=mp4`, {
-              headers: token ? { Authorization: `Bearer ${token}` } : {}
-            });
+            // Audio needing conversion is streamed from the backend as MP4 (the session cookie authenticates it).
+            const response = await fetch(`${API_BASE}/api/data/media/${file.mediaId}/download?format=mp4`);
             if (response.ok) {
               zip.file(mp4Path(file.path), await response.blob());
             } else if (file.url) {
