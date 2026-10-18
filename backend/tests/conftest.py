@@ -40,3 +40,31 @@ def _fresh_aadhaar_legacy_answer():
 
     reset_legacy_pending()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _merge_redirects_need_a_database(monkeypatch):
+    """The merge redirect (``services/artisan_merge.resolve`` / ``merged_among``) reads
+    ``ArtisanMerge`` on every artisan-naming write. A unit test that drives a route with its own
+    stubbed reads has no database behind the global client, and an id it invents was never merged,
+    so the redirect answers "not merged" there. A test with a connected client, or one that hands
+    its own ``client``, reads the real table as before."""
+    from app.core.db import db
+    from app.services import artisan_merge
+
+    real_resolve = artisan_merge.resolve
+    real_merged_among = artisan_merge.merged_among
+
+    def _offline(client):
+        # Only the real client, unconnected: a test that swaps in its own fake db keeps the real path.
+        return client is None and artisan_merge.db is db and not db.is_connected()
+
+    async def resolve(artisan_id, *, client=None):
+        return None if _offline(client) else await real_resolve(artisan_id, client=client)
+
+    async def merged_among(ids, *, client=None):
+        return set() if _offline(client) else await real_merged_among(ids, client=client)
+
+    monkeypatch.setattr(artisan_merge, "resolve", resolve)
+    monkeypatch.setattr(artisan_merge, "merged_among", merged_among)
+    yield

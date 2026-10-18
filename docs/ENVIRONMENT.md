@@ -255,6 +255,17 @@ box `.env`; none is created by this repository.
 | `CROSS_PORTAL_TOKEN` | With the flag on | — | **Yes** | Shared by both servers. Authenticates requests and signs answers. 32+ characters. |
 | `AADHAAR_FINGERPRINT_KEY` | Yes (see above) | — | **Yes** | Also what the link compares Aadhaar by: the code is the stored fingerprint. Must be the same on both servers. It cannot be rotated: every stored fingerprint depends on it. |
 
+### Duplicate artisans
+
+The server scores every new or edited artisan against the register (`app/services/artisan_duplicates.py`)
+and stores likely pairs for the admin review screen (`/admin/duplicates`). A create that looks like an
+artisan already recorded (score 0.75 or more) is held with a 409 until the person saving says
+"Different person".
+
+| Variable | Required | Default | Secret | Notes |
+|---|---|---|---|---|
+| `ARTISAN_DUPLICATE_HOLD` | No | **`true`** | No | Kill switch for the hold at save time. Off: every create saves straight away, and its likely pairs are still stored for review. Scoring and the admin screen stay on. The thresholds (show 0.60, hold 0.75) and the 30-day undo window are constants in code, not settings. |
+
 ### AI-drafted interview answers (C28) — shipped OFF
 
 | Variable | Required | Default | Secret | Notes |

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   Boxes,
@@ -17,6 +18,7 @@ import {
 import { ArtisanQuestionnairePanel } from "@/components/ArtisanQuestionnairePanel";
 import { useAuth } from "@/components/AuthProvider";
 import { CollabPanel } from "@/components/CollabPanel";
+import { ArtisanDuplicateBanner } from "@/components/duplicates/ArtisanDuplicateBanner";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
 import { PageHeader } from "@/components/PageHeader";
 import { RecordMediaList } from "@/components/records/RecordMediaList";
@@ -27,9 +29,11 @@ import {
   recordTitle
 } from "@/components/records/recordFields";
 import { StatusBadge } from "@/components/StatusBadge";
+import { useToast } from "@/components/ui/Toast";
 import { apiFetch } from "@/lib/api";
+import { mergedSurvivorId } from "@/lib/duplicates";
 import { formatDateTime } from "@/lib/format";
-import { canCreateRecords } from "@/lib/permissions";
+import { canCreateRecords, isAdmin } from "@/lib/permissions";
 import { canUpdateRecord, recordUpdateHref, type RecordViewType } from "@/lib/recordView";
 import type { Artisan, MediaFile, QuestionnaireResponse, RecordStatus, User } from "@/lib/types";
 
@@ -62,6 +66,8 @@ type LoadedRecord = Record<string, unknown> & {
  */
 export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
   const { user } = useAuth();
+  const router = useRouter();
+  const { toast } = useToast();
   const [record, setRecord] = useState<LoadedRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
   const noun = RECORD_VIEW_NOUN[type];
@@ -74,13 +80,23 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
       .then((loaded) => {
         if (!cancelled) setRecord(loaded);
       })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : `Couldn't load this ${noun}.`);
+      .catch(async (err) => {
+        if (cancelled) return;
+        // A merged artisan answers with the record it now lives on: go there, and say why.
+        const survivorId = type === "artisan" ? mergedSurvivorId(err) : null;
+        if (survivorId) {
+          const survivor = await apiFetch<{ name?: string }>(`/artisans/${encodeURIComponent(survivorId)}`).catch(() => null);
+          if (cancelled) return;
+          toast({ id: "artisan-merged", tone: "info", title: survivor?.name ? `Merged into ${survivor.name}` : "Merged into another record" });
+          router.replace(`/artisans/${encodeURIComponent(survivorId)}`);
+          return;
+        }
+        setError(err instanceof Error ? err.message : `Couldn't load this ${noun}.`);
       });
     return () => {
       cancelled = true;
     };
-  }, [type, id, noun]);
+  }, [type, id, noun, router, toast]);
 
   const Icon = ICON[type];
   const updateHref = recordUpdateHref(type, id);
@@ -102,6 +118,7 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
         }
       />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+      {type === "artisan" && record && isAdmin(user) ? <ArtisanDuplicateBanner artisanId={record.id} /> : null}
       {!record ? (
         error ? null : <div className="panel p-4 text-sm text-ink-muted">Loading this {noun}…</div>
       ) : (

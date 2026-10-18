@@ -1,0 +1,132 @@
+{
+  "contract": "duplicate-score",
+  "version": 1,
+  "enforcedBy": [
+    "backend/tests/test_artisan_duplicates_scoring.py"
+  ],
+  "whatThisIs": [
+    "THE DUPLICATE-ARTISAN SCORE, PINNED ONCE FOR BOTH PORTALS. Only the server scores",
+    "(backend/app/services/artisan_duplicates.py); web and Android never do. This file is identical",
+    "in the two repositories and only pytest reads it. A pair vector names two artisans and the",
+    "score, band and reason codes the scorer must give them; score null means the pair is below the",
+    "show threshold and is never stored. Vectors that use the designer portal's",
+    "SAME_FIELD_REPOSITORY_LINK reason carry \"portal\": \"designer\" and are skipped elsewhere."
+  ],
+  "thresholds": { "show": 0.6, "hold": 0.75, "veryLikely": 0.9 },
+  "skeletons": [
+    ["lakshmi", "lksm"],
+    ["laxmi", "lksm"],
+    ["ramesh", "rms"],
+    ["prasad", "prsd"],
+    ["prasaad", "prsd"]
+  ],
+  "names": [
+    { "label": "honorific dropped", "a": "Shri Ramesh Kumar", "b": "Ramesh Kumar", "nameSim": 1.0 },
+    { "label": "Smt. and punctuation", "a": "Smt. Meena  Devi", "b": "meena devi", "nameSim": 1.0 },
+    { "label": "Lakshmi and Laxmi", "a": "Lakshmi Devi", "b": "Laxmi Devi", "nameSim": 0.9 },
+    { "label": "Mohd is Mohammad", "a": "Mohd Rafiq", "b": "Mohammad Rafiq", "nameSim": 1.0 },
+    { "label": "Md is Mohammad", "a": "Md. Rafiq", "b": "Mohammad Rafiq", "nameSim": 1.0 },
+    { "label": "an initial matches its name", "a": "R. Kumar", "b": "Ramesh Kumar", "nameSim": 0.9 },
+    { "label": "doubled vowel", "a": "Giriraj Prasad", "b": "Giriraj Prasaad", "nameSim": 0.9 },
+    { "label": "different people", "a": "Sita Ram", "b": "Gita Sharma", "nameSimBelow": 0.5 }
+  ],
+  "pairs": [
+    {
+      "label": "same Aadhaar fingerprint, whatever the names",
+      "a": { "id": "a", "name": "Ramesh Kumar", "aadhaarFingerprint": "f1" },
+      "b": { "id": "b", "name": "Suresh Patel", "aadhaarFingerprint": "f1" },
+      "score": 1.0, "band": "VERY_LIKELY", "reasons": ["AADHAAR"]
+    },
+    {
+      "label": "same Pehchan number",
+      "a": { "id": "a", "name": "Meena Devi", "pehchanCardNumber": "PEH123" },
+      "b": { "id": "b", "name": "M. Devi", "pehchanCardNumber": "PEH123" },
+      "score": 1.0, "band": "VERY_LIKELY", "reasons": ["PEHCHAN"]
+    },
+    {
+      "label": "both linked to one Field Repository record",
+      "portal": "designer",
+      "a": { "id": "a", "name": "Meena Devi", "remoteArtisanId": "fr1" },
+      "b": { "id": "b", "name": "Kamla Devi", "remoteArtisanId": "fr1" },
+      "score": 0.98, "band": "VERY_LIKELY", "reasons": ["SAME_FIELD_REPOSITORY_LINK"]
+    },
+    {
+      "label": "identical names in different districts stay below the show threshold",
+      "a": { "id": "a", "name": "Ramesh Kumar", "state": "Gujarat", "district": "Kachchh" },
+      "b": { "id": "b", "name": "Ramesh Kumar", "state": "Rajasthan", "district": "Jaipur" },
+      "score": null
+    },
+    {
+      "label": "name and district: POSSIBLE",
+      "a": { "id": "a", "name": "Giriraj Prasad", "state": "Gujarat", "district": "Kachchh" },
+      "b": { "id": "b", "name": "Giriraj Prasad", "state": "Gujarat", "district": "Kachchh" },
+      "score": 0.7, "band": "POSSIBLE", "reasons": ["NAME", "DISTRICT"]
+    },
+    {
+      "label": "exactly the show threshold (name and craft)",
+      "a": { "id": "a", "name": "Giriraj Prasad", "craftId": "c1" },
+      "b": { "id": "b", "name": "Giriraj Prasad", "craftId": "c1" },
+      "score": 0.6, "band": "POSSIBLE", "reasons": ["NAME", "CRAFT"]
+    },
+    {
+      "label": "exactly the hold threshold (name, phone, craft)",
+      "a": { "id": "a", "name": "Giriraj Prasad", "phone": "+91 98250 12345", "craftId": "c1" },
+      "b": { "id": "b", "name": "Giriraj Prasad", "phone": "9825012345", "craftId": "c1" },
+      "score": 0.75, "band": "LIKELY", "reasons": ["NAME", "PHONE", "CRAFT"]
+    },
+    {
+      "label": "name, district and place: LIKELY",
+      "a": { "id": "a", "name": "Giriraj Prasad", "state": "Gujarat", "district": "Kachchh", "place": "Bhuj" },
+      "b": { "id": "b", "name": "Giriraj Prasaad", "state": "Gujarat", "district": "Kachchh", "place": "Bhuj" },
+      "score": 0.75, "band": "LIKELY", "reasons": ["NAME", "DISTRICT", "PLACE"]
+    },
+    {
+      "label": "exactly the very-likely threshold (name, district, place, birth date)",
+      "a": { "id": "a", "name": "Giriraj Prasad", "state": "Gujarat", "district": "Kachchh", "place": "Bhuj", "dateOfBirth": "1971-04-02" },
+      "b": { "id": "b", "name": "Giriraj Prasad", "state": "Gujarat", "district": "Kachchh", "village": "Bhuj", "dateOfBirth": "1971-04-02" },
+      "score": 0.9, "band": "VERY_LIKELY", "reasons": ["NAME", "DISTRICT", "PLACE", "DOB"]
+    },
+    {
+      "label": "local name equal after NFKC with spaces stripped",
+      "a": { "id": "a", "name": "Giriraj Prasad", "localName": "गिरिराज प्रसाद", "craftId": "c1" },
+      "b": { "id": "b", "name": "Giriraj Prasad", "localName": "गिरिराजप्रसाद", "craftId": "c1" },
+      "score": 0.65, "band": "POSSIBLE", "reasons": ["NAME", "CRAFT", "LOCAL_NAME"]
+    },
+    {
+      "label": "different Aadhaar caps at 0.30",
+      "a": { "id": "a", "name": "Giriraj Prasad", "state": "Gujarat", "district": "Kachchh", "phone": "9825012345", "dateOfBirth": "1971-04-02", "aadhaarFingerprint": "f1" },
+      "b": { "id": "b", "name": "Giriraj Prasad", "state": "Gujarat", "district": "Kachchh", "phone": "9825012345", "dateOfBirth": "1971-04-02", "aadhaarFingerprint": "f2" },
+      "score": null
+    },
+    {
+      "label": "different Pehchan numbers cap at 0.30",
+      "a": { "id": "a", "name": "Giriraj Prasad", "state": "Gujarat", "district": "Kachchh", "phone": "9825012345", "pehchanCardNumber": "P1" },
+      "b": { "id": "b", "name": "Giriraj Prasad", "state": "Gujarat", "district": "Kachchh", "phone": "9825012345", "pehchanCardNumber": "P2" },
+      "score": null
+    },
+    {
+      "label": "different genders cap at 0.40",
+      "a": { "id": "a", "name": "Kiran Kumari", "gender": "Female", "state": "Gujarat", "district": "Kachchh", "phone": "9825012345" },
+      "b": { "id": "b", "name": "Kiran Kumari", "gender": "Male", "state": "Gujarat", "district": "Kachchh", "phone": "9825012345" },
+      "score": null
+    },
+    {
+      "label": "birth years more than three apart take 0.25 off",
+      "a": { "id": "a", "name": "Giriraj Prasad", "state": "Gujarat", "district": "Kachchh", "phone": "9825012345", "place": "Bhuj", "dateOfBirth": "1970-01-01" },
+      "b": { "id": "b", "name": "Giriraj Prasad", "state": "Gujarat", "district": "Kachchh", "phone": "9825012345", "place": "Bhuj", "dateOfBirth": "1980-06-01" },
+      "score": 0.7, "band": "POSSIBLE", "reasons": ["NAME", "DISTRICT", "PLACE", "PHONE", "DOB_FAR_APART"], "absentReasons": ["DOB"]
+    },
+    {
+      "label": "a capped total never exceeds 1.0",
+      "a": { "id": "a", "name": "Giriraj Prasad", "state": "Gujarat", "district": "Kachchh", "place": "Bhuj", "phone": "9825012345", "dateOfBirth": "1971-04-02", "craftId": "c1", "localName": "गिरिराज" },
+      "b": { "id": "b", "name": "Giriraj Prasad", "state": "Gujarat", "district": "Kachchh", "place": "Bhuj", "phone": "9825012345", "dateOfBirth": "1971-04-02", "craftId": "c1", "localName": "गिरिराज" },
+      "score": 1.0, "band": "VERY_LIKELY", "reasons": ["NAME", "DISTRICT", "PLACE", "PHONE", "DOB", "CRAFT", "LOCAL_NAME"]
+    },
+    {
+      "label": "names less than half alike are not considered",
+      "a": { "id": "a", "name": "Sita Ram", "state": "Gujarat", "district": "Kachchh", "phone": "9825012345", "dateOfBirth": "1971-04-02" },
+      "b": { "id": "b", "name": "Gita Sharma", "state": "Gujarat", "district": "Kachchh", "phone": "9825012345", "dateOfBirth": "1971-04-02" },
+      "score": null
+    }
+  ]
+}

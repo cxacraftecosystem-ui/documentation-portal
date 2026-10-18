@@ -155,6 +155,21 @@ data class ApiFailure(
     val detail: JsonObject? = null
 )
 
+/** The 409 code `POST /artisans` answers when the new artisan looks like one already recorded. */
+const val POSSIBLE_DUPLICATE_CODE = "artisan_possible_duplicate"
+
+/**
+ * The likely duplicates a held create names, or null when this failure was something else. Read off
+ * [ApiFailure.detail], because the error body has already been consumed by [Throwable.apiFailure].
+ */
+fun ApiFailure.possibleDuplicates(): List<DuplicateCandidateDto>? {
+    if (code != POSSIBLE_DUPLICATE_CODE) return null
+    val list = detail?.get("candidates") as? JsonArray ?: return emptyList()
+    return list.mapNotNull { element ->
+        runCatching { errorBodyJson.decodeFromJsonElement(DuplicateCandidateDto.serializer(), element) }.getOrNull()
+    }
+}
+
 /**
  * The 409 code a PATCH raises when another interview already covers this exact set of artisans —
  * `_DUPLICATE_SET_CODE` in `backend/app/api/routes/questionnaire.py`.
@@ -1724,7 +1739,36 @@ class FieldRepository(
     suspend fun createArtisan(body: ArtisanCreateRequest, idempotencyKey: String? = null): ArtisanDto =
         api.createArtisan(idempotencyKey, body)
 
-    suspend fun artisan(id: String): ArtisanDetailDto = api.artisan(id)
+    /**
+     * One artisan. A MERGED id keeps working: the server answers 404 `artisan_merged` naming the
+     * record it now lives on (chains already resolved), and that record is opened instead.
+     */
+    suspend fun artisan(id: String): ArtisanDetailDto = try {
+        api.artisan(id)
+    } catch (e: HttpException) {
+        if (e.code() != 404) throw e
+        val survivor = PossibleDuplicates.mergedSurvivorId(e.apiFailure("Couldn't load this artisan."))
+        if (survivor == null || survivor == id) throw e
+        api.artisan(survivor)
+    }
+
+    /**
+     * Who the artisan being typed already looks like — the server scores, this only asks. Empty on
+     * any failure (offline, rate-limited): the create's own hold still asks the question.
+     */
+    suspend fun checkDuplicates(body: DuplicateCheckRequest): List<DuplicateCandidateDto> =
+        runCatching { api.checkDuplicates(body).candidates }.getOrDefault(emptyList())
+
+    /**
+     * Answer a queued artisan the server held as a likely duplicate, then send it. "Same person"
+     * attaches its files to the existing artisan; "Different person" re-sends the create with the
+     * candidates acknowledged. The entry stays queued until the pass sends it.
+     */
+    suspend fun answerPossibleDuplicate(context: Context, entryId: String, samePerson: Boolean) {
+        val entry = OfflineOutbox.all(context).firstOrNull { it.id == entryId } ?: return
+        if (!entry.isPossibleDuplicate()) return
+        OfflineOutbox.update(context, if (samePerson) entry.asSamePerson() else entry.asDifferentPerson())
+    }
 
     /**
      * Is this Aadhaar number already on an artisan? The form's pre-flight duplicate check, run while
@@ -3048,6 +3092,10 @@ class FieldRepository(
                         OfflineOutbox.markReview(context, queued.id, outcome.reason)
                         notifyUser(context, "\"${queued.label}\" needs a look before it is sent. ${outcome.reason}")
                     }
+                    is ReplayOutcome.PossibleDuplicate -> {
+                        OfflineOutbox.markPossibleDuplicate(context, queued.id, outcome.candidates)
+                        notifyUser(context, "\"${queued.label}\" may already be recorded. Open the outbox to check.")
+                    }
                     // Transient: stop here so the queue keeps its order and nothing is marked failed
                     // for a reason that is really "the signal went away again".
                     ReplayOutcome.Retry -> return@withLock synced
@@ -3073,6 +3121,12 @@ class FieldRepository(
          * may already be there. Keep everything and ask the researcher; never a silent refusal.
          */
         data class Review(val reason: String) : ReplayOutcome
+
+        /**
+         * The server held this artisan as a likely duplicate. Not a clash and not a refusal: keep
+         * everything and ask "Same person" / "Different person" in the tray.
+         */
+        data class PossibleDuplicate(val candidates: List<OutboxDuplicateCandidate>) : ReplayOutcome
     }
 
     /**
@@ -3128,7 +3182,16 @@ class FieldRepository(
                     isKeyReused(e) -> ReplayOutcome.Review(
                         "This may already be saved. Check the list; if it isn't there, tap Send again. Photos stay on this phone."
                     )
-                    else -> ReplayOutcome.Rejected(e.apiErrorMessage("This record couldn't be saved."))
+                    else -> {
+                        // Read once: the body names the likely duplicates when the server held it.
+                        val failure = e.apiFailure("This record couldn't be saved.")
+                        val held = failure.possibleDuplicates()
+                        if (held != null && entry.kind == OutboxKind.CREATE && entry.type == "artisan") {
+                            ReplayOutcome.PossibleDuplicate(held.toOutboxCandidates())
+                        } else {
+                            ReplayOutcome.Rejected(failure.message)
+                        }
+                    }
                 }
             }
             entry = entry.copy(createdId = created.id, createdStepIds = created.stepIds)
@@ -3334,6 +3397,9 @@ class FieldRepository(
     private fun withIdentityAnswer(body: ArtisanCreateRequest): ArtisanCreateRequest =
         if (body.pehchanCardAvailable != null) body
         else body.copy(pehchanCardAvailable = body.pehchanCardNumber != null)
+
+    private fun List<DuplicateCandidateDto>.toOutboxCandidates(): List<OutboxDuplicateCandidate> =
+        take(5).map { OutboxDuplicateCandidate(it.artisan.id, it.artisan.name, it.artisan.place, it.artisan.craft) }
 
     /** What a replayed create produced: the record's server id, plus a process's step ids in order. */
     internal data class CreatedRecord(val id: String, val stepIds: List<String> = emptyList())

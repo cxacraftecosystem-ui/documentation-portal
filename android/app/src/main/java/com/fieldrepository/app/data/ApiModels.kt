@@ -702,8 +702,68 @@ data class ArtisanCreateRequest(
      * null, is omitted on the wire (`explicitNulls = false`) and lands as the old shape the server
      * still accepts. A non-null default would stamp every old entry with the new rule on replay.
      */
-    val formContract: Int? = null
+    val formContract: Int? = null,
+    /**
+     * THE DUPLICATE HOLD — not a column. The ids of the likely duplicates the researcher was shown
+     * and answered "Different person" for; `[]` when none were shown. The form sets it on every
+     * CREATE (so a queued create carries `[]` and is checked by the server when it syncs) and never
+     * on an edit: the server's edit schema refuses the key.
+     *
+     * NULL BY DEFAULT for the same transition [formContract] makes: an entry queued by an older
+     * build has no such key, is sent without it, and the server never holds it.
+     */
+    val duplicateAcknowledged: List<String>? = null
 )
+
+/** `POST /artisan-duplicates/check` — what the artisan form knows so far. The Aadhaar travels here only. */
+@Serializable
+data class DuplicateCheckRequest(
+    val name: String,
+    val localName: String? = null,
+    val gender: String? = null,
+    val dateOfBirth: String? = null,
+    val phone: String? = null,
+    val place: String? = null,
+    val state: String? = null,
+    val district: String? = null,
+    val village: String? = null,
+    val craftId: String? = null,
+    val craftName: String? = null,
+    val aadhaar: String? = null,
+    val pehchanCardNumber: String? = null,
+    val excludeArtisanId: String? = null
+)
+
+/** One reason a pair was matched: a code and a short label ("Same district"). Never a value. */
+@Serializable
+data class DuplicateReasonDto(val code: String, val label: String)
+
+/** The existing artisan a candidate names. Birth year only, never a full date or an identifier. */
+@Serializable
+data class DuplicateCandidateArtisanDto(
+    val id: String,
+    val name: String,
+    val localName: String? = null,
+    val place: String? = null,
+    val state: String? = null,
+    val district: String? = null,
+    val craft: String? = null,
+    val workshop: String? = null,
+    val birthYear: Int? = null,
+    val photoUrl: String? = null,
+    val createdAt: String? = null
+)
+
+@Serializable
+data class DuplicateCandidateDto(
+    val artisan: DuplicateCandidateArtisanDto,
+    val score: Double,
+    val band: String,
+    val reasons: List<DuplicateReasonDto> = emptyList()
+)
+
+@Serializable
+data class DuplicateCheckResponse(val candidates: List<DuplicateCandidateDto> = emptyList())
 
 @Serializable
 data class ProductCreateRequest(

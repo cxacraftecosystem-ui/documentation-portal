@@ -168,6 +168,11 @@ class Settings(BaseSettings):
     # unmatchable; changing it needs the numbers again. Backed up in SSM at
     # /iit/shared/aadhaar-fingerprint-key. Unset: any write or lookup carrying an Aadhaar is refused.
     aadhaar_fingerprint_key: str | None = Field(default=None, alias="AADHAAR_FINGERPRINT_KEY")
+    # THE DUPLICATE-ARTISAN HOLD AT SAVE TIME (services/artisan_duplicates.py). On: a new artisan that
+    # looks like one already recorded (score >= 0.75) is held with a 409 until the person saving says
+    # "Different person". Off is a kill switch for the hold alone — scoring, the stored pairs and the
+    # admin review screen stay on. Not a secret; the default applies when absent.
+    artisan_duplicate_hold: bool = Field(default=True, alias="ARTISAN_DUPLICATE_HOLD")
 
     # --- Security response headers (see app.main.SecurityHeadersMiddleware) ---------------------
     # HSTS tells browsers to refuse plaintext HTTP to this host for max_age seconds. It is only

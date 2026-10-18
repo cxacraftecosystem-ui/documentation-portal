@@ -8,6 +8,7 @@ from prisma.errors import UniqueViolationError
 
 from app.core.config import get_settings
 from app.core.db import db
+from app.services import artisan_merge
 from app.core.deps import get_current_user, is_admin, require_admin
 from app.schemas.media import (
     MediaCompleteRequest,
@@ -405,6 +406,8 @@ async def complete_media_upload(
     # cannot register a media row over another user's staged object.
     _assert_owns_object(payload.objectKey, current_user)
 
+    # A merged artisan id (an offline queue, a stale picker) lands on the record it was merged into.
+    await artisan_merge.redirect_model(payload)
     data = clean_data(payload.model_dump(exclude={"processingRequests"}))
     data = await attach_location(data)
     data["bucket"] = data.get("bucket") or settings.aws_s3_bucket
@@ -658,6 +661,8 @@ async def relink_media(
     record exists, then sets both the string tag columns and the typed foreign key so it reappears
     under that record everywhere."""
     media = await require_record(db.mediafile, media_id)
+    # A merged artisan id (an offline queue, a stale picker) lands on the record it was merged into.
+    await artisan_merge.redirect_model(payload)
     rec_type = payload.linkedRecordType.lower()
     delegate = _relink_delegate(rec_type)
     if delegate is None:

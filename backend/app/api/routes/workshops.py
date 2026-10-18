@@ -20,6 +20,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.db import db
+from app.services import artisan_merge
 from app.core.deps import (
     assert_can_contribute_relation,
     assert_can_delete,
@@ -314,6 +315,8 @@ async def create_workshop(
         )
         await hydrate_relations([replayed], RELATIONS)
         return public_encode(replayed)
+    # A merged artisan id (an offline queue, a stale picker) lands on the record it was merged into.
+    await artisan_merge.redirect_model(payload)
     data = clean_data(payload.model_dump())
     artisan_ids = data.pop("artisanIds", [])
     craft_ids = data.pop("craftIds", [])
@@ -680,6 +683,8 @@ async def update_workshop(
     current_user: Any = Depends(require_workshop_manager),
 ) -> dict[str, Any]:
     workshop = await require_record(db.workshop, workshop_id)
+    # A merged artisan id (an offline queue, a stale picker) lands on the record it was merged into.
+    await artisan_merge.redirect_model(payload)
     # NO ``clearable`` TUPLE ON THIS ROUTE, AND ITS ABSENCE IS A NAMED DECISION RATHER THAN AN
     # OVERSIGHT. ``Workshop``'s four nullable scalars — ``description``, ``notes``, ``startDate``,
     # ``endDate`` — therefore remain a 200 that does nothing when a client sends an explicit null,

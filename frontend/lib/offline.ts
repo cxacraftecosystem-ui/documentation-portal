@@ -55,6 +55,7 @@
  */
 
 import { ApiError, apiFetch } from "@/lib/api";
+import { holdFromPayload } from "@/lib/duplicates";
 import { uploadMediaBatch } from "@/lib/media";
 
 const DB_NAME = "field-repo-outbox";
@@ -195,7 +196,64 @@ export type OutboxEntry = {
   createdStepIds?: string[];
   /** Indices into `media` whose files have already been sent; never sent twice. */
   uploadedBatches?: number[];
+  /**
+   * THE SERVER HELD THIS ARTISAN AS A LIKELY DUPLICATE (409 `artisan_possible_duplicate`). Not a
+   * clash and not a rejection: nothing is wrong with the entry, the register simply recognised
+   * somebody. Kept apart from `failure` so the banner can ask "Same person" / "Different person"
+   * instead of offering only Discard. Ids and display names only — never an identifier value.
+   */
+  possibleDuplicate?: {
+    message: string;
+    candidates: Array<{ id: string; name: string; place?: string | null; craft?: string | null }>;
+  } | null;
+  /**
+   * "Same person": the queued record was never created; its media went to the existing artisan
+   * named by `createdId`. Nothing else from the queued entry is copied onto that record.
+   */
+  attachedToExisting?: boolean;
 };
+
+/** The banner sentence for a held entry: "Not saved yet. This looks like Meena Devi (Bhuj)." */
+export function possibleDuplicateSentence(entry: Pick<OutboxEntry, "possibleDuplicate">): string | null {
+  const first = entry.possibleDuplicate?.candidates?.[0];
+  if (!first) return null;
+  return `Not saved yet. This looks like ${first.name}${first.place ? ` (${first.place})` : ""}.`;
+}
+
+/**
+ * "Same person": skip the create, and let the media leg upload to the existing artisan. The entry's
+ * other fields are NOT copied onto that record — the researcher opens it to add anything missing.
+ */
+export function samePersonEntry(entry: OutboxEntry, candidateId: string): OutboxEntry {
+  return {
+    ...entry,
+    created: true,
+    createdId: candidateId,
+    attachedToExisting: true,
+    possibleDuplicate: null,
+    failure: null
+  };
+}
+
+/** "Different person": send the create again with every candidate acknowledged. */
+export function differentPersonEntry(entry: OutboxEntry): OutboxEntry {
+  const ids = (entry.possibleDuplicate?.candidates ?? []).map((candidate) => candidate.id);
+  let body: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(entry.body);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) body = parsed as Record<string, unknown>;
+  } catch {
+    body = {};
+  }
+  const previous = Array.isArray(body.duplicateAcknowledged) ? (body.duplicateAcknowledged as string[]) : [];
+  const acknowledged = Array.from(new Set([...previous, ...ids])).slice(0, 20);
+  return {
+    ...entry,
+    body: JSON.stringify({ ...body, duplicateAcknowledged: acknowledged }),
+    possibleDuplicate: null,
+    failure: null
+  };
+}
 
 // ---------------------------------------------------------------------------
 // IndexedDB plumbing
@@ -292,8 +350,24 @@ export async function discardOutboxEntry(id: number): Promise<void> {
   await refreshOutbox();
 }
 
-async function markFailure(entry: OutboxEntry, failure: string): Promise<void> {
-  await tx("readwrite", (store) => store.put({ ...entry, attempts: entry.attempts + 1, failure }));
+async function markFailure(entry: OutboxEntry, failure: string, extra: Partial<OutboxEntry> = {}): Promise<void> {
+  await tx("readwrite", (store) => store.put({ ...entry, ...extra, attempts: entry.attempts + 1, failure }));
+}
+
+/**
+ * Answer a held entry, then send it. `same` attaches its media to the existing artisan; `different`
+ * re-sends the create with the candidates acknowledged. Discard stays where it always was.
+ */
+export async function resolvePossibleDuplicate(
+  entry: OutboxEntry,
+  choice: "same" | "different",
+  candidateId?: string
+): Promise<SyncResult> {
+  const target = candidateId ?? entry.possibleDuplicate?.candidates?.[0]?.id;
+  const next = choice === "same" && target ? samePersonEntry(entry, target) : differentPersonEntry(entry);
+  await persistProgress(next);
+  await refreshOutbox();
+  return syncOutbox();
 }
 
 /**
@@ -384,6 +458,23 @@ async function runSync(): Promise<SyncResult> {
           // it to them with everything intact.
           if (error instanceof ApiError && error.status === 409) {
             const files = pendingFileCount(progress);
+            // A LIKELY DUPLICATE is a question, not a clash: keep the entry and ask the researcher
+            // "Same person" or "Different person" (see `possibleDuplicate`).
+            const hold = holdFromPayload(error.payload);
+            if (hold) {
+              const possibleDuplicate = {
+                message: hold.message,
+                candidates: hold.candidates.slice(0, 5).map((candidate) => ({
+                  id: candidate.artisan.id,
+                  name: candidate.artisan.name,
+                  place: candidate.artisan.place ?? null,
+                  craft: candidate.artisan.craft ?? null
+                }))
+              };
+              await markFailure(progress, possibleDuplicateSentence({ possibleDuplicate }) ?? hold.message, { possibleDuplicate });
+              failed += 1;
+              continue;
+            }
             await markFailure(
               progress,
               `Possible duplicate. ${error.message} Kept on this device${files ? ` with ${files} file(s)` : ""}.`

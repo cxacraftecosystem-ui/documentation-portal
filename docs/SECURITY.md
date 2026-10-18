@@ -579,6 +579,20 @@ practice, where the researcher was sitting. The stated-address group (`state`, `
 misrepresents the subject's location; publishing it at all discloses the researcher's. See
 [DATA_MODEL.md §2.4](DATA_MODEL.md).
 
+### 4A.3 Duplicate finder and merges
+
+- Candidate rows, reasons and logs carry codes ("Same Aadhaar", "Same district"), never an
+  identifier value. `POST /artisan-duplicates/check` takes the Aadhaar in the body only,
+  fingerprints it and drops it; its answer names the existing artisan by name, place, craft and
+  birth year.
+- A merge snapshot holds the deleted record's row with `aadhaarFingerprint` and `aadhaarLast4`,
+  never `aadhaarNumber`: a merge is refused while that legacy column is still populated
+  (`aadhaar_backfill_pending`). Snapshots are cleared 30 days after the merge; database backups keep
+  them for the backup window.
+- The peer match (`/api/cross-portal/peer/artisans/match`) compares exact keys only (fingerprint and
+  Pehchan number), answers ids only and only for artisans whose sharing consent is on, logs every
+  match, and caps a call at 100 keys and a peer at 50 calls a day. No name is ever sent across.
+
 ---
 
 ## 4B. E-mail

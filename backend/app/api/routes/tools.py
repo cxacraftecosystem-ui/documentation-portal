@@ -4,6 +4,7 @@ from typing import Any, NamedTuple
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.db import db
+from app.services import artisan_merge
 from app.core.deps import (
     require_record_creator,
     assert_can_contribute_relation,
@@ -752,6 +753,8 @@ async def create_tool(
         ):
             await hydrate_relations([replayed], _LINK_RELATIONS)
         return _tool_payload(replayed)
+    # A merged artisan id (an offline queue, a stale picker) lands on the record it was merged into.
+    await artisan_merge.redirect_model(payload)
     data = decimal_to_string(clean_data(payload.model_dump()))
     # THE TWO LINK LISTS COME OUT OF THE BODY HERE, above everything that reads ``data`` as columns,
     # and the ids are checked before the first write. ``craftId``/``craftName``/``artisanId`` are
@@ -821,6 +824,8 @@ async def update_tool(
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     tool = await require_record(db.tooldocumentation, tool_id)
+    # A merged artisan id (an offline queue, a stale picker) lands on the record it was merged into.
+    await artisan_merge.redirect_model(payload)
     # ``exclude_unset=True`` IS THE PRECONDITION OF ``clearable``, not a stylistic choice: it is what
     # makes a present key mean "the caller sent this". Drop it and every optional the client left
     # alone would arrive as ``None`` and be written as an explicit NULL over stored data.
@@ -957,6 +962,8 @@ async def assign_tool_artisans(
     what is not in the list, and derives ``artisanId`` from the first of them. A form that shows a
     multi-select sends the second; a screen that adds one more maker to a tool sends this."""
     tool = await require_record(db.tooldocumentation, tool_id)
+    # A merged artisan id (an offline queue, a stale picker) lands on the record it was merged into.
+    await artisan_merge.redirect_model(payload)
     may_assign_any = await _may_manage_tool_links(tool, current_user)
     existing = await db.toolartisan.find_many(where={"toolId": tool_id})
     have = {link.artisanId for link in existing}

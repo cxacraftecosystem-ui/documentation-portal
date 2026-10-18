@@ -66,6 +66,8 @@ import com.fieldrepository.app.data.OfflineOutbox
 import com.fieldrepository.app.data.userMessage
 import com.fieldrepository.app.data.PendingEntry
 import com.fieldrepository.app.data.PendingMedia
+import com.fieldrepository.app.data.isPossibleDuplicate
+import com.fieldrepository.app.data.possibleDuplicateTrayText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -433,6 +435,10 @@ fun MediaDownloadButton(
  * (`AadhaarAtRest.numberWithheld`, 2026-10-18) gets "Type it again" in place of "Try again": a retry
  * would hold it again for the same reason. [validateAadhaar] is the form's own rule (the sentence, or
  * null when the number is fine); [onRetypeAadhaar] stores it sealed and sends the entry.
+ *
+ * An artisan the server held as a LIKELY DUPLICATE when it synced is neither: it reads "Not saved yet.
+ * This looks like {name} ({place})." with "Same person" and "Different person" on one line
+ * ([onAnswerDuplicate]). It is never offered "Try again", which would only be held again.
  */
 @Composable
 fun OutboxPendingBanner(
@@ -441,7 +447,8 @@ fun OutboxPendingBanner(
     entries: suspend () -> List<PendingEntry>,
     onRetry: suspend (entryId: String) -> Unit,
     validateAadhaar: (String) -> String? = { null },
-    onRetypeAadhaar: (suspend (entryId: String, number: String) -> Unit)? = null
+    onRetypeAadhaar: (suspend (entryId: String, number: String) -> Unit)? = null,
+    onAnswerDuplicate: (suspend (entryId: String, samePerson: Boolean) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -500,6 +507,14 @@ fun OutboxPendingBanner(
         }
         if (expanded) {
             refused.forEach { entry ->
+                if (onAnswerDuplicate != null && entry.isPossibleDuplicate()) {
+                    PossibleDuplicateTrayRow(
+                        entry = entry,
+                        ink = ink,
+                        onAnswer = { same -> scope.launch { onAnswerDuplicate(entry.id, same); reload++ } }
+                    )
+                    return@forEach
+                }
                 val needsAadhaar = onRetypeAadhaar != null && entry.createdId == null &&
                     AadhaarAtRest.numberWithheld(entry.payloadJson)
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -546,6 +561,26 @@ fun OutboxPendingBanner(
                     MediaDownloadButton(source = Uri.fromFile(file), name = label, mimeType = media.mimeType)
                 }
             }
+        }
+    }
+}
+
+/**
+ * A queued artisan the server held as a likely duplicate: the sentence, then "Same person" and
+ * "Different person" on one line (the shared [ActionRow]).
+ */
+@Composable
+private fun PossibleDuplicateTrayRow(entry: PendingEntry, ink: Color, onAnswer: (samePerson: Boolean) -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("May already be recorded", color = ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            "“${entry.label}”: ${possibleDuplicateTrayText(entry) ?: entry.failure.orEmpty()}",
+            color = ink,
+            fontSize = 12.sp
+        )
+        ActionRow(modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = { onAnswer(true) }) { Text("Same person", fontSize = 12.sp) }
+            OutlinedButton(onClick = { onAnswer(false) }) { Text("Different person", fontSize = 12.sp) }
         }
     }
 }

@@ -24,6 +24,7 @@ from prisma.errors import UniqueViolationError
 # from data_browser.py for the same reason; nothing in that chain imports this module back.)
 from app.api.routes.export import csv_response
 from app.core.db import db
+from app.services import artisan_merge
 from app.core.deps import (
     assert_can_contribute_relation,
     assert_can_create_records,
@@ -1032,6 +1033,8 @@ async def create_interview(
     payload: QuestionnaireInterviewCreate,
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
+    # A merged artisan id (an offline queue, a stale picker) lands on the record it was merged into.
+    await artisan_merge.redirect_model(payload)
     # Workshop entries: enforce assignment BEFORE the dedupe short-circuit, so folding into an
     # existing interview can never be used to slip past a workshop the user is not assigned to.
     check = await enforce_workshop_submission(current_user, payload.workshopId)
@@ -1467,6 +1470,8 @@ async def update_interview(
     # `QuestionnaireInterviewUpdate` carries no `questionnaireId` and `APIModel` is extra="forbid",
     # so a client that sends one is refused by pydantic with a 422 before this handler runs.
     interview = await require_record(db.questionnaireinterview, interview_id)
+    # A merged artisan id (an offline queue, a stale picker) lands on the record it was merged into.
+    await artisan_merge.redirect_model(payload)
     data = clean_data(payload.model_dump(exclude_unset=True, exclude={"artisanIds", "responses"}))
     data = await attach_location(data)
     # Moving a record into (or between) workshops is a workshop submission too, so the create-time
