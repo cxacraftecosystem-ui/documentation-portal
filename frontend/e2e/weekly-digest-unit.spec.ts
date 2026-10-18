@@ -127,3 +127,9 @@ test("Settings draws the card right under the e-mail card", () => {
   expect(digest).toBeGreaterThan(email);
   expect(page.slice(email, digest).split("\n").length).toBeLessThanOrEqual(2);
 });
+
+test("the card's switch does not repeat the heading", () => {
+  const card = readFileSync(join(ROOT, "components/settings/WeeklyDigestCard.tsx"), "utf8");
+  expect(card).toContain("busy={saving}");
+  expect(card).toContain("label={DIGEST_SWITCH}");
+});

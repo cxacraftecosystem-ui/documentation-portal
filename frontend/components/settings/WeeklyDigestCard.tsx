@@ -7,6 +7,7 @@ import { CalendarClock } from "lucide-react";
 import { Toggle } from "@/components/ui/Toggle";
 import {
   DIGEST_LABEL,
+  DIGEST_SWITCH,
   digestCardView,
   fetchDigestPreference,
   saveDigestPreference,
@@ -59,7 +60,7 @@ export function WeeklyDigestCard() {
       <div className="mt-3">
         <Toggle
           checked={state.enabled}
-          label={DIGEST_LABEL}
+          label={DIGEST_SWITCH}
           description={`${view.description} ${view.channel}`}
           busy={saving}
           onChange={(next) => void change(next)}

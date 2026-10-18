@@ -329,6 +329,10 @@ async def _complete(
         preference=PREFERENCE,
         settings=settings,
     )
+    if delivery.notification is None and delivery.email is None:
+        # notify never raises; nothing written means a failed write. Leave it PENDING for repair.
+        logger.warning("Weekly digest %s for account %s wrote nothing; left for the next pass", row.id, user.id)
+        return PENDING
     await db.weeklydigest.update(
         where={"id": row.id},
         data={

@@ -104,6 +104,7 @@ export async function fetchDigest(id: string): Promise<WeeklyDigest> {
 // --- the Settings card --------------------------------------------------------------------------
 
 export const DIGEST_LABEL = "Weekly summary";
+export const DIGEST_SWITCH = "Send it to me";
 export const DIGEST_DESCRIPTION = "Mondays at 08:00: what waits for you, what is overdue, what came in.";
 
 /** What the card draws, or null for an account that gets no summary. */

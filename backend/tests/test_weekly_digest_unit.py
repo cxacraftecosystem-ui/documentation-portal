@@ -199,3 +199,38 @@ def test_inside_the_window_the_check_runs_at_most_every_ten_minutes(monkeypatch:
     soon = asyncio.run(weekly_digest.run_weekly_digests(now=ist(2026, 10, 19, 8, 9), settings=on))
     later = asyncio.run(weekly_digest.run_weekly_digests(now=ist(2026, 10, 19, 8, 10), settings=on))
     assert (first["ran"], soon["ran"], later["ran"]) == (True, False, True)
+
+
+def test_a_summary_that_wrote_nothing_stays_pending_for_repair(monkeypatch: pytest.MonkeyPatch) -> None:
+    updates: list[dict[str, Any]] = []
+
+    class _Rows:
+        async def update(self, **kwargs: Any) -> None:
+            updates.append(kwargs)
+
+    async def wants(*_args: Any) -> bool:
+        return True
+
+    async def payload(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        return {"waiting": 2, "overdue": 0, "newThisWeek": 0, "sections": [], "latest": {}}
+
+    async def nothing_written(*_args: Any, **_kwargs: Any) -> Any:
+        return SimpleNamespace(notification=None, email=None, emailed=False)
+
+    monkeypatch.setattr(weekly_digest, "db", SimpleNamespace(weeklydigest=_Rows()))
+    monkeypatch.setattr(weekly_digest, "wants_email", wants)
+    monkeypatch.setattr(weekly_digest, "build_payload", payload)
+    monkeypatch.setattr(weekly_digest, "figures", lambda _p: (2, 0, 0))
+    monkeypatch.setattr(weekly_digest, "body_line", lambda _p: "2 waiting")
+    monkeypatch.setattr(weekly_digest, "notify", nothing_written)
+    outcome = asyncio.run(
+        weekly_digest._complete(
+            SimpleNamespace(id="dg_1"),
+            SimpleNamespace(id="u_1"),
+            date(2026, 10, 19),
+            now=ist(2026, 10, 19, 8),
+            districts=None,
+        )
+    )
+    assert outcome == weekly_digest.PENDING
+    assert updates == []
