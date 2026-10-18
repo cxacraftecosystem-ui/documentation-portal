@@ -6,9 +6,11 @@
 --    a record that is pending again after a review (it was sent back and resubmitted), whose last
 --    edit is the best evidence of when it came back.
 -- 2. "reason" on ReviewLog: the short-list reason a reviewer picked when rejecting or sending back.
--- 3. Media inherits its record's approval: files hanging off an already-approved record, still
---    pending, become approved. A file submitted outside its workshop's dates keeps waiting for an
---    admin, exactly as the review routes keep it.
+-- 3. Files of records approved before this release are NOT approved here. That is
+--    backend/scripts/approve_media_of_approved_records.py, run once on the box after the deploy
+--    (DEPLOY_AWS.md section 11.1): it writes the ReviewLog line per file and leaves files uploaded
+--    after their record's approval for review (owner decision 2026-10-18), which a blanket UPDATE
+--    here could not.
 
 ALTER TABLE "Artisan" ADD COLUMN "submittedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
 ALTER TABLE "Workshop" ADD COLUMN "submittedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
@@ -32,26 +34,3 @@ CREATE INDEX "Process_status_submittedAt_idx" ON "Process"("status", "submittedA
 CREATE INDEX "QuestionnaireInterview_status_submittedAt_idx" ON "QuestionnaireInterview"("status", "submittedAt");
 
 ALTER TABLE "ReviewLog" ADD COLUMN "reason" TEXT;
-
-UPDATE "MediaFile" AS m
-SET "status" = 'APPROVED'
-WHERE m."status" = 'PENDING'
-  AND COALESCE(m."extraMetadata" -> 'workshopSubmission' ->> 'needsAdminApproval', 'false') <> 'true'
-  AND (
-    (lower(m."linkedRecordType") = 'artisan' AND EXISTS (SELECT 1 FROM "Artisan" r WHERE r."id" = m."linkedRecordId" AND r."status" = 'APPROVED'))
-    OR (lower(m."linkedRecordType") = 'workshop' AND EXISTS (SELECT 1 FROM "Workshop" r WHERE r."id" = m."linkedRecordId" AND r."status" = 'APPROVED'))
-    OR (lower(m."linkedRecordType") = 'product' AND EXISTS (SELECT 1 FROM "ProductDocumentation" r WHERE r."id" = m."linkedRecordId" AND r."status" = 'APPROVED'))
-    OR (lower(m."linkedRecordType") = 'tool' AND EXISTS (SELECT 1 FROM "ToolDocumentation" r WHERE r."id" = m."linkedRecordId" AND r."status" = 'APPROVED'))
-    OR (lower(m."linkedRecordType") = 'process' AND EXISTS (SELECT 1 FROM "Process" r WHERE r."id" = m."linkedRecordId" AND r."status" = 'APPROVED'))
-    OR (lower(m."linkedRecordType") = 'processstep' AND EXISTS (
-          SELECT 1 FROM "ProcessStep" st JOIN "Process" r ON r."id" = st."processId"
-          WHERE st."id" = m."linkedRecordId" AND r."status" = 'APPROVED'))
-    OR (lower(m."linkedRecordType") IN ('questionnaire', 'questionnaireinterview') AND EXISTS (SELECT 1 FROM "QuestionnaireInterview" r WHERE r."id" = m."linkedRecordId" AND r."status" = 'APPROVED'))
-    OR (m."linkedRecordType" IS NULL AND (
-          EXISTS (SELECT 1 FROM "ProductDocumentation" r WHERE r."id" = m."productId" AND r."status" = 'APPROVED')
-          OR EXISTS (SELECT 1 FROM "ToolDocumentation" r WHERE r."id" = m."toolId" AND r."status" = 'APPROVED')
-          OR EXISTS (SELECT 1 FROM "QuestionnaireInterview" r WHERE r."id" = m."questionnaireInterviewId" AND r."status" = 'APPROVED')
-          OR (m."productId" IS NULL AND m."toolId" IS NULL AND m."questionnaireInterviewId" IS NULL
-              AND EXISTS (SELECT 1 FROM "Artisan" r WHERE r."id" = m."artisanId" AND r."status" = 'APPROVED'))
-    ))
-  );
