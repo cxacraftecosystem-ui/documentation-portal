@@ -39,6 +39,7 @@ import com.fieldrepository.app.data.applyPayloadEdits
 import com.fieldrepository.app.data.editablePayloadFields
 import com.fieldrepository.app.data.fixablePayload
 import com.fieldrepository.app.data.isFixable
+import com.fieldrepository.app.data.isPossibleDuplicate
 import com.fieldrepository.app.data.offersExistingRecord
 import com.fieldrepository.app.data.outboxDiscardSentence
 import com.fieldrepository.app.data.useExistingSentence
@@ -84,7 +85,7 @@ fun OfflineOutboxTray(
 
     LaunchedEffect(reload) {
         loading = true
-        refused = runCatching { entries() }.getOrDefault(emptyList()).filter { it.failure != null }
+        refused = runCatching { entries() }.getOrDefault(emptyList()).filter { it.failure != null && !it.isPossibleDuplicate() }
         loading = false
     }
 

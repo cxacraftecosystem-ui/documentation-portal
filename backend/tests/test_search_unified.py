@@ -52,7 +52,7 @@ def _settings(**over: Any) -> SimpleNamespace:
         "gemini_api_keys": [],
         "cross_portal_search_enabled": False,
         "cross_portal_token": None,
-        "cross_portal_aadhaar_hmac_key": None,
+        "aadhaar_fingerprint_key": None,
         "designer_portal_api_url": None,
     }
     base.update(over)

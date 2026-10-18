@@ -160,6 +160,21 @@ data class ApiFailure(
     val fields: List<String> = emptyList()
 )
 
+/** The 409 code `POST /artisans` answers when the new artisan looks like one already recorded. */
+const val POSSIBLE_DUPLICATE_CODE = "artisan_possible_duplicate"
+
+/**
+ * The likely duplicates a held create names, or null when this failure was something else. Read off
+ * [ApiFailure.detail], because the error body has already been consumed by [Throwable.apiFailure].
+ */
+fun ApiFailure.possibleDuplicates(): List<DuplicateCandidateDto>? {
+    if (code != POSSIBLE_DUPLICATE_CODE) return null
+    val list = detail?.get("candidates") as? JsonArray ?: return emptyList()
+    return list.mapNotNull { element ->
+        runCatching { errorBodyJson.decodeFromJsonElement(DuplicateCandidateDto.serializer(), element) }.getOrNull()
+    }
+}
+
 /**
  * A refusal read ONCE for the outbox (B1): the sentence [userMessage] would show, plus what the
  * tray needs to offer more than Try again — the named fields, the code, and on an artisan clash the
@@ -176,8 +191,10 @@ data class OutboxRefusal(
 /** The artisan identity clash's code — `_identity_conflict` in `backend/app/api/routes/artisans.py`. */
 const val ARTISAN_IDENTITY_CONFLICT_CODE = "artisan_identity_conflict"
 
-fun Throwable.outboxRefusal(fallback: String): OutboxRefusal {
-    val failure = apiFailure(fallback)
+fun Throwable.outboxRefusal(fallback: String): OutboxRefusal = outboxRefusal(apiFailure(fallback), fallback)
+
+/** [outboxRefusal] over a [failure] already read from this throwable (an error body reads once). */
+fun Throwable.outboxRefusal(failure: ApiFailure, fallback: String): OutboxRefusal {
     val said = failure.message
     val reason = if (this is HttpException && (said == fallback || said.isBareReasonPhrase())) {
         statusSentence(code()) ?: fallback
@@ -1917,7 +1934,26 @@ class FieldRepository(
     suspend fun createArtisan(body: ArtisanCreateRequest, idempotencyKey: String? = null): ArtisanDto =
         api.createArtisan(idempotencyKey, body)
 
+    /** One artisan. A MERGED id keeps working: the server answers with the record it now lives on. */
     suspend fun artisan(id: String): ArtisanDetailDto = api.artisan(id)
+
+    /**
+     * Who the artisan being typed already looks like — the server scores, this only asks. Empty on
+     * any failure (offline, rate-limited): the create's own hold still asks the question.
+     */
+    suspend fun checkDuplicates(body: DuplicateCheckRequest): List<DuplicateCandidateDto> =
+        runCatching { api.checkDuplicates(body).candidates }.getOrDefault(emptyList())
+
+    /**
+     * Answer a queued artisan the server held as a likely duplicate, then send it. "Same person"
+     * attaches its files to the existing artisan; "Different person" re-sends the create with the
+     * candidates acknowledged. The entry stays queued until the pass sends it.
+     */
+    suspend fun answerPossibleDuplicate(context: Context, entryId: String, samePerson: Boolean) {
+        val entry = OfflineOutbox.all(context).firstOrNull { it.id == entryId } ?: return
+        if (!entry.isPossibleDuplicate()) return
+        OfflineOutbox.update(context, if (samePerson) entry.asSamePerson() else entry.asDifferentPerson())
+    }
 
     /** The completeness rules file as text — see [RecordCompletenessStore.refresh]. */
     suspend fun completenessRulesText(): String = api.completenessRules().use { it.string() }
@@ -3278,6 +3314,10 @@ class FieldRepository(
                         OfflineOutbox.markReview(context, queued.id, outcome.reason)
                         notifyUser(context, "\"${queued.label}\" needs a look before it is sent. ${outcome.reason}")
                     }
+                    is ReplayOutcome.PossibleDuplicate -> {
+                        OfflineOutbox.markPossibleDuplicate(context, queued.id, outcome.candidates)
+                        notifyUser(context, "\"${queued.label}\" may already be recorded. Open the outbox to check.")
+                    }
                     // Transient: stop here so the queue keeps its order and nothing is marked failed
                     // for a reason that is really "the signal went away again".
                     ReplayOutcome.Retry -> return@withLock synced
@@ -3303,6 +3343,12 @@ class FieldRepository(
          * may already be there. Keep everything and ask the researcher; never a silent refusal.
          */
         data class Review(val reason: String) : ReplayOutcome
+
+        /**
+         * The server held this artisan as a likely duplicate. Not a clash and not a refusal: keep
+         * everything and ask "Same person" / "Different person" in the tray.
+         */
+        data class PossibleDuplicate(val candidates: List<OutboxDuplicateCandidate>) : ReplayOutcome
     }
 
     /**
@@ -3361,7 +3407,17 @@ class FieldRepository(
                     isKeyReused(e) -> ReplayOutcome.Review(
                         "This may already be saved. Check the list; if it isn't there, tap Send again. Photos stay on this phone."
                     )
-                    else -> e.outboxRefusal("This record couldn't be saved.").let { ReplayOutcome.Rejected(it.reason, it) }
+                    else -> {
+                        // Read once: the body names the likely duplicates when the server held it.
+                        val fallback = "This record couldn't be saved."
+                        val failure = e.apiFailure(fallback)
+                        val held = failure.possibleDuplicates()
+                        if (held != null && entry.kind == OutboxKind.CREATE && entry.type == "artisan") {
+                            ReplayOutcome.PossibleDuplicate(held.toOutboxCandidates())
+                        } else {
+                            e.outboxRefusal(failure, fallback).let { ReplayOutcome.Rejected(it.reason, it) }
+                        }
+                    }
                 }
             }
             entry = entry.copy(createdId = created.id, createdStepIds = created.stepIds)
@@ -3567,6 +3623,9 @@ class FieldRepository(
     private fun withIdentityAnswer(body: ArtisanCreateRequest): ArtisanCreateRequest =
         if (body.pehchanCardAvailable != null) body
         else body.copy(pehchanCardAvailable = body.pehchanCardNumber != null)
+
+    private fun List<DuplicateCandidateDto>.toOutboxCandidates(): List<OutboxDuplicateCandidate> =
+        take(5).map { OutboxDuplicateCandidate(it.artisan.id, it.artisan.name, it.artisan.place, it.artisan.craft) }
 
     /** What a replayed create produced: the record's server id, plus a process's step ids in order. */
     internal data class CreatedRecord(val id: String, val stepIds: List<String> = emptyList())

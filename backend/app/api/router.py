@@ -6,6 +6,7 @@ from app.api.routes import (
     access_roster,
     app_release,
     artisan_merge,
+    artisan_duplicates,
     artisans,
     auth,
     completeness,
@@ -54,6 +55,7 @@ api_router.include_router(access_roster.router)
 # The merge tool's literal /artisans/merge/* paths, ABOVE /artisans/{artisan_id}.
 api_router.include_router(artisan_merge.router)
 api_router.include_router(artisans.router)
+api_router.include_router(artisan_duplicates.router)
 api_router.include_router(crafts.router)
 api_router.include_router(craft_codes.router)
 api_router.include_router(cross_portal.router)

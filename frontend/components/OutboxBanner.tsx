@@ -18,15 +18,17 @@
  */
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { CloudOff, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
+import { CloudOff, RefreshCw, Trash2, TriangleAlert, Users } from "lucide-react";
 
 import { LocalFileDownloads } from "@/components/media/DownloadMediaButton";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 import { useToast } from "@/components/ui/Toast";
 import {
   discardOutboxEntry,
   getOutboxSnapshot,
   getServerOutboxSnapshot,
   refreshOutbox,
+  resolvePossibleDuplicate,
   subscribeOutbox,
   syncOutbox,
   type OutboxEntry
@@ -79,6 +81,23 @@ export function OutboxBanner() {
       description: "It sends when you’re back online."
     });
   }, [entries.length, toast]);
+
+  /** "Same person" / "Different person" on a held artisan, then send it. */
+  async function answerDuplicate(entry: OutboxEntry, choice: "same" | "different") {
+    setSyncing(true);
+    try {
+      const result = await resolvePossibleDuplicate(entry, choice);
+      if (result.synced) {
+        toast({
+          id: "outbox-sync",
+          tone: "success",
+          title: choice === "same" ? "Added to the existing record" : "Saved as a new artisan"
+        });
+      }
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   const drain = useCallback(
     async (trigger: "auto" | "manual") => {
@@ -165,13 +184,31 @@ export function OutboxBanner() {
                 {new Date(entry.createdAt).toLocaleString()}
                 {fileCount(entry) ? ` · ${countNoun(fileCount(entry), "file")}` : ""}
               </span>
-              {entry.failure ? (
+              {entry.possibleDuplicate ? (
+                <div className="mt-0.5 text-xs text-amber-800">
+                  <p className="flex items-start gap-1 font-semibold">
+                    <Users className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+                    May already be recorded
+                  </p>
+                  <p>{entry.failure}</p>
+                </div>
+              ) : entry.failure ? (
                 <p className="mt-0.5 flex items-start gap-1 text-xs text-error-600">
                   <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
                   {entry.failure}
                 </p>
               ) : null}
             </div>
+            {entry.possibleDuplicate ? (
+              <ButtonRow size="sm" align="end" className="basis-full sm:basis-auto">
+                <button type="button" className="field-button-secondary" disabled={syncing} onClick={() => answerDuplicate(entry, "same")}>
+                  Same person
+                </button>
+                <button type="button" className="field-button-secondary" disabled={syncing} onClick={() => answerDuplicate(entry, "different")}>
+                  Different person
+                </button>
+              </ButtonRow>
+            ) : null}
             {entry.failure ? (
               <button
                 type="button"

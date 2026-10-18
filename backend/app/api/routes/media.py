@@ -662,6 +662,8 @@ async def relink_media(
     record exists, then sets both the string tag columns and the typed foreign key so it reappears
     under that record everywhere."""
     media = await require_record(db.mediafile, media_id)
+    # A merged artisan id (an offline queue, a stale picker) lands on the record it was merged into.
+    await redirect_merged_artisans(payload)
     rec_type = payload.linkedRecordType.lower()
     delegate = _relink_delegate(rec_type)
     if delegate is None:

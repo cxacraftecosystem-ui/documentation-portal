@@ -18,6 +18,7 @@ import {
 import { ArtisanQuestionnairePanel } from "@/components/ArtisanQuestionnairePanel";
 import { useAuth } from "@/components/AuthProvider";
 import { CollabPanel } from "@/components/CollabPanel";
+import { ArtisanDuplicateBanner } from "@/components/duplicates/ArtisanDuplicateBanner";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
 import { PageHeader } from "@/components/PageHeader";
 import { CompletenessMeter } from "@/components/records/CompletenessMeter";
@@ -35,7 +36,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { isCompletenessKind, type CompletenessBlock } from "@/lib/completenessCore";
-import { canCreateRecords, canReview } from "@/lib/permissions";
+import { canCreateRecords, canReview, isAdmin } from "@/lib/permissions";
 import { TRANSCRIPT_SOURCE } from "@/lib/transcriptAnswer";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { canUpdateRecord, recordUpdateHref, type RecordViewType } from "@/lib/recordView";
@@ -156,6 +157,7 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
         }
       />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+      {type === "artisan" && record && isAdmin(user) ? <ArtisanDuplicateBanner artisanId={record.id} /> : null}
       {!record ? (
         error ? null : <div className="panel p-4 text-sm text-ink-muted">Loading this {noun}…</div>
       ) : (

@@ -372,6 +372,10 @@ interface FieldRepositoryApi {
     @POST("artisans")
     suspend fun createArtisan(@Header("Idempotency-Key") idempotencyKey: String?, @Body body: ArtisanCreateRequest): ArtisanDto
 
+    /** Likely duplicates of the artisan being typed. The server is the only scorer. */
+    @POST("artisan-duplicates/check")
+    suspend fun checkDuplicates(@Body body: DuplicateCheckRequest): DuplicateCheckResponse
+
     // Pre-flight duplicate check for the artisan form's Aadhaar field. Declared BEFORE `artisan(id)`
     // only for readability — Retrofit matches on the literal path, so "lookup/aadhaar" can never be
     // swallowed by the "{id}" route the way a server-side router would.

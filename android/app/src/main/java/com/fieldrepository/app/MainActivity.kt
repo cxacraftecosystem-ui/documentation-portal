@@ -277,6 +277,11 @@ import com.fieldrepository.app.ui.isSetPasswordLinkAddress
 import com.fieldrepository.app.ui.mustChangePasswordBlocks
 import com.fieldrepository.app.data.ARTISAN_FORM_CONTRACT
 import com.fieldrepository.app.data.ArtisanCreateRequest
+import com.fieldrepository.app.data.DuplicateCandidateDto
+import com.fieldrepository.app.data.DuplicateCheckRequest
+import com.fieldrepository.app.data.PossibleDuplicates
+import com.fieldrepository.app.data.possibleDuplicates
+import com.fieldrepository.app.ui.PossibleDuplicateSheet
 import com.fieldrepository.app.data.EXPERIENCE_MONTH_OPTIONS
 import com.fieldrepository.app.data.EXPERIENCE_NOT_STATED
 import com.fieldrepository.app.data.experienceMonthsLabel
@@ -1395,6 +1400,11 @@ private fun RepositoryApp(
                         validateAadhaar = { aadhaarValidationError(it) },
                         onRetypeAadhaar = { entryId, number ->
                             repository.retypeOutboxAadhaar(appContext, entryId, number)
+                            runCatching { repository.syncOutbox(appContext) }
+                            pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
+                        },
+                        onAnswerDuplicate = { entryId, samePerson ->
+                            repository.answerPossibleDuplicate(appContext, entryId, samePerson)
                             runCatching { repository.syncOutbox(appContext) }
                             pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
                         }
@@ -7143,6 +7153,10 @@ private fun ArtisanForm(
     var phoneError by remember { mutableStateOf<String?>(null) }
     var emailError by remember { mutableStateOf<String?>(null) }
     var aadhaarError by remember { mutableStateOf<String?>(null) }
+    // LIKELY DUPLICATES (`POST /artisan-duplicates/check`), creates only. [duplicateAcked] is what the
+    // researcher called "Different person"; every create sends it, `[]` when nothing was shown.
+    var duplicateShown by remember(editing) { mutableStateOf<List<DuplicateCandidateDto>?>(null) }
+    var duplicateAcked by remember(editing) { mutableStateOf<Set<String>>(emptySet()) }
     var pehchanError by remember { mutableStateOf<String?>(null) }
     // The two required dates. A calendar field takes no focus requester, so the sentence goes under
     // the box and into the banner.
@@ -7278,6 +7292,34 @@ private fun ArtisanForm(
         // helpers reach. See newRecordLocationError for why an edit is never asked.
         newRecordLocationError(isEdit, media.location)?.let { onError(it); return }
         scope.launch {
+            // ALREADY RECORDED? Asked online before a create, so a likely duplicate is shown while the
+            // artisan is still here. Offline the check is skipped and the server asks on sync. A failed
+            // check is not a refusal: the create's own hold is the guarantee.
+            if (!isEdit && repository.isOnline(context)) {
+                saving = true
+                val found = repository.checkDuplicates(
+                    DuplicateCheckRequest(
+                        name = name.trim(),
+                        localName = localName.blankToNull(),
+                        gender = gender.blankToNull(),
+                        dateOfBirth = dateOfBirth?.toString(),
+                        phone = phone.blankToNull(),
+                        place = place.trim(),
+                        state = media.location?.state,
+                        district = media.location?.district,
+                        craftId = craftId.ifBlank { null },
+                        craftName = if (craftId.isBlank()) newCraftName.blankToNull() else null,
+                        aadhaar = aadhaar.blankToNull(),
+                        pehchanCardNumber = if (pehchanAvailable) pehchanNumber.blankToNull() else null
+                    )
+                )
+                saving = false
+                val show = PossibleDuplicates.toShow(found, duplicateAcked)
+                if (show.isNotEmpty()) {
+                    duplicateShown = show
+                    return@launch
+                }
+            }
             if (!workshop.confirmSubmission()) return@launch
             saving = true
             val body = ArtisanCreateRequest(
@@ -7315,7 +7357,10 @@ private fun ArtisanForm(
                 recordedAt = if (isEdit) null else Instant.now().toString(),
                 location = locationForBody(isEdit, media.location, editing?.location),
                 // The server holds this save to both dates. In the body, so the outbox keeps it.
-                formContract = ARTISAN_FORM_CONTRACT
+                formContract = ARTISAN_FORM_CONTRACT,
+                // Every create says what it was shown; an edit never does. In the body, so a queued
+                // create carries `[]` and the server asks about duplicates when it syncs.
+                duplicateAcknowledged = if (isEdit) null else PossibleDuplicates.acknowledged(duplicateAcked)
             )
             // No connection: save to the device and sync on reconnect, instead of failing the upload.
             val queuedOffline = runCatching {
@@ -7359,10 +7404,33 @@ private fun ArtisanForm(
                 // A duplicate Aadhaar/Pehchan number comes back as a structured 409 whose message
                 // names the artisan already holding it — far more use than "HTTP 409 Conflict", which
                 // is all the exception itself says.
-                if (it is KeptOnDevice) { media.reset(); draft.clear(); onError(it.message!!); finishQueued() } else onError(it.apiErrorMessage("Unable to save artisan"))
+                if (it is KeptOnDevice) { media.reset(); draft.clear(); onError(it.message!!); finishQueued() } else {
+                    // Read ONCE: a 409 `artisan_possible_duplicate` names the likely duplicates, and the
+                    // same read gives the sentence for any other failure.
+                    val failure = it.apiFailure("Unable to save artisan")
+                    val held = if (isEdit) null else failure.possibleDuplicates()
+                    if (held != null) {
+                        duplicateShown = PossibleDuplicates.toShow(held, duplicateAcked).ifEmpty { held.take(PossibleDuplicates.SHOWN_MAX) }
+                    } else {
+                        onError(failure.message)
+                    }
+                }
             }
             saving = false
         }
+    }
+    duplicateShown?.let { shown ->
+        PossibleDuplicateSheet(
+            candidates = shown,
+            saving = saving,
+            onOpen = onOpenExisting?.let { open -> { id: String -> duplicateShown = null; open(id) } },
+            onDifferentPerson = {
+                duplicateAcked = duplicateAcked + shown.map { it.artisan.id }
+                duplicateShown = null
+                submit()
+            },
+            onCancel = { duplicateShown = null }
+        )
     }
     // Every value the form can change, in one string — the unsaved-work guard compares it against the
     // value it had on open, so a new field must be listed here or editing it looks like no edit at all.

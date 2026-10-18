@@ -74,6 +74,10 @@ _RELATION_KEYS = {
     "media",
     "questionnaireInterviews",
     "sectionStatuses",
+    "sharingConsent",
+    "crossPortalLinks",
+    "duplicatePairsA",
+    "duplicatePairsB",
 }
 
 # Columns a create must not be handed back.
@@ -140,6 +144,7 @@ MOVE_LABELS: tuple[tuple[str, str, str], ...] = (
     ("reviewLogs", "review decision", "review decisions"),
     ("scopeItems", "sharing scope entry", "sharing scope entries"),
     ("tasks", "task", "tasks"),
+    ("crossPortalLink", "designer-portal link", "designer-portal links"),
 )
 
 
@@ -365,6 +370,9 @@ async def _read_children(merged_id: str, survivor_id: str) -> dict[str, Any]:
         scope_items,
         tasks_listing,
         tasks_record,
+        portal_links,
+        survivor_portal_links,
+        consents,
     ) = await gather_reads(
         db.workshopartisan.find_many(where={"artisanId": merged_id}),
         db.workshopartisan.find_many(where={"artisanId": survivor_id}),
@@ -386,6 +394,9 @@ async def _read_children(merged_id: str, survivor_id: str) -> dict[str, Any]:
         db.dataaccessscopeitem.find_many(where={"recordId": merged_id}),
         db.assignedtask.find_many(where={"artisanIds": {"has": merged_id}}),
         db.assignedtask.find_many(where={"recordId": merged_id}),
+        db.crossportalartisanlink.find_many(where={"artisanId": merged_id}),
+        db.crossportalartisanlink.find_many(where={"artisanId": survivor_id}),
+        db.artisansharingconsent.find_many(where={"artisanId": {"in": [merged_id, survivor_id]}}),
     )
     tasks: dict[str, Any] = {}
     for task in [*tasks_listing, *tasks_record]:
@@ -404,7 +415,85 @@ async def _read_children(merged_id: str, survivor_id: str) -> dict[str, Any]:
         "reviewLogs": review_logs,
         "scopeItems": scope_items,
         "tasks": list(tasks.values()),
+        "crossPortalLink": (portal_links, survivor_portal_links),
+        "consent": {row.artisanId: row for row in consents},
     }
+
+
+#: The consent columns a merge carries from one record's decision to the other's.
+_CONSENT_COLUMNS = ("granted", "note", "recordedById", "recordedAt")
+
+
+def _stamp_of(row: Any) -> Any:
+    value = getattr(row, "updatedAt", None) or getattr(row, "recordedAt", None)
+    return _aware(value) or datetime.min.replace(tzinfo=UTC)
+
+
+def consent_plan(merged: Any | None, survivor: Any | None) -> dict[str, Any]:
+    """What a merge does to the two C27 sharing-consent rows — pure, so it is tested on its own.
+
+    ``none``: the merged record holds no decision. ``moved``: only it does, and the survivor takes it.
+    ``took``: both do and the merged one's is the more recent, so the survivor's row takes its values.
+    ``kept``: both do and the survivor's own is the more recent. ``grantedAfter`` is the survivor's
+    decision once the merge is done — the designer portal's links stay only while it is ``granted``.
+    """
+    merged_snap = snapshot(merged) if merged is not None else None
+    survivor_snap = snapshot(survivor) if survivor is not None else None
+    if merged is None:
+        action = "none"
+        granted = bool(getattr(survivor, "granted", False)) if survivor is not None else False
+    elif survivor is None:
+        action, granted = "moved", bool(getattr(merged, "granted", False))
+    elif _stamp_of(merged) > _stamp_of(survivor):
+        action, granted = "took", bool(getattr(merged, "granted", False))
+    else:
+        action, granted = "kept", bool(getattr(survivor, "granted", False))
+    return {"action": action, "merged": merged_snap, "survivor": survivor_snap, "grantedAfter": granted}
+
+
+def _consent_values(snap: dict[str, Any]) -> dict[str, Any]:
+    data = restorable({k: v for k, v in snap.items() if k in (*_CONSENT_COLUMNS, "__datetimes")})
+    data.setdefault("granted", False)
+    return data
+
+
+def _consent_matches(row: Any, snap: dict[str, Any]) -> bool:
+    return bool(row is not None) and all(
+        values_match(jsonable_encoder(getattr(row, column, None)), snap.get(column))
+        for column in ("granted", "note", "recordedById")
+    )
+
+
+async def _merge_consent(plan: dict[str, Any], *, merged_id: str, survivor_id: str) -> None:
+    action = plan.get("action")
+    if action == "none":
+        return
+    values = _consent_values(plan["merged"])
+    if action == "moved":
+        await db.artisansharingconsent.create(data={"artisanId": survivor_id, **values})
+    elif action == "took":
+        await db.artisansharingconsent.update(where={"artisanId": survivor_id}, data=values)
+    # The merged record's own row goes with it (the cascade would take it; this says so).
+    await db.artisansharingconsent.delete_many(where={"artisanId": merged_id})
+
+
+async def _undo_consent(plan: dict[str, Any], *, merged_id: str, survivor_id: str, kept: list[str]) -> None:
+    action = plan.get("action")
+    if not action or action == "none":
+        return
+    current = await db.artisansharingconsent.find_unique(where={"artisanId": survivor_id})
+    if action in ("moved", "took"):
+        if _consent_matches(current, plan["merged"]):
+            if action == "moved":
+                await db.artisansharingconsent.delete_many(where={"artisanId": survivor_id})
+            else:
+                await db.artisansharingconsent.update(
+                    where={"artisanId": survivor_id}, data=_consent_values(plan["survivor"])
+                )
+        elif "Designer-portal sharing" not in kept:
+            kept.append("Designer-portal sharing")
+    if await db.artisansharingconsent.find_unique(where={"artisanId": merged_id}) is None:
+        await db.artisansharingconsent.create(data={"artisanId": merged_id, **_consent_values(plan["merged"])})
 
 
 def _split_links(merged_rows: list[Any], survivor_rows: list[Any], key: str) -> tuple[list[str], list[Any]]:
@@ -436,6 +525,24 @@ async def plan_moves(merged: Any, survivor: Any, final_name: str) -> tuple[dict[
         merged_rows, survivor_rows = children[key]
         moved, folded = _split_links(merged_rows, survivor_rows, column)
         moves[key] = {"column": column, "moved": moved, "folded": [snapshot(row) for row in folded]}
+
+    # C27 sharing consent and the designer portal's links (services/cross_portal). The kept record
+    # ends with the MORE RECENT of the two decisions; a link survives only on an artisan whose
+    # decision is "granted", exactly as a withdrawal on the consent route removes them.
+    consent = consent_plan(children["consent"].get(merged_id), children["consent"].get(survivor_id))
+    moves["sharingConsent"] = consent
+    merged_links, survivor_links = children["crossPortalLink"]
+    if consent["grantedAfter"]:
+        moved, folded = _split_links(merged_links, survivor_links, "remoteArtisanId")
+        dropped: list[Any] = []
+    else:
+        moved, folded, dropped = [], list(merged_links), list(survivor_links)
+    moves["crossPortalLink"] = {
+        "column": "remoteArtisanId",
+        "moved": moved,
+        "folded": [snapshot(row) for row in folded],
+        "dropped": [snapshot(row) for row in dropped],
+    }
 
     def renamed(rows: list[Any]) -> list[dict[str, Any]]:
         # A denormalised ``artisanName`` that spells the merged artisan's name follows the record to
@@ -711,6 +818,7 @@ _LINK_TABLES = {
     "toolArtisan": "toolartisan",
     "interviewArtisan": "questionnaireinterviewartisan",
     "sectionStatus": "questionnairesectionstatus",
+    "crossPortalLink": "crossportalartisanlink",
 }
 
 
@@ -810,6 +918,10 @@ async def merge_artisans(keep_id: str, merge_id: str, picks: dict[str, str] | No
     for entry in moves["interviewKeys"]:
         if entry["before"] != entry["after"]:
             await db.questionnaireinterview.update(where={"id": entry["id"]}, data={"artisanSetKey": entry["after"]})
+    dropped = moves["crossPortalLink"]["dropped"]
+    if dropped:
+        await db.crossportalartisanlink.delete_many(where={"id": {"in": [snap["id"] for snap in dropped]}})
+    await _merge_consent(moves["sharingConsent"], merged_id=merge_id, survivor_id=keep_id)
 
     # 5. The merged row goes. 6. Done.
     await db.artisan.delete(where={"id": merge_id})
@@ -1021,6 +1133,8 @@ async def undo_merge(merge_id: str, user: Any) -> dict[str, Any]:
             data["recordId"] = merged_id
         if data:
             await db.assignedtask.update(where={"id": task["id"]}, data=data)
+    await _undo_consent(moves.get("sharingConsent") or {}, merged_id=merged_id, survivor_id=survivor_id, kept=kept)
+    await _recreate(db.crossportalartisanlink, (moves.get("crossPortalLink") or {}).get("dropped") or [])
     sittings = [entry["id"] for entry in moves.get("interviewKeys") or []]
     if sittings:
         links = await db.questionnaireinterviewartisan.find_many(where={"interviewId": {"in": sittings}})

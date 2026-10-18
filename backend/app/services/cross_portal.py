@@ -224,7 +224,6 @@ def shared_fields(artisan: Any) -> dict[str, Any]:
         out[key] = value
     return out
 
-
 # ── ONE SEARCH ACROSS BOTH PORTALS (docs/SEARCH.md) ─────────────────────────────────────────────
 #
 # The same signed channel, now two-way: each portal answers the other's search over
@@ -295,6 +294,6 @@ def search_active(settings: Any) -> bool:
         return False
     if not _secret_ok(getattr(settings, "cross_portal_token", None)):
         return False
-    if not _secret_ok(getattr(settings, "cross_portal_aadhaar_hmac_key", None)):
+    if not _secret_ok(aadhaar_key(settings)):
         return False
     return bool(peer_api_url(settings))

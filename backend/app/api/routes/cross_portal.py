@@ -15,9 +15,14 @@ not exist. This portal is the source of truth for the identity fields and never 
 Every peer request is written to ``CrossPortalAccessLog`` (which designer-portal account asked, what
 for, and which artisan it reached, or that it reached none) — never the number or the code it asked
 with. Every consent change is a ``RecordRevision`` on the artisan, so a withdrawal leaves a trace.
+
+MERGED RECORDS (services/artisan_merge.py). An artisan merged here keeps answering under its old id:
+the refresh, link and unlink routes resolve a merged id to the record it now lives on, and the
+refresh answers with the CURRENT id, which is how a merge (or its undo) reaches the designer portal
+without this server ever calling it.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from types import SimpleNamespace
 from typing import Any
 
@@ -28,7 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.core.config import get_settings
 from app.core.db import db
 from app.core.deps import get_current_user, get_value
-from app.services import coverage, cross_portal, cross_portal_peer
+from app.services import aadhaar_fingerprint, artisan_merge, coverage, cross_portal, cross_portal_peer
 from app.services.access import record_edit_privilege, record_revision
 from app.services.artisan_identity import normalize_pehchan
 
@@ -53,6 +58,12 @@ ACTION_REFRESH = "REFRESH"
 ACTION_LINK = "LINK"
 ACTION_UNLINK = "UNLINK"
 ACTION_COVERAGE = "COVERAGE"
+ACTION_SCAN = "SCAN"
+
+#: The designer portal's daily duplicate scan: at most this many items per call, and this many
+#: calls per UTC day. Its nightly job sends every unlinked artisan holding a key, 100 at a time.
+MATCH_BATCH_LIMIT = 100
+MATCH_CALLS_PER_DAY = 50
 
 
 async def _log_access(
@@ -91,6 +102,20 @@ class PeerLink(BaseModel):
 
     remoteArtisanId: str = Field(min_length=1, max_length=64)
     matchedBy: str = Field(pattern="^(PEHCHAN|AADHAAR)$")
+
+
+class PeerMatchItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ref: str = Field(min_length=1, max_length=64)
+    pehchanCardNumber: str | None = Field(default=None, max_length=40)
+    aadhaarCode: str | None = Field(default=None, min_length=64, max_length=64)
+
+
+class PeerMatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[PeerMatchItem] = Field(max_length=MATCH_BATCH_LIMIT)
 
 
 class ConsentIn(BaseModel):
@@ -188,6 +213,105 @@ async def peer_lookup(
     return _signed(settings, request, {"match": None})
 
 
+@router.post("/peer/artisans/match")
+async def peer_match(
+    payload: PeerMatch, request: Request, settings: Any = Depends(require_peer)
+) -> Response:
+    """Which of these designer-portal artisans this register holds, by exact key only. IDS ONLY.
+
+    Each item names a designer-portal artisan (``ref``) by its Pehchan number or its Aadhaar
+    fingerprint. The answer lists, for the items that match a CONSENTING artisan here whose status
+    is not REJECTED, this register's id and which key matched — nothing else about the record. "Not
+    on file" and "no consent" stay the same answer, exactly as ``peer_lookup``. Every match is one
+    ``CrossPortalAccessLog`` row (``SCAN``/``MATCH``), and each call one summary row, so the day's
+    budget (:data:`MATCH_CALLS_PER_DAY`, then 429) is counted from the log itself.
+    """
+    day_start = datetime.combine(datetime.now(UTC).date(), time.min, tzinfo=UTC)
+    calls_today = await db.crossportalaccesslog.count(
+        where={"action": ACTION_SCAN, "outcome": "SUMMARY", "createdAt": {"gte": day_start}}
+    )
+    if calls_today >= MATCH_CALLS_PER_DAY:
+        return _signed(settings, request, {"matches": [], "limited": True}, status_code=429)
+    pehchans: dict[str, list[str]] = {}
+    codes: dict[str, list[str]] = {}
+    for item in payload.items:
+        pehchan = normalize_pehchan(item.pehchanCardNumber)
+        if pehchan:
+            pehchans.setdefault(pehchan, []).append(item.ref)
+        code = (item.aadhaarCode or "").strip().lower()
+        if aadhaar_fingerprint.is_fingerprint(code):
+            codes.setdefault(code, []).append(item.ref)
+    candidates: dict[str, Any] = {}
+    if pehchans:
+        for row in await db.artisan.find_many(where={"pehchanCardNumber": {"in": list(pehchans)}}):
+            candidates[row.id] = row
+    if codes:
+        for row in await db.artisan.find_many(
+            where={aadhaar_fingerprint.FINGERPRINT_FIELD: {"in": list(codes)}}
+        ):
+            candidates[row.id] = row
+    consenting: set[str] = set()
+    if candidates:
+        consents = await db.artisansharingconsent.find_many(
+            where={"artisanId": {"in": list(candidates)}, "granted": True}
+        )
+        consenting = {c.artisanId for c in consents}
+    matches: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for row in candidates.values():
+        if row.id not in consenting or getattr(row, "status", None) == "REJECTED":
+            continue
+        hits: list[tuple[str, str]] = []
+        for ref in pehchans.get(getattr(row, "pehchanCardNumber", None) or "", []):
+            hits.append((ref, cross_portal.MATCHED_BY_PEHCHAN))
+        fingerprint = getattr(row, aadhaar_fingerprint.FINGERPRINT_FIELD, None) or ""
+        for ref in codes.get(fingerprint, []):
+            hits.append((ref, cross_portal.MATCHED_BY_AADHAAR))
+        for ref, matched_by in hits:
+            if (ref, row.id) in seen:
+                continue
+            seen.add((ref, row.id))
+            matches.append({"ref": ref, "artisanId": row.id, "matchedBy": matched_by})
+            await _log_access(
+                request,
+                ACTION_SCAN,
+                "MATCH",
+                artisan_id=row.id,
+                remote_artisan_id=ref,
+                matched_by=matched_by,
+            )
+    await _log_access(request, ACTION_SCAN, "SUMMARY")
+    return _signed(settings, request, {"matches": matches})
+
+
+async def _linked_record(artisan_id: str, remote_artisan_id: str) -> Any | None:
+    """The link the designer portal's record holds here, reached through ``artisan_id`` — the id it
+    knows, which a merge here may have retired.
+
+    Found by ``remoteArtisanId`` alone, then accepted when its ``artisanId`` is the path id, the
+    record the path id was merged into, or a record whose merge (or undone merge) joins the two."""
+    links = await db.crossportalartisanlink.find_many(where={"remoteArtisanId": remote_artisan_id})
+    if not links:
+        return None
+    resolved = await artisan_merge.survivor_of(artisan_id)
+    for link in links:
+        if link.artisanId in (artisan_id, resolved):
+            return link
+    joins = await db.artisanmerge.find_many(
+        where={
+            "OR": [
+                {"survivorId": artisan_id, "mergedId": {"in": [link.artisanId for link in links]}},
+                {"mergedId": artisan_id, "survivorId": {"in": [link.artisanId for link in links]}},
+            ]
+        }
+    )
+    joined = {j.mergedId for j in joins} | {j.survivorId for j in joins}
+    for link in links:
+        if link.artisanId in joined:
+            return link
+    return None
+
+
 @router.get("/peer/artisans/{artisan_id}")
 async def peer_refresh(
     artisan_id: str,
@@ -195,11 +319,12 @@ async def peer_refresh(
     request: Request,
     settings: Any = Depends(require_peer),
 ) -> Response:
-    """The identity fields again, for a record the designer portal has LINKED. 404 otherwise."""
-    link = await db.crossportalartisanlink.find_first(
-        where={"artisanId": artisan_id, "remoteArtisanId": remoteArtisanId}
-    )
-    artisan = await _consenting(artisan_id) if link is not None else None
+    """The identity fields again, for a record the designer portal has LINKED. 404 otherwise.
+
+    Answers with the record's CURRENT id: after a merge (or an undo) here it differs from the path
+    id, and the designer portal moves its link to it."""
+    link = await _linked_record(artisan_id, remoteArtisanId)
+    artisan = await _consenting(link.artisanId) if link is not None else None
     if artisan is None:
         await _log_access(request, ACTION_REFRESH, "NO_MATCH", remote_artisan_id=remoteArtisanId)
         return _signed(settings, request, {"match": None}, status_code=404)
@@ -219,6 +344,7 @@ async def peer_link(
     artisan_id: str, payload: PeerLink, request: Request, settings: Any = Depends(require_peer)
 ) -> Response:
     """Record the designer portal's link. Refused (409) once consent is not granted."""
+    artisan_id = await artisan_merge.survivor_of(artisan_id) or artisan_id
     if await _consenting(artisan_id) is None:
         await _log_access(
             request, ACTION_LINK, "REFUSED", remote_artisan_id=payload.remoteArtisanId
@@ -253,8 +379,12 @@ async def peer_unlink(
     request: Request,
     settings: Any = Depends(require_peer),
 ) -> Response:
+    resolved = await artisan_merge.survivor_of(artisan_id)
     await db.crossportalartisanlink.delete_many(
-        where={"artisanId": artisan_id, "remoteArtisanId": remote_artisan_id}
+        where={
+            "artisanId": {"in": [i for i in (artisan_id, resolved) if i]},
+            "remoteArtisanId": remote_artisan_id,
+        }
     )
     await _log_access(
         request,

@@ -143,6 +143,13 @@ class ArtisanCreate(APIModel):
     # required (a 422 naming the missing ones); absent is the old shape and is accepted unchanged, so
     # an outbox entry queued before the contract still replays. See services/artisan_form_contract.
     formContract: int | None = Field(default=None, ge=1, le=2)
+    # THE DUPLICATE HOLD (services/artisan_duplicates.py) — not a column. The ids of the likely
+    # duplicates the person saving was shown and answered "Different person" for; ``[]`` when they
+    # were shown none. ABSENT (an older build, an outbox entry queued before this field) means no
+    # hold at all: the artisan is created and its likely pairs are stored for review. A LIST opts
+    # into the hold: any candidate scoring 0.75 or more that is not in it answers 409
+    # ``artisan_possible_duplicate``.
+    duplicateAcknowledged: list[str] | None = Field(default=None, max_length=20)
 
     # Mandatory on create. See services/common.require_location for what that does and does not
     # mean — and note it is the ONLY half of the pair the clients cannot omit, because create is

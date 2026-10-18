@@ -142,6 +142,17 @@ export default function ArtisanMergePage() {
     loadLists();
   }, [authLoading, permitted, loadLists]);
 
+  // A pair handed over by the duplicates queue (`/admin/duplicates`): `?keep=<id>&merge=<id>`.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const keep = params.get("keep")?.trim() ?? "";
+    const other = params.get("merge")?.trim() ?? "";
+    if (keep && other && keep !== other) {
+      setKeepId(keep);
+      setMergeId(other);
+    }
+  }, []);
+
   // A fresh comparison whenever the pair changes; a stale answer for the previous pair is dropped.
   const previewTicket = useRef(0);
   useEffect(() => {
@@ -155,6 +166,15 @@ export default function ArtisanMergePage() {
         if (ticket !== previewTicket.current) return;
         setPreview(result);
         setPicks(defaultPicks(result.fields));
+        // The pickers show the pair by name even when it arrived by id alone (the duplicates queue).
+        const seedOf = (side: MergePreview["keep"]): SelectOption => ({
+          value: side.id,
+          label: [side.name, side.place, side.craft].filter(Boolean).join(" · ")
+        });
+        setSeeds((current) => ({
+          keep: current.keep?.value === result.keep.id ? current.keep : seedOf(result.keep),
+          merge: current.merge?.value === result.merge.id ? current.merge : seedOf(result.merge)
+        }));
       })
       .catch((cause) => {
         if (ticket === previewTicket.current) setError(errorText(cause, "Could not compare these two."));

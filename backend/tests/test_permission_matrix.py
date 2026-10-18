@@ -225,6 +225,9 @@ def api(monkeypatch: pytest.MonkeyPatch) -> _Api:
     keeps finding them when a new module is added.
     """
     tripwire = _Tripwire()
+    # The merge redirect (services/artisan_merge) reads ArtisanMerge on artisan-naming writes. It is
+    # not a guard, and an invented id was never merged, so it is handed over as "nothing merged".
+    tripwire.preload("artisanmerge", SimpleNamespace(find_many=_returning([]), find_first=_returning(None)))
     real_db = core_db.db
     monkeypatch.setattr(core_db, "db", tripwire)
     for module in list(sys.modules.values()):

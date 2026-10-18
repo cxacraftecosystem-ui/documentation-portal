@@ -40,7 +40,7 @@ def _settings(**over: Any) -> SimpleNamespace:
         "cross_portal_identity_enabled": False,
         "cross_portal_search_enabled": True,
         "cross_portal_token": TOKEN,
-        "cross_portal_aadhaar_hmac_key": KEY,
+        "aadhaar_fingerprint_key": KEY,
         "designer_portal_api_url": URL,
     }
     base.update(over)

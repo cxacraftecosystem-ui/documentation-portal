@@ -33,6 +33,7 @@ from contextlib import suppress
 
 from app.core.config import get_settings
 from app.core.db import connect_db, disconnect_db, ensure_db_connected
+from app.services import artisan_duplicates
 from app.services.email_outbox import process_next_email_jobs
 from app.services.media_queue import process_next_media_jobs
 from app.services.workshop_auto_map import maybe_run_nightly_auto_map
@@ -133,6 +134,12 @@ async def _run() -> None:
                     await run_search_index_pass(settings)
                 except Exception:  # one bad pass must never kill the worker
                     logger.exception("Search index pass failed; backing off")
+            # The duplicate-artisan scan and the 30-day merge-snapshot purge: each at most once a
+            # day per process (cheap when not due), each in its own try for the same reason.
+            try:
+                await artisan_duplicates.maybe_run(settings)
+            except Exception:  # one bad iteration must never kill the worker
+                logger.exception("Duplicate-artisan scan failed; it runs again tomorrow")
             # Sleep for the interval but wake immediately on shutdown.
             with suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(stop.wait(), timeout=interval)

@@ -127,6 +127,8 @@ address that is not admitted becomes a PENDING request, never an account
 | Turn **your own** two-step verification on or off | `get_current_user` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Turn off **somebody else's** two-step verification (below your tier) | `require_admin` + `assert_can_manage_target` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
 | **Delete** any record | `assert_can_delete` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
+| Ask whether an artisan is **already recorded** (`POST /api/artisan-duplicates/check`, 30 a minute) | `require_record_creator` | ⬜ | ⬜ | ✅ | ✅ | ✅ | ✅ |
+| Review **duplicate pairs**: list, open one, dismiss, reopen (`/api/artisan-duplicates`); a pair is merged and undone on the artisan merge (`/api/artisans/merge`) | `require_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
 | Delete **media you uploaded** | route-local | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Grant / decide **workshop access** | `require_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
 | Assign **tasks** to users below your tier | `require_admin` + `assert_assignable` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |

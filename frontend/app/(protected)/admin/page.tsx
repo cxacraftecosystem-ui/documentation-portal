@@ -16,6 +16,7 @@ import {
   SlidersHorizontal,
   UserCheck,
   UserCog,
+  Users,
   Wrench,
   type LucideIcon
 } from "lucide-react";
@@ -29,6 +30,7 @@ import { ResizableTh } from "@/components/ResizableTh";
 import { RowActions, rowAction } from "@/components/RowActions";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch } from "@/lib/api";
+import { listPairs } from "@/lib/duplicates";
 import { bytes, formatDateTime } from "@/lib/format";
 import { isAdmin, isMasterAdmin } from "@/lib/permissions";
 import { rowClickOpensRecord } from "@/lib/recordView";
@@ -92,6 +94,8 @@ export default function AdminHubPage() {
   const { pending: pendingAccess } = usePendingAccessCount();
 
   const [orphans, setOrphans] = useState<MediaFile[] | null>(null);
+  // Open likely-duplicate pairs, for the Duplicates tile. Null until known; a failure leaves it so.
+  const [openDuplicates, setOpenDuplicates] = useState<number | null>(null);
   const [activePreview, setActivePreview] = useState<PreviewMedia | null>(null);
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
@@ -101,6 +105,9 @@ export default function AdminHubPage() {
     apiFetch<MediaFile[]>("/media/orphans")
       .then(setOrphans)
       .catch((err) => setError(err instanceof Error ? err.message : "Unable to load recovered recordings"));
+    listPairs({ status: "OPEN", pageSize: 1 })
+      .then((page) => setOpenDuplicates(page.total))
+      .catch(() => setOpenDuplicates(null));
   }, [authLoading, permitted]);
 
   const header = (
@@ -143,6 +150,13 @@ export default function AdminHubPage() {
       description: "Approve or return submissions.",
       href: "/review",
       icon: ClipboardCheck
+    },
+    {
+      label: "Duplicate artisans",
+      description: "Merge records of one person.",
+      href: "/admin/duplicates",
+      icon: Users,
+      badge: openDuplicates
     },
     {
       label: "Recovered recordings",

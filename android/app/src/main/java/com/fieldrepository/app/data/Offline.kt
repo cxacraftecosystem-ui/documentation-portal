@@ -13,6 +13,11 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import java.io.File
 import java.io.FileOutputStream
 import java.time.Instant
@@ -137,8 +142,72 @@ data class PendingEntry(
      * Aadhaar number — so the tray can offer "Use existing artisan" instead of a second copy.
      */
     val existingRecordId: String? = null,
-    val existingRecordLabel: String? = null
+    val existingRecordLabel: String? = null,
+    /**
+     * THE SERVER HELD THIS ARTISAN AS A LIKELY DUPLICATE when it synced (409
+     * `artisan_possible_duplicate`). Not a clash and not a refusal: the register recognised
+     * somebody, and only the researcher knows whether it is the same person. Non-empty means the
+     * tray asks "Same person" / "Different person" instead of "Try again". Ids and names only.
+     */
+    val duplicateCandidates: List<OutboxDuplicateCandidate> = emptyList(),
+    /**
+     * "Same person": the queued artisan was never created, and its files went to the existing
+     * artisan named by [createdId]. Nothing else from the entry is copied onto that record.
+     */
+    val attachedToExisting: Boolean = false
 )
+
+/** One existing artisan a held entry may be. See [PendingEntry.duplicateCandidates]. */
+@Serializable
+data class OutboxDuplicateCandidate(
+    val id: String,
+    val name: String,
+    val place: String? = null,
+    val craft: String? = null
+)
+
+/** Is this entry waiting on "Same person" / "Different person"? Never read as a clash or a refusal. */
+fun PendingEntry.isPossibleDuplicate(): Boolean = duplicateCandidates.isNotEmpty() && createdId == null
+
+/** The tray's sentence for a held entry: "Not saved yet. This looks like Meena Devi (Bhuj)." */
+fun possibleDuplicateTrayText(entry: PendingEntry): String? {
+    val first = entry.duplicateCandidates.firstOrNull() ?: return null
+    val place = first.place?.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""
+    return "Not saved yet. This looks like ${first.name}$place."
+}
+
+/** "Same person": skip the create; the files upload to [candidateId]. */
+fun PendingEntry.asSamePerson(candidateId: String = duplicateCandidates.first().id): PendingEntry = copy(
+    createdId = candidateId,
+    attachedToExisting = true,
+    duplicateCandidates = emptyList(),
+    failure = null,
+    failedAt = null,
+    needsReview = false
+)
+
+/**
+ * "Different person": send the create again with every candidate acknowledged. Only the one key in
+ * the queued body changes — the rest of the bytes (a sealed Aadhaar among them) are left as captured.
+ */
+fun PendingEntry.asDifferentPerson(): PendingEntry {
+    val ids = duplicateCandidates.map { it.id }
+    val parsed = runCatching { Json.parseToJsonElement(payloadJson).jsonObject }.getOrNull()
+    val body = if (parsed == null) payloadJson else {
+        val previous = (parsed["duplicateAcknowledged"] as? JsonArray)
+            ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+            .orEmpty()
+        val acknowledged = (previous + ids).distinct().take(20)
+        JsonObject(parsed + ("duplicateAcknowledged" to JsonArray(acknowledged.map { JsonPrimitive(it) }))).toString()
+    }
+    return copy(
+        payloadJson = body,
+        duplicateCandidates = emptyList(),
+        failure = null,
+        failedAt = null,
+        needsReview = false
+    )
+}
 
 /**
  * One request of a [OutboxKind.SEQUENCE] entry. [op] names what the replay sends, for example
@@ -258,6 +327,34 @@ object OfflineOutbox {
             val current = read(context)
             if (current.any { it.id == entry.id }) {
                 write(context, current.map { if (it.id == entry.id) entry else it })
+            }
+        }
+    }
+
+    /**
+     * The server held this artisan as a likely duplicate. Kept with its files, the candidates named,
+     * and the tray sentence as its [PendingEntry.failure] so the pass steps over it until answered.
+     */
+    suspend fun markPossibleDuplicate(
+        context: Context,
+        entryId: String,
+        candidates: List<OutboxDuplicateCandidate>
+    ) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val current = read(context)
+            if (current.any { it.id == entryId }) {
+                write(
+                    context,
+                    current.map {
+                        if (it.id != entryId) it else {
+                            val held = it.copy(duplicateCandidates = candidates)
+                            held.copy(
+                                failure = possibleDuplicateTrayText(held) ?: "Not saved yet. This may already be recorded.",
+                                failedAt = Instant.now().toString()
+                            )
+                        }
+                    }
+                )
             }
         }
     }

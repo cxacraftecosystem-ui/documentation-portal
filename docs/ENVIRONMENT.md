@@ -247,8 +247,8 @@ Every answer is signed over the request it answers (method, path and a fresh non
 request is written to `CrossPortalAccessLog` (which designer-portal account asked and which artisan
 it reached, never a number), and every consent change is a revision in the artisan's history.
 
-**Nothing works until all of it is set on BOTH servers** — the flag, both secrets (32 characters or
-more, the same values on the two servers). Anything missing and every `/api/cross-portal/*`
+**Nothing works until all of it is set on BOTH servers** — the flag, `CROSS_PORTAL_TOKEN` and
+`AADHAAR_FINGERPRINT_KEY` (32 characters or more, the same values on the two servers). Anything missing and every `/api/cross-portal/*`
 route answers 404 and no client draws anything. Secrets go to the GitHub Actions secrets **and** the
 box `.env`; none is created by this repository.
 
@@ -275,7 +275,7 @@ Every value goes to the GitHub Actions secrets **and** the box `.env`.
 | `SEARCH_EMBEDDINGS_ENABLED` | No | **`false`** | No | The AI flag. Meaning ranking runs only when this is on, the provider has a key (`OPENAI_API_KEY`, or the Gemini keys) and the `embedding` column exists (pgvector). Off: `"mode": "text"` and no provider call. |
 | `SEARCH_EMBEDDING_PROVIDER` | No | `openai` | No | `openai` or `gemini`. Gemini's free tier may train on inputs; keep it opt-in. |
 | `SEARCH_EMBEDDING_MODEL` | No | `text-embedding-3-small` | No | Asked for 768 dimensions, fixed in code and in the migration. |
-| `CROSS_PORTAL_SEARCH_ENABLED` | No | **`false`** | No | Asks the designer portal and answers its searches (`/api/cross-portal/peer/search*`). Also needs `CROSS_PORTAL_TOKEN`, `CROSS_PORTAL_AADHAAR_HMAC_KEY` and `DESIGNER_PORTAL_API_URL`; the designer portal needs its own flag, the same secrets and `FIELD_REPOSITORY_API_URL`. |
+| `CROSS_PORTAL_SEARCH_ENABLED` | No | **`false`** | No | Asks the designer portal and answers its searches (`/api/cross-portal/peer/search*`). Also needs `CROSS_PORTAL_TOKEN`, `AADHAAR_FINGERPRINT_KEY` and `DESIGNER_PORTAL_API_URL`; the designer portal needs its own flag, the same secrets and `FIELD_REPOSITORY_API_URL`. |
 | `DESIGNER_PORTAL_API_URL` | With cross-portal search | — | No | The designer portal's API base up to `/api`, e.g. `https://<designer-api-host>/api`. Only cross-portal search calls it. |
 
 ### Cross-portal coverage feed — shipped OFF
@@ -291,6 +291,18 @@ answers 404. This portal's own coverage map (`/map?view=coverage`) needs no flag
 | Variable | Required | Default | Secret | Notes |
 |---|---|---|---|---|
 | `CROSS_PORTAL_COVERAGE_ENABLED` | No | **`false`** | No | The switch. Also needs `CROSS_PORTAL_TOKEN` (above), the same value as on the designer portal. Set it in the GitHub Actions secrets **and** the box `.env`. |
+
+### Duplicate artisans
+
+The server scores every new or edited artisan against the register (`app/services/artisan_duplicates.py`)
+and stores likely pairs for the admin review screen (`/admin/duplicates`); a pair is merged on
+`/admin/artisan-merge`. A create that looks like an
+artisan already recorded (score 0.75 or more) is held with a 409 until the person saving says
+"Different person".
+
+| Variable | Required | Default | Secret | Notes |
+|---|---|---|---|---|
+| `ARTISAN_DUPLICATE_HOLD` | No | **`true`** | No | Kill switch for the hold at save time. Off: every create saves straight away, and its likely pairs are still stored for review. Scoring and the admin screen stay on. The thresholds (show 0.60, hold 0.75) and the 30-day undo window are constants in code, not settings. |
 
 ### AI-drafted interview answers (C28) — shipped OFF
 

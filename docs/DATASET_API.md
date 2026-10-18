@@ -281,6 +281,11 @@ Bytes come **straight from S3**, never through the API — the web box is a sing
   route, an `.ndjson` stream, a `.csv` stream and a catalogue line at once.
 - **Route order is load-bearing** in that module: `/{dataset_name}` must stay last, and the
   `.ndjson` / `.csv` routes above it, or `/datasets/token` is read as a dataset named `token`.
+- **Merged artisans leave the `artisans` dataset.** A merge deletes one row and re-points
+  everything that named it at the survivor, so an incremental mirror sees the survivor's rows
+  change and the merged id stop appearing. `GET /api/artisans/{id}` on that id answers
+  `404 {"detail": {"code": "artisan_merged", "survivorId": "…"}}`; an undo within 30 days brings the
+  row back with the same id.
 
 ## 8. Errors
 

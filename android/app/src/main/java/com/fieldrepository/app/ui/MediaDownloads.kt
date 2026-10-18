@@ -65,6 +65,8 @@ import com.fieldrepository.app.data.OfflineOutbox
 import com.fieldrepository.app.data.userMessage
 import com.fieldrepository.app.data.PendingEntry
 import com.fieldrepository.app.data.PendingMedia
+import com.fieldrepository.app.data.isPossibleDuplicate
+import com.fieldrepository.app.data.possibleDuplicateTrayText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -432,6 +434,10 @@ fun MediaDownloadButton(
  * (`AadhaarAtRest.numberWithheld`, 2026-10-18) gets "Type it again" in place of "Try again": a retry
  * would hold it again for the same reason. [validateAadhaar] is the form's own rule (the sentence, or
  * null when the number is fine); [onRetypeAadhaar] stores it sealed and sends the entry.
+ *
+ * An artisan the server held as a LIKELY DUPLICATE when it synced is neither: it reads "Not saved yet.
+ * This looks like {name} ({place})." with "Same person" and "Different person" on one line
+ * ([onAnswerDuplicate]). It is never offered "Try again", which would only be held again.
  */
 @Composable
 fun OutboxPendingBanner(
@@ -445,7 +451,8 @@ fun OutboxPendingBanner(
     onDiscard: suspend (entryId: String) -> Boolean = { false },
     onChanged: () -> Unit = {},
     validateAadhaar: (String) -> String? = { null },
-    onRetypeAadhaar: (suspend (entryId: String, number: String) -> Unit)? = null
+    onRetypeAadhaar: (suspend (entryId: String, number: String) -> Unit)? = null,
+    onAnswerDuplicate: (suspend (entryId: String, samePerson: Boolean) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -474,6 +481,8 @@ fun OutboxPendingBanner(
     val needsAadhaar: (PendingEntry) -> Boolean = { entry ->
         onRetypeAadhaar != null && entry.createdId == null && AadhaarAtRest.numberWithheld(entry.payloadJson)
     }
+    // An artisan the server held as a likely duplicate: only "Same person" / "Different person" frees it.
+    val heldAsDuplicate: (PendingEntry) -> Boolean = { entry -> onAnswerDuplicate != null && entry.isPossibleDuplicate() }
     // The held entry whose Aadhaar number is being typed again, or null.
     var retyping by remember { mutableStateOf<PendingEntry?>(null) }
     retyping?.let { entry ->
@@ -523,7 +532,7 @@ fun OutboxPendingBanner(
             Text(if (expanded) "Hide files ▲" else "Files ▼", color = ink, style = MaterialTheme.typography.bodySmall)
         }
         // B1: refused saves are named on the banner itself, with the one way into fixing them.
-        val refusedOnly = refused.filterNot { it.needsReview || needsAadhaar(it) }
+        val refusedOnly = refused.filterNot { it.needsReview || needsAadhaar(it) || heldAsDuplicate(it) }
         if (refusedOnly.isNotEmpty()) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -559,8 +568,16 @@ fun OutboxPendingBanner(
                 )
             }
         }
+        // A held likely duplicate is answered on the banner too: the researcher is the one who knows.
+        refused.filter(heldAsDuplicate).forEach { entry ->
+            PossibleDuplicateTrayRow(
+                entry = entry,
+                ink = ink,
+                onAnswer = { same -> scope.launch { onAnswerDuplicate?.invoke(entry.id, same); reload++ } }
+            )
+        }
         if (expanded) {
-            refused.filter { it.needsReview && !needsAadhaar(it) }.forEach { entry ->
+            refused.filter { it.needsReview && !needsAadhaar(it) && !heldAsDuplicate(it) }.forEach { entry ->
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         "Review “${entry.label}”: ${entry.failure}",
@@ -593,6 +610,26 @@ fun OutboxPendingBanner(
                     MediaDownloadButton(source = Uri.fromFile(file), name = label, mimeType = media.mimeType)
                 }
             }
+        }
+    }
+}
+
+/**
+ * A queued artisan the server held as a likely duplicate: the sentence, then "Same person" and
+ * "Different person" on one line (the shared [ActionRow]).
+ */
+@Composable
+private fun PossibleDuplicateTrayRow(entry: PendingEntry, ink: Color, onAnswer: (samePerson: Boolean) -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("May already be recorded", color = ink, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+        Text(
+            "“${entry.label}”: ${possibleDuplicateTrayText(entry) ?: entry.failure.orEmpty()}",
+            color = ink,
+            style = MaterialTheme.typography.bodySmall
+        )
+        ActionRow(modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = { onAnswer(true) }) { Text("Same person") }
+            OutlinedButton(onClick = { onAnswer(false) }) { Text("Different person") }
         }
     }
 }

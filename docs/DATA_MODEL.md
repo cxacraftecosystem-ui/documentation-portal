@@ -536,6 +536,19 @@ EOF
 needs a human read, not just a regenerated count — a new column is a fact, but what the column
 *means* is the part only a person can write.
 
+## Duplicate artisans and merges — added 2026-10-18
+
+| Model | Holds | Notes |
+|---|---|---|
+| `ArtisanDuplicateCandidate` | one likely pair (`kind = WITHIN`), `artisanAId < artisanBId` | `score`, `band` (`POSSIBLE` 0.60, `LIKELY` 0.75, `VERY_LIKELY` 0.90) and `reasons` as codes, never values. `status` `OPEN` / `NOT_DUPLICATE`; a dismissed pair stays dismissed through every re-scan. `creatorSaidDifferent` is set when the person saving answered "Different person". Rows cascade away with either artisan. |
+| `ArtisanMerge` | one merge, forever | `mergedId` (unique among live merges: a partial index on `undoneAt IS NULL`, so an undone pair can be merged again) → `survivorId` is the redirect: `GET /artisans/{mergedId}` answers 404 `artisan_merged` with the survivor, and every write that names a merged id lands on the survivor. `snapshot` (the deleted row, its consent and every collision row), `moves` (each re-pointed primary key) and `choices` make the merge reversible until `undoUntil` (30 days); the worker then clears `snapshot`, `moves` and `crossPortal` and stamps `snapshotPurgedAt`. |
+
+A merge re-points every row that names the deleted artisan, listed in `MERGE_REPOINT`
+(`services/artisan_merge.py`); `test_artisan_merge_registry.py` fails when a table that points at
+`Artisan` is missing from it. The newer `ArtisanSharingConsent` decision wins, and
+`CrossPortalArtisanLink` rows move with the record. Field Repository never stores `CROSS_PORTAL`
+pairs: the designer portal asks `POST /api/cross-portal/peer/artisans/match` and keeps the answer.
+
 ## The Aadhaar fingerprint — added 2026-10-17
 
 **The register keeps no Aadhaar number.** `Artisan.aadhaarFingerprint` (HMAC-SHA256 of the 12 digits

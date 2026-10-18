@@ -66,6 +66,8 @@ class _Db:
         "questionnaireinterviewartisan": (("interviewId", "artisanId"),),
         "questionnairesectionstatus": (("artisanId", "sectionId"),),
         "dataaccessscopeitem": (("grantId", "recordType", "recordId"),),
+        "crossportalartisanlink": (("artisanId", "remoteArtisanId"),),
+        "artisansharingconsent": (("artisanId",),),
     }
 
     def __init__(self, **seeds: list[dict[str, Any]]) -> None:
@@ -611,3 +613,56 @@ def test_undo_gives_the_fingerprint_back(db: _Db) -> None:
     assert keep.aadhaarFingerprint is None and keep.aadhaarLast4 is None
     undo_ledger = unjson(db.recordrevision.rows[-1].changes)
     assert undo_ledger["aadhaarNumber"]["redacted"] is True
+
+
+# --- C27: sharing consent and the designer portal's links -----------------------------------------
+
+
+def _consent(artisan_id: str, granted: bool, day: int) -> dict[str, Any]:
+    at = datetime(2026, 5, day, tzinfo=UTC)
+    return {"artisanId": artisan_id, "granted": granted, "note": None, "recordedById": ADMIN, "recordedAt": at, "updatedAt": at}
+
+
+def _link(link_id: str, artisan_id: str, remote: str) -> dict[str, Any]:
+    return {"id": link_id, "artisanId": artisan_id, "remoteArtisanId": remote, "matchedBy": "PEHCHAN"}
+
+
+def _seed(db: _Db, table: str, *rows: dict[str, Any]) -> None:
+    for row in rows:
+        asyncio.run(getattr(db, table).create(data=row))
+
+
+def test_a_merge_carries_the_duplicates_consent_and_links_and_undo_takes_them_back(db: _Db) -> None:
+    _seed(db, "artisansharingconsent", _consent("dup", True, 3))
+    _seed(db, "crossportalartisanlink", _link("l1", "dup", "dp1"))
+    merge_id = _merge().json()["id"]
+    assert [(row.artisanId, row.granted) for row in db.artisansharingconsent.rows] == [("keep", True)]
+    assert [(row.artisanId, row.remoteArtisanId) for row in db.crossportalartisanlink.rows] == [("keep", "dp1")]
+
+    assert _call("POST", f"/artisans/merge/{merge_id}/undo").status_code == 200
+    assert [(row.artisanId, row.granted) for row in db.artisansharingconsent.rows] == [("dup", True)]
+    assert [(row.artisanId, row.remoteArtisanId) for row in db.crossportalartisanlink.rows] == [("dup", "dp1")]
+
+
+def test_a_more_recent_withdrawal_wins_and_takes_every_link_off_the_kept_record(db: _Db) -> None:
+    _seed(db, "artisansharingconsent", _consent("keep", True, 1), _consent("dup", False, 9))
+    _seed(db, "crossportalartisanlink", _link("l1", "keep", "dp1"), _link("l2", "dup", "dp2"))
+    merge_id = _merge().json()["id"]
+    assert [(row.artisanId, row.granted) for row in db.artisansharingconsent.rows] == [("keep", False)]
+    assert db.crossportalartisanlink.rows == []
+
+    body = _call("POST", f"/artisans/merge/{merge_id}/undo").json()
+    assert body["kept"] == []
+    consents = sorted((row.artisanId, row.granted) for row in db.artisansharingconsent.rows)
+    assert consents == [("dup", False), ("keep", True)]
+    links = sorted((row.artisanId, row.remoteArtisanId) for row in db.crossportalartisanlink.rows)
+    assert links == [("dup", "dp2"), ("keep", "dp1")]
+
+
+def test_the_kept_records_own_newer_decision_stands_and_a_shared_link_folds(db: _Db) -> None:
+    _seed(db, "artisansharingconsent", _consent("keep", True, 9), _consent("dup", False, 1))
+    _seed(db, "crossportalartisanlink", _link("l1", "keep", "dp1"), _link("l2", "dup", "dp1"), _link("l3", "dup", "dp3"))
+    _merge()
+    assert [(row.artisanId, row.granted) for row in db.artisansharingconsent.rows] == [("keep", True)]
+    links = sorted((row.artisanId, row.remoteArtisanId) for row in db.crossportalartisanlink.rows)
+    assert links == [("keep", "dp1"), ("keep", "dp3")]

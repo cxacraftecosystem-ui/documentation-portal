@@ -582,10 +582,11 @@ class RecordProseTest {
      * that were here before this one have held that property since they were written.
      *
      * `formContract` (2026-10-17) is the same kind of name: the artisan form sets it to say which
-     * contract the save was made under, and no form draws a box for it.
+     * contract the save was made under, and no form draws a box for it. `duplicateAcknowledged`
+     * (2026-10-18) too: the ids the "Already recorded?" sheet was answered "Different person" for.
      */
     private val WIRE_PLUMBING =
-        setOf("id", "recordedAt", "recordedTimezone", "location", "steps", "clientKey", "formContract")
+        setOf("id", "recordedAt", "recordedTimezone", "location", "steps", "clientKey", "formContract", "duplicateAcknowledged")
 
     /** `ProcessStepRequest.name` is `stepName` here, because `name` on this surface is the process's. */
     private fun stepKey(field: String) =
