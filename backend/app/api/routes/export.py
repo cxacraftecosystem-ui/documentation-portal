@@ -22,6 +22,7 @@ from app.api.routes.data_browser import (
 )
 from app.core.db import db
 from app.core.deps import can_download_dataset, get_current_user
+from app.services import answer_drafts
 from app.services.access import owner_download_scope
 from app.services.csv_export import records_to_csv
 from app.services.record_fields import info_panel, info_text, interview_label
@@ -341,7 +342,8 @@ async def dataset_manifest(
             q = getattr(r, "question", None)
             prompt = getattr(q, "prompt", r.questionId) if q else r.questionId
             code = getattr(q, "sectionCode", "") if q else ""
-            answers.append(f"[{code}] {prompt}\n  -> {r.answerText or ''}\n")
+            text = answer_drafts.marked_answer(r.answerText, getattr(r, "answerOrigin", None))
+            answers.append(f"[{code}] {prompt}\n  -> {text}\n")
         add_text(base, "answers.txt", _details("interview", interview) + "\n\n" + "".join(answers))
         add_media(base, "questionnaire", interview.id)
 

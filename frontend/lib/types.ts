@@ -664,6 +664,8 @@ export type QuestionnaireResponse = {
   notes?: string | null;
   /** "TRANSCRIPT" when the answer was taken from its clip's transcript (A7); null when typed. */
   answerSource?: string | null;
+  /** C28: null = typed by a person; MACHINE_SUGGESTED / MACHINE_SUGGESTED_EDITED = drafted from the transcript. */
+  answerOrigin?: string | null;
   question?: QuestionnaireQuestion;
   answeredBy?: User;
 };

@@ -561,8 +561,16 @@ model Craft {
   /// WorkshopCraft join (which every existing query reads through and which is kept in lock-step);
   /// nullable, so every row recorded before this column keeps behaving exactly as before.
   workshopId    String?
+  /// THE SHARED CRAFT CODE (C26, 2026-10-17). One code per craft TRADITION, the same in the
+  /// designer portal, the documentation portal and (where it has the craft) the cxa-cms public
+  /// site, whose slug it is. Seeded from ``app/data/cross_portal_codes.json``, a file that is
+  /// byte-identical in both repositories, and matched through ``CraftSpelling`` — so "Bandhej",
+  /// "Bandhani" and "Bandhani tie-resist dyeing" are three rows here and one code. Nullable: a
+  /// craft nobody has mapped yet keeps working exactly as before, and an admin maps it.
+  craftCode     String?
 
   createdBy User?                  @relation("CraftCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  code      CraftCode?             @relation(fields: [craftCode], references: [code], onDelete: SetNull)
   workshop  Workshop?              @relation("CraftWorkshop", fields: [workshopId], references: [id], onDelete: SetNull)
   artisans  Artisan[]
   products  ProductDocumentation[]
@@ -579,6 +587,88 @@ model Craft {
   // `name` needs no index of its own: @unique already builds one, and that is what the alphabetical
   // craft picker orders by.
   @@index([workshopId])
+  @@index([craftCode])
+}
+
+/// A shared craft code (C26). The canonical list is ``app/data/cross_portal_codes.json``, the
+/// same bytes in both portals; a code is never reused or renumbered once published there. Rows
+/// are written by the backfill migration and, for a code the file gains later, on first use.
+model CraftCode {
+  code      String   @id
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  crafts    Craft[]
+  spellings CraftSpelling[]
+}
+
+/// The spelling mapping table (C26): every way a craft's name has been written, normalised
+/// (lower case, accents and punctuation folded to single spaces), and the code it means.
+/// ``source`` is SHARED for a spelling from the shared file and ADMIN for one an administrator
+/// mapped on this portal; only SHARED spellings travel to the other portal (by editing the file).
+model CraftSpelling {
+  spelling    String   @id
+  label       String
+  craftCode   String
+  source      String   @default("SHARED")
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  code CraftCode @relation(fields: [craftCode], references: [code], onDelete: Cascade)
+
+  @@index([craftCode])
+}
+
+/// C27: this artisan's agreement that the designer portal may look up their identity fields. ONE
+/// row per artisan, written by somebody who may edit the artisan, and changed rather than deleted
+/// when the artisan withdraws (``granted`` false), so the record of who recorded what survives. A
+/// lookup answers only for an artisan whose row says ``granted``. Read only while the cross-portal
+/// feature is on (``services/cross_portal.active``).
+model ArtisanSharingConsent {
+  artisanId    String   @id
+  granted      Boolean
+  note         String?
+  recordedById String?
+  recordedAt   DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  artisan Artisan @relation(fields: [artisanId], references: [id], onDelete: Cascade)
+}
+
+/// C27: a designer-portal artisan record linked to this one. Written when the designer portal links
+/// (it tells this server), removed when it unlinks or when this artisan's consent is withdrawn.
+/// ``remoteArtisanId`` is the designer portal's id; nothing else about that record is stored here.
+model CrossPortalArtisanLink {
+  id              String   @id @default(cuid())
+  artisanId       String
+  remoteArtisanId String
+  matchedBy       String
+  createdAt       DateTime @default(now())
+
+  artisan Artisan @relation(fields: [artisanId], references: [id], onDelete: Cascade)
+
+  @@unique([artisanId, remoteArtisanId])
+  @@index([remoteArtisanId])
+}
+
+/// C27: one row per request the designer portal's server made here — which of its accounts asked
+/// (``remoteUserId``, that portal's user id), what for (``action``), and which artisan it reached
+/// (``artisanId``) or that it reached none. NEVER the Pehchan number or the Aadhaar code it asked
+/// with. Kept so a cross-system read of an artisan's details is always traceable to a person.
+model CrossPortalAccessLog {
+  id              String   @id @default(cuid())
+  action          String
+  outcome         String
+  artisanId       String?
+  remoteUserId    String?
+  remoteArtisanId String?
+  matchedBy       String?
+  createdAt       DateTime @default(now())
+
+  @@index([artisanId, createdAt])
+  @@index([remoteUserId, createdAt])
+  @@index([createdAt])
 }
 
 /// TWO ANSWERS TO TWO DIFFERENT QUESTIONS, and reading one as the other is what this model was
@@ -833,6 +923,8 @@ model Artisan {
   media     MediaFile[]
   questionnaireInterviews QuestionnaireInterviewArtisan[]
   sectionStatuses QuestionnaireSectionStatus[]
+  sharingConsent  ArtisanSharingConsent?
+  crossPortalLinks CrossPortalArtisanLink[]
 
   // `name` earns its index by being the sort key of the artisan pickers, not by the search box:
   // every text search in this app is a case-insensitive `contains`, which Postgres runs as ILIKE
@@ -1518,6 +1610,13 @@ model QuestionnaireQuestion {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   sectionId       String?
+  /// THE SHARED QUESTION CODE (C26): ``CTW2.A.01`` and so on, from
+  /// ``app/data/cross_portal_codes.json``. The same question in either portal carries the same code,
+  /// so answers can be read side by side without matching on order or wording. A wording edit that
+  /// supersedes a question does NOT carry the code to the new row ("How many looms?" reworded to "How
+  /// many weavers?" is a different question); the new row has a code only if its wording is in the
+  /// shared file. A question written in the builder that is not in the file has none.
+  questionCode    String?
 
   questionnaire Questionnaire         @relation(fields: [questionnaireId], references: [id], onDelete: Restrict)
   /// Restrict, changed from SetNull on 2026-09-13. Nothing in this app hard-deletes a section —
@@ -1528,6 +1627,7 @@ model QuestionnaireQuestion {
   /// loud and recoverable; an orphan is neither.
   section   QuestionnaireSection? @relation(fields: [sectionId], references: [id], onDelete: Restrict)
   responses QuestionnaireResponse[]
+  answerDrafts QuestionnaireAnswerDraft[]
 
   @@index([sectionCode])
   @@index([sectionId])
@@ -1536,6 +1636,7 @@ model QuestionnaireQuestion {
   /// Read by the consolidated document, which walks the supersede chain so a reworded question and
   /// its replacement print as one question rather than two with the answers split between them.
   @@index([supersededById])
+  @@index([questionCode])
 }
 
 model QuestionnaireInterview {
@@ -1596,6 +1697,7 @@ model QuestionnaireInterview {
   artisans  QuestionnaireInterviewArtisan[]
   responses QuestionnaireResponse[]
   media     MediaFile[]                      @relation("QuestionnaireMedia")
+  answerDrafts QuestionnaireAnswerDraft[]
 
   @@unique([questionnaireId, artisanSetKey])
   @@index([createdById])
@@ -1632,6 +1734,11 @@ model QuestionnaireResponse {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   answeredById String
+  /// C28. NULL: a person typed it. MACHINE_SUGGESTED: a model drafted it from the transcript and a
+  /// person accepted it unchanged. MACHINE_SUGGESTED_EDITED: drafted, then changed by a person.
+  /// A later edit of a MACHINE_SUGGESTED answer moves it to MACHINE_SUGGESTED_EDITED; it never
+  /// becomes NULL while it has text, because the words started as a machine's.
+  answerOrigin String?
 
   interview  QuestionnaireInterview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
   question   QuestionnaireQuestion  @relation(fields: [questionId], references: [id], onDelete: Restrict)
@@ -1640,6 +1747,36 @@ model QuestionnaireResponse {
   @@unique([interviewId, questionId])
   @@index([questionId])
   @@index([answeredById])
+}
+
+/// C28: an answer a model drafted from an interview's transcript, waiting for a person. INERT: a
+/// draft is never an answer and nothing reads it as one. The researcher accepts or edits a SECTION's
+/// drafts at a time; an accepted draft becomes a ``QuestionnaireResponse`` whose ``answerOrigin`` says
+/// it was machine-suggested, and this row keeps the words the model wrote, the provider and the model,
+/// so what the machine said and what the person kept can always be told apart. Only questions that had
+/// no answer are drafted; a draft never replaces a person's words. Off unless AI_ANSWER_DRAFTS_ENABLED.
+model QuestionnaireAnswerDraft {
+  id            String    @id @default(cuid())
+  interviewId   String
+  questionId    String
+  sectionId     String?
+  draftText     String
+  /// PENDING | ACCEPTED | EDITED | DISMISSED
+  status        String    @default("PENDING")
+  provider      String
+  model         String
+  sourceMediaId String?
+  createdById   String
+  createdAt     DateTime  @default(now())
+  decidedById   String?
+  decidedAt     DateTime?
+
+  interview QuestionnaireInterview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  question  QuestionnaireQuestion  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([interviewId, questionId])
+  @@index([interviewId, status])
+  @@index([questionId])
 }
 
 model Process {

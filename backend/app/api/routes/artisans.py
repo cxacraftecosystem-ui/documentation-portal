@@ -11,6 +11,7 @@ from app.core.deps import (
     get_value,
 )
 from app.schemas.records import ArtisanCreate, ArtisanUpdate, drop_masked_identity_numbers
+from app.services import cross_portal_codes
 from app.services.access import guard_record_edit
 from app.services.artisan_merge import created_merged_record, survivor_of
 from app.services.artisan_form_contract import assert_required_dates, take_form_contract
@@ -258,7 +259,13 @@ async def resolve_craft_id(data: dict[str, Any], current_user: Any) -> dict[str,
                 "professor or an admin to add it."
             ),
         )
-    created = await db.craft.create(data={"name": craft_name, "createdById": current_user.id})
+    created = await db.craft.create(
+        data={
+            "name": craft_name,
+            "createdById": current_user.id,
+            "craftCode": await cross_portal_codes.code_for_new_craft(db, craft_name),
+        }
+    )
     data["craftId"] = created.id
     return data
 

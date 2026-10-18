@@ -86,6 +86,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response, Streamin
 
 from app.core.db import db
 from app.core.deps import require_dataset_downloader
+from app.services import answer_drafts
 from app.services.records import owned_or_granted_where
 from app.services.record_fields import (
     MEDIA_COLOR,
@@ -676,7 +677,8 @@ def _interview_answers(interview: Any, info: dict[str, Any]) -> str:
         q = getattr(r, "question", None)
         prompt = getattr(q, "prompt", r.questionId) if q else r.questionId
         code = getattr(q, "sectionCode", "") if q else ""
-        answers.append(f"[{code}] {prompt}\n  -> {r.answerText or ''}\n")
+        text = answer_drafts.marked_answer(r.answerText, getattr(r, "answerOrigin", None))
+        answers.append(f"[{code}] {prompt}\n  -> {text}\n")
     return header + "\n\n" + "".join(answers)
 
 
@@ -2718,7 +2720,8 @@ def _process_step_sheet(
 
 def _questionnaire_answer_sheet(interviews: list[Any]) -> dict[str, Any]:
     """The per-question answers, one row each, beside the interview-level sheet."""
-    columns = ["Interview", "Artisans", "Section", "Question", "Answer", "Notes"]
+    # "Origin" says which answers a model drafted from the transcript (C28); blank = typed.
+    columns = ["Interview", "Artisans", "Section", "Question", "Answer", "Notes", "Origin"]
     rows: list[list[Any]] = []
     for interview in interviews:
         label = _cell(_interview_label(interview))
@@ -2740,6 +2743,7 @@ def _questionnaire_answer_sheet(interviews: list[Any]) -> dict[str, Any]:
                     _cell((getattr(q, "prompt", None) if q else None) or r.questionId),
                     _cell(r.answerText),
                     _cell(r.notes),
+                    _cell(answer_drafts.origin_label(getattr(r, "answerOrigin", None)) or None),
                 ]
             )
     return _sheet("Questionnaire answers", SPECS["interview"].color, columns, rows)

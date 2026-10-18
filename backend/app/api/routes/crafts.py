@@ -9,6 +9,7 @@ from app.core.deps import (
     get_current_user,
     require_craft_manager,
 )
+from app.services import cross_portal_codes
 from app.services.access import guard_record_edit
 from app.schemas.records import CraftCreate, CraftUpdate
 from app.services.pagination import normalize_pagination, page_payload
@@ -99,6 +100,9 @@ async def create_craft(payload: CraftCreate, current_user: Any = Depends(require
     data["createdById"] = current_user.id
     merge_field_provenance(data, current_user, previous=None)
     pin_pending_if_late(data, current_user, check=check)
+    # The shared craft code (C26), set AFTER the provenance stamp: it is derived from the name, not
+    # a value the person typed, so it must not be recorded as theirs.
+    data["craftCode"] = await cross_portal_codes.code_for_new_craft(db, data.get("name"))
     try:
         created = await db.craft.create(data=data, include=INCLUDE)
     except UniqueViolationError as exc:
@@ -139,6 +143,12 @@ async def update_craft(
     pin_pending_if_late(data, current_user, check=check, record=craft)
     merge_field_provenance(data, current_user, previous=craft)
     resubmit_status(craft, current_user, data)
+    # A rename that lands on a known spelling takes that code. A rename that does not keeps whatever
+    # code the craft had: an administrator's mapping is not undone by a typo fix.
+    if "name" in data and data["name"] != craft.name:
+        renamed_code = await cross_portal_codes.code_for_new_craft(db, data["name"])
+        if renamed_code is not None:
+            data["craftCode"] = renamed_code
     updated = await db.craft.update(where={"id": craft_id}, data=data, include=INCLUDE)
     await link_workshop_craft(updated.workshopId, updated.id)
     return public_encode(updated)

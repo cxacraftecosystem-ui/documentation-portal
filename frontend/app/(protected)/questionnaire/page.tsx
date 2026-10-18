@@ -73,6 +73,7 @@ import { artisanStatedSource } from "@/components/forms/statedPrefill";
 import { ARTISAN_FIELD_OPTIONS, artisanFieldLabel, artisanPrefill, automaticInterviewTitle } from "@/lib/questionArtisanFields";
 import { applyTranscripts, TRANSCRIPT_SOURCE, transcriptAnswerText, transcriptOffer } from "@/lib/transcriptAnswer";
 import { Badge } from "@/components/ui/Badge";
+import { AnswerDraftsPanel, isMachineSuggested, MachineSuggestedBadge } from "@/components/questionnaire/AnswerDraftsPanel";
 
 /**
  * The API's own ceiling on an interview title — `QuestionnaireInterviewCreate.title` is
@@ -436,6 +437,19 @@ function QuestionnairePageBody() {
    * longer lists it — the same rule the handset keeps at `MainActivity.kt`'s `instrumentOptions`.
    */
   const [editing, setEditing] = useState<QuestionnaireInterview | null>(null);
+  // C28: which answers on the interview being edited began as a machine's draft, by question.
+  // Answers accepted on this screen since the interview was opened, keyed to that interview.
+  const [acceptedNow, setAcceptedNow] = useState<{ interviewId: string | null; ids: string[] }>({ interviewId: null, ids: [] });
+  const machineOrigin = useMemo(() => {
+    const next: Record<string, string> = {};
+    for (const response of editing?.responses ?? []) {
+      if (isMachineSuggested(response.answerOrigin)) next[response.questionId] = String(response.answerOrigin);
+    }
+    if (editing && acceptedNow.interviewId === editing.id) {
+      for (const id of acceptedNow.ids) next[id] = next[id] ?? "MACHINE_SUGGESTED";
+    }
+    return next;
+  }, [editing, acceptedNow]);
   /**
    * THE QUESTIONS THIS RECORD ARRIVED WITH A WRITTEN ANSWER FOR — frozen at seed time, and the whole
    * mechanism behind "show the recorded answers on an edit without touching the stored preference".
@@ -2443,6 +2457,20 @@ function QuestionnairePageBody() {
                     />
                   </div>
                 ) : null}
+                {editing ? (
+                  <AnswerDraftsPanel
+                    interviewId={editing.id}
+                    section={group.section}
+                    questions={group.items}
+                    onAccepted={(kept) => {
+                      setAnswers((current) => ({ ...current, ...kept }));
+                      setAcceptedNow((current) => ({
+                        interviewId: editing.id,
+                        ids: [...(current.interviewId === editing.id ? current.ids : []), ...Object.keys(kept)]
+                      }));
+                    }}
+                  />
+                ) : null}
                 {group.items.map((question) => (
                   // Not <Field>: that wraps its children in a <label>, and a <label> names its first
                   // labelable descendant — which here is the record button, not the answer box. The
@@ -2452,6 +2480,9 @@ function QuestionnairePageBody() {
                     <span className="field-label" id={`question-label-${question.id}`}>
                       {question.sortOrder}. {question.prompt}
                       <RequiredByInstrument question={question} />
+                      {machineOrigin[question.id] ? (
+                        <MachineSuggestedBadge edited={machineOrigin[question.id] === "MACHINE_SUGGESTED_EDITED"} />
+                      ) : null}
                     </span>
                     {/* THE PRO-FORMA'S "Help text" COLUMN, ON THE SCREEN THE ANSWER IS GIVEN ON.
                         An admin types guidance under a question in Excel and the import stores it;
