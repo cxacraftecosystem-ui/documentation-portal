@@ -110,3 +110,23 @@ export function reviewFlags(recordings: Recording[]): string {
   const estimated = live.some(isUncertain);
   return estimated ? qs("flagsLine", { repeats, decisions }) : qs("flagsNoEstimate", { repeats, decisions });
 }
+
+/** P10's count: the live takes this artisan answered or was present for in the session. */
+export function takesFor(recordings: Recording[], artisanId: string): number {
+  return recordings.filter((r) => !r.removedAt && r.subjects.some((s) => s.artisanId === artisanId)).length;
+}
+
+/**
+ * P8 applies when a save would overwrite an answer that came from a take: the artisans whose
+ * current answer has a source recording and different text.
+ */
+export function answersFromTakes(
+  existing: { artisanId?: string; text: string; sourceRecordingId: string | null }[],
+  artisanIds: string[],
+  text: string
+): { artisanId: string; sourceRecordingId: string }[] {
+  return existing
+    .filter((a): a is { artisanId: string; text: string; sourceRecordingId: string } => Boolean(a.artisanId && a.sourceRecordingId))
+    .filter((a) => artisanIds.includes(a.artisanId) && a.text.trim() !== text.trim())
+    .map((a) => ({ artisanId: a.artisanId, sourceRecordingId: a.sourceRecordingId }));
+}

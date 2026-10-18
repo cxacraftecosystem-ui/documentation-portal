@@ -17,7 +17,8 @@ export function shortDate(iso: string | null | undefined): string {
   if (!iso) return "";
   const date = new Date(iso.length === 10 ? `${iso}T00:00:00Z` : iso);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
+  // en-IN writes September as "Sept"; the copy (DESIGN §4) uses three letters for every month.
+  return date.toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" }).replace("Sept", "Sep");
 }
 
 /** "14 min", "0:42" under a minute. */

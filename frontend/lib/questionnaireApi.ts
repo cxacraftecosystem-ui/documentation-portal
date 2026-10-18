@@ -22,6 +22,7 @@ import {
   type SessionPurpose,
   type SubjectRole
 } from "@/lib/shared/enums";
+import { normaliseInbox, type Inbox } from "@/lib/questionnaireInbox";
 
 export const CONTRACT_VERSION = 1;
 const Q = "/questionnaire";
@@ -420,17 +421,8 @@ export type ConsentPost = {
   clientKey: string;
 };
 
-export type InboxItem = { id: string; label: string; sessionId?: string | null; createdAt?: string; candidates?: { id: string; label: string }[] };
-export type Inbox = {
-  toFile: InboxItem[];
-  needsDecision: InboxItem[];
-  legacy: InboxItem[];
-  setDates: InboxItem[];
-  noParticipants: InboxItem[];
-  emptySessions: InboxItem[];
-  primaryChanged: InboxItem[];
-  counts: { total: number; olderThan24h: number };
-};
+// The inbox rows are typed where they are labelled: lib/questionnaireInbox.ts.
+export type { Inbox } from "@/lib/questionnaireInbox";
 
 export type RecordSession = { session: Session; recordings: Recording[]; uncertain: Recording[] };
 export type RecordQuestion = {
@@ -545,7 +537,7 @@ export const questionnaireApi = {
   downloadHref: (id: string) => `/api${Q}/recordings/${encodeURIComponent(id)}/download`,
 
   putAnswers: (items: AnswerItem[]) => apiFetch<{ results: AnswerResult[] }>(`${Q}/answers`, json("PUT", { items })),
-  inbox: () => apiFetch<Inbox>(`${Q}/inbox`),
+  inbox: () => apiFetch<Partial<Inbox>>(`${Q}/inbox`).then(normaliseInbox),
 
   getConsent: (artisanId: string) => apiFetch<ConsentRecord>(`/artisans/${encodeURIComponent(artisanId)}/consent`),
   postConsent: (artisanId: string, body: ConsentPost) =>

@@ -43,7 +43,20 @@ export const WEB_ONLY_STRINGS = {
   download: "Download",
   transcriptQueued: "Queued",
   transcriptionFailed: "Transcription failed",
-  flagsNoEstimate: "{repeats} repeats · {decisions} needs a decision"
+  flagsNoEstimate: "{repeats} repeats · {decisions} needs a decision",
+  inboxUnnamedClip: "Unnamed clip",
+  inboxDecisionRow: "Takes for {names}, {when}",
+  inboxNoOneNamed: "no one named",
+  inboxLegacyRow: "Recorded {date}. The question has changed since.",
+  inboxSetDatesRow: "{count} legacy sessions",
+  inboxNoArtisansRow: "Session of {date} has no artisans",
+  inboxEmptyRow: "Empty session, approved {date}",
+  inboxPrimaryRow: "A main take changed after a late upload, {date}",
+  inboxPickArtisans: "Who was there",
+  inboxBadge: "{count} in the inbox",
+  returnNoteLabel: "What needs changing?",
+  returnNeedsNote: "Say what needs changing.",
+  continueSplit: "Sessions"
 } as const;
 
 type SharedKey = keyof typeof questionnaireStrings;

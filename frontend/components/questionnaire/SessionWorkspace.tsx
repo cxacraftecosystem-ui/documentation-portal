@@ -19,9 +19,10 @@ import { ButtonRow } from "@/components/ui/ButtonRow";
 import { Toggle } from "@/components/ui/Toggle";
 import { ApiError, clockOffset } from "@/lib/api";
 import { loadInstrumentQuestions } from "@/components/questionnaire/instrumentQuestions";
-import { offlineCheck, preselectReason, questionKey, sectionKey } from "@/lib/coverageCache";
+import { offlineCheck, preselectReason, questionKey, sectionKey, shortName } from "@/lib/coverageCache";
 import { sha256Hex } from "@/lib/hashFile";
 import {
+  contractError,
   mintKey,
   questionnaireApi,
   type CoverageCheckResponse,
@@ -34,6 +35,7 @@ import {
   type SessionDetail
 } from "@/lib/questionnaireApi";
 import { prompts, shortDate, type P2Input } from "@/lib/questionnairePrompts";
+import { takesFor } from "@/lib/questionnaireView";
 import type { ClipStep } from "@/lib/questionnaireQueue";
 import { assembleTake, recorderStore, recoverable, recoveredMinutes, type TakeChunk, type TakeDraft } from "@/lib/recorderStore";
 import { qs } from "@/lib/strings/qs";
@@ -107,6 +109,7 @@ export function SessionWorkspace({ id }: { id: string }) {
   const [consentFor, setConsentFor] = useState<{ artisanId: string; name: string } | null>(null);
   const [removeTake, setRemoveTake] = useState<Recording | null>(null);
   const [p7, setP7] = useState<{ run: () => void; position: number; target: string } | null>(null);
+  const [p10, setP10] = useState<{ artisanId: string; name: string; count: number } | null>(null);
   const queue = useSessionQueue(detail?.clientKey ?? id);
   const generation = useRef(0);
 
@@ -243,6 +246,17 @@ export function SessionWorkspace({ id }: { id: string }) {
       return await questionnaireApi.checkCoverage(request);
     } catch {
       return offlineCheck(null, [], request, { sectionOf, labelOf, sessionId: session.id, me: user?.id ?? null });
+    }
+  }
+
+  /** P10: a participant with takes leaves only with `detach`; the server's count wins over ours. */
+  async function dropParticipant(artisanId: string, detach: boolean) {
+    try {
+      await questionnaireApi.removeParticipant(session.id, artisanId, detach);
+      void load();
+    } catch (error) {
+      const code = contractError(error);
+      if (code?.code === "PARTICIPANT_HAS_TAKES") setP10({ artisanId, name: shortName(names[artisanId] ?? ""), count: code.count ?? 1 });
     }
   }
 
@@ -415,6 +429,16 @@ export function SessionWorkspace({ id }: { id: string }) {
           void enqueue({ id: session.id, clientKey: session.clientKey }, { kind: "participant", status: "PENDING", op: present ? "join" : "leave", artisanId, at, idempotencyKey: mintKey("part") });
           setDetail({ ...detail, participants: detail.participants.map((p) => (p.artisanId === artisanId ? { ...p, leftAt: present ? null : at } : p)) });
         }}
+        onRemove={
+          session.version > 0
+            ? (artisanId) => {
+                const count = takesFor(detail.recordings, artisanId);
+                const name = shortName(names[artisanId] ?? "");
+                if (count > 0) setP10({ artisanId, name, count });
+                else void dropParticipant(artisanId, false);
+              }
+            : undefined
+        }
       />
 
       {(queue.unit?.steps ?? [])
@@ -543,6 +567,7 @@ export function SessionWorkspace({ id }: { id: string }) {
                     code={q.displayCode}
                     participants={session.participants.filter((p) => !p.leftAt)}
                     answers={detail.answers.filter((a) => a.questionLineageId === q.lineageId)}
+                    recordings={detail.recordings}
                   />
                 ) : null}
               </li>
@@ -609,6 +634,18 @@ export function SessionWorkspace({ id }: { id: string }) {
             const next = p7;
             setP7(null);
             if (choice === "replace") next.run();
+          }}
+        />
+      ) : null}
+
+      {p10 ? (
+        <PromptDialog
+          spec={prompts.p10({ name: p10.name, count: p10.count })}
+          open
+          onChoose={(choice) => {
+            const target = p10;
+            setP10(null);
+            if (choice === "remove") void dropParticipant(target.artisanId, true);
           }}
         />
       ) : null}

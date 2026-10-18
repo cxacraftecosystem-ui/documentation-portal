@@ -18,6 +18,7 @@ import { languageLabel } from "@/lib/languages";
 import { canReview } from "@/lib/permissions";
 import { questionnaireApi, toGridView, type GridQuestion, type GridView, type Recording, type SessionDetail } from "@/lib/questionnaireApi";
 import { loadInstrumentQuestions } from "@/components/questionnaire/instrumentQuestions";
+import { reviewRequest } from "@/lib/questionnaireInbox";
 import { approveBlock, modeLabel, reviewFlags, targetLabel } from "@/lib/questionnaireView";
 import { qs } from "@/lib/strings/qs";
 
@@ -50,6 +51,8 @@ export function SessionReadView({ id }: { id: string }) {
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [returning, setReturning] = useState(false);
+  const [note, setNote] = useState("");
+  const [decideError, setDecideError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [questions, setQuestions] = useState<Record<string, GridQuestion[]>>({});
 
@@ -92,12 +95,20 @@ export function SessionReadView({ id }: { id: string }) {
   const reviewer = canReview(user) && detail.status === "PENDING";
 
   async function decide(action: "approve" | "revise") {
+    const request = reviewRequest(action, id, note);
+    if (!request) {
+      setDecideError(qs("returnNeedsNote"));
+      return;
+    }
+    setDecideError(null);
     try {
-      await apiFetch(`/review/questionnaire_session/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify({ notes: null }) });
+      await apiFetch(request.path, { method: "POST", body: JSON.stringify(request.body) });
+      setReturning(false);
+      setNote("");
       setDone(action === "approve" ? qs("approve") : qs("returnForChanges"));
       void load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setDecideError(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -170,6 +181,11 @@ export function SessionReadView({ id }: { id: string }) {
             </p>
           ) : null}
           {done ? <p className="text-center text-sm text-success-600">{done}</p> : null}
+          {decideError && !returning ? (
+            <p role="alert" className="text-center text-xs text-error-600">
+              {decideError}
+            </p>
+          ) : null}
         </section>
       ) : null}
 
@@ -192,10 +208,20 @@ export function SessionReadView({ id }: { id: string }) {
           }}
           open
           onChoose={(choice) => {
-            setReturning(false);
             if (choice === "return") void decide("revise");
+            else setReturning(false);
           }}
-        />
+        >
+          <label className="field-label" htmlFor="return-note">
+            {qs("returnNoteLabel")}
+          </label>
+          <textarea id="return-note" className="field-input mt-1 min-h-24 w-full" value={note} onChange={(e) => setNote(e.target.value)} />
+          {decideError ? (
+            <p role="alert" className="mt-2 text-xs text-error-600">
+              {decideError}
+            </p>
+          ) : null}
+        </PromptDialog>
       ) : null}
     </>
   );

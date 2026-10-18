@@ -6,8 +6,9 @@ import { PromptDialog } from "@/components/questionnaire/Prompts";
 import { enqueue } from "@/components/questionnaire/useSessionQueue";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { shortName } from "@/lib/coverageCache";
-import { questionnaireApi, type Answer, type AnswerItem, type AnswerResult, type Session, type SessionParticipant } from "@/lib/questionnaireApi";
-import { prompts } from "@/lib/questionnairePrompts";
+import { questionnaireApi, type Answer, type AnswerItem, type AnswerResult, type Recording, type Session, type SessionParticipant } from "@/lib/questionnaireApi";
+import { prompts, shortDate } from "@/lib/questionnairePrompts";
+import { answersFromTakes } from "@/lib/questionnaireView";
 import { qs } from "@/lib/strings/qs";
 
 const ALL = "__all__";
@@ -48,23 +49,37 @@ export function AnswerBox({
   lineageId,
   code,
   participants,
-  answers
+  answers,
+  recordings = []
 }: {
   session: Session;
   lineageId: string;
   code: string;
   participants: SessionParticipant[];
   answers: Answer[];
+  /** The session's takes, so P8 can name whose take an answer came from. */
+  recordings?: Recording[];
 }) {
   const [forWhom, setForWhom] = useState(ALL);
   const [text, setText] = useState(() => answers[0]?.text ?? "");
   const [saved, setSaved] = useState<string | null>(null);
   const [conflict, setConflict] = useState<AnswerResult | null>(null);
   const [existing, setExisting] = useState<Answer[]>(answers);
+  // P8: answers that came from a take wait for "Replace" before they are overwritten.
+  const [p8, setP8] = useState<{ artisanId: string; sourceRecordingId: string }[]>([]);
+  const [confirmed, setConfirmed] = useState<Set<string>>(() => new Set());
+  const [skipped, setSkipped] = useState<Set<string>>(() => new Set());
 
-  async function save(override?: Answer[]) {
-    const items = answerItems({ sessionId: session.id, lineageId, text, forWhom, participants, existing: override ?? existing });
+  async function save(override?: Answer[], approved: Set<string> = confirmed, skip: Set<string> = skipped) {
+    const items = answerItems({ sessionId: session.id, lineageId, text, forWhom, participants, existing: override ?? existing }).filter(
+      (i) => !skip.has(i.artisanId)
+    );
     if (!items.length || !text.trim()) return;
+    const fromTakes = answersFromTakes(override ?? existing, items.map((i) => i.artisanId), text).filter((a) => !approved.has(a.artisanId));
+    if (fromTakes.length) {
+      setP8(fromTakes);
+      return;
+    }
     if (navigator.onLine === false || session.version === 0) {
       await enqueue({ id: session.id, clientKey: session.clientKey }, {
         kind: "answers",
@@ -100,6 +115,7 @@ export function AnswerBox({
     ...participants.map((p) => ({ value: p.artisanId, label: p.name }))
   ];
   const conflictName = conflict ? shortName(participants.find((p) => p.artisanId === conflict.artisanId)?.name ?? "") : "";
+  const p8Take = p8[0] ? recordings.find((r) => r.id === p8[0].sourceRecordingId) : undefined;
 
   return (
     <div className="mt-2 grid gap-2">
@@ -116,10 +132,38 @@ export function AnswerBox({
         onChange={(e) => {
           setText(e.target.value);
           setSaved(null);
+          setConfirmed(new Set());
+          setSkipped(new Set());
         }}
         onBlur={() => void save()}
       />
       {saved ? <span className="text-xs text-success-600">{saved}</span> : null}
+      {p8[0] ? (
+        <PromptDialog
+          spec={prompts.p8({
+            name: shortName(participants.find((p) => p.artisanId === p8[0].artisanId)?.name ?? ""),
+            code,
+            researcher: shortName(p8Take?.recordedBy.name ?? ""),
+            date: shortDate(p8Take?.capturedAt)
+          })}
+          open
+          onChoose={(choice) => {
+            const [first, ...rest] = p8;
+            const approved = new Set(confirmed);
+            const skip = new Set(skipped);
+            // Replace: overwrite this artisan's answer. Keep current: leave it; the others still save.
+            if (choice === "replace") approved.add(first.artisanId);
+            else {
+              skip.add(first.artisanId);
+              if (forWhom !== ALL) setText(existing.find((a) => a.artisanId === first.artisanId)?.text ?? text);
+            }
+            setConfirmed(approved);
+            setSkipped(skip);
+            setP8(rest);
+            if (!rest.length) void save(undefined, approved, skip);
+          }}
+        />
+      ) : null}
       {conflict && conflict.current ? (
         <PromptDialog
           spec={

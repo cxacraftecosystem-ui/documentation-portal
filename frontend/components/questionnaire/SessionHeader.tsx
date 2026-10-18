@@ -17,12 +17,15 @@ export function SessionHeader({
   pendingTakes,
   onFinish,
   onPresence,
+  onRemove,
   onAddArtisan
 }: {
   session: Session;
   pendingTakes: number;
   onFinish?: () => void;
   onPresence?: (artisanId: string, present: boolean) => void;
+  /** Remove an artisan from the session; the caller asks P10 first when they have takes. */
+  onRemove?: (artisanId: string) => void;
   onAddArtisan?: () => void;
 }) {
   const [qr, setQr] = useState<string | null>(null);
@@ -67,13 +70,26 @@ export function SessionHeader({
       </div>
       <div className="flex flex-wrap items-center gap-2" aria-label={qs("present")}>
         {session.participants.map((p) => (
-          <div key={p.artisanId} className="w-full sm:w-auto">
-            <Toggle
-              label={p.name}
-              description={p.leftAt ? qs("away") : qs("present")}
-              checked={!p.leftAt}
-              onChange={(present) => onPresence?.(p.artisanId, present)}
-            />
+          <div key={p.artisanId} className="flex w-full items-center gap-2 sm:w-auto">
+            <div className="min-w-0 flex-1">
+              <Toggle
+                label={p.name}
+                description={p.leftAt ? qs("away") : qs("present")}
+                checked={!p.leftAt}
+                onChange={(present) => onPresence?.(p.artisanId, present)}
+              />
+            </div>
+            {onRemove && session.participants.length > 1 ? (
+              <button
+                type="button"
+                className="text-xs font-medium text-ink-500 underline hover:text-error-600"
+                aria-label={qs("p10Title", { name: p.name })}
+                data-remove-participant={p.artisanId}
+                onClick={() => onRemove(p.artisanId)}
+              >
+                {qs("remove")}
+              </button>
+            ) : null}
           </div>
         ))}
         {onAddArtisan ? (

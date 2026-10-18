@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { ConsentQuestion } from "@/components/questionnaire/ConsentQuestion";
+import { ContinueWithDialog } from "@/components/questionnaire/ContinueWithDialog";
 import { takeRow } from "@/components/questionnaire/TakeSheet";
 import { TranscriptStatus } from "@/components/questionnaire/TranscriptStatus";
 import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
@@ -47,6 +48,7 @@ export function ArtisanQuestionnaireRecord({ artisanId, artisanName }: { artisan
   const [error, setError] = useState(false);
   const [view, setView] = useState<"timeline" | "question">("timeline");
   const [askConsent, setAskConsent] = useState(false);
+  const [continueFrom, setContinueFrom] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(false);
@@ -117,13 +119,16 @@ export function ArtisanQuestionnaireRecord({ artisanId, artisanName }: { artisan
           </p>
           {instrument.summary.open.length ? <p className="text-sm text-ink-500">{qs("openSections", { codes: instrument.summary.open.join(", ") })}</p> : null}
           <ButtonRow>
-            <Link className="field-button" href={`/questionnaire/sessions/new?artisanId=${encodeURIComponent(artisanId)}`}>
+            <button type="button" className="field-button" onClick={() => setContinueFrom(instrument.questionnaireId)}>
               {qs("continueWith", { name: shortName(artisanName) })}
-            </Link>
+            </button>
             <a className="field-button-secondary" href={questionnaireApi.artisanRecordCsvHref(artisanId, instrument.questionnaireId)} download>
               {qs("exportCsv")}
             </a>
           </ButtonRow>
+          {continueFrom === instrument.questionnaireId ? (
+            <ContinueWithDialog artisanId={artisanId} artisanName={artisanName} sessions={instrument.sessions} open onClose={() => setContinueFrom(null)} />
+          ) : null}
           <div className="flex justify-center">
             <SegmentedChoice
               label={qs("viewTimeline")}
