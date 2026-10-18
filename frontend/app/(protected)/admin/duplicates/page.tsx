@@ -137,7 +137,7 @@ export default function DuplicatesPage() {
     <>
       <PageHeader
         title="Duplicate artisans"
-        description="Merge records of one person, or set them aside."
+        description="Compare likely pairs, or set them aside."
         icon={<Users className="h-5 w-5" aria-hidden />}
       />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}

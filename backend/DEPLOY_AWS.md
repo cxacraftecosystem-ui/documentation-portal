@@ -774,7 +774,7 @@ numbers are gone, which is its purpose.
 Printable artisan cards with a signed QR (`backend/app/services/artisan_card.py`; settings in
 `docs/ENVIRONMENT.md`, "Artisan cards"). The key is THIS portal's own and never the designer
 portal's: 32 random bytes, base64, in the GitHub Actions secret `ARTISAN_CARD_KEY`, the box `.env`,
-and the SSM SecureString `/iit/field-repository/artisan-card-key`.
+and the SSM SecureString `/iit/documentation-portal/artisan-card-key`.
 
 1. **This portal ships before the designer portal.** The peer link body is `extra="forbid"`, so a
    designer portal sending `remoteCardCode` to a release without this migration gets 422 on every

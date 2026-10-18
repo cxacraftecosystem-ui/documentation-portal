@@ -72,7 +72,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.app.ActivityCompat
@@ -331,7 +330,7 @@ fun ArtisanCardScanDialog(
                         else -> ""
                     },
                     color = if (message != null && !busy) MaterialTheme.colorScheme.error else MaterialTheme.field.muted,
-                    fontSize = 13.sp,
+                    style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
                 )
                 OutlinedButton(onClick = { picture.launch("image/*") }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
@@ -439,7 +438,7 @@ fun ArtisanCardPickerScan(
             }
         )
         selected.filter(ArtisanCardCode::isPending).forEach { pending ->
-            Text(ArtisanCardCode.pendingChip(pending), color = MaterialTheme.field.muted, fontSize = 12.sp)
+            Text(ArtisanCardCode.pendingChip(pending), color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

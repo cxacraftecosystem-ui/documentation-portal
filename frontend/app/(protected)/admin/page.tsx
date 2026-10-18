@@ -153,7 +153,7 @@ export default function AdminHubPage() {
     },
     {
       label: "Duplicate artisans",
-      description: "Merge records of one person.",
+      description: "Likely pairs to compare.",
       href: "/admin/duplicates",
       icon: Users,
       badge: openDuplicates

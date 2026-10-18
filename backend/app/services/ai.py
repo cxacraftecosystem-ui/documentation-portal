@@ -12,7 +12,6 @@ import requests
 
 from app.core.config import Settings
 from app.services import (
-    anthropic_verbs,
     app_settings,
     managed_secrets,
     user_ai_keys,

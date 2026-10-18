@@ -29,7 +29,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.fieldrepository.app.data.CompletenessDto
 import com.fieldrepository.app.data.CompletenessRules
 import com.fieldrepository.app.data.RecordCompletenessStore
@@ -65,7 +64,7 @@ fun CompletenessMeter(
             Text(
                 completenessSentence(block),
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 14.sp,
+                style = MaterialTheme.typography.bodyMedium,
             )
         }
         if (!block.complete) {
@@ -76,7 +75,7 @@ fun CompletenessMeter(
                     AssistChip(
                         onClick = { action?.invoke() },
                         enabled = action != null,
-                        label = { Text(item.label, fontSize = 13.sp) },
+                        label = { Text(item.label, style = MaterialTheme.typography.labelLarge) },
                         colors = AssistChipDefaults.assistChipColors(labelColor = tone, disabledLabelColor = tone),
                         modifier = Modifier.heightIn(min = 48.dp),
                     )

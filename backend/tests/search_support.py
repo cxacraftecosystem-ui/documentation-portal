@@ -21,6 +21,8 @@ from typing import Any
 
 import pytest
 
+from app.services import aadhaar_fingerprint
+
 _URL = os.environ.get("DATABASE_URL", "")
 _HOSTED = any(marker in _URL for marker in ("supabase", "pooler", "amazonaws"))
 
@@ -38,7 +40,7 @@ DOB = datetime(1971, 3, 9, tzinfo=UTC)
 
 
 def _aadhaar_for(stamp: str) -> str:
-    """A Verhoeff-valid number unique to this seed: ``aadhaarNumber`` is unique and the database is
+    """A Verhoeff-valid number unique to this seed: the fingerprint is unique and the database is
     never truncated, so a fixed literal collides with the previous module's seed."""
     from app.services.artisan_identity import verhoeff_ok
 
@@ -127,7 +129,9 @@ async def seed(stamp: str) -> SimpleNamespace:
             "localName": "रमेश कुमार",
             "craftId": w.craft.id,
             "workshopId": w.workshop.id,
-            "aadhaarNumber": w.aadhaar,
+            # The register keeps a fingerprint and the last four, never the number (the column is gone).
+            "aadhaarFingerprint": aadhaar_fingerprint.fingerprint(w.aadhaar, "search-test-only-key"),
+            "aadhaarLast4": w.aadhaar[-4:],
             "phone": PHONE,
             "email": EMAIL,
             "pehchanCardAvailable": True,

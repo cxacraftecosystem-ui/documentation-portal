@@ -77,7 +77,7 @@ LOCATION = {
     "district": "Kolkata",
 }
 CRAFT_BODY = {"name": "Test craft"}
-WORKSHOP_BODY = {"title": "Test workshop", "place": "Kolkata", "location": LOCATION}
+WORKSHOP_BODY = {"title": "Test workshop", "date": "2026-10-20", "place": "Kolkata", "location": LOCATION}
 ARTISAN_BODY = {
     "name": "Test artisan",
     "place": "Kolkata",

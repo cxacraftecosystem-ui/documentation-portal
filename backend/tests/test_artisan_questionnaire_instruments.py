@@ -36,8 +36,6 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
-import pytest
-
 import app.api.routes.artisans as artisans_route
 
 W2 = "qnr_2nd_craft_toolkit_workshop"

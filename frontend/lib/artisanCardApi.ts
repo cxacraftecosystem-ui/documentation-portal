@@ -5,7 +5,7 @@
  * A Design Prototype Workshop card (issuer D) resolves here only through a link that portal made, so
  * there is no REMOTE answer on this side: the server says FOUND, REPLACED, or a 404 sentence.
  */
-import { API_BASE, ApiError, apiFetch, assertApiConfigured, describeApiDetail, getToken } from "@/lib/api";
+import { API_BASE, ApiError, apiFetch, assertApiConfigured, describeApiDetail } from "@/lib/api";
 import { saveBlobToDevice } from "@/lib/saveToDevice";
 
 export type ArtisanCardFace = {
@@ -95,9 +95,8 @@ function fileNameFrom(header: string | null, fallback: string): string {
  */
 async function savePdf(path: string, init: RequestInit, fallbackName: string): Promise<string> {
   assertApiConfigured();
+  // The session travels as the same-origin cookie, exactly as on every `apiFetch`.
   const headers = new Headers(init.headers);
-  const token = getToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
   if (init.body) headers.set("Content-Type", "application/json");
   const response = await fetch(`${API_BASE}/api${path}`, { ...init, headers, cache: "no-store" });
   if (!response.ok) {

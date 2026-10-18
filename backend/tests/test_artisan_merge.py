@@ -477,7 +477,7 @@ def test_a_queued_workshop_patch_naming_the_merged_artisan_keeps_the_roster(db: 
 
 def test_a_queued_workshop_create_naming_the_merged_artisan_links_the_survivor(db: _Db) -> None:
     _merge()
-    response = _call("POST", "/workshops", {"title": "4th Workshop", "place": "Bagru", "artisanIds": ["dup"], "clientKey": "ck-1",
+    response = _call("POST", "/workshops", {"title": "4th Workshop", "date": "2026-10-20", "place": "Bagru", "artisanIds": ["dup"], "clientKey": "ck-1",
          "location": {"latitude": 26.81, "longitude": 75.54, "state": "Rajasthan", "district": "Jaipur"}})
     assert response.status_code == 201, response.text
     created = response.json()["id"]

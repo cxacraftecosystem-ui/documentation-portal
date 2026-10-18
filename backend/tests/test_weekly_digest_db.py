@@ -287,17 +287,25 @@ def test_the_counts_follow_the_review_ladder_the_task_rule_and_the_week() -> Non
                 data={"title": "T", "status": status, "dueAt": due,
                       "assignee": {"connect": {"id": researcher.id}}, "createdBy": {"connect": {"id": admin.id}}}
             )
-        # New this week: one approved artisan inside the window, one before it.
+        # New this week: one approved artisan inside the window, one before it. "New" counts the
+        # whole repository, and the database is shared with the other DB-backed modules (never
+        # truncated), so the assertion is on what THIS test adds.
+        before = await weekly_digest.build_payload(professor, week_start, now=now)
+        new_before = next(s for s in before["sections"] if s["key"] == "new")
+        baseline = {line["key"]: line["count"] for line in new_before["lines"]}.get("artisans", 0)
         await _artisan(researcher, status="APPROVED", created=start + timedelta(hours=1))
         await _artisan(researcher, status="APPROVED", created=start - timedelta(hours=1))
 
         payload = await weekly_digest.build_payload(professor, week_start, now=now)
         sections = {s["key"]: s for s in payload["sections"]}
         lines = {s: {line["key"]: line["count"] for line in sections[s]["lines"]} for s in sections}
-        queue = await review_routes.list_pending_reviews(reviewer=professor, page=1, page_size=20)
+        queue = await review_routes.list_pending_reviews(
+            reviewer=professor, page=1, page_size=20, workshop_id=None, created_by=None,
+            record_type=None, order="oldest", artisan_id=None,
+        )
         assert lines["waiting"] == {"records": queue["total"]} == {"records": 2}
         assert lines["overdue"] == {"reviews": 1}
-        assert lines["new"] == {"artisans": 1}
+        assert lines["new"] == {"artisans": baseline + 1}
         assert all(s["items"] == [] for s in payload["sections"])
 
         admin_payload = await weekly_digest.build_payload(admin, week_start, now=now)

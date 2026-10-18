@@ -425,7 +425,7 @@ def subject_for(kind: str, params: dict[str, Any]) -> str:
     if kind == PASSWORD_CHANGED:
         return "Your password was changed"
     record = str(params.get("recordLabel") or "Your record").strip()
-    count = _count(params)
+    count = _notice_count(params)
     if kind == RECORD_SENT_BACK:
         return f"“{record}” was sent back to you"
     if kind == RECORD_REJECTED:
@@ -452,7 +452,7 @@ def subject_for(kind: str, params: dict[str, Any]) -> str:
     raise ValueError(f"Unknown e-mail kind {kind!r}")
 
 
-def _count(params: dict[str, Any]) -> int:
+def _notice_count(params: dict[str, Any]) -> int:
     try:
         return max(int(params.get("count") or 1), 1)
     except (TypeError, ValueError):
@@ -631,7 +631,7 @@ def _notice_lines(kind: str, params: dict[str, Any]) -> tuple[str, list[str], st
         extra.append("If it can be fixed, update the record and it goes back for review.")
         return lead, extra, "Open the record", _safe_path(params.get("path"), "/sent-back")
     if kind == RECORD_APPROVED:
-        count = _count(params)
+        count = _notice_count(params)
         if count > 1:
             lead = f"{actor} approved {count} of your records, including “{record}”."
         else:

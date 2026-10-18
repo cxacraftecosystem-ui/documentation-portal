@@ -19,7 +19,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.fieldrepository.app.data.DuplicateCandidateDto
 import com.fieldrepository.app.data.PossibleDuplicates
 
@@ -42,7 +41,7 @@ fun PossibleDuplicateSheet(
     val rows = candidates.take(PossibleDuplicates.SHOWN_MAX)
     AlertDialog(
         onDismissRequest = onCancel,
-        title = { Text("Already recorded?", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
+        title = { Text("Already recorded?", style = MaterialTheme.typography.titleMedium) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 rows.forEach { candidate ->
@@ -58,12 +57,12 @@ fun PossibleDuplicateSheet(
                             Text(
                                 PossibleDuplicates.rowLine(candidate),
                                 color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 13.sp,
+                                style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold
                             )
                             val reasons = candidate.reasons.joinToString(" · ") { it.label }
                             if (reasons.isNotBlank()) {
-                                Text(reasons, color = MaterialTheme.field.muted, fontSize = 11.sp, lineHeight = 15.sp)
+                                Text(reasons, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
                             }
                         }
                         if (onOpen != null) {
@@ -72,7 +71,7 @@ fun PossibleDuplicateSheet(
                                 enabled = !saving,
                                 modifier = Modifier.heightIn(min = 40.dp)
                             ) {
-                                Text("Open", fontSize = 12.sp)
+                                Text("Open")
                             }
                         }
                     }
@@ -81,11 +80,11 @@ fun PossibleDuplicateSheet(
         },
         confirmButton = {
             Button(onClick = onDifferentPerson, enabled = !saving) {
-                Text("Different person — save", fontSize = 12.sp)
+                Text("Different person — save")
             }
         },
         dismissButton = {
-            TextButton(onClick = onCancel, enabled = !saving) { Text("Cancel", fontSize = 12.sp) }
+            TextButton(onClick = onCancel, enabled = !saving) { Text("Cancel") }
         }
     )
 }

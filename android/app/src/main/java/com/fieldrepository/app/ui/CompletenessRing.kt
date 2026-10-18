@@ -16,7 +16,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 
 /**
  * The completeness ring — the design workshop list's (46dp, with its percentage) and the record cards'
@@ -66,7 +65,7 @@ fun CompletenessRing(
             )
         }
         if (showLabel) {
-            Text("$percent", color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text("$percent", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
         }
     }
 }

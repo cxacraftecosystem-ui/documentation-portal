@@ -131,8 +131,8 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 | `backend/app` | 170 | 64,337 | 170 | 64,337 |
 | `frontend/app` | 71 | 22,380 | 71 | 22,380 |
 | `frontend/components` | 240 | 62,520 | 240 | 62,520 |
-| `frontend/lib` | 102 | 32,116 | 102 | 32,116 |
-| `android/app/src/main/java` | 156 | 93,971 | 156 | 93,971 |
+| `frontend/lib` | 102 | 32,115 | 102 | 32,115 |
+| `android/app/src/main/java` | 156 | 93,966 | 156 | 93,966 |
 
 Two columns because the two numbers get quoted interchangeably and disagree by however much work is
 uncommitted. **Tracked** is `git ls-files`, which is the figure to use in a write-up — it is

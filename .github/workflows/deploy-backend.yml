@@ -1130,7 +1130,7 @@ jobs:
       # An Actions SECRET, on ssh's STDIN, shape-checked on the runner. An empty secret keeps the box's
       # key; a box with none draws no cards (every card route answers 404). Unlike the fingerprint key
       # it may change: a rotation sets ARTISAN_CARD_KEY_VERSION and ARTISAN_CARD_KEY_PREVIOUS in the box
-      # .env first (backend/DEPLOY_AWS.md, "Artisan cards"). Backup: SSM /iit/field-repository/artisan-card-key.
+      # .env first (backend/DEPLOY_AWS.md, "Artisan cards"). Backup: SSM /iit/documentation-portal/artisan-card-key.
       - name: Pin the artisan card key
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
@@ -1163,6 +1163,33 @@ jobs:
           printf 'ARTISAN_CARD_KEY=%s\n' "$CK" >> "$ENVFILE"
           grep -q '^ARTISAN_CARD_KEY=.' "$ENVFILE" || { echo "the artisan card key did not land on its own line"; exit 1; }
           echo "Artisan card key pinned"
+          REMOTE
+          } | ssh ubuntu@$EC2_HOST 'bash -s'
+
+      # The Monday summary's switch (2026-10-22; docs/ENVIRONMENT.md, "The Monday summary"). Not a
+      # secret: the Actions VARIABLE WEEKLY_DIGEST_ENABLED, `true` or `false`, written to the box .env
+      # so the queue worker and the API read the same answer. Unset keeps whatever the box has (the
+      # code's default is on); any other value stops the deploy before anything is written.
+      - name: Pin the Monday summary switch
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          WEEKLY_DIGEST_ENABLED: ${{ vars.WEEKLY_DIGEST_ENABLED }}
+        run: |
+          flag="$(printf '%s' "$WEEKLY_DIGEST_ENABLED" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+          case "$flag" in
+            ""|true|false) ;;
+            *) echo "::error::WEEKLY_DIGEST_ENABLED must be true or false; nothing was deployed."; exit 1 ;;
+          esac
+          {
+            printf 'FLAG=%q\n' "$flag"
+            cat <<'REMOTE'
+          set -euo pipefail
+          ENVFILE=/home/ubuntu/app/backend/.env
+          if [ -z "$FLAG" ]; then echo "Monday summary switch: kept from the box"; exit 0; fi
+          [ -s "$ENVFILE" ] && [ -n "$(tail -c1 "$ENVFILE")" ] && printf '\n' >> "$ENVFILE"
+          sed -i '/^WEEKLY_DIGEST_ENABLED=/d' "$ENVFILE"
+          printf 'WEEKLY_DIGEST_ENABLED=%s\n' "$FLAG" >> "$ENVFILE"
+          echo "Monday summary switch pinned: $FLAG"
           REMOTE
           } | ssh ubuntu@$EC2_HOST 'bash -s'
 
