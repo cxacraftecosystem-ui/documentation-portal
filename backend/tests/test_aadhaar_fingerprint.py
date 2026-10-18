@@ -70,6 +70,21 @@ def test_the_fingerprint_is_hmac_sha256_of_the_twelve_digits_and_the_cross_porta
     assert fp.fingerprint(number, KEY + "x") != expected
 
 
+def test_the_cross_portal_module_uses_this_key_and_this_column() -> None:
+    """Once feature/s-cross-portal is merged, its code IS the fingerprint and it reads the column.
+
+    Imports the real module, so the two cannot drift apart unnoticed. Skipped on a branch that does
+    not carry the cross-portal link yet.
+    """
+    cross_portal = pytest.importorskip("app.services.cross_portal")
+    number = _fresh_aadhaar()
+    assert cross_portal.aadhaar_code(number, KEY) == fp.fingerprint(number, KEY)
+    settings = SimpleNamespace(aadhaar_fingerprint_key=f"  {KEY}\n")
+    assert cross_portal.aadhaar_key(settings) == KEY
+    row = SimpleNamespace(aadhaarFingerprint=fp.fingerprint(number, KEY), aadhaarNumber=None)
+    assert cross_portal.stored_aadhaar_code(row, KEY) == fp.fingerprint(number, KEY)
+
+
 @pytest.mark.parametrize("spelling", ["{a} {b} {c}", "{a}-{b}-{c}", " {a}{b}{c} "])
 def test_every_spelling_of_one_number_is_one_fingerprint(spelling: str) -> None:
     number = _fresh_aadhaar()

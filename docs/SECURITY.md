@@ -537,8 +537,9 @@ included, is shown `XXXX XXXX 9012`. Android keeps a typed number sealed under a
 in its outbox and form drafts until it is sent (`AadhaarAtRest.kt`). Until the backfill and the drop
 migration have run on a box (`backend/DEPLOY_AWS.md`, "Aadhaar fingerprint"), numbers recorded
 before that date are still in the legacy `aadhaarNumber` column and in old row versions. After the
-drop they survive in the nightly dumps for about 125 days (30 days current plus 90 days as noncurrent
-versions in the media bucket; 35 days under Object Lock plus 90 noncurrent in the off-site replica)
+drop they survive in the database dumps: about 125 days in the nightly ones (30 days current plus 90
+as noncurrent versions in the media bucket; 35 days under Object Lock plus 90 noncurrent in the
+off-site replica) and about 455 days in the weekly copies (365 days plus 90 noncurrent, both buckets),
 and in Supabase's own backups and point-in-time recovery for the plan's window. `backend/DEPLOY_AWS.md`
 has the detail. Do not roll the backend back past the fingerprint release once it has taken writes:
 older code would resume storing full numbers and miss duplicates (same section).

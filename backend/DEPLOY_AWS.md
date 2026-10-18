@@ -545,7 +545,11 @@ build that none of the kept venvs runs on.
 
 **Going back.** A venv is only the dependencies; the code on disk is whatever the last deploy synced.
 So the real rollback is the same as it has always been — redeploy the commit you want — and the
-venvs are there to make that fast. What to do by hand depends on the commit:
+venvs are there to make that fast. **Never to a commit from before the Aadhaar fingerprint release
+once it has taken an artisan write.** That migration is additive, so nothing stops the deploy, but
+older code would show those artisans with no Aadhaar, register the same person twice and start
+storing full numbers again. Check the query in "Aadhaar fingerprint: the run order" below first, and
+fix forward if it is not 0. What to do by hand depends on the commit:
 
 * **A commit from this change on** carries this deploy. It installs its own pin if the box lacks it,
   picks the venv for that pin and lock itself (an older one is still there if it is `venv-previous`)
@@ -689,17 +693,22 @@ box, in this order:
    `npx prisma migrate resolve --rolled-back 20261029090000_drop_aadhaar_number` and deploy again.
    Afterwards run `VACUUM FULL "Artisan"; VACUUM FULL "RecordRevision";` in the SQL editor so the old
    row versions holding numbers are gone from the data files. Copies taken before the drop still hold
-   the numbers for a while, and for longer than the dumps' own 30 days:
-   - the nightly dumps in `fieldrepo-media-626159998512/backups/`: 30 days as the current version, then
-     90 more as noncurrent versions (the bucket is versioned), so about 120 days;
+   the numbers for a while, and for much longer than the nightly dumps' own 30 days (the lifecycle
+   rules as applied on 2026-10-18; `infra/terraform/backups.tf` and `main.tf` hold them):
+   - the nightly dumps in `fieldrepo-media-626159998512/backups/documentation-portal/`: 30 days as the
+     current version, then 90 more as noncurrent versions (the bucket is versioned), so about 120
+     days;
    - their replica in `fieldrepo-offsite-626159998512` (ap-south-2): 35 days under Object Lock
      (GOVERNANCE), then 90 more as noncurrent versions, so about 125 days;
+   - the weekly copy (`backups/documentation-portal/weekly/`, the first dump of each ISO week), in both
+     buckets: 365 days, then 90 more as a noncurrent version, so about 455 days;
    - Supabase's own backups and point-in-time recovery (WAL), for as long as the project's plan keeps
      them (Database → Backups in the dashboard).
 
-   So a number is gone from every copy about 125 days after the drop, plus the Supabase window. To
-   end it sooner (an erasure request), an admin deletes the older dump versions in both buckets
-   (`--bypass-governance-retention` in ap-south-2).
+   So a number is gone from every copy about 455 days after the drop (the last weekly copy taken
+   before it), plus the Supabase window; from the nightly copies alone, about 125 days. To end it
+   sooner (an erasure request), an admin deletes the older nightly and weekly dump versions in both
+   buckets (`--bypass-governance-retention` in ap-south-2).
 
 **Rollback: do not roll the backend back past step 1 once it has taken an artisan write. Fix
 forward.** The migration is additive, but the data written after it is not something older code can
