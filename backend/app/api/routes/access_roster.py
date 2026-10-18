@@ -42,10 +42,12 @@ from app.services.access_roster import (
     is_master_admin_email,
     normalise_email,
     pending_count,
+    role_value,
     roster_payload,
     status_value,
 )
 from app.services.access_roster import MAX_FULL_NAME_LENGTH, MAX_NOTES_LENGTH
+from app.services import signin_role
 from app.services.email_outbox import notify_access_granted
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import contains
@@ -309,7 +311,11 @@ async def update_roster_entry(
         if values.get("sendInvite"):
             # Never raises; a no-op when mail is not configured.
             await notify_access_granted(updated.email, name=getattr(updated, "fullName", None))
-        return roster_payload(updated)
+        # APPROVING NEVER CHANGES AN ACCOUNT THAT ALREADY EXISTS (the sign-in list rule,
+        # ``services/signin_role``): when one is there at another role, the answer says so and
+        # points to Manage users. The same key, and the same sentence, as designer-portal's.
+        held = await _role_kept(updated.email, role_value(getattr(updated, "grantedRole", None)))
+        return {**roster_payload(updated), "accountPromotionHeld": held}
 
     data: dict[str, Any] = {}
     if "email" in values and values["email"]:
@@ -373,6 +379,22 @@ async def suspend_roster_entry(
     )
     await _invalidate_account(row.email)
     return roster_payload(updated)
+
+
+async def _role_kept(email: str, role: str | None) -> str | None:
+    """The approval's sentence when an account already exists at ``email`` with another role, or None.
+
+    A read and nothing else: approving decides the ADDRESS, and the account's role is changed on
+    Manage users, which writes an audit entry (``services/signin_role``). The master admin's account
+    is never reported: its role is not the list's to describe.
+    """
+    if not role:
+        return None
+    address = normalise_email(email)
+    account = await db.user.find_unique(where={"email": address})
+    if account is None or role_value(getattr(account, "role", None)) == "MASTER_ADMIN":
+        return None
+    return signin_role.role_kept_sentence(address, role_value(getattr(account, "role", None)), role)
 
 
 async def _invalidate_account(email: str) -> None:

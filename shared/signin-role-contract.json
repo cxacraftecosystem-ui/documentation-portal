@@ -1,0 +1,50 @@
+{
+  "contract": "signin-role",
+  "version": 1,
+  "enforcedBy": [
+    "backend/tests/test_signin_role_contract.py"
+  ],
+  "whatThisIs": [
+    "THE SIGN-IN LIST RULE, DECLARED ONCE FOR BOTH PORTALS (convergence decision 2, 2026-10-18).",
+    "An entry on the sign-in list sets the role of an account only when the account is created.",
+    "It never raises or lowers an existing account at sign-in, and approving an entry never changes",
+    "an existing account either. A later change of role is an explicit administrator action on",
+    "Manage users, and it writes an audit entry. This file is byte-identical in the two repositories,",
+    "and so are backend/app/services/signin_role.py and its test."
+  ],
+  "copy": {
+    "newAccountsOnly": "New accounts only. To change an existing account, use Manage users.",
+    "roleKept": "{email} already has an account, as {current}. Its role stays; change it on Manage users.",
+    "auditPrefix": "AUDIT account role changed"
+  },
+  "clientsCarryingTheCopy": {
+    "designer-portal": [
+      "frontend/app/(protected)/admin/access/page.tsx",
+      "android/app/src/main/java/com/designprototype/workshop/ui/AccessRosterScreen.kt"
+    ],
+    "documentation-portal": [
+      "frontend/app/(protected)/admin/access-roster/page.tsx",
+      "android/app/src/main/java/com/fieldrepository/app/ui/AccessRosterScreen.kt"
+    ]
+  },
+  "newAccountRole": [
+    { "floor": "CROWDSOURCE_VOLUNTEER", "listed": null, "expect": "CROWDSOURCE_VOLUNTEER" },
+    { "floor": "CROWDSOURCE_VOLUNTEER", "listed": "RESEARCHER", "expect": "RESEARCHER" },
+    { "floor": "CROWDSOURCE_VOLUNTEER", "listed": "ADMIN", "expect": "ADMIN" },
+    { "floor": "RESEARCHER", "listed": "FIELD_CONTRIBUTOR", "expect": "RESEARCHER" },
+    { "floor": "RESEARCHER", "listed": "PROFESSOR", "expect": "PROFESSOR" }
+  ],
+  "existingAccountAtSignIn": [
+    { "current": "CROWDSOURCE_VOLUNTEER", "listed": "PROFESSOR", "expect": "CROWDSOURCE_VOLUNTEER" },
+    { "current": "ADMIN", "listed": "CROWDSOURCE_VOLUNTEER", "expect": "ADMIN" },
+    { "current": "RESEARCHER", "listed": null, "expect": "RESEARCHER" },
+    { "current": "PROFESSOR", "listed": "PROFESSOR", "expect": "PROFESSOR" }
+  ],
+  "roleKeptSentence": [
+    { "email": "a@example.org", "current": "RESEARCHER", "listed": "PROFESSOR", "expect": "a@example.org already has an account, as Researcher. Its role stays; change it on Manage users." },
+    { "email": "a@example.org", "current": "ADMIN", "listed": "CROWDSOURCE_VOLUNTEER", "expect": "a@example.org already has an account, as Admin. Its role stays; change it on Manage users." },
+    { "email": "a@example.org", "current": "PROFESSOR", "listed": "PROFESSOR", "expect": null },
+    { "email": "a@example.org", "current": null, "listed": "PROFESSOR", "expect": null },
+    { "email": "a@example.org", "current": "RESEARCHER", "listed": null, "expect": null }
+  ]
+}

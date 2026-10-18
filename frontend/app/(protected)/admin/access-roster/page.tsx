@@ -55,6 +55,7 @@ import {
   addToAccessRoster,
   invitationLabel,
   listAccessRoster,
+  promotionHeldSentence,
   requestLabel,
   suspendAccessRosterEntry,
   updateAccessRosterEntry,
@@ -70,6 +71,12 @@ import { assignableRoles, canManageAccessRoster, roleLabel } from "@/lib/permiss
 import type { PageResult, UserRole } from "@/lib/types";
 import { Toggle } from "@/components/ui/Toggle";
 import { ButtonRow } from "@/components/ui/ButtonRow";
+
+/**
+ * The sign-in list rule's copy (2026-10-18), byte for byte `services/signin_role.NEW_ACCOUNTS_ONLY`
+ * and `shared/signin-role-contract.json`; `tests/test_signin_role_contract.py` reads it from here.
+ */
+const NEW_ACCOUNTS_ONLY = "New accounts only. To change an existing account, use Manage users.";
 
 const PAGE_SIZE = 20;
 
@@ -129,6 +136,8 @@ export default function AccessRosterPage() {
   }, []);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** The server's sentence when an approval left an existing account's role alone; amber while it is the notice. */
+  const [heldRole, setHeldRole] = useState<string | null>(null);
   const skipFirstDebounce = useRef(true);
 
   /**
@@ -283,8 +292,12 @@ export default function AccessRosterPage() {
         grantedRole,
         ...(invite ? { sendInvite: true } : {})
       });
+      // The server's sentence when an account already exists at another role, which approving
+      // leaves alone; amber while it is the notice.
+      const held = promotionHeldSentence(updated);
+      setHeldRole(held);
       setNotice(
-        `${updated.email} approved as ${roleLabel(updated.grantedRole)}.${invite ? " Invitation sent." : ""}`
+        held ?? `${updated.email} approved as ${roleLabel(updated.grantedRole)}.${invite ? " Invitation sent." : ""}`
       );
       await reloadEverything();
     } catch (err) {
@@ -364,7 +377,9 @@ export default function AccessRosterPage() {
     setError(null);
     try {
       const updated = await updateAccessRosterEntry(entry.id, { status: "ACTIVE" });
-      setNotice(`${updated.email} can sign in again.`);
+      const held = promotionHeldSentence(updated);
+      setHeldRole(held);
+      setNotice(held ?? `${updated.email} can sign in again.`);
       await reloadEverything();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to restore this entry");
@@ -414,7 +429,15 @@ export default function AccessRosterPage() {
         <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</div>
       ) : null}
       {notice ? (
-        <div className="mb-4 rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-700">{notice}</div>
+        <div
+          className={
+            heldRole !== null && heldRole === notice
+              ? "mb-4 rounded-md border border-amber-500/30 bg-amber-100 px-3 py-2 text-sm text-amber-800"
+              : "mb-4 rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-700"
+          }
+        >
+          {notice}
+        </div>
       ) : null}
 
       {/* ── The queue. The notification, and the reason an admin opens this page. ─────────── */}
@@ -433,7 +456,7 @@ export default function AccessRosterPage() {
               ) : null}
             </h2>
             <p className="mt-1 text-sm leading-6 text-ink-500">
-              People turned away at sign-in.
+              People turned away at sign-in. The role is for new accounts only.
             </p>
           </div>
           {mailAvailable ? (
@@ -504,7 +527,7 @@ export default function AccessRosterPage() {
             label="Joins as"
             // "All the users by default join as the lowest rung unless promoted there itself" — the
             // promotion is this control, and it is bounded by the admin's own tier server-side.
-            hint="Defaults to the lowest role."
+            hint={`Defaults to the lowest role. ${NEW_ACCOUNTS_ONLY}`}
           />
         </div>
         <fieldset className="grid gap-2">

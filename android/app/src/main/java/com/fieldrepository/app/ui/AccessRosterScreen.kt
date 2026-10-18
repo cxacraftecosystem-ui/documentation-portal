@@ -96,6 +96,12 @@ import kotlinx.coroutines.launch
 private const val ROSTER_PAGE_SIZE = 20
 
 /**
+ * The sign-in list rule's copy (2026-10-18), byte for byte the server's `signin_role.NEW_ACCOUNTS_ONLY`
+ * and `shared/signin-role-contract.json`: the list sets the role of NEW accounts only.
+ */
+private const val NEW_ACCOUNTS_ONLY = "New accounts only. To change an existing account, use Manage users."
+
+/**
  * How much of the pending queue the top section shows at once.
  *
  * Bounded, and the remainder is STATED rather than silently dropped — see [accessQueueNotice]. A
@@ -365,7 +371,7 @@ fun AccessRosterScreen(
                     // "All the users by default join as the lowest rung unless promoted there
                     // itself" — this control is the "there itself", and the server bounds it by the
                     // admin's own tier so it can never hand out more than the admin holds.
-                    "Defaults to the lowest role.",
+                    "Defaults to the lowest role. $NEW_ACCOUNTS_ONLY",
                     color = Muted,
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -596,6 +602,7 @@ private fun PendingRequestRow(
             enabled = !busy,
             onSelect = { role = it }
         )
+        Text(NEW_ACCOUNTS_ONLY, color = Muted, style = MaterialTheme.typography.bodySmall)
         ActionRow {
             Button(enabled = !busy, onClick = { onApprove(role) }) {
                 Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))

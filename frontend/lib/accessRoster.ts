@@ -189,8 +189,22 @@ export type AccessRosterUpdateBody = {
  * body that carried every field would let an admin fixing a typo in a note silently re-approve
  * somebody another admin had rejected.
  */
+/**
+ * An approval's answer: the row, and — when an account already exists at the address with another
+ * role — the server's sentence saying so. The sign-in list rule (2026-10-18, `services/signin_role`):
+ * the row's role is the role a NEW account is created with, and approving never changes an existing
+ * one. The same key and sentence as designer-portal's. `null` or absent otherwise.
+ */
+export type AccessDecisionAnswer = AccessRosterEntry & { accountPromotionHeld?: string | null };
+
+/** The server's sentence when an approval left an existing account's role alone, or null. */
+export function promotionHeldSentence(answer: Pick<AccessDecisionAnswer, "accountPromotionHeld"> | null | undefined): string | null {
+  const sentence = answer?.accountPromotionHeld;
+  return typeof sentence === "string" && sentence.trim() ? sentence.trim() : null;
+}
+
 export async function updateAccessRosterEntry(id: string, body: AccessRosterUpdateBody) {
-  return apiFetch<AccessRosterEntry>(`/access-roster/${id}`, {
+  return apiFetch<AccessDecisionAnswer>(`/access-roster/${id}`, {
     method: "PATCH",
     body: JSON.stringify(body)
   });
