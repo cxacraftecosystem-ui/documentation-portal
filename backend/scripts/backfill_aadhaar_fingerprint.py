@@ -5,7 +5,7 @@ number under ``AADHAAR_FINGERPRINT_KEY``) and ``Artisan.aadhaarLast4``, never th
 (``services/aadhaar_fingerprint.py``). Rows written before that still carry the number in the legacy
 ``aadhaarNumber`` column. This script computes the two new columns for them, in batches, and
 verifies what it wrote. It does NOT clear the legacy column: the guarded migration in
-``prisma/deferred_migrations/`` does that, and refuses to run until this script reports nothing left.
+``prisma/migrations/20261029090000_drop_aadhaar_number`` does that, and refuses to run until this script reports nothing left.
 
 It also rewrites the edit history (``RecordRevision.changes``) of artisans written before the
 ledger stopped recording identity values: an ``aadhaarNumber`` entry that still holds a real old or

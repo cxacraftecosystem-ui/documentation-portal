@@ -59,7 +59,7 @@ class _Table(FakeTable):
 
 class _Db:
     UNIQUE_KEYS: dict[str, tuple[tuple[str, ...], ...]] = {
-        "artisan": (("aadhaarNumber",), ("aadhaarFingerprint",), ("pehchanCardNumber",)),
+        "artisan": (("aadhaarFingerprint",), ("pehchanCardNumber",)),
         "questionnaireinterview": (("questionnaireId", "artisanSetKey"),),
         "workshopartisan": (("workshopId", "artisanId"),),
         "toolartisan": (("toolId", "artisanId"),),
@@ -111,6 +111,8 @@ def _call(method: str, path: str, body: dict[str, Any] | None = None, **params: 
 
 
 AADHAAR = "234123412346"
+#: The duplicate's Aadhaar as the register keeps it: a fingerprint and the last four.
+DUP_FP = "cd" * 32
 
 
 def _artisan(artisan_id: str, name: str, **extra: Any) -> dict[str, Any]:
@@ -122,7 +124,8 @@ def _artisan(artisan_id: str, name: str, **extra: Any) -> dict[str, Any]:
         "phone": None,
         "email": None,
         "place": "Bagru",
-        "aadhaarNumber": None,
+        "aadhaarFingerprint": None,
+        "aadhaarLast4": None,
         "pehchanCardAvailable": True,
         "pehchanCardNumber": None,
         "address": None,
@@ -158,7 +161,8 @@ def db(monkeypatch: pytest.MonkeyPatch):
             _artisan(
                 "dup",
                 "Ramesh  kumar",
-                aadhaarNumber=AADHAAR,
+                aadhaarFingerprint=DUP_FP,
+                aadhaarLast4=AADHAAR[-4:],
                 dateOfBirth=datetime(1971, 3, 4, tzinfo=UTC),
                 notes="Uses indigo.",
                 createdAt=datetime(2026, 7, 1, tzinfo=UTC),
@@ -280,7 +284,7 @@ def test_a_merge_takes_the_picked_fields_and_moves_every_child(db: _Db) -> None:
     keep = _row(db, "artisan", "keep")
     assert _row(db, "artisan", "dup") is None
     # The duplicate's Aadhaar moved to the survivor — possible only because its copy was freed first.
-    assert keep.aadhaarNumber == AADHAAR
+    assert keep.aadhaarFingerprint == DUP_FP and keep.aadhaarLast4 == AADHAAR[-4:]
     assert keep.dateOfBirth == datetime(1971, 3, 4, tzinfo=UTC)
     assert keep.name == "Ramesh Kumar"  # the kept spelling, by default
     assert keep.notes == "Block printer.\nUses indigo."
@@ -308,7 +312,7 @@ def test_a_merge_takes_the_picked_fields_and_moves_every_child(db: _Db) -> None:
     # The audit row.
     merge = db.artisanmerge.rows[0]
     assert merge.status == "DONE" and merge.mergedById == ADMIN
-    assert unjson(merge.mergedSnapshot)["aadhaarNumber"] == AADHAAR
+    assert unjson(merge.mergedSnapshot)["aadhaarFingerprint"] == DUP_FP
     # The survivor's own ledger names the fields that changed.
     ledger = [row for row in db.recordrevision.rows if row.recordId == "keep" and row.id != "rv1"]
     assert set(unjson(ledger[0].changes)) >= {"aadhaarNumber", "dateOfBirth", "notes"}
@@ -348,9 +352,9 @@ def test_undo_puts_everything_back(db: _Db) -> None:
 
     dup = _row(db, "artisan", "dup")
     keep = _row(db, "artisan", "keep")
-    assert dup is not None and dup.aadhaarNumber == AADHAAR and dup.name == "Ramesh  kumar"
+    assert dup is not None and dup.aadhaarFingerprint == DUP_FP and dup.name == "Ramesh  kumar"
     assert dup.dateOfBirth == datetime(1971, 3, 4, tzinfo=UTC)
-    assert keep.aadhaarNumber is None and keep.dateOfBirth is None
+    assert keep.aadhaarFingerprint is None and keep.dateOfBirth is None
     assert keep.notes == "Block printer." and keep.name == "Ramesh Kumar"
     assert "mergedArtisans" not in (unjson(keep.extraMetadata) or {})
 
@@ -390,6 +394,9 @@ def test_undo_closes_after_thirty_days(db: _Db) -> None:
 
 def test_snapshots_past_the_window_stop_holding_the_raw_number(db: _Db) -> None:
     _merge()
+    # A snapshot taken before the legacy column's drop still holds the full number in its JSON.
+    row = db.artisanmerge.rows[0]
+    row.mergedSnapshot = {**unjson(row.mergedSnapshot), "aadhaarNumber": AADHAAR}
     asyncio.run(scrub_expired_merge_snapshots(datetime.now(UTC) + timedelta(days=31)))
     snap = unjson(db.artisanmerge.rows[0].mergedSnapshot)
     assert snap["aadhaarNumber"] == "XXXX XXXX 2346"

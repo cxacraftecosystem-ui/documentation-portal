@@ -19,10 +19,12 @@ text stripped and UTF-8 encoded, the 12 ASCII digits as the message, hex digest.
 THE LEGACY COLUMN. ``Artisan.aadhaarNumber`` held the full number until this change. It is never
 written again (``seal`` sets it to NULL whenever the number is touched), is read only to mask and to
 match rows the backfill (``scripts/backfill_aadhaar_fingerprint.py``) has not reached yet, and is
-dropped by the guarded migration in ``prisma/deferred_migrations/``. When that ships, set
+dropped by the guarded migration ``prisma/migrations/20261029090000_drop_aadhaar_number``. When that ships, set
 :data:`LEGACY_COLUMN_PRESENT` to False in the same commit. backend/DEPLOY_AWS.md has the run order.
 
-This module is carried byte for byte by both portals; change both.
+This module is carried byte for byte by both portals; change both. The one line that may differ is
+:data:`LEGACY_COLUMN_PRESENT`, which follows each portal's own drop migration (False here since
+2026-10-19).
 """
 
 from __future__ import annotations
@@ -42,7 +44,7 @@ NUMBER_FIELD = "aadhaarNumber"
 
 #: True while ``Artisan.aadhaarNumber`` still exists in the schema. Flip to False in the commit that
 #: moves the drop migration into ``prisma/migrations`` and removes the field from schema.prisma.
-LEGACY_COLUMN_PRESENT = True
+LEGACY_COLUMN_PRESENT = False
 
 #: Shortest key accepted. 32 random bytes in base64 is 44 characters.
 MIN_KEY_LENGTH = 32

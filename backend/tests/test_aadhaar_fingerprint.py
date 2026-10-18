@@ -37,7 +37,7 @@ from app.services.artisan_identity import validate_aadhaar, verhoeff_ok
 KEY = TEST_AADHAAR_FINGERPRINT_KEY
 BACKEND = Path(__file__).resolve().parents[1]
 DROP_MIGRATION = (
-    BACKEND / "prisma" / "deferred_migrations" / "20261029090000_drop_aadhaar_number" / "migration.sql"
+    BACKEND / "prisma" / "migrations" / "20261029090000_drop_aadhaar_number" / "migration.sql"
 )
 
 
@@ -108,14 +108,14 @@ def test_seal_keeps_only_the_fingerprint_and_last_four() -> None:
     number = _fresh_aadhaar()
     data: dict[str, Any] = {"aadhaarNumber": number}
     assert fp.seal(data, _settings()) == number
+    # The legacy column is dropped, so the request field leaves the payload entirely.
     assert data == {
-        "aadhaarNumber": None,
         "aadhaarFingerprint": fp.fingerprint(number, KEY),
         "aadhaarLast4": number[-4:],
     }
     retract: dict[str, Any] = {"aadhaarNumber": None}
     fp.seal(retract, _settings())
-    assert retract == {"aadhaarNumber": None, "aadhaarFingerprint": None, "aadhaarLast4": None}
+    assert retract == {"aadhaarFingerprint": None, "aadhaarLast4": None}
 
 
 # ── An in-memory register, and the real routes against it ───────────────────────────────────────
@@ -254,8 +254,9 @@ def test_the_lookup_finds_by_fingerprint_and_legacy_column_in_the_body_and_the_q
     assert body["found"] is True and body["artisan"]["id"] == "a1"
     query = register.call("GET", "/artisans/lookup/aadhaar", params={"number": n}).json()
     assert query["found"] is True
+    # The legacy column is dropped: only a fingerprint can match, and every row was backfilled first.
     legacy = register.call("POST", "/artisans/lookup/aadhaar", json={"number": register.other}).json()
-    assert legacy["artisan"]["id"] == "a2", "a row the backfill has not reached is still a duplicate"
+    assert legacy["found"] is False
     assert register.call("POST", "/artisans/lookup/aadhaar", json={"number": _fresh_aadhaar()}).json() == {
         "found": False,
         "artisan": None,
@@ -265,7 +266,7 @@ def test_the_lookup_finds_by_fingerprint_and_legacy_column_in_the_body_and_the_q
 def test_the_duplicate_guard_names_the_artisan_and_masks_the_number(register) -> None:
     from app.api.routes.artisans import _guard_identity_conflicts
 
-    for number, holder in ((register.number, "a1"), (register.other, "a2")):
+    for number, holder in ((register.number, "a1"),):
         with pytest.raises(HTTPException) as clash:
             asyncio.run(_guard_identity_conflicts({}, aadhaar=number))
         detail = clash.value.detail
@@ -283,7 +284,7 @@ def test_an_edit_stores_only_the_fingerprint_and_the_history_records_no_value(re
     written = register.artisans.written[-1]
     assert written["aadhaarFingerprint"] == fp.fingerprint(replacement, KEY)
     assert written["aadhaarLast4"] == replacement[-4:]
-    assert written["aadhaarNumber"] is None
+    assert "aadhaarNumber" not in written
     assert response.json()["aadhaarNumber"] == f"XXXX XXXX {replacement[-4:]}"
     _no_secret_in(response.text, replacement)
     changes = register.revisions.created[-1]["changes"].data
@@ -315,7 +316,9 @@ def test_every_viewer_is_served_the_mask_and_a_history_value_is_never_served() -
         },
         admin,
     )
-    assert nodes["fresh"]["aadhaarNumber"] == nodes["legacy"]["aadhaarNumber"] == f"XXXX XXXX {number[-4:]}"
+    assert nodes["fresh"]["aadhaarNumber"] == f"XXXX XXXX {number[-4:]}"
+    # A stray full number under the dropped column's name is never served, not even masked.
+    assert nodes["legacy"]["aadhaarNumber"] is None
     assert nodes["history"]["changes"]["aadhaarNumber"] == {
         "old": "(value recorded)", "new": "(value replaced)", "redacted": True,
     }
@@ -402,10 +405,11 @@ def test_an_aadhaar_in_a_logged_query_string_is_redacted(sep: str) -> None:
     assert fp.redact_path("/api/artisans/abc") == "/api/artisans/abc"
 
 
-def test_the_drop_migration_is_deferred_and_guarded() -> None:
-    assert not (BACKEND / "prisma" / "migrations" / DROP_MIGRATION.parent.name).exists()
+def test_the_drop_migration_ships_guarded() -> None:
+    # Shipped 2026-10-19, after the backfill printed "Nothing left" on the box.
+    assert not (BACKEND / "prisma" / "deferred_migrations").exists()
     sql = DROP_MIGRATION.read_text(encoding="utf-8")
     guard_at = sql.index("RAISE EXCEPTION")
     assert guard_at < sql.index('UPDATE "Artisan" SET "aadhaarNumber" = NULL')
     assert guard_at < sql.index('DROP COLUMN "aadhaarNumber"')
-    assert fp.LEGACY_COLUMN_PRESENT, "flip this only in the commit that ships the drop migration"
+    assert not fp.LEGACY_COLUMN_PRESENT, "the column is gone, so nothing may name it"

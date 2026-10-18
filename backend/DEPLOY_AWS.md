@@ -721,7 +721,8 @@ box, in this order:
    each fingerprint by reading it back, and rewrites any edit-history entry that still holds an old
    value into a valueless one. A legacy value that is not a valid Aadhaar is reported and left;
    `--apply --retract-unusable` clears those. Exit 0 means nothing is left.
-3. **A LATER release ships the drop.** Move `backend/prisma/deferred_migrations/
+3. **A LATER release ships the drop.** (Done 2026-10-19: the 0.0.14 box backfilled 15 artisans,
+   verified 15, and the next main commit shipped the migration.) Move `backend/prisma/deferred_migrations/
    20261029090000_drop_aadhaar_number/` into `backend/prisma/migrations/`, delete `aadhaarNumber`
    from `Artisan` in `schema.prisma`, and set `LEGACY_COLUMN_PRESENT = False` in
    `aadhaar_fingerprint.py`, in one commit. The migration refuses (and the deploy fails before the

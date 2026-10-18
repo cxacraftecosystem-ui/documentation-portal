@@ -672,6 +672,10 @@ def test_every_nullable_column_a_client_can_send_is_either_clearable_or_exempt()
         sendable = {field.alias or name for name, field in schema.model_fields.items()} | set(
             schema.model_fields
         )
+        # ``aadhaarNumber`` is a REQUEST field, no longer a column (dropped 2026-10-19): the route turns
+        # it into the fingerprint and the last four (services/aadhaar_fingerprint.seal) before
+        # anything is cleaned or written, so a null retracts both of those and never reaches Prisma.
+        sendable -= {"aadhaarNumber"}
         expected = (nullable & sendable) - (CLEARABLE_KEYS & nullable) - system_managed
 
         missing = sorted(expected - set(declared))

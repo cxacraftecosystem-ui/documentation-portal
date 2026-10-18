@@ -795,10 +795,8 @@ model Artisan {
   /// holds artisans recorded before the field existed, and the only ways to satisfy a NOT NULL would
   /// be to invent numbers or delete rows. Those rows keep NULL, exempt from the unique index.
   ///
-  /// `aadhaarNumber` is the LEGACY column that held the full number. Nothing writes it any more
-  /// except to clear it; `scripts/backfill_aadhaar_fingerprint.py` fingerprints what it holds, and
-  /// the guarded migration in `prisma/deferred_migrations/` drops it. backend/DEPLOY_AWS.md has the order.
-  aadhaarNumber      String? @unique
+  /// The full number's old column, `aadhaarNumber`, was fingerprinted on every box and dropped by
+  /// migration 20261029090000_drop_aadhaar_number (backend/DEPLOY_AWS.md section 12).
   aadhaarFingerprint String? @unique
   aadhaarLast4       String?
   /// Does this artisan hold an Artisan Pehchan Card (the PM Vishwakarma ID)? Defaults to true,
@@ -1014,11 +1012,11 @@ model Workshop {
   /// Postgres permits any number of NULLs under a unique index, so `String? @unique` ALREADY IS the
   /// partial index: `CREATE UNIQUE INDEX … WHERE "clientKey" IS NOT NULL` builds the same guarantee
   /// while being inexpressible in this file, which would leave the schema and the database
-  /// describing different tables. `Artisan.aadhaarNumber` above carries the identical argument for
+  /// describing different tables. `Artisan.aadhaarFingerprint` above carries the identical argument for
   /// the identical reason ("Postgres permits any number of NULLs under one"), and this follows it
   /// rather than inventing a second treatment of one problem.
   ///
-  /// FOUR MODELS AND NOT SIX. `Artisan.aadhaarNumber` and `Craft.name` are @unique already and each
+  /// FOUR MODELS AND NOT SIX. `Artisan.aadhaarFingerprint` and `Craft.name` are @unique already and each
   /// answers a pre-write 409 naming the row that holds the value, so a replayed create of either is
   /// refused by the dedup key that exists for exactly that purpose. A second mechanism beside either
   /// would be two guards that can disagree about what a duplicate is.

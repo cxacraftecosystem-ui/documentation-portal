@@ -1208,7 +1208,9 @@ _LEGACY_AADHAAR: tuple[str, ...] = (
 #: The unique identity columns a merge frees on the merged row before the survivor takes them.
 _IDENTITY_COLUMNS = (aadhaar_fingerprint.FINGERPRINT_FIELD, *_LEGACY_AADHAAR, "pehchanCardNumber")
 #: The columns that hold a raw identity number, which a snapshot keeps only for its undo window.
-_RAW_IDENTITY_COLUMNS = (*_LEGACY_AADHAAR, "pehchanCardNumber")
+#: ``aadhaarNumber`` stays named after the column's drop: a snapshot taken before it is JSON and
+#: still holds the number until it is scrubbed.
+_RAW_IDENTITY_COLUMNS = (aadhaar_fingerprint.NUMBER_FIELD, "pehchanCardNumber")
 
 
 def _ledger(before: dict[str, Any], changes: dict[str, Any]) -> dict[str, Any]:

@@ -68,7 +68,9 @@ def _artisan(**overrides: Any) -> SimpleNamespace:
         "address": "By the dyeing tanks",
         "phone": "9876543210",
         "email": None,
-        "aadhaarNumber": AADHAAR,
+        # As the register holds it since the legacy column's drop: the fingerprint and the last four.
+        "aadhaarFingerprint": "ab" * 32,
+        "aadhaarLast4": AADHAAR[-4:],
         "pehchanCardAvailable": True,
         "pehchanCardNumber": PEHCHAN,
         "gender": "Male",
