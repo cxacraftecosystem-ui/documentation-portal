@@ -64,5 +64,7 @@ class ArtisanLookupTest {
         // An edit left empty beside the mask keeps the number on record (null, left out of the body).
         assertTrue(source.contains("aadhaarNumber = if (keepsStoredAadhaar) null else aadhaarForBody(aadhaar, aadhaarNotShared, editing?.aadhaarNumber)"))
         assertFalse(source.contains("aadhaarNumber = if (aadhaarNotShared) \"\" else"))
+        // The field beside an empty box on an edit names the number on record by its mask.
+        assertTrue(source.contains("onRecord = storedAadhaarMask?.takeIf { aadhaar.isBlank() }"))
     }
 }

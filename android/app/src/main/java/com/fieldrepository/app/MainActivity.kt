@@ -7484,7 +7484,8 @@ private fun ArtisanForm(
                 error = aadhaarError,
                 warning = aadhaarDuplicate,
                 required = aadhaarRequired,
-                focusRequester = aadhaarFocus
+                focusRequester = aadhaarFocus,
+                onRecord = storedAadhaarMask?.takeIf { aadhaar.isBlank() }
             ) { aadhaar = it; aadhaarError = null }
         }
         // C18: the explicit outcome, clearly labelled. Never inferred from an empty box.
