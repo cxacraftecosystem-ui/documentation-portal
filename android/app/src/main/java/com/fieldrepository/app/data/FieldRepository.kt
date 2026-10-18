@@ -1308,6 +1308,13 @@ class FieldRepository(
             level = level?.blankToNull()
         )
 
+    /**
+     * The coverage map at state level (`GET /map/coverage?level=STATE`): per state, its records and how
+     * many districts have a workshop, and the shared crafts nobody has documented. Read-only; the
+     * district map is the web's. See [coverageSummary] for the rows the card draws.
+     */
+    suspend fun mapCoverage(): CoverageDto = api.mapCoverage(level = "STATE")
+
     // --- Data browser ---
 
     /**

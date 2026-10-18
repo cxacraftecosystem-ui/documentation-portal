@@ -278,6 +278,20 @@ Every value goes to the GitHub Actions secrets **and** the box `.env`.
 | `CROSS_PORTAL_SEARCH_ENABLED` | No | **`false`** | No | Asks the designer portal and answers its searches (`/api/cross-portal/peer/search*`). Also needs `CROSS_PORTAL_TOKEN`, `CROSS_PORTAL_AADHAAR_HMAC_KEY` and `DESIGNER_PORTAL_API_URL`; the designer portal needs its own flag, the same secrets and `FIELD_REPOSITORY_API_URL`. |
 | `DESIGNER_PORTAL_API_URL` | With cross-portal search | — | No | The designer portal's API base up to `/api`, e.g. `https://<designer-api-host>/api`. Only cross-portal search calls it. |
 
+### Cross-portal coverage feed — shipped OFF
+
+The designer portal's ministry coverage map can show this portal's figures beside its own. With the
+flag on, its server may call `GET /api/cross-portal/peer/coverage`, which answers per-district
+**aggregate counts only** (workshops, artisans, products, tools, media) and the shared craft codes
+documented — no ids, names or records. The request carries the same bearer, nonce and signed answer
+as the identity feed, and is written to `CrossPortalAccessLog` as `COVERAGE`. It is independent of
+`CROSS_PORTAL_IDENTITY_ENABLED`. Flag off, or token missing or shorter than 32 characters: the route
+answers 404. This portal's own coverage map (`/map?view=coverage`) needs no flag.
+
+| Variable | Required | Default | Secret | Notes |
+|---|---|---|---|---|
+| `CROSS_PORTAL_COVERAGE_ENABLED` | No | **`false`** | No | The switch. Also needs `CROSS_PORTAL_TOKEN` (above), the same value as on the designer portal. Set it in the GitHub Actions secrets **and** the box `.env`. |
+
 ### AI-drafted interview answers (C28) — shipped OFF
 
 | Variable | Required | Default | Secret | Notes |

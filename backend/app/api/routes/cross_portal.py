@@ -21,14 +21,14 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import get_settings
 from app.core.db import db
 from app.core.deps import get_current_user, get_value
-from app.services import cross_portal, cross_portal_peer
+from app.services import coverage, cross_portal, cross_portal_peer
 from app.services.access import record_edit_privilege, record_revision
 from app.services.artisan_identity import normalize_pehchan
 
@@ -52,6 +52,7 @@ ACTION_LOOKUP = "LOOKUP"
 ACTION_REFRESH = "REFRESH"
 ACTION_LINK = "LINK"
 ACTION_UNLINK = "UNLINK"
+ACTION_COVERAGE = "COVERAGE"
 
 
 async def _log_access(
@@ -263,6 +264,47 @@ async def peer_unlink(
         remote_artisan_id=remote_artisan_id,
     )
     return _signed(settings, request, {"linked": False})
+
+
+async def require_coverage_peer(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    x_cross_portal_nonce: str | None = Header(default=None),
+) -> Any:
+    """The designer portal's server, for the coverage feed. Its own flag; the same token and nonce."""
+    settings = get_settings()
+    if not coverage.peer_coverage_active(settings):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+    if not cross_portal.bearer_matches(settings.cross_portal_token, authorization):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authorised.")
+    nonce = (x_cross_portal_nonce or "").strip()
+    if len(nonce) < cross_portal.MIN_NONCE_LENGTH or len(nonce) > 128:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authorised.")
+    request.state.cross_portal_nonce = nonce
+    return settings
+
+
+@router.get("/peer/coverage")
+async def peer_coverage(
+    request: Request,
+    craftCode: list[str] | None = Query(None),
+    fy: list[str] | None = Query(None),
+    scheme: list[str] | None = Query(None),
+    settings: Any = Depends(require_coverage_peer),
+) -> Response:
+    """Per-district AGGREGATE counts for the designer portal's coverage map. No ids, names or stubs.
+
+    ``scheme`` is accepted and ignored: the designer portal's schemes are not this portal's workshop
+    types, and that portal says so beside the figures.
+    """
+    del scheme
+    filters = coverage.Filters(
+        craft_codes=tuple(coverage.resolve_craft_codes(craftCode)),
+        fys=tuple(coverage.resolve_fys(fy)),
+    )
+    fold = await coverage.fold_for(await coverage.scope_wheres(coverage.PEER_PRINCIPAL))
+    await _log_access(request, ACTION_COVERAGE, "OK")
+    return _signed(settings, request, coverage.peer_payload(fold, filters))
 
 
 # ──────────────────────────────────────────────────────────────────────────────────────────────

@@ -1232,6 +1232,10 @@ interface FieldRepositoryApi {
         @Query("level") level: String? = null
     ): MapPointRecordsDto
 
+    // --- Coverage: the coverage map's state-level figures, for the read-only card on the map screen.
+    @GET("map/coverage")
+    suspend fun mapCoverage(@Query("level") level: String = "STATE"): CoverageDto
+
     // --- Data browser (needs the dataset-download permission; rows are visibility-filtered) ---
     // ONE level of the virtual tree. path="" is the taxonomy chooser, not a folder listing.
     @GET("data/tree")
