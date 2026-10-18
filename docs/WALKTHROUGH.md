@@ -229,7 +229,7 @@ record whether the toolchain behind the craft is still alive.
 
 Sit down with the artisan and work through the interview sections, recording each answer as audio.
 
-**What the screen asks for:** Interview title (left blank, it is named for you), Place, Language, **Workshop**,
+**What the screen asks for:** Interview title *(optional; left empty it reads "Ramesh Chhipa · Craft questionnaire · 17 Oct")*, Place, Language, **Workshop**,
 **Questionnaire**, **Status**, Artisans interviewed, then per question either a **"Record this
 question"** audio clip or a typed answer, and Interview notes at the foot of the form.
 

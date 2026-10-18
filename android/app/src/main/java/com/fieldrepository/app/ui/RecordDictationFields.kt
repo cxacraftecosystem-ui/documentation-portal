@@ -152,6 +152,7 @@ val RECORD_NOT_DICTATED: Map<RecordFormKind, Map<String, String>> = mapOf(
         "email" to "A recogniser writes \"at\" for the @ sign and punctuates a domain, so the box would reliably produce a value its own validator then refuses.",
         "aadhaarNumber" to "A regulated identity number. A mis-heard digit fails the checksum on the server, or worse passes it and files this artisan under somebody else's number.",
         "pehchanCardAvailable" to "A yes/no answer behind a dropdown; a recogniser answers a yes/no question with a sentence.",
+        "aadhaarNotShared" to "An on/off outcome behind a switch (C18, \"Not shared by artisan\"); there is nothing to speak.",
         "pehchanCardNumber" to "A regulated identity number on a unique index. A wrong one is stored against the wrong person and then blocks the artisan who genuinely holds that card.",
         "dos" to "`NumberedListInput` is a numbered-list control whose whole interaction is \"press Enter for each new point\", and a microphone appending into one row would fight it — see its own comment for the full argument.",
         "donts" to "The same control and the same argument as `dos`; widening the shared control for one caller is the change that would have to happen first.",

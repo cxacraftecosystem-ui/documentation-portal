@@ -140,7 +140,6 @@ class WalkthroughStepsTest {
             FieldSwap(web = null, handset = "Linked artisan (fills artisan + place)", after = "Craft name (required)"),
         ),
         "process" to listOf(FieldSwap(web = "Per step: Name of the step", handset = "Per step: Name of the step (required)")),
-        "questionnaire" to listOf(FieldSwap(web = "Interview title", handset = "Interview title (required)")),
     )
 
     private fun handsetFieldsFor(id: String, webFields: List<String>): List<String> {

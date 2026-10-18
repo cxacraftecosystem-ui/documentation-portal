@@ -156,6 +156,23 @@ import com.fieldrepository.app.ui.MICROPHONE_PERMISSION
 import com.fieldrepository.app.ui.MICROPHONE_REFUSED_SENTENCE
 import com.fieldrepository.app.ui.holdsLocation
 import com.fieldrepository.app.ui.rememberPermissionGate
+import com.fieldrepository.app.ui.rememberKeepShootingCamera
+import com.fieldrepository.app.ui.KeepShootingToggle
+import com.fieldrepository.app.ui.nextStepChoices
+import com.fieldrepository.app.ui.nextStepHeading
+import com.fieldrepository.app.ui.plural
+import com.fieldrepository.app.ui.artisanPrefill
+import com.fieldrepository.app.ui.orderByCaptureTime
+import com.fieldrepository.app.ui.artisanDetailFromListed
+import com.fieldrepository.app.ui.artisanFieldUpdate
+import com.fieldrepository.app.ui.aadhaarForBody
+import com.fieldrepository.app.ui.aadhaarNotSharedOffered
+import com.fieldrepository.app.ui.automaticInterviewTitle
+import com.fieldrepository.app.ui.questionTranscripts
+import com.fieldrepository.app.ui.transcriptOffer
+import com.fieldrepository.app.ui.TRANSCRIPT_SOURCE
+import com.fieldrepository.app.ui.ARTISAN_FIELD_OPTIONS
+import com.fieldrepository.app.ui.ArtisanLookupCard
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.material3.Surface
@@ -373,6 +390,8 @@ import com.fieldrepository.app.ui.rememberServerSearch
 import com.fieldrepository.app.ui.ServerSearch
 import com.fieldrepository.app.ui.ServerSearchState
 import com.fieldrepository.app.ui.artisanSelectOption
+import com.fieldrepository.app.ui.artisanFirstOption
+import com.fieldrepository.app.ui.ARTISAN_PICK_SENTENCE
 import com.fieldrepository.app.ui.artisanSearchText
 import com.fieldrepository.app.ui.craftSearchText
 import com.fieldrepository.app.ui.carryScopeStateFor
@@ -522,6 +541,8 @@ import androidx.compose.runtime.mutableStateListOf
 import com.fieldrepository.app.ui.ArtisanQuestionnairePanel
 import com.fieldrepository.app.ui.LocationFieldsSection
 import com.fieldrepository.app.ui.artisanLocationRequirementError
+import com.fieldrepository.app.ui.ARTISAN_LOCATION_HEADING
+import com.fieldrepository.app.ui.InheritedPlace
 import com.fieldrepository.app.ui.MediaThumb
 import com.fieldrepository.app.ui.MediaViewerDialog
 import com.fieldrepository.app.ui.ProvenanceSection
@@ -681,7 +702,9 @@ private sealed interface Screen {
          * figure counted. Carried on the destination alongside [prefill] because the search screen
          * owns its own filter state and takes no initial record type.
          */
-        val searchFocus: String? = null
+        val searchFocus: String? = null,
+        /** Makes a re-opened form a NEW screen, so it starts empty — see `createNonce`. */
+        val fresh: Int = 0
     ) : Screen
     data class Browse(val mode: EntryMode) : Screen
     /**
@@ -720,14 +743,27 @@ private sealed interface Screen {
     data class AdminHub(val section: AdminHubEntry? = null) : Screen
 }
 
-/** Context carried forward from a just-saved artisan into a follow-up record. */
+/** Context carried forward from a just-saved record into a follow-up record. */
 private data class Prefill(
     val artisanId: String? = null,
     val artisanName: String? = null,
     val place: String? = null,
     val craftId: String? = null,
-    val craftName: String? = null
+    val craftName: String? = null,
+    /** The product just saved, so "Document how it's made" opens the process form on it (A8). */
+    val productId: String? = null,
+    val productName: String? = null
 )
+
+/** The sitting minus the record itself: what "add another" of the same type starts from. */
+private fun Prefill.forAnother(mode: EntryMode): Prefill = when (mode) {
+    EntryMode.ARTISAN -> Prefill(craftId = craftId, craftName = craftName)
+    EntryMode.CRAFT -> Prefill()
+    else -> copy(productId = null, productName = null)
+}
+
+/** What was just created, for the dashboard's next-step panel (A8). */
+private data class NextStep(val saved: EntryMode, val name: String?, val prefill: Prefill)
 
 /**
  * The same handoff as a carry-context bag, so the in-memory route and the stored one describe the
@@ -742,14 +778,16 @@ private fun Prefill.toCarryContext(): CarryContext = CarryContext(
     artisanName = artisanName,
     place = place,
     craftId = craftId,
-    craftName = craftName
+    craftName = craftName,
+    productId = productId,
+    productName = productName
 )
 
 /**
  * [rememberCarryPrefill] with the two things every record form would otherwise repeat: where the bag
  * lives, and whose it is.
  *
- * [handoff] is the [Prefill] a tap on [CarryForwardPanel] carried across in memory. It is seconds
+ * [handoff] is the [Prefill] a tap on [NextStepPanel] carried across in memory. It is seconds
  * old, so it beats anything in storage — and it is banked on arrival, which is what lets a
  * researcher who leaves via the dashboard and comes back an hour later still be offered it.
  */
@@ -1308,6 +1346,24 @@ private fun RepositoryApp(
                             repository.retryRefused(appContext, entryId)
                             runCatching { repository.syncOutbox(appContext) }
                             pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
+                        },
+                        // B1: Fix and send, Use existing artisan, and a confirmed Discard.
+                        onFix = { entryId, body ->
+                            val ok = repository.fixRefused(appContext, entryId, body)
+                            if (ok) runCatching { repository.syncOutbox(appContext) }
+                            pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
+                            ok
+                        },
+                        onUseExisting = { entryId ->
+                            val ok = repository.useExistingForRefused(appContext, entryId)
+                            if (ok) runCatching { repository.syncOutbox(appContext) }
+                            pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
+                            ok
+                        },
+                        onDiscard = { entryId ->
+                            val ok = repository.discardRefused(appContext, entryId)
+                            pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
+                            ok
                         }
                     )
                 }
@@ -1523,7 +1579,10 @@ private fun HomeScreen(
     // The same memory for the pages whose list is their scroller (`ui/LazyPage.kt`): an item and its
     // offset, because a lazy list has no pixel position for rows it has not measured.
     val lazyScrollMemory = remember { mutableMapOf<Screen, LazyScrollMark>() }
-    var carryForward by remember { mutableStateOf<Prefill?>(null) }
+    var nextStep by remember { mutableStateOf<NextStep?>(null) }
+    // Bumped by every "Save and add another", so the same form opens again EMPTY: two equal
+    // Screen.Create values would otherwise keep the composition, and the form, of the first.
+    var createNonce by remember { mutableIntStateOf(0) }
     // "I can no longer see this record" and "there is no signal" are different answers, and the
     // carry prefill treats them differently: only a list that actually arrived is entitled to
     // disown a carried id. Held here because the two lookups below feed every create form.
@@ -1826,6 +1885,22 @@ private fun HomeScreen(
     fun goDashboard() {
         message = null
         screen = Screen.Dashboard
+    }
+
+    /**
+     * Where a create lands (A8). "Save and add another" re-opens the same form, empty but for the
+     * sitting; a plain save goes to the dashboard with the next-step panel for what was just saved.
+     */
+    fun afterCreate(mode: EntryMode, name: String?, prefill: Prefill, another: Boolean) {
+        refresh()
+        if (another) {
+            screen = Screen.Create(mode, prefill.forAnother(mode), fresh = ++createNonce)
+            message = "${mode.label} saved"
+        } else {
+            nextStep = NextStep(mode, name, prefill)
+            goDashboard()
+            message = "${mode.label} saved"
+        }
     }
 
     /**
@@ -2366,13 +2441,17 @@ private fun HomeScreen(
 
         when (val s = screen) {
             is Screen.Dashboard -> {
-                carryForward?.let { prefill ->
-                    CarryForwardPanel(
+                nextStep?.let { step ->
+                    NextStepPanel(
                         repository = repository,
-                        prefill = prefill,
-                        canCreateTool = canCreate(EntryMode.TOOL),
-                        onSelect = { mode -> screen = Screen.Create(mode, prefill); carryForward = null },
-                        onDismiss = { carryForward = null }
+                        step = step,
+                        canCreate = { canCreate(it) },
+                        onSelect = { mode ->
+                            val prefill = if (mode == step.saved) step.prefill.forAnother(mode) else step.prefill
+                            screen = Screen.Create(mode, prefill, fresh = ++createNonce)
+                            nextStep = null
+                        },
+                        onDismiss = { nextStep = null }
                     )
                 }
                 DashboardScreen(
@@ -2448,9 +2527,11 @@ private fun HomeScreen(
                 onError = { showMessage(it) }
             )
 
-            is Screen.Create -> when (s.mode) {
+            // Keyed on the screen itself, so a form re-opened by "Save and add another" starts empty.
+            is Screen.Create -> key(s) { when (s.mode) {
                 EntryMode.CRAFT -> CraftForm(
                     repository = repository,
+                    onCreated = { prefill, name, another -> refreshLookups(); afterCreate(EntryMode.CRAFT, name, prefill, another) },
                     onDone = { message = "Craft saved"; refresh(); refreshLookups(); goDashboard() },
                     onError = { showMessage(it) }
                 )
@@ -2461,11 +2542,10 @@ private fun HomeScreen(
                     craftSeed = craftSeed,
                     prefill = s.prefill,
                     adminView = adminView,
-                    onArtisanCreated = { prefill ->
-                        message = "Artisan saved"
-                        refresh(); refreshLookups()
-                        carryForward = prefill
-                        goDashboard()
+                    onOpenExisting = { id -> message = null; openRecordView(EntryMode.ARTISAN, id) },
+                    onArtisanCreated = { prefill, another ->
+                        refreshLookups()
+                        afterCreate(EntryMode.ARTISAN, prefill.artisanName, prefill, another)
                     },
                     onDone = { message = "Artisan saved"; refresh(); refreshLookups(); goDashboard() },
                     onError = { showMessage(it) }
@@ -2488,12 +2568,15 @@ private fun HomeScreen(
                     artisanSeed = artisanSeed,
                     prefill = s.prefill,
                     adminView = adminView,
+                    onCreated = { prefill, name, another -> afterCreate(EntryMode.PRODUCT, name, prefill, another) },
                     onDone = { message = "Product saved"; refresh(); goDashboard() },
                     onError = { showMessage(it) }
                 )
                 EntryMode.PROCESS -> ProcessForm(
                     repository = repository,
                     adminView = adminView,
+                    prefill = s.prefill,
+                    onCreated = { prefill, name, another -> afterCreate(EntryMode.PROCESS, name, prefill, another) },
                     onDone = { message = "Process saved"; refresh(); goDashboard() },
                     onError = { showMessage(it) }
                 )
@@ -2562,6 +2645,7 @@ private fun HomeScreen(
                     artisanSeed = artisanSeed,
                     prefill = s.prefill,
                     adminView = adminView,
+                    onCreated = { prefill, name, another -> afterCreate(EntryMode.TOOL, name, prefill, another) },
                     onDone = { message = "Tool saved"; refresh(); goDashboard() },
                     onError = { showMessage(it) }
                 )
@@ -2647,7 +2731,7 @@ private fun HomeScreen(
                         onEnable = { requestAdminView(true) }
                     )
                 }
-            }
+            } }
 
             is Screen.Edit -> if (s.mode == EntryMode.QUESTIONNAIRE) {
                 InterviewEditLoader(
@@ -3207,40 +3291,52 @@ private fun TimePickerField(label: String, value: String, onChange: (String) -> 
     }
 }
 
-/** Post-save shortcuts that carry the just-saved artisan into a follow-up record. */
+/**
+ * The next-step panel (A8): after any create, the forms a researcher usually opens next, each
+ * pre-filled with the sitting — artisan, craft, place, and the product itself for a process.
+ */
 @Composable
-private fun CarryForwardPanel(
+private fun NextStepPanel(
     repository: FieldRepository,
-    prefill: Prefill,
-    canCreateTool: Boolean,
+    step: NextStep,
+    canCreate: (EntryMode) -> Boolean,
     onSelect: (EntryMode) -> Unit,
     onDismiss: () -> Unit
 ) {
     val appContext = LocalContext.current.applicationContext
-    // These shortcuts hand the artisan on in memory, which only survives a tap made from this panel
+    // These shortcuts hand the sitting on in memory, which only survives a tap made from this panel
     // — and the panel dies on dismissal, on navigating away, and whenever Android reclaims a
     // backgrounded app. Banking the same bag covers the route researchers actually take: out via the
     // dashboard, back into a product form later. Web parity — CarryForwardCards remembers on mount.
-    LaunchedEffect(prefill) {
-        CarryContextStore(appContext).remember(repository.cachedUser()?.id, prefill.toCarryContext())
+    LaunchedEffect(step) {
+        CarryContextStore(appContext).remember(repository.cachedUser()?.id, step.prefill.toCarryContext())
     }
+    val choices = nextStepChoices(step.saved.name, hasProduct = step.prefill.productId != null)
+        .mapNotNull { choice ->
+            runCatching { EntryMode.valueOf(choice.modeName) }.getOrNull()
+                ?.takeIf(canCreate)
+                ?.let { it to choice.label }
+        }
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(containerColor = SurfaceCard),
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Saved ${prefill.artisanName ?: "artisan"} ✓", display = true, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
-            Text("Keep going for the same artisan — details are pre-filled.", color = Muted, fontSize = 12.sp)
-            ActionRow {
-                Button(onClick = { onSelect(EntryMode.PRODUCT) }) { Text("Add product") }
-                if (canCreateTool) {
-                    Button(onClick = { onSelect(EntryMode.TOOL) }) { Text("Add tool") }
-                }
+            Text(nextStepHeading(step.saved.label, step.name), display = true, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
+            if (choices.isNotEmpty()) {
+                Text(
+                    step.prefill.artisanName?.let { "Next, for $it. Details are filled in." } ?: "Next. Details are filled in.",
+                    color = Muted,
+                    fontSize = 12.sp
+                )
             }
             ActionRow {
-                OutlinedButton(onClick = { onSelect(EntryMode.QUESTIONNAIRE) }) { Text("Take interview") }
-                OutlinedButton(onClick = onDismiss) { Text("Dismiss") }
+                choices.forEachIndexed { index, (mode, label) ->
+                    if (index == 0) Button(onClick = { onSelect(mode) }) { Text(label) }
+                    else OutlinedButton(onClick = { onSelect(mode) }) { Text(label) }
+                }
+                TextButton(onClick = onDismiss) { Text("Done") }
             }
         }
     }
@@ -4239,8 +4335,31 @@ private fun locationForBody(isEdit: Boolean, current: LocationRequest?, original
  * correct a phone number must be able to save it without inventing a district from a desk. The card
  * flags the gap and invites them to close it; refusing the save would close it by guesswork.
  */
-private fun newRecordLocationError(isEdit: Boolean, current: LocationRequest?): String? =
-    if (isEdit) null else artisanLocationRequirementError(current)
+private fun newRecordLocationError(
+    isEdit: Boolean,
+    current: LocationRequest?,
+    heading: String = ARTISAN_LOCATION_HEADING
+): String? = if (isEdit) null else artisanLocationRequirementError(current, heading)
+
+/**
+ * C17: the picked artisan's stated address, for a NEW child record's location card. Null on an edit
+ * (a saved record keeps what it says) and when the artisan's record carries no address.
+ */
+private fun ArtisanDto?.inheritedPlace(isEdit: Boolean): InheritedPlace? {
+    val artisan = this ?: return null
+    if (isEdit) return null
+    val loc = artisan.location
+    val village = loc?.village?.takeIf { it.isNotBlank() } ?: artisan.place.takeIf { it.isNotBlank() }
+    if (loc?.state.isNullOrBlank() && loc?.district.isNullOrBlank() && village == null && loc?.pincode.isNullOrBlank()) return null
+    return InheritedPlace(
+        fromName = artisan.name,
+        sourceId = artisan.id,
+        state = loc?.state,
+        district = loc?.district,
+        village = village,
+        pincode = loc?.pincode
+    )
+}
 
 /**
  * Convert a read-model location into the request payload used by create/update calls.
@@ -4347,7 +4466,9 @@ private fun LocationAddressEditor(
     onMessage: (String) -> Unit = {},
     required: Boolean = true,
     isEdit: Boolean = false,
-    showRequirementError: Boolean = false
+    showRequirementError: Boolean = false,
+    heading: String = ARTISAN_LOCATION_HEADING,
+    inherit: InheritedPlace? = null
 ) {
     LocationFieldsSection(
         repository = repository,
@@ -4356,7 +4477,9 @@ private fun LocationAddressEditor(
         required = required,
         isEdit = isEdit,
         showRequirementError = showRequirementError,
-        onMessage = onMessage
+        onMessage = onMessage,
+        heading = heading,
+        inherit = inherit
     )
 }
 
@@ -5631,6 +5754,15 @@ private fun MediaCaptureSection(
     // Optional content rendered between the media controls and the location editor (used by process
     // steps for the "record additional information" notes box).
     beforeLocation: (@Composable () -> Unit)? = null,
+    /** The location card's heading: "Craft location" on a craft, "Workshop location" on a workshop. */
+    locationHeading: String = ARTISAN_LOCATION_HEADING,
+    /** C17: the artisan's address, offered into the card's empty boxes. */
+    inheritPlace: InheritedPlace? = null,
+    /**
+     * A10: draw the device-wide "Keep the camera open" switch here. A process form draws it once, on
+     * its pre-process section, never again under each step — eleven identical switches is clutter.
+     */
+    showKeepShootingToggle: Boolean = true,
     onMessage: (String) -> Unit,
     onError: (String) -> Unit
 ) {
@@ -5680,6 +5812,13 @@ private fun MediaCaptureSection(
         pendingCaptureUri = null
         pendingMeasurement = false
     }
+    // The attachments camera keeps shooting (A10); the grid camera above stays one shot, since a
+    // record has one grid image.
+    val camera = rememberKeepShootingCamera(
+        newUri = { createAppFileUri(context, "field-photo-", ".jpg") },
+        onShot = { uri -> media.uris = media.uris + uri },
+        onRunEnded = onMessage
+    )
     val takeVideo = rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { success ->
         val uri = pendingCaptureUri
         if (success && uri != null) media.uris = media.uris + uri
@@ -5700,16 +5839,10 @@ private fun MediaCaptureSection(
         ActionRow {
             OutlinedButton(onClick = { pickMedia.launch("*/*") }) { Text("Pick files") }
             OutlinedButton(
-                onClick = {
-                    permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) {
-                        val uri = createAppFileUri(context, "field-photo-", ".jpg")
-                        pendingMeasurement = false
-                        pendingCaptureUri = uri
-                        takePhoto.launch(uri)
-                    }
-                },
+                onClick = { permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) { camera.shoot() } },
             ) { Text("Take photo") }
         }
+        if (showKeepShootingToggle) KeepShootingToggle()
         if (emphasizeVideo) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Icon(Icons.Filled.Videocam, contentDescription = null, tint = MaterialTheme.field.muted, modifier = Modifier.size(16.dp))
@@ -5820,7 +5953,9 @@ private fun MediaCaptureSection(
                 readLastKnownLocation(context)
             },
             onChange = { media.location = it },
-            onMessage = onMessage
+            onMessage = onMessage,
+            heading = locationHeading,
+            inherit = inheritPlace
         )
         if (enableMeasurement) {
             HorizontalDivider()
@@ -6670,6 +6805,8 @@ private fun CraftForm(
     repository: FieldRepository,
     editing: CraftDto? = null,
     adminView: Boolean = false,
+    /** A create landed: the sitting, the record's name, and whether "Save and add another" was pressed. */
+    onCreated: ((Prefill, String?, Boolean) -> Unit)? = null,
     onDone: () -> Unit,
     onError: (String) -> Unit
 ) {
@@ -6688,6 +6825,13 @@ private fun CraftForm(
     var saving by remember { mutableStateOf(false) }
     var nameError by remember { mutableStateOf<String?>(null) }
     val nameFocus = remember { FocusRequester() }
+    var another by remember { mutableStateOf(false) }
+    /** Where a finished save goes: the next-step panel or another form for a create, else [onDone]. */
+    fun finish(craftId: String?, queued: Boolean) {
+        val created = onCreated
+        if (isEdit || created == null || (queued && !another)) { onDone(); return }
+        created(Prefill(craftId = craftId, craftName = name.trim()), name.trim(), another)
+    }
 
     fun submit() {
         if (!validateRequired(listOf(
@@ -6714,7 +6858,7 @@ private fun CraftForm(
             if (queuedOffline) {
                 media.reset()
                 onError("Saved offline. Uploads when you're online.")
-                draft.clear(); onDone()
+                draft.clear(); finish(null, queued = true)
                 saving = false
                 return@launch
             }
@@ -6726,10 +6870,11 @@ private fun CraftForm(
                         { media.offlineSpecs(name.trim(), "Field media for ${name.trim()}") }) { key -> repository.createCraft(body, key) }.id
                 }
                 uploadAttachments(repository, context, media, "craft", craftId, name, "Field media for ${name.trim()}")
-            }.onSuccess {
+                craftId
+            }.onSuccess { craftId ->
                 media.reset()
-                draft.clear(); onDone()
-            }.onFailure { if (it is KeptOnDevice) { media.reset(); draft.clear(); onError(it.message!!); onDone() } else onError(it.apiErrorMessage("Unable to save craft")) }
+                draft.clear(); finish(craftId, queued = false)
+            }.onFailure { if (it is KeptOnDevice) { media.reset(); draft.clear(); onError(it.message!!); finish(null, queued = true) } else onError(it.apiErrorMessage("Unable to save craft")) }
             saving = false
         }
     }
@@ -6745,7 +6890,7 @@ private fun CraftForm(
     val dictates = recordDictationFor(RecordFormKind.CRAFT)
     RecordCard(title = if (isEdit) recordUpdateTitle("craft") else "Add craft") {
         DraftOfferCard(draft)
-        RegisterUnsavedGuard(dirty = dirty) { submit() }
+        RegisterUnsavedGuard(dirty = dirty) { another = false; submit() }
         media.draftInto(draft, "media")
         workshop.draftInto(draft)
         FormDraftAutosave(draft, dirty, label = name)
@@ -6766,11 +6911,13 @@ private fun CraftForm(
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "craft", recordId = editing!!.id, onError = onError)
         }
-        MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
-        SaveButton(
+        MediaCaptureSection(repository = repository, media = media, locationHeading = "Craft location", onMessage = onError, onError = onError)
+        SaveButtons(
             state = if (saving) SaveState.SAVING else SaveState.IDLE,
-            idleLabel = if (isEdit) "Update craft" else "Save craft"
-        ) { submit() }
+            idleLabel = if (isEdit) "Update craft" else "Save craft",
+            onSave = { another = false; submit() },
+            onSaveAnother = if (!isEdit && onCreated != null) ({ another = true; submit() }) else null
+        )
     }
 }
 
@@ -6785,7 +6932,10 @@ private fun ArtisanForm(
     editing: ArtisanDetailDto? = null,
     prefill: Prefill? = null,
     adminView: Boolean = false,
-    onArtisanCreated: (Prefill) -> Unit = {},
+    /** A create landed: the sitting, and whether "Save and add another" was pressed (A8). */
+    onArtisanCreated: ((Prefill, Boolean) -> Unit)? = null,
+    /** C18: the lookup found this artisan already recorded; open them instead of a second record. */
+    onOpenExisting: ((String) -> Unit)? = null,
     onDone: () -> Unit,
     onError: (String) -> Unit
 ) {
@@ -6808,7 +6958,16 @@ private fun ArtisanForm(
     // field, never part of the value. The Pehchan card defaults to "available", matching the API's
     // default and the common case, which is why its number is effectively required on create.
     var aadhaar by remember(editing) { mutableStateOf(editing?.aadhaarNumber.orEmpty()) }.drafted(draft, "aadhaar")
-    var pehchanAvailable by remember(editing) { mutableStateOf(editing?.pehchanCardAvailable ?: true) }.drafted(draft, "pehchanAvailable")
+    // C18: a NEW artisan's Pehchan card starts UNANSWERED. "Yes" used to be pre-answered, which made
+    // the card number silently required for somebody nobody had asked.
+    var pehchanAvailable by remember(editing) { mutableStateOf<Boolean?>(editing?.pehchanCardAvailable) }.drafted(draft, "pehchanAvailable")
+    // C18: "Not shared by artisan" — saves without an Aadhaar, flagged for follow-up.
+    var aadhaarNotShared by remember(editing) { mutableStateOf(editing?.aadhaarNotShared ?: false) }.drafted(draft, "aadhaarNotShared")
+    // Offered only while no number is on file: the switch records a refusal, never retracts a stored Aadhaar.
+    val notSharedOffered = aadhaarNotSharedOffered(editing?.aadhaarNumber)
+    val notSharedHonoured = aadhaarNotShared && notSharedOffered
+    // C18: a new artisan opens on the lookup, until it is answered or a draft says it already was.
+    var lookupSettled by remember(editing) { mutableStateOf(editing != null) }.drafted(draft, "lookupSettled")
     var pehchanNumber by remember(editing) { mutableStateOf(editing?.pehchanCardNumber.orEmpty()) }.drafted(draft, "pehchanNumber")
     /*
      * ── THE TWO FACTS THE DESIGN WORKSHOP ASKS OF EVERY ARTISAN ─────────────────────────────
@@ -6917,7 +7076,7 @@ private fun ArtisanForm(
      * an Aadhaar. Once a record HAS a number, clearing it is still refused: that is data loss rather
      * than a legacy gap. Mirrors `aadhaarRequired` in components/forms/ArtisanForm.tsx.
      */
-    val aadhaarRequired = !isEdit || !editing?.aadhaarNumber.isNullOrBlank()
+    val aadhaarRequired = (!isEdit || !editing?.aadhaarNumber.isNullOrBlank()) && !notSharedHonoured
     val nameFocus = remember { FocusRequester() }
     val placeFocus = remember { FocusRequester() }
     val craftFocus = remember { FocusRequester() }
@@ -6937,9 +7096,9 @@ private fun ArtisanForm(
     // person" while the form is still half empty, rather than as a 409 after filling all of it. The
     // short delay keeps this to one request per number instead of one per keystroke, and a failed
     // lookup is swallowed: this is a courtesy, and the unique index remains the real guarantee.
-    LaunchedEffect(aadhaar, editing?.id) {
+    LaunchedEffect(aadhaar, editing?.id, notSharedHonoured) {
         aadhaarDuplicate = null
-        if (aadhaar.isBlank() || aadhaarValidationError(aadhaar) != null) return@LaunchedEffect
+        if (notSharedHonoured || aadhaar.isBlank() || aadhaarValidationError(aadhaar) != null) return@LaunchedEffect
         delay(400)
         val match = runCatching { repository.lookupArtisanByAadhaar(aadhaar) }.getOrNull()?.artisan
         // Editing the very artisan who holds the number is not a duplicate.
@@ -6954,6 +7113,20 @@ private fun ArtisanForm(
             append(" is already recorded with this Aadhaar number. Open that artisan instead of ")
             append("creating a duplicate.")
         }
+    }
+
+    var another by remember { mutableStateOf(false) }
+    /**
+     * A save that went to the outbox. The artisan has no id yet, so there is nothing to carry on to a
+     * product; only "Save and add another" re-opens the form, keeping the craft.
+     */
+    fun finishQueued() {
+        val created = onArtisanCreated
+        if (isEdit || created == null || !another) { onDone(); return }
+        created(
+            Prefill(craftId = craftId.ifBlank { null }, craftName = craftOptions.firstOrNull { it.id == craftId }?.name ?: newCraftName.blankToNull()),
+            true
+        )
     }
 
     fun submit() {
@@ -6995,14 +7168,20 @@ private fun ArtisanForm(
         }
         // ...and it must be a genuine number when present — the same three checks the API runs,
         // applied here so a bad digit is caught with the card still in hand.
-        aadhaarValidationError(aadhaar)?.let { msg ->
+        if (!notSharedHonoured) aadhaarValidationError(aadhaar)?.let { msg ->
             aadhaarError = msg
             runCatching { aadhaarFocus.requestFocus() }
             onError("Fix the Aadhaar number highlighted above."); return
         }
         aadhaarError = null
+        // C18: the card question has to be answered, one way or the other, on a new artisan.
+        if (pehchanAvailable == null && !isEdit) {
+            pehchanError = "Answer whether the artisan has a Pehchan card."
+            runCatching { pehchanFocus.requestFocus() }
+            onError("Answer the Pehchan card question."); return
+        }
         // "Card available = Yes" without a number is the one combination the API refuses outright.
-        if (pehchanAvailable && pehchanNumber.isBlank()) {
+        if (pehchanAvailable == true && pehchanNumber.isBlank()) {
             pehchanError = "Enter the Pehchan Card number, or set the card to 'No'."
             runCatching { pehchanFocus.requestFocus() }
             onError("Fix the Pehchan Card details."); return
@@ -7027,11 +7206,14 @@ private fun ArtisanForm(
                 // omitted key means "leave it alone" to a PATCH — which would make a wrongly entered
                 // Aadhaar impossible to retract from the app. The API normalises "" to null, and the
                 // column is one it deliberately allows a client to clear.
-                aadhaarNumber = aadhaar.trim(),
+                aadhaarNumber = aadhaarForBody(aadhaar, aadhaarNotShared, editing?.aadhaarNumber),
+                // C18: sent only when it is the answer, or when it is being taken back on an edit.
+                // Never true for a record that already holds a number.
+                aadhaarNotShared = if (notSharedHonoured || editing?.aadhaarNotShared == true) notSharedHonoured else null,
                 // Always sent explicitly, both ways: the API clears a stale card number when this is
                 // false, and only an explicit true can move a record back off "No".
                 pehchanCardAvailable = pehchanAvailable,
-                pehchanCardNumber = if (pehchanAvailable) pehchanNumber.blankToNull() else null,
+                pehchanCardNumber = if (pehchanAvailable == true) pehchanNumber.blankToNull() else null,
                 dateOfBirth = dateOfBirth?.toString(),
                 craftStartDate = craftStartDate?.toString(),
                 experienceYears = experienceYears.toIntOrNull(),
@@ -7055,7 +7237,7 @@ private fun ArtisanForm(
             if (queuedOffline) {
                 media.reset()
                 onError("Saved offline. Uploads when you're online.")
-                draft.clear(); onDone()
+                draft.clear(); finishQueued()
                 saving = false
                 return@launch
             }
@@ -7082,13 +7264,14 @@ private fun ArtisanForm(
                         craftName = resolvedCraftName
                     )
                     media.reset()
-                    draft.clear(); onArtisanCreated(prefillOut)
+                    draft.clear()
+                    onArtisanCreated?.invoke(prefillOut, another) ?: onDone()
                 }
             }.onFailure {
                 // A duplicate Aadhaar/Pehchan number comes back as a structured 409 whose message
                 // names the artisan already holding it — far more use than "HTTP 409 Conflict", which
                 // is all the exception itself says.
-                if (it is KeptOnDevice) { media.reset(); draft.clear(); onError(it.message!!); onDone() } else onError(it.apiErrorMessage("Unable to save artisan"))
+                if (it is KeptOnDevice) { media.reset(); draft.clear(); onError(it.message!!); finishQueued() } else onError(it.apiErrorMessage("Unable to save artisan"))
             }
             saving = false
         }
@@ -7115,7 +7298,21 @@ private fun ArtisanForm(
     val dictates = recordDictationFor(RecordFormKind.ARTISAN)
     RecordCard(title = if (isEdit) recordUpdateTitle("artisan") else "Add artisan") {
         DraftOfferCard(draft)
-        RegisterUnsavedGuard(dirty = dirty) { submit() }
+        // C18: find before typing. Nothing below is drawn until the lookup is answered.
+        if (!lookupSettled) {
+            ArtisanLookupCard(
+                repository = repository,
+                onOpen = { id -> onOpenExisting?.invoke(id) },
+                onStart = { start ->
+                    if (start.name.isNotBlank() && name.isBlank()) name = start.name
+                    if (start.aadhaar.isNotBlank() && aadhaar.isBlank()) aadhaar = start.aadhaar
+                    lookupSettled = true
+                },
+                aadhaarProblem = { aadhaarValidationError(it) }
+            )
+            return@RecordCard
+        }
+        RegisterUnsavedGuard(dirty = dirty) { another = false; submit() }
         media.draftInto(draft, "media")
         workshop.draftInto(draft)
         FormDraftAutosave(draft, dirty, label = name)
@@ -7259,36 +7456,51 @@ private fun ArtisanForm(
             color = Muted,
             fontSize = 12.sp
         )
-        ArtisanAadhaarField(
-            value = aadhaar,
-            error = aadhaarError,
-            warning = aadhaarDuplicate,
-            required = aadhaarRequired,
-            focusRequester = aadhaarFocus
-        ) { aadhaar = it; aadhaarError = null }
+        if (!notSharedHonoured) {
+            ArtisanAadhaarField(
+                value = aadhaar,
+                error = aadhaarError,
+                warning = aadhaarDuplicate,
+                required = aadhaarRequired,
+                focusRequester = aadhaarFocus
+            ) { aadhaar = it; aadhaarError = null }
+        }
+        // C18: the explicit outcome, clearly labelled. Never inferred from an empty box.
+        if (notSharedOffered) AppToggle(
+            label = "Not shared by artisan",
+            description = if (aadhaarNotShared) "Saved without an Aadhaar and flagged for follow-up." else "The artisan declined to give their Aadhaar.",
+            checked = aadhaarNotShared,
+            onCheckedChange = { on ->
+                aadhaarNotShared = on
+                aadhaarError = null
+                if (on) aadhaar = ""
+            }
+        )
         DropdownField(
-            label = "Artisan Pehchan Card available",
+            label = "Artisan Pehchan Card available *",
             options = listOf("yes" to "Yes", "no" to "No"),
-            selectedValue = if (pehchanAvailable) "yes" else "no",
+            selectedValue = when (pehchanAvailable) { true -> "yes"; false -> "no"; null -> "" },
+            placeholder = "Has the artisan a Pehchan card?",
             includeNone = false
         ) { choice ->
             pehchanAvailable = choice == "yes"
+            pehchanError = null
             // Answering No retires the number with the answer, so a disabled box can never leave a
             // card number stranded on a record that says the artisan holds no card.
-            if (!pehchanAvailable) { pehchanNumber = ""; pehchanError = null }
+            if (pehchanAvailable == false) pehchanNumber = ""
         }
         OutlinedTextField(
             value = pehchanNumber,
             // The API stores card numbers upper-cased; showing that as it is typed keeps the box
             // honest about what will actually be saved (web parity).
             onValueChange = { pehchanNumber = it.uppercase(); pehchanError = null },
-            label = { Text(if (pehchanAvailable) "Artisan Pehchan Card number *" else "Artisan Pehchan Card number") },
-            placeholder = { Text(if (pehchanAvailable) "As printed on the card" else "No card on record") },
-            enabled = pehchanAvailable,
+            label = { Text(if (pehchanAvailable == true) "Artisan Pehchan Card number *" else "Artisan Pehchan Card number") },
+            placeholder = { Text(if (pehchanAvailable == true) "As printed on the card" else "No card on record") },
+            enabled = pehchanAvailable == true,
             isError = pehchanError != null,
             supportingText = {
                 val hint = pehchanError
-                    ?: if (pehchanAvailable) {
+                    ?: if (pehchanAvailable == true) {
                         "The PM Vishwakarma artisan ID printed on the card."
                     } else {
                         "Set \"available\" to Yes to enter a number."
@@ -7319,10 +7531,12 @@ private fun ArtisanForm(
             RecordMediaSection(repository = repository, context = context, linkedType = "artisan", recordId = editing!!.id, onError = onError)
         }
         MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
-        SaveButton(
+        SaveButtons(
             state = if (saving) SaveState.SAVING else SaveState.IDLE,
-            idleLabel = if (isEdit) "Update artisan" else "Save artisan"
-        ) { submit() }
+            idleLabel = if (isEdit) "Update artisan" else "Save artisan",
+            onSave = { another = false; submit() },
+            onSaveAnother = if (!isEdit && onArtisanCreated != null) ({ another = true; submit() }) else null
+        )
     }
 }
 
@@ -7387,7 +7601,7 @@ private fun WorkshopForm(
                 RequiredCheck(title.isBlank(), { titleError = it }, titleFocus),
                 RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
             ))) { onError("Fill in the highlighted field."); return }
-        newRecordLocationError(isEdit, media.location)?.let { onError(it); return }
+        newRecordLocationError(isEdit, media.location, "Workshop location")?.let { onError(it); return }
         scope.launch {
             saving = true
             val start = (startDate ?: LocalDate.now()).toIsoInstant()
@@ -7508,7 +7722,7 @@ private fun WorkshopForm(
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "workshop", recordId = editing!!.id, onError = onError)
         }
-        MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
+        MediaCaptureSection(repository = repository, media = media, locationHeading = "Workshop location", onMessage = onError, onError = onError)
         SaveButton(
             state = if (saving) SaveState.SAVING else SaveState.IDLE,
             idleLabel = if (isEdit) "Update workshop" else "Save workshop"
@@ -7534,6 +7748,8 @@ private fun ProductForm(
     editing: ProductDetailDto? = null,
     prefill: Prefill? = null,
     adminView: Boolean = false,
+    /** A create landed: the sitting, the record's name, and whether "Save and add another" was pressed. */
+    onCreated: ((Prefill, String?, Boolean) -> Unit)? = null,
     onDone: () -> Unit,
     onError: (String) -> Unit
 ) {
@@ -7569,7 +7785,12 @@ private fun ProductForm(
      */
     val craftPicker = rememberCraftPicker(repository, crafts, craftId, seed = craftSeed)
     val craftOptions = craftPicker.options
-    val picker = rememberArtisanPicker(repository, artisans, craftId, artisanId, seed = artisanSeed)
+    // ARTISAN FIRST (B5): the picker searches every artisan, not one craft's roster, because the
+    // artisan is what sets the craft and the place. Craft-scoped only when typing a record by hand.
+    var notOnRecord by remember(editing) {
+        mutableStateOf(editing != null && editing.artisanId.isNullOrBlank() && editing.artisanName.isNotBlank())
+    }.drafted(draft, "notOnRecord")
+    val picker = rememberArtisanPicker(repository, artisans, if (notOnRecord) craftId else "", artisanId, seed = artisanSeed)
 
     var productType by remember(editing) { mutableStateOf(editing?.productType ?: "OTHER") }.drafted(draft, "productType")
     var marketDemand by remember(editing) { mutableStateOf(editing?.marketDemand ?: "UNKNOWN") }.drafted(draft, "marketDemand")
@@ -7639,10 +7860,30 @@ private fun ProductForm(
     var craftNameError by remember { mutableStateOf<String?>(null) }
     var artisanNameError by remember { mutableStateOf<String?>(null) }
     var placeError by remember { mutableStateOf<String?>(null) }
+    var artisanPickError by remember { mutableStateOf<String?>(null) }
     val productNameFocus = remember { FocusRequester() }
     val craftNameFocus = remember { FocusRequester() }
     val artisanNameFocus = remember { FocusRequester() }
     val placeFocus = remember { FocusRequester() }
+    var another by remember { mutableStateOf(false) }
+    /** Where a finished save goes: the next-step panel or another form for a create, else [onDone]. */
+    fun finish(productId: String?, queued: Boolean) {
+        val created = onCreated
+        if (isEdit || created == null || (queued && !another)) { onDone(); return }
+        created(
+            Prefill(
+                artisanId = artisanId.ifBlank { null },
+                artisanName = artisanName.blankToNull(),
+                place = place.blankToNull(),
+                craftId = craftId.ifBlank { null },
+                craftName = craftName.blankToNull(),
+                productId = productId,
+                productName = productName.trim()
+            ),
+            productName.trim(),
+            another
+        )
+    }
 
     LaunchedEffect(editing) {
         val existing = editing?.location
@@ -7650,12 +7891,14 @@ private fun ProductForm(
     }
 
     fun submit() {
-        if (!validateRequired(listOf(
+        artisanPickError = if (!notOnRecord && artisanId.isBlank()) ARTISAN_PICK_SENTENCE else null
+        val typedOk = validateRequired(listOf(
                 RequiredCheck(productName.isBlank(), { productNameError = it }, productNameFocus),
                 RequiredCheck(craftName.isBlank(), { craftNameError = it }, craftNameFocus),
-                RequiredCheck(artisanName.isBlank(), { artisanNameError = it }, artisanNameFocus),
+                RequiredCheck(artisanName.isBlank() && notOnRecord, { artisanNameError = it }, artisanNameFocus),
                 RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
-            ))) { onError("Fill in the highlighted field."); return }
+            ))
+        if (!typedOk || artisanPickError != null) { onError("Fill in the highlighted field."); return }
         newRecordLocationError(isEdit, media.location)?.let { onError(it); return }
         scope.launch {
             if (!workshop.confirmSubmission()) return@launch
@@ -7727,7 +7970,7 @@ private fun ProductForm(
                 carry.remember(sitting)
                 media.reset()
                 onError("Saved offline. Uploads when you're online.")
-                draft.clear(); onDone()
+                draft.clear(); finish(null, queued = true)
                 saving = false
                 return@launch
             }
@@ -7745,8 +7988,8 @@ private fun ProductForm(
                 // the process form should be offering this one rather than making them find it again.
                 carry.remember(sitting.copy(productId = productId, productName = productName.trim()))
                 media.reset()
-                draft.clear(); onDone()
-            }.onFailure { if (it is KeptOnDevice) { carry.prune(CarryNode.PRODUCT); carry.remember(sitting); media.reset(); draft.clear(); onError(it.message!!); onDone() } else onError(it.apiErrorMessage("Unable to save product")) }
+                draft.clear(); finish(productId, queued = false)
+            }.onFailure { if (it is KeptOnDevice) { carry.prune(CarryNode.PRODUCT); carry.remember(sitting); media.reset(); draft.clear(); onError(it.message!!); finish(null, queued = true) } else onError(it.apiErrorMessage("Unable to save product")) }
             saving = false
         }
     }
@@ -7772,7 +8015,7 @@ private fun ProductForm(
     val dictates = recordDictationFor(RecordFormKind.PRODUCT)
     RecordCard(title = if (isEdit) recordUpdateTitle("product") else "Add product") {
         DraftOfferCard(draft)
-        RegisterUnsavedGuard(dirty = dirty) { submit() }
+        RegisterUnsavedGuard(dirty = dirty) { another = false; submit() }
         media.draftInto(draft, "media")
         workshop.draftInto(draft)
         FormDraftAutosave(draft, dirty, label = productName)
@@ -7785,52 +8028,28 @@ private fun ProductForm(
         RequiredInput("Product name", productName, productNameError, productNameFocus, titleCased = true, dictate = dictates("productName")) { productName = it }
         TextInput("Local name", localName, dictate = dictates("localName")) { localName = it }
         DropdownField("Product type", productTypeOptions.map { it to it }, productType, includeNone = false) { productType = it }
+        /*
+         * ARTISAN FIRST (B5, 2026-10-17). One searchable artisan picker sets the artisan, their craft
+         * and their place, and reads "Ramesh Chhipa · Block printing · Bagru". It used to be a craft
+         * dropdown first, then the artisan dropdown ("Select a linked craft first" was a dead stop),
+         * then three required boxes repeating both picks. The typed boxes are still here, behind
+         * "Artisan not on record", for the artisan who has no record yet.
+         */
         DropdownField(
-            // `craftOptions`, not `crafts`: the placeholder below is also what the control falls
-            // back to when the selected id matches no entry, so on the raw page it doubled as
-            // "linked to a craft that is not on page one" — see `rememberCraftOptions`.
-            label = "Linked craft (fills craft name)",
-            options = craftOptions.map { it.id to it.name },
-            selectedValue = craftId,
-            placeholder = "Unlinked / type below",
-            server = craftPicker.search.asServerSearch { SelectOption(it.id, it.name) }
-        ) { id ->
-            craftId = id
-            craftOptions.firstOrNull { it.id == id }?.let { craftName = it.name }
-            // Drop the artisan ONLY when this form actually knows they practise a different craft —
-            // never merely because it cannot see them. The predecessor of this line asked
-            // `artisans.none { it.id == artisanId && it.craftId == id }`, which is true for two
-            // unrelated reasons, and the second one (not on the loaded page) was the ordinary case on
-            // any older record. `artisanId` is in the backend's CLEARABLE_KEYS, so the blank was
-            // written through as a real unlink: opening a record to correct its CRAFT destroyed its
-            // artisan link under a 200, silently. Argued in full in `ui/RecordPickers.kt`.
-            if (craftChangeClearsArtisan(id, artisanId, picker.options)) {
-                artisanId = ""
-            }
-        }
-        RequiredInput("Craft name", craftName, craftNameError, craftNameFocus, titleCased = true, dictate = dictates("craftName")) { craftName = it }
-        // Task 6: the artisan dropdown is gated on a linked craft and only lists that craft's
-        // artisans. Filtered from `picker.options` — the startup page PLUS the craft's server-side
-        // roster PLUS this record's own artisan — because filtering the startup page alone gives the
-        // intersection of one craft with the newest hundred artisans overall, which is what made
-        // this dropdown empty for crafts whose people were documented first.
-        val artisanOptionsForCraft = if (craftId.isNotBlank()) {
-            picker.options.filter { it.craftId == craftId || it.id == artisanId }
-        } else {
-            picker.options
-        }
-        DropdownField(
-            label = "Linked artisan (fills artisan + place)",
-            options = artisanOptionsForCraft.map { it.id to "${it.name} · ${it.place}" },
+            label = "Artisan",
+            options = picker.options.map { it.id to artisanFirstOption(it).label },
             selectedValue = artisanId,
-            placeholder = if (craftId.isBlank()) "Select a linked craft first" else "Unlinked / type below",
-            enabled = craftId.isNotBlank(),
-            server = picker.search.asServerSearch(::artisanSelectOption)
+            placeholder = "Search artisans",
+            enabled = !notOnRecord,
+            server = picker.search.asServerSearch(::artisanFirstOption)
         ) { id ->
             artisanId = id
+            artisanPickError = null
             picker.options.firstOrNull { it.id == id }?.let {
                 artisanName = it.name
                 place = it.place
+                craftId = it.craftId.orEmpty()
+                craftName = it.craft?.name ?: craftOptions.firstOrNull { c -> c.id == it.craftId }?.name.orEmpty()
                 // An explicit pick replaces the remembered context and retires the banner: from here
                 // on the artisan on screen is the researcher's own choice, not a suggestion.
                 carry.remember(
@@ -7838,22 +8057,60 @@ private fun ProductForm(
                         artisanId = it.id,
                         artisanName = it.name,
                         place = it.place,
-                        craftId = craftId.ifBlank { null },
+                        craftId = it.craftId,
                         craftName = craftName.blankToNull()
                     ),
                     explicit = true
                 )
             }
         }
-        // A claim about the REPOSITORY, so it waits for the repository's answer about THIS craft.
-        // Printed off a stale roster it said "no artisans are linked to this craft yet" over a craft
-        // with a dozen of them — which is why `loadedForCraft` records WHICH craft the loaded rows
-        // belong to instead of being a bare boolean.
-        if (craftId.isNotBlank() && picker.loadedForCraft == craftId && artisanOptionsForCraft.isEmpty()) {
-            Text("No artisans are linked to this craft yet.", color = Muted, fontSize = 12.sp)
+        artisanPickError?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
+        AppToggle(
+            label = "Artisan not on record",
+            description = "Type the craft, artisan and place yourself.",
+            checked = notOnRecord,
+            onCheckedChange = { on ->
+                notOnRecord = on
+                artisanPickError = null
+                if (on) artisanId = ""
+            }
+        )
+        // A picked artisan with no craft (or no place) on record still needs one named for this
+        // product. Read off the ARTISAN, never off the box, so the box does not vanish mid-typing.
+        val pickedArtisan = picker.options.firstOrNull { it.id == artisanId }
+        val needsCraft = notOnRecord || (pickedArtisan != null && pickedArtisan.craftId.isNullOrBlank()) || craftNameError != null
+        if (needsCraft) {
+            DropdownField(
+                // `craftOptions`, not `crafts`: the placeholder below is also what the control falls
+                // back to when the selected id matches no entry, so on the raw page it doubled as
+                // "linked to a craft that is not on page one" — see `rememberCraftOptions`.
+                label = "Linked craft (fills craft name)",
+                options = craftOptions.map { it.id to it.name },
+                selectedValue = craftId,
+                placeholder = "Unlinked / type below",
+                server = craftPicker.search.asServerSearch { SelectOption(it.id, it.name) }
+            ) { id ->
+                craftId = id
+                craftOptions.firstOrNull { it.id == id }?.let { craftName = it.name }
+                // Drop the artisan ONLY when this form actually knows they practise a different craft —
+                // never merely because it cannot see them. The predecessor of this line asked
+                // `artisans.none { it.id == artisanId && it.craftId == id }`, which is true for two
+                // unrelated reasons, and the second one (not on the loaded page) was the ordinary case on
+                // any older record. `artisanId` is in the backend's CLEARABLE_KEYS, so the blank was
+                // written through as a real unlink: opening a record to correct its CRAFT destroyed its
+                // artisan link under a 200, silently. Argued in full in `ui/RecordPickers.kt`.
+                if (notOnRecord && craftChangeClearsArtisan(id, artisanId, picker.options)) {
+                    artisanId = ""
+                }
+            }
+            RequiredInput("Craft name", craftName, craftNameError, craftNameFocus, titleCased = true, dictate = dictates("craftName")) { craftName = it }
         }
-        RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus, titleCased = true, dictate = dictates("artisanName")) { artisanName = it }
-        RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
+        if (notOnRecord) {
+            RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus, titleCased = true, dictate = dictates("artisanName")) { artisanName = it }
+        }
+        if (notOnRecord || (pickedArtisan != null && pickedArtisan.place.isBlank()) || placeError != null) {
+            RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
+        }
         TextInput("Time taken to complete", timeTaken, dictate = dictates("timeTakenToCompleteProduct")) { timeTaken = it }
         TextInput("Size", size, dictate = dictates("size")) { size = it }
         /*
@@ -7943,11 +8200,13 @@ private fun ProductForm(
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "product", recordId = editing!!.id, onError = onError)
         }
-        MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
-        SaveButton(
+        MediaCaptureSection(repository = repository, media = media, inheritPlace = picker.options.firstOrNull { it.id == artisanId }.inheritedPlace(isEdit), onMessage = onError, onError = onError)
+        SaveButtons(
             state = if (saving) SaveState.SAVING else SaveState.IDLE,
-            idleLabel = if (isEdit) "Update product" else "Save product"
-        ) { submit() }
+            idleLabel = if (isEdit) "Update product" else "Save product",
+            onSave = { another = false; submit() },
+            onSaveAnother = if (!isEdit && onCreated != null) ({ another = true; submit() }) else null
+        )
     }
 }
 
@@ -7964,6 +8223,8 @@ private fun ToolForm(
     editing: ToolDetailDto? = null,
     prefill: Prefill? = null,
     adminView: Boolean = false,
+    /** A create landed: the sitting, the record's name, and whether "Save and add another" was pressed. */
+    onCreated: ((Prefill, String?, Boolean) -> Unit)? = null,
     onDone: () -> Unit,
     onError: (String) -> Unit
 ) {
@@ -8115,10 +8376,15 @@ private fun ToolForm(
         seed = craftSeed
     )
     val craftOptions = craftPicker.options
+    // ARTISAN FIRST (B5): the artisan sheet searches every artisan, and picking one ticks their craft.
+    // Narrowed to the ticked crafts' roster only when the researcher is typing the record by hand.
+    var notOnRecord by remember(editing) {
+        mutableStateOf(editing != null && seededArtisanIds.isEmpty() && editing.artisanName.isNotBlank())
+    }.drafted(draft, "notOnRecord")
     val picker = rememberArtisanPicker(
         repository,
         artisans,
-        craftIds,
+        if (notOnRecord) craftIds else emptyList(),
         artisanIds,
         hydrated = editing?.artisanLinks?.mapNotNull { it.artisan }.orEmpty(),
         seed = artisanSeed
@@ -8403,6 +8669,16 @@ private fun ToolForm(
         val previousHead = artisanIds.firstOrNull()
         val next = reorderSelection(artisanIds, selection)
         artisanIds = next
+        // Each newly picked artisan's craft is ticked for them, in pick order (B5). Never un-ticks:
+        // a craft the researcher chose stays chosen.
+        val theirCrafts = next.mapNotNull { id -> picker.options.firstOrNull { it.id == id }?.craftId?.ifBlank { null } }
+        val added = theirCrafts.filterNot { it in craftIds }.distinct()
+        if (added.isNotEmpty()) {
+            craftIds = craftIds + added
+            val joined = craftIds.mapNotNull { cid -> craftOptions.firstOrNull { it.id == cid }?.name ?: picker.options.firstOrNull { it.craftId == cid }?.craft?.name }
+                .joinToString(", ")
+            if (joined.isNotEmpty()) craftName = joined
+        }
         syncArtisanHead(previousHead, next)
     }
     val canSetStatus = remember { canSetRecordStatus(repository.cachedUser()?.role) }
@@ -8412,6 +8688,7 @@ private fun ToolForm(
     var craftNameError by remember { mutableStateOf<String?>(null) }
     var artisanNameError by remember { mutableStateOf<String?>(null) }
     var placeError by remember { mutableStateOf<String?>(null) }
+    var artisanPickError by remember { mutableStateOf<String?>(null) }
     val toolkitNameFocus = remember { FocusRequester() }
     val craftNameFocus = remember { FocusRequester() }
     val artisanNameFocus = remember { FocusRequester() }
@@ -8422,13 +8699,33 @@ private fun ToolForm(
         if (existing != null && media.location == null) media.location = existing.toRequest()
     }
 
+    var another by remember { mutableStateOf(false) }
+    /** Where a finished save goes: the next-step panel or another form for a create, else [onDone]. */
+    fun finish(queued: Boolean) {
+        val created = onCreated
+        if (isEdit || created == null || (queued && !another)) { onDone(); return }
+        created(
+            Prefill(
+                artisanId = artisanId.ifBlank { null },
+                artisanName = artisanName.blankToNull(),
+                place = place.blankToNull(),
+                craftId = craftId.ifBlank { null },
+                craftName = carriedCraftName()
+            ),
+            toolkitName.trim(),
+            another
+        )
+    }
+
     fun submit() {
-        if (!validateRequired(listOf(
+        artisanPickError = if (!notOnRecord && artisanIds.isEmpty()) ARTISAN_PICK_SENTENCE else null
+        val typedOk = validateRequired(listOf(
                 RequiredCheck(toolkitName.isBlank(), { toolkitNameError = it }, toolkitNameFocus),
                 RequiredCheck(craftName.isBlank(), { craftNameError = it }, craftNameFocus),
-                RequiredCheck(artisanName.isBlank(), { artisanNameError = it }, artisanNameFocus),
+                RequiredCheck(artisanName.isBlank() && notOnRecord, { artisanNameError = it }, artisanNameFocus),
                 RequiredCheck(place.isBlank(), { placeError = it }, placeFocus)
-            ))) { onError("Fill in the highlighted field."); return }
+            ))
+        if (!typedOk || artisanPickError != null) { onError("Fill in the highlighted field."); return }
         newRecordLocationError(isEdit, media.location)?.let { onError(it); return }
         scope.launch {
             if (!workshop.confirmSubmission()) return@launch
@@ -8606,7 +8903,7 @@ private fun ToolForm(
                     }
                     media.reset(); stages.reset()
                     onError("Saved offline. Uploads when you're online.")
-                    draft.clear(); onDone(); saving = false; return@launch
+                    draft.clear(); finish(queued = true); saving = false; return@launch
                 } else onError("Couldn't save offline")
                 saving = false; return@launch
             }
@@ -8657,8 +8954,8 @@ private fun ToolForm(
                 carry.remember(sitting.copy(toolId = toolId, toolName = toolkitName.trim()))
                 media.reset()
                 stages.reset()
-                draft.clear(); onDone()
-            }.onFailure { if (it is KeptOnDevice) { carry.prune(CarryNode.TOOL); carry.remember(sitting); media.reset(); stages.reset(); draft.clear(); onError(it.message!!); onDone() } else onError(it.apiErrorMessage("Unable to save tool")) }
+                draft.clear(); finish(queued = false)
+            }.onFailure { if (it is KeptOnDevice) { carry.prune(CarryNode.TOOL); carry.remember(sitting); media.reset(); stages.reset(); draft.clear(); onError(it.message!!); finish(queued = true) } else onError(it.apiErrorMessage("Unable to save tool")) }
             saving = false
         }
     }
@@ -8691,7 +8988,7 @@ private fun ToolForm(
     val dictates = recordDictationFor(RecordFormKind.TOOL)
     RecordCard(title = if (isEdit) recordUpdateTitle("tool") else "Add tool") {
         DraftOfferCard(draft)
-        RegisterUnsavedGuard(dirty = dirty) { submit() }
+        RegisterUnsavedGuard(dirty = dirty) { another = false; submit() }
         media.draftInto(draft, "media")
         stages.draftInto(draft, "stages")
         workshop.draftInto(draft)
@@ -8712,34 +9009,11 @@ private fun ToolForm(
         // Clearing by hand is an explicit edit like any other: the box stays empty and the toolkit
         // name stops writing into it. There is no re-arming gesture and there must not be one.
         TextInput("English name", englishName, titleCased = true, dictate = dictates("englishName")) { englishName = it; mirrorArmed = false }
-        // A MANY-OF-MANY SINCE 2026-09-15 — one documented toolkit can belong to several crafts.
-        // `CheckboxMultiSelectField`, never a wall of checkboxes painted straight into the form (the
-        // old `ArtisanMultiSelectField`, removed 2026-10-17 when the workshop form, its last caller,
-        // moved): a craft register runs to the hundreds. This one is a summary trigger, the
-        // chosen rows as chips, and a searchable sheet with Select all.
-        //
-        // `craftOptions`, not `crafts`: the page is 100 rows of a NAME-ordered list, so a craft whose
-        // name sorts past the cut is missing on every device on every day — `rememberCraftOptions`
-        // fetches every ticked craft that is not on the page so the sheet can draw it ticked rather
-        // than silently short.
-        //
-        // The old single-select's placeholder, "Unlinked / type below", has no home on a multi-select
-        // and is not missed: the trigger reads "Nothing selected" and the craft-name box below is
-        // still there to type into.
-        //
-        // IT TAKES THE WHOLE SELECTION AND NOT ONE ID AT A TIME, which is why these rows are built as
-        // `SelectOption`s: that overload passes the sheet's answer straight through, and the `Pair`
-        // one replays it as toggles. `onCraftsChanged` decides which artisan links a deselection
-        // deletes, and that question has no honest answer about a half-applied craft list.
-        CheckboxMultiSelectField(
-            label = "Linked crafts (fills craft name)",
-            options = craftOptions.map { SelectOption(value = it.id, label = it.name) },
-            selectedIds = craftIds.toSet(),
-            emptyMessage = "No crafts available yet.",
-            server = craftPicker.search.asServerSearch { SelectOption(value = it.id, label = it.name) },
-            onSelectedChange = { selection -> onCraftsChanged(selection) }
-        )
-        RequiredInput("Craft name", craftName, craftNameError, craftNameFocus, titleCased = true, dictate = dictates("craftName")) { craftName = it }
+        /*
+         * ARTISAN FIRST (B5, 2026-10-17). The artisans come first and need no craft ticked: picking
+         * one fills the artisan name and place and ticks their craft. The craft sheet stays (a toolkit
+         * can serve several crafts), and the three typed boxes are behind "Artisan not on record".
+         */
         // Task 6, now plural: the artisan picker is still gated on a linked craft, and lists the
         // artisans of ALL the ticked crafts. Filtered from `picker.options` — the startup page PLUS
         // those crafts' server-side roster PLUS every selected artisan — because filtering the
@@ -8753,7 +9027,7 @@ private fun ToolForm(
         // single tap. Keeping every selected id in the options is what makes that unreachable — and
         // it is also how an artisan assigned from "Assign tools to artisans", who may practise a
         // craft that is not ticked here, survives an ordinary edit of this form.
-        val artisanOptionsForCraft = if (craftIds.isNotEmpty()) {
+        val artisanOptionsForCraft = if (notOnRecord && craftIds.isNotEmpty()) {
             picker.options.filter { it.craftId in craftIds || it.id in artisanIds }
         } else {
             picker.options
@@ -8782,12 +9056,12 @@ private fun ToolForm(
             }
         val artisanRows = toolArtisanRows(artisanOptionsForCraft)
         CheckboxMultiSelectField(
-            label = "Linked artisans (fills artisan + place)",
+            label = "Artisans",
             options = artisanRows,
             selectedIds = artisanIds.toSet(),
-            placeholder = if (craftIds.isEmpty()) "Select a linked craft first" else "Select",
-            emptyMessage = "No artisans available for the crafts selected above.",
-            enabled = craftIds.isNotEmpty(),
+            placeholder = "Search artisans",
+            emptyMessage = "No artisans recorded yet.",
+            enabled = !notOnRecord,
             // The sheet lists the crafts' roster as the server pages and searches it, in the same
             // craft-then-name order as the rows above.
             server = picker.search.asServerSearchRows(countsRows = true) { toolArtisanRows(it) },
@@ -8800,7 +9074,7 @@ private fun ToolForm(
         // Printed off a stale roster it said "no artisans are linked to this craft yet" over a craft
         // with a dozen of them — which is why the picker records WHICH crafts the loaded rows belong
         // to instead of holding a bare boolean, and why the test is `isLoadedFor` and not `!= null`.
-        if (craftIds.isNotEmpty() && picker.isLoadedFor(craftIds) && artisanOptionsForCraft.isEmpty()) {
+        if (notOnRecord && craftIds.isNotEmpty() && picker.isLoadedFor(craftIds) && artisanOptionsForCraft.isEmpty()) {
             Text(
                 if (craftIds.size == 1) "No artisans are linked to this craft yet."
                 else "No artisans are linked to these crafts yet.",
@@ -8808,8 +9082,55 @@ private fun ToolForm(
                 fontSize = 12.sp
             )
         }
-        RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus, titleCased = true, dictate = dictates("artisanName")) { artisanName = it }
-        RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
+        artisanPickError?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
+        AppToggle(
+            label = "Artisan not on record",
+            description = "Type the craft, artisan and place yourself.",
+            checked = notOnRecord,
+            onCheckedChange = { on ->
+                notOnRecord = on
+                artisanPickError = null
+                if (on) artisanIds = emptyList()
+            }
+        )
+        // A MANY-OF-MANY SINCE 2026-09-15 — one documented toolkit can belong to several crafts.
+        // `CheckboxMultiSelectField`, never a wall of checkboxes painted straight into the form (the
+        // old `ArtisanMultiSelectField`, removed 2026-10-17 when the workshop form, its last caller,
+        // moved): a craft register runs to the hundreds. This one is a summary trigger, the
+        // chosen rows as chips, and a searchable sheet with Select all.
+        //
+        // `craftOptions`, not `crafts`: the page is 100 rows of a NAME-ordered list, so a craft whose
+        // name sorts past the cut is missing on every device on every day — `rememberCraftOptions`
+        // fetches every ticked craft that is not on the page so the sheet can draw it ticked rather
+        // than silently short.
+        //
+        // The old single-select's placeholder, "Unlinked / type below", has no home on a multi-select
+        // and is not missed: the trigger reads "Nothing selected" and the craft-name box below is
+        // still there to type into.
+        //
+        // IT TAKES THE WHOLE SELECTION AND NOT ONE ID AT A TIME, which is why these rows are built as
+        // `SelectOption`s: that overload passes the sheet's answer straight through, and the `Pair`
+        // one replays it as toggles. `onCraftsChanged` decides which artisan links a deselection
+        // deletes, and that question has no honest answer about a half-applied craft list.
+        CheckboxMultiSelectField(
+            label = "Linked crafts (fills craft name)",
+            options = craftOptions.map { SelectOption(value = it.id, label = it.name) },
+            selectedIds = craftIds.toSet(),
+            emptyMessage = "No crafts available yet.",
+            server = craftPicker.search.asServerSearch { SelectOption(value = it.id, label = it.name) },
+            onSelectedChange = { selection -> onCraftsChanged(selection) }
+        )
+        // Read off the selection, never off the box, so a box does not vanish mid-typing.
+        val headArtisan = picker.options.firstOrNull { it.id == artisanIds.firstOrNull() }
+        if (notOnRecord || (artisanIds.isNotEmpty() && craftIds.isEmpty()) || craftNameError != null) {
+            RequiredInput("Craft name", craftName, craftNameError, craftNameFocus, titleCased = true, dictate = dictates("craftName")) { craftName = it }
+        }
+        if (notOnRecord || artisanNameError != null) {
+            RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus, titleCased = true, dictate = dictates("artisanName")) { artisanName = it }
+        }
+        if (notOnRecord || (headArtisan != null && headArtisan.place.isBlank()) || placeError != null) {
+            RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
+        }
         TextInput("Process used in", processUsedIn, dictate = dictates("processUsedIn")) { processUsedIn = it }
         TextInput("Material", material, dictate = dictates("material")) { material = it }
         TextInput("Years in use", yearsInUse, keyboardType = KeyboardType.Number, dictate = dictates("yearsInUse")) { yearsInUse = it }
@@ -8958,11 +9279,13 @@ private fun ToolForm(
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "tool", recordId = editing!!.id, onError = onError)
         }
-        MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
-        SaveButton(
+        MediaCaptureSection(repository = repository, media = media, inheritPlace = picker.options.firstOrNull { it.id == artisanIds.firstOrNull() }.inheritedPlace(isEdit), onMessage = onError, onError = onError)
+        SaveButtons(
             state = if (saving) SaveState.SAVING else SaveState.IDLE,
-            idleLabel = if (isEdit) "Update tool" else "Save tool"
-        ) { submit() }
+            idleLabel = if (isEdit) "Update tool" else "Save tool",
+            onSave = { another = false; submit() },
+            onSaveAnother = if (!isEdit && onCreated != null) ({ another = true; submit() }) else null
+        )
     }
 }
 
@@ -8986,11 +9309,12 @@ private fun ToolStagesSection(
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         if (uris.isNotEmpty()) stages.uris = stages.uris + uris
     }
-    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-        val uri = pendingCaptureUri
-        if (success && uri != null) stages.uris = stages.uris + uri
-        pendingCaptureUri = null
-    }
+    // One photo per stage, shot after shot (A10): each photo is the next step in order.
+    val camera = rememberKeepShootingCamera(
+        newUri = { createAppFileUri(context, "stage-photo-", ".jpg") },
+        onShot = { uri -> stages.uris = stages.uris + uri },
+        onRunEnded = onMessage
+    )
     val takeVideo = rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { success ->
         val uri = pendingCaptureUri
         if (success && uri != null) stages.uris = stages.uris + uri
@@ -9008,15 +9332,10 @@ private fun ToolStagesSection(
         ActionRow {
             OutlinedButton(onClick = { pickMedia.launch("*/*") }) { Text("Add files") }
             OutlinedButton(
-                onClick = {
-                    permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) {
-                        val uri = createAppFileUri(context, "stage-photo-", ".jpg")
-                        pendingCaptureUri = uri
-                        takePhoto.launch(uri)
-                    }
-                },
+                onClick = { permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) { camera.shoot() } },
             ) { Text("Photo step") }
         }
+        KeepShootingToggle()
         ActionRow {
             OutlinedButton(
                 onClick = {
@@ -9093,6 +9412,8 @@ private class ProcessStepUi(
     // step that already has notes so the existing text stays visible.
     var recordAdditional by mutableStateOf(!notes.isNullOrBlank())
     var notes by mutableStateOf(notes ?: "")
+    /** C22: the name was copied from another process ("from the craft's last process"), not typed. */
+    var templateName by mutableStateOf<String?>(null)
 }
 
 private fun ProcessStepUi.stepTypeLabel(): String =
@@ -9108,6 +9429,10 @@ private fun ProcessForm(
     repository: FieldRepository,
     editing: ProcessDetailDto? = null,
     adminView: Boolean = false,
+    /** The sitting a next-step tap carried in — the product "Document how it's made" was pressed on. */
+    prefill: Prefill? = null,
+    /** A create landed: the sitting, the record's name, and whether "Save and add another" was pressed. */
+    onCreated: ((Prefill, String?, Boolean) -> Unit)? = null,
     onDone: () -> Unit,
     onError: (String) -> Unit
 ) {
@@ -9141,6 +9466,7 @@ private fun ProcessForm(
     var existingPreMedia by remember(editing) { mutableStateOf(editing?.media ?: emptyList()) }
     val nameFocus = remember { FocusRequester() }
     var addMenu by remember { mutableStateOf(false) }
+    var another by remember { mutableStateOf(false) }
 
     val steps = remember(editing) {
         mutableStateListOf<ProcessStepUi>().apply {
@@ -9196,7 +9522,8 @@ private fun ProcessForm(
         // is merely off page one was FETCHED by id, which is proof they exist, and pruning them would
         // drop a good link for the "absent from page one" reason this change set exists to stop
         // conflating with "absent from the repository".
-        scopes = listOf(carryScope(CarryNode.ARTISAN, artisanListState, artisanOptions) { it.id })
+        scopes = listOf(carryScope(CarryNode.ARTISAN, artisanListState, artisanOptions) { it.id }),
+        handoff = prefill
     ) { carried ->
         carried.artisanId?.let { artisanId = it }
         carried.productId?.let { carriedProduct.value = it }
@@ -9260,6 +9587,25 @@ private fun ProcessForm(
         }
     }
 
+    /** Where a finished save goes: the next-step panel or another form for a create, else [onDone]. */
+    fun finishProcess(sitting: CarryContext, queued: Boolean) {
+        val created = onCreated
+        if (isEdit || created == null || (queued && !another)) { onDone(); return }
+        created(
+            Prefill(
+                artisanId = sitting.artisanId,
+                artisanName = sitting.artisanName,
+                place = sitting.place,
+                craftId = sitting.craftId,
+                craftName = sitting.craftName,
+                productId = sitting.productId,
+                productName = sitting.productName
+            ),
+            name.trim(),
+            another
+        )
+    }
+
     fun submit() {
         nameError = null; productError = null; stepsError = null; preMediaError = null; artisanError = null
         var firstInvalid = false
@@ -9270,15 +9616,11 @@ private fun ProcessForm(
             preMediaError = "Attach the pre-process media or uncheck the box"
         }
         if (steps.isEmpty()) stepsError = "Add at least one step"
-        steps.forEach { step ->
-            step.nameError = null
-            if (step.name.isBlank()) {
-                step.nameError = REQUIRED_FIELD_SENTENCE
-                if (!firstInvalid) { firstInvalid = true; runCatching { step.nameFocus.requestFocus() } }
-            }
-        }
+        // C22 (owner decision 2026-10-17): a step MAY save without a name. It is flagged on its card
+        // ("Unnamed step") instead of refused, so steps made from photographs can be named later.
+        steps.forEach { step -> step.nameError = null }
         val blocked = nameError != null || productError != null || stepsError != null ||
-            preMediaError != null || artisanError != null || steps.any { it.name.isBlank() }
+            preMediaError != null || artisanError != null
         if (blocked) { onError("Fill in the highlighted fields."); return }
 
         scope.launch {
@@ -9333,7 +9675,7 @@ private fun ProcessForm(
                 steps.forEachIndexed { index, local ->
                     local.media.uris.forEachIndexed { fileIndex, uri ->
                         items.add(com.fieldrepository.app.data.OfflineMediaSpec(
-                            uri = uri, caption = "Process step ${local.name.trim()}", recordName = name.trim(),
+                            uri = uri, caption = "Process step ${local.name.trim().ifBlank { "${index + 1}" }}", recordName = name.trim(),
                             customSegment = processStepSegment(index + 1, local.stepType, fileIndex),
                             batchIndex = fileIndex + 1, linkedType = "processstep", stepIndex = index,
                             location = local.media.location))
@@ -9354,7 +9696,7 @@ private fun ProcessForm(
                     carry.remember(sitting)
                     preMedia.reset(); steps.forEach { it.media.reset() }
                     onError("Saved offline. Uploads when you're online.")
-                    draft.clear(); onDone()
+                    draft.clear(); finishProcess(sitting, queued = true)
                 } else onError("Couldn't save offline")
                 saving = false
                 return@launch
@@ -9379,7 +9721,7 @@ private fun ProcessForm(
                                 linkedRecordType = "processstep",
                                 linkedRecordId = serverStep.id,
                                 recordName = name,
-                                caption = "Process step ${serverStep.name}",
+                                caption = "Process step ${serverStep.name.ifBlank { "${index + 1}" }}",
                                 location = local.media.location,
                                 batchIndex = fileIndex + 1,
                                 customSegment = segment
@@ -9390,7 +9732,7 @@ private fun ProcessForm(
                                 uri = uri,
                                 linkedRecordType = "processstep",
                                 linkedRecordId = serverStep.id,
-                                caption = "Process step ${serverStep.name}",
+                                caption = "Process step ${serverStep.name.ifBlank { "${index + 1}" }}",
                                 location = local.media.location,
                                 titleHint = name,
                                 batchIndex = fileIndex + 1,
@@ -9400,7 +9742,7 @@ private fun ProcessForm(
                             if (error is kotlinx.coroutines.CancellationException) throw error
                             stepLeft.add(
                                 OfflineMediaSpec(
-                                    uri = uri, caption = "Process step ${serverStep.name}", recordName = name.trim(),
+                                    uri = uri, caption = "Process step ${serverStep.name.ifBlank { "${index + 1}" }}", recordName = name.trim(),
                                     customSegment = segment, batchIndex = fileIndex + 1, location = local.media.location
                                 )
                             )
@@ -9416,8 +9758,8 @@ private fun ProcessForm(
                 carry.remember(sitting)
                 preMedia.reset()
                 steps.forEach { it.media.reset() }
-                draft.clear(); onDone()
-            }.onFailure { if (it is KeptOnDevice) { carry.remember(sitting); preMedia.reset(); steps.forEach { s -> s.media.reset() }; draft.clear(); onError(it.message!!); onDone() } else onError(it.apiErrorMessage("Unable to save process")) }
+                draft.clear(); finishProcess(sitting, queued = false)
+            }.onFailure { if (it is KeptOnDevice) { carry.remember(sitting); preMedia.reset(); steps.forEach { s -> s.media.reset() }; draft.clear(); onError(it.message!!); finishProcess(sitting, queued = true) } else onError(it.apiErrorMessage("Unable to save process")) }
             saving = false
         }
     }
@@ -9442,7 +9784,7 @@ private fun ProcessForm(
     val dictates = recordDictationFor(RecordFormKind.PROCESS)
     RecordCard(title = if (isEdit) recordUpdateTitle("process") else "Document process") {
         DraftOfferCard(draft)
-        RegisterUnsavedGuard(dirty = dirty) { submit() }
+        RegisterUnsavedGuard(dirty = dirty) { another = false; submit() }
         preMedia.draftInto(draft, "preMedia")
         workshop.draftInto(draft)
         bindProcessSteps(draft, steps) { id -> editing?.steps?.firstOrNull { it.id == id }?.media.orEmpty() }
@@ -9573,7 +9915,12 @@ private fun ProcessForm(
                         Text("Step ${index + 1} · ${step.stepTypeLabel()}", color = Body, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                         TextButton(onClick = { steps.removeAt(index) }) { Text("Remove") }
                     }
-                    RequiredInput("Name of the step", step.name, step.nameError, step.nameFocus, dictate = dictates("stepName")) { step.name = it }
+                    TextInput("Name of the step", step.name, dictate = dictates("stepName")) { step.name = it }
+                    when {
+                        step.name.isBlank() -> Text("Unnamed step. Name it now or later.", color = MaterialTheme.field.warning, fontSize = 12.sp)
+                        step.templateName != null && step.name == step.templateName ->
+                            Text("Copied from the last process. Check it matches.", color = Muted, fontSize = 12.sp)
+                    }
                     if (step.existingMedia.isNotEmpty()) {
                         Text("Already attached:", color = Muted, fontSize = 12.sp)
                         step.existingMedia.forEach { saved ->
@@ -9594,6 +9941,7 @@ private fun ProcessForm(
                         repository = repository,
                         media = step.media,
                         emphasizeVideo = true,
+                        showKeepShootingToggle = false,
                         beforeLocation = {
                             AppToggle(
                                 label = "Record additional information",
@@ -9611,6 +9959,61 @@ private fun ProcessForm(
             }
         }
 
+        /*
+         * C22: FASTER STEPS. One step per photograph — picked, or shot one after another — in the
+         * order they were taken, unnamed until somebody names them; or the step NAMES of this craft's
+         * last process as a starting template. Nothing is named for the researcher without being shown.
+         */
+        val stepsFromPhotos = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+            orderByCaptureTime(context, uris).forEach { uri ->
+                steps.add(ProcessStepUi(java.util.UUID.randomUUID().toString(), null, "", "SEQUENTIAL").also { it.media.uris = listOf(uri) })
+            }
+            if (uris.isNotEmpty()) onError("${plural(uris.size, "step")} added from photos. Name them when you can.")
+        }
+        val stepCamera = rememberKeepShootingCamera(
+            newUri = { createAppFileUri(context, "step-photo-", ".jpg") },
+            onShot = { uri -> steps.add(ProcessStepUi(java.util.UUID.randomUUID().toString(), null, "", "SEQUENTIAL").also { it.media.uris = listOf(uri) }) },
+            onRunEnded = onError
+        )
+        val stepGate = rememberPermissionGate(onRefused = onError)
+        ActionRow {
+            OutlinedButton(onClick = { stepsFromPhotos.launch("image/*") }) { Text("Steps from photos") }
+            OutlinedButton(onClick = { stepGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) { stepCamera.shoot() } }) { Text("Photograph steps") }
+        }
+        val processCraftId = artisanProducts.firstOrNull { it.id == productId }?.craftId
+            ?: artisanOptions.firstOrNull { it.id == artisanId }?.craftId
+        var templateLoading by remember { mutableStateOf(false) }
+        if (!isEdit && processCraftId != null && steps.none { it.name.isNotBlank() }) {
+            ActionRow {
+                OutlinedButton(
+                    enabled = !templateLoading,
+                    onClick = {
+                        scope.launch {
+                            templateLoading = true
+                            runCatching { repository.latestProcessForCraft(processCraftId, editing?.id) }
+                                .onSuccess { last ->
+                                    if (last == null) {
+                                        onError("No earlier process for this craft yet.")
+                                    } else {
+                                        // Names only, never photos or notes: those belong to the other process.
+                                        val unnamed = steps.filter { it.name.isBlank() && it.media.uris.isEmpty() && it.existingMedia.isEmpty() }
+                                        steps.removeAll(unnamed)
+                                        last.steps.sortedBy { it.sortOrder }.forEach { source ->
+                                            steps.add(
+                                                ProcessStepUi(java.util.UUID.randomUUID().toString(), null, source.name, source.stepType)
+                                                    .also { it.templateName = source.name }
+                                            )
+                                        }
+                                        onError("${plural(last.steps.size, "step name")} copied from “${last.name}”. Check each one.")
+                                    }
+                                }
+                                .onFailure { onError(it.apiErrorMessage("Couldn't load the craft's last process.")) }
+                            templateLoading = false
+                        }
+                    }
+                ) { Text(if (templateLoading) "Loading…" else "Start from this craft's last process") }
+            }
+        }
         Box {
             OutlinedButton(onClick = { addMenu = true }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -9649,10 +10052,12 @@ private fun ProcessForm(
             )
         }
 
-        SaveButton(
+        SaveButtons(
             state = if (saving) SaveState.SAVING else SaveState.IDLE,
-            idleLabel = if (isEdit) "Update process" else "Save process"
-        ) { submit() }
+            idleLabel = if (isEdit) "Update process" else "Save process",
+            onSave = { another = false; submit() },
+            onSaveAnother = if (!isEdit && onCreated != null) ({ another = true; submit() }) else null
+        )
     }
 }
 
@@ -12762,7 +13167,11 @@ private fun ViewDataDetail(
                 DetailRow("Notes", v.notes)
                 // Browsing is a shared surface, so the Aadhaar is masked here even though the edit
                 // form (same record, same DTO) shows it in full to the person about to correct it.
-                DetailRow("Aadhaar number", maskAadhaar(v.aadhaarNumber))
+                DetailRow(
+                    "Aadhaar number",
+                    // C18: the explicit outcome reads as itself, and as the follow-up it is.
+                    if (v.aadhaarNotShared && v.aadhaarNumber.isNullOrBlank()) "Not shared by artisan — follow up" else maskAadhaar(v.aadhaarNumber)
+                )
                 DetailRow("Pehchan card", if (v.pehchanCardAvailable) "Yes" else "No")
                 DetailRow("Pehchan card number", v.pehchanCardNumber)
                 NumberedListDisplay("Do's", v.dos)
@@ -13069,11 +13478,11 @@ private fun AndroidMediaForm(
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         if (uris.isNotEmpty()) selectedUris = selectedUris + uris
     }
-    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-        val uri = pendingCaptureUri
-        if (success && uri != null) selectedUris = selectedUris + uri
-        pendingCaptureUri = null
-    }
+    val camera = rememberKeepShootingCamera(
+        newUri = { createAppFileUri(context, "media-photo-", ".jpg") },
+        onShot = { uri -> selectedUris = selectedUris + uri },
+        onRunEnded = { localMessage = it }
+    )
     val takeVideo = rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { success ->
         val uri = pendingCaptureUri
         if (success && uri != null) selectedUris = selectedUris + uri
@@ -13134,17 +13543,12 @@ private fun AndroidMediaForm(
             Text("Pick multiple files")
         }
         OutlinedButton(
-            onClick = {
-                permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) {
-                    val uri = createAppFileUri(context, "field-photo-", ".jpg")
-                    pendingCaptureUri = uri
-                    takePhoto.launch(uri)
-                }
-            },
+            onClick = { permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) { camera.shoot() } },
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Take image")
         }
+        KeepShootingToggle()
         OutlinedButton(
             onClick = {
                 permissionGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) {
@@ -13968,7 +14372,9 @@ private fun QuestionnaireForm(
     val isEdit = editing != null
     var syncing by remember { mutableStateOf(false) }
     var saveState by remember { mutableStateOf(SaveState.IDLE) }
-    var title by remember(editing) { mutableStateOf(editing?.title ?: prefill?.artisanName?.let { "Interview with $it" } ?: "") }.drafted(draft, "title")
+    // B8: a new sitting's title starts EMPTY and is named for who, what and when on save — see
+    // `effectiveTitle` below. "Interview with Ramesh" used to be typed in for them, which blocked that.
+    var title by remember(editing) { mutableStateOf(editing?.title ?: "") }.drafted(draft, "title")
     var selectedArtisans by remember(editing) {
         mutableStateOf(
             editing?.artisans?.map { it.artisanId }?.toSet()
@@ -14207,6 +14613,50 @@ private fun QuestionnaireForm(
     // to storage the moment it is captured and shows in a live "N recording(s) attached" progress
     // card — exactly like the attach-media array on the other forms. Finalised with per-section /
     // per-question captions at save time (see the save handler below).
+    /*
+     * B8 + A7: WHAT THE FORM FILLED IN FOR THE RESEARCHER, kept so each can be named on screen, undone,
+     * and (for a transcript) stored with its source. Each map holds the exact text it wrote: a box
+     * somebody has since edited no longer matches, and from then on it is their answer.
+     */
+    var artisanFilled by remember(editing?.id) { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var artisanFilledFrom by remember(editing?.id) { mutableStateOf<String?>(null) }
+    var transcriptFilled by remember(editing?.id) { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var autoPlace by remember(editing?.id) { mutableStateOf<String?>(null) }
+    val headArtisanId = selectedArtisans.firstOrNull()
+    // B8: picking the artisan fills the place and every question mapped to one of their fields —
+    // EMPTY boxes only, and only on a new sitting (a saved one keeps what it says).
+    LaunchedEffect(headArtisanId, questions) {
+        if (isEdit) return@LaunchedEffect
+        // What the previous artisan filled, and nobody has touched since, makes way for this one.
+        artisanFilled.forEach { (qid, value) -> answers[qid]?.let { if (it.value == value) it.value = "" } }
+        val previousPlace = autoPlace
+        if (headArtisanId == null) {
+            artisanFilled = emptyMap(); artisanFilledFrom = null
+            if (previousPlace != null && place == previousPlace) place = ""
+            autoPlace = null
+            return@LaunchedEffect
+        }
+        val listed = artisanOptions.options.firstOrNull { it.id == headArtisanId }
+        // Offline (the normal case in the field) the detail read fails: the listed row still knows
+        // the name, craft and place, so those mapped answers fill with the same notice and Undo.
+        val detail = runCatching { repository.artisan(headArtisanId) }.getOrNull()
+            ?: listed?.let { artisanDetailFromListed(it) }
+        val theirPlace = (detail?.place ?: listed?.place).orEmpty().trim()
+        if (theirPlace.isNotEmpty() && (place.isBlank() || place == previousPlace)) {
+            place = theirPlace
+            autoPlace = theirPlace
+        }
+        if (detail == null) {
+            artisanFilled = emptyMap(); artisanFilledFrom = null
+            return@LaunchedEffect
+        }
+        val me = repository.cachedUser()
+        val fills = artisanPrefill(questions, detail, me?.name?.takeIf { it.isNotBlank() } ?: me?.email)
+            .filterKeys { answers[it]?.value.isNullOrBlank() }
+        fills.forEach { (qid, value) -> answers[qid]?.value = value }
+        artisanFilled = fills
+        artisanFilledFrom = detail.name.takeIf { fills.isNotEmpty() }
+    }
     val qMedia = rememberMediaCaptureState()
     MediaStagingEffect(repository = repository, media = qMedia)
     // The interview's already-saved media, loaded in edit mode so earlier recordings stay visible
@@ -14237,6 +14687,17 @@ private fun QuestionnaireForm(
     // The section the user most recently added to / updated this session — drives the green
     // "Most recent changes by you were made over here ↑" pointer shown beneath that section.
     var lastEditedSectionId by remember { mutableStateOf<String?>(null) }
+    // A7: each question's newest transcribed clip, as answer text.
+    val clipTranscripts = remember(savedMedia, questions) { questionTranscripts(savedMedia, questions) }
+    /** B8: the title typed, or the one the server writes when none is: "Ramesh · Craft questionnaire · 17 Oct". */
+    fun effectiveTitle(): String = title.trim().ifBlank {
+        automaticInterviewTitle(
+            artisanName = artisanOptions.options.firstOrNull { it.id == selectedArtisans.firstOrNull() }?.name
+                ?: editing?.artisans?.firstOrNull()?.artisan?.name,
+            artisanCount = selectedArtisans.size,
+            questionnaireTitle = instruments.firstOrNull { it.id == questionnaireId }?.title ?: editing?.questionnaire?.title
+        )
+    }
     // Clips keyed by target: a question id (individual mode) or "section:<id>" (whole-section mode).
     var questionAudio by remember { mutableStateOf<Map<String, List<Uri>>>(emptyMap()) }
     fun sectionIdForKey(key: String): String? =
@@ -14461,19 +14922,24 @@ private fun QuestionnaireForm(
           the wrong sequence sends the reader two fields down and, finding the wrong box, filling it
           in. The owner ruled the web correct. The workshop keeps its job and loses its place.
         */
-        // NO MICROPHONE HERE, AND IT IS THE SAME DECISION AS THE ONE AT `MultiNoteInput` BELOW.
-        // The questionnaire screens are out of the record-form dictation work by decision (see
-        // `MainActivity.kt:11154-11180` for the argument in full) and the browser's own interview
-        // form has no microphone on this box either, so flipping `TextInput`'s default must not
-        // quietly opt this screen in. The sibling application took the opposite decision on
-        // 2026-08-28; taking it here is a questionnaire-workstream change, not a side effect.
-        RequiredInput("Interview title", title, titleError, titleFocus, titleCased = true, dictate = false) { title = it }
+        // THE FIVE INTERVIEW BOXES DICTATE (owner ruling C23, 2026-10-17). They were held off on the
+        // stated ground that the browser's title box had no microphone; it has one, so the ground was
+        // gone. Title, place, language, each answer and the notes now take the shared default, as the
+        // sibling application's interview form has since 2026-08-28. The section clips are still the
+        // recorded, stored capture; dictation types into a box and keeps nothing.
+        TextInput("Interview title", title, titleCased = true) { title = it }
+        if (title.isBlank()) {
+            Text("Leave empty to save as “${effectiveTitle()}”.", color = Muted, fontSize = 12.sp)
+        }
         // There is deliberately NO date field: the server derives interviewDate from recordedAt,
         // which is when the interview was actually captured. Asking a researcher to confirm today's
         // date was a field to tab past that could only ever be wrong -- and a spoken date is the one
         // thing a recogniser gets wrong in a way that still parses, so no microphone would go on one
         // even if it came back. `absent` in the form contract holds all three guides to that.
-        TextInput("Place", place, titleCased = true, dictate = false) { place = it }
+        TextInput("Place", place, titleCased = true) { place = it }
+        if (autoPlace != null && place == autoPlace) {
+            Text("From the artisan's record. Change it to override.", color = Muted, fontSize = 12.sp)
+        }
         /*
           -- LANGUAGE IS FREE TEXT, AND THE DROPDOWN THAT STOOD HERE WAS THE DRIFT -------------------
 
@@ -14491,7 +14957,7 @@ private fun QuestionnaireForm(
           is indistinguishable in the archive from one they did, and this is the column the archive
           reports language BY. The browser opens this box blank. So does this one.
         */
-        TextInput("Language", language, dictate = false) { language = it }
+        TextInput("Language", language) { language = it }
         // The workshop no longer leads the form but still leads everything under it in MEANING: it
         // is the context the interview belongs to, it chooses the instrument in the next field, and
         // it scopes the artisan roster two fields down.
@@ -14712,9 +15178,45 @@ private fun QuestionnaireForm(
             value = capturedLocation,
             onUseGps = { readLastKnownLocation(context) },
             onChange = { capturedLocation = it },
-            onMessage = onError
+            onMessage = onError,
+            // C17: the first interviewed artisan's address, into the empty boxes of a new sitting.
+            inherit = artisans.firstOrNull { it.id in selectedArtisans }.inheritedPlace(isEdit)
         )
         Text("Tap a section to answer it.", color = Muted, fontSize = 12.sp)
+        // B8: what the artisan's record answered, named, with one Undo.
+        val standingFills = artisanFilled.filter { (qid, value) -> answers[qid]?.value == value }
+        if (standingFills.isNotEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.field.surface100, RoundedCornerShape(12.dp))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    "${plural(standingFills.size, "answer")} filled from ${artisanFilledFrom ?: "the artisan"}'s record. Change any to override.",
+                    color = MaterialTheme.field.body,
+                    fontSize = 12.sp
+                )
+                ActionRow {
+                    OutlinedButton(onClick = {
+                        standingFills.forEach { (qid, _) -> answers[qid]?.value = "" }
+                        artisanFilled = emptyMap()
+                    }) { Text("Undo") }
+                }
+            }
+        }
+        // A7: every empty answer that has a transcribed clip, in one tap.
+        val transcriptOffers = questions.mapNotNull { q -> transcriptOffer(answers[q.id]?.value, clipTranscripts[q.id])?.let { q.id to it } }
+        if (transcriptOffers.size > 1) {
+            ActionRow {
+                OutlinedButton(onClick = {
+                    transcriptOffers.forEach { (qid, text) -> answers[qid]?.value = text }
+                    transcriptFilled = transcriptFilled + transcriptOffers
+                    onError("${plural(transcriptOffers.size, "answer")} taken from the recordings. Check them before saving.")
+                }) { Text("Use ${transcriptOffers.size} transcripts as answers") }
+            }
+        }
         sections.forEach { section ->
             val activeQuestions = section.questions.filter { it.isActive }
             if (activeQuestions.isNotEmpty()) {
@@ -14809,15 +15311,31 @@ private fun QuestionnaireForm(
                                 */
                                 val recordedAnswer = editing?.responses
                                     ?.firstOrNull { it.questionId == question.id }?.answerText
-                                if (answerBoxVisible(hideAnswers, recordedAnswer)) {
-                                    // NO MICROPHONE AND NO EDITOR, BY DECISION — see the comment on
-                                    // this screen's `MultiNoteInput` below. This section already has
-                                    // its own audio capture beside it, and a second, differently
-                                    // shaped one in the answer box is the confusion that decision
-                                    // exists to prevent. It is skipped, not missed.
-                                    TextInput("Answer", answers[question.id]?.value.orEmpty(), minLines = 3, dictate = false) { value ->
+                                // A box the form filled is always drawn: an answer nobody can see is
+                                // an answer nobody checked.
+                                val currentAnswer = answers[question.id]?.value.orEmpty()
+                                val fromTranscript = transcriptFilled[question.id]?.let { it == currentAnswer } == true
+                                val fromArtisan = artisanFilled[question.id]?.let { it == currentAnswer } == true
+                                if (answerBoxVisible(hideAnswers, recordedAnswer) || fromTranscript || fromArtisan) {
+                                    // Dictates (C23); no rich editor — an answer is plain text.
+                                    TextInput("Answer", currentAnswer, minLines = 3) { value ->
                                         answers[question.id]?.let { state -> state.value = value }
                                         lastEditedSectionId = section.id
+                                    }
+                                    when {
+                                        fromTranscript -> Text("From the recording.", color = Muted, fontSize = 12.sp)
+                                        fromArtisan -> Text("From the artisan's record.", color = Muted, fontSize = 12.sp)
+                                    }
+                                }
+                                // A7: the question's transcribed clip, as its answer in one tap. Never
+                                // offered over words already in the box.
+                                transcriptOffer(currentAnswer, clipTranscripts[question.id])?.let { offered ->
+                                    ActionRow {
+                                        OutlinedButton(onClick = {
+                                            answers[question.id]?.value = offered
+                                            transcriptFilled = transcriptFilled + (question.id to offered)
+                                            lastEditedSectionId = section.id
+                                        }) { Text("Use as answer") }
                                     }
                                 }
                             }
@@ -14886,31 +15404,10 @@ private fun QuestionnaireForm(
         // progress) — the same media array used by every other record form.
         MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
         /*
-         * THE ONE `MultiNoteInput` WITH NO MICROPHONE, AND THE OPT-OUT IS THE POINT OF THE FLAG.
-         *
-         * The questionnaire screens were placed out of scope for this work by decision, not by
-         * oversight: they already have a capture workflow of their own — per-section or per-question
-         * audio recorded as a `MediaFile` and transcribed asynchronously by the queue — which was
-         * designed around how these interviews are actually conducted. Adding a live microphone
-         * anywhere on this screen puts two capture models in front of one researcher, and the two
-         * disagree about something that matters: the questionnaire's clip is stored, listed and
-         * deletable, and the interviewee can be shown it. This one is not recorded at all.
-         *
-         * So this one argument is what keeps the shared control's new default off a screen it was
-         * told to leave alone. Removing it does not "enable a feature here"; it opts this screen into
-         * a decision nobody has taken.
-         *
-         * THE DEFAULT FLIPPED ON 2026-09-13 AND THIS OPT-OUT SURVIVED IT, which is the only reason
-         * it is still worth reading. Three more boxes on this screen now say `dictate` false for
-         * the same reason — the interview title (:10925), the place (:10930) and the per-question
-         * answer (:11084) — because a default is not a decision and this screen has not had one
-         * taken about it. Two more in the builder (:11476, :11518) say it for a different reason: a
-         * section code is not prose. The sibling application DID take the interview decision
-         * (`designer MainActivity.kt:16388` records the reversal and the owner's words) and its
-         * questionnaire notes now dictate. If that decision is taken here, it is taken on all four
-         * interview boxes at once, in the questionnaire workstream, with the web's own interview
-         * form moving in the same commit — `RecordDictationParityTest` does not cover this screen,
-         * so nothing else would catch it.
+         * INTERVIEW NOTES DICTATE (C23, 2026-10-17), with the other four interview boxes. The opt-out
+         * this comment used to defend rested on the browser's interview form having no microphone,
+         * which stopped being true; the decision it asked for has now been taken, on all the boxes at
+         * once. The per-section clips remain the stored, transcribed capture.
          */
         /*
           "Interview notes", WRITTEN AT THE CALL SITE, and not [MultiNoteInput]'s own default.
@@ -14927,7 +15424,7 @@ private fun QuestionnaireForm(
           its blast radius would not resemble each other in a diff, and four forms that say "Notes"
           about notes are not wrong.
         */
-        MultiNoteInput(label = "Interview notes", value = notes, dictate = false) { notes = it }
+        MultiNoteInput(label = "Interview notes", value = notes) { notes = it }
         /*
           ══ FOLDING THIS INTERVIEW INTO THE ONE THAT ALREADY COVERS ITS ARTISAN SET ═══════════════
 
@@ -15088,9 +15585,6 @@ private fun QuestionnaireForm(
             )
         }
         fun submit() {
-            if (!validateRequired(listOf(
-                    RequiredCheck(title.isBlank(), { titleError = it }, titleFocus)
-                ))) { onError("Fill in the highlighted field."); return }
                 // Asked of a new interview even when it will FOLD into an existing one for the same
                 // artisan set: POST /questionnaire/interviews validates the whole body before it
                 // decides which of the two it is doing, so the stated address is required either way.
@@ -15107,7 +15601,12 @@ private fun QuestionnaireForm(
                         val current = answers[question.id]?.value?.trim().orEmpty()
                         val initial = editing?.responses?.firstOrNull { it.questionId == question.id }?.answerText?.trim().orEmpty()
                         if (current.isNotBlank() && current != initial) {
-                            QuestionnaireResponseRequest(questionId = question.id, answerText = current)
+                            QuestionnaireResponseRequest(
+                                questionId = question.id,
+                                answerText = current,
+                                // A7: stored as taken from the recording while the words are still exactly those.
+                                answerSource = if (transcriptFilled[question.id]?.trim() == current) TRANSCRIPT_SOURCE else null
+                            )
                         } else null
                     }
                     // Offline: queue the interview + every recorded clip (with its section/question
@@ -15155,7 +15654,7 @@ private fun QuestionnaireForm(
                         val original = editing!!
                         val originalArtisans = original.artisans.map { it.artisanId }.toSet()
                         return QuestionnaireInterviewUpdateRequest(
-                            title = title.trim(),
+                            title = effectiveTitle(),
                             place = place.blankToNull(),
                             language = language.blankToNull(),
                             notes = notes.blankToNull(),
@@ -15174,14 +15673,14 @@ private fun QuestionnaireForm(
                         val ok = runCatching {
                             if (isEdit) {
                                 repository.queueSequence(
-                                    context, "questionnaire", editing!!.id, title.trim().ifBlank { "Interview" },
+                                    context, "questionnaire", editing!!.id, effectiveTitle(),
                                     listOf(OutboxStep("questionnaire.update", editing.id, offlineFormJson.encodeToString(interviewUpdateRequest()))),
                                     questionnaireOfflineItems()
                                 )
                                 return@runCatching
                             }
                             val request = QuestionnaireInterviewCreateRequest(
-                                title = title.trim(),
+                                title = effectiveTitle(),
                                 place = place.blankToNull(),
                                 language = language.blankToNull(),
                                 notes = notes.blankToNull(),
@@ -15203,7 +15702,7 @@ private fun QuestionnaireForm(
                             )
                             val items = questionnaireOfflineItems()
                             repository.queueOfflineEntry(context, "questionnaire", offlineFormJson.encodeToString(request),
-                                title.trim().ifBlank { "Interview" }, items)
+                                effectiveTitle(), items)
                         }.isSuccess
                         if (ok && isEdit) {
                             media.reset(); qMedia.reset(); questionAudio = emptyMap()
@@ -15253,7 +15752,7 @@ private fun QuestionnaireForm(
                             original.id
                         } else {
                             val request = QuestionnaireInterviewCreateRequest(
-                                    title = title.trim(),
+                                    title = effectiveTitle(),
                                     place = place.blankToNull(),
                                     language = language.blankToNull(),
                                     notes = notes.blankToNull(),
@@ -15271,7 +15770,7 @@ private fun QuestionnaireForm(
                                 )
                             createOrKeep(
                                 repository, context, "questionnaire", offlineFormJson.encodeToString(request),
-                                title.trim().ifBlank { "Interview" }, { questionnaireOfflineItems() }
+                                effectiveTitle(), { questionnaireOfflineItems() }
                             ) { key -> onSubmit(request, key) }
                         }
                         // Upload all recorded clips, whether keyed by question id or by section.
@@ -15622,6 +16121,7 @@ private fun QuestionnaireBuilder(
 
                         section.questions.forEachIndexed { questionIndex, question ->
                             var prompt by remember(question.id, question.prompt) { mutableStateOf(question.prompt) }
+                            var mapping by remember(question.id, question.artisanField) { mutableStateOf(question.artisanField.orEmpty()) }
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -15631,12 +16131,22 @@ private fun QuestionnaireBuilder(
                             ) {
                                 Text("${question.sortOrder}. ${question.sectionCode} ${question.prompt}", color = Muted, fontSize = 12.sp)
                                 TextInput("Prompt", prompt, minLines = 2) { prompt = it }
+                                // B8: which of the artisan's fields answers this question, so an
+                                // interview fills it from the picked artisan instead of guessing.
+                                DropdownField(
+                                    label = "Answered from the artisan's",
+                                    options = ARTISAN_FIELD_OPTIONS,
+                                    selectedValue = mapping,
+                                    placeholder = "Not filled in for them"
+                                ) { mapping = it }
                                 ActionRow {
                                     OutlinedButton(
                                         onClick = {
                                             scope.launch {
                                                 runCatching {
-                                                    repository.updateQuestionnaireQuestion(question.id, QuestionnaireQuestionUpdateRequest(prompt = prompt.trim(), isActive = true))
+                                                    // Sent only when it changed ("" clears it), so an untouched
+                                                    // mapping keeps the body a server without B8 accepts.
+                                                    repository.updateQuestionnaireQuestion(question.id, QuestionnaireQuestionUpdateRequest(prompt = prompt.trim(), isActive = true, artisanField = artisanFieldUpdate(question.artisanField, mapping)))
                                                     onRefresh()
                                                 }.onFailure { onError(it.apiErrorMessage("Unable to update question")) }
                                             }
@@ -17560,6 +18070,28 @@ private fun SaveButton(
     }
 }
 
+/**
+ * The save control of a create form (A8): the form's own save and, beside it, "Save and add another",
+ * which saves and opens the same form again with the sitting kept. [onSaveAnother] null (an edit, or
+ * a host with nowhere to re-open the form) draws the single full-width button it always was.
+ */
+@Composable
+private fun SaveButtons(
+    state: SaveState,
+    idleLabel: String,
+    onSave: () -> Unit,
+    onSaveAnother: (() -> Unit)?
+) {
+    if (onSaveAnother == null) {
+        SaveButton(state = state, idleLabel = idleLabel, onClick = onSave)
+        return
+    }
+    ActionRow {
+        SaveButton(state = state, idleLabel = idleLabel, modifier = Modifier, onClick = onSave)
+        OutlinedButton(onClick = onSaveAnother, enabled = state == SaveState.IDLE) { Text("Save and add another") }
+    }
+}
+
 /** How long the "Saved ✓" confirmation lingers before the screen returns to the dashboard. */
 private const val SAVED_CONFIRM_MS = 750L
 
@@ -17801,10 +18333,8 @@ private fun MultiNoteInput(
      * `TextInput` and `RequiredInput` have since followed, so this is no longer the exception.
      *
      * The record forms pass `dictates("notes")` / `dictates("stepNotes")` rather than the default,
-     * so the classification is readable from one place. The opt-OUT still exists for the
-     * questionnaire interview form, which is out of this work's scope by decision and whose
-     * behaviour must not change; see the comment at that call site (`MainActivity.kt:11154-11180`,
-     * the call itself at :11181).
+     * so the classification is readable from one place. The questionnaire interview form took the
+     * default too on 2026-10-17 (owner ruling C23).
      */
     dictate: Boolean = true,
     onValueChange: (String) -> Unit,

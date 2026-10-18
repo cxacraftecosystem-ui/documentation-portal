@@ -122,7 +122,22 @@ data class PendingEntry(
      * record. The entry, its body and its files are kept and shown for review, and "Send again"
      * resends the SAME body under a NEW key ([OfflineOutbox.clearFailure]).
      */
-    val needsReview: Boolean = false
+    val needsReview: Boolean = false,
+    /**
+     * WHAT THE REFUSAL NAMED, kept so "Fix and send" can open on it (B1, 2026-10-17). All defaulted,
+     * so an entry an older build refused decodes with nothing named and still opens in the editor.
+     *
+     * [failureFields] are dotted body paths (`aadhaarNumber`, `answers.3.answerText`) from a 422's
+     * `loc` or a 409's `field`; [failureCode] is the server's stable code when it sent one.
+     */
+    val failureFields: List<String> = emptyList(),
+    val failureCode: String? = null,
+    /**
+     * The record already on the server that a create clashed with — the artisan who holds this
+     * Aadhaar number — so the tray can offer "Use existing artisan" instead of a second copy.
+     */
+    val existingRecordId: String? = null,
+    val existingRecordLabel: String? = null
 )
 
 /**
@@ -251,19 +266,118 @@ object OfflineOutbox {
      * Record why the server will never accept this entry. The entry and its files are KEPT: a refusal
      * is a reason to stop retrying and tell someone, not a reason to destroy the only copy.
      */
-    suspend fun markFailure(context: Context, entryId: String, reason: String) = withContext(Dispatchers.IO) {
+    suspend fun markFailure(
+        context: Context,
+        entryId: String,
+        reason: String,
+        fields: List<String> = emptyList(),
+        code: String? = null,
+        existingId: String? = null,
+        existingLabel: String? = null
+    ) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val current = read(context)
             if (current.any { it.id == entryId }) {
                 write(
                     context,
                     current.map {
-                        if (it.id == entryId) it.copy(failure = reason, failedAt = Instant.now().toString()) else it
+                        if (it.id == entryId) {
+                            it.copy(
+                                failure = reason,
+                                failedAt = Instant.now().toString(),
+                                failureFields = fields,
+                                failureCode = code,
+                                existingRecordId = existingId,
+                                existingRecordLabel = existingLabel
+                            )
+                        } else it
                     }
                 )
             }
         }
     }
+
+    /**
+     * "FIX AND SEND" (B1): put the corrected body in place of the refused one and let the next pass
+     * send it. A refused body reached nobody, so a create gets a NEW Idempotency-Key — the server
+     * fingerprints the bytes, and the old key with a changed body would be refused as "a different
+     * request". A sequence's refused STEP is the body corrected; the steps before it already landed.
+     */
+    suspend fun fixAndResend(context: Context, entryId: String, payloadJson: String) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val current = read(context)
+            if (current.none { it.id == entryId }) return@withLock false
+            write(context, current.map { entry ->
+                if (entry.id != entryId) entry
+                else {
+                    val fixed = if (entry.kind == OutboxKind.SEQUENCE) {
+                        entry.copy(steps = entry.steps.mapIndexed { i, step ->
+                            if (i == entry.completedSteps) step.copy(payloadJson = payloadJson) else step
+                        })
+                    } else {
+                        entry.copy(payloadJson = payloadJson)
+                    }
+                    fixed.cleared().copy(
+                        idempotencyKey = if (entry.kind == OutboxKind.CREATE || entry.kind == OutboxKind.ACTION) {
+                            UUID.randomUUID().toString()
+                        } else entry.idempotencyKey
+                    )
+                }
+            })
+            true
+        }
+    }
+
+    /**
+     * "USE EXISTING ARTISAN" (B1): the register already has this artisan, so this copy of the form
+     * is dropped and its files are attached to the artisan who is there. With no files there is
+     * nothing left to send, and the entry goes. Returns false when the entry is not a clash.
+     */
+    suspend fun useExisting(context: Context, entryId: String): Boolean = withContext(Dispatchers.IO) {
+        var dropped: PendingEntry? = null
+        val ok = mutex.withLock {
+            val current = read(context)
+            val entry = current.firstOrNull { it.id == entryId } ?: return@withLock false
+            val target = entry.existingRecordId?.takeIf { it.isNotBlank() } ?: return@withLock false
+            if (entry.media.isEmpty()) {
+                write(context, current.filterNot { it.id == entryId })
+                dropped = entry
+            } else {
+                write(context, current.map {
+                    if (it.id != entryId) it
+                    else it.cleared().copy(kind = OutboxKind.ATTACH, targetId = target, createdId = target, payloadJson = "")
+                })
+            }
+            true
+        }
+        dropped?.media?.forEach { runCatching { File(it.localPath).delete() } }
+        ok
+    }
+
+    /**
+     * DISCARD, which only a person does, after a confirmation that says what goes (B1). Removes the
+     * entry and deletes this phone's copies of its files. Nothing automatic ever calls this.
+     */
+    suspend fun discard(context: Context, entryId: String): Boolean = withContext(Dispatchers.IO) {
+        val entry = mutex.withLock {
+            val current = read(context)
+            val found = current.firstOrNull { it.id == entryId } ?: return@withLock null
+            write(context, current.filterNot { it.id == entryId })
+            found
+        } ?: return@withContext false
+        entry.media.forEach { runCatching { File(it.localPath).delete() } }
+        true
+    }
+
+    private fun PendingEntry.cleared(): PendingEntry = copy(
+        failure = null,
+        failedAt = null,
+        needsReview = false,
+        failureFields = emptyList(),
+        failureCode = null,
+        existingRecordId = null,
+        existingRecordLabel = null
+    )
 
     /**
      * Forget the server's refusal so the next sync pass tries [entryId] again — for after the cause
@@ -275,10 +389,7 @@ object OfflineOutbox {
             if (current.any { it.id == entryId && it.failure != null }) {
                 write(context, current.map { entry ->
                     if (entry.id != entryId) entry
-                    else entry.copy(
-                        failure = null,
-                        failedAt = null,
-                        needsReview = false,
+                    else entry.cleared().copy(
                         // A key the server says belongs to a different request can never succeed
                         // again; the researcher reviewed it and chose to send, so it gets a new one.
                         idempotencyKey = if (entry.needsReview) java.util.UUID.randomUUID().toString() else entry.idempotencyKey

@@ -639,7 +639,7 @@ private val WALKTHROUGH_FIELDS: Map<String, List<String>> = mapOf(
         "Location (GPS fix or map pin)",
     ),
     "questionnaire" to listOf(
-        "Interview title (required)",
+        "Interview title (optional)",
         "Place",
         "Language",
         "Workshop",
