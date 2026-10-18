@@ -51,6 +51,7 @@ flowchart TD
 | [ARCHITECTURE.md](ARCHITECTURE.md) | What are the pieces, how does a request travel, where is the latency, how does transcription fail over, how does the offline outbox replay? |
 | [DATA_MODEL.md](DATA_MODEL.md) | What is stored, how does it relate, and which four parts of the schema are not what they look like? |
 | [PERMISSIONS.md](PERMISSIONS.md) | The six-tier ladder, the full capability matrix, the review state machine, the late-submission gate, and the three access systems layered on top |
+| [COVERAGE_MAP.md](COVERAGE_MAP.md) | The coverage view of `/map`: what each district is shaded by, the gaps, the Survey of India outline and the shape checks that hold it, LGD codes resolved at read time, unmatched places and their aliases, and the aggregate feed the designer portal reads |
 | [MEDIA_PIPELINE.md](MEDIA_PIPELINE.md) | Every tactic both clients use to get a photograph off a phone on a bad network without losing it |
 | [SECURITY.md](SECURITY.md) | Transport, secrets, PII and Aadhaar handling, the authorisation model's security properties, and the open risk register |
 

@@ -274,6 +274,7 @@ model User {
   twoFactorChallenges TwoFactorChallenge[] @relation("TwoFactorChallengeUser")
   passwordResetTokens       PasswordResetToken[] @relation("PasswordResetTokenUser")
   passwordResetTokensIssued PasswordResetToken[] @relation("PasswordResetTokenIssuedBy")
+  geoAliases                GeoAlias[]           @relation("GeoAliasCreatedBy")
 
   @@index([role])
 }
@@ -668,6 +669,25 @@ model CrossPortalAccessLog {
   @@index([artisanId, createdAt])
   @@index([remoteUserId, createdAt])
   @@index([createdAt])
+}
+
+/// Coverage map: an administrator's mapping of one free-text place spelling to an LGD code.
+/// ``rawStateKey`` / ``rawDistrictKey`` are the raw text normalised (``cross_portal_codes.normalise``),
+/// so one row answers every record written that way. ``districtLgd`` null maps a state spelling only.
+/// Read when the map is drawn; no record table stores an LGD code. Each write is a RecordRevision.
+model GeoAlias {
+  id             String   @id @default(cuid())
+  rawStateKey    String
+  rawDistrictKey String   @default("")
+  stateLgd       Int
+  districtLgd    Int?
+  createdById    String?
+  createdAt      DateTime @default(now())
+
+  createdBy User? @relation("GeoAliasCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([rawStateKey, rawDistrictKey])
+  @@index([createdById])
 }
 
 /// TWO ANSWERS TO TWO DIFFERENT QUESTIONS, and reading one as the other is what this model was

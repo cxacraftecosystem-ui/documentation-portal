@@ -469,6 +469,319 @@ def encode_android(lines: list[list[Point]], bounds: tuple[float, float, float, 
 
 
 # ---------------------------------------------------------------------------------------------
+# --shapes: district POLYGONS for the coverage map's choropleth (web only)
+# ---------------------------------------------------------------------------------------------
+#
+# The Places view draws pins over borders and needs no polygons; the Coverage view fills districts,
+# so it needs each district's own ring. These are emitted SEPARATELY from the border files and only
+# by ``--shapes``, so the border assets above are never rewritten as a side effect.
+#
+# THE NATIONAL OUTLINE IS STILL NOT RE-EMITTED. The web draws ``indiaGeometry.ts`` as a neutral base
+# fill and clips every district fill to it, so a part of Jammu & Kashmir or Ladakh with no district
+# polygon still reads as India in the "no data" tone. The guard below holds the polygons to that
+# outline: no vertex more than ``SHAPES_OUTSIDE_TOLERANCE`` degrees outside it, and the three
+# depiction points either inside the right union territory's polygons or inside the base fill only.
+#
+# Polygons come from the same district source as the borders. Survey of India's free administrative
+# boundary download sits behind a registered login and could not be fetched by this script; when it
+# can, point ``DISTRICTS_URL`` at it and re-run — the manifest records the SHA-256 of whatever source
+# was used, so a reader can tell which one the committed file came from.
+
+SHAPES_TOLERANCE = 0.01
+SHAPES_OUTSIDE_TOLERANCE = 0.03
+SHAPES_DEPICTION = [
+    # (name, lon, lat, the state whose polygon may hold it — anything else must leave it to the base fill)
+    ("Gilgit", 74.31, 35.92, "Ladakh"),
+    ("Aksai Chin", 79.60, 35.20, "Ladakh"),
+    ("Muzaffarabad", 73.47, 34.36, "Jammu and Kashmir"),
+]
+OUTLINE_TS = ROOT / "frontend" / "components" / "map" / "indiaGeometry.ts"
+SHAPES_WEB = ROOT / "frontend" / "public" / "boundaries" / "district-shapes.json"
+CENTROIDS = ROOT / "backend" / "app" / "data" / "boundaries" / "district-centroids.json"
+SHAPES_BACKEND_MANIFEST = ROOT / "backend" / "app" / "data" / "boundaries" / "shapes-manifest.json"
+
+
+def _decode_stream(payload: str, *, hole_flag: bool) -> list[tuple[bool, list[Point]]]:
+    """The polyline scheme both decoders in the web client read. ``(is_hole, points)`` per record."""
+    values = {ch: i for i, ch in enumerate(ALPHABET)}
+    out: list[tuple[bool, list[Point]]] = []
+    index = 0
+    x = y = 0
+
+    def read() -> int:
+        nonlocal index
+        shift = result = 0
+        while True:
+            value = values[payload[index]]
+            index += 1
+            result |= (value & 0x1F) << shift
+            shift += 5
+            if value < 0x20:
+                break
+        return ~(result >> 1) if result & 1 else result >> 1
+
+    while index < len(payload):
+        count = read()
+        if count <= 0:
+            break
+        hole = bool(read()) if hole_flag else False
+        points: list[Point] = []
+        for _ in range(count):
+            x += read()
+            y += read()
+            points.append((x / SCALE, y / SCALE))
+        out.append((hole, points))
+    return out
+
+
+def outline_rings() -> list[list[Point]]:
+    """The national outline exactly as the web draws it, read from ``indiaGeometry.ts``."""
+    text = OUTLINE_TS.read_text(encoding="utf-8")
+    body = text.split("const PAYLOAD =", 1)[1].split(";", 1)[0]
+    payload = "".join(part for part in body.split('"')[1::2])
+    rings = []
+    for _hole, points in _decode_stream(payload, hole_flag=True):
+        rings.append(points + [points[0]])
+    return rings
+
+
+def decode_ring(encoded: str) -> list[Point]:
+    """One ring of ``district-shapes.json`` back to coordinates (closed)."""
+    records = _decode_stream(encoded, hole_flag=False)
+    points = records[0][1] if records else []
+    return points + [points[0]] if points else []
+
+
+class EdgeIndex:
+    """Edges of a set of rings, bucketed in latitude bands, for even-odd point tests and distances."""
+
+    BAND = 0.1
+
+    def __init__(self, rings: list[list[Point]]) -> None:
+        self.bands: dict[int, list[tuple[float, float, float, float]]] = collections.defaultdict(list)
+        for ring in rings:
+            for i in range(len(ring) - 1):
+                (x1, y1), (x2, y2) = ring[i], ring[i + 1]
+                if (x1, y1) == (x2, y2):
+                    continue
+                for band in range(math.floor(min(y1, y2) / self.BAND), math.floor(max(y1, y2) / self.BAND) + 1):
+                    self.bands[band].append((x1, y1, x2, y2))
+
+    def contains(self, x: float, y: float) -> bool:
+        inside = False
+        for x1, y1, x2, y2 in self.bands.get(math.floor(y / self.BAND), ()):
+            if (y1 > y) != (y2 > y) and x < x1 + (y - y1) / (y2 - y1) * (x2 - x1):
+                inside = not inside
+        return inside
+
+    def distance(self, x: float, y: float, limit: float) -> float:
+        best = math.inf
+        seen: set = set()
+        for band in range(math.floor((y - limit) / self.BAND), math.floor((y + limit) / self.BAND) + 1):
+            for edge in self.bands.get(band, ()):
+                if edge in seen:
+                    continue
+                seen.add(edge)
+                x1, y1, x2, y2 = edge
+                dx, dy = x2 - x1, y2 - y1
+                t = max(0.0, min(1.0, ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy)))
+                best = min(best, math.hypot(x - (x1 + t * dx), y - (y1 + t * dy)))
+        return best
+
+
+def representative_point(rings: list[list[Point]]) -> Point:
+    """A point guaranteed inside the (even-odd) polygon: the middle of its widest horizontal chord.
+
+    A plain centroid falls outside a crescent or a district split by a river, and a marker drawn at
+    it would sit in the neighbour. Scanning a set of horizontal lines and taking the midpoint of the
+    widest interior run is the simple form of a pole of inaccessibility and is always inside.
+    """
+    ys = [p[1] for ring in rings for p in ring]
+    lo, hi = min(ys), max(ys)
+    best: tuple[float, Point] | None = None
+    steps = 64
+    for k in range(1, steps):
+        y = lo + (hi - lo) * k / steps
+        xs: list[float] = []
+        for ring in rings:
+            for i in range(len(ring) - 1):
+                (x1, y1), (x2, y2) = ring[i], ring[i + 1]
+                if (y1 > y) != (y2 > y):
+                    xs.append(x1 + (y - y1) / (y2 - y1) * (x2 - x1))
+        xs.sort()
+        for a, b in zip(xs[0::2], xs[1::2]):
+            if best is None or b - a > best[0]:
+                best = (b - a, ((a + b) / 2, y))
+    if best is None:
+        xs_all = [p[0] for ring in rings for p in ring]
+        return (sum(xs_all) / len(xs_all), sum(ys) / len(ys))
+    return best[1]
+
+
+def _shape_ring(ring: list, tolerance: float) -> list[Point] | None:
+    points = [(float(p[0]), float(p[1])) for p in ring]
+    if len(points) < 4:
+        return None
+    simplified = simplify(points, tolerance)
+    if simplified[0] != simplified[-1]:
+        simplified.append(simplified[0])
+    if len({(round(x * SCALE), round(y * SCALE)) for x, y in simplified}) >= 3:
+        return simplified
+    # Narrower than the tolerance: keep its bounding box, the outline's own rule for such rings.
+    xs, ys = [p[0] for p in points], [p[1] for p in points]
+    if max(xs) - min(xs) < 1 / SCALE and max(ys) - min(ys) < 1 / SCALE:
+        return None
+    return [(min(xs), min(ys)), (max(xs), min(ys)), (max(xs), max(ys)), (min(xs), max(ys)), (min(xs), min(ys))]
+
+
+def encode_ring(ring: list[Point]) -> str:
+    """One closed ring as its own polyline record (the closing point is implied, as in the outline).
+
+    Consecutive points that quantise to the same grid cell are dropped: they cost characters and draw
+    nothing.
+    """
+    kept: list[Point] = []
+    last = None
+    for x, y in ring[:-1]:
+        cell = (round(x * SCALE), round(y * SCALE))
+        if cell != last:
+            kept.append((x, y))
+            last = cell
+    return encode_web([kept])
+
+
+def _outline_shape():  # noqa: ANN202 - a shapely geometry; shapely is a build-only dependency
+    """The national outline as one shapely geometry, even-odd like the SVG draws it."""
+    from shapely.geometry import Polygon as ShapelyPolygon
+
+    shape = None
+    for ring in outline_rings():
+        piece = ShapelyPolygon(ring).buffer(0)
+        shape = piece if shape is None else shape.symmetric_difference(piece)
+    return shape
+
+
+def _clipped_rings(feature: dict, outline, tolerance: float) -> list[list[Point]]:  # noqa: ANN001
+    """The district clipped to the national outline, then simplified with its topology kept.
+
+    THE CLIP IS WHAT KEEPS THE DEPICTION. The district source draws parts of the northern frontier
+    differently from the verified outline (Leh reaches up to ~0.36 degrees past it near Aksai Chin);
+    clipped here, no shipped district polygon can show India's extent other than as the outline does,
+    and the browser's ``clipPath`` becomes a second guard rather than the only one.
+    """
+    from shapely.geometry import shape as to_shape
+
+    geometry = to_shape(feature["geometry"]).buffer(0).intersection(outline)
+    geometry = geometry.simplify(tolerance, preserve_topology=True)
+    pieces = getattr(geometry, "geoms", [geometry])
+    rings: list[list[Point]] = []
+    for piece in pieces:
+        if piece.geom_type != "Polygon" or piece.is_empty:
+            continue
+        for ring in [piece.exterior, *piece.interiors]:
+            shaped = _shape_ring([list(p) for p in ring.coords], 0.0)
+            if shaped:
+                rings.append(shaped)
+    return rings
+
+
+def build_shapes(resolved: dict, tolerance: float) -> tuple[list[dict], dict[str, list[float]]]:
+    from app.services import lgd
+
+    try:
+        outline = _outline_shape()
+    except ImportError:
+        raise SystemExit("--shapes needs shapely (pip install shapely) — a build-time tool only") from None
+    shapes: list[dict] = []
+    centroids: dict[str, list[float]] = {}
+    for (state, district), feature in resolved.items():
+        code = lgd.district_lgd(state, district)
+        if code is None:
+            continue
+        rings = _clipped_rings(feature, outline, tolerance)
+        if not rings:
+            continue
+        encoded = [encode_ring(ring) for ring in rings]
+        decoded = [decode_ring(e) for e in encoded]
+        centre = representative_point(decoded)
+        centroid = [round(centre[0], 3), round(centre[1], 3)]
+        index = EdgeIndex(decoded)
+        if not index.contains(centroid[0], centroid[1]):
+            centroid = [round(centre[0], 4), round(centre[1], 4)]
+        shapes.append(
+            {"lgd": code, "stateLgd": lgd.state_lgd(state), "rings": encoded, "centroid": centroid}
+        )
+        centroids[str(code)] = centroid
+    shapes.sort(key=lambda row: row["lgd"])
+    return shapes, dict(sorted(centroids.items(), key=lambda item: int(item[0])))
+
+
+def verify_shapes(shapes: list[dict]) -> list[str]:
+    """Every check the coverage map's legal and visual correctness rests on. Empty when all pass."""
+    from app.services import lgd
+
+    problems: list[str] = []
+    outline = EdgeIndex(outline_rings())
+    reg = lgd.register()
+    decoded: dict[int, EdgeIndex] = {}
+    for row in shapes:
+        rings = [decode_ring(e) for e in row["rings"]]
+        if reg.district_row.get(row["lgd"], (None,))[0] != row["stateLgd"]:
+            problems.append(f"{row['lgd']}: not a district of state {row['stateLgd']} in the register")
+        index = EdgeIndex(rings)
+        decoded[row["lgd"]] = index
+        if not index.contains(*row["centroid"]):
+            problems.append(f"{row['lgd']}: centroid {row['centroid']} is outside its polygon")
+        for ring in rings:
+            for x, y in ring:
+                if not outline.contains(x, y):
+                    gap = outline.distance(x, y, SHAPES_OUTSIDE_TOLERANCE * 2)
+                    if gap > SHAPES_OUTSIDE_TOLERANCE:
+                        problems.append(f"{row['lgd']}: vertex {x},{y} is {gap:.3f} deg outside India")
+    for name, x, y, allowed in SHAPES_DEPICTION:
+        if not outline.contains(x, y):
+            problems.append(f"{name}: outside the national outline")
+        for row in shapes:
+            if decoded[row["lgd"]].contains(x, y) and lgd.state_name(row["stateLgd"]) != allowed:
+                problems.append(f"{name}: inside district {row['lgd']} of {lgd.state_name(row['stateLgd'])}")
+    return problems
+
+
+def write_shapes(resolved: dict, source_sha256: str, tolerance: float) -> int:
+    import hashlib
+
+    print(f"building district shapes at {tolerance} degrees")
+    shapes, centroids = build_shapes(resolved, tolerance)
+    problems = verify_shapes(shapes)
+    for problem in problems[:40]:
+        print("  FAIL", problem)
+    if problems:
+        print(f"refusing to write: {len(problems)} shape checks failed")
+        return 1
+    body = json.dumps(shapes, separators=(",", ":"), ensure_ascii=False)
+    version = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
+    document = {
+        "version": version,
+        "source": DISTRICTS_URL,
+        "asOf": __import__("datetime").date.today().isoformat(),
+        "scale": SCALE,
+        "districts": shapes,
+    }
+    raw = json.dumps(document, separators=(",", ":"), ensure_ascii=False)
+    SHAPES_WEB.write_text(raw + "\n", encoding="utf-8", newline="\n")
+    CENTROIDS.write_text(json.dumps(centroids, separators=(",", ":")) + "\n", encoding="utf-8", newline="\n")
+    extra = {"shapesVersion": version, "shapesSourceSha256": source_sha256, "shapesBytes": len(raw) + 1,
+             "shapesDistricts": len(shapes)}
+    SHAPES_BACKEND_MANIFEST.write_text(json.dumps(extra, indent=1) + "\n", encoding="utf-8", newline="\n")
+    manifest_path = ROOT / "frontend" / "public" / "boundaries" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.update(extra)
+    manifest_path.write_text(json.dumps(manifest, indent=1), encoding="utf-8")
+    print(f"  wrote {len(shapes)} district shapes, {len(raw) / 1024:.1f} KiB, version {version}")
+    return 0
+
+
+# ---------------------------------------------------------------------------------------------
 
 
 def main() -> int:
@@ -480,6 +793,12 @@ def main() -> int:
     parser.add_argument("--state-tolerance", type=float, default=0.010)
     parser.add_argument("--district-tolerance", type=float, default=0.014)
     parser.add_argument("--dry-run", action="store_true", help="measure only, write nothing")
+    parser.add_argument(
+        "--shapes",
+        action="store_true",
+        help="write ONLY the coverage map's district polygons and centroids (borders untouched)",
+    )
+    parser.add_argument("--shapes-tolerance", type=float, default=SHAPES_TOLERANCE)
     args = parser.parse_args()
 
     print("sources")
@@ -487,12 +806,42 @@ def main() -> int:
     print(f"  districts {len(districts)}   states {len(states)}   country {len(country)}")
 
     print("attributing districts (register decides, geometry vetoes)")
+    if args.shapes:
+        # Attribution is the slow step (minutes) and depends only on the two source files, so the
+        # shapes pass reuses a previous run's answer for the same bytes.
+        import hashlib
+
+        cache_dir = pathlib.Path(args.cache)
+        stamp = hashlib.sha256(
+            (cache_dir / "districts.geojson").read_bytes() + (cache_dir / "states.geojson").read_bytes()
+        ).hexdigest()[:16]
+        memo = cache_dir / f"attribution-{stamp}.json"
+        if memo.exists():
+            index = json.loads(memo.read_text(encoding="utf-8"))
+            resolved = {tuple(key.split("|", 1)): districts[i] for key, i in index.items()}
+            print(f"  reused {memo.name}: {len(resolved)} districts")
+            return write_shapes(
+                resolved,
+                hashlib.sha256((cache_dir / "districts.geojson").read_bytes()).hexdigest(),
+                args.shapes_tolerance,
+            )
     resolved, owner_state, vetoed, unresolved = attribute(districts, states)
+    if args.shapes:
+        positions = {id(feature): i for i, feature in enumerate(districts)}
+        memo.write_text(
+            json.dumps({f"{s}|{d}": positions[id(f)] for (s, d), f in resolved.items()}), encoding="utf-8"
+        )
     total = sum(len(v) for v in DISTRICTS_BY_STATE.values())
     print(f"  joined {len(resolved)}/{total} = {100 * len(resolved) / total:.1f}%")
     print(f"  vetoed as a cross-state name collision: {len(vetoed)} {vetoed}")
     print(f"  polygons with no canonical district: {unresolved}")
     print(f"  polygons contributing borders (all of them): {len(owner_state)}/{len(districts)}")
+
+    if args.shapes:
+        import hashlib
+
+        source = pathlib.Path(args.cache) / "districts.geojson"
+        return write_shapes(resolved, hashlib.sha256(source.read_bytes()).hexdigest(), args.shapes_tolerance)
 
     print("classifying edges")
     owners, frontier = classify_edges(owner_state)

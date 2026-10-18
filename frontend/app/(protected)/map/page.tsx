@@ -54,6 +54,7 @@ import { useRevealRow } from "@/components/hooks/useRevealRow";
 import { IndiaMap } from "@/components/map/IndiaMap";
 import { MapPlaceList } from "@/components/map/MapPlaceList";
 import { MapPointPanel } from "@/components/map/MapPointPanel";
+import { CoverageView } from "@/components/map/coverage/CoverageView";
 import { fetchMapPoints, type MapQuery } from "@/components/map/mapApi";
 import {
   ADMIN_LEVELS,
@@ -116,7 +117,55 @@ const LEVEL_COPY: Record<AdminLevel, { label: string; hint: string }> = {
   }
 };
 
+/** Places | Coverage — two readings of one corpus, chosen by `?view=coverage`. */
+function ViewSwitch({ view }: { view: "places" | "coverage" }) {
+  const options: Array<{ value: "places" | "coverage"; label: string; href: string }> = [
+    { value: "places", label: "Places", href: "/map" },
+    { value: "coverage", label: "Coverage", href: "/map?view=coverage" }
+  ];
+  return (
+    <div
+      role="group"
+      aria-label="Map view"
+      className="mb-4 inline-flex w-fit max-w-full overflow-hidden rounded-md border border-line-200 bg-card"
+    >
+      {options.map((option) => (
+        <Link
+          key={option.value}
+          href={option.href}
+          aria-current={view === option.value ? "page" : undefined}
+          className={`px-4 py-2 text-sm font-medium transition-colors ${
+            view === option.value
+              ? "bg-purple-700 text-white"
+              : "text-ink-700 hover:bg-purple-50 hover:text-purple-700"
+          }`}
+        >
+          {option.label}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
 export default function MapPage() {
+  const searchParams = useSearchParams();
+  if (searchParams.get("view") === "coverage") {
+    return (
+      <div>
+        <PageHeader
+          title="Where the work comes from"
+          description="Which districts the records reach, and which they do not yet."
+          icon={<MapPin className="h-5 w-5" aria-hidden />}
+        />
+        <ViewSwitch view="coverage" />
+        <CoverageView />
+      </div>
+    );
+  }
+  return <PlacesView viewSwitch={<ViewSwitch view="places" />} />;
+}
+
+function PlacesView({ viewSwitch }: { viewSwitch: React.ReactNode }) {
   const searchParams = useSearchParams();
 
   // The URL SEEDS the state, exactly as it does on the Search page, so a link from a record's
@@ -419,6 +468,8 @@ export default function MapPage() {
           </Link>
         }
       />
+
+      {viewSwitch}
 
       <div className="mb-4 grid gap-3">
         <SearchInput

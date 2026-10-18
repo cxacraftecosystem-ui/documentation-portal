@@ -16,6 +16,7 @@ from app.api.routes import (
     datasets,
     export,
     feedback,
+    map_coverage,
     map_points,
     media,
     preferences,
@@ -59,6 +60,7 @@ api_router.include_router(questionnaire.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(search.router)
 api_router.include_router(map_points.router)
+api_router.include_router(map_coverage.router)
 api_router.include_router(review.router)
 api_router.include_router(export.router)
 api_router.include_router(data_browser.router)

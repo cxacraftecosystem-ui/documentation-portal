@@ -377,6 +377,14 @@ class Settings(BaseSettings):
         default=None, alias="CROSS_PORTAL_AADHAAR_HMAC_KEY"
     )
 
+    # ── CROSS-PORTAL COVERAGE FEED (docs/ENVIRONMENT.md) ───────────────────────────────────────
+    # OFF BY DEFAULT. On, and with CROSS_PORTAL_TOKEN set, the designer portal's server may ask
+    # GET /cross-portal/peer/coverage for per-district AGGREGATE counts (no ids, no names), to draw
+    # beside its own on the ministry coverage map. Independent of the identity flag above.
+    cross_portal_coverage_enabled: bool = Field(
+        default=False, alias="CROSS_PORTAL_COVERAGE_ENABLED"
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
