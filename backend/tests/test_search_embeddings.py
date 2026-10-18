@@ -73,6 +73,15 @@ def fake_embed(monkeypatch):
     return calls
 
 
+@pytest.fixture(autouse=True)
+def ai_master_switch(monkeypatch):
+    """The AI master switch on (``AI_FEATURES_ENABLED``) and no back-off left from another test."""
+    monkeypatch.setattr(search_embeddings, "ai_master_on", lambda: True)
+    search_indexer.reset_backoff()
+    yield
+    search_indexer.reset_backoff()
+
+
 async def test_flag_off_means_text_mode_and_no_call(fake_embed):
     off = _settings(search_embeddings_enabled=False)
     assert await search_embeddings.available(off) is False
@@ -80,6 +89,13 @@ async def test_flag_off_means_text_mode_and_no_call(fake_embed):
     assert fake_embed == []
     no_key = _settings(openai_api_key=None)
     assert await search_embeddings.available(no_key) is False
+
+
+async def test_the_ai_master_switch_off_means_text_mode(fake_embed, monkeypatch):
+    monkeypatch.setattr(search_embeddings, "ai_master_on", lambda: False)
+    assert await search_embeddings.available(_settings()) is False
+    assert await search_indexer.embed_pending(settings=_settings()) == 0
+    assert fake_embed == []
 
 
 async def test_no_vector_column_means_text_mode(fake_embed, monkeypatch):
@@ -166,6 +182,91 @@ async def test_the_query_embedding_is_cached(fake_embed):
     first = await search_embeddings.embed_query("Indigo ", settings=_settings())
     again = await search_embeddings.embed_query("indigo", settings=_settings())
     assert first == again and len(fake_embed) == 1
+
+
+async def _two_pending(world) -> list[dict[str, Any]]:
+    """Every document embedded, then two of them changed again (embeddedHash cleared)."""
+    from app.core.db import db
+
+    async def ok(texts, *, settings=None, timeout=30.0):
+        return [_unit(1) for _ in texts]
+
+    original = search_embeddings.embed
+    search_embeddings.embed = ok
+    try:
+        while await search_indexer.embed_pending(batch=200, settings=_settings()):
+            pass
+    finally:
+        search_embeddings.embed = original
+    rows = await db.query_raw(
+        """SELECT "id", "title" FROM "SearchDocument"
+            WHERE ("entityType" = 'crafts' AND "entityId" = $1)
+               OR ("entityType" = 'products' AND "entityId" = $2)""",
+        world.other_craft.id,
+        world.product_free.id,
+    )
+    assert len(rows) == 2
+    for row in rows:
+        await db.execute_raw(
+            'UPDATE "SearchDocument" SET "embeddedHash" = NULL WHERE "id" = $1', row["id"]
+        )
+    return rows
+
+
+@needs_search_db
+async def test_one_refused_document_is_marked_and_stops_blocking(world, monkeypatch):
+    from app.core.db import db
+
+    if not world.has_vector:
+        pytest.skip("pgvector is not installed on this database")
+    rows = await _two_pending(world)
+    poison = str(rows[0]["title"])
+    calls: list[list[str]] = []
+
+    async def picky(texts, *, settings=None, timeout=30.0):
+        calls.append(list(texts))
+        if any(poison in t for t in texts):
+            raise search_embeddings.EmbeddingError("gemini embeddings answered 400")
+        return [_unit(2) for _ in texts]
+
+    monkeypatch.setattr(search_embeddings, "embed", picky)
+    assert await search_indexer.embed_pending(settings=_settings()) == 1
+    marked = await db.query_raw(
+        'SELECT "embeddedHash", "contentHash" FROM "SearchDocument" WHERE "id" = $1',
+        rows[0]["id"],
+    )
+    assert marked[0]["embeddedHash"] == "failed:" + marked[0]["contentHash"]
+    calls.clear()
+    # The refused document no longer comes back, so it costs nothing until its text changes.
+    assert await search_indexer.embed_pending(settings=_settings()) == 0
+    assert calls == []
+
+
+@needs_search_db
+async def test_a_provider_outage_backs_off_without_marking(world, monkeypatch):
+    from app.core.db import db
+
+    if not world.has_vector:
+        pytest.skip("pgvector is not installed on this database")
+    rows = await _two_pending(world)
+    calls: list[list[str]] = []
+
+    async def down(texts, *, settings=None, timeout=30.0):
+        calls.append(list(texts))
+        raise search_embeddings.EmbeddingError("openai embeddings answered 503")
+
+    monkeypatch.setattr(search_embeddings, "embed", down)
+    assert await search_indexer.embed_pending(settings=_settings()) == 0
+    assert len(calls) == 3  # the batch, then each document once
+    assert await search_indexer.embed_pending(settings=_settings()) == 0
+    assert len(calls) == 3  # backing off: no call at all
+    left = await db.query_raw(
+        """SELECT count(*)::int AS n FROM "SearchDocument"
+            WHERE "id" IN ($1, $2) AND "embeddedHash" IS NULL""",
+        rows[0]["id"],
+        rows[1]["id"],
+    )
+    assert left[0]["n"] == 2  # an outage marks nothing
 
 
 def test_vector_literal_is_pgvector_text():

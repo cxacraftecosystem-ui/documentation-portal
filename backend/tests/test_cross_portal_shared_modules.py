@@ -1,7 +1,7 @@
-"""The three cross-portal modules both portals carry byte for byte (docs/SEARCH.md).
+"""The modules both portals carry byte for byte (docs/SEARCH.md).
 
-``services/cross_portal.py``, ``services/cross_portal_client.py`` and ``services/cross_portal_peer.py``
-are the same files in the designer portal and the Field Repository; a change to one is a change to
+``services/cross_portal.py``, ``services/cross_portal_client.py``, ``services/cross_portal_peer.py``
+and ``services/search_embeddings.py`` are the same files in the designer portal and the Field Repository; a change to one is a change to
 both. Point ``CROSS_PORTAL_PEER_REPO`` at a checkout of the other repository to compare them (line
 endings normalised, as git stores them); without it the comparison skips and only the local rules run.
 """
@@ -13,7 +13,12 @@ from pathlib import Path
 
 import pytest
 
-SHARED = ("cross_portal.py", "cross_portal_client.py", "cross_portal_peer.py")
+SHARED = (
+    "cross_portal.py",
+    "cross_portal_client.py",
+    "cross_portal_peer.py",
+    "search_embeddings.py",
+)
 HERE = Path(__file__).resolve().parents[1] / "app" / "services"
 
 
@@ -39,5 +44,6 @@ def test_the_shared_module_names_no_portal_specific_module(name):
         if line.startswith(("from app.", "import app.")):
             assert line.split()[1] in {
                 "app.core.config",
+                "app.core.db",
                 "app.services",
             }, line

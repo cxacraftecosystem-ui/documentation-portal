@@ -11,6 +11,8 @@ each test empties it first; it holds nothing a test database needs.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from search_support import consent, document, index_world, needs_search_db, new_stamp, seed
 
@@ -169,3 +171,86 @@ async def test_reindex_all_queues_one_type(world):
     with pytest.raises(ValueError):
         await search_indexer.reindex_all("designWorkshops")
     await _clear_queue()
+
+
+async def test_a_drain_keeps_what_it_read_until_it_has_built_it(world, monkeypatch):
+
+    await _clear_queue()
+    await search_indexer.enqueue("crafts", world.craft.id)
+
+    async def dies(*_a, **_k):
+        raise asyncio.CancelledError  # the worker killed mid-batch
+
+    monkeypatch.setattr(search_indexer, "index_one", dies)
+    with pytest.raises(asyncio.CancelledError):
+        await search_indexer.drain()
+    assert ("crafts", world.craft.id) in await _queued()
+    monkeypatch.undo()
+    await _drain_all()
+    assert await _queued() == set()
+
+
+async def test_a_failed_build_is_queued_again_and_the_rest_cleared(world, monkeypatch):
+
+    await _clear_queue()
+    await search_indexer.enqueue("crafts", world.craft.id)
+    await search_indexer.enqueue("crafts", world.other_craft.id)
+    real = search_indexer.index_one
+
+    async def one_fails(entity_type, entity_id):
+        if entity_id == world.craft.id:
+            raise RuntimeError("build failed")
+        return await real(entity_type, entity_id)
+
+    monkeypatch.setattr(search_indexer, "index_one", one_fails)
+    assert await search_indexer.drain() == 2
+    assert await _queued() == {("crafts", world.craft.id)}
+    monkeypatch.undo()
+    await _drain_all()
+
+
+async def test_compaction_keeps_one_row_per_record(world):
+    from app.core.db import db
+
+    await _clear_queue()
+    for _ in range(3):
+        await search_indexer.enqueue("crafts", world.craft.id)
+    await search_indexer.enqueue("tools", world.tool.id)
+    assert await search_indexer.compact_queue() == 2
+    rows = await db.query_raw('SELECT count(*)::int AS n FROM "SearchIndexQueue"')
+    assert rows[0]["n"] == 2
+    assert await _queued() == {("crafts", world.craft.id), ("tools", world.tool.id)}
+    await _clear_queue()
+
+
+async def test_a_file_on_a_product_follows_the_products_artisan(world):
+    from app.core.db import db
+
+    await _clear_queue()
+    media = await db.mediafile.create(
+        data={
+            "originalFilename": f"product-photo-{world.stamp}.jpg",
+            "objectKey": f"search/{world.stamp}/product-photo.jpg",
+            "mediaType": "IMAGE",
+            "mimeType": "image/jpeg",
+            "sizeBytes": 2048,
+            "bucket": "test-bucket",
+            "uploadedById": world.professor.id,
+            "productId": world.product_title.id,
+        }
+    )
+    try:
+        await _drain_all()
+        assert (await document("media", media.id))["shareable"] is True
+        # The product moves to an artisan who has not agreed: the file is rebuilt with it.
+        await db.productdocumentation.update(
+            where={"id": world.product_title.id}, data={"artisanId": world.unconsented.id}
+        )
+        await _drain_all()
+        assert (await document("media", media.id))["shareable"] is False
+    finally:
+        await db.mediafile.delete(where={"id": media.id})
+        await db.productdocumentation.update(
+            where={"id": world.product_title.id}, data={"artisanId": world.consented.id}
+        )
+        await _drain_all()

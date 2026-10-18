@@ -36,7 +36,12 @@ from app.core.db import connect_db, disconnect_db, ensure_db_connected
 from app.services.email_outbox import process_next_email_jobs
 from app.services.media_queue import process_next_media_jobs
 from app.services.search_indexer import (
+    compact_queue as compact_search_queue,
+)
+from app.services.search_indexer import (
     drain as drain_search_index,
+)
+from app.services.search_indexer import (
     embed_pending as embed_search_documents,
 )
 
@@ -48,12 +53,22 @@ logger = logging.getLogger("app.worker")
 SEARCH_INDEX_INTERVAL_SECONDS = 15.0
 SEARCH_INDEX_BATCH = 100
 SEARCH_EMBED_BATCH = 32
+#: Seconds between queue compactions while UNIFIED_SEARCH_ENABLED is off.
+SEARCH_COMPACT_INTERVAL_SECONDS = 600.0
+
+_last_search_compaction = {"at": float("-inf")}
 
 
 async def run_search_index_pass(settings) -> None:
-    """One pass of the search indexer: drain the queue, then embed what changed. A no-op while
-    UNIFIED_SEARCH_ENABLED is off; embeddings are a no-op unless meaning ranking is available."""
+    """One pass of the search indexer: drain the queue, then embed what changed. While
+    UNIFIED_SEARCH_ENABLED is off nothing is built; the queue is only compacted to one row per
+    record every ten minutes, so it stays bounded. Embeddings are a no-op unless meaning ranking
+    is available."""
     if not settings.unified_search_enabled:
+        now = time.monotonic()
+        if now - _last_search_compaction["at"] >= SEARCH_COMPACT_INTERVAL_SECONDS:
+            _last_search_compaction["at"] = now
+            await compact_search_queue()
         return
     await drain_search_index(batch=SEARCH_INDEX_BATCH)
     await asyncio.sleep(0)
@@ -89,7 +104,7 @@ async def _run() -> None:
                     worker_id="queue-service",
                     settings=settings,
                 )
-            except Exception:  # noqa: BLE001 - one bad iteration must never kill the worker
+            except Exception:  # one bad iteration must never kill the worker
                 logger.exception("Media queue iteration failed; backing off")
             # The e-mail outbox rides the same loop, in its own try so neither can hold the other
             # back. A no-op when mail is not configured.

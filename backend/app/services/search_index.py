@@ -275,23 +275,94 @@ def _media_kind(row: Any) -> str:
     return str(value).split(".")[-1].title() if value else "File"
 
 
+#: The tag a file carries for each record it can hang off (``records.media_relation_data``), for a
+#: file whose typed column was never filled.
+_MEDIA_TAGS: dict[str, tuple[str, ...]] = {
+    "artisan": ("artisan",),
+    "product": ("product",),
+    "tool": ("tool",),
+    "interview": ("questionnaire", "questionnaireinterview"),
+}
+
+_MEDIA_INCLUDE: dict[str, Any] = {
+    "location": True,
+    "craft": True,
+    "product": True,
+    "tool": {"include": {"artisanLinks": True}},
+    "questionnaireInterview": {"include": {"artisans": True}},
+}
+
+
+def _media_link(row: Any, kind: str, column: str) -> str | None:
+    value = getattr(row, column, None)
+    if value:
+        return str(value)
+    if (row.linkedRecordType or "").lower() in _MEDIA_TAGS[kind] and row.linkedRecordId:
+        return str(row.linkedRecordId)
+    return None
+
+
+async def _media_artisans(row: Any) -> tuple[list[str], bool, bool]:
+    """Every artisan a file names, directly or through the product, tool or interview it hangs
+    off; whether one of them is named only as free text; and whether that parent was rejected."""
+    product = getattr(row, "product", None)
+    if product is None and (product_id := _media_link(row, "product", "productId")):
+        product = await db.productdocumentation.find_unique(where={"id": product_id})
+    tool = getattr(row, "tool", None)
+    if tool is None and (tool_id := _media_link(row, "tool", "toolId")):
+        tool = await db.tooldocumentation.find_unique(
+            where={"id": tool_id}, include={"artisanLinks": True}
+        )
+    interview = getattr(row, "questionnaireInterview", None)
+    if interview is None and (
+        interview_id := _media_link(row, "interview", "questionnaireInterviewId")
+    ):
+        interview = await db.questionnaireinterview.find_unique(
+            where={"id": interview_id}, include={"artisans": True}
+        )
+    product_artisans = _ids(product.artisanId) if product is not None else []
+    tool_artisans = (
+        _ids(tool.artisanId, *(link.artisanId for link in tool.artisanLinks or []))
+        if tool is not None
+        else []
+    )
+    interview_artisans = (
+        [link.artisanId for link in interview.artisans or []] if interview is not None else []
+    )
+    free_text = (product is not None and _free_text_artisan(product, product_artisans)) or (
+        tool is not None and _free_text_artisan(tool, tool_artisans)
+    )
+    rejected = any(
+        _status(parent) == "REJECTED" for parent in (product, tool, interview) if parent is not None
+    )
+    artisan_ids = _ids(
+        _media_link(row, "artisan", "artisanId"),
+        *product_artisans,
+        *tool_artisans,
+        *interview_artisans,
+    )
+    return artisan_ids, free_text, rejected
+
+
 async def _media_common(row: Any) -> dict[str, Any]:
-    artisan_ids = _ids(row.artisanId)
+    artisan_ids, free_text, parent_rejected = await _media_artisans(row)
     return {
         "place": _place_of(row),
         "craftIds": _ids(row.craftId),
         "craftCodes": _codes(getattr(row, "craft", None)),
         "workshopIds": _ids(row.workshopId),
         "artisanIds": artisan_ids,
-        "shareable": await _shareable(artisan_ids, rejected=_status(row) == "REJECTED"),
+        "shareable": await _shareable(
+            artisan_ids,
+            free_text_artisan=free_text,
+            rejected=parent_rejected or _status(row) == "REJECTED",
+        ),
         "recordDate": row.recordedAt or row.createdAt,
     }
 
 
 async def _media(entity_id: str) -> dict[str, Any] | None:
-    row = await db.mediafile.find_unique(
-        where={"id": entity_id}, include={"location": True, "craft": True}
-    )
+    row = await db.mediafile.find_unique(where={"id": entity_id}, include=_MEDIA_INCLUDE)
     if row is None:
         return None
     return _doc(
@@ -305,9 +376,7 @@ async def _media(entity_id: str) -> dict[str, Any] | None:
 
 
 async def _transcript(entity_id: str) -> dict[str, Any] | None:
-    row = await db.mediafile.find_unique(
-        where={"id": entity_id}, include={"location": True, "craft": True}
-    )
+    row = await db.mediafile.find_unique(where={"id": entity_id}, include=_MEDIA_INCLUDE)
     if row is None or not (row.transcriptText or "").strip():
         return None
     return _doc(
@@ -367,8 +436,13 @@ async def _tool(entity_id: str) -> dict[str, Any] | None:
         title=row.toolkitName,
         subtitle=_join(row.englishName, row.craftName, row.artisanName),
         body=_body(
-            row.localName, row.englishName, row.craftName, row.artisanName, row.processUsedIn,
-            row.material, row.remarks,
+            row.localName,
+            row.englishName,
+            row.craftName,
+            row.artisanName,
+            row.processUsedIn,
+            row.material,
+            row.remarks,
         ),
         place=_place_of(row),
         craftIds=_ids(row.craftId, *(c.id for c in linked_crafts)),
@@ -441,20 +515,68 @@ async def build(entity_type: str, entity_id: str) -> dict[str, Any] | None:
     return doc
 
 
-async def dependents_of_artisan(artisan_id: str) -> list[tuple[str, str]]:
-    """The records whose ``shareable`` depends on this artisan's consent."""
-    products = await db.productdocumentation.find_many(where={"artisanId": artisan_id})
-    tools = await db.tooldocumentation.find_many(
-        where={"OR": [{"artisanId": artisan_id}, {"artisanLinks": {"some": {"artisanId": artisan_id}}}]}
-    )
-    interviews = await db.questionnaireinterviewartisan.find_many(where={"artisanId": artisan_id})
-    media = await db.mediafile.find_many(where={"artisanId": artisan_id})
-    out: list[tuple[str, str]] = [("products", p.id) for p in products]
-    if products:
-        processes = await db.process.find_many(where={"productId": {"in": [p.id for p in products]}})
-        out += [("processes", p.id) for p in processes]
-    out += [("tools", t.id) for t in tools]
-    out += [("interviews", i.interviewId) for i in interviews]
-    for m in media:
+async def _media_of(where: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """The media and transcript documents of the files matching any of ``where``."""
+    if not where:
+        return []
+    out: list[tuple[str, str]] = []
+    for m in await db.mediafile.find_many(where={"OR": where}):
         out += [("media", m.id), ("transcripts", m.id)]
     return out
+
+
+def _tagged(kind: str, ids: list[str]) -> list[dict[str, Any]]:
+    if not ids:
+        return []
+    return [{"linkedRecordType": {"in": list(_MEDIA_TAGS[kind])}, "linkedRecordId": {"in": ids}}]
+
+
+async def dependents_of_artisan(artisan_id: str) -> list[tuple[str, str]]:
+    """The records whose ``shareable`` depends on this artisan's consent: the records naming them,
+    the processes of their products, and every file on them, their products, tools or interviews."""
+    products = await db.productdocumentation.find_many(where={"artisanId": artisan_id})
+    tools = await db.tooldocumentation.find_many(
+        where={
+            "OR": [{"artisanId": artisan_id}, {"artisanLinks": {"some": {"artisanId": artisan_id}}}]
+        }
+    )
+    interviews = await db.questionnaireinterviewartisan.find_many(where={"artisanId": artisan_id})
+    product_ids = [p.id for p in products]
+    tool_ids = [t.id for t in tools]
+    interview_ids = _ids(*(i.interviewId for i in interviews))
+    out: list[tuple[str, str]] = [("products", p) for p in product_ids]
+    if product_ids:
+        processes = await db.process.find_many(where={"productId": {"in": product_ids}})
+        out += [("processes", p.id) for p in processes]
+    out += [("tools", t) for t in tool_ids]
+    out += [("interviews", i) for i in interview_ids]
+    where: list[dict[str, Any]] = [{"artisanId": artisan_id}, *_tagged("artisan", [artisan_id])]
+    if product_ids:
+        where += [{"productId": {"in": product_ids}}, *_tagged("product", product_ids)]
+    if tool_ids:
+        where += [{"toolId": {"in": tool_ids}}, *_tagged("tool", tool_ids)]
+    if interview_ids:
+        where += [
+            {"questionnaireInterviewId": {"in": interview_ids}},
+            *_tagged("interview", interview_ids),
+        ]
+    return out + await _media_of(where)
+
+
+async def dependents_of(entity_type: str, entity_id: str) -> list[tuple[str, str]]:
+    """The documents that take their artisans (so their ``shareable``) from this record: an
+    artisan's records, a product's processes and files, a tool's or an interview's files."""
+    if entity_type == "artisans":
+        return await dependents_of_artisan(entity_id)
+    if entity_type == "products":
+        processes = await db.process.find_many(where={"productId": entity_id})
+        return [("processes", p.id) for p in processes] + await _media_of(
+            [{"productId": entity_id}, *_tagged("product", [entity_id])]
+        )
+    if entity_type == "tools":
+        return await _media_of([{"toolId": entity_id}, *_tagged("tool", [entity_id])])
+    if entity_type == "interviews":
+        return await _media_of(
+            [{"questionnaireInterviewId": entity_id}, *_tagged("interview", [entity_id])]
+        )
+    return []

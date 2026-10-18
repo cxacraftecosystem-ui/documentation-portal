@@ -1,7 +1,9 @@
 """Meaning ranking for search: text embeddings, behind the AI flag (docs/SEARCH.md).
 
-OFF BY DEFAULT. :func:`available` is true only when ``SEARCH_EMBEDDINGS_ENABLED`` is on, the chosen
-provider has a key on this deployment, and the ``SearchDocument.embedding`` column exists (pgvector
+OFF BY DEFAULT. :func:`available` is true only when ``SEARCH_EMBEDDINGS_ENABLED`` is on, the AI
+master switch (``AI_FEATURES_ENABLED``, read through ``app.ai_features.settings``, the switch an
+incident responder flips to stop every paid AI call) is on, the chosen provider has a key on this
+deployment, and the ``SearchDocument.embedding`` column exists (pgvector
 installed; probed once and cached). While it is false nothing here makes a network call, search runs
 on full-text and trigram alone, and the response says ``"mode": "text"``.
 
@@ -31,7 +33,7 @@ QUERY_TIMEOUT_SECONDS = 1.5
 BATCH_TIMEOUT_SECONDS = 30.0
 
 #: Gemini's embedding model when the configured model is the OpenAI default.
-GEMINI_DEFAULT_MODEL = "text-embedding-004"
+GEMINI_DEFAULT_MODEL = "gemini-embedding-001"
 
 _column_present: bool | None = None
 _query_cache: OrderedDict[str, list[float]] = OrderedDict()
@@ -53,10 +55,25 @@ def _key(settings: Any) -> str | None:
     return (getattr(settings, "openai_api_key", None) or "").strip() or None
 
 
+def ai_master_on() -> bool:
+    """The AI master switch (``AiFeatureSettings.enabled``). Read only after the search flag is on,
+    so the dormant ``app.ai_features`` package is not imported on a deployment that never asks."""
+    try:
+        from app.ai_features.settings import get_ai_settings
+
+        return bool(get_ai_settings().enabled)
+    except Exception:  # a broken optional package means no paid calls, never a failed search
+        logger.warning("search embeddings: AI settings unreadable; text mode", exc_info=True)
+        return False
+
+
 def configured(settings: Any | None = None) -> bool:
-    """The flag is on and the provider has a key. No database call."""
+    """The search flag and the AI master switch are on and the provider has a key. No database
+    call."""
     settings = settings or get_settings()
-    return bool(getattr(settings, "search_embeddings_enabled", False)) and bool(_key(settings))
+    if not getattr(settings, "search_embeddings_enabled", False) or not _key(settings):
+        return False
+    return ai_master_on()
 
 
 async def column_present() -> bool:

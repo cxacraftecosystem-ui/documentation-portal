@@ -9,7 +9,7 @@ are involved. The last few tests need no database.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
@@ -174,7 +174,7 @@ async def test_filters_narrow_the_result(world, settings):
     assert _ids(by_workshop, "artisans") == [world.unconsented.id]
     by_place = await _search(world.professor, world.stamp, place="Sanganer")
     assert _ids(by_place, "crafts") == [world.other_craft.id]
-    future = await _search(world.professor, world.stamp, dateFrom=datetime(2999, 1, 1))
+    future = await _search(world.professor, world.stamp, dateFrom=datetime(2999, 1, 1, tzinfo=UTC))
     assert future["groups"] == []
 
 

@@ -14,7 +14,8 @@ Three candidate lists, each capped per type:
 
 They are fused by reciprocal rank, ``score = Σ 1/(60 + rank)``, and every list applies the same
 permission and filter predicates (:class:`Scope`), so nothing outside the caller's view is ever
-ranked, counted or snippeted.
+ranked, counted or snippeted. ``base`` is ``NOT MATERIALIZED`` so each list reads the index through
+its own access path (the GIN index for ``fts``) instead of copying every permitted body first.
 """
 
 from __future__ import annotations
@@ -148,7 +149,7 @@ WITH q AS (
          lower({query}) AS lq
 ),
 cap AS (SELECT {cap_ref}::int AS n),
-base AS (SELECT d.* FROM "SearchDocument" d WHERE {where}),
+base AS NOT MATERIALIZED (SELECT d.* FROM "SearchDocument" d WHERE {where}),
 fts AS (
   SELECT id, row_number() OVER (PARTITION BY "entityType" ORDER BY rank DESC, id) AS r
     FROM (SELECT b.id, b."entityType", ts_rank_cd(b."tsv", q.tsq) AS rank

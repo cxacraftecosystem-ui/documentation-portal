@@ -7,6 +7,8 @@ identity values are seeded on purpose and must reach no title, subtitle, body or
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from search_support import consent, every_record, needs_search_db, new_stamp, seed
 
@@ -131,6 +133,85 @@ async def test_missing_unknown_and_designer_types_build_nothing(world):
     assert await search_index.build("nonsense", world.consented.id) is None
     for designer_only in ("clusters", "designWorkshops", "reports"):
         assert await search_index.build(designer_only, world.consented.id) is None
+
+
+async def _file(world, **link):
+    from app.core.db import db
+
+    key = uuid.uuid4().hex[:12]
+    return await db.mediafile.create(
+        data={
+            "originalFilename": f"linked-{key}.mp3",
+            "objectKey": f"search/{world.stamp}/linked-{key}.mp3",
+            "mediaType": "AUDIO",
+            "mimeType": "audio/mpeg",
+            "sizeBytes": 1024,
+            "bucket": "test-bucket",
+            "uploadedById": world.professor.id,
+            "transcriptText": f"Talk about the vat {world.stamp}.",
+            **link,
+        }
+    )
+
+
+@needs_search_db
+async def test_a_file_takes_the_artisans_of_the_record_it_hangs_off(world):
+    from app.core.db import db
+
+    on_product = await _file(world, productId=world.product_body.id)
+    on_interview = await _file(world, questionnaireInterviewId=world.interview.id)
+    # Tagged only, the typed column never filled: the tag still names the record.
+    tagged_free = await _file(
+        world, linkedRecordType="product", linkedRecordId=world.product_free.id
+    )
+    try:
+        for kind in ("media", "transcripts"):
+            doc = await search_index.build(kind, on_product.id)
+            assert doc["artisanIds"] == [world.unconsented.id], kind
+            assert doc["shareable"] is False, kind
+            doc = await search_index.build(kind, on_interview.id)
+            assert doc["artisanIds"] == [world.consented.id], kind
+            assert doc["shareable"] is True, kind
+            # The product names its artisan only as free text: never shareable.
+            assert (await search_index.build(kind, tagged_free.id))["shareable"] is False, kind
+        # A change to the artisan or the product reaches the file.
+        on_artisan = await search_index.dependents_of_artisan(world.unconsented.id)
+        assert ("media", on_product.id) in on_artisan
+        assert ("transcripts", on_product.id) in on_artisan
+        on_parent = await search_index.dependents_of("products", world.product_free.id)
+        assert ("media", tagged_free.id) in on_parent
+        on_parent = await search_index.dependents_of("interviews", world.interview.id)
+        assert ("transcripts", on_interview.id) in on_parent
+    finally:
+        await db.mediafile.delete_many(
+            where={"id": {"in": [on_product.id, on_interview.id, tagged_free.id]}}
+        )
+
+
+@needs_search_db
+async def test_a_process_shares_only_when_its_products_artisan_does(world):
+    from app.core.db import db
+
+    doc = world.docs[("processes", world.process.id)]
+    assert doc["artisanIds"] == [world.consented.id] and doc["shareable"] is True
+    others = [
+        await db.process.create(
+            data={
+                "name": f"Other {n} {world.stamp}",
+                "productId": pid,
+                "createdById": world.professor.id,
+            }
+        )
+        for n, pid in enumerate((world.product_body.id, world.product_free.id))
+    ]
+    try:
+        for process in others:
+            assert (await search_index.build("processes", process.id))["shareable"] is False
+        assert ("processes", others[0].id) in await search_index.dependents_of(
+            "products", world.product_body.id
+        )
+    finally:
+        await db.process.delete_many(where={"id": {"in": [p.id for p in others]}})
 
 
 def test_scrub_removes_identity_shaped_text():
