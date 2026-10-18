@@ -83,7 +83,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.fieldrepository.app.data.CoverageCopy
+import com.fieldrepository.app.data.CoverageStateRow
+import com.fieldrepository.app.data.CoverageSummary
 import com.fieldrepository.app.data.FieldRepository
+import com.fieldrepository.app.data.coverageSummary
 import com.fieldrepository.app.data.MapCountsDto
 import com.fieldrepository.app.data.MapPointChildDto
 import com.fieldrepository.app.data.MapPointDto
@@ -446,6 +450,27 @@ fun MapScreen(
      */
     var drillTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
 
+    /**
+     * A state chosen on the Coverage card: the map switches to STATE detail and lands on that state's
+     * pin once the response for that level arrives — the same parking as [drillTarget].
+     */
+    var stateTarget by remember { mutableStateOf<String?>(null) }
+
+    // --- Coverage at state level, read once for the card at the foot of the screen. Independent of
+    // the workshop scope and the detail level above: it is the whole corpus the reader may see.
+    var coverage by remember { mutableStateOf<CoverageSummary?>(null) }
+    var coverageFailed by remember { mutableStateOf(false) }
+    var coverageAttempt by remember { mutableIntStateOf(0) }
+    LaunchedEffect(coverageAttempt) {
+        coverageFailed = false
+        runCatching { coverageSummary(repository.mapCoverage()) }
+            .onSuccess { coverage = it }
+            .onFailure { failure ->
+                if (failure is CancellationException) throw failure
+                coverageFailed = true
+            }
+    }
+
     /** The place list's own scroller. See [MapPlaceListCard] for why the list is bounded and scrolls. */
     val listScroll = rememberScrollState()
 
@@ -521,9 +546,12 @@ fun MapScreen(
                 val drill = drillTarget?.takeIf { it.second == (result.level.ifBlank { level }) }
                 if (drill != null || drillTarget?.second != level) drillTarget = null
                 val landed = drill?.first?.takeIf { key -> result.points.any { it.key == key } }
-                selectedKey = landed ?: result.focus?.pointKeys?.firstOrNull()
+                val atState = result.level.ifBlank { level } == "STATE"
+                val stateLanded = stateTarget?.takeIf { atState }?.let { name -> statePointKey(result.points, name) }
+                if (atState || level != "STATE") stateTarget = null
+                selectedKey = landed ?: stateLanded ?: result.focus?.pointKeys?.firstOrNull()
                 expandedKeys = emptySet()
-                if (landed != null) reveal(landed)
+                (landed ?: stateLanded)?.let { reveal(it) }
                 error = null
                 loading = false
             }
@@ -714,6 +742,116 @@ fun MapScreen(
 
         if (loading && current != null) {
             Text("Placing the records…", color = MaterialTheme.field.muted, fontSize = 12.sp)
+        }
+
+        CoverageCard(
+            summary = coverage,
+            failed = coverageFailed,
+            onRetry = { coverageAttempt += 1 },
+            onOpenState = { name ->
+                val here = if (drawnLevel == "STATE") statePointKey(points, name) else null
+                if (here != null) {
+                    selectedKey = here
+                    reveal(here)
+                } else if (level != "STATE") {
+                    stateTarget = name
+                    level = "STATE"
+                }
+            }
+        )
+    }
+}
+
+/** The STATE-level pin for [state], the origin layer's first: the server's own resolved names. */
+private fun statePointKey(points: List<MapPointDto>, state: String): String? {
+    val matches = points.filter { it.state == state }
+    return (matches.firstOrNull { it.layer == "ORIGIN" } ?: matches.firstOrNull())?.key
+}
+
+/** How many states the Coverage card lists before "Show all". */
+private const val COVERAGE_ROWS = 8
+
+/**
+ * COVERAGE, READ-ONLY. The web's coverage map colours every district; the phone lists the same
+ * figures per state — how many of its districts have a workshop, and how many records it holds — and
+ * the shared crafts nobody has documented. Tapping a state moves the map above to STATE detail on that
+ * state. No polygons ship on the phone.
+ */
+@Composable
+private fun CoverageCard(
+    summary: CoverageSummary?,
+    failed: Boolean,
+    onRetry: () -> Unit,
+    onOpenState: (String) -> Unit
+) {
+    var showAll by remember { mutableStateOf(false) }
+    MapCard(title = "Coverage") {
+        when {
+            failed -> {
+                Text("Coverage could not be loaded.", color = MaterialTheme.field.body, fontSize = 13.sp)
+                Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
+                    TextButton(onClick = onRetry) { Text("Try again") }
+                }
+            }
+
+            summary == null -> Text("Loading coverage…", color = MaterialTheme.field.muted, fontSize = 12.sp)
+
+            summary.isEmpty -> {
+                Text("No records placed in a district yet.", color = MaterialTheme.field.muted, fontSize = 13.sp)
+                Text(CoverageCopy.crafts(summary.craftsNeverDocumented), color = MaterialTheme.field.muted, fontSize = 12.sp)
+            }
+
+            else -> {
+                Text(
+                    CoverageCopy.crafts(summary.craftsNeverDocumented),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                val rows = if (showAll) summary.states else summary.states.take(COVERAGE_ROWS)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    rows.forEach { row -> CoverageStateRowItem(row = row, onClick = { onOpenState(row.name) }) }
+                }
+                if (summary.states.size > COVERAGE_ROWS) {
+                    Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
+                        TextButton(onClick = { showAll = !showAll }) {
+                            Text(if (showAll) "Show fewer" else "Show all ${summary.states.size} states")
+                        }
+                    }
+                }
+                if (summary.truncated) {
+                    Text("Some counts are capped.", color = MaterialTheme.field.muted, fontSize = 11.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CoverageStateRowItem(row: CoverageStateRow, onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.small)
+            .background(MaterialTheme.field.surface50)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
+            Text(
+                row.name,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(CoverageCopy.districts(row), color = MaterialTheme.field.muted, fontSize = 12.sp)
+        }
+        if (row.records > 0) {
+            Spacer(Modifier.width(8.dp))
+            MapPill(CoverageCopy.records(row.records))
         }
     }
 }

@@ -80,7 +80,11 @@ phone or address text leaves either route; the tests scan the JSON for those key
 
 ## Android
 
-The Android map has no coverage view in this release.
+The map screen ends with a read-only **Coverage** card (`ui/MapScreen.kt`), from
+`GET /map/coverage?level=STATE` (`data/Coverage.kt`, `FieldRepository.mapCoverage`). It names how many
+shared crafts are never documented and lists each state with "N of M districts with a workshop" and its
+record count, best covered first, eight at a time. Tapping a state switches the map above to State
+detail and selects that state. No polygons or shapes file ship on Android.
 
 ## How this document is kept true
 
@@ -91,3 +95,4 @@ The Android map has no coverage view in this release.
 | Resolution order | `backend/tests/test_lgd_resolve.py`. |
 | Counts, filters, gaps, caps, no identity fields | `backend/tests/test_map_coverage.py` and `backend/tests/test_cross_portal_coverage.py`. |
 | No mapping library, the caption, the switch | `frontend/e2e/coverage-unit.spec.ts`; the screen itself in `frontend/e2e/map-coverage.spec.ts`. |
+| The Android card's rows and empty state | `android/app/src/test/java/com/fieldrepository/app/data/CoverageSummaryTest.kt`. |
