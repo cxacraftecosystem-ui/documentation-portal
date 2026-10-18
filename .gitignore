@@ -33,6 +33,9 @@ skills-lock.json
 crash.log
 *.tfvars
 *.tfvars.json
+# One named exception: the three non-secret names every plan needs (project, bucket, key pair).
+# Without it a plan needs -var flags, and a wrong guess there proposes renaming live resources.
+!infra/terraform/fieldrepo.auto.tfvars
 override.tf
 override.tf.json
 *_override.tf
