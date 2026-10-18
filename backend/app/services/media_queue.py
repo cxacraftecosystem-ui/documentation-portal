@@ -401,6 +401,10 @@ async def _process_job(job: Any, settings: Settings) -> None:
         result = await v2_recordings.verify_sha(media.id)
         await _complete_job(job.id, result)
         return
+    if job.jobType == TRANSCRIPTION and await transcription.is_paused():
+        # The pause can be set after this job was selected: hand it back untouched, no provider call.
+        await db.mediaprocessingjob.update(where={"id": job.id}, data={"status": QUEUED})
+        return
     if job.jobType == TRANSCRIPTION:
         # The consent gate on every outside send (DESIGN 3.11): a file that is not cleared is parked
         # with the reason and the job is closed; recording consent later re-enqueues it.

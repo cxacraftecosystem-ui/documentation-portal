@@ -41,10 +41,22 @@ def _version_tuple(value: str | None) -> tuple[int, ...]:
     return tuple(int(p) for p in re.findall(r"\d+", value or "")[:4])
 
 
-def assert_old_build_may_create(app_version: str | None) -> None:
-    """503 + Retry-After for a create from a build below the configured minimum (decision 5)."""
+def assert_old_build_may_create(app_version: str | None, *, bearer: bool = False) -> None:
+    """503 + Retry-After for a create from a build below the configured minimum (decision 5).
+
+    Builds before v2 send no ``X-App-Version``: an app (bearer token) request without one IS such a
+    build and counts as below any minimum. The web client signs in by cookie and ships with the
+    server, so a header-less cookie request is never refused."""
     minimum = get_settings().questionnaire_min_app_version_for_create
-    if not minimum or not app_version:
+    if not minimum:
+        return
+    if not app_version:
+        if bearer:
+            raise HTTPException(
+                status_code=503,
+                detail="Update when you have Wi-Fi. Your recordings are safe.",
+                headers={"Retry-After": "86400"},
+            )
         return
     if _version_tuple(app_version) < _version_tuple(minimum):
         raise HTTPException(

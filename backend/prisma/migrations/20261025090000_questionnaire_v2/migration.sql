@@ -286,7 +286,7 @@ CREATE TABLE "QuestionnaireTakeDraft" (
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "QuestionnaireTakeDraft_pkey" PRIMARY KEY ("id")
 );
-CREATE UNIQUE INDEX "QuestionnaireTakeDraft_recordingId_questionLineageId_artisanId_key"
+CREATE UNIQUE INDEX "QuestionnaireTakeDraft_recording_lineage_artisan_key"
   ON "QuestionnaireTakeDraft"("recordingId", "questionLineageId", "artisanId");
 
 -- ── upload intents ─────────────────────────────────────────────────────────────────────────────

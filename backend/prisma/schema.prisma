@@ -2068,7 +2068,7 @@ model QuestionnaireTakeDraft {
   model             String?
   createdAt         DateTime @default(now())
 
-  @@unique([recordingId, questionLineageId, artisanId])
+  @@unique([recordingId, questionLineageId, artisanId], map: "QuestionnaireTakeDraft_recording_lineage_artisan_key")
 }
 
 /// QUESTIONNAIRE V2 (M1). A presign the server knows about: written at presign, closed by /complete.

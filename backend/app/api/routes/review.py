@@ -76,9 +76,19 @@ _DELEGATE_ATTRS: dict[str, tuple[str, str, str]] = {
 }
 
 
+# Questionnaire v2 names an interview a session; both clients post the v2 name (contract
+# linkedRecordType). It is the same row, so it resolves to the same delegate and log type.
+_RECORD_TYPE_ALIASES = {"questionnaire_session": "questionnaire"}
+
+
+def canonical_type(record_type: str) -> str:
+    key = record_type.lower()
+    return _RECORD_TYPE_ALIASES.get(key, key)
+
+
 def delegate_for(record_type: str, client: Any = None) -> tuple[Any, str, str]:
     """Delegate, ReviewLog record type, and the name of the relation pointing at the creator."""
-    key = record_type.lower()
+    key = canonical_type(record_type)
     if key not in _DELEGATE_ATTRS:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unsupported review record type")
     attr, log_type, creator_relation = _DELEGATE_ATTRS[key]
@@ -627,7 +637,7 @@ async def approve_record_media(
     Only PENDING files move: a REJECTED file, or one already approved, keeps its decision. A
     non-admin's approval leaves a late file pending; an admin's clears its flag too.
     """
-    key = record_type.lower()
+    key = canonical_type(record_type)
     if key not in _MEDIA_TAGS:
         return 0
     grouped = await media_of_records([(key, record_id)], client=client)
@@ -660,6 +670,7 @@ async def set_review_status(
     *,
     notify: bool = True,
 ) -> dict[str, Any]:
+    record_type = canonical_type(record_type)
     delegate, log_type, creator_relation = delegate_for(record_type)
     record = await delegate.find_unique(where={"id": record_id}, include={creator_relation: True})
     if not record:
@@ -860,7 +871,7 @@ async def record_media_review(
     is decided). ``rejectable`` — the files this reviewer may still reject one by one: pending, or
     approved (with their record or alone), uploaded by somebody below them on the ladder.
     """
-    key = record_type.lower()
+    key = canonical_type(record_type)
     delegate, _log_type, _relation = delegate_for(key)
     if key == "media":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="A file has no files of its own")
@@ -1119,7 +1130,7 @@ async def edit_reviewed_record(
 
     The status is NOT touched unless ``approve`` is set — an edit is not an approval.
     """
-    key = record_type.lower()
+    key = canonical_type(record_type)
     delegate, log_type, creator_relation = delegate_for(record_type)
     schema = _EDIT_SCHEMAS.get(key)
     if schema is None:  # pragma: no cover - delegate_for already rejects unknown types
@@ -1225,15 +1236,20 @@ async def send_record_for_revision(
     """Send the record back to its creator with mandatory comments (status NEEDS_REVISION).
 
     When the creator next edits the record it returns to PENDING for a fresh review pass. An
-    optional ``reason`` from ``GET /review/reasons`` is recorded with it."""
-    if not payload.notes or not payload.notes.strip():
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Comments are required when sending a record back for revision",
-        )
-    if payload.reason and review_reasons.reason_for(payload.reason) is None:
+    optional ``reason`` from ``GET /review/reasons`` is recorded with it. A coded reason that
+    does not need the reviewer's own words stands in for the comments (its label is logged)."""
+    reason = review_reasons.reason_for(payload.reason) if payload.reason else None
+    if payload.reason and reason is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Pick a reason from the list.",
         )
+    notes = (payload.notes or "").strip()
+    if not notes and (reason is None or reason.needs_note):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Comments are required when sending a record back for revision",
+        )
+    if not notes:
+        payload = ReviewAction(notes=reason.label, reason=reason.code)
     return await set_review_status(record_type, record_id, "NEEDS_REVISION", payload, reviewer)

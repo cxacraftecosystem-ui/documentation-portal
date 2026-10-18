@@ -166,6 +166,10 @@ jobs:
     # cannot be hiding a population of tests that quietly opted out. The ONE exception is
     # tests/test_review_pending_sql_db.py, which runs the review queue's raw SQL only when
     # REVIEW_SQL_TEST_DATABASE_URL names a migrated throwaway database, and skips here by name.
+    # The questionnaire v2 modules that need Postgres (tests/qv2_fixtures.py `needs_db`, and the
+    # backfill, consent-backfill and purge script tests) are the same kind of exception: they skip
+    # here unless QV2_TEST_DATABASE_URL / QV2_BACKFILL_DATABASE_URL name a migrated throwaway
+    # database, and are run that way before every merge of feature/q-backend (see docs/questionnaire/API.md).
     #
     # DO NOT "improve" any of these into something real, and DO NOT add a Postgres service container.
     # A database here would promote the suite from "cannot touch data" to "runs against whatever CI

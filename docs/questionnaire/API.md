@@ -55,7 +55,7 @@ in `Content-Disposition`; `kind=meta` answers the contract's `CorpusMeta`.
 
 | Script | Design | Writes on `--apply` |
 |---|---|---|
-| `backend/scripts/questionnaire_v2_backfill.py` | 7.3 | Legacy rows become LEGACY_RECONSTRUCTED sessions; clips become recordings; copies are soft-removed. `--undo --run-id` reverts a run. `--sha-only` hashes the stored objects. |
+| `backend/scripts/questionnaire_v2_backfill.py` | 7.3 | Legacy rows become LEGACY_RECONSTRUCTED sessions; clips become recordings; copies are soft-removed. `--undo --run-id` reverts a run. `--sha-only` counts the clips without a checksum; `--sha-only --apply` hashes them, and must run before the dry run (apply refuses while any clip is unhashed). |
 | `backend/scripts/backfill_consent_owner_attestation.py` | 7.6 | One RECORDING consent row per audio or video file made on or before 18 Oct 2026, source "owner attestation". No job, status or transcript changes. |
 | `backend/scripts/questionnaire_purge.py` | 7.5 | Verified duplicates removed more than 30 days ago, and orphan objects unclaimed 30 days after their report. Never a distinct take. |
 
@@ -65,13 +65,23 @@ run's report carrying `Approved-by: <owner email> <YYYY-MM-DD>`.
 
 ## Migrations
 
-- `20261022090000_consent_and_pause` (M0): the consent ledger, `consent_current_v` and the pause.
-  Byte-identical with the transcription hotfix branch.
+- `20261022090000_consent_and_pause` (M0): the consent ledger, `consent_current_v` and the pause. The
+  pause column is added `IF NOT EXISTS`, so M0 still applies after a transcription hotfix that added it
+  first. The hotfix branch's own migration must not add the column or a second consent table; the two
+  branches agree on M0 before either merges.
 - `20261025090000_questionnaire_v2` (M1): additive, plus the dropped (questionnaireId, artisanSetKey)
   unique. Lineage and display codes are backfilled in it; `QuestionnaireResponse` rows become answers.
+  While `QUESTIONNAIRE_V2` is off the legacy create and artisan-set edit keep the one-interview-per-set
+  rule with an advisory lock on (questionnaire, set) instead of the unique.
 - `backend/prisma/migrations_pending/20261102090000_questionnaire_v2_restrict` (M3): written, NOT in
   `prisma/migrations`, so a deploy cannot apply it. Rollout step 6 moves it in.
 - M4 (cleanup) is not written.
+
+## Tests that need Postgres
+
+The v2 modules marked `needs_db` and the three script tests skip unless `QV2_TEST_DATABASE_URL` and
+`QV2_BACKFILL_DATABASE_URL` name migrated throwaway databases. CI has no database by design
+(`.github/workflows/checks.yml`), so they are run that way before every merge of this branch.
 
 ## How this document is kept true
 

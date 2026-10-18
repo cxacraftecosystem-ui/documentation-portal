@@ -379,6 +379,10 @@ async def section_payloads(questionnaire_id: str, active_only: bool = True) -> l
     return payload
 
 
+class _SetHeld(Exception):
+    """Another interview on the same instrument already holds this artisan set (legacy rule)."""
+
+
 async def replace_interview_artisans(interview_id: str, artisan_ids: list[str]) -> None:
     unique_ids = sorted({aid for aid in artisan_ids if aid})
     set_key = artisan_set_key(unique_ids)
@@ -405,10 +409,18 @@ async def replace_interview_artisans(interview_id: str, artisan_ids: list[str]) 
         if len(found) != len(unique_ids):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
     try:
-        await db.questionnaireinterview.update(
-            where={"id": interview_id}, data={"artisanSetKey": set_key}
-        )
-    except UniqueViolationError as exc:
+        # With v2 on, a set may sit many times (a session is a dated event), so no guard.
+        if set_key and not v2_shims.enabled():
+            # The guard the dropped unique used to give (M1): another interview on this instrument
+            # already holding the set refuses the edit.
+            row = await db.questionnaireinterview.find_unique(where={"id": interview_id})
+            holders = await db.questionnaireinterview.find_many(
+                where={"questionnaireId": row.questionnaireId if row else None, "artisanSetKey": set_key}
+            )
+            if any(h.id != interview_id for h in holders):
+                raise _SetHeld()
+        await db.questionnaireinterview.update(where={"id": interview_id}, data={"artisanSetKey": set_key})
+    except (UniqueViolationError, _SetHeld) as exc:
         # NAMES THE HOLDER. The refusal stands — this edit still does not happen — but the body now
         # carries what a client needs to offer the move instead of only printing prose.
         raise (await duplicate_set_conflict(interview_id, set_key)) from exc
@@ -1148,7 +1160,10 @@ async def create_interview(
     # the title is generated. Same request and response shapes; never a new error code — after the
     # cutoff an old build's create gets 503 + Retry-After, which it treats as transient.
     if v2_shims.enabled():
-        v2_shims.assert_old_build_may_create(request.headers.get("x-app-version"))
+        v2_shims.assert_old_build_may_create(
+            request.headers.get("x-app-version"),
+            bearer=request.headers.get("authorization", "").lower().startswith("bearer "),
+        )
         assert_can_create_records(current_user)
         created = await v2_shims.create_interview_shim(payload, current_user, questionnaire_id, check)
         await hydrate_relations([created], RELATIONS)
@@ -1205,6 +1220,18 @@ async def create_interview(
     pin_pending_if_late(data, current_user, check=check)
     try:
         created = await db.questionnaireinterview.create(data=data)
+        if set_key:
+            # M1 dropped the (questionnaireId, artisanSetKey) unique, so a race that passed the
+            # look-ahead above is no longer refused by the database. Settle it here instead: every
+            # racer reads the same rows and agrees the earliest (createdAt, id) is canonical; a later
+            # racer deletes its bare row (no links or answers written yet) and folds into the winner.
+            same_set = await db.questionnaireinterview.find_many(
+                where={"questionnaireId": questionnaire_id, "artisanSetKey": set_key}
+            )
+            winner = min(same_set, key=lambda r: (str(getattr(r, "createdAt", "") or ""), str(r.id)), default=created)
+            if winner.id != created.id:
+                await db.questionnaireinterview.delete(where={"id": created.id})
+                return await merge_into_interview(winner, payload, current_user, check)
     except UniqueViolationError:
         # Race: a concurrent request won the create for this set ON THIS INSTRUMENT. Fold into the
         # canonical row. Scoped the same way the look-ahead above is, or the recovery would find the

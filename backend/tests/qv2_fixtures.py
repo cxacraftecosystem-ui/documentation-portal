@@ -145,7 +145,7 @@ async def seed(client: Any, *, sections: dict[str, int] | None = None, artisans:
             ids.questions[f"{code}{n}"] = qid
     ids.craft = f"c{t}"
     await client.execute_raw('INSERT INTO "Craft" ("id", "name", "createdById", "updatedAt") VALUES ($1, $2, $3, now())',
-                             ids.craft, f"Hand Block Printing {t[:3]}", ids.admin.id)
+                             ids.craft, f"Hand Block Printing {t}", ids.admin.id)
     ids.workshop = None
     if workshop:
         ids.location = f"l{t}"

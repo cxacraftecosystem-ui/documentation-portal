@@ -14,7 +14,9 @@ from app.schemas.questionnaire_v2 import MultipartCreateRequest as V2MultipartCr
 from app.schemas.questionnaire_v2 import PresignRequest as V2PresignRequest
 from app.services import consent_gate
 from app.services.questionnaire_v2 import recordings as v2_recordings
+from app.services.questionnaire_v2 import common as v2_common
 from app.services.questionnaire_v2 import shims as v2_shims
+from app import transcription
 from app.services.questionnaire_v2.live import live_media_where
 
 from app.core.config import get_settings
@@ -361,6 +363,10 @@ async def transcribe_media_audio(
     courtyard can act on — "send a smaller file" is not an instruction when what they are holding
     is a forty-minute interview, and workshop audio is the route that accepts it.
     """
+    # THE PAUSE (owner correction (d)): while it is set no audio leaves the server, dictation included.
+    # Checked before the body is read, so a paused request costs nothing.
+    if await transcription.is_paused():
+        v2_common.fail("TRANSCRIPTION_PAUSED", "Transcription is paused. Type the answer for now.")
     content = await read_upload_bounded(
         file,
         DICTATION_MAX_UPLOAD_BYTES,

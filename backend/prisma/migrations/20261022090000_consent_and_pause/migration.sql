@@ -13,4 +13,4 @@ CREATE UNIQUE INDEX "Consent_idem_key" ON "Consent"("subjectType","subjectId","p
 CREATE VIEW consent_current_v AS
   SELECT DISTINCT ON ("subjectType","subjectId","purpose") *
   FROM "Consent" ORDER BY "subjectType","subjectId","purpose","recordedAt" DESC, "createdAt" DESC;
-ALTER TABLE "AppSetting" ADD COLUMN "transcriptionPaused" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "AppSetting" ADD COLUMN IF NOT EXISTS "transcriptionPaused" BOOLEAN NOT NULL DEFAULT true;

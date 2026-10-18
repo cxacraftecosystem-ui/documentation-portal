@@ -94,6 +94,12 @@ class _Twin:
 def transcriber(monkeypatch: pytest.MonkeyPatch) -> _Twin:
     twin = _Twin({"available": True, "status": "COMPLETED", "text": "hello"})
     monkeypatch.setattr(media_routes, "transcribe_audio_bytes", twin)
+    # These tests are about the size ceiling, so transcription is switched on for them; the pause
+    # itself is pinned in tests/test_questionnaire_v2_fix_round.py.
+    async def running(*_a: Any, **_k: Any) -> bool:
+        return False
+
+    monkeypatch.setattr(media_routes.transcription, "is_paused", running)
     return twin
 
 

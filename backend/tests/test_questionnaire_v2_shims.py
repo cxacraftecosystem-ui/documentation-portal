@@ -70,7 +70,12 @@ def test_an_old_build_after_the_cutoff_gets_a_transient_503_never_a_new_code(mon
         shims.assert_old_build_may_create("0.0.13")
     assert old.value.status_code == 503 and old.value.headers["Retry-After"] == "86400"
     shims.assert_old_build_may_create("0.0.14")
+    # The web client (cookie, no header) is never refused.
     shims.assert_old_build_may_create(None)
+    # A pre-v2 app build sends no X-App-Version at all: a bearer request without one is below any minimum.
+    with pytest.raises(HTTPException) as headerless:
+        shims.assert_old_build_may_create(None, bearer=True)
+    assert headerless.value.status_code == 503
 
 
 @needs_db

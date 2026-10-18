@@ -24,8 +24,9 @@ MAPPING (one session per legacy row, SAME id, never split):
 
 COMMANDS (all refuse a host not named in --allow-host):
 
-    python scripts/questionnaire_v2_backfill.py --allow-host H                     # dry run (default)
-    python scripts/questionnaire_v2_backfill.py --allow-host H --sha-only          # hash the stored objects
+    python scripts/questionnaire_v2_backfill.py --allow-host H --sha-only          # 1. count objects to hash
+    python scripts/questionnaire_v2_backfill.py --allow-host H --sha-only --apply  # 2. hash them (checksums only)
+    python scripts/questionnaire_v2_backfill.py --allow-host H                     # 3. dry run (default)
     python scripts/questionnaire_v2_backfill.py --allow-host H --apply --run-id R --approved-report P
     python scripts/questionnaire_v2_backfill.py --allow-host H --undo --run-id R
 
@@ -549,13 +550,22 @@ async def undo(client: Any, run_id: str) -> int:
     return undone
 
 
+_UNHASHED_SQL = (
+    'SELECT "id", "objectKey" FROM "MediaFile" WHERE "shaVerifiedAt" IS NULL AND "mediaType" IN (\'AUDIO\', \'VIDEO\') '
+    'AND "questionnaireInterviewId" IS NOT NULL ORDER BY "createdAt"'
+)
+
+
+async def unhashed_count(client: Any) -> int:
+    """Interview clips with no verified checksum. Copies are found by checksum, so while any remain
+    the dry run would undercount them: hash first (``--sha-only --apply``), then dry-run."""
+    return len(await client.query_raw(_UNHASHED_SQL))
+
+
 async def sha_only(client: Any, *, hasher: Any = None) -> int:
     from app.services import s3
 
-    rows = await client.query_raw(
-        'SELECT "id", "objectKey" FROM "MediaFile" WHERE "shaVerifiedAt" IS NULL AND "mediaType" IN (\'AUDIO\', \'VIDEO\') '
-        'AND "questionnaireInterviewId" IS NOT NULL ORDER BY "createdAt"'
-    )
+    rows = await client.query_raw(_UNHASHED_SQL)
     done = 0
     for r in rows:
         sha, _size = await asyncio.to_thread(hasher or s3.stream_sha256, str(r["objectKey"]))
@@ -586,8 +596,13 @@ async def run(args: argparse.Namespace) -> int:
             print(f"UNDONE: {await undo(client, args.run_id)} changes reverted for run {args.run_id}.")
             return 0
         if args.sha_only:
+            # Dry run by default like every other mode: count, read nothing from S3, write nothing.
+            if not args.apply:
+                print(f"SHA DRY RUN: {await unhashed_count(client)} objects would be hashed. Nothing was read or written.")
+                return 0
             print(f"SHA: {await sha_only(client)} objects hashed.")
             return 0
+        unhashed = await unhashed_count(client)
         plan = await dry_plan(client)
         csv_text = report_csv(plan)
         md_text = report_md(plan, csv_text)
@@ -596,10 +611,15 @@ async def run(args: argparse.Namespace) -> int:
             qv2_guard.write_report(args.out, md_name, md_text)
             qv2_guard.write_report(args.out, csv_name, csv_text)
             print(json.dumps(plan.totals(), indent=2))
+            if unhashed:
+                print(f"WARNING: {unhashed} clips have no checksum yet, so copies are undercounted. "
+                      "Run --sha-only --apply, then this dry run again, before asking for approval.")
             print("DRY RUN: nothing was written.")
             return 0
         if not args.run_id:
             raise qv2_guard.Refused("--apply needs --run-id")
+        if unhashed:
+            raise qv2_guard.Refused(f"{unhashed} clips have no checksum: run --sha-only --apply, then a fresh dry run")
         approver, day = qv2_guard.check_approval(args.approved_report, md_text)
         changed = await apply_plan(client, plan, args.run_id)
         print(f"APPLIED run {args.run_id} (approved by {approver} on {day}): {changed} changes.")
