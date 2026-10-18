@@ -139,7 +139,7 @@ async def test_upsert_stamps_the_source_on_a_new_answer_and_clears_it_on_a_typed
         "inst",
     )
     assert responses.created[0]["answerSource"] == "TRANSCRIPT"
-    assert responses.updated == [("r-1", {"answerText": "typed again", "notes": None, "answerSource": None, "answeredById": "u-1"})]
+    assert responses.updated == [("r-1", {"answerText": "typed again", "notes": None, "answerSource": None, "answeredById": "u-1", "answerOrigin": None})]
 
 
 async def test_apply_transcripts_fills_only_the_empty_answers(monkeypatch):
@@ -529,7 +529,7 @@ async def test_a_notes_only_change_keeps_the_transcript_mark(monkeypatch):
         "i-1", [QuestionnaireResponseInput(questionId="q-1", answerText="from clip", notes="checked")], user, "inst"
     )
     assert responses.updated == [
-        ("r-1", {"answerText": "from clip", "notes": "checked", "answerSource": "TRANSCRIPT", "answeredById": "u-1"})
+        ("r-1", {"answerText": "from clip", "notes": "checked", "answerSource": "TRANSCRIPT", "answeredById": "u-1", "answerOrigin": None})
     ]
 
 
