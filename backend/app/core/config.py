@@ -382,6 +382,25 @@ class Settings(BaseSettings):
     )
     cross_portal_token: str | None = Field(default=None, alias="CROSS_PORTAL_TOKEN")
 
+    # ── ARTISAN CARDS (printable card with a signed QR; docs/ENVIRONMENT.md) ────────────────────
+    #
+    # On by default, but nothing is drawn until ARTISAN_CARD_KEY is set (32 random bytes, base64):
+    # without it every card route answers 404 and both clients hide the card. The key signs the QR
+    # so this server can tell a printed card from a made-up one. A DIFFERENT value from the designer
+    # portal's; never shared. Backed up in SSM. Rotation: bump the version and move the old key to
+    # ARTISAN_CARD_KEY_PREVIOUS, which keeps verifying cards printed under it. Typed short codes
+    # resolve without the key, so losing it costs QR verification only.
+    artisan_cards_enabled: bool = Field(default=True, alias="ARTISAN_CARDS_ENABLED")
+    artisan_card_key: str | None = Field(default=None, alias="ARTISAN_CARD_KEY")
+    artisan_card_key_version: int = Field(default=1, ge=1, le=9, alias="ARTISAN_CARD_KEY_VERSION")
+    artisan_card_key_previous: str | None = Field(default=None, alias="ARTISAN_CARD_KEY_PREVIOUS")
+    # Unmatched card lookups one account may make in ten minutes before it is answered 429.
+    artisan_card_resolve_miss_limit: int = Field(
+        default=20, ge=1, alias="ARTISAN_CARD_RESOLVE_MISS_LIMIT"
+    )
+    # The letter this portal's cards carry: F for the Field Repository. Never reused by the other.
+    artisan_card_issuer: str = Field(default="F", pattern="^[DF]$", alias="ARTISAN_CARD_ISSUER")
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -526,3 +526,12 @@ export function sortArtisansByCraft(artisans: readonly Artisan[], selectedCrafts
   );
   return keyed.map((entry) => entry.artisan);
 }
+
+/**
+ * The full artisan behind a scanned or typed card (`components/artisans/CardCodeLookup`), so a form
+ * can link them as if picked: the resolve answer carries the name and place but not the craft id the
+ * pickers are keyed on. Android's `rememberArtisanPicker` does the same after its card scan.
+ */
+export function artisanForCard(artisanId: string): Promise<Artisan> {
+  return apiFetch<Artisan>(`/artisans/${encodeURIComponent(artisanId)}`);
+}

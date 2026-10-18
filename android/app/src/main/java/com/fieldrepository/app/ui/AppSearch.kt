@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -256,7 +257,9 @@ fun AppSearchHeader(
     onOpenSearch: () -> Unit,
     modifier: Modifier = Modifier,
     /** True while it floats over content mid-page, where a shadow separates it from the page. */
-    elevated: Boolean = false
+    elevated: Boolean = false,
+    /** Scan an artisan card. Null (cards off here) draws no icon. */
+    onScanCard: (() -> Unit)? = null
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -293,6 +296,12 @@ fun AppSearchHeader(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            }
+            if (onScanCard != null) {
+                // Its own target over the header's search tap: 48dp, the opposite end from Search.
+                IconButton(onClick = onScanCard, modifier = Modifier.align(Alignment.CenterStart).size(48.dp)) {
+                    Icon(Icons.Filled.QrCodeScanner, contentDescription = "Scan artisan card", tint = MaterialTheme.colorScheme.primary)
+                }
             }
         }
     }

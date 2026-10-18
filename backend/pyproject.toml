@@ -36,6 +36,10 @@ dependencies = [
     # the server so the web app and the Android app both render the same SVG. Pure Python, no
     # dependencies of its own; the TOTP arithmetic itself is the standard library.
     "segno>=1.6.6",
+    # The printable artisan card (app/services/artisan_card_pdf.py): ID-1 and A6 pages, and A4 sheets
+    # of ten for a workshop. The QR inside is segno's matrix drawn as vector squares, so it prints
+    # sharp at any size. Pulls in pillow, which places the artisan's photo.
+    "reportlab>=5.0.1",
     # PINNED EXACTLY, AND THAT IS A BLOCKER RATHER THAN A PREFERENCE. RobertCraigie/prisma-client-py
     # is archived ("no longer being maintained", README); 0.15.0 (2024-08-16) is its final release and
     # it drives the Prisma CLI and engines at 5.17.0, which therefore cannot move either. `==` keeps
@@ -81,6 +85,8 @@ dev = [
     "ruff>=0.16.10",
     "pytest>=9.1.1",
     "httpx>=0.28.1",
+    # Reads the artisan-card PDFs back in tests/test_artisan_card_routes.py (page size, text).
+    "pypdf>=6.21.1",
 ]
 # Optional AI image features (app/ai_features, all flags default off — see docs/AI_FEATURES.md).
 # Nothing below is installed by `pip install -e .`, and nothing below is imported unless a

@@ -5,6 +5,7 @@ from app.api.routes import (
     answer_drafts,
     access_roster,
     app_release,
+    artisan_cards,
     artisans,
     auth,
     craft_codes,
@@ -46,6 +47,8 @@ api_router.include_router(users.router)
 # the other end: /users is who has an account, /access-roster is who is allowed to have one.
 api_router.include_router(access_roster.router)
 api_router.include_router(artisans.router)
+# The artisan card: /artisans/{id}/card*, and /artisan-cards/* for status, sheets and resolving.
+api_router.include_router(artisan_cards.router)
 api_router.include_router(crafts.router)
 api_router.include_router(craft_codes.router)
 api_router.include_router(cross_portal.router)

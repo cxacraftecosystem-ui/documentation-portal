@@ -1091,6 +1091,47 @@ jobs:
           REMOTE
           } | ssh ubuntu@$EC2_HOST 'bash -s'
 
+      # The artisan card key (2026-10-21): signs the QR on this portal's artisan cards
+      # (backend/app/services/artisan_card.py). THIS portal's own value, never the designer portal's.
+      # An Actions SECRET, on ssh's STDIN, shape-checked on the runner. An empty secret keeps the box's
+      # key; a box with none draws no cards (every card route answers 404). Unlike the fingerprint key
+      # it may change: a rotation sets ARTISAN_CARD_KEY_VERSION and ARTISAN_CARD_KEY_PREVIOUS in the box
+      # .env first (backend/DEPLOY_AWS.md, "Artisan cards"). Backup: SSM /iit/field-repository/artisan-card-key.
+      - name: Pin the artisan card key
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          ARTISAN_CARD_KEY: ${{ secrets.ARTISAN_CARD_KEY }}
+        run: |
+          key="$(printf '%s' "$ARTISAN_CARD_KEY" | tr -d '[:space:]')"
+          if [ -n "$key" ]; then KEY="$key" python3 - <<'PY' || exit 1
+          import base64, binascii, os
+          try:
+              raw = base64.b64decode(os.environ["KEY"], validate=True)
+          except (binascii.Error, ValueError):
+              raw = b""
+          if len(raw) != 32:
+              print("::error::ARTISAN_CARD_KEY is not 32 bytes of base64; nothing was deployed.")
+              raise SystemExit(1)
+          PY
+          fi
+          {
+            printf 'CK=%q\n' "$key"
+            cat <<'REMOTE'
+          set -euo pipefail
+          ENVFILE=/home/ubuntu/app/backend/.env
+          have=$({ grep -E '^ARTISAN_CARD_KEY=' "$ENVFILE" || true; } | tail -n1 | cut -d= -f2- | tr -d "[:space:]\"'")
+          if [ -z "$CK" ]; then
+            if [ -n "$have" ]; then echo "Artisan card key: kept from the box"; else echo "::warning::ARTISAN_CARD_KEY is not set; artisan cards stay hidden"; fi
+            exit 0
+          fi
+          [ -s "$ENVFILE" ] && [ -n "$(tail -c1 "$ENVFILE")" ] && printf '\n' >> "$ENVFILE"
+          sed -i '/^ARTISAN_CARD_KEY=/d' "$ENVFILE"
+          printf 'ARTISAN_CARD_KEY=%s\n' "$CK" >> "$ENVFILE"
+          grep -q '^ARTISAN_CARD_KEY=.' "$ENVFILE" || { echo "the artisan card key did not land on its own line"; exit 1; }
+          echo "Artisan card key pinned"
+          REMOTE
+          } | ssh ubuntu@$EC2_HOST 'bash -s'
+
       # ─── THE PROJECT, THE PRISMA CLIENT, THE MIGRATION, THE SWITCH ──────────────────────────────
       # Everything up to the switch happens inside the venv the build step chose, while the API is
       # still serving from the old one; the switch happens with both services stopped. The order of

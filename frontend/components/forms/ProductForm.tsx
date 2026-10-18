@@ -17,7 +17,8 @@ import {
   type AcceptedMeasurements
 } from "@/components/forms/measurementMethods";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
-import { craftChangeClearsArtisan, useCraftAndArtisanOptions, useRecordOffPage } from "@/components/forms/recordPickers";
+import { CardCodeLookup } from "@/components/artisans/CardCodeLookup";
+import { artisanForCard, craftChangeClearsArtisan, useCraftAndArtisanOptions, useRecordOffPage } from "@/components/forms/recordPickers";
 import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/WorkshopSelect";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
 import { GridMeasurement, type GridFiles, type GridGroup } from "@/components/media/GridMeasurement";
@@ -715,6 +716,35 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
             ) : null}
             <CappedListNotice cuts={[craftId ? craftArtisanCut : null]} />
           </Field>
+          {/* Or the code under the artisan's card: links them, and their craft with them. */}
+          <CardCodeLookup
+            compact
+            actionLabel="Link"
+            onFound={(found) => {
+              void artisanForCard(found.id)
+                .then((artisan) => {
+                  if (artisan.craftId) {
+                    setCraftId(artisan.craftId);
+                    if (artisan.craft?.name) setCraftName(artisan.craft.name);
+                  }
+                  setArtisanId(artisan.id);
+                  setArtisanName(artisan.name);
+                  setPlace(artisan.place);
+                  carry.remember(
+                    {
+                      artisanId: artisan.id,
+                      artisanName: artisan.name,
+                      place: artisan.place,
+                      craftId: artisan.craftId ?? craftId,
+                      craftName: artisan.craft?.name ?? craftName
+                    },
+                    { explicit: true }
+                  );
+                  markDirty();
+                })
+                .catch((err) => setError(err instanceof Error ? err.message : "Couldn't link that artisan."));
+            }}
+          />
           <DictatedTextInput
             name="artisanName"
             label="Artisan name"

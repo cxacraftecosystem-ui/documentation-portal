@@ -643,12 +643,55 @@ model CrossPortalArtisanLink {
   artisanId       String
   remoteArtisanId String
   matchedBy       String
+  /// The designer portal's live card code for its linked record, pushed at link and at reissue, so
+  /// a designer card typed or scanned here opens this artisan (services/artisan_card.py).
+  remoteCardCode  String?  @unique
   createdAt       DateTime @default(now())
 
   artisan Artisan @relation(fields: [artisanId], references: [id], onDelete: Cascade)
 
   @@unique([artisanId, remoteArtisanId])
   @@index([remoteArtisanId])
+}
+
+/// A printable artisan card (services/artisan_card.py). The QR and the short code carry ``code`` and
+/// a tag signed by ARTISAN_CARD_KEY, never the artisan's id or any personal data. One LIVE card per
+/// artisan, held by the partial unique index ``ArtisanCard_one_live_per_artisan`` (raw SQL in the
+/// migration: Prisma cannot express it). A lost or damaged card is revoked, not deleted, so an old
+/// code answers "replaced" instead of "unknown". The QR is drawn on every read and never stored.
+model ArtisanCard {
+  id            String    @id @default(cuid())
+  artisanId     String
+  code          String    @unique
+  keyVersion    Int       @default(1)
+  issuedAt      DateTime  @default(now())
+  issuedById    String?
+  revokedAt     DateTime?
+  revokedById   String?
+  /// LOST | DAMAGED | OTHER
+  revokedReason String?
+
+  artisan Artisan @relation(fields: [artisanId], references: [id], onDelete: Cascade)
+
+  @@index([artisanId])
+}
+
+/// Every issue, reissue, print (with the number of cards in a bulk print) and lookup of an artisan
+/// card. ``RESOLVE_MISS`` rows are also the per-account miss budget (ARTISAN_CARD_RESOLVE_MISS_LIMIT).
+model ArtisanCardEvent {
+  id        String   @id @default(cuid())
+  artisanId String?
+  cardCode  String?
+  /// ISSUE | REISSUE | PRINT | RESOLVE | RESOLVE_MISS | PEER_RESOLVE
+  action    String
+  /// WEB | ANDROID | PEER
+  source    String
+  userId    String?
+  count     Int      @default(1)
+  createdAt DateTime @default(now())
+
+  @@index([userId, action, createdAt])
+  @@index([artisanId, createdAt])
 }
 
 /// C27: one row per request the designer portal's server made here — which of its accounts asked
@@ -922,6 +965,7 @@ model Artisan {
   sectionStatuses QuestionnaireSectionStatus[]
   sharingConsent  ArtisanSharingConsent?
   crossPortalLinks CrossPortalArtisanLink[]
+  cards           ArtisanCard[]
 
   // `name` earns its index by being the sort key of the artisan pickers, not by the search box:
   // every text search in this app is a case-insensitive `contains`, which Postgres runs as ILIKE

@@ -2,6 +2,8 @@ package com.fieldrepository.app
 
 import com.fieldrepository.app.data.AnswerDrafts
 import com.fieldrepository.app.ui.AnswerDraftsCard
+import com.fieldrepository.app.ui.ArtisanCardPickerScan
+import com.fieldrepository.app.ui.ArtisanCardScanDialog
 import com.fieldrepository.app.ui.SharingConsentRow
 import android.Manifest
 import android.app.DownloadManager
@@ -464,6 +466,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import com.fieldrepository.app.data.ArtisanCardCode
+import com.fieldrepository.app.data.ArtisanCardResolution
 import com.fieldrepository.app.data.ArtisanDto
 import com.fieldrepository.app.data.ArtisanAnswerDto
 import com.fieldrepository.app.data.ArtisanDetailDto
@@ -1511,6 +1515,10 @@ private fun HomeScreen(
     val reducedMotion = preferences.reducedMotion
     // The search panel the page header opens. See AppSearch.kt.
     var searchOpen by remember { mutableStateOf(false) }
+    // Artisan cards: the header's scan icon, drawn only while the server has cards on (ui/CardScanner.kt).
+    var cardsEnabled by remember { mutableStateOf(false) }
+    var cardScanOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(user.id) { cardsEnabled = repository.artisanCardsEnabled() }
     // The designer portal's AppMessageState: `message = "…"` is a success, showMessage an error.
     val appMessage = remember { AppMessageState() }
     // The offline / outbox banners' footprint, measured by the root (ui/BannerClearance.kt).
@@ -2712,7 +2720,26 @@ private fun HomeScreen(
                         appName = APP_SEARCH_NAME,
                         logo = { m -> FieldRepoLogo(modifier = m, cornerRadius = 10.dp) },
                         onOpenSearch = { searchOpen = true },
-                        elevated = elevated
+                        elevated = elevated,
+                        onScanCard = if (cardsEnabled) ({ cardScanOpen = true }) else null
+                    )
+                }
+                if (cardScanOpen) {
+                    ArtisanCardScanDialog(
+                        resolve = { text -> repository.resolveArtisanCard(text) },
+                        onResolved = { result ->
+                            cardScanOpen = false
+                            when (result) {
+                                is ArtisanCardResolution.Found -> openRecordView(EntryMode.ARTISAN, result.artisanId)
+                                is ArtisanCardResolution.Replaced -> {
+                                    showMessage("This card was replaced.", AppMessageTone.SUCCESS)
+                                    openRecordView(EntryMode.ARTISAN, result.artisanId)
+                                }
+                                is ArtisanCardResolution.Pending -> showMessage("No signal. This card opens once you're online.")
+                                is ArtisanCardResolution.Refused -> showMessage(result.message)
+                            }
+                        },
+                        onDismiss = { cardScanOpen = false }
                     )
                 }
                 // Over the page, under nothing: the page keeps its scroll and any half-filled form.
@@ -7795,6 +7822,26 @@ private fun ProductForm(
         if (craftId.isNotBlank() && picker.loadedForCraft == craftId && artisanOptionsForCraft.isEmpty()) {
             Text("No artisans are linked to this craft yet.", color = Muted, fontSize = 12.sp)
         }
+        // Or the artisan's card: links them, and their craft with them. Scanned with no signal and
+        // not in this phone's register, the card waits as a chip and links when the record syncs.
+        ArtisanCardPickerScan(
+            repository = repository,
+            selected = listOf(artisanId),
+            onPicked = { id, name, cardPlace ->
+                artisanId = id
+                name?.let { artisanName = it }
+                cardPlace?.let { place = it }
+                if (!ArtisanCardCode.isPending(id)) {
+                    scope.launch {
+                        runCatching { repository.artisan(id) }.getOrNull()?.let { found ->
+                            found.craftId?.let { craftId = it }
+                            found.craft?.name?.let { craftName = it }
+                        }
+                    }
+                }
+            },
+            onError = onError
+        )
         RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus, titleCased = true, dictate = dictates("artisanName")) { artisanName = it }
         RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
         TextInput("Time taken to complete", timeTaken, dictate = dictates("timeTakenToCompleteProduct")) { timeTaken = it }
@@ -8751,6 +8798,14 @@ private fun ToolForm(
                 fontSize = 12.sp
             )
         }
+        // Or an artisan's card: adds them. A card scanned with no signal waits as a chip and links
+        // when the record syncs.
+        ArtisanCardPickerScan(
+            repository = repository,
+            selected = artisanIds,
+            onPicked = { id, _, _ -> if (id !in artisanIds) onArtisansChanged((artisanIds + id).toSet()) },
+            onError = onError
+        )
         RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus, titleCased = true, dictate = dictates("artisanName")) { artisanName = it }
         RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
         TextInput("Process used in", processUsedIn, dictate = dictates("processUsedIn")) { processUsedIn = it }

@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
 
+import { CardCodeLookup } from "@/components/artisans/CardCodeLookup";
 import { EmptyState } from "@/components/EmptyState";
 import { useAuth } from "@/components/AuthProvider";
 import { PageHeader } from "@/components/PageHeader";
@@ -82,6 +83,7 @@ type AppliedFilters = { q: string; filters: SearchFilters };
 
 export default function SearchPage() {
   const { user } = useAuth();
+  const router = useRouter();
   /**
    * The URL SEEDS the filters, it does not own them.
    *
@@ -262,6 +264,11 @@ export default function SearchPage() {
         title="Search"
         description="Search every record."
         icon={<Search className="h-5 w-5" aria-hidden />}
+      />
+      {/* The code under an artisan card's QR opens that artisan directly. Hidden while cards are off. */}
+      <CardCodeLookup
+        onFound={(artisan) => router.push(recordViewHref("artisan", artisan.id)!)}
+        onOpenReplaced={(artisanId) => router.push(recordViewHref("artisan", artisanId)!)}
       />
       <form onSubmit={submit} className="panel mb-5 grid gap-3 p-4 md:grid-cols-[1fr_220px_auto]">
         <input className="field-input" placeholder="Search records" value={query} onChange={(event) => setQuery(event.target.value)} />

@@ -35,7 +35,9 @@ certifi==2026.7.22
 cffi==2.1.1
     # via cryptography
 charset-normalizer==3.5.2
-    # via requests
+    # via
+    #   reportlab
+    #   requests
 click==8.5.0
     # via
     #   prisma
@@ -100,6 +102,8 @@ opentelemetry-api==1.45.1
     # via fastapi
 packaging==26.3
     # via pytest
+pillow==13.0.0
+    # via reportlab
 pluggy==1.6.0
     # via pytest
 prisma==0.15.0
@@ -127,6 +131,8 @@ pygments==2.21.0
     # via pytest
 pyjwt==2.15.1
     # via field-repository-backend (pyproject.toml)
+pypdf==6.21.1
+    # via field-repository-backend (pyproject.toml)
 pytest==9.1.1
     # via field-repository-backend (pyproject.toml)
 python-dateutil==2.9.0.post0
@@ -140,6 +146,8 @@ python-multipart==0.0.32
     # via field-repository-backend (pyproject.toml)
 pyyaml==6.0.3
     # via uvicorn
+reportlab==5.0.1
+    # via field-repository-backend (pyproject.toml)
 requests==2.34.2
     # via field-repository-backend (pyproject.toml)
 ruff==0.16.10
