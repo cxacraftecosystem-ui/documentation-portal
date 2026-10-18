@@ -3,10 +3,14 @@
 THE OWNER'S DECISION (2026-10-18). Approving a record approves its files that are still PENDING; a
 reviewer can still reject any one file on its own. ``review.set_review_status`` does that from this
 release on, in the approval's own transaction. Records approved BEFORE it left their files pending —
-about 895 of them on the live database at the last dry run — and this script brings them into line,
+about 895 of them on the live database at the last dry run, counted before files uploaded after
+the approval were left out — and this script brings them into line,
 once, with exactly the rules a live approval applies:
 
 * only PENDING files move. A REJECTED file, or one already approved, keeps its decision;
+* only files uploaded at or before the record's approval move (owner decision 2026-10-18). A live
+  approval can only take the files present when it runs; a file uploaded after the record was
+  approved was never seen by its reviewer, so it stays PENDING for review and is counted apart;
 * each file takes its record's reviewer and review moment, and gets its own ReviewLog line;
 * the review ladder holds: a file uploaded by somebody at or above the record's reviewer stays
   pending for a reviewer who may judge it, and a late file (outside its workshop's dates) stays
@@ -32,7 +36,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from app.api.routes.review import (
@@ -56,8 +60,15 @@ BATCH_TX_MAX_WAIT = timedelta(seconds=15)
 class TypeCounts:
     records: int = 0
     files: int = 0
+    #: Pending files the ladder, the late rule or a missing reviewer keeps out.
     left_pending: int = 0
+    #: Pending files uploaded after their record was approved: left for a reviewer to see.
+    uploaded_later: int = 0
     no_reviewer: int = 0
+
+
+def _files(count: int) -> str:
+    return f"{count} file{'' if count == 1 else 's'}"
 
 
 @dataclass
@@ -69,15 +80,31 @@ class Report:
     def files(self) -> int:
         return sum(counts.files for counts in self.by_type.values())
 
+    @property
+    def uploaded_later(self) -> int:
+        return sum(counts.uploaded_later for counts in self.by_type.values())
+
     def lines(self) -> list[str]:
-        verb = "Approved" if self.applied else "Would approve"
-        out = [f"{'type':<14}{'records':>9}{'files':>8}{'left':>7}{'no rev.':>9}"]
+        verb = "Approved" if self.applied else "Will approve"
+        out = [f"{'type':<14}{'records':>9}{'files':>8}{'later':>8}{'left':>7}{'no rev.':>9}"]
         for kind, counts in self.by_type.items():
-            out.append(f"{kind:<14}{counts.records:>9}{counts.files:>8}{counts.left_pending:>7}{counts.no_reviewer:>9}")
-        out.append(f"{verb} {self.files} file{'' if self.files == 1 else 's'} in total.")
+            out.append(
+                f"{kind:<14}{counts.records:>9}{counts.files:>8}{counts.uploaded_later:>8}"
+                f"{counts.left_pending:>7}{counts.no_reviewer:>9}"
+            )
+        out.append(f"{verb} {_files(self.files)} in total.")
+        out.append(f"Left {_files(self.uploaded_later)} for review: uploaded after their record was approved.")
         if not self.applied:
             out.append("Dry run: nothing was written. Pass --apply to write.")
         return out
+
+
+def uploaded_by_approval(files: list[Any], approved_at: datetime) -> list[Any]:
+    """The files that existed when their record was approved: created at or before ``approved_at``.
+
+    A file with no creation time cannot be shown to predate the approval, so it stays for review.
+    """
+    return [media for media in files if (created := get_value(media, "createdAt")) and created <= approved_at]
 
 
 async def _approved_batches(client: Any, kind: str, batch_size: int):
@@ -115,8 +142,10 @@ async def run(client: Any, *, apply: bool, batch_size: int = 200, kinds: tuple[s
                     counts.no_reviewer += 1
                     counts.left_pending += len(files)
                     continue
-                eligible = cascade_eligible(files, reviewer)
-                counts.left_pending += len(files) - len(eligible)
+                present = uploaded_by_approval(files, get_value(row, "reviewedAt"))
+                counts.uploaded_later += len(files) - len(present)
+                eligible = cascade_eligible(present, reviewer)
+                counts.left_pending += len(present) - len(eligible)
                 if eligible:
                     counts.records += 1
                     counts.files += len(eligible)

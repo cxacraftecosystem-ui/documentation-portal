@@ -35,6 +35,7 @@ async def _seed(client: Any, tag: str) -> dict[str, str]:
     ids = {
         "author": f"u{tag}", "prof": f"p{tag}", "a1": f"a1{tag}", "a2": f"a2{tag}",
         "m1": f"m1{tag}", "m2": f"m2{tag}", "m3": f"m3{tag}", "rej": f"mr{tag}", "m4": f"m4{tag}",
+        "m5": f"m5{tag}",
     }
     await client.execute_raw(
         'INSERT INTO "User" ("id", "email", "name", "role", "updatedAt") VALUES '
@@ -52,6 +53,7 @@ async def _seed(client: Any, tag: str) -> dict[str, str]:
         (ids["m3"], "PENDING", None, None),
         (ids["rej"], "REJECTED", "artisan", ids["a1"]),
         (ids["m4"], "PENDING", "artisan", ids["a2"]),
+        (ids["m5"], "PENDING", "artisan", ids["a2"]),
     ]
     for media_id, state, linked_type, linked_id in rows:
         await client.execute_raw(
@@ -59,13 +61,13 @@ async def _seed(client: Any, tag: str) -> dict[str, str]:
             '"objectKey", "status", "linkedRecordType", "linkedRecordId", "artisanId", "uploadedById", "updatedAt") '
             "VALUES ($1, 'photo.jpg', 'IMAGE', 'image/jpeg', 10, 'test', $2, $3::\"RecordStatus\", $4, $5, $6, $7, now())",
             media_id, f"test/{media_id}.jpg", state, linked_type, linked_id,
-            ids["a2"] if media_id == ids["m4"] else ids["a1"], ids["author"],
+            ids["a2"] if media_id in (ids["m4"], ids["m5"]) else ids["a1"], ids["author"],
         )
     return ids
 
 
 async def _cleanup(client: Any, ids: dict[str, str]) -> None:
-    media = [ids[k] for k in ("m1", "m2", "m3", "rej", "m4")]
+    media = [ids[k] for k in ("m1", "m2", "m3", "rej", "m4", "m5")]
     await client.execute_raw('DELETE FROM "ReviewLog" WHERE "reviewerId" = $1', ids["prof"])
     await client.execute_raw('DELETE FROM "MediaFile" WHERE "id" = ANY($1::text[])', media)
     await client.execute_raw('DELETE FROM "Artisan" WHERE "id" IN ($1, $2)', ids["a1"], ids["a2"])
@@ -76,7 +78,7 @@ async def _statuses(client: Any, ids: dict[str, str]) -> dict[str, str]:
     rows = await client.query_raw(
         'SELECT "id", "status"::text AS status FROM "MediaFile" WHERE "id" = ANY($1::text[]) '
         'UNION ALL SELECT "id", "status"::text FROM "Artisan" WHERE "id" IN ($2, $3)',
-        [ids[k] for k in ("m1", "m2", "m3", "rej", "m4")], ids["a1"], ids["a2"],
+        [ids[k] for k in ("m1", "m2", "m3", "rej", "m4", "m5")], ids["a1"], ids["a2"],
     )
     back = {v: k for k, v in ids.items()}
     return {back[str(row["id"])]: str(row["status"]) for row in rows}
@@ -100,7 +102,7 @@ def test_an_approval_commits_the_record_with_its_files_and_a_failure_rolls_all_b
         try:
             prof = await client.user.find_unique(where={"id": ids["prof"]})
             assert (await review.pending_media_counts([("artisan", ids["a1"]), ("artisan", ids["a2"])], prof)) == {
-                ("artisan", ids["a1"]): 3, ("artisan", ids["a2"]): 1,
+                ("artisan", ids["a1"]): 3, ("artisan", ids["a2"]): 2,
             }
 
             # A write failing inside the transaction takes the record's approval with it.
@@ -122,22 +124,28 @@ def test_an_approval_commits_the_record_with_its_files_and_a_failure_rolls_all_b
             assert answer["mediaApproved"] == 3
             states = await _statuses(client, ids)
             assert states == {"a1": "APPROVED", "a2": "PENDING", "m1": "APPROVED", "m2": "APPROVED", "m3": "APPROVED",
-                              "rej": "REJECTED", "m4": "PENDING"}
+                              "rej": "REJECTED", "m4": "PENDING", "m5": "PENDING"}
             record = await client.artisan.find_unique(where={"id": ids["a1"]})
             m1 = await client.mediafile.find_unique(where={"id": ids["m1"]})
             assert m1.reviewedById == ids["prof"] and m1.reviewedAt == record.reviewedAt
             logs = await client.reviewlog.find_many(where={"reviewerId": ids["prof"], "recordType": "MEDIA"})
             assert sorted(log.recordId for log in logs) == sorted([ids["m1"], ids["m2"], ids["m3"]])
 
-            # The backfill: a2 approved the old way (record only) has one file left to bring along.
+            # The backfill: a2 approved the old way (record only) has one file left to bring along,
+            # and m5, uploaded after that approval, which stays pending for review.
             await client.execute_raw(
                 'UPDATE "Artisan" SET "status" = \'APPROVED\', "reviewedById" = $2, "reviewedAt" = now() WHERE "id" = $1',
                 ids["a2"], ids["prof"],
             )
+            await client.execute_raw(
+                'UPDATE "MediaFile" SET "createdAt" = now() + interval \'1 hour\' WHERE "id" = $1', ids["m5"]
+            )
             dry = await backfill.run(client, apply=False, kinds=("artisan",))
-            assert dry.by_type["artisan"].files >= 1 and (await _statuses(client, ids))["m4"] == "PENDING"
+            assert dry.by_type["artisan"].files >= 1 and dry.by_type["artisan"].uploaded_later >= 1
+            assert (await _statuses(client, ids))["m4"] == "PENDING"
             done = await backfill.run(client, apply=True, kinds=("artisan",))
-            assert done.files == dry.files and (await _statuses(client, ids))["m4"] == "APPROVED"
+            states = await _statuses(client, ids)
+            assert done.files == dry.files and (states["m4"], states["m5"]) == ("APPROVED", "PENDING")
             assert (await backfill.run(client, apply=False, kinds=("artisan",))).files == 0
         finally:
             await _cleanup(client, ids)

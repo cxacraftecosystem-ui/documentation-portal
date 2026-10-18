@@ -665,15 +665,19 @@ Never from a laptop, and never as part of a test run. Each one is dry by default
 From this release, approving a record also approves its files that are still PENDING (a reviewer can
 still reject any one file). Records approved earlier left their files pending; this brings them into
 line with the same rules: only PENDING files, the record's reviewer and review time, one ReviewLog
-line per file, the review ladder and the late-submission rule kept. The last dry run expected about
-**895** files.
+line per file, the review ladder and the late-submission rule kept. Only files uploaded at or before
+their record's approval move: a file uploaded after it was never seen by that reviewer, so it stays
+PENDING for review, and the run counts it apart (owner decision 2026-10-18). The last dry run, before
+that rule, expected about **895** files.
 
 ```bash
 cd /home/ubuntu/app/backend
 .venv/bin/python scripts/approve_media_of_approved_records.py           # dry run: counts per type
 .venv/bin/python scripts/approve_media_of_approved_records.py --apply   # write, 200 records a batch
-.venv/bin/python scripts/approve_media_of_approved_records.py           # again: expect 0
+.venv/bin/python scripts/approve_media_of_approved_records.py           # again: expect 0 to approve
 ```
 
-Check the dry run's total against the number above before passing `--apply`; a total far from it is a
-reason to stop and look, not to proceed.
+The dry run ends with two totals: `Will approve N files in total.` and `Left M files for review:
+uploaded after their record was approved.` Check N + M against the number above before passing
+`--apply`; a sum far from it is a reason to stop and look, not to proceed. The re-run still reports
+the same M: those files wait in the review queue.

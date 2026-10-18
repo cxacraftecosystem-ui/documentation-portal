@@ -10,7 +10,8 @@ What is held here:
 * the record, its log line and its files land together or not at all;
 * the queue, the record page and the bulk approval say how many files go with an approval;
 * the review decisions accept an Idempotency-Key, so the Android outbox can replay one safely;
-* the backfill script finds, counts and approves exactly what a live approval would, once.
+* the backfill script finds, counts and approves exactly what a live approval would, once — and
+  only files uploaded at or before their record's approval; later ones stay pending for review.
 
 NOTHING HERE TOUCHES A DATABASE: the review module's ``db`` is an in-memory stand-in whose ``tx()``
 really rolls back (``review_tx_fakes.RollbackTx``). ``test_review_media_cascade_sql_db.py`` runs the
@@ -124,6 +125,7 @@ def _media(media_id: str, status: str = "PENDING", *, tag: str | None = None, li
         id=media_id, status=status, linkedRecordType=tag, linkedRecordId=linked, artisanId=None, productId=None,
         toolId=None, questionnaireInterviewId=None, extraMetadata={}, uploadedBy=uploader,
         uploadedById=uploader.id if uploader else "creator", reviewedAt=None, reviewedById=None,
+        createdAt=datetime(2026, 10, 1, 12, 0, tzinfo=UTC),
     )
     values.update(columns)
     return SimpleNamespace(**values)
@@ -224,6 +226,16 @@ def test_approving_a_record_approves_its_pending_files_with_the_same_reviewer_an
     assert {log["recordId"] for log in _media_logs(world)} == {"m1", "m2", "m3"}
     assert {log["notes"] for log in _media_logs(world)} == {"Approved with its artisan record."}
     assert world.db.tx.opened == 1
+
+
+def test_a_file_uploaded_after_the_approval_stays_pending(world: Any) -> None:
+    """The live cascade takes only the files present when the approval runs."""
+    assert _call("POST", "/artisan/a1/approve", {"notes": None}).status_code == 200
+    world.db.mediafile.rows.append(
+        _media("after", tag="artisan", linked="a1", uploader=world.creator, artisanId="a1", createdAt=datetime.now(UTC))
+    )
+    assert _file(world, "after").status == "PENDING"
+    assert "after" not in {log["recordId"] for log in _media_logs(world)}
 
 
 def test_a_rejected_or_already_decided_file_is_never_touched(world: Any) -> None:
@@ -358,11 +370,12 @@ def _approved(world: Any) -> None:
 def test_the_backfill_dry_run_counts_per_type_and_writes_nothing(world: Any) -> None:
     _approved(world)
     report = asyncio.run(backfill.run(world.db, apply=False, batch_size=1))
-    assert report.files == 8
+    assert report.files == 8 and report.uploaded_later == 0
     assert (report.by_type["artisan"].files, report.by_type["artisan"].no_reviewer) == (3, 1)
     assert report.by_type["artisan"].left_pending == 2
     assert (report.by_type["product"].files, report.by_type["process"].files, report.by_type["questionnaire"].files) == (2, 2, 1)
-    assert "Would approve 8 files in total." in report.lines()
+    assert "Will approve 8 files in total." in report.lines()
+    assert "Left 0 files for review: uploaded after their record was approved." in report.lines()
     assert world.db.reviewlog.created == [] and world.db.tx.opened == 0
     assert _file(world, "m1").status == "PENDING"
 
@@ -378,3 +391,36 @@ def test_the_backfill_applies_in_batches_with_the_records_reviewer_and_is_idempo
     assert _file(world, "rejected").status == "REJECTED" and _file(world, "above").status == "PENDING"
     again = asyncio.run(backfill.run(world.db, apply=True, batch_size=50))
     assert again.files == 0 and len(_media_logs(world)) == 8
+
+
+def _uploaded_after_approval(world: Any) -> None:
+    """m2 and the product's pm1 arrived after their records were approved; m3 at the very moment."""
+    _file(world, "m2").createdAt = datetime(2026, 10, 3, tzinfo=UTC)
+    _file(world, "pm1").createdAt = datetime(2026, 10, 2, 9, 31, tzinfo=UTC)
+    _file(world, "m3").createdAt = APPROVED_AT
+
+
+def test_the_backfill_leaves_files_uploaded_after_the_approval_for_review(world: Any) -> None:
+    _approved(world)
+    _uploaded_after_approval(world)
+    dry = asyncio.run(backfill.run(world.db, apply=False))
+    assert (dry.files, dry.uploaded_later) == (6, 2)
+    assert (dry.by_type["artisan"].files, dry.by_type["artisan"].uploaded_later) == (2, 1)
+    assert (dry.by_type["product"].files, dry.by_type["product"].uploaded_later) == (1, 1)
+    assert "Will approve 6 files in total." in dry.lines()
+    assert "Left 2 files for review: uploaded after their record was approved." in dry.lines()
+    done = asyncio.run(backfill.run(world.db, apply=True))
+    assert (done.files, done.uploaded_later) == (6, 2)
+    assert _file(world, "m3").status == "APPROVED"  # uploaded at the approval moment: it was there
+    assert (_file(world, "m2").status, _file(world, "pm1").status) == ("PENDING", "PENDING")
+    assert not {"m2", "pm1"} & {log["recordId"] for log in _media_logs(world)}
+    assert "Approved 6 files in total." in done.lines()
+    again = asyncio.run(backfill.run(world.db, apply=True))
+    assert (again.files, again.uploaded_later) == (0, 2)
+
+
+def test_a_file_with_no_upload_time_is_left_for_review(world: Any) -> None:
+    _approved(world)
+    _file(world, "m1").createdAt = None
+    report = asyncio.run(backfill.run(world.db, apply=False, kinds=("artisan",)))
+    assert (report.by_type["artisan"].files, report.by_type["artisan"].uploaded_later) == (2, 1)

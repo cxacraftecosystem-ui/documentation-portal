@@ -110,16 +110,6 @@ does not say which files are already rejected or approved with their record.
 **To close it.** Return each file's status from `GET /review/{type}/{id}/media` and show it as a
 small badge on the file card on both clients.
 
-### Backfill takes files uploaded after the approval — S
-
-**What is open.** `backend/scripts/approve_media_of_approved_records.py` approves every PENDING file
-of an APPROVED record, including files uploaded after the record was approved. The live cascade only
-takes files present at the approval. Those later files get the record's older review time, and no
-reviewer saw them.
-
-**To close it.** Owner decision before the backfill runs: keep it (the ~895 estimate assumes this),
-or filter to files created at or before the record's review time and leave the rest in the queue.
-
 ### Android walkthrough deck switcher layout — S
 
 **What is open.** The opening card's switcher puts this app's two other decks side by side in one
