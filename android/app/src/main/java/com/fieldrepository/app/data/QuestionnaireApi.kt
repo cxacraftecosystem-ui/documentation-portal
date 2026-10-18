@@ -50,6 +50,10 @@ interface QuestionnaireApi {
     @GET("questionnaire/sessions/{id}")
     suspend fun session(@Path("id") id: String): QSessionDetail
 
+    /** The same response read as the list's session shape, to open it from the inbox. */
+    @GET("questionnaire/sessions/{id}")
+    suspend fun sessionSummary(@Path("id") id: String): QSession
+
     @PATCH("questionnaire/sessions/{id}")
     suspend fun patchSession(@Path("id") id: String, @Body body: QSessionPatch): QSession
 
@@ -94,6 +98,14 @@ interface QuestionnaireApi {
 
     @POST("questionnaire/recordings/{id}/restore")
     suspend fun restoreRecording(@Path("id") id: String): QRecording
+
+    /** Refile a landed take: who answered, which target. Optimistic on `version` (409 STALE_VERSION). */
+    @PATCH("questionnaire/recordings/{id}")
+    suspend fun patchRecording(@Path("id") id: String, @Body body: QRecordingPatch): QRecording
+
+    /** An inbox "Needs a decision" row: keep both takes, or keep this one. */
+    @POST("questionnaire/recordings/{id}/decide")
+    suspend fun decide(@Path("id") id: String, @Body body: QDecideRequest): QRecording
 
     /** While transcription is paused this answers 202 `{status: QUEUED, paused: true}`; the UI never offers it then. */
     @POST("questionnaire/recordings/{id}/transcribe")

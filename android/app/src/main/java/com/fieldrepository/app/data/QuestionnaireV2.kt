@@ -6,6 +6,7 @@ import com.fieldrepository.app.recording.RecordingDrafts
 import com.fieldrepository.app.recording.Remuxer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.time.Instant
 
@@ -65,8 +66,13 @@ class QuestionnaireV2 private constructor(context: Context) {
         }.getOrNull()
     }
 
-    suspend fun queueTake(draft: RecordingDraft): RecordingDraft {
-        var current = draft
+    private val takeLock = kotlinx.coroutines.sync.Mutex()
+
+    suspend fun queueTake(draft: RecordingDraft): RecordingDraft = takeLock.withLock { queueTakeLocked(draft) }
+
+    private suspend fun queueTakeLocked(draft: RecordingDraft): RecordingDraft {
+        // "Answered by" may have been chosen while the take was still being remuxed; the disk copy has it.
+        var current = RecordingDrafts.read(filesDir, draft.clientClipKey)?.let { draft.copy(subjects = it.subjects) } ?: draft
         if (current.m4aPath == null || current.sha256 == null) {
             val m4a = File(current.adtsPath.removeSuffix(".aac") + ".m4a")
             val result = Remuxer.remux(File(current.adtsPath), m4a)
@@ -80,6 +86,32 @@ class QuestionnaireV2 private constructor(context: Context) {
             RecordingDrafts.write(filesDir, current)
         }
         return current
+    }
+
+    enum class AnsweredOutcome { SAVED, REFILED, FAILED }
+
+    /**
+     * The "Answered by" chips after Stop (§3.4), whenever they are confirmed: before the take reaches
+     * the outbox the choice goes into its draft (and [queueTake] picks it up), while it waits in the
+     * outbox the queued body is changed, and once it has landed the take is refiled online with
+     * `PATCH /recordings/{id}`. FAILED only when the refile could not reach the server.
+     */
+    suspend fun setAnsweredBy(sessionKey: String, clientClipKey: String, answeredIds: Set<String>): AnsweredOutcome = takeLock.withLock {
+        val draft = RecordingDrafts.read(filesDir, clientClipKey)
+        if (draft != null && !draft.queued) {
+            RecordingDrafts.write(filesDir, draft.copy(subjects = SessionOutbox.withAnswered(draft.subjects, answeredIds)))
+            return@withLock AnsweredOutcome.SAVED
+        }
+        if (outbox.updateClipSubjects(sessionKey, clientClipKey, answeredIds)) return@withLock AnsweredOutcome.SAVED
+        val unit = outbox.unit(sessionKey) ?: return@withLock AnsweredOutcome.FAILED
+        val step = unit.steps.firstOrNull { it.clip?.clientClipKey == clientClipKey } ?: return@withLock AnsweredOutcome.FAILED
+        val recordingId = step.resultId ?: return@withLock AnsweredOutcome.FAILED
+        val sessionId = unit.sessionId ?: return@withLock AnsweredOutcome.FAILED
+        val subjects = SessionOutbox.withAnswered(step.clip!!.recording.subjects, answeredIds)
+        runCatching {
+            val version = api.session(sessionId).recordings.firstOrNull { it.id == recordingId }?.version ?: 1
+            api.patchRecording(recordingId, QRecordingPatch(version, subjects.map { QSubjectPatch(it.artisanId, it.role) }))
+        }.fold({ AnsweredOutcome.REFILED }, { AnsweredOutcome.FAILED })
     }
 
     // ── Consent (§3.11): asked inline, never blocking. Append-only; offline answers wait here. ──

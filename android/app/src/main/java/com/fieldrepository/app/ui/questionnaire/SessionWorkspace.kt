@@ -65,6 +65,7 @@ import com.fieldrepository.app.recording.RecordingService
 import com.fieldrepository.app.ui.MICROPHONE_PERMISSION
 import com.fieldrepository.app.ui.MICROPHONE_REFUSED_SENTENCE
 import com.fieldrepository.app.ui.SearchableMultiSelectField
+import com.fieldrepository.app.ui.SearchableSelectField
 import com.fieldrepository.app.ui.SearchableSelectSheet
 import com.fieldrepository.app.ui.SelectOption
 import com.fieldrepository.app.ui.AppToggle
@@ -190,7 +191,7 @@ fun SessionWorkspace(
 
     fun startRecording(req: RecordRequest, reasons: Map<String, String>, acked: List<String>, continuationOf: String? = null, replaces: String? = null) {
         val u = unit ?: return
-        val subjects = roster.map { QCompleteSubject(it.artisanId, SubjectRole.ANSWERED, named = false, repeatReason = reasons[it.artisanId]) }
+        val subjects = roster.map { QCompleteSubject(it.artisanId, SubjectRole.ANSWERED.wire, named = false, repeatReason = reasons[it.artisanId]) }
         val key = SessionOutbox.newKey()
         val picked = req.pickedFile
         if (picked != null) {
@@ -294,11 +295,8 @@ fun SessionWorkspace(
             AnsweredByChips(roster, lastAnswered[sectionKey].orEmpty()) { chosen ->
                 lastAnswered[sectionKey] = chosen
                 scope.launch {
-                    // The service queues the take after remuxing; wait for it (a few seconds at most).
-                    withTimeoutOrNull(30_000) {
-                        while ((RecordingService.state.value as? RecordingService.State.Finished)?.draft?.queued != true) delay(200)
-                    }
-                    v2.outbox.updateClipSubjects(clientKey, done.draft.clientClipKey, chosen)
+                    // Saved whatever stage the take is at: its draft, the outbox, or refiled online.
+                    if (v2.setAnsweredBy(clientKey, done.draft.clientClipKey, chosen) == QuestionnaireV2.AnsweredOutcome.FAILED) onError(QuestionnaireCopy.s("upload.waiting"))
                     RecordingService.clearFinished()
                     OutboxSyncWorker.schedule(context)
                     reload()
@@ -328,10 +326,11 @@ fun SessionWorkspace(
                         question = q, roster = roster, known = known, overlay = overlay, locked = locked, typeAnswers = typeAnswers,
                         onRecord = { requestRecord(RecordRequest(QTargetRef(questionLineageId = q.lineageId), q.displayCode, q.displayCode)) },
                         onOpenTakes = { takeSheet = section.id to null },
-                        onSaveAnswer = { text ->
+                        onSaveAnswer = { text, forIds ->
                             scope.launch {
-                                val shared = roster.size > 1
-                                v2.outbox.addAnswers(clientKey, QAnswersPut(roster.map {
+                                // "All N" is one group answer; picking one artisan is that artisan's own.
+                                val shared = forIds.size > 1
+                                v2.outbox.addAnswers(clientKey, QAnswersPut(roster.filter { it.artisanId in forIds }.map {
                                     QAnswerItem(it.artisanId, q.lineageId, text, origin = "TYPED", attribution = if (shared) "GROUP_SHARED" else "INDIVIDUAL", sessionId = unit?.sessionId ?: clientKey)
                                 }))
                                 OutboxSyncWorker.schedule(context)
@@ -388,7 +387,7 @@ fun SessionWorkspace(
     takeSheet?.let { (sid, artisanId) ->
         val section = instrument?.section(sid)
         val keys = setOf("S:$sid") + section?.questions?.map { "Q:${it.lineageId}" }.orEmpty()
-        val rows = known.filter { it.targetKey in keys && (artisanId == null || it.artisanId == artisanId) && it.role == SubjectRole.ANSWERED }
+        val rows = known.filter { it.targetKey in keys && (artisanId == null || it.artisanId == artisanId) && it.role == SubjectRole.ANSWERED.wire }
             .distinctBy { it.recordingId }.sortedBy { it.capturedAt ?: "" }
             .map { t -> takeRow(t, detail, paused, meId) } + overlay.filter { it.targetKey in keys && (artisanId == null || it.artisanId == artisanId) }
             .distinctBy { it.clientClipKey }.map { o ->
@@ -479,9 +478,10 @@ private fun QuestionBlock(
     typeAnswers: Boolean,
     onRecord: () -> Unit,
     onOpenTakes: () -> Unit,
-    onSaveAnswer: (String) -> Unit
+    onSaveAnswer: (text: String, forArtisanIds: Set<String>) -> Unit
 ) {
     var answer by remember(question.lineageId) { mutableStateOf("") }
+    var answerFor by remember(question.lineageId) { mutableStateOf(ALL_ARTISANS) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("${question.displayCode}  ${question.prompt}", style = MaterialTheme.typography.bodyMedium)
         val marks = roster.map { CoverageGridModel.questionMark(question, it.artisanId, known, overlay) }
@@ -492,12 +492,31 @@ private fun QuestionBlock(
             OutlinedButton(onClick = onRecord) { Text(QuestionnaireCopy.s("workspace.record")) }
         }
         if (typeAnswers) {
-            OutlinedTextField(value = answer, onValueChange = { answer = it }, modifier = Modifier.fillMaxWidth(),
-                label = { Text(if (roster.size > 1) "Answer for: All ${roster.size}" else "Answer") })
-            if (answer.isNotBlank()) PromptButtons(listOf(PromptButton("Save", primary = true) { onSaveAnswer(answer.trim()) }))
+            if (roster.size > 1) SearchableSelectField(
+                label = QuestionnaireCopy.answerForLabel(),
+                options = answerForOptions(roster),
+                selectedValue = answerFor,
+                includeNone = false,
+                onSelect = { answerFor = it }
+            )
+            OutlinedTextField(value = answer, onValueChange = { answer = it }, modifier = Modifier.fillMaxWidth())
+            if (answer.isNotBlank()) PromptButtons(listOf(PromptButton(QuestionnaireCopy.s("save"), primary = true) {
+                onSaveAnswer(answer.trim(), answerForIds(roster, answerFor))
+                answer = ""
+            }))
         }
     }
 }
+
+private const val ALL_ARTISANS = "*"
+
+/** "All N" first, then each artisan by name. */
+internal fun answerForOptions(roster: List<HeaderParticipant>): List<SelectOption> =
+    listOf(SelectOption(ALL_ARTISANS, QuestionnaireCopy.t("answerForAll", "count" to roster.size))) +
+        roster.map { SelectOption(it.artisanId, it.name) }
+
+internal fun answerForIds(roster: List<HeaderParticipant>, choice: String): Set<String> =
+    if (choice == ALL_ARTISANS || roster.none { it.artisanId == choice }) roster.map { it.artisanId }.toSet() else setOf(choice)
 
 private fun takeRow(t: QSnapshotTake, detail: QSessionDetail?, paused: Boolean, meId: String?): TakeRow {
     val rec = detail?.recordings?.firstOrNull { it.id == t.recordingId }

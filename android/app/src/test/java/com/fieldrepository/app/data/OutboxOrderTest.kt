@@ -144,6 +144,6 @@ class OutboxOrderTest {
         outbox.addClip("c-8", testClip(dir, "k1", 100, "2026-07-01T10:01:00Z", listOf("a1", "a2")))
         assertTrue(outbox.updateClipSubjects("c-8", "k1", setOf("a1")))
         val subjects = outbox.unit("c-8")!!.steps.single { it.kind == StepKind.CLIP }.clip!!.recording.subjects
-        assertEquals(listOf("a1" to SubjectRole.ANSWERED, "a2" to SubjectRole.PRESENT), subjects.map { it.artisanId to it.role })
+        assertEquals(listOf("a1" to SubjectRole.ANSWERED.wire, "a2" to SubjectRole.PRESENT.wire), subjects.map { it.artisanId to it.role })
     }
 }

@@ -67,7 +67,7 @@ data class StartForm(
     val date: LocalDate? = LocalDate.now(Naming.IST),
     val group: Boolean = false,
     val artisanIds: List<String> = emptyList(),
-    val purpose: String = SessionPurpose.FIRST_SITTING,
+    val purpose: String = SessionPurpose.FIRST_SITTING.wire,
     val place: String = "",
     val languageCode: String = "",
     val languageOther: String = "",
@@ -202,7 +202,7 @@ fun SessionStartSheet(
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(QuestionnaireCopy.s("start.purpose"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SessionPurpose.ALL.forEach { p ->
+                    SessionPurpose.entries.map { it.wire }.forEach { p ->
                         FilterChip(selected = form.purpose == p, onClick = { form = form.copy(purpose = p) }, label = { Text(QuestionnaireCopy.purposeLabel(p)) })
                     }
                 }
@@ -232,6 +232,7 @@ fun SessionStartSheet(
                 singleLine = true, modifier = Modifier.fillMaxWidth()
             )
             // No title field: the generated title, as it will be saved.
+            Text(QuestionnaireCopy.s("start.titlePreview"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.field.muted)
             Text(form.titlePreview(workshop, byId), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.field.body)
             ActionRow(Modifier.fillMaxWidth()) {
                 Button(enabled = form.canStart && !starting, onClick = {
@@ -267,7 +268,7 @@ private fun coverageLine(v2: QuestionnaireV2, form: StartForm, byId: Map<String,
     val cached = v2.coverage.get(form.questionnaireId, form.workshopId.ifBlank { null }) ?: return null
     val total = sectionsTotal?.takeIf { it > 0 } ?: return null
     val people = form.artisanIds.map { id ->
-        val covered = cached.snapshot.takes.filter { it.artisanId == id && it.role == SubjectRole.ANSWERED && it.targetKey.startsWith("S:") }
+        val covered = cached.snapshot.takes.filter { it.artisanId == id && it.role == SubjectRole.ANSWERED.wire && it.targetKey.startsWith("S:") }
             .map { it.targetKey }.distinct().size
         QuestionnaireCopy.ArtisanCoverage(QuestionnaireCopy.firstName(byId[id]?.name.orEmpty()), covered)
     }

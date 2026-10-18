@@ -206,7 +206,13 @@ fun QuestionnaireV2Screen(
             )
             QRoute.Inbox -> Column {
                 TextButton(onClick = { route = QRoute.List }) { Text("‹ " + QuestionnaireCopy.s("sessions.title")) }
-                InboxScreen(v2, onError)
+                InboxScreen(v2, onError, onOpenSession = { sessionId ->
+                    scope.launch {
+                        runCatching { v2.api.sessionSummary(sessionId) }
+                            .onSuccess { s -> openUnit(v2.outbox.adoptSession(s, s.questionnaire?.id.orEmpty(), meId).clientKey) }
+                            .onFailure { onError(QuestionnaireCopy.s("record.error")) }
+                    }
+                })
             }
             QRoute.Join -> Column {
                 TextButton(onClick = { route = QRoute.List }) { Text("‹ " + QuestionnaireCopy.s("sessions.title")) }

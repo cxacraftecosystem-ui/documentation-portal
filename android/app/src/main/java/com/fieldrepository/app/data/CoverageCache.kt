@@ -80,7 +80,7 @@ class CoverageCache(private val dir: File?, private val clock: () -> Instant = I
     data class CheckContext(
         val sessionId: String? = null,
         val sessionKey: String? = null,
-        val purpose: String = SessionPurpose.FIRST_SITTING,
+        val purpose: String = SessionPurpose.FIRST_SITTING.wire,
         val rosterCount: Int = 1,
         val myUserId: String? = null,
         /** questionLineageId → its section id, from the instrument in use. */
@@ -105,7 +105,7 @@ class CoverageCache(private val dir: File?, private val clock: () -> Instant = I
             now: Instant
         ): QCoverageCheckResponse {
             val removed = snapshot.removedRecordingIds.toSet()
-            val live = snapshot.takes.filter { it.role == SubjectRole.ANSWERED && it.recordingId !in removed }
+            val live = snapshot.takes.filter { it.role == SubjectRole.ANSWERED.wire && it.recordingId !in removed }
             val all: List<QSnapshotTake> = live + overlay.map {
                 QSnapshotTake(
                     recordingId = "local:${it.clientClipKey}", sessionId = it.sessionKey, artisanId = it.artisanId,
@@ -125,11 +125,11 @@ class CoverageCache(private val dir: File?, private val clock: () -> Instant = I
                     val viaSection = if (own.isEmpty() && parentSection != null) takesFor(artisanId, "S:$parentSection") else emptyList()
                     val shown = own.ifEmpty { viaSection }
                     val state = when {
-                        shown.any { it.filing == "NEEDS_DECISION" } -> CoverageState.NEEDS_DECISION
-                        own.isNotEmpty() -> CoverageState.RECORDED
-                        viaSection.isNotEmpty() -> CoverageState.VIA_SECTION
-                        target.sectionId != null && context.questionsOfSection[target.sectionId].orEmpty().any { q -> takesFor(artisanId, "Q:$q").isNotEmpty() } -> CoverageState.PARTIAL
-                        else -> CoverageState.NOT_RECORDED
+                        shown.any { it.filing == "NEEDS_DECISION" } -> CoverageState.NEEDS_DECISION.wire
+                        own.isNotEmpty() -> CoverageState.RECORDED.wire
+                        viaSection.isNotEmpty() -> CoverageState.VIA_SECTION.wire
+                        target.sectionId != null && context.questionsOfSection[target.sectionId].orEmpty().any { q -> takesFor(artisanId, "Q:$q").isNotEmpty() } -> CoverageState.PARTIAL.wire
+                        else -> CoverageState.NOT_RECORDED.wire
                     }
                     val takes = shown.mapIndexed { index, take -> toCheckTake(take, index + 1, context, now) }
                     if (suggested == null && takes.isNotEmpty()) suggested = suggestReason(takes.last(), context, now)
@@ -158,15 +158,15 @@ class CoverageCache(private val dir: File?, private val clock: () -> Instant = I
          */
         fun suggestReason(latest: QCheckTake, context: CheckContext, now: Instant): String {
             when (context.purpose) {
-                SessionPurpose.FOLLOW_UP -> return RepeatReason.FOLLOW_UP
-                SessionPurpose.REDO -> return RepeatReason.REDO
+                SessionPurpose.FOLLOW_UP.wire -> return RepeatReason.FOLLOW_UP.wire
+                SessionPurpose.REDO.wire -> return RepeatReason.REDO.wire
             }
             val at = latest.capturedAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
-            if (latest.sameSession && latest.mine && at != null && Duration.between(at, now) <= Duration.ofHours(2)) return RepeatReason.REDO
+            if (latest.sameSession && latest.mine && at != null && Duration.between(at, now) <= Duration.ofHours(2)) return RepeatReason.REDO.wire
             val earlierSolo = (latest.session?.rosterCount ?: 1) == 1
             val nowSolo = context.rosterCount == 1
-            if (earlierSolo != nowSolo) return RepeatReason.NEW_SETTING
-            return if (latest.mine) RepeatReason.REDO else RepeatReason.RE_INTERVIEW
+            if (earlierSolo != nowSolo) return RepeatReason.NEW_SETTING.wire
+            return if (latest.mine) RepeatReason.REDO.wire else RepeatReason.RE_INTERVIEW.wire
         }
 
         /** Overlay takes from the outbox: every pending clip × its targets × its ANSWERED subjects. */
@@ -174,7 +174,7 @@ class CoverageCache(private val dir: File?, private val clock: () -> Instant = I
             units.filter { it.questionnaireId == questionnaireId }.flatMap { unit ->
                 unit.pendingClips.flatMap { step ->
                     val clip = step.clip!!
-                    val subjects = clip.recording.subjects.filter { it.role == SubjectRole.ANSWERED }
+                    val subjects = clip.recording.subjects.filter { it.role == SubjectRole.ANSWERED.wire }
                     clip.recording.targets.flatMap { target ->
                         subjects.map { s ->
                             OverlayTake(

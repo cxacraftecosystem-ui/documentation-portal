@@ -118,7 +118,7 @@ fun ArtisanQuestionnaireRecord(
                             Text("Section ${section.sectionCode}", style = MaterialTheme.typography.labelLarge)
                             section.questions.forEach { q ->
                                 val badge = when {
-                                    q.answer?.attribution == "GROUP_SHARED" -> QuestionnaireCopy.s("record.groupAnswer")
+                                    q.answer?.attribution == "GROUP_SHARED" -> QuestionnaireCopy.groupAnswer(instrument.rosterOf(q.answer.sourceRecordingId ?: q.primaryRecordingId))
                                     q.answer?.sourceRecordingId != null -> QuestionnaireCopy.s("record.fromRecording")
                                     else -> null
                                 }

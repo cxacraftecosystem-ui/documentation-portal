@@ -1,0 +1,11 @@
+{
+  "generatedBy": "scripts/generate_shared.py",
+  "sha256": {
+    "enums.json": "474d751dd987c63f89e48e59a988fbf419c13ef8e639b3e08f3378f6949fea41",
+    "languages.json": "56a13533539e0d5a12185df650b0afeba7eb42c25cb4c4029277601b7be67dd6",
+    "questionnaire-contract.json": "106e0116b9292a51faf9f62d1ba14ee5f8d1fbe8d48c0bf1148c2f205a4f6726",
+    "questionnaire-form-contract.json": "405e289b21a22ebc46d493c8f936681b81939c8120621d7fd879d5f47f15374d",
+    "session-title.json": "5680934cd02d48224930a33bd3d3ef3c0c33dbfd965d534243142dd6359157c0",
+    "strings/questionnaire.json": "459dd796c78f0b08f416f973c90a0b8286e8ed9189053cbb81465f145e3d5421"
+  }
+}

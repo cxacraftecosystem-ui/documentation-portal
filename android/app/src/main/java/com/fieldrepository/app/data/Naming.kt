@@ -18,8 +18,10 @@ import java.util.Locale
  * offline session has the same title before it syncs, and so the golden table in
  * `shared/session-title.json` is checked on this runtime too (DESIGN §9 test 60).
  *
- * Transliteration is injected: on a handset it is ICU `Any-Latin; Latin-ASCII` ([icuTransliterator]),
- * and the JVM unit tests (which have no ICU) pass their own.
+ * Transliteration is the shared rule of `shared/session-title.json` (`rules.transliteration`): the
+ * Indic inherent-vowel pass, then the anyascii library, the same one the backend (Python anyascii)
+ * and the web (npm any-ascii) use, so all three runtimes write the same file name. It is pure Java,
+ * so it behaves the same on every Android version and on the JVM test classpath.
  */
 object Naming {
     const val PORTAL = "FieldRepository"
@@ -49,7 +51,11 @@ object Naming {
         /** One entry per participant (null when that artisan has no craft). */
         val participantCrafts: List<String?> = emptyList(),
         /** Participant names: romanised name when stored, else the name as written. */
-        val participantNames: List<String> = emptyList()
+        val participantNames: List<String> = emptyList(),
+        /** Overrides the mode-derived entity (`Workshop`, `Questionnaire`). */
+        val entity: String? = null,
+        /** Overrides the participant-derived subject (a code such as `DW:RJ:0012`). */
+        val subject: String? = null
     )
 
     // ── Titles (DESIGN §3.12) ───────────────────────────────────────────────────────────────────
@@ -59,10 +65,10 @@ object Naming {
     /** `Interview_2026-07-01_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa`. Original script kept. */
     fun sessionTitle(fields: SessionFields): String {
         val parts = TitleParts(
-            head = listOfNotNull(entity(fields.participantNames.size), fields.sessionDate?.format(DATE)),
+            head = listOfNotNull(fields.entity ?: entity(fields.participantNames.size), fields.sessionDate?.format(DATE)),
             place = placeField(fields, ascii = false),
             craft = craftField(fields, ascii = false),
-            subject = subjectField(fields.participantNames, ascii = false),
+            subject = fields.subject?.let(::unicodeWords) ?: subjectField(fields.participantNames, ascii = false),
             tail = emptyList()
         )
         return parts.fit(TITLE_MAX)
@@ -86,12 +92,12 @@ object Naming {
         val what: String = "Recording"
     )
 
-    fun recordingFileName(fields: RecordingFields, transliterate: (String) -> String = icuTransliterator()): String {
+    fun recordingFileName(fields: RecordingFields, transliterate: (String) -> String = ::toAscii): String {
         val session = fields.session
         val day = fields.capturedAt.atZone(IST)
         val head = buildList {
             add(PORTAL)
-            add(entity(session.participantNames.size))
+            add(session.entity ?: entity(session.participantNames.size))
             add(day.format(DATE))
             if (fields.capturedAtSource !in ESTIMATED_SOURCES) add(day.format(TIME))
         }
@@ -100,7 +106,7 @@ object Naming {
             head = head,
             place = placeField(session, ascii = true, transliterate),
             craft = craftField(session, ascii = true, transliterate),
-            subject = subjectField(session.participantNames, ascii = true, transliterate),
+            subject = session.subject?.let { asciiWords(it, transliterate) } ?: subjectField(session.participantNames, ascii = true, transliterate),
             tail = listOfNotNull(asciiWords(fields.what, transliterate).joinToString("-").ifEmpty { null }, sequence)
         )
         val ext = fields.extension.trimStart('.').filter { it.isLetterOrDigit() && it.code < 128 }.lowercase(Locale.ROOT)
@@ -253,40 +259,38 @@ object Naming {
         }
     }
 
-    // ── Transliteration ────────────────────────────────────────────────────────────────────────
+    // ── Transliteration (shared/session-title.json rules.transliteration) ──────────────────────
+
+    private val INDIC_BLOCKS = intArrayOf(0x0900, 0x0980, 0x0A00, 0x0A80, 0x0B00, 0x0B80, 0x0C00, 0x0C80, 0x0D00)
+
+    private fun indicBlock(c: Char): Int? = INDIC_BLOCKS.firstOrNull { c.code in it until it + 0x80 }
+    private fun isConsonant(off: Int) = off in 0x15..0x39 || off in 0x58..0x5F
+    private fun isVowelSignOrVirama(off: Int) = off in 0x3E..0x4D || off in 0x55..0x57 || off == 0x62 || off == 0x63
+    private fun isWordLetter(off: Int) = isConsonant(off) || off in 0x05..0x14 || off in 0x01..0x03 || off == 0x60 || off == 0x61
 
     /**
-     * ICU `Any-Latin; Latin-ASCII`, then the inherent vowel ICU writes at the end of an Indic word is
-     * dropped (`गिरिराज` → `giriraja` → `giriraj`), so the result matches NAMING §2.2's
-     * `गिरिराज प्रसाद` → `Giriraj-Prasad`. Falls back to dropping non-ASCII when ICU is missing (before Android 10).
+     * anyascii writes a Brahmic consonant without its inherent vowel (`प्रसाद` → `prsad`). Every nukta
+     * is dropped, then an ASCII `a` goes after a consonant followed, in the same block, by a letter that
+     * is not a vowel sign or virama. A consonant at the end of a word gets nothing (`गिरिराज` → `giriraj`).
      */
-    fun icuTransliterator(): (String) -> String = { text ->
-        // android.icu's Transliterator is API 29; on 26 to 28 the name falls back to its ASCII letters.
-        val latin = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) runCatching {
-            android.icu.text.Transliterator.getInstance("Any-Latin; Latin-ASCII").transliterate(text)
-        }.getOrNull() else null
-        if (latin == null) text.filter { it.code < 128 } else dropFinalSchwa(text, latin)
-    }
-
-    /**
-     * For each word of [source] that ends in a bare Devanagari or Bengali consonant (no vowel sign,
-     * no virama), drop the trailing `a` from the matching word of [latin]. Words are matched by
-     * position; when the counts differ the Latin is returned unchanged.
-     */
-    fun dropFinalSchwa(source: String, latin: String): String {
-        val sourceWords = source.split(Regex("\\s+")).filter { it.isNotEmpty() }
-        val latinWords = latin.split(Regex("\\s+")).filter { it.isNotEmpty() }
-        if (sourceWords.size != latinWords.size) return latin
-        return sourceWords.zip(latinWords).joinToString(" ") { (src, lat) ->
-            val last = src.trimEnd { !it.isLetter() && it.code !in 0x0900..0x09FF }.lastOrNull()
-            if (last != null && isBareIndicConsonant(last) && lat.endsWith("a") && lat.length > 1) lat.dropLast(1) else lat
+    fun indicInherentVowels(value: String): String {
+        val chars = value.filter { c -> indicBlock(c)?.let { c.code - it == 0x3C } != true }
+        val out = StringBuilder(chars.length + 8)
+        chars.forEachIndexed { i, c ->
+            out.append(c)
+            val block = indicBlock(c) ?: return@forEachIndexed
+            if (!isConsonant(c.code - block)) return@forEachIndexed
+            val next = chars.getOrNull(i + 1) ?: return@forEachIndexed
+            if (indicBlock(next) != block) return@forEachIndexed
+            val off = next.code - block
+            if (!isVowelSignOrVirama(off) && isWordLetter(off)) out.append('a')
         }
+        return out.toString()
     }
 
-    private fun isBareIndicConsonant(c: Char): Boolean {
-        val code = c.code
-        return code in 0x0915..0x0939 || code in 0x0958..0x095F || code in 0x0995..0x09B9 || code in 0x09DC..0x09DF
-    }
+    /** The shared transliteration: NFC, the inherent-vowel pass, then anyascii. */
+    fun toAscii(value: String): String =
+        if (value.isEmpty()) "" else com.anyascii.AnyAscii.transliterate(indicInherentVowels(java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFC)))
 }
 
 /**

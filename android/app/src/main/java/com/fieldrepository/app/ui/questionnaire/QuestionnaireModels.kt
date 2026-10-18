@@ -89,7 +89,7 @@ object CoverageGridModel {
      * caller); [overlay] the takes still on this device.
      */
     fun rows(instrument: Instrument, artisanIds: List<String>, known: List<QSnapshotTake>, overlay: List<OverlayTake>): List<GridRow> {
-        val answered = known.filter { it.role == SubjectRole.ANSWERED }
+        val answered = known.filter { it.role == SubjectRole.ANSWERED.wire }
         return instrument.sections.map { section ->
             val cells = artisanIds.map { artisanId ->
                 val sectionTakes = answered.filter { it.artisanId == artisanId && it.targetKey == "S:${section.id}" }
@@ -110,7 +110,7 @@ object CoverageGridModel {
 
     /** A question's own mark for one artisan: its takes, else ◌ when its section has one. */
     fun questionMark(question: InstrumentQuestion, artisanId: String, known: List<QSnapshotTake>, overlay: List<OverlayTake>): GridCell {
-        val answered = known.filter { it.role == SubjectRole.ANSWERED && it.artisanId == artisanId }
+        val answered = known.filter { it.role == SubjectRole.ANSWERED.wire && it.artisanId == artisanId }
         val own = answered.filter { it.targetKey == "Q:${question.lineageId}" }
         val local = overlay.filter { it.artisanId == artisanId && it.targetKey == "Q:${question.lineageId}" }
         return when {
@@ -175,7 +175,7 @@ object AlreadyRecorded {
         now: Instant
     ): P2Model? {
         val perArtisan: List<QCheckArtisan> = response.targets.flatMap { it.perArtisan }.filter { it.artisanId in artisanIds }
-        val covered = perArtisan.filter { it.takes.isNotEmpty() && it.state != CoverageState.NOT_RECORDED && it.state != CoverageState.PARTIAL }
+        val covered = perArtisan.filter { it.takes.isNotEmpty() && it.state != CoverageState.NOT_RECORDED.wire && it.state != CoverageState.PARTIAL.wire }
             .distinctBy { it.artisanId }
         if (covered.isEmpty()) return null
         val coveredIds = covered.map { it.artisanId }.toSet()
@@ -199,9 +199,9 @@ object AlreadyRecorded {
         }
         val firsts = artisanIds.filter { it !in coveredIds }.map { QuestionnaireCopy.p2FirstTake(QuestionnaireCopy.firstName(names[it].orEmpty()), targetCode) }
         val preselected = when (purpose) {
-            SessionPurpose.FOLLOW_UP -> RepeatReason.FOLLOW_UP
-            SessionPurpose.REDO -> RepeatReason.REDO
-            else -> response.suggestedReason ?: RepeatReason.REDO
+            SessionPurpose.FOLLOW_UP.wire -> RepeatReason.FOLLOW_UP.wire
+            SessionPurpose.REDO.wire -> RepeatReason.REDO.wire
+            else -> response.suggestedReason ?: RepeatReason.REDO.wire
         }
         // Part 2 only when the latest take is in this session with the same ANSWERED subjects (§3.3.5).
         val partTwo = latest != null && latest.sameSession && coveredIds == artisanIds.toSet()
@@ -210,7 +210,7 @@ object AlreadyRecorded {
             body = body,
             lines = lines,
             firstTakes = firsts,
-            reasons = RepeatReason.ALL,
+            reasons = RepeatReason.entries.map { it.wire },
             preselected = preselected,
             primaryButton = QuestionnaireCopy.s(if (filePick) "p2.uploadAgain" else "p2.recordAgain"),
             offerPartTwo = partTwo,
@@ -296,7 +296,7 @@ object ArtisanTimeline {
         val subject = r.subjects.firstOrNull { it.artisanId == artisanId }
         val label = targetsLabel(r.targets)
         val parts = mutableListOf(label, QuestionnaireCopy.elapsed(r.durationMs))
-        if (subject?.role == SubjectRole.PRESENT) parts += QuestionnaireCopy.s("record.present")
+        if (subject?.role == SubjectRole.PRESENT.wire) parts += QuestionnaireCopy.s("record.present")
         else if (r.targets.isNotEmpty()) {
             subject?.position?.let { parts += QuestionnaireCopy.take(it) }
             subject?.repeatReason?.let { parts += QuestionnaireCopy.reasonLabel(it) }

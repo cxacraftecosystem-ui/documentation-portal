@@ -205,7 +205,21 @@ class SessionOutbox(
         /** About 50 kbps. Below this the clips go one at a time. */
         const val SLOW_LINK_BYTES_PER_SECOND = 6_250.0
 
-        fun missingFileMessage(label: String) = "The file for $label is missing on this device."
+        /** "The file for Section D (7 Jul) is missing on this device." from the shared table. */
+        fun missingFileMessage(label: String): String {
+            val open = label.lastIndexOf(" (")
+            val (target, date) = if (open > 0 && label.endsWith(")")) label.substring(0, open) to label.substring(open + 2, label.length - 1) else label to ""
+            val text = QuestionnaireCopy.t("missingOutboxFile", "target" to target, "date" to date)
+            return if (date.isEmpty()) text.replace(" ()", "") else text
+        }
+
+        /** An unticked artisan becomes PRESENT, never removed; a subset that answered is `named`. */
+        fun withAnswered(subjects: List<QCompleteSubject>, answeredIds: Set<String>): List<QCompleteSubject> = subjects.map {
+            it.copy(
+                role = if (it.artisanId in answeredIds) SubjectRole.ANSWERED.wire else SubjectRole.PRESENT.wire,
+                named = answeredIds.size < subjects.size && it.artisanId in answeredIds
+            )
+        }
         fun newKey(): String = UUID.randomUUID().toString()
     }
 
@@ -278,9 +292,7 @@ class SessionOutbox(
                 if (clip == null || clip.clientClipKey != clientClipKey || step.state == StepState.DONE) step
                 else {
                     changed = true
-                    step.copy(clip = clip.copy(recording = clip.recording.copy(subjects = clip.recording.subjects.map {
-                        it.copy(role = if (it.artisanId in answeredIds) SubjectRole.ANSWERED else SubjectRole.PRESENT, named = answeredIds.size < clip.recording.subjects.size && it.artisanId in answeredIds)
-                    })))
+                    step.copy(clip = clip.copy(recording = clip.recording.copy(subjects = withAnswered(clip.recording.subjects, answeredIds))))
                 }
             })
         }

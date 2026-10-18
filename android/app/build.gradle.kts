@@ -147,6 +147,8 @@ android {
         // the app at all. Every library below supports it (the newest AndroidX AARs ask for 23).
         minSdk = 26
         targetSdk = 37
+        // The on-device recording tests (src/androidTest, run by scripts/recording-device-tests.sh).
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = appVersionCode
         versionName = appVersionName
         // Default to the production backend through CloudFront over HTTPS. CloudFront is dual-stack
@@ -379,6 +381,12 @@ dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
     androidTestImplementation(composeBom)
+    // DESIGN §9 tests 49-51 on a device: lock, app switch, a call taking audio focus, Back, and a
+    // process kill mid-take. Instrumented, because only a real foreground service shows these.
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test:rules:1.7.0")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.4.0")
 
     /*
      * THE VENDORED TRACE ENGINE. See the block in settings.gradle.kts for what these four are and
@@ -458,9 +466,19 @@ dependencies {
      * header, and reading one off a photo or a picked image so a second phone can join OFFLINE.
      * ZXing core, the same artefact and version the Design Prototype Workshop app uses: pure Java,
      * about 0.6 MB, and it runs on the JVM test classpath, so `QrJoinTest` encodes and decodes a real
-     * symbol. No camera library is added: the photo comes from the system camera.
+     * symbol.
      */
     implementation("com.google.zxing:core:3.5.4")
+    // The live join scanner (ui/questionnaire/LiveQrScanner.kt): a CameraX preview whose frames go to
+    // ZXing above. The photo and picked-image paths stay as the fallback when the camera is refused.
+    implementation("androidx.camera:camera-camera2:1.6.2")
+    implementation("androidx.camera:camera-lifecycle:1.6.2")
+    implementation("androidx.camera:camera-view:1.6.2")
+
+    // File-name transliteration (data/Naming.kt): the same library and rule as the backend's Python
+    // anyascii and the web's npm any-ascii (shared/session-title.json rules.transliteration). Pure Java,
+    // so it gives the same result on every Android version and on the JVM test classpath.
+    implementation("com.anyascii:anyascii:0.3.3")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 

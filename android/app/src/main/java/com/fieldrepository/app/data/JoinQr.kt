@@ -67,4 +67,13 @@ object JoinQr {
         val source = RGBLuminanceSource(width, height, argb)
         QRCodeReader().decode(BinaryBitmap(HybridBinarizer(source)), mapOf(DecodeHintType.TRY_HARDER to true)).text
     }.getOrNull()
+
+    /**
+     * One camera frame's luminance (the Y plane of a YUV_420_888 image, [rowStride] bytes a row).
+     * No TRY_HARDER: the live scanner sees many frames a second and a quick miss is cheaper.
+     */
+    fun readLuminance(y: ByteArray, rowStride: Int, width: Int, height: Int): String? = runCatching {
+        val source = com.google.zxing.PlanarYUVLuminanceSource(y, rowStride, height, 0, 0, width, height, false)
+        QRCodeReader().decode(BinaryBitmap(HybridBinarizer(source))).text
+    }.getOrNull()
 }

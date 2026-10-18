@@ -37,34 +37,8 @@ object QErrorCodes {
     )
 }
 
-/** Repeat reasons (DESIGN §3.3.2), in the order the pills show them. */
-object RepeatReason {
-    const val REDO = "REDO"
-    const val FOLLOW_UP = "FOLLOW_UP"
-    const val RE_INTERVIEW = "RE_INTERVIEW"
-    const val NEW_SETTING = "NEW_SETTING"
-    val ALL = listOf(REDO, FOLLOW_UP, RE_INTERVIEW, NEW_SETTING)
-}
-
-object SessionPurpose {
-    const val FIRST_SITTING = "FIRST_SITTING"
-    const val FOLLOW_UP = "FOLLOW_UP"
-    const val REDO = "REDO"
-    val ALL = listOf(FIRST_SITTING, FOLLOW_UP, REDO)
-}
-
-object SubjectRole {
-    const val ANSWERED = "ANSWERED"
-    const val PRESENT = "PRESENT"
-}
-
-object CoverageState {
-    const val NOT_RECORDED = "NOT_RECORDED"
-    const val RECORDED = "RECORDED"
-    const val PARTIAL = "PARTIAL"
-    const val VIA_SECTION = "VIA_SECTION"
-    const val NEEDS_DECISION = "NEEDS_DECISION"
-}
+// RepeatReason, SessionPurpose, SubjectRole and CoverageState are the generated enums in SharedEnums.kt
+// (from shared/enums.json); the wire models carry their `.wire` strings.
 
 @Serializable
 data class QConfig(
@@ -107,7 +81,7 @@ data class QSessionCreate(
     val designWorkshopId: String? = null,
     val sessionDate: String,
     val startedAt: String,
-    val purpose: String = SessionPurpose.FIRST_SITTING,
+    val purpose: String = SessionPurpose.FIRST_SITTING.wire,
     val place: String? = null,
     val languageCode: String? = null,
     val languageOther: String? = null,
@@ -167,7 +141,7 @@ data class QSession(
     val endedAt: String? = null,
     val closedAt: String? = null,
     val state: String = "OPEN",
-    val purpose: String = SessionPurpose.FIRST_SITTING,
+    val purpose: String = SessionPurpose.FIRST_SITTING.wire,
     val origin: String = "NATIVE",
     val mode: String = "INDIVIDUAL",
     val participantCount: Int = 0,
@@ -196,7 +170,7 @@ data class QSessionDetail(
     val workshop: QNamedRef? = null,
     val sessionDate: String? = null,
     val state: String = "OPEN",
-    val purpose: String = SessionPurpose.FIRST_SITTING,
+    val purpose: String = SessionPurpose.FIRST_SITTING.wire,
     val participantCount: Int = 0,
     val place: String? = null,
     val languageCode: String? = null,
@@ -244,7 +218,7 @@ data class QTargetRef(val sectionId: String? = null, val questionLineageId: Stri
 @Serializable
 data class QSubject(
     val artisanId: String,
-    val role: String = SubjectRole.ANSWERED,
+    val role: String = SubjectRole.ANSWERED.wire,
     val named: Boolean = false,
     val repeatReason: String? = null,
     val flag: String? = null,
@@ -315,7 +289,7 @@ data class QCheckTake(
 @Serializable
 data class QCheckArtisan(
     val artisanId: String,
-    val state: String = CoverageState.NOT_RECORDED,
+    val state: String = CoverageState.NOT_RECORDED.wire,
     val viaSection: Boolean = false,
     val takes: List<QCheckTake> = emptyList()
 )
@@ -340,7 +314,7 @@ data class QSnapshotTake(
     val sessionId: String? = null,
     val artisanId: String,
     val targetKey: String,
-    val role: String = SubjectRole.ANSWERED,
+    val role: String = SubjectRole.ANSWERED.wire,
     val capturedAt: String? = null,
     val estimated: Boolean = false,
     val filing: String = "FILED",
@@ -415,7 +389,7 @@ data class QUploadState(
 @Serializable
 data class QCompleteSubject(
     val artisanId: String,
-    val role: String = SubjectRole.ANSWERED,
+    val role: String = SubjectRole.ANSWERED.wire,
     val named: Boolean = false,
     val repeatReason: String? = null
 )
@@ -508,6 +482,16 @@ data class QConsentPost(
 )
 
 @Serializable
+data class QSubjectPatch(val artisanId: String, val role: String)
+
+/** `PATCH /recordings/{id}`: only the fields being changed; nulls are left out on the wire. */
+@Serializable
+data class QRecordingPatch(val version: Int, val subjects: List<QSubjectPatch>? = null)
+
+@Serializable
+data class QDecideRequest(val action: String, val otherRecordingId: String? = null)
+
+@Serializable
 data class QInboxCounts(val total: Int = 0, val olderThan24h: Int = 0)
 
 @Serializable
@@ -559,7 +543,12 @@ data class QRecordInstrument(
     val sessions: List<QRecordSession> = emptyList(),
     val document: List<QRecordSection> = emptyList(),
     val retired: List<JsonElement> = emptyList()
-)
+) {
+    /** The roster size of the take a group answer came from, when the record holds that take. */
+    fun rosterOf(recordingId: String?): Int? = recordingId?.let { id ->
+        sessions.asSequence().flatMap { it.recordings.asSequence() + it.uncertain.asSequence() }.firstOrNull { it.id == id }?.rosterCount
+    }
+}
 
 @Serializable
 data class QArtisanRecord(val artisanId: String, val instruments: List<QRecordInstrument> = emptyList())

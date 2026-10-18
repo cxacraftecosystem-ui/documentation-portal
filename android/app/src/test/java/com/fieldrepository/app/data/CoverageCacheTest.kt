@@ -27,7 +27,7 @@ class CoverageCacheTest {
         asOfSeq = "1042",
         takes = listOf(
             QSnapshotTake("r9", "s0", "a1", "S:secD", capturedAt = "2026-07-07T05:12:00Z", durationMs = 852_000, recordedBy = QUserRef("u3", "Nandini"), rosterCount = 3, sessionDate = "2026-07-07"),
-            QSnapshotTake("r10", "s0", "a2", "S:secD", role = SubjectRole.PRESENT, capturedAt = "2026-07-07T05:12:00Z"),
+            QSnapshotTake("r10", "s0", "a2", "S:secD", role = SubjectRole.PRESENT.wire, capturedAt = "2026-07-07T05:12:00Z"),
             QSnapshotTake("r11", "s5", "a3", "Q:lin_d4", capturedAt = "2026-07-02T05:00:00Z")
         )
     )
@@ -58,7 +58,7 @@ class CoverageCacheTest {
         val request = QCoverageCheckRequest("q_ctw3", listOf("a1"), listOf(QTargetRef(questionLineageId = "lin_d3")))
         val result = CoverageCache.checkAgainst(snapshot, request, emptyList(), context, now)
         val a1 = result.targets.single().perArtisan.single()
-        assertEquals(CoverageState.VIA_SECTION, a1.state)
+        assertEquals(CoverageState.VIA_SECTION.wire, a1.state)
         assertTrue(a1.viaSection)
         assertEquals("r9", a1.takes.single().recordingId)
     }
@@ -68,7 +68,7 @@ class CoverageCacheTest {
         val request = QCoverageCheckRequest("q_ctw3", listOf("a2", "a3"), listOf(QTargetRef(sectionId = "secD")))
         val result = CoverageCache.checkAgainst(snapshot, request, emptyList(), context, now)
         assertTrue(result.targets.single().perArtisan.all { it.takes.isEmpty() })
-        assertEquals(CoverageState.PARTIAL, result.targets.single().perArtisan.first { it.artisanId == "a3" }.state)
+        assertEquals(CoverageState.PARTIAL.wire, result.targets.single().perArtisan.first { it.artisanId == "a3" }.state)
     }
 
     @Test
@@ -81,14 +81,14 @@ class CoverageCacheTest {
         assertTrue(take.sameSession)
         assertTrue(take.mine)
         // Same session, mine, within 2 h: Redo is preselected.
-        assertEquals(RepeatReason.REDO, result.suggestedReason)
+        assertEquals(RepeatReason.REDO.wire, result.suggestedReason)
     }
 
     @Test
     fun `the session purpose decides the reason first`() {
         val request = QCoverageCheckRequest("q_ctw3", listOf("a1"), listOf(QTargetRef(sectionId = "secD")))
-        assertEquals(RepeatReason.FOLLOW_UP, CoverageCache.checkAgainst(snapshot, request, emptyList(), context.copy(purpose = SessionPurpose.FOLLOW_UP), now).suggestedReason)
-        assertEquals(RepeatReason.NEW_SETTING, CoverageCache.checkAgainst(snapshot, request, emptyList(), context.copy(rosterCount = 1), now).suggestedReason)
+        assertEquals(RepeatReason.FOLLOW_UP.wire, CoverageCache.checkAgainst(snapshot, request, emptyList(), context.copy(purpose = SessionPurpose.FOLLOW_UP.wire), now).suggestedReason)
+        assertEquals(RepeatReason.NEW_SETTING.wire, CoverageCache.checkAgainst(snapshot, request, emptyList(), context.copy(rosterCount = 1), now).suggestedReason)
     }
 
     @Test

@@ -31,45 +31,45 @@ class QuestionnairePromptsTest {
 
     @Test
     fun `the group body, the take lines and the first-take line`() {
-        val model = AlreadyRecorded.model(response("a1" to "2026-07-07", "a2" to "2026-07-02"), "Section D", "D", names, listOf("a1", "a2", "a3"), SessionPurpose.FIRST_SITTING, false, now)!!
+        val model = AlreadyRecorded.model(response("a1" to "2026-07-07", "a2" to "2026-07-02"), "Section D", "D", names, listOf("a1", "a2", "a3"), SessionPurpose.FIRST_SITTING.wire, false, now)!!
         assertEquals("Already recorded", model.title)
         assertEquals("Section D is recorded for 2 of 3 here.", model.body)
         assertEquals(listOf("Giriraj · 14 min · Nandini · 7 Jul · Group of 3", "Meena · 9 min · Ankur · 2 Jul · Solo"), model.lines.map { it.text })
         assertEquals(listOf("Ravi hasn't been recorded for D. Their take will be their first."), model.firstTakes)
-        assertEquals(RepeatReason.RE_INTERVIEW, model.preselected)
+        assertEquals(RepeatReason.RE_INTERVIEW.wire, model.preselected)
         assertEquals("Record again", model.primaryButton)
         assertEquals(listOf("r-a1", "r-a2"), model.ackedRecordingIds)
     }
 
     @Test
     fun `one subject, and a question covered by its section`() {
-        val one = AlreadyRecorded.model(response("a1" to "2026-07-07"), "Section D", "D", names, listOf("a1"), SessionPurpose.FIRST_SITTING, false, now)!!
+        val one = AlreadyRecorded.model(response("a1" to "2026-07-07"), "Section D", "D", names, listOf("a1"), SessionPurpose.FIRST_SITTING.wire, false, now)!!
         assertEquals("Section D was recorded for Giriraj on 7 Jul.", one.body)
-        val whole = AlreadyRecorded.model(response("a1" to "2026-07-07", via = true), "Section D", "D3", names, listOf("a1"), SessionPurpose.FIRST_SITTING, false, now)!!
+        val whole = AlreadyRecorded.model(response("a1" to "2026-07-07", via = true), "Section D", "D3", names, listOf("a1"), SessionPurpose.FIRST_SITTING.wire, false, now)!!
         assertEquals("Section D was recorded whole for Giriraj on 7 Jul.", whole.body)
     }
 
     @Test
     fun `a file pick reads Upload again, and the purpose preselects`() {
-        val pick = AlreadyRecorded.model(response("a1" to "2026-07-07"), "Section D", "D", names, listOf("a1"), SessionPurpose.FOLLOW_UP, true, now)!!
+        val pick = AlreadyRecorded.model(response("a1" to "2026-07-07"), "Section D", "D", names, listOf("a1"), SessionPurpose.FOLLOW_UP.wire, true, now)!!
         assertEquals("Upload again", pick.primaryButton)
-        assertEquals(RepeatReason.FOLLOW_UP, pick.preselected)
-        val redo = AlreadyRecorded.model(response("a1" to "2026-07-07"), "Section D", "D", names, listOf("a1"), SessionPurpose.REDO, false, now)!!
-        assertEquals(RepeatReason.REDO, redo.preselected)
+        assertEquals(RepeatReason.FOLLOW_UP.wire, pick.preselected)
+        val redo = AlreadyRecorded.model(response("a1" to "2026-07-07"), "Section D", "D", names, listOf("a1"), SessionPurpose.REDO.wire, false, now)!!
+        assertEquals(RepeatReason.REDO.wire, redo.preselected)
     }
 
     @Test
     fun `part 2 and replace only when their rules hold`() {
-        val other = AlreadyRecorded.model(response("a1" to "2026-07-07"), "Section D", "D", names, listOf("a1"), SessionPurpose.FIRST_SITTING, false, now)!!
+        val other = AlreadyRecorded.model(response("a1" to "2026-07-07"), "Section D", "D", names, listOf("a1"), SessionPurpose.FIRST_SITTING.wire, false, now)!!
         assertFalse(other.offerPartTwo); assertFalse(other.offerReplace)
-        val mineHere = AlreadyRecorded.model(response("a1" to "2026-07-09", sameSession = true, mine = true, suggested = "REDO"), "Section D", "D", names, listOf("a1"), SessionPurpose.FIRST_SITTING, false, now)!!
+        val mineHere = AlreadyRecorded.model(response("a1" to "2026-07-09", sameSession = true, mine = true, suggested = "REDO"), "Section D", "D", names, listOf("a1"), SessionPurpose.FIRST_SITTING.wire, false, now)!!
         assertTrue(mineHere.offerPartTwo); assertTrue(mineHere.offerReplace)
-        assertEquals(RepeatReason.REDO, mineHere.preselected)
+        assertEquals(RepeatReason.REDO.wire, mineHere.preselected)
     }
 
     @Test
     fun `nobody covered means no prompt`() {
-        assertNull(AlreadyRecorded.model(response(), "Section D", "D", names, listOf("a1", "a2"), SessionPurpose.FIRST_SITTING, false, now))
+        assertNull(AlreadyRecorded.model(response(), "Section D", "D", names, listOf("a1", "a2"), SessionPurpose.FIRST_SITTING.wire, false, now))
     }
 
     @Test

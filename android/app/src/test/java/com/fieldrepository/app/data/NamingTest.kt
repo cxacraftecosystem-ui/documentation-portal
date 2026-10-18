@@ -1,5 +1,12 @@
 package com.fieldrepository.app.data
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -11,10 +18,8 @@ import java.time.LocalDate
  * DESIGN §9 test 60: `Naming.kt` passes the golden table of §3.12 (titles) and §3.13 (recording
  * names), plus NAMING §2.2's truncation, reserved-stem and ASCII rules.
  *
- * The JVM has no ICU, so the transliteration rows inject a stand-in that returns what ICU's
- * `Any-Latin; Latin-ASCII` gives for the name ("giriraja prasada"); [Naming.dropFinalSchwa] is then
- * the code under test. Once `shared/session-title.json` lands from `feature/q-backend`, [goldenFile]
- * runs every one of its rows as well.
+ * Transliteration is the real shared rule (anyascii runs on the JVM), and every row of the shared
+ * golden table `shared/session-title.json` is compared, one assertion per kind.
  */
 class NamingTest {
     private val bagru = Naming.SessionFields(
@@ -130,19 +135,18 @@ class NamingTest {
         assertEquals("D-Q03-P2", Naming.sequenceField(Naming.RecordingFields(bagru, Instant.EPOCH, targets = listOf(Naming.NameTarget(displayCode = "D3")), position = 2, partTwo = true)))
     }
 
-    @Test fun `a Devanagari name is transliterated for the file name and the schwa is dropped`() {
-        val icuLike: (String) -> String = { if (it == "गिरिराज प्रसाद") "giriraja prasada" else it }
+    @Test fun `a Devanagari name is transliterated for the file name by the shared rule`() {
         val name = Naming.recordingFileName(
-            Naming.RecordingFields(bagru.copy(participantNames = listOf("गिरिराज प्रसाद")), Instant.parse("2026-07-01T12:54:00Z"), targets = listOf(Naming.NameTarget(displayCode = "D3"))),
-            transliterate = { Naming.dropFinalSchwa(it, icuLike(it)) }
+            Naming.RecordingFields(bagru.copy(participantNames = listOf("गिरिराज प्रसाद")), Instant.parse("2026-07-01T12:54:00Z"), targets = listOf(Naming.NameTarget(displayCode = "D3")))
         )
         assertEquals("FieldRepository_Interview_2026-07-01_1824_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad_Recording_D-Q03.m4a", name)
     }
 
-    @Test fun `schwa is kept after a vowel sign`() {
-        // "राधा" ends in the vowel sign ा, so ICU's "radha" stays.
-        assertEquals("radha", Naming.dropFinalSchwa("राधा", "radha"))
-        assertEquals("giriraj", Naming.dropFinalSchwa("गिरिराज", "giriraja"))
+    @Test fun `the inherent vowel follows a consonant inside a word, never at its end, and a nukta is dropped`() {
+        assertEquals("giriraj", Naming.toAscii("गिरिराज"))
+        assertEquals("radha", Naming.toAscii("राधा"))
+        assertEquals("kalam", Naming.toAscii("क़लम"))
+        assertEquals("samt", Naming.toAscii("संत"))
     }
 
     @Test fun `a name that transliterates to nothing is left out, never an underscore`() {
@@ -178,12 +182,101 @@ class NamingTest {
         assertFalse(PhoneDisplay.isValid("+91", "98765"))
     }
 
-    /** Every row of the shared golden table, once `feature/q-backend` ships it. */
-    @Test fun goldenFile() {
+    // ── shared/session-title.json: every golden row, on this runtime ──────────────────────────
+
+    private val goldenRows: List<JsonObject> by lazy {
         val file = generateSequence(java.io.File(".").absoluteFile) { it.parentFile }
-            .map { java.io.File(it, "shared/session-title.json") }.firstOrNull { it.isFile } ?: return
-        val root = kotlinx.serialization.json.Json.parseToJsonElement(file.readText()) as kotlinx.serialization.json.JsonObject
-        val golden = root["golden"] as? kotlinx.serialization.json.JsonArray ?: return
-        assertTrue("the shared table has rows", golden.isNotEmpty())
+            .map { java.io.File(it, "shared/session-title.json") }.firstOrNull { it.isFile }
+            ?: error("shared/session-title.json not found")
+        ((Json.parseToJsonElement(file.readText()) as JsonObject)["golden"] as JsonArray).map { it.jsonObject }
+    }
+
+    private fun JsonObject.str(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content
+
+    private fun sessionOf(input: JsonObject, englishWins: Boolean): Naming.SessionFields {
+        val workshop = input["workshop"] as? JsonObject
+        val people = (input["participants"] as? JsonArray).orEmpty().map { it.jsonObject }
+        return Naming.SessionFields(
+            sessionDate = input.str("sessionDate")?.let(LocalDate::parse),
+            place = input.str("place"),
+            workshopLocality = workshop?.str("locality"),
+            workshopDistrict = workshop?.str("district"),
+            workshopState = workshop?.str("state"),
+            workshopCraft = workshop?.str("craft"),
+            participantCrafts = people.map { it.str("craft") },
+            // The stored English name ("localName" in the table) wins in a file name.
+            participantNames = people.map { (if (englishWins) it.str("localName") else null) ?: it.str("name").orEmpty() },
+            entity = input.str("entity"),
+            subject = input.str("subject")
+        )
+    }
+
+    private fun goldenOf(kind: String) = goldenRows.filter { it.str("kind") == kind }.also { assertTrue("no '$kind' rows", it.isNotEmpty()) }
+
+    @Test fun `the golden table holds only kinds this runtime checks`() = assertEquals(
+        setOf("title", "recording", "transliteration", "export", "collision"),
+        goldenRows.mapNotNull { it.str("kind") }.toSet()
+    )
+
+    @Test fun `golden titles`() {
+        val wrong = goldenOf("title").mapNotNull { row ->
+            val got = Naming.sessionTitle(sessionOf(row["input"]!!.jsonObject, englishWins = false))
+            if (got == row.str("title")) null else "${row.str("case")}: got $got, want ${row.str("title")}"
+        }
+        assertEquals(emptyList<String>(), wrong)
+    }
+
+    @Test fun `golden recording names`() {
+        val wrong = goldenOf("recording").mapNotNull { row ->
+            val input = row["input"]!!.jsonObject
+            val fields = Naming.RecordingFields(
+                session = sessionOf(input["session"]!!.jsonObject, englishWins = true),
+                capturedAt = Instant.parse(input.str("capturedAt")!!),
+                capturedAtSource = input.str("capturedAtSource") ?: "DEVICE",
+                targets = (input["targets"] as JsonArray).map { t ->
+                    Naming.NameTarget(sectionCode = t.jsonObject.str("sectionCode"), displayCode = t.jsonObject.str("displayCode"))
+                },
+                position = input.str("position")?.toInt() ?: 1,
+                rosterCount = input.str("rosterCount")?.toInt() ?: 1,
+                partTwo = input.str("part") == "2",
+                extension = input.str("ext") ?: "m4a",
+                what = input.str("what") ?: "Recording"
+            )
+            val got = Naming.recordingFileName(fields)
+            if (got == row.str("fileName")) null else "${row.str("case")}: got $got, want ${row.str("fileName")}"
+        }
+        assertEquals(emptyList<String>(), wrong)
+    }
+
+    @Test fun `golden transliteration`() {
+        val wrong = goldenOf("transliteration").mapNotNull { row ->
+            val got = Naming.asciiWords(row.str("input")!!, Naming::toAscii).joinToString("-")
+            if (got == row.str("ascii")) null else "${row.str("case")}: got $got, want ${row.str("ascii")}"
+        }
+        assertEquals(emptyList<String>(), wrong)
+    }
+
+    @Test fun `golden export names`() {
+        val wrong = goldenOf("export").mapNotNull { row ->
+            val input = row["input"]!!.jsonObject
+            val day = LocalDate.parse(input.str("day")!!)
+            val fields = Naming.RecordingFields(
+                session = Naming.SessionFields(day, entity = input.str("entity"), subject = input.str("subject")),
+                capturedAt = day.atStartOfDay(Naming.IST).toInstant(),
+                capturedAtSource = "SESSION_DATE",
+                extension = input.str("ext")!!,
+                what = input.str("what")!!
+            )
+            val got = Naming.recordingFileName(fields)
+            if (got == row.str("fileName")) null else "${row.str("case")}: got $got, want ${row.str("fileName")}"
+        }
+        assertEquals(emptyList<String>(), wrong)
+    }
+
+    @Test fun `golden collisions`() {
+        goldenOf("collision").forEach { row ->
+            assertEquals(row.str("case"), (row["names"] as JsonArray).map { it.jsonPrimitive.content },
+                Naming.dedupeNames((row["input"] as JsonArray).map { it.jsonPrimitive.content }))
+        }
     }
 }

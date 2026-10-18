@@ -38,8 +38,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Join a session (DESIGN §3.7): scan the QR (works offline, with the system camera or a picked
- * image) or type the 6-character code (online only). A scanned QR creates the session on this phone
+ * Join a session (DESIGN §3.7): scan the QR (works offline, live in the camera preview or from a
+ * picked image) or type the 6-character code (online only). A scanned QR creates the session on this phone
  * under the SAME clientKey, so when its outbox syncs the server answers with the existing session.
  */
 @Composable
@@ -48,7 +48,18 @@ fun JoinScanner(v2: QuestionnaireV2, meId: String?, onJoined: (clientKey: String
     val scope = rememberCoroutineScope()
     var code by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var scanning by remember { mutableStateOf(false) }
     val cameraGate = rememberPermissionGate { onError(it) }
+
+    /** A read QR joins offline: the session is created here under the same clientKey. */
+    suspend fun joinFrom(text: String?) {
+        val payload = text?.let(JoinQr::decode)
+        if (payload == null) { onError(QuestionnaireCopy.s("join.noQr")); return }
+        val existing = v2.outbox.unit(payload.clientKey)
+        if (existing == null) v2.outbox.startSession(JoinQr.sessionCreate(payload, meId), meId)
+        OutboxSyncWorker.schedule(context)
+        onJoined(payload.clientKey)
+    }
 
     fun fromBitmap(bitmap: Bitmap?) {
         if (bitmap == null) return
@@ -59,12 +70,7 @@ fun JoinScanner(v2: QuestionnaireV2, meId: String?, onJoined: (clientKey: String
                 soft.getPixels(pixels, 0, soft.width, 0, 0, soft.width, soft.height)
                 JoinQr.read(pixels, soft.width, soft.height)
             }
-            val payload = text?.let(JoinQr::decode)
-            if (payload == null) { onError(QuestionnaireCopy.s("join.noQr")); return@launch }
-            val existing = v2.outbox.unit(payload.clientKey)
-            if (existing == null) v2.outbox.startSession(JoinQr.sessionCreate(payload, meId), meId)
-            OutboxSyncWorker.schedule(context)
-            onJoined(payload.clientKey)
+            joinFrom(text)
         }
     }
 
@@ -78,18 +84,16 @@ fun JoinScanner(v2: QuestionnaireV2, meId: String?, onJoined: (clientKey: String
         else @Suppress("DEPRECATION") MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
     }.getOrNull()
 
-    // The system camera writes a full-resolution photo into the app's cache (the thumbnail
-    // TakePicturePreview returns is too small for a dense code).
-    val shot = remember { java.io.File(context.cacheDir, "join-qr.jpg") }
-    val shotUri = remember { androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".fileprovider", shot) }
-    val photo = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) fromBitmap(decode(shotUri)) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? -> if (uri != null) fromBitmap(decode(uri)) }
 
     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(QuestionnaireCopy.s("sessions.join"), style = MaterialTheme.typography.titleLarge)
+        if (scanning) LiveQrScanner(onRead = { text -> scanning = false; scope.launch { joinFrom(text) } })
         PromptButtons(
             listOf(
-                PromptButton(QuestionnaireCopy.s("join.scan"), primary = true) { cameraGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) { photo.launch(shotUri) } },
+                PromptButton(QuestionnaireCopy.s(if (scanning) "p2.cancel" else "join.scan"), primary = !scanning) {
+                    if (scanning) scanning = false else cameraGate.run(CAMERA_PERMISSION, CAMERA_REFUSED_SENTENCE) { scanning = true }
+                },
                 PromptButton(QuestionnaireCopy.s("join.pick")) { picker.launch("image/*") }
             )
         )

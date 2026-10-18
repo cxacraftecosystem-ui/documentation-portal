@@ -55,7 +55,7 @@ fun SessionHeader(
         note?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted) }
         val joinLine = listOfNotNull(
             participants.joinToString(", ") { QuestionnaireCopy.firstName(it.name) }.ifBlank { null },
-            joinCode?.let { "${QuestionnaireCopy.s("workspace.joinCode")} $it" }
+            joinCode?.let { QuestionnaireCopy.joinCode(it) }
         ).joinToString(" · ")
         if (joinLine.isNotBlank()) Text(joinLine, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
