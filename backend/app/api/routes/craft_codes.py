@@ -87,14 +87,18 @@ async def assign_craft_code(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"“{code}” is not a shared craft code. Pick one from the list.",
         )
+    changed: list[Any] = []
     result = await cross_portal_codes.map_craft(
         db,
         craft=craft,
         code=code,
         remember_spelling=payload.rememberSpelling,
         user_id=getattr(current_user, "id", None),
+        changed=changed,
     )
-    # THE AUDIT LEDGER: a code joins this craft to the other portal's, so who mapped it, from what
-    # to what, is kept like any other edit to the craft. ``craft`` is the row as it was before.
-    await record_revision(craft, current_user, {"craftCode": code}, "craft")
+    # THE AUDIT LEDGER: a code joins a craft to the other portal's, so who mapped it, from what to
+    # what, is kept like any other edit to the craft — for EVERY craft the call changed, including
+    # the twins "Remember each spelling" mapped with it. Each row is as it was before the write.
+    for before in changed:
+        await record_revision(before, current_user, {"craftCode": code}, "craft")
     return result
