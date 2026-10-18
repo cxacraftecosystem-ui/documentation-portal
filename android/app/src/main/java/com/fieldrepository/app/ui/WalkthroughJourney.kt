@@ -2161,9 +2161,10 @@ private fun WalkthroughPanelSection(
  * the row of chrome — and if a fourth deck ever makes it expensive, the honest fix is a switcher on
  * the closing card too, not a smaller header.
  *
- * THE OTHER DECKS GO THROUGH [ActionRow], as the designer portal's one other deck does. Here there
- * are two, so they share one row: side by side where they fit, stacked on a 360dp handset — the rule
- * every button group in this app follows.
+ * EACH OTHER DECK GETS ITS OWN [ActionRow], as the designer portal's walkthrough does (owner
+ * decision 2026-10-18). Each button carries a name and an audience line, two lines of text that read
+ * as a list entry, not a pair of actions; side by side they squeezed both captions at handset widths.
+ * One row per deck keeps the list the same on every screen width and in both apps.
  */
 @Composable
 private fun WalkthroughHeroCard(
@@ -2236,8 +2237,8 @@ private fun WalkthroughHeroCard(
                     color = MaterialTheme.field.onBrandTileMuted,
                     style = FieldTextStyles.Eyebrow,
                 )
-                ActionRow {
-                    others.forEach { other ->
+                others.forEach { other ->
+                    ActionRow {
                         TextButton(
                             onClick = { onChooseDeck(other) },
                             modifier = Modifier.heightIn(min = 48.dp),

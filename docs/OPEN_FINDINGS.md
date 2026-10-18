@@ -110,14 +110,6 @@ does not say which files are already rejected or approved with their record.
 **To close it.** Return each file's status from `GET /review/{type}/{id}/media` and show it as a
 small badge on the file card on both clients.
 
-### Android walkthrough deck switcher layout — S
-
-**What is open.** The opening card's switcher puts this app's two other decks side by side in one
-row (stacking at 360dp), per the two-on-one-line rule. Designer-portal gives each deck its own row.
-
-**To close it.** Owner confirms the shared row, or `ui/WalkthroughJourney.kt` gives each deck its own
-`ActionRow` as designer-portal does.
-
 ## Known defects
 
 ### Rich-text formatting is lost in exports — M

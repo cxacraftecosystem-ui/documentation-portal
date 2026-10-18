@@ -7,7 +7,7 @@ import org.junit.Test
 
 /**
  * The opening card's switcher, and the note over it, match the designer portal's walkthrough: the
- * other decks sit in one [ActionRow], and the note describes THIS app's decks rather than the
+ * each other deck sits in its own [ActionRow], and the note describes THIS app's decks rather than the
  * designer portal's inspector deck it was carried over from.
  */
 class WalkthroughHeroNoteTest {
@@ -24,9 +24,11 @@ class WalkthroughHeroNoteTest {
     }
 
     @Test
-    fun `the other decks share one ActionRow`() {
+    fun `each other deck gets its own ActionRow`() {
         val switcher = heroCard.substringAfter("val others = decks.filter")
-        assertTrue(switcher.contains("ActionRow {\n                    others.forEach { other ->"))
+        assertTrue(switcher.contains("others.forEach { other ->\n                    ActionRow {"))
+        assertFalse(switcher.contains("ActionRow {\n                    others.forEach"))
+        assertTrue(heroNote.contains("EACH OTHER DECK GETS ITS OWN [ActionRow]"))
         assertFalse(heroCard.contains("Inspecting a"))
     }
 }
