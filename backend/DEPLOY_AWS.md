@@ -548,7 +548,11 @@ build that none of the kept venvs runs on.
 
 **Going back.** A venv is only the dependencies; the code on disk is whatever the last deploy synced.
 So the real rollback is the same as it has always been — redeploy the commit you want — and the
-venvs are there to make that fast. What to do by hand depends on the commit:
+venvs are there to make that fast. **Never to a commit from before the Aadhaar fingerprint release
+once it has taken an artisan write.** That migration is additive, so nothing stops the deploy, but
+older code would show those artisans with no Aadhaar, register the same person twice and start
+storing full numbers again. Check the query in "Aadhaar fingerprint: the run order" below first, and
+fix forward if it is not 0. What to do by hand depends on the commit:
 
 * **A commit from this change on** carries this deploy. It installs its own pin if the box lacks it,
   picks the venv for that pin and lock itself (an older one is still there if it is `venv-previous`)
@@ -686,3 +690,80 @@ The dry run ends with two totals: `Will approve N files in total.` and `Left M f
 uploaded after their record was approved.` Check N + M against the number above before passing
 `--apply`; a sum far from it is a reason to stop and look, not to proceed. The re-run still reports
 the same M: those files wait in the review queue.
+
+---
+
+## 12. Aadhaar fingerprint: the run order (2026-10-17)
+
+The artisan register stops holding Aadhaar numbers. It keeps `Artisan.aadhaarFingerprint`
+(HMAC-SHA256 of the 12 digits under `AADHAAR_FINGERPRINT_KEY`, unique) and `Artisan.aadhaarLast4`
+(`backend/app/services/aadhaar_fingerprint.py`). The key is ONE value shared with the designer portal
+(backup: SSM SecureString `/iit/shared/aadhaar-fingerprint-key`; GitHub Actions secret
+`AADHAAR_FINGERPRINT_KEY`, pinned into the release `.env` by deploy-backend.yml). Losing it makes
+every fingerprint unmatchable, and it cannot be rotated without the numbers. Three steps, on each
+box, in this order:
+
+1. **Release with migration `20261022090000_aadhaar_fingerprint`.** Adds the two nullable columns,
+   the unique index and shape checks. From this release on nothing writes a full number: create,
+   edit, the review edit, the spreadsheet import and the duplicate lookup all fingerprint the typed
+   number and drop it; every response and export shows `XXXX XXXX 9012`. Rows recorded earlier still
+   hold the number in the legacy `aadhaarNumber` column and are still matched as duplicates.
+2. **Backfill, on the box, after that release is live** (by SSM, as `ubuntu`, from the live release
+   so it reads the same `.env`):
+
+   ```
+   cd /home/ubuntu/app/current/backend
+   .venv/bin/python -m scripts.backfill_aadhaar_fingerprint             # dry run: counts only
+   .venv/bin/python -m scripts.backfill_aadhaar_fingerprint --apply     # writes, then verifies
+   ```
+
+   It works in batches, is idempotent (run it again: "Nothing left"), prints counts only, verifies
+   each fingerprint by reading it back, and rewrites any edit-history entry that still holds an old
+   value into a valueless one. A legacy value that is not a valid Aadhaar is reported and left;
+   `--apply --retract-unusable` clears those. Exit 0 means nothing is left.
+3. **A LATER release ships the drop.** Move `backend/prisma/deferred_migrations/
+   20261029090000_drop_aadhaar_number/` into `backend/prisma/migrations/`, delete `aadhaarNumber`
+   from `Artisan` in `schema.prisma`, and set `LEGACY_COLUMN_PRESENT = False` in
+   `aadhaar_fingerprint.py`, in one commit. The migration refuses (and the deploy fails before the
+   switch-over) while any row holds a number without its fingerprint, or any history entry still
+   holds a value; if it refuses, run step 2, then
+   `npx prisma migrate resolve --rolled-back 20261029090000_drop_aadhaar_number` and deploy again.
+   Afterwards run `VACUUM FULL "Artisan"; VACUUM FULL "RecordRevision";` in the SQL editor so the old
+   row versions holding numbers are gone from the data files. Copies taken before the drop still hold
+   the numbers for a while, and for much longer than the nightly dumps' own 30 days (the lifecycle
+   rules as applied on 2026-10-18; `infra/terraform/backups.tf` and `main.tf` hold them):
+   - the nightly dumps in `fieldrepo-media-626159998512/backups/documentation-portal/`: 30 days as the
+     current version, then 90 more as noncurrent versions (the bucket is versioned), so about 120
+     days;
+   - their replica in `fieldrepo-offsite-626159998512` (ap-south-2): 35 days under Object Lock
+     (GOVERNANCE), then 90 more as noncurrent versions, so about 125 days;
+   - the weekly copy (`backups/documentation-portal/weekly/`, the first dump of each ISO week), in both
+     buckets: 365 days, then 90 more as a noncurrent version, so about 455 days;
+   - Supabase's own backups and point-in-time recovery (WAL), for as long as the project's plan keeps
+     them (Database → Backups in the dashboard).
+
+   So a number is gone from every copy about 455 days after the drop (the last weekly copy taken
+   before it), plus the Supabase window; from the nightly copies alone, about 125 days. To end it
+   sooner (an erasure request), an admin deletes the older nightly and weekly dump versions in both
+   buckets (`--bypass-governance-retention` in ap-south-2).
+
+**Rollback: do not roll the backend back past step 1 once it has taken an artisan write. Fix
+forward.** The migration is additive, but the data written after it is not something older code can
+read. From step 1 on, every artisan created or edited with an Aadhaar holds only the fingerprint and
+the last four, with `aadhaarNumber` NULL. A release older than this one, put back by the symlink flip
+or any other way, would:
+
+- show those artisans as having no Aadhaar;
+- let the same person be registered again, because its duplicate check reads `aadhaarNumber` only;
+- start writing full numbers again on every create and edit.
+
+None of that is visible as an error, so an easy rollback is the dangerous one here. If this release
+misbehaves, ship a hotfix release on top of it. A rollback is safe only while this query, in the
+SQL editor, still answers 0 (rows only this release writes; the backfill leaves `aadhaarNumber` set):
+
+```sql
+SELECT count(*) FROM "Artisan" WHERE "aadhaarFingerprint" IS NOT NULL AND "aadhaarNumber" IS NULL;
+```
+
+Step 2 changes nothing older code reads, so it does not change this. Step 3 is not reversible: the
+numbers are gone, which is its purpose.

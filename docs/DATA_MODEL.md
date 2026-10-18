@@ -134,7 +134,8 @@ erDiagram
   Artisan {
     string name
     string localName
-    string aadhaarNumber "UNIQUE — the deduplication key"
+    string aadhaarFingerprint "UNIQUE — HMAC of the Aadhaar, the deduplication key"
+    string aadhaarLast4 "the four digits every screen shows"
     string pehchanCardNumber "UNIQUE when held"
     string dos "required"
     string donts "required"
@@ -470,3 +471,17 @@ EOF
 **Review trigger:** any file under `backend/prisma/migrations/`. A new migration means this document
 needs a human read, not just a regenerated count — a new column is a fact, but what the column
 *means* is the part only a person can write.
+
+## The Aadhaar fingerprint — added 2026-10-17
+
+**The register keeps no Aadhaar number.** `Artisan.aadhaarFingerprint` (HMAC-SHA256 of the 12 digits
+under `AADHAAR_FINGERPRINT_KEY`, lower-case hex, `@unique`) is the deduplication key, and
+`Artisan.aadhaarLast4` is what every surface shows as `XXXX XXXX 9012`. Both are written only by
+`services/aadhaar_fingerprint.seal`, from the number a client typed, which is then dropped; CHECK
+constraints hold them to 64 hex characters and four digits, and to "both or neither". The key and the
+formula are the designer portal's, so the two registers can be matched (the cross-portal link). The
+legacy `aadhaarNumber` column is written only to clear it, is read only to mask and match rows not
+yet backfilled, and is dropped by the deferred migration — run order in `backend/DEPLOY_AWS.md`,
+"Aadhaar fingerprint". The edit history (`RecordRevision`) records an Aadhaar change under
+`aadhaarNumber` with no value; entries written before 2026-10-17 held real old and new numbers, are
+served valueless from now on, and are rewritten by the backfill.

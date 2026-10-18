@@ -612,9 +612,29 @@ The archive is about people, and two columns are direct government identifiers.
 
 ### 4A.1 Aadhaar
 
-`Artisan.aadhaarNumber` is stored as the bare twelve digits and is `@unique` — it is the
+**The register stores no Aadhaar number (since 2026-10-17).** It keeps `Artisan.aadhaarFingerprint`
+— HMAC-SHA256 of the 12 digits under `AADHAAR_FINGERPRINT_KEY`, `@unique` — as the
 **deduplication key**, which is what stops the same person being entered twice under two spellings
-across two workshops. Handling, in `backend/app/services/artisan_identity.py`:
+across two workshops, and `Artisan.aadhaarLast4` for display (`backend/app/services/
+aadhaar_fingerprint.py`). An HMAC and not a hash, because 10^12 numbers can be hashed exhaustively;
+without the key a fingerprint is useless, and the key lives only in the API's environment (GitHub
+secret, box `.env`, SSM backup `/iit/shared/aadhaar-fingerprint-key`), shared with the designer portal so the
+cross-portal link can match. The typed number reaches the server once, over TLS, and is dropped after
+it is validated and fingerprinted: it is in no column, response, export, edit-history entry or log
+line, and the duplicate lookup takes it in a POST body (`POST /artisans/lookup/aadhaar`; the old GET
+puts it in access logs and stays only for app builds already in the field). Every viewer, admins
+included, is shown `XXXX XXXX 9012`. Android keeps a typed number sealed under an Android Keystore key
+in its outbox and form drafts until it is sent (`AadhaarAtRest.kt`). Until the backfill and the drop
+migration have run on a box (`backend/DEPLOY_AWS.md`, "Aadhaar fingerprint"), numbers recorded
+before that date are still in the legacy `aadhaarNumber` column and in old row versions. After the
+drop they survive in the database dumps: about 125 days in the nightly ones (30 days current plus 90
+as noncurrent versions in the media bucket; 35 days under Object Lock plus 90 noncurrent in the
+off-site replica) and about 455 days in the weekly copies (365 days plus 90 noncurrent, both buckets),
+and in Supabase's own backups and point-in-time recovery for the plan's window. `backend/DEPLOY_AWS.md`
+has the detail. Do not roll the backend back past the fingerprint release once it has taken writes:
+older code would resume storing full numbers and miss duplicates (same section).
+
+Validation and display, in `backend/app/services/artisan_identity.py`:
 
 | Function | Does |
 |---|---|

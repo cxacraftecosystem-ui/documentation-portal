@@ -232,6 +232,11 @@ GET /api/datasets/artisans.ndjson?includeIdentityNumbers=true
 An ordinary admin asking gets a `403` that says why — a loud refusal rather than a quiet masked
 value, so a pipeline that needs the real numbers cannot silently store the wrong thing.
 
+**The Aadhaar is masked even then (2026-10-17).** The register keeps only a keyed fingerprint and the
+last four digits, never the number (`services/aadhaar_fingerprint.py`), so `aadhaarNumber` is always
+`XXXX XXXX 9012`, and the fingerprint is never exported. `includeIdentityNumbers` now releases the
+Pehchan card number alone.
+
 The `.csv` routes have **no override at all**. A CSV is the format that ends up in a shared drive.
 
 ---

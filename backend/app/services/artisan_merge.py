@@ -46,6 +46,7 @@ from prisma import Json
 
 from app.core.db import db
 from app.core.deps import get_value, values_match
+from app.services import aadhaar_fingerprint
 from app.services.artisan_identity import mask_aadhaar
 from app.services.concurrency import gather_reads
 
@@ -79,6 +80,14 @@ _RELATION_KEYS = {
 _NOT_RESTORED = {"updatedAt"}
 
 
+#: The columns that together hold an artisan's Aadhaar: the keyed fingerprint and the last four, and
+#: the legacy full number while it still exists (services/aadhaar_fingerprint.py). They move as one.
+_AADHAAR_COLUMNS: tuple[str, ...] = (
+    aadhaar_fingerprint.FINGERPRINT_FIELD,
+    aadhaar_fingerprint.LAST4_FIELD,
+) + ((aadhaar_fingerprint.NUMBER_FIELD,) if aadhaar_fingerprint.LEGACY_COLUMN_PRESENT else ())
+
+
 class Field:
     """One line of the field-by-field pick: what the admin sees and which columns it moves."""
 
@@ -103,7 +112,7 @@ FIELDS: tuple[Field, ...] = (
     Field("address", "Address"),
     Field("craftId", "Craft"),
     Field("workshopId", "Workshop"),
-    Field("aadhaarNumber", "Aadhaar"),
+    Field("aadhaarNumber", "Aadhaar", _AADHAAR_COLUMNS),
     Field("pehchan", "Pehchan card", ("pehchanCardAvailable", "pehchanCardNumber")),
     Field("dateOfBirth", "Date of birth"),
     Field("craftStartDate", "Practising since"),
@@ -210,6 +219,22 @@ def _same(keep: dict[str, Any], merge: dict[str, Any], field: Field) -> bool:
     return all(values_match(keep.get(column), merge.get(column)) for column in field.columns)
 
 
+def _aadhaars_differ(keep: dict[str, Any], merge: dict[str, Any]) -> bool:
+    """Both records hold an Aadhaar and they are not the same number, whichever columns hold them."""
+    fp = aadhaar_fingerprint.FINGERPRINT_FIELD
+    if keep.get(fp) and merge.get(fp):
+        return keep[fp] != merge[fp]
+    legacy = aadhaar_fingerprint.NUMBER_FIELD
+    for one, other in ((keep, merge), (merge, keep)):
+        number = one.get(legacy)
+        if number and aadhaar_fingerprint.has_aadhaar(other):
+            try:
+                return not aadhaar_fingerprint.holds(other, str(number))
+            except aadhaar_fingerprint.FingerprintKeyMissing:
+                return False
+    return False
+
+
 def default_choice(keep: dict[str, Any], merge: dict[str, Any], field: Field) -> str:
     """The kept record's answer where it has one, the other record's where only it does."""
     if _has_value(keep, field) or not _has_value(merge, field):
@@ -275,7 +300,7 @@ def _day(value: Any) -> str | None:
 def display_value(row: dict[str, Any], field: Field, names: dict[str, str]) -> str | None:
     """How a field reads on the comparison. Identity numbers are always masked here."""
     if field.key == "aadhaarNumber":
-        return mask_aadhaar(row.get("aadhaarNumber"))
+        return aadhaar_fingerprint.stored_mask(row)
     if field.key == "pehchan":
         number = row.get("pehchanCardNumber")
         if number:
@@ -608,7 +633,7 @@ async def preview_merge(keep_id: str, merge_id: str) -> dict[str, Any]:
                 f"{merge.get('name') or 'This artisan'} kept an earlier merge of {earlier.mergedName}. "
                 "Merging it away means that merge can no longer be undone."
             )
-    if keep.get("aadhaarNumber") and merge.get("aadhaarNumber") and keep["aadhaarNumber"] != merge["aadhaarNumber"]:
+    if _aadhaars_differ(keep, merge):
         warnings.append("Their Aadhaar numbers differ. Check that these are the same person.")
     if keep.get("pehchanCardNumber") and merge.get("pehchanCardNumber") and keep["pehchanCardNumber"] != merge["pehchanCardNumber"]:
         warnings.append("Their Pehchan card numbers differ. Check that these are the same person.")
@@ -736,7 +761,7 @@ async def merge_artisans(keep_id: str, merge_id: str, picks: dict[str, str] | No
     metadata = _merge_metadata(keep, merge, chosen, record.id, user, now)
 
     # 2. Free the identity numbers the survivor is taking.
-    freed = {column: None for column in ("aadhaarNumber", "pehchanCardNumber") if column in changes and merge.get(column)}
+    freed = {column: None for column in _IDENTITY_COLUMNS if column in changes and merge.get(column)}
     if freed:
         await db.artisan.update(where={"id": merge_id}, data=freed)
 
@@ -950,13 +975,21 @@ async def undo_merge(merge_id: str, user: Any) -> dict[str, Any]:
     # 2. Bring the merged artisan back, with its own id.
     if await db.artisan.find_unique(where={"id": merged_id}) is None:
         drop: list[str] = []
-        for column in ("aadhaarNumber", "pehchanCardNumber"):
+        for column in (aadhaar_fingerprint.FINGERPRINT_FIELD, *_LEGACY_AADHAAR, "pehchanCardNumber"):
             value = merged_snap.get(column)
             if value:
                 holder = await db.artisan.find_first(where={column: value})
                 if holder is not None:
-                    drop.append(column)
-                    kept.append("Aadhaar (still on the kept record)" if column == "aadhaarNumber" else "Pehchan card (still on the kept record)")
+                    if column == "pehchanCardNumber":
+                        drop.append(column)
+                        kept.append("Pehchan card (still on the kept record)")
+                    else:
+                        # The Aadhaar's columns go together, or the row would carry half an identity.
+                        drop.extend(c for c in _AADHAAR_COLUMNS if c not in drop)
+                        if "Aadhaar (still on the kept record)" not in kept:
+                            kept.append("Aadhaar (still on the kept record)")
+        if not aadhaar_fingerprint.LEGACY_COLUMN_PRESENT:
+            drop.append(aadhaar_fingerprint.NUMBER_FIELD)
         await db.artisan.create(data=restorable(merged_snap, drop=drop))
 
     # 3. Move every child back that still sits where the merge put it.
@@ -1173,7 +1206,13 @@ async def redirect_merged_artisans(payload: Any) -> Any:
     return payload
 
 
-_IDENTITY_COLUMNS = ("aadhaarNumber", "pehchanCardNumber")
+_LEGACY_AADHAAR: tuple[str, ...] = (
+    (aadhaar_fingerprint.NUMBER_FIELD,) if aadhaar_fingerprint.LEGACY_COLUMN_PRESENT else ()
+)
+#: The unique identity columns a merge frees on the merged row before the survivor takes them.
+_IDENTITY_COLUMNS = (aadhaar_fingerprint.FINGERPRINT_FIELD, *_LEGACY_AADHAAR, "pehchanCardNumber")
+#: The columns that hold a raw identity number, which a snapshot keeps only for its undo window.
+_RAW_IDENTITY_COLUMNS = (*_LEGACY_AADHAAR, "pehchanCardNumber")
 
 
 def _scrub(snap: Any) -> dict[str, Any]:
@@ -1204,7 +1243,7 @@ async def scrub_expired_merge_snapshots(now: datetime | None = None) -> int:
         raw_left = any(
             part.get(column) and not str(part.get(column)).startswith("XXXX")
             for part in (merged, before, after)
-            for column in _IDENTITY_COLUMNS
+            for column in _RAW_IDENTITY_COLUMNS
         )
         if not raw_left:
             continue

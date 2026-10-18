@@ -1367,6 +1367,12 @@ private fun RepositoryApp(
                             val ok = repository.discardRefused(appContext, entryId)
                             pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
                             ok
+                        },
+                        validateAadhaar = { aadhaarValidationError(it) },
+                        onRetypeAadhaar = { entryId, number ->
+                            repository.retypeOutboxAadhaar(appContext, entryId, number)
+                            runCatching { repository.syncOutbox(appContext) }
+                            pendingUploads = runCatching { repository.pendingUploads(appContext) }.getOrDefault(0)
                         }
                     )
                 }
@@ -5438,6 +5444,7 @@ private fun ArtisanAadhaarField(
     warning: String?,
     required: Boolean,
     focusRequester: FocusRequester,
+    onRecord: String? = null,
     onValueChange: (String) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -5453,6 +5460,8 @@ private fun ArtisanAadhaarField(
             supportingText = {
                 if (error != null) {
                     Text(error)
+                } else if (onRecord != null) {
+                    Text("On record: $onRecord. Type a new number only to replace it.", color = Muted, fontSize = 12.sp)
                 } else {
                     Text(
                         if (required) {
@@ -6960,7 +6969,15 @@ private fun ArtisanForm(
     // Identity. `aadhaar` holds BARE digits — the 4-4-4 grouping is a visual transformation on the
     // field, never part of the value. The Pehchan card defaults to "available", matching the API's
     // default and the common case, which is why its number is effectively required on create.
-    var aadhaar by remember(editing) { mutableStateOf(editing?.aadhaarNumber.orEmpty()) }.drafted(draft, "aadhaar")
+    //
+    // THE SERVER SENDS THE MASK, NEVER THE NUMBER (2026-10-17): the register keeps a fingerprint and the
+    // last four digits. So an edit starts with the box EMPTY and the mask shown beside it, and an empty
+    // box on an edit means "keep the number on record" — the field is then left out of the body. Only
+    // a server older than that change sends digits, and those still load into the box as before.
+    val storedAadhaarMask = editing?.aadhaarNumber?.takeIf { it.isNotBlank() }
+    var aadhaar by remember(editing) {
+        mutableStateOf(editing?.aadhaarNumber?.takeIf { aadhaarValidationError(it) == null }.orEmpty())
+    }.drafted(draft, "aadhaar")
     // C18: a NEW artisan's Pehchan card starts UNANSWERED. "Yes" used to be pre-answered, which made
     // the card number silently required for somebody nobody had asked.
     var pehchanAvailable by remember(editing) { mutableStateOf<Boolean?>(editing?.pehchanCardAvailable) }.drafted(draft, "pehchanAvailable")
@@ -7079,7 +7096,8 @@ private fun ArtisanForm(
      * an Aadhaar. Once a record HAS a number, clearing it is still refused: that is data loss rather
      * than a legacy gap. Mirrors `aadhaarRequired` in components/forms/ArtisanForm.tsx.
      */
-    val aadhaarRequired = (!isEdit || !editing?.aadhaarNumber.isNullOrBlank()) && !notSharedHonoured
+    val keepsStoredAadhaar = isEdit && storedAadhaarMask != null && aadhaar.isBlank()
+    val aadhaarRequired = (!isEdit || !editing?.aadhaarNumber.isNullOrBlank()) && !notSharedHonoured && !keepsStoredAadhaar
     val nameFocus = remember { FocusRequester() }
     val placeFocus = remember { FocusRequester() }
     val craftFocus = remember { FocusRequester() }
@@ -7208,8 +7226,9 @@ private fun ArtisanForm(
                 // Sent even when empty. `explicitNulls = false` drops a null from the payload, and an
                 // omitted key means "leave it alone" to a PATCH — which would make a wrongly entered
                 // Aadhaar impossible to retract from the app. The API normalises "" to null, and the
-                // column is one it deliberately allows a client to clear.
-                aadhaarNumber = aadhaarForBody(aadhaar, aadhaarNotShared, editing?.aadhaarNumber),
+                // column is one it deliberately allows a client to clear. The one omission is an edit
+                // keeping the number on record (the box was left empty beside its mask).
+                aadhaarNumber = if (keepsStoredAadhaar) null else aadhaarForBody(aadhaar, aadhaarNotShared, editing?.aadhaarNumber),
                 // C18: sent only when it is the answer, or when it is being taken back on an edit.
                 // Never true for a record that already holds a number.
                 aadhaarNotShared = if (notSharedHonoured || editing?.aadhaarNotShared == true) notSharedHonoured else null,

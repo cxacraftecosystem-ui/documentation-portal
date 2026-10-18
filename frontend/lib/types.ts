@@ -263,7 +263,7 @@ export type ArtisanIdentityMatch = {
 };
 
 /**
- * `GET /artisans/lookup/aadhaar` — the artisan form's pre-flight duplicate check. It never 404s:
+ * `POST /artisans/lookup/aadhaar` (number in the body) — the artisan form's pre-flight duplicate check. It never 404s:
  * `{found: false}` is the expected, successful answer.
  */
 export type AadhaarLookupResult = { found: boolean; artisan?: ArtisanIdentityMatch | null };

@@ -134,6 +134,20 @@ async def record_revision(record: Any, user: Any, data: dict[str, Any], record_t
         old_value = get_value(record, field)
         if not values_match(old_value, new_value):
             changes[field] = {"old": jsonable_encoder(old_value), "new": jsonable_encoder(new_value)}
+    # THE AADHAAR IS RECORDED AS CHANGED, NEVER BY VALUE (2026-10-17). It is one answer stored in two
+    # columns (services/aadhaar_fingerprint.py) plus the legacy one, and the ledger keeps one
+    # valueless entry under the field the editor touched. Before the backfill a row's number may
+    # still sit in the legacy column, so "had one" asks every column.
+    aadhaar_keys = ("aadhaarFingerprint", "aadhaarLast4", "aadhaarNumber")
+    if any(key in changes for key in aadhaar_keys):
+        from app.services.aadhaar_fingerprint import has_aadhaar, ledger_entry
+
+        for key in aadhaar_keys:
+            changes.pop(key, None)
+        has = bool(data.get("aadhaarFingerprint")) if "aadhaarFingerprint" in data else (
+            bool(data.get("aadhaarNumber"))
+        )
+        changes["aadhaarNumber"] = ledger_entry(has_aadhaar(record), has)
     if not changes:
         return
     await db.recordrevision.create(

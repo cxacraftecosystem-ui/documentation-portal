@@ -411,6 +411,25 @@ object OfflineOutbox {
         }
     }
 
+    /**
+     * THE AADHAAR NUMBER TYPED AGAIN, for an entry held by [AadhaarAtRest.numberWithheld]: the
+     * withheld marker replaced by [number] (sealed again as the queue is written), the hold cleared.
+     * Every other answer in the payload is re-serialised untouched. False when the entry is gone or
+     * its payload will not parse.
+     */
+    suspend fun retypeAadhaar(context: Context, entryId: String, number: String): Boolean =
+        withContext(Dispatchers.IO) {
+            mutex.withLock {
+                val current = read(context)
+                val entry = current.firstOrNull { it.id == entryId } ?: return@withLock false
+                val rewritten = AadhaarAtRest.retype(entry.payloadJson, number) ?: return@withLock false
+                write(context, current.map {
+                    if (it.id == entryId) it.copy(payloadJson = rewritten, failure = null, failedAt = null) else it
+                })
+                true
+            }
+        }
+
     /** Every entry the server has refused, for a surface that wants to show or discard them. */
     suspend fun failed(context: Context): List<PendingEntry> =
         withContext(Dispatchers.IO) { mutex.withLock { read(context).filter { it.failure != null } } }
@@ -509,15 +528,21 @@ internal object OfflineQueueFile {
             quarantine(file, "was empty — a save was interrupted", onDamage)
             return emptyList()
         }
-        return runCatching { json.decodeFromString<List<PendingEntry>>(text) }.getOrElse { error ->
-            quarantine(file, "could not be understood (${error.javaClass.simpleName})", onDamage)
-            emptyList()
-        }
+        return runCatching { json.decodeFromString<List<PendingEntry>>(text) }
+            // Opened in memory only: on flash a typed Aadhaar is sealed (AadhaarAtRest).
+            .map { entries -> entries.map { it.copy(payloadJson = AadhaarAtRest.openPayload(it.payloadJson)) } }
+            .getOrElse { error ->
+                quarantine(file, "could not be understood (${error.javaClass.simpleName})", onDamage)
+                emptyList()
+            }
     }
 
     /** Replace the queue file with [entries] atomically — see [writeFileAtomically]. */
     fun write(file: File, entries: List<PendingEntry>) {
-        writeFileAtomically(file, json.encodeToString(entries).toByteArray())
+        // A typed Aadhaar is sealed under the Keystore before it touches flash, or not written at
+        // all (AadhaarAtRest). A sent entry leaves the queue, so nothing of it outlives the send.
+        val sealed = entries.map { it.copy(payloadJson = AadhaarAtRest.sealPayload(it.payloadJson)) }
+        writeFileAtomically(file, json.encodeToString(sealed).toByteArray())
     }
 
     /** Move a damaged queue file out of the way, keeping every byte, and raise the alert. */

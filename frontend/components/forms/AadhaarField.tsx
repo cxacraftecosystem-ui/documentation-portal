@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { RequiredMark } from "@/components/ui/RequiredMark";
-import { apiFetch, buildQuery } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import type { AadhaarLookupResult, ArtisanIdentityMatch } from "@/lib/types";
 
 /** UIDAI numbers are always 12 digits — the box refuses to hold a 13th. */
@@ -130,7 +130,7 @@ function describeMatch(match: ArtisanIdentityMatch) {
  *    decoration: a researcher reading a number off a card compares it group by group, and a dropped
  *    or doubled digit is visible in "1234 5678 901" in a way it is not in "123456789 01".
  * 2. Aadhaar is the repository's artisan deduplication key, so the moment 12 digits exist we ask
- *    `GET /artisans/lookup/aadhaar` whether someone already holds it. Finding out here — mid-form,
+ *    `POST /artisans/lookup/aadhaar` whether someone already holds it. Finding out here — mid-form,
  *    before place, craft, Do's and Don'ts have been filled in — is the whole point; the alternative
  *    is a 409 after five minutes of typing. It is a WARNING, never a block: the researcher may be
  *    legitimately correcting a number, and the unique index behind the save is the real gate.
@@ -231,7 +231,10 @@ export function AadhaarField({
     setChecking(true);
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      apiFetch<AadhaarLookupResult>(`/artisans/lookup/aadhaar${buildQuery({ number: digits })}`, {
+      // POST, so the number travels in the body and never in a URL an access log keeps.
+      apiFetch<AadhaarLookupResult>("/artisans/lookup/aadhaar", {
+        method: "POST",
+        body: JSON.stringify({ number: digits }),
         signal: controller.signal
       })
         .then((result) => {

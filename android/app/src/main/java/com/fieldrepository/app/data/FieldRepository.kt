@@ -1893,7 +1893,7 @@ class FieldRepository(
      * than as a 409 on save. [number] may be typed with spacing; the API normalises it.
      */
     suspend fun lookupArtisanByAadhaar(number: String): AadhaarLookupDto =
-        api.lookupArtisanByAadhaar(number.trim())
+        api.lookupArtisanByAadhaar(AadhaarLookupRequest(number.trim()))
 
     suspend fun updateArtisan(id: String, body: ArtisanCreateRequest): ArtisanDetailDto = api.updateArtisan(id, body)
 
@@ -3017,6 +3017,19 @@ class FieldRepository(
     suspend fun pendingEntries(context: Context): List<PendingEntry> =
         OfflineOutbox.all(context).replayableBy(currentUserId())
 
+    /**
+     * Type the Aadhaar number again for an entry the sync pass is holding because this phone could
+     * not keep the one typed ([AadhaarAtRest.numberWithheld]). [number] is the normalised 12 digits,
+     * already checked by the form's own rule. Refuses while the Keystore still cannot seal: writing
+     * the number back would only withhold it again.
+     */
+    suspend fun retypeOutboxAadhaar(context: Context, entryId: String, number: String) {
+        check(AadhaarAtRest.canSeal()) {
+            "This phone can't keep the number safely right now. Save the artisan again from its form while online."
+        }
+        if (OfflineOutbox.retypeAadhaar(context, entryId, number)) OutboxSyncWorker.schedule(context)
+    }
+
     /** Let the sync pass try a refused entry again. */
     suspend fun retryRefused(context: Context, entryId: String) {
         OfflineOutbox.clearFailure(context, entryId)
@@ -3194,6 +3207,19 @@ class FieldRepository(
             if (!ConnectivityObserver.isOnline(context)) return@withLock 0
             var synced = 0
             for (queued in queue) {
+                // A TYPED AADHAAR THIS PHONE COULD NOT KEEP (2026-10-18): the Keystore could not seal
+                // it, or can no longer open the seal (a restore, a new device). Sending the rest would
+                // replay an edit as "keep the number on record" — answered 200, the new number lost —
+                // or a create as a bare 422. So the entry is held, on this phone's own word, until the
+                // number is typed again from the outbox banner (`retypeOutboxAadhaar`). Not for an
+                // entry whose record is already on the server: only its files are left to send.
+                if (queued.createdId == null && AadhaarAtRest.numberWithheld(queued.payloadJson)) {
+                    if (queued.failure != AadhaarAtRest.RETYPE_REASON) {
+                        OfflineOutbox.markFailure(context, queued.id, AadhaarAtRest.RETYPE_REASON)
+                        notifyUser(context, "\"${queued.label}\" needs the Aadhaar number again. Open the outbox to type it.")
+                    }
+                    continue
+                }
                 // Already triaged as permanent: this one is waiting on a person, not on the network.
                 if (queued.failure != null) continue
                 when (val outcome = replayEntry(context, queued)) {
