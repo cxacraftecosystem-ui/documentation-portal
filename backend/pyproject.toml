@@ -74,6 +74,10 @@ dependencies = [
     # none of which the 1.x removals (sampling parameters, Text Completions, raw output_format dicts,
     # LegacyAPIResponse, httpx objects handed to the client) touch.
     "anthropic>=1.12.1",
+    # ASCII file names and S3 leaves (owner correction (a), 18 Oct 2026; app/services/naming.py).
+    # The same library as npm any-ascii and Java com.anyascii:anyascii, so the three runtimes'
+    # transliterations agree with shared/session-title.json. Pure Python, no dependencies.
+    "anyascii>=0.3.3",
 ]
 
 [project.optional-dependencies]

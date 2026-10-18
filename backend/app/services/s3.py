@@ -22,6 +22,7 @@ import boto3
 from botocore.client import Config
 
 from app.core.config import get_settings
+from app.services.naming import ascii_leaf, content_disposition
 
 logger = logging.getLogger(__name__)
 
@@ -96,9 +97,10 @@ def _client():
 
 
 def safe_filename(filename: str) -> str:
-    basename = PurePath(filename).name.strip().replace("\\", "-").replace("/", "-")
-    cleaned = "".join(ch if ch.isalnum() or ch in {".", "-", "_"} else "-" for ch in basename)
-    return cleaned or "upload.bin"
+    """The ASCII S3 leaf for a client-named upload (NAMING 2.3): transliterated, ``[A-Za-z0-9._-]``,
+    at most 150 characters, never a Windows reserved stem. It used to keep any ``str.isalnum()``
+    character, which let Devanagari into object keys (``media/.../गिरिराज.jpg``)."""
+    return ascii_leaf(PurePath(str(filename).replace("\\", "/")).name)
 
 
 def make_object_key(user_id: str, filename: str) -> str:
@@ -182,7 +184,7 @@ def presign_get_url(object_key: str, *, filename: str, mime_type: str, expires_i
             "Bucket": settings.aws_s3_bucket,
             "Key": object_key,
             "ResponseContentType": mime_type,
-            "ResponseContentDisposition": f'attachment; filename="{safe_filename(filename)}"',
+            "ResponseContentDisposition": content_disposition(filename),
         },
         ExpiresIn=expires_in,
         HttpMethod="GET",
