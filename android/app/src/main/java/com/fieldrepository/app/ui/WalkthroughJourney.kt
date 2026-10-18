@@ -2143,7 +2143,7 @@ private fun WalkthroughPanelSection(
  * carries over is what the band is FOR: the dark brand tile, the eyebrow, the count that is derived
  * rather than typed, and a button that starts the journey.
  *
- * ── AND, SINCE THERE ARE TWO DECKS, THE SWITCHER ─────────────────────────────────────
+ * ── AND, SINCE THERE ARE THREE DECKS, THE SWITCHER ───────────────────────────────────
  *
  * `tracks.ts` is explicit that a role-chosen deck is "a DEFAULT, NOT A GATE": every deck stays in the
  * bundle for everybody and the page's switcher reaches all of them, so the role picks what opens and
@@ -2157,9 +2157,14 @@ private fun WalkthroughPanelSection(
  * label or a second row of header on every card of the journey. Choosing which walkthrough to read is
  * also a decision made BEFORE reading one, which is where this card sits. The cost is written down
  * rather than hidden: a reader at the bottom of a deck has to scroll back to the top to switch. With
- * three cards on the inspector's deck and a Skip that reopens from the menu, that was judged cheaper
- * than the row of chrome — and if a third deck ever makes it expensive, the honest fix is a switcher
- * on the closing card too, not a smaller header.
+ * every deck a few cards long and a Skip that reopens from the menu, that was judged cheaper than
+ * the row of chrome — and if a fourth deck ever makes it expensive, the honest fix is a switcher on
+ * the closing card too, not a smaller header.
+ *
+ * EACH OTHER DECK GETS ITS OWN [ActionRow], as the designer portal's walkthrough does (owner
+ * decision 2026-10-18). Each button carries a name and an audience line, two lines of text that read
+ * as a list entry, not a pair of actions; side by side they squeezed both captions at handset widths.
+ * One row per deck keeps the list the same on every screen width and in both apps.
  */
 @Composable
 private fun WalkthroughHeroCard(
@@ -2216,8 +2221,8 @@ private fun WalkthroughHeroCard(
              *
              * Only the ones that are not open — a switcher offering the deck you are already reading
              * is a control with nothing to do, and on a register of two it is half the control. Each
-             * button says the deck's own `name` and then who it is for, because "Inspecting a
-             * workshop" on its own does not tell a designer whether it is theirs to read, and this
+             * button says the deck's own `name` and then who it is for, because "Running the
+             * repository" on its own does not tell a researcher whether it is theirs to read, and this
              * surface's whole job is telling a newcomer what things are.
              *
              * The block disappears entirely when there is one deck, which is how this reads on a
@@ -2233,22 +2238,24 @@ private fun WalkthroughHeroCard(
                     style = FieldTextStyles.Eyebrow,
                 )
                 others.forEach { other ->
-                    TextButton(
-                        onClick = { onChooseDeck(other) },
-                        modifier = Modifier.heightIn(min = 48.dp),
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                            Text(
-                                other.name,
-                                color = MaterialTheme.field.accentOnBrandTile,
-                                style = FieldTextStyles.Link,
-                            )
-                            Text(
-                                other.audience,
-                                color = MaterialTheme.field.onBrandTileMuted,
-                                fontSize = 11.sp,
-                                lineHeight = 15.sp,
-                            )
+                    ActionRow {
+                        TextButton(
+                            onClick = { onChooseDeck(other) },
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                Text(
+                                    other.name,
+                                    color = MaterialTheme.field.accentOnBrandTile,
+                                    style = FieldTextStyles.Link,
+                                )
+                                Text(
+                                    other.audience,
+                                    color = MaterialTheme.field.onBrandTileMuted,
+                                    fontSize = 11.sp,
+                                    lineHeight = 15.sp,
+                                )
+                            }
                         }
                     }
                 }

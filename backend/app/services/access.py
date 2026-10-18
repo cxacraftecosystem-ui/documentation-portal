@@ -113,6 +113,8 @@ REVISION_SKIP_FIELDS = {
     "createdById",
     "recordedAt",
     "recordedTimezone",
+    # When a creator's edit resubmits a record — bookkeeping about the queue, not a field anybody typed.
+    "submittedAt",
     MARKER_BODY_KEY,
 }
 

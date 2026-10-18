@@ -9,10 +9,12 @@ import { saveBlobToDevice } from "@/lib/saveToDevice";
 export function DownloadCsvButton({
   path,
   filename,
+  label = "Export CSV",
   onError
 }: {
   path: string;
   filename: string;
+  label?: string;
   onError?: (message: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -42,7 +44,7 @@ export function DownloadCsvButton({
     <span className="inline-flex flex-wrap items-center gap-2">
       <button type="button" className="field-button-secondary" disabled={busy} onClick={download}>
         <Download className="h-4 w-4" aria-hidden />
-        {busy ? "Exporting…" : "Export CSV"}
+        {busy ? "Exporting…" : label}
       </button>
       {error ? (
         <span className="text-xs font-medium text-red-700" role="alert">

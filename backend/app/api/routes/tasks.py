@@ -91,6 +91,7 @@ from app.services.questionnaire_instruments import (
     require_questionnaire,
 )
 from app.services.record_filters import artisan_workshop_clause
+from app.services.concurrency import gather_reads
 from app.services.records import clean_data, public_encode
 
 logger = logging.getLogger(__name__)
@@ -442,10 +443,14 @@ def scope_title(scope: ResolvedScope) -> str:
 # ---------------------------------------------------------------------------------------------
 
 
-async def _count_records(
+def _record_scope(
     kind: str, assignee_id: str, workshop_id: str | None, artisan_ids: list[str]
-) -> int:
-    """How many records of ``kind`` this assignee has actually created inside the task's scope."""
+) -> tuple[Any, dict[str, Any]] | None:
+    """The table and filter for the records of ``kind`` this assignee created inside a task's scope.
+
+    One definition shared by the derived progress count and the task's pending-records list (B12),
+    so "you recorded 12" and "4 of them are waiting for review" are about the same records.
+    """
     in_artisans: dict[str, Any] | None = {"in": artisan_ids} if artisan_ids else None
 
     if kind == "artisan":
@@ -460,7 +465,7 @@ async def _count_records(
             ]
         if in_artisans:
             where["id"] = in_artisans
-        return await db.artisan.count(where=where)
+        return db.artisan, where
 
     if kind in {"product", "tool"}:
         delegate = db.productdocumentation if kind == "product" else db.tooldocumentation
@@ -469,7 +474,7 @@ async def _count_records(
             where["workshopId"] = workshop_id
         if in_artisans:
             where["artisanId"] = in_artisans
-        return await delegate.count(where=where)
+        return delegate, where
 
     if kind == "process":
         where = {"createdById": assignee_id}
@@ -478,7 +483,7 @@ async def _count_records(
         if in_artisans:
             # A process has no artisan of its own; it inherits one through its parent product.
             where["product"] = {"is": {"artisanId": in_artisans}}
-        return await db.process.count(where=where)
+        return db.process, where
 
     if kind == "media":
         where = {"uploadedById": assignee_id}
@@ -486,7 +491,7 @@ async def _count_records(
             where["workshopId"] = workshop_id
         if in_artisans:
             where["artisanId"] = in_artisans
-        return await db.mediafile.count(where=where)
+        return db.mediafile, where
 
     if kind == "questionnaire":
         where = {"createdById": assignee_id}
@@ -494,9 +499,20 @@ async def _count_records(
             where["workshopId"] = workshop_id
         if in_artisans:
             where["artisans"] = {"some": {"artisanId": in_artisans}}
-        return await db.questionnaireinterview.count(where=where)
+        return db.questionnaireinterview, where
 
-    return 0
+    return None
+
+
+async def _count_records(
+    kind: str, assignee_id: str, workshop_id: str | None, artisan_ids: list[str]
+) -> int:
+    """How many records of ``kind`` this assignee has actually created inside the task's scope."""
+    scoped = _record_scope(kind, assignee_id, workshop_id, artisan_ids)
+    if scoped is None:
+        return 0
+    delegate, where = scoped
+    return await delegate.count(where=where)
 
 
 async def _count_workshop_artisans(workshop_id: str) -> int:
@@ -1602,6 +1618,84 @@ async def get_task(task_id: str, current_user: Any = Depends(get_current_user)) 
             detail="Only the assignee, the creator, or an admin can view this task",
         )
     return (await serialize_tasks([task]))[0]
+
+
+#: The record types the review queue holds (media is reviewed with its record), in queue order.
+PENDING_REVIEW_KINDS = ("artisan", "product", "tool", "process", "questionnaire")
+PENDING_LIST_LIMIT = 20
+
+_PENDING_LABELS = {
+    "artisan": ("name",),
+    "product": ("productName", "artisanName", "craftName"),
+    "tool": ("toolkitName", "englishName", "craftName"),
+    "process": ("name",),
+    "questionnaire": ("title",),
+}
+
+
+@router.get("/{task_id}/pending-records")
+async def task_pending_records(task_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """The records this task produced that are still WAITING FOR REVIEW (B12).
+
+    Same scope as the task's derived progress — what the assignee created, in the task's workshop,
+    for its artisans, of its record types — narrowed to ``status = PENDING``. ``total`` and
+    ``byType`` count all of them; ``items`` are the longest-waiting ``PENDING_LIST_LIMIT``.
+    ``reviewQuery`` is the review-queue filter (``GET /review/pending``) that shows the same set.
+    Visible to the assignee, the creator and admins, like the task itself.
+    """
+    task = await require_task(task_id)
+    if (
+        task.assigneeId != current_user.id
+        and task.createdById != current_user.id
+        and not is_admin(current_user)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the assignee, the creator, or an admin can view this task",
+        )
+    kinds = [kind for kind in (task.recordTypes or []) if kind in PENDING_REVIEW_KINDS] or list(
+        PENDING_REVIEW_KINDS
+    )
+    by_type: dict[str, int] = {}
+    items: list[dict[str, Any]] = []
+    for kind in kinds:
+        scoped = _record_scope(kind, task.assigneeId, task.workshopId, list(task.artisanIds or []))
+        if scoped is None:
+            continue
+        delegate, where = scoped
+        pending_where = {**where, "status": "PENDING"}
+        count, rows = await gather_reads(
+            delegate.count(where=pending_where),
+            delegate.find_many(where=pending_where, order={"submittedAt": "asc"}, take=PENDING_LIST_LIMIT),
+        )
+        by_type[kind] = int(count)
+        for row in rows:
+            label = next(
+                (str(get_value(row, f)) for f in _PENDING_LABELS[kind] if get_value(row, f)),
+                str(get_value(row, "id")),
+            )
+            items.append(
+                {
+                    "recordType": kind,
+                    "id": get_value(row, "id"),
+                    "label": label,
+                    "submittedAt": public_encode(get_value(row, "submittedAt") or get_value(row, "createdAt")),
+                }
+            )
+    items.sort(key=lambda item: str(item.get("submittedAt") or ""))
+    # The queue filter for EXACTLY these records: the assignee, the workshop, the task's kinds (always
+    # sent, so the queue never adds the assignee's pending workshops) and its artisans.
+    review_query: dict[str, str] = {"createdById": task.assigneeId, "recordType": ",".join(kinds)}
+    if task.workshopId:
+        review_query["workshopId"] = task.workshopId
+    if task.artisanIds:
+        review_query["artisanId"] = ",".join(sorted(str(a) for a in task.artisanIds))
+    return {
+        "total": sum(by_type.values()),
+        "byType": by_type,
+        "items": items[:PENDING_LIST_LIMIT],
+        "reviewQuery": review_query,
+    }
 
 
 # ---------------------------------------------------------------------------------------------

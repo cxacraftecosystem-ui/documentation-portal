@@ -30,6 +30,7 @@ import type { Artisan, ExtraMetadata, MediaFile, ProductDocumentation, RecordSta
 import { useConfirm } from "@/components/dialogs";
 import { Toggle } from "@/components/ui/Toggle";
 import { ButtonRow } from "@/components/ui/ButtonRow";
+import { ReviewNoteBanner } from "@/components/review/ReviewNoteBanner";
 
 // ---------------------------------------------------------------------------
 // Types for the /processes endpoints (hydrated detail: media on the process =
@@ -836,6 +837,7 @@ export function ProcessForm({
         void submit();
       }}
     >
+      {initial?.id ? <ReviewNoteBanner recordType="process" recordId={initial.id} status={initial.status} /> : null}
       <div>
         <h2 className="font-display text-lg font-bold text-ink-900">{isEdit ? "Update process" : "Document process"}</h2>
         <p className="mt-1 text-xs text-ink-500">

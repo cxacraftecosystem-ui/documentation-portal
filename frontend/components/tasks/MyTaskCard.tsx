@@ -15,6 +15,7 @@ import {
 } from "@/components/tasks/TaskPrimitives";
 import type { FieldTask, TaskStatus } from "@/components/tasks/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
+import { TaskPendingRecords } from "@/components/tasks/TaskPendingRecords";
 
 /**
  * One task as the person who has to do it sees it.
@@ -156,6 +157,7 @@ export function MyTaskCard({
             derived={task.derivedCount}
             target={task.targetCount ?? task.derivedTarget}
           />
+          <TaskPendingRecords taskId={task.id} showReviewLink={false} />
         </div>
         {typeof task.derivedBreakdown?.unlinkedSections === "number" && task.derivedBreakdown.unlinkedSections > 0 ? (
           // WHY A COUNTED TASK CAN SIT AT ZERO WHILE THE WORK IS PLAINLY DONE. These answers exist;

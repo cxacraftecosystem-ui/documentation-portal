@@ -228,6 +228,23 @@ fun ApiFailure.mergeAnswerConflicts(): List<MergeAnswerConflict> {
  */
 const val CONNECTION_FAILED_SENTENCE = "Could not connect. Check your connection and try again."
 
+/** What became of a review decision sent from this phone. */
+sealed interface ReviewSend {
+    /** The server decided. [mediaApproved] files went with an approval; [status] is the record's now. */
+    data class Sent(val status: String? = null, val mediaApproved: Int = 0) : ReviewSend
+
+    /** No answer: kept in the outbox, sent once the connection returns. */
+    data object Queued : ReviewSend
+}
+
+/**
+ * Whether a review decision got NO answer, so it may wait in the outbox: no signal, a dropped socket,
+ * or the gateway giving up on the slow box. Any answer from the API itself (a 403, a 422) is final.
+ */
+internal fun isUnanswered(error: Throwable): Boolean =
+    error is IOException || error.isTransportFailure() ||
+        (error is HttpException && error.code() in setOf(502, 503, 504))
+
 /**
  * Did this request fail on the way, with nobody answering it? The platform's own network exception
  * types, plus OkHttp's plain `IOException` that wraps a stream cut off mid-answer — and, for an
@@ -1237,7 +1254,12 @@ class FieldRepository(
      * Needs the dataset-download permission (403 otherwise) and everything listed is already filtered
      * to what the caller may see.
      */
-    suspend fun dataTree(path: String = ""): DataTreeDto = api.dataTree(path)
+    /**
+     * One level of the tree. [status] narrows every record to one review status: the data browser
+     * sends `APPROVED` unless the reader chose every status (C21, an export means approved). Null is
+     * every status, which is what an older build always asked for.
+     */
+    suspend fun dataTree(path: String = "", status: String? = null): DataTreeDto = api.dataTree(path, status)
 
     /**
      * The tree folder that holds [recordId], or null when nothing files it yet — an artisan who has
@@ -1256,29 +1278,107 @@ class FieldRepository(
      * The flattened subtree below [path]. [include] is a CSV of
      * `text,images,videos,audios,transcripts,documents,other`; null means everything.
      */
-    suspend fun dataManifest(path: String = "", include: String? = null): DataManifestDto =
-        api.dataManifest(path, include?.blankToNull())
+    suspend fun dataManifest(path: String = "", include: String? = null, status: String? = null): DataManifestDto =
+        api.dataManifest(path, include?.blankToNull(), status)
 
     /** Records awaiting review (status PENDING), newest first, across record types. */
     suspend fun pendingReviews(): List<PendingReviewDto> = api.pendingReviews().items
 
     /** One page of the review queue, newest first, with the server's true count of the whole queue. */
-    suspend fun pendingReviewsPage(page: Int, pageSize: Int = REVIEW_PAGE_SIZE): PendingReviewListDto =
-        api.pendingReviews(page = page, pageSize = pageSize)
+    suspend fun pendingReviewsPage(
+        page: Int,
+        pageSize: Int = REVIEW_PAGE_SIZE,
+        workshopId: String? = null
+    ): PendingReviewListDto =
+        api.pendingReviews(page = page, pageSize = pageSize, workshopId = workshopId?.blankToNull())
 
-    /** Approve a pending record (admins, or users granted the review permission). */
-    suspend fun approveRecord(recordType: String, recordId: String) {
-        api.approveRecord(recordType, recordId, ReviewActionRequest())
+    private var reasonsCache: List<ReviewReasonDto>? = null
+
+    /** The reasons a reviewer picks from, read once per session (the server's own wording). */
+    suspend fun reviewReasons(): List<ReviewReasonDto> =
+        reasonsCache ?: api.reviewReasons().also { reasonsCache = it }
+
+    /** The last review decision on a record, for the note above its edit form (A1). */
+    suspend fun latestReview(recordType: String, recordId: String): LatestReviewAnswerDto =
+        api.latestReview(recordType, recordId)
+
+    /** What reviewers sent back to this account, each with its note (A2). */
+    suspend fun myReturnedRecords(): ReturnedListDto = api.myReturnedRecords()
+
+    /** Approve many queue rows in one request (B9). */
+    suspend fun bulkApprove(items: List<PendingReviewDto>): BulkApproveResponse =
+        api.bulkApprove(BulkApproveRequest(items = items.map { BulkApproveItem(it.recordType, it.id) }))
+
+    /**
+     * Approve a pending record (admins, or users granted the review permission). The server approves
+     * its still-pending files with it, in the same transaction, and says how many.
+     *
+     * WITH NO SIGNAL THE APPROVAL IS KEPT, NOT LOST: a request that got no answer goes to the outbox
+     * under the Idempotency-Key it was sent with, so if it did land, the replay is answered with the
+     * first answer rather than approving twice (and approving files uploaded in between).
+     */
+    suspend fun approveRecord(context: Context, recordType: String, recordId: String, label: String): ReviewSend =
+        sendReviewDecision(context, "review-approve", QueuedReviewDecision(recordType, recordId), label)
+
+    /**
+     * Reject ONE file, pending or already approved with its record (C21). A fixable [reason] sends it
+     * back instead. Queued like an approval when there is no signal.
+     */
+    suspend fun rejectMedia(context: Context, mediaId: String, label: String, reason: String?, notes: String?): ReviewSend =
+        sendReviewDecision(
+            context, "review-reject", QueuedReviewDecision("media", mediaId, notes?.blankToNull(), reason), label
+        )
+
+    /** What this reviewer may do with a record's files: the approval's count and each file's Reject. */
+    suspend fun recordMediaReview(recordType: String, recordId: String): RecordMediaReviewDto =
+        api.recordMediaReview(recordType, recordId)
+
+    private suspend fun postReviewDecision(type: String, decision: QueuedReviewDecision, key: String?): JsonElement {
+        val body = ReviewActionRequest(notes = decision.notes, reason = decision.reason)
+        return when (type) {
+            "review-approve" -> api.approveRecord(decision.recordType, decision.recordId, body, key)
+            "review-reject" -> api.rejectRecord(decision.recordType, decision.recordId, body, key)
+            else -> throw SerializationException("Unknown review decision: $type")
+        }
     }
 
-    /** Reject a pending record (admins, or users granted the review permission). */
-    suspend fun rejectRecord(recordType: String, recordId: String) {
-        api.rejectRecord(recordType, recordId, ReviewActionRequest())
+    private suspend fun sendReviewDecision(
+        context: Context,
+        type: String,
+        decision: QueuedReviewDecision,
+        label: String
+    ): ReviewSend {
+        val key = java.util.UUID.randomUUID().toString()
+        return try {
+            val answer = postReviewDecision(type, decision, key) as? JsonObject
+            ReviewSend.Sent(
+                status = (answer?.get("status") as? JsonPrimitive)?.contentOrNull,
+                mediaApproved = (answer?.get("mediaApproved") as? JsonPrimitive)?.contentOrNull?.toIntOrNull() ?: 0
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            if (!isUnanswered(e)) throw e
+            queueOfflineEntry(
+                context, type, offlineJson.encodeToString(QueuedReviewDecision.serializer(), decision), label,
+                emptyList(), kind = OutboxKind.ACTION, targetId = decision.recordId, idempotencyKey = key
+            )
+            ReviewSend.Queued
+        }
+    }
+
+    /**
+     * Reject a pending record (admins, or users granted the review permission). With a FIXABLE
+     * [reason] the server sends it back for revision instead; the answer's status says which.
+     */
+    suspend fun rejectRecord(recordType: String, recordId: String, reason: String? = null, notes: String? = null): String? {
+        val answer = api.rejectRecord(recordType, recordId, ReviewActionRequest(notes = notes?.blankToNull(), reason = reason))
+        return ((answer as? JsonObject)?.get("status") as? JsonPrimitive)?.contentOrNull
     }
 
     /** Send a record back to its creator. [notes] is mandatory — the API 422s on a blank one. */
-    suspend fun reviseRecord(recordType: String, recordId: String, notes: String) {
-        api.reviseRecord(recordType, recordId, ReviewActionRequest(notes = notes))
+    suspend fun reviseRecord(recordType: String, recordId: String, notes: String, reason: String? = null) {
+        api.reviseRecord(recordType, recordId, ReviewActionRequest(notes = notes, reason = reason))
     }
 
     /**
@@ -1920,8 +2020,8 @@ class FieldRepository(
      * [path] scopes the report to one subtree of the data browser; the default, "", is the whole
      * dataset — which is what every caller before the data browser existed meant.
      */
-    suspend fun downloadReport(context: Context, path: String = ""): String = withContext(Dispatchers.IO) {
-        val response = api.dataReport(format = "xlsx", path = path)
+    suspend fun downloadReport(context: Context, path: String = "", status: String? = null): String = withContext(Dispatchers.IO) {
+        val response = api.dataReport(format = "xlsx", path = path, status = status)
         if (!response.isSuccessful) throw IllegalStateException("The report didn't download. Try again.")
         val body = response.body() ?: throw IllegalStateException("The report didn't download. Try again.")
         val stamp = DateTimeFormatter.ofPattern("ddMMyyyyHHmmss").withZone(ZoneId.systemDefault()).format(Instant.now())
@@ -1955,6 +2055,8 @@ class FieldRepository(
         path: String,
         include: String? = null,
         folderName: String? = null,
+        /** One review status, or null for every status: the data browser's choice (C21). */
+        status: String? = null,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }
     ): DatasetDownloadResult = withContext(Dispatchers.IO) {
         val stamp = DateTimeFormatter.ofPattern("ddMMyyyyHHmmss").withZone(ZoneId.systemDefault()).format(Instant.now())
@@ -1967,9 +2069,9 @@ class FieldRepository(
         var written = 0
         val outcome = ZipOutputStream(BufferedOutputStream(FileOutputStream(tmp))).use { zip ->
             readManifest(
-                streamed = { api.dataManifestStream(path, include?.blankToNull()) },
+                streamed = { api.dataManifestStream(path, include?.blankToNull(), status = status) },
                 buffered = {
-                    val manifest = api.dataManifest(path, include?.blankToNull())
+                    val manifest = api.dataManifest(path, include?.blankToNull(), status)
                     Triple(manifest.files, manifest.files.size, manifest.truncated)
                 },
                 deserializer = DataManifestFileDto.serializer(),
@@ -3403,6 +3505,11 @@ class FieldRepository(
                 offlineJson.decodeFromString<TaskUpdateBody>(entry.payloadJson)
             ).id
         )
+        "review-approve", "review-reject" -> {
+            val decision = offlineJson.decodeFromString<QueuedReviewDecision>(entry.payloadJson)
+            postReviewDecision(entry.type, decision, entry.idempotencyKey)
+            CreatedRecord(decision.recordId)
+        }
         else -> throw SerializationException("Unknown offline action: ${entry.type}")
     }
 

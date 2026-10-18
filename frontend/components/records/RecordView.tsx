@@ -20,6 +20,9 @@ import { CollabPanel } from "@/components/CollabPanel";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
 import { PageHeader } from "@/components/PageHeader";
 import { RecordMediaList } from "@/components/records/RecordMediaList";
+import { MediaReviewProvider } from "@/components/review/MediaReview";
+import { RecordReviewBar } from "@/components/review/RecordReviewBar";
+import { ReviewNoteBanner } from "@/components/review/ReviewNoteBanner";
 import {
   RECORD_VIEW_ENDPOINT,
   RECORD_VIEW_NOUN,
@@ -29,8 +32,9 @@ import {
 import { StatusBadge } from "@/components/StatusBadge";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
-import { canCreateRecords } from "@/lib/permissions";
+import { canCreateRecords, canReview as mayReview } from "@/lib/permissions";
 import { canUpdateRecord, recordUpdateHref, type RecordViewType } from "@/lib/recordView";
+import { fetchRecordMediaReview, type RecordMediaReview } from "@/lib/review";
 import type { Artisan, MediaFile, QuestionnaireResponse, RecordStatus, User } from "@/lib/types";
 
 const ICON: Record<RecordViewType, LucideIcon> = {
@@ -64,11 +68,34 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
   const { user } = useAuth();
   const [record, setRecord] = useState<LoadedRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reloads, setReloads] = useState(0);
+  const [decided, setDecided] = useState<string | null>(null);
+  /** What this reviewer may do with the record's files: the approval's count and each file's Reject. */
+  const [mediaReview, setMediaReview] = useState<RecordMediaReview | null>(null);
+  const reviewer = mayReview(user);
   const noun = RECORD_VIEW_NOUN[type];
 
   useEffect(() => {
+    if (!reviewer || type === "craft") {
+      setMediaReview(null);
+      return;
+    }
     let cancelled = false;
-    setRecord(null);
+    fetchRecordMediaReview(type, id)
+      .then((answer) => {
+        if (!cancelled) setMediaReview(answer);
+      })
+      .catch(() => {
+        if (!cancelled) setMediaReview(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [type, id, reviewer, reloads]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (reloads === 0) setRecord(null);
     setError(null);
     apiFetch<LoadedRecord>(`${RECORD_VIEW_ENDPOINT[type]}/${encodeURIComponent(id)}`)
       .then((loaded) => {
@@ -80,7 +107,7 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
     return () => {
       cancelled = true;
     };
-  }, [type, id, noun]);
+  }, [type, id, noun, reloads]);
 
   const Icon = ICON[type];
   const updateHref = recordUpdateHref(type, id);
@@ -106,6 +133,26 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
         error ? null : <div className="panel p-4 text-sm text-ink-muted">Loading this {noun}…</div>
       ) : (
         <div className="grid gap-5">
+          {decided ? (
+            <div role="status" className="rounded-md border border-success-600/30 bg-success-100 px-3 py-2 text-sm text-success-600">
+              {decided}
+            </div>
+          ) : null}
+          {type !== "craft" ? (
+            <>
+              <ReviewNoteBanner recordType={type} recordId={record.id} status={record.status} />
+              <RecordReviewBar
+                recordType={type}
+                recordId={record.id}
+                status={record.status}
+                approvesWith={mediaReview?.approvesWith ?? 0}
+                onDecided={(message) => {
+                  setDecided(message);
+                  setReloads((n) => n + 1);
+                }}
+              />
+            </>
+          ) : null}
           <section className="panel p-4" aria-label={`${title} details`}>
             <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
               {record.status ? <StatusBadge status={record.status} /> : null}
@@ -125,7 +172,21 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
               ))}
             </dl>
           </section>
-          <TypeExtras type={type} record={record} user={user} />
+          <MediaReviewProvider
+            value={
+              mediaReview
+                ? {
+                    rejectable: new Set(mediaReview.rejectable),
+                    onRejected: (message) => {
+                      setDecided(message);
+                      setReloads((n) => n + 1);
+                    }
+                  }
+                : null
+            }
+          >
+            <TypeExtras type={type} record={record} user={user} />
+          </MediaReviewProvider>
           <section className="panel p-4">
             <CollabPanel recordType={type} recordId={record.id} />
           </section>

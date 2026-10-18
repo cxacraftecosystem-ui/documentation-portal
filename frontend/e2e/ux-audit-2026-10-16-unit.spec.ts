@@ -86,7 +86,9 @@ test.describe("DC-06 · the review queue", () => {
   const source = read("app", "(protected)", "review", "page.tsx");
 
   test("is paged by the server, not cut at 200 per type and paged here", () => {
-    expect(source).toContain("/review/pending?page=${onPage}&pageSize=${PAGE_SIZE}");
+    // Since 2026-10-20 the page and its filters go through `queueQuery` (lib/review.ts), which the
+    // feedback-loop spec pins: page and pageSize first, then the workshop, creator and order.
+    expect(source).toContain("/review/pending${queueQuery(onPage, PAGE_SIZE, filters)}");
     expect(source).not.toContain("items.slice(");
   });
 

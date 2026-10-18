@@ -169,8 +169,13 @@ interface FieldRepositoryApi {
     @GET("review/pending")
     suspend fun pendingReviews(
         @Query("page") page: Int? = null,
-        @Query("pageSize") pageSize: Int? = null
+        @Query("pageSize") pageSize: Int? = null,
+        @Query("workshopId") workshopId: String? = null
     ): PendingReviewListDto
+
+    /** The short list a reviewer picks a reason from (C19); `fixable` ones send the record back. */
+    @GET("review/reasons")
+    suspend fun reviewReasons(): List<ReviewReasonDto>
 
     @POST("app/release")
     suspend fun publishAppRelease(@Body body: AppReleasePublishRequest): AppReleaseDto
@@ -193,19 +198,39 @@ interface FieldRepositoryApi {
     @GET("feedback")
     suspend fun allFeedback(): List<FeedbackDto>
 
+    /** The last review decision on one record — the note shown above its edit form (A1). */
+    @GET("review/{type}/{id}/latest")
+    suspend fun latestReview(@Path("type") type: String, @Path("id") id: String): LatestReviewAnswerDto
+
+    /** The caller's own records a reviewer sent back or rejected, with each note (A2). */
+    @GET("review/mine")
+    suspend fun myReturnedRecords(): ReturnedListDto
+
+    /** Approve every ticked row in one request (B9); each item comes back with its own outcome. */
+    @POST("review/bulk-approve")
+    suspend fun bulkApprove(@Body body: BulkApproveRequest): BulkApproveResponse
+
+    // Both take an Idempotency-Key: the outbox replays an approval or a file's rejection made with no
+    // signal, and the server answers a repeat with the first answer instead of deciding twice.
     @POST("review/{type}/{id}/approve")
     suspend fun approveRecord(
         @Path("type") type: String,
         @Path("id") id: String,
-        @Body body: ReviewActionRequest
+        @Body body: ReviewActionRequest,
+        @Header("Idempotency-Key") idempotencyKey: String? = null
     ): JsonElement
 
     @POST("review/{type}/{id}/reject")
     suspend fun rejectRecord(
         @Path("type") type: String,
         @Path("id") id: String,
-        @Body body: ReviewActionRequest
+        @Body body: ReviewActionRequest,
+        @Header("Idempotency-Key") idempotencyKey: String? = null
     ): JsonElement
+
+    /** What this reviewer may do with a record's files: the approval's count and each file's Reject. */
+    @GET("review/{type}/{id}/media")
+    suspend fun recordMediaReview(@Path("type") type: String, @Path("id") id: String): RecordMediaReviewDto
 
     // Send back to the creator with mandatory comments (status NEEDS_REVISION). A blank `notes` is a
     // 422 — the whole point is that the creator is told what to fix.
@@ -575,7 +600,8 @@ interface FieldRepositoryApi {
     @GET("data/report")
     suspend fun dataReport(
         @Query("format") format: String = "xlsx",
-        @Query("path") path: String = ""
+        @Query("path") path: String = "",
+        @Query("status") status: String? = null
     ): Response<ResponseBody>
 
     // Admin-only record deletion (backend enforces is_admin).
@@ -1148,7 +1174,7 @@ interface FieldRepositoryApi {
     // --- Data browser (needs the dataset-download permission; rows are visibility-filtered) ---
     // ONE level of the virtual tree. path="" is the taxonomy chooser, not a folder listing.
     @GET("data/tree")
-    suspend fun dataTree(@Query("path") path: String = ""): DataTreeDto
+    suspend fun dataTree(@Query("path") path: String = "", @Query("status") status: String? = null): DataTreeDto
 
     // Where a record sits in the tree, so a search hit can be turned into a folder to open. Answers
     // `{"path": null}` when nothing files the record yet — that is a fact, not an error.
@@ -1168,13 +1194,15 @@ interface FieldRepositoryApi {
     suspend fun dataManifestStream(
         @Query("path") path: String = "",
         @Query("include") include: String? = null,
-        @Query("stream") stream: Int = 1
+        @Query("stream") stream: Int = 1,
+        @Query("status") status: String? = null
     ): Response<ResponseBody>
 
     @GET("data/manifest")
     suspend fun dataManifest(
         @Query("path") path: String = "",
-        @Query("include") include: String? = null
+        @Query("include") include: String? = null,
+        @Query("status") status: String? = null
     ): DataManifestDto
 
     // One media file. Audio defaults to a server-side .mp4 (AAC) conversion; anything else is

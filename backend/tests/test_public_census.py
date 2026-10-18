@@ -51,6 +51,11 @@ _EXPECTED_HELD = {
 }
 
 
+# Every census reads each table once for what it holds, and each reviewed table (all but crafts)
+# once more for what is approved.
+_READS = 2 * len(_TOTALS) - 1
+
+
 class _Corpus:
     """Stands in for the Prisma client: counts on demand, and remembers how it was asked."""
 
@@ -140,7 +145,8 @@ def test_every_record_type_is_counted_exactly_once(corpus) -> None:
 
     assert response.status_code == 200
     assert response.json()["recordsHeld"] == _EXPECTED_HELD
-    assert sorted(name for name, _ in tables.calls) == sorted(_TOTALS)
+    held = [name for name, kwargs in tables.calls if kwargs == {}]
+    assert sorted(held) == sorted(_TOTALS)
 
 
 def test_the_census_counts_every_row_held_not_only_the_approved_ones(corpus) -> None:
@@ -157,7 +163,21 @@ def test_the_census_counts_every_row_held_not_only_the_approved_ones(corpus) -> 
     body = asyncio.run(_get()).json()
 
     assert "recordsHeld" in body
-    assert all(kwargs == {} for _, kwargs in tables.calls), "a where clause reached a census count"
+    held = [name for name, kwargs in tables.calls if kwargs == {}]
+    assert sorted(held) == sorted(_TOTALS), "a where clause reached a held count"
+    approved = [(name, kwargs) for name, kwargs in tables.calls if kwargs != {}]
+    assert all(kwargs == {"where": {"status": "APPROVED"}} for _, kwargs in approved)
+    assert sorted(name for name, _ in approved) == sorted(n for n in _TOTALS if n != "craft")
+
+
+def test_the_public_figure_is_the_approved_one_and_crafts_count_whole(corpus) -> None:
+    """C21: the landing page prints approved counts. Crafts carry no review status."""
+    corpus()
+
+    body = asyncio.run(_get()).json()
+
+    assert body["recordsPublished"] == _EXPECTED_HELD  # the fake answers the same total either way
+    assert set(body["recordsPublished"]) == set(body["recordsHeld"])
 
 
 def _mounted_routes() -> list:
@@ -271,7 +291,7 @@ def test_the_shape_is_frozen_so_a_new_field_cannot_be_added_without_a_decision(c
 
     body = asyncio.run(_get()).json()
 
-    assert set(body) == {"counted", "stale", "asOf", "asOfDate", "recordsHeld"}
+    assert set(body) == {"counted", "stale", "asOf", "asOfDate", "recordsHeld", "recordsPublished"}
     assert set(body["recordsHeld"]) == set(_EXPECTED_HELD)
 
 
@@ -293,7 +313,7 @@ def test_the_eight_counts_go_out_together_not_one_cross_region_trip_at_a_time(co
 
     asyncio.run(_get())
 
-    assert tables.peak_in_flight == min(len(_TOTALS), pool_width())
+    assert tables.peak_in_flight == min(_READS, pool_width())
 
 
 def test_a_burst_of_twenty_requests_costs_one_round_of_counts_not_twenty(corpus) -> None:
@@ -303,7 +323,7 @@ def test_a_burst_of_twenty_requests_costs_one_round_of_counts_not_twenty(corpus)
     responses = asyncio.run(_get_many(20))
 
     assert {r.status_code for r in responses} == {200}
-    assert tables.query_count == len(_TOTALS)
+    assert tables.query_count == _READS
 
 
 def test_bursts_on_two_different_event_loops_both_work(corpus) -> None:
@@ -316,7 +336,7 @@ def test_bursts_on_two_different_event_loops_both_work(corpus) -> None:
     public.clear_census_cache()
     asyncio.run(_get_many(5))
 
-    assert tables.query_count == 2 * len(_TOTALS)
+    assert tables.query_count == 2 * _READS
 
 
 def test_a_second_request_inside_the_ttl_reads_nothing(corpus) -> None:
@@ -325,7 +345,7 @@ def test_a_second_request_inside_the_ttl_reads_nothing(corpus) -> None:
     asyncio.run(_get())
     asyncio.run(_get())
 
-    assert tables.query_count == len(_TOTALS)
+    assert tables.query_count == _READS
 
 
 def test_the_census_is_recounted_once_it_expires(corpus, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -335,7 +355,7 @@ def test_the_census_is_recounted_once_it_expires(corpus, monkeypatch: pytest.Mon
 
     asyncio.run(_get())
 
-    assert tables.query_count == 2 * len(_TOTALS)
+    assert tables.query_count == 2 * _READS
 
 
 # --- Failing soft --------------------------------------------------------------------------------
@@ -431,7 +451,7 @@ def test_a_failed_count_is_not_retried_by_every_arriving_request(
     for _ in range(5):
         asyncio.run(_get())
 
-    assert tables.query_count == len(_TOTALS)
+    assert tables.query_count == _READS
 
 
 # --- What the caches are told --------------------------------------------------------------------

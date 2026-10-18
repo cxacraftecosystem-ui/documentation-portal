@@ -47,6 +47,18 @@ PASSWORD_LINK = "PASSWORD_LINK"
 #: and what to do if it was not them.
 PASSWORD_ADDED = "PASSWORD_ADDED"
 PASSWORD_CHANGED = "PASSWORD_CHANGED"
+#: REVIEW AND SHARING NOTICES (2026-10-20). A reviewer's decision on a record, to the person who
+#: recorded it; a request to share data or to join a workshop, to whoever decides it, and the
+#: decision back to the person who asked; a comment on a record, to the person who recorded it.
+#: Every one of them honours the same opt-out as the task notices.
+RECORD_SENT_BACK = "RECORD_SENT_BACK"
+RECORD_REJECTED = "RECORD_REJECTED"
+RECORD_APPROVED = "RECORD_APPROVED"
+RECORD_COMMENT = "RECORD_COMMENT"
+ACCESS_REQUESTED = "ACCESS_REQUESTED"
+ACCESS_DECIDED = "ACCESS_DECIDED"
+WORKSHOP_ACCESS_REQUESTED = "WORKSHOP_ACCESS_REQUESTED"
+WORKSHOP_ACCESS_DECIDED = "WORKSHOP_ACCESS_DECIDED"
 KINDS = frozenset(
     {
         ACCESS_GRANTED,
@@ -57,10 +69,24 @@ KINDS = frozenset(
         PASSWORD_LINK,
         PASSWORD_ADDED,
         PASSWORD_CHANGED,
+        RECORD_SENT_BACK,
+        RECORD_REJECTED,
+        RECORD_APPROVED,
+        RECORD_COMMENT,
+        ACCESS_REQUESTED,
+        ACCESS_DECIDED,
+        WORKSHOP_ACCESS_REQUESTED,
+        WORKSHOP_ACCESS_DECIDED,
     }
 )
-#: The kinds a person can switch off in Settings (``UserPreference.emailTaskUpdates``).
-TASK_KINDS = frozenset({TASK_SUBMITTED, TASK_SENT_BACK, TASK_APPROVED})
+TASK_ONLY_KINDS = frozenset({TASK_SUBMITTED, TASK_SENT_BACK, TASK_APPROVED})
+REVIEW_KINDS = frozenset({RECORD_SENT_BACK, RECORD_REJECTED, RECORD_APPROVED, RECORD_COMMENT})
+SHARING_KINDS = frozenset(
+    {ACCESS_REQUESTED, ACCESS_DECIDED, WORKSHOP_ACCESS_REQUESTED, WORKSHOP_ACCESS_DECIDED}
+)
+#: The kinds a person can switch off in Settings (``UserPreference.emailTaskUpdates``, shown as
+#: "Tasks, reviews and sharing"). One switch on purpose: a second one would ask the same question.
+TASK_KINDS = TASK_ONLY_KINDS | REVIEW_KINDS | SHARING_KINDS
 
 PRODUCT_NAME = "Field Repository"
 
@@ -227,7 +253,51 @@ def subject_for(kind: str, params: dict[str, Any]) -> str:
         return "A password was added to your account"
     if kind == PASSWORD_CHANGED:
         return "Your password was changed"
+    record = str(params.get("recordLabel") or "Your record").strip()
+    count = _count(params)
+    if kind == RECORD_SENT_BACK:
+        return f"“{record}” was sent back to you"
+    if kind == RECORD_REJECTED:
+        return f"“{record}” was not accepted"
+    if kind == RECORD_APPROVED:
+        if count > 1:
+            return f"{count} of your records were approved"
+        return f"“{record}” was approved"
+    if kind == RECORD_COMMENT:
+        return f"New comment on “{record}”"
+    if kind == ACCESS_REQUESTED:
+        return f"{params.get('requesterName') or 'Someone'} asked to use your data"
+    if kind == ACCESS_DECIDED:
+        verb = "granted" if params.get("decision") == "GRANTED" else "declined"
+        return f"Your data request was {verb}"
+    if kind == WORKSHOP_ACCESS_REQUESTED:
+        return f"{params.get('requesterName') or 'Someone'} asked to join {_workshop_words(params)}"
+    if kind == WORKSHOP_ACCESS_DECIDED:
+        verb = "granted" if params.get("decision") == "GRANTED" else "declined"
+        return f"Workshop access {verb}: {params.get('workshopTitle') or 'a workshop'}"
     raise ValueError(f"Unknown e-mail kind {kind!r}")
+
+
+def _count(params: dict[str, Any]) -> int:
+    try:
+        return max(int(params.get("count") or 1), 1)
+    except (TypeError, ValueError):
+        return 1
+
+
+def _workshop_words(params: dict[str, Any]) -> str:
+    titles = [str(t) for t in params.get("workshopTitles") or [] if t]
+    if len(titles) == 1:
+        return f"“{titles[0]}”"
+    if titles:
+        return f"{len(titles)} workshops"
+    return "a workshop"
+
+
+def _safe_path(value: Any, default: str) -> str:
+    """Only an in-app path travels in ``params``, never a host: a stored row cannot send a reader away."""
+    path = str(value or "")
+    return path if path.startswith("/") and not path.startswith("//") else default
 
 
 def render(
@@ -314,7 +384,17 @@ def render(
             subject, text, _html([_e(greeting), _e(lead), _e(act)], button=("Open the sign-in page", _e(link)))
         )
 
-    if kind in TASK_KINDS:
+    if kind in REVIEW_KINDS or kind in SHARING_KINDS:
+        lead, extra, label, path = _notice_lines(kind, params)
+        link = app_url(path, settings)
+        why = "You can turn these e-mails off in Settings."
+        lines = [greeting, lead, *extra]
+        text = "\n\n".join([*lines, f"{label}: {link}", why, sign_off]) + "\n"
+        return Rendered(
+            subject, text, _html([*(_e(line) for line in lines), _e(why)], button=(_e(label), _e(link)))
+        )
+
+    if kind in TASK_ONLY_KINDS:
         title = str(params.get("taskTitle") or "a task")
         actor = str(params.get("actorName") or "Somebody")
         if kind == TASK_SUBMITTED:
@@ -329,3 +409,79 @@ def render(
         return Rendered(subject, text, _html([_e(greeting), _e(lead), _e(why)], button=("Open Tasks", _e(link))))
 
     raise ValueError(f"Unknown e-mail kind {kind!r}")
+
+
+def _quoted(note: Any, limit: int = 600) -> str | None:
+    words = " ".join(str(note or "").split())
+    if not words:
+        return None
+    return f"“{words[:limit]}{'…' if len(words) > limit else ''}”"
+
+
+def _notice_lines(kind: str, params: dict[str, Any]) -> tuple[str, list[str], str, str]:
+    """(lead sentence, further lines, button label, in-app path) for the review and sharing notices."""
+    record = str(params.get("recordLabel") or "your record")
+    noun = str(params.get("recordNoun") or "record")
+    actor = str(params.get("actorName") or "A reviewer")
+    reason = str(params.get("reasonLabel") or "").strip()
+    # A fixable reason with no note of its own carries the reason's label as its note; saying it
+    # twice ("Reason: Missing details." then "Their note: “Missing details”") is noise.
+    raw_note = " ".join(str(params.get("note") or "").split())
+    note = None if reason and raw_note.casefold() == reason.casefold() else _quoted(params.get("note"))
+    extra: list[str] = []
+    if kind == RECORD_SENT_BACK:
+        lead = f"{actor} sent your {noun} “{record}” back for changes."
+        if reason:
+            extra.append(f"Reason: {reason}.")
+        if note:
+            extra.append(f"Their note: {note}")
+        extra.append("Update it and it goes back for review.")
+        return lead, extra, "Open what was sent back", _safe_path(params.get("path"), "/sent-back")
+    if kind == RECORD_REJECTED:
+        lead = f"{actor} did not accept your {noun} “{record}”."
+        if reason:
+            extra.append(f"Reason: {reason}.")
+        if note:
+            extra.append(f"Their note: {note}")
+        extra.append("If it can be fixed, update the record and it goes back for review.")
+        return lead, extra, "Open the record", _safe_path(params.get("path"), "/sent-back")
+    if kind == RECORD_APPROVED:
+        count = _count(params)
+        if count > 1:
+            lead = f"{actor} approved {count} of your records, including “{record}”."
+        else:
+            lead = f"{actor} approved your {noun} “{record}”."
+        if note:
+            extra.append(f"Their note: {note}")
+        return lead, extra, "Open My Activity", _safe_path(params.get("path"), "/activity")
+    if kind == RECORD_COMMENT:
+        lead = f"{actor} commented on your {noun} “{record}”."
+        if note:
+            extra.append(note)
+        return lead, extra, "Open the record", _safe_path(params.get("path"), "/activity")
+    if kind == ACCESS_REQUESTED:
+        requester = str(params.get("requesterName") or "A colleague")
+        tier = str(params.get("tierLabel") or "access")
+        lead = f"{requester} asked for {tier} access to your records."
+        if note:
+            extra.append(f"Their note: {note}")
+        return lead, extra, "Open Sharing", "/sharing"
+    if kind == ACCESS_DECIDED:
+        owner = str(params.get("ownerName") or "The owner")
+        verb = "granted" if params.get("decision") == "GRANTED" else "declined"
+        lead = f"{owner} {verb} your request for access to their records."
+        if note:
+            extra.append(f"Their note: {note}")
+        return lead, extra, "Open Sharing", "/sharing"
+    if kind == WORKSHOP_ACCESS_REQUESTED:
+        requester = str(params.get("requesterName") or "A colleague")
+        lead = f"{requester} asked to join {_workshop_words(params)}."
+        if note:
+            extra.append(f"Their note: {note}")
+        return lead, extra, "Open workshop access", "/workshop-access/manage"
+    title = str(params.get("workshopTitle") or "the workshop")
+    verb = "granted" if params.get("decision") == "GRANTED" else "declined"
+    lead = f"Your request to join “{title}” was {verb}."
+    if note:
+        extra.append(f"Note: {note}")
+    return lead, extra, "Open workshop access", "/workshop-access"

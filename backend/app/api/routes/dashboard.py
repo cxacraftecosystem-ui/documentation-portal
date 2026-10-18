@@ -57,6 +57,11 @@ def rows_to_recent(rows: list[Any], record_type: str) -> list[dict[str, Any]]:
     ]
 
 
+def _count_of(groups: list[Any], state: str) -> int:
+    """One status's count out of a ``group_by(status)`` result (0 when nothing is in it)."""
+    return sum(group["_count"]["_all"] for group in groups if str(group["status"]) == state)
+
+
 def _totals_by_status(groups: list[Any]) -> tuple[int, int]:
     """Fold one ``group_by(status)`` result into (every row, the PENDING ones).
 
@@ -104,6 +109,7 @@ async def dashboard_stats(current_user: Any = Depends(get_current_user)) -> dict
         tool_groups,
         media,
         pending_interviews,
+        pending_processes,
         recent_artisans,
         recent_workshops,
         recent_products,
@@ -113,11 +119,15 @@ async def dashboard_stats(current_user: Any = Depends(get_current_user)) -> dict
         mine_product_groups,
         mine_tool_groups,
         mine_media,
-        mine_pending_interviews,
+        mine_interview_groups,
+        mine_process_groups,
     ) = await gather_reads(
         *(delegate.group_by(by=["status"], count=True, where=view_where) for delegate in grouped),
         db.mediafile.count(where=media_view_where),
         db.questionnaireinterview.count(where=pending(view_where)),
+        # Processes carry a status and reach the review queue like the rest (A13): a "pending" figure
+        # without them disagreed with the queue the moment a process was waiting.
+        db.process.count(where=pending(view_where)),
         *(
             delegate.find_many(
                 where=view_where,
@@ -129,7 +139,8 @@ async def dashboard_stats(current_user: Any = Depends(get_current_user)) -> dict
         ),
         *(delegate.group_by(by=["status"], count=True, where=own_where) for delegate in grouped),
         db.mediafile.count(where=own_media_where),
-        db.questionnaireinterview.count(where=pending(own_where)),
+        db.questionnaireinterview.group_by(by=["status"], count=True, where=own_where),
+        db.process.group_by(by=["status"], count=True, where=own_where),
     )
 
     artisans, pending_artisans = _totals_by_status(artisan_groups)
@@ -137,13 +148,32 @@ async def dashboard_stats(current_user: Any = Depends(get_current_user)) -> dict
     products, pending_products = _totals_by_status(product_groups)
     tools, pending_tools = _totals_by_status(tool_groups)
     pending_submissions = (
-        pending_artisans + pending_workshops + pending_products + pending_tools + pending_interviews
+        pending_artisans
+        + pending_workshops
+        + pending_products
+        + pending_tools
+        + pending_interviews
+        + pending_processes
     )
 
     mine_artisans, mine_pending_artisans = _totals_by_status(mine_artisan_groups)
     mine_workshops, mine_pending_workshops = _totals_by_status(mine_workshop_groups)
     mine_products, mine_pending_products = _totals_by_status(mine_product_groups)
     mine_tools, mine_pending_tools = _totals_by_status(mine_tool_groups)
+    _, mine_pending_interviews = _totals_by_status(mine_interview_groups)
+    _, mine_pending_processes = _totals_by_status(mine_process_groups)
+    mine_groups = (
+        mine_artisan_groups,
+        mine_workshop_groups,
+        mine_product_groups,
+        mine_tool_groups,
+        mine_interview_groups,
+        mine_process_groups,
+    )
+    # "Sent back to you (N)" (A2): this account's records a reviewer returned for changes, and the
+    # rejected ones, which the creator's own edit reopens.
+    mine_sent_back = sum(_count_of(groups, "NEEDS_REVISION") for groups in mine_groups)
+    mine_rejected = sum(_count_of(groups, "REJECTED") for groups in mine_groups)
 
     recent = [
         *rows_to_recent(recent_artisans, "artisan"),
@@ -188,7 +218,10 @@ async def dashboard_stats(current_user: Any = Depends(get_current_user)) -> dict
                     + mine_pending_products
                     + mine_pending_tools
                     + mine_pending_interviews
+                    + mine_pending_processes
                 ),
+                "sentBack": mine_sent_back,
+                "rejected": mine_rejected,
             },
         }
     )

@@ -45,6 +45,7 @@ import { canManageWorkshops, hasRank, isAdmin } from "@/lib/permissions";
 import { UploadsProvider, useUploads } from "@/lib/uploads";
 import type { Artisan, Craft, PageResult, RecordStatus, User, Workshop, WorkshopAssignment } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
+import { ReviewNoteBanner } from "@/components/review/ReviewNoteBanner";
 
 // The API includes the workshop's linked crafts (not yet in the Workshop TS type); used to pre-fill
 // the "Crafts covered" selection when editing.
@@ -558,6 +559,7 @@ function WorkshopsPageBody() {
             </span>
           </div>
         ) : null}
+        {editing ? <ReviewNoteBanner recordType="workshop" recordId={editing.id} status={editing.status} /> : null}
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
           {/*
             THE ONE PLACE THIS FORM EXPLAINS A MISSING MICROPHONE — see `DictationUnavailableNotice`.

@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 
 import { ProductForm } from "@/components/forms/ProductForm";
 import { RecordSwitcher } from "@/components/forms/RecordSwitcher";
+import { ReviewNoteBanner } from "@/components/review/ReviewNoteBanner";
 import { FieldProvenance } from "@/components/FieldProvenance";
 import { PageHeader } from "@/components/PageHeader";
 import { apiFetch } from "@/lib/api";
@@ -35,6 +36,7 @@ export default function EditProductPage() {
             drawn over a null record it would have neither, and the "show this record's own workshop"
             shortcut would blink into existence a moment after the rest of the page had settled.
           */}
+          <ReviewNoteBanner recordType="product" recordId={record.id} status={record.status} />
           <RecordSwitcher kind="product" currentId={record.id} currentWorkshopId={record.workshopId} />
           <ProductForm initial={record} />
           <FieldProvenance extraMetadata={record.extraMetadata} title="Product field contributions" />

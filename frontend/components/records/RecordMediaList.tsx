@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
 import { TranscriptBlock } from "@/components/media/TranscriptBlock";
+import { MediaRejectAction } from "@/components/review/MediaReview";
 import { formatDateTime } from "@/lib/format";
 import type { MediaFile } from "@/lib/types";
 
@@ -27,7 +28,8 @@ function toPreview(media: MediaFile): PreviewMedia {
  * Files that arrived INSIDE a record (an interview's recordings, a process step's photographs),
  * drawn read-only for its view: a preview tile per file that opens the lightbox — which carries the
  * Download button — and the transcript under any audio. Nothing here removes or replaces a file;
- * that is the edit form's job, behind "Update".
+ * that is the edit form's job, behind "Update". A reviewer's one decision on a single file — Reject —
+ * appears on its card when the page provides it (`MediaReviewProvider`).
  */
 export function RecordMediaList({ items, empty = "No files attached." }: { items: MediaFile[]; empty?: string }) {
   const [active, setActive] = useState<PreviewMedia | null>(null);
@@ -47,6 +49,7 @@ export function RecordMediaList({ items, empty = "No files attached." }: { items
                 Uploaded by {media.uploadedBy?.name ?? "Unknown"} · {formatDateTime(media.createdAt)}
               </div>
               <TranscriptBlock media={media} />
+              <MediaRejectAction mediaId={media.id} label={media.caption || media.originalFilename} />
             </div>
           </div>
         );
