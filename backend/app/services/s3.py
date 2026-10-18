@@ -22,7 +22,7 @@ import boto3
 from botocore.client import Config
 
 from app.core.config import get_settings
-from app.services import naming
+from app.services.naming import ascii_leaf, content_disposition
 
 logger = logging.getLogger(__name__)
 
@@ -97,12 +97,10 @@ def _client():
 
 
 def safe_filename(filename: str) -> str:
-    """The S3 leaf for a name: ASCII ``[A-Za-z0-9._-]``, at most 150 characters (NAMING 2.3).
-
-    Transliterated rather than filtered, so a Devanagari name keeps its meaning instead of turning
-    into hyphens, and never empty. The uuid segment of the key is what makes it unique.
-    """
-    return naming.ascii_leaf(PurePath(filename.replace("\\", "/")).name)
+    """The ASCII S3 leaf for a client-named upload (NAMING 2.3): transliterated, ``[A-Za-z0-9._-]``,
+    at most 150 characters, never a Windows reserved stem. It used to keep any ``str.isalnum()``
+    character, which let Devanagari into object keys (``media/.../गिरिराज.jpg``)."""
+    return ascii_leaf(PurePath(str(filename).replace("\\", "/")).name)
 
 
 def make_object_key(user_id: str, filename: str) -> str:
@@ -186,7 +184,7 @@ def presign_get_url(object_key: str, *, filename: str, mime_type: str, expires_i
             "Bucket": settings.aws_s3_bucket,
             "Key": object_key,
             "ResponseContentType": mime_type,
-            "ResponseContentDisposition": naming.content_disposition(filename),
+            "ResponseContentDisposition": content_disposition(filename),
         },
         ExpiresIn=expires_in,
         HttpMethod="GET",

@@ -497,9 +497,13 @@ object Naming {
             rosterCount = fields.rosterCount,
         )
 
-    /** §3.13: the recording, transcript or subtitle file name of one questionnaire take. */
-    fun recordingFileName(fields: RecordingFields): String {
+    /**
+     * §3.13: the recording, transcript or subtitle file name of one questionnaire take. [transliterate]
+     * turns Place, Craft and Subject into Latin first; the default is the shared rule ([toAscii]).
+     */
+    fun recordingFileName(fields: RecordingFields, transliterate: (String) -> String = ::toAscii): String {
         val inp = fields.session.input()
+        fun latin(value: String?): String? = value?.let { if (it.all { c -> c.code < 128 }) it else transliterate(it) }
         val moment = asIst(fields.capturedAt)
         return fileName(
             entity = entityOf(inp),
@@ -507,9 +511,9 @@ object Naming {
             ext = fields.extension,
             date = moment?.date,
             clock = if (fields.capturedAtSource.uppercase(Locale.ROOT) in ESTIMATED_SOURCES) null else moment?.time,
-            place = placeSource(inp),
-            craft = craftSource(inp),
-            subject = subjectSource(inp, true),
+            place = latin(placeSource(inp)),
+            craft = latin(craftSource(inp)),
+            subject = latin(subjectSource(inp, true)),
             sequence = sequenceField(fields),
         )
     }
