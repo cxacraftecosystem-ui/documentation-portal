@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { numberOrNull } from "@/lib/format";
 
@@ -127,4 +127,62 @@ export function useUnsavedChanges() {
   const markDirty = useCallback(() => setDirty(true), []);
   const resetDirty = useCallback(() => setDirty(false), []);
   return { dirty, markDirty, resetDirty };
+}
+
+// ── Jumping to a field (record completeness, 2026-10-18) ─────────────────────────────────────────
+
+/** The `focus=` key in this page's URL, or null. */
+export function focusKeyFromSearch(search: string): string | null {
+  const value = new URLSearchParams(search).get("focus");
+  return value && /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(value) ? value : null;
+}
+
+/**
+ * Bring the field a completeness rule names into view, put the caret in it, and flash it once — the
+ * `.fr-flash-row` outline (§10.2), whose static half survives reduced motion. Answers whether an
+ * anchor was found.
+ *
+ * SELF-CONTAINED ON PURPOSE: nothing outside this function body is referenced, so
+ * `e2e/record-completeness-unit.spec.ts` can run its source in a real page.
+ */
+export function focusField(key: string, root: ParentNode = document): boolean {
+  // The first real control inside the anchor — never a mirror twin (`tabindex="-1"`, §12.2).
+  const target =
+    'input:not([type="hidden"]):not([tabindex="-1"]):not([disabled]), textarea:not([tabindex="-1"]):not([disabled]), button:not([disabled]):not([tabindex="-1"]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
+  const anchor = root.querySelector<HTMLElement>(`[data-field="${key.replace(/["\\]/g, "")}"]`);
+  if (!anchor) return false;
+  const reduce =
+    document.documentElement.dataset.reducedMotion === "true" ||
+    (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
+  anchor.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
+  const control = anchor.matches(target) ? anchor : anchor.querySelector<HTMLElement>(target);
+  control?.focus({ preventScroll: true });
+  anchor.classList.add("fr-flash-row");
+  anchor.dataset.flash = "true";
+  window.setTimeout(() => {
+    delete anchor.dataset.flash;
+    anchor.classList.remove("fr-flash-row");
+  }, 2000);
+  return true;
+}
+
+/**
+ * Honour `?focus=<key>` once the form it names is on screen. The key is read on arrival (an edit
+ * deep link strips its own `?edit=` from the URL, and the focus key with it), and applied after the
+ * first paint that has `ready` true — the inline forms are seeded asynchronously.
+ */
+export function useFocusField(ready = true) {
+  const pending = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (pending.current === undefined) pending.current = focusKeyFromSearch(window.location.search);
+    if (!ready || !pending.current) return;
+    const key = pending.current;
+    let frame = window.requestAnimationFrame(() => {
+      // Two frames: a remounted form lays out, then the edit-only blocks appear.
+      frame = window.requestAnimationFrame(() => {
+        if (focusField(key)) pending.current = null;
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [ready]);
 }

@@ -415,6 +415,9 @@ export type DateRangePickerProps = {
   startLabel?: string;
   endLabel?: string;
   disabled?: boolean;
+  /** Completeness rule keys for the two halves — the `data-field` anchors a meter pill jumps to. */
+  startFieldKey?: string;
+  endFieldKey?: string;
 };
 
 /**
@@ -429,7 +432,9 @@ export function DateRangePicker({
   onChange,
   startLabel = "Start date",
   endLabel = "End date",
-  disabled
+  disabled,
+  startFieldKey,
+  endFieldKey
 }: DateRangePickerProps) {
   const panelId = useId();
   const startId = useId();
@@ -491,7 +496,7 @@ export function DateRangePicker({
       {/* The label is a sibling of the field, not a wrapper around it. A wrapping <label> pulls
           everything inside it into the input's accessible name, and the icon button's own label
           rode along — the input announced itself as "Start date Open calendar for". */}
-      <div className="grid gap-1">
+      <div className="grid gap-1" data-field={startFieldKey}>
         <label className="field-label" htmlFor={startId}>
           {startLabel}
         </label>
@@ -511,7 +516,7 @@ export function DateRangePicker({
           onToggle={() => (open ? close() : openPanel(true, startRef, from))}
         />
       </div>
-      <div className="grid gap-1">
+      <div className="grid gap-1" data-field={endFieldKey}>
         <label className="field-label" htmlFor={endId}>
           {endLabel}
         </label>

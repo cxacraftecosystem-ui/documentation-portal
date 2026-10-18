@@ -9,6 +9,8 @@ import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { EMPTY_FUNNEL, FunnelFilters, type FunnelValue, type FunnelWorkshop } from "@/components/FunnelFilters";
 import { PageHeader } from "@/components/PageHeader";
+import { CompletenessFilter } from "@/components/records/CompletenessFilter";
+import { RowCompletenessRing } from "@/components/records/CompletenessRing";
 import { useAuth } from "@/components/AuthProvider";
 import { canCreateRecords } from "@/lib/permissions";
 import { Pagination } from "@/components/Pagination";
@@ -20,6 +22,7 @@ import { useAdminView } from "@/components/AdminViewProvider";
 import { useListReturn } from "@/components/hooks/useListReturn";
 import { OpenableRow, RecordTitleLink } from "@/components/records/OpenableRow";
 import { apiFetch, listResource } from "@/lib/api";
+import { parseCompletenessFilter, type CompletenessFilter as CompletenessValue } from "@/lib/completenessCore";
 import { formatDate } from "@/lib/format";
 import { recordUpdateHref, recordViewHref } from "@/lib/recordView";
 import type { Artisan, PageResult } from "@/lib/types";
@@ -35,6 +38,7 @@ export default function ArtisansPage() {
   const [funnel, setFunnel] = useState<FunnelValue>(EMPTY_FUNNEL);
   const [funnelWorkshop, setFunnelWorkshop] = useState<FunnelWorkshop | null>(null);
   const [funnelReady, setFunnelReady] = useState(false);
+  const [completeness, setCompleteness] = useState<CompletenessValue>("");
   const [collabId, setCollabId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const skipFirstDebounce = useRef(true);
@@ -54,6 +58,7 @@ export default function ArtisansPage() {
       const result = await listResource<Artisan>("/artisans", {
         search: applied || undefined,
         craftId: funnel.craftId || undefined,
+        completeness: completeness || undefined,
         page,
         pageSize: 20
       });
@@ -71,7 +76,7 @@ export default function ArtisansPage() {
     if (!funnelReady) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [funnelReady, page, applied, funnel]);
+  }, [funnelReady, page, applied, funnel, completeness]);
 
   // Live search: debounce typing by 350ms; Enter applies immediately via onSubmit.
   useEffect(() => {
@@ -105,10 +110,11 @@ export default function ArtisansPage() {
     }
     restoredPage.current = note.page;
     setPage(note.page);
+    setCompleteness(parseCompletenessFilter(note.completeness));
   }, [listReturn.restored]);
   const restoreListScroll = listReturn.restoreScroll;
   useEffect(() => restoreListScroll(Boolean(data)), [data, restoreListScroll]);
-  const rememberPlace = () => listReturn.remember({ query: applied, page, funnel });
+  const rememberPlace = () => listReturn.remember({ query: applied, page, funnel, completeness });
 
   function onFunnelChange(next: FunnelValue, workshop: FunnelWorkshop | null) {
     setFunnel(next);
@@ -172,6 +178,15 @@ export default function ArtisansPage() {
         />
       </div>
       <FunnelFilters value={funnel} onChange={onFunnelChange} restore={listReturn.restoredFunnel} />
+      <div className="mb-3">
+        <CompletenessFilter
+          value={completeness}
+          onChange={(next) => {
+            setCompleteness(next);
+            setPage(1);
+          }}
+        />
+      </div>
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       <section className="panel overflow-hidden">
         {!data ? (
@@ -199,6 +214,7 @@ export default function ArtisansPage() {
                   <OpenableRow key={artisan.id} href={recordViewHref("artisan", artisan.id)!} onOpen={rememberPlace}>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
+                        <RowCompletenessRing block={artisan.completeness} />
                         <RecordTitleLink href={recordViewHref("artisan", artisan.id)!} onOpen={rememberPlace}>
                           {artisan.name}
                         </RecordTitleLink>

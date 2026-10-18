@@ -65,6 +65,22 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import com.fieldrepository.app.ui.FieldLinearProgressIndicator
 import com.fieldrepository.app.ui.FieldProgressDefaults
+import com.fieldrepository.app.ui.CompletenessAnchor
+import com.fieldrepository.app.ui.CompletenessFilterChips
+import com.fieldrepository.app.ui.CompletenessFilterMemory
+import com.fieldrepository.app.ui.CompletenessMeter
+import com.fieldrepository.app.ui.CompletenessRing
+import com.fieldrepository.app.ui.LiveCompletenessLine
+import com.fieldrepository.app.ui.ProvideCompletenessFocus
+import com.fieldrepository.app.ui.rememberCompletenessRules
+import com.fieldrepository.app.ui.rememberImageCount
+import com.fieldrepository.app.data.CompletenessDto
+import com.fieldrepository.app.data.CompletenessFilter
+import com.fieldrepository.app.data.CompletenessKind
+import com.fieldrepository.app.data.RecordCompletenessStore
+import com.fieldrepository.app.data.completenessSentence
+import com.fieldrepository.app.data.evaluateCompleteness
+import com.fieldrepository.app.data.liveCompletenessCounts
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedButton
@@ -670,7 +686,8 @@ private sealed interface Screen {
      */
     data class View(val mode: EntryMode, val recordId: String, val back: Screen = Dashboard) : Screen
     /** The record's edit form, reached only through "Update". [back] null = the type's Update picker. */
-    data class Edit(val mode: EntryMode, val recordId: String, val back: Screen? = null) : Screen
+    /** [focus]: the completeness rule key a meter chip on the record's page asked the form to open at. */
+    data class Edit(val mode: EntryMode, val recordId: String, val back: Screen? = null, val focus: String? = null) : Screen
     // Hamburger-only screens (not on the dashboard).
     data object MyActivity : Screen
     data object ToolAssign : Screen
@@ -2385,7 +2402,7 @@ private fun HomeScreen(
                     canManageCrafts = user.canManageTheCrafts(),
                     canManageWorkshops = user.canManageTheWorkshops()
                 ),
-                onUpdate = { message = null; screen = Screen.Edit(s.mode, s.recordId, back = s) },
+                onUpdate = { focusKey -> message = null; screen = Screen.Edit(s.mode, s.recordId, back = s, focus = focusKey) },
                 canOverrideCompletion = isAdmin && adminChrome,
                 showProvenance = canViewProvenance,
                 onError = { showMessage(it) }
@@ -2592,7 +2609,7 @@ private fun HomeScreen(
                 }
             }
 
-            is Screen.Edit -> if (s.mode == EntryMode.QUESTIONNAIRE) {
+            is Screen.Edit -> ProvideCompletenessFocus(initial = s.focus, key = s.recordId) { if (s.mode == EntryMode.QUESTIONNAIRE) {
                 InterviewEditLoader(
                     repository = repository,
                     recordId = s.recordId,
@@ -2629,7 +2646,7 @@ private fun HomeScreen(
                 // inside `EditScreen` re-keys on it — so the form, its detail fetch and the picker's
                 // own "which workshop is this record in" all rebuild for the record just chosen.
                 onOpenRecord = { picked -> message = null; screen = Screen.Edit(s.mode, picked) }
-            )
+            ) }
 
             is Screen.ToolAssign -> ToolAssignScreen(
                 repository = repository,
@@ -6035,13 +6052,26 @@ private fun RecordPickerScreen(
      * device. Now the dropdown types into the list route's own `search`, the cards below are the
      * plain list, and both reach the rest with "Load more" — see `ui/ServerSearch.kt`.
      */
+    /*
+     * ALL · INCOMPLETE · MISSING REQUIRED (record completeness, 2026-10-18), for the five kinds the
+     * rules cover, remembered per kind on this phone. It joins the list's key so a new choice is a new
+     * list, asked of the server as `completeness=`.
+     */
+    val context = LocalContext.current
+    RefreshCompletenessRules(repository)
+    val completenessKind = CompletenessKind.forMode(mode.name)
+    var completenessFilter by remember(mode) {
+        mutableStateOf(if (completenessKind != null) CompletenessFilterMemory.read(context, mode.name) else CompletenessFilter.ALL)
+    }
     val rows = rememberRecordRows(
         repository,
         mode,
         workshopIds = if (isInterviews) workshopScope.workshopIds else EVERY_WORKSHOP,
-        key = mode to scopeKey,
-        enabled = scopeSettled
+        key = Triple(mode, scopeKey, completenessFilter),
+        enabled = scopeSettled,
+        completeness = completenessFilter.wire
     )
+    val completenessById = remember(rows.browse) { rows.browse.associate { it.id to it.completeness } }
     val loading = !rows.browseLoaded && rows.note == null
     val failed = !rows.browseLoaded && rows.note != null && !rows.loading
     val options = recordRowOptions(mode, rows.known).map { it.value to it.label }
@@ -6085,6 +6115,12 @@ private fun RecordPickerScreen(
                     // ABOVE the list, because it changes what the list IS — the same placement the
                     // completion matrix and the consolidated index give it, for the same reason.
                     WorkshopScopeSelect(scope = workshopScope, label = "Workshops in this list")
+                }
+                if (completenessKind != null) {
+                    CompletenessFilterChips(value = completenessFilter) { next ->
+                        completenessFilter = next
+                        CompletenessFilterMemory.write(context, mode.name, next)
+                    }
                 }
                 when {
                     loading -> Text("Loading ${mode.label.lowercase()} records…", color = Muted)
@@ -6145,6 +6181,16 @@ private fun RecordPickerScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(label, color = Body, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                    completenessById[id]?.let { block ->
+                        CompletenessRing(
+                            percent = block.percent,
+                            size = 18.dp,
+                            stroke = FieldProgressDefaults.MinThickness,
+                            showLabel = false,
+                            description = completenessSentence(block),
+                            modifier = Modifier.padding(horizontal = 8.dp)
+                        )
+                    }
                     OutlinedButton(
                         onClick = { onPick(id) },
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
@@ -7031,8 +7077,23 @@ private fun ArtisanForm(
     // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
     // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.ARTISAN)
+    val artisanPhotos = rememberImageCount(media.uris)
     RecordCard(title = if (isEdit) recordUpdateTitle("artisan") else "Add artisan") {
         DraftOfferCard(draft)
+        // What this artisan still lacks, over the form as it stands — offline and for drafts alike.
+        FormCompletenessLine(
+            kind = CompletenessKind.ARTISAN,
+            values = mapOf(
+                "dateOfBirth" to dateOfBirth,
+                "craftStartDate" to craftStartDate,
+                "craftId" to craftId.ifBlank { newCraftName.ifBlank { null } },
+                "dos" to dosItems.joinToString("\n").ifBlank { null },
+                "donts" to dontsItems.joinToString("\n").ifBlank { null },
+                "locationId" to (media.location ?: editing?.location)
+            ),
+            stored = editing?.completeness,
+            add = mapOf("photos" to artisanPhotos)
+        )
         RegisterUnsavedGuard(dirty = dirty) { submit() }
         media.draftInto(draft, "media")
         workshop.draftInto(draft)
@@ -7045,6 +7106,7 @@ private fun ArtisanForm(
         WorkshopField(state = workshop, saving = saving)
         RequiredInput("Name", name, nameError, nameFocus, titleCased = true, dictate = dictates("name")) { name = it }
         TextInput("Local name", localName, dictate = dictates("localName")) { localName = it }
+        CompletenessAnchor("craft", craftFocus) {
         DropdownField(
             label = "Craft *",
             // `craftOptions`: this artisan's own craft is always offered, even when its name sorts
@@ -7093,6 +7155,7 @@ private fun ArtisanForm(
             errorText = craftError,
             focusRequester = craftFocus,
         )
+        }
         RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
         DropdownField(
             label = "Gender",
@@ -7107,24 +7170,28 @@ private fun ArtisanForm(
          * "Experience (months)", whose empty option is "Not stated". `shared/artisan-form-contract.json`
          * holds both portals and both clients to it.
          */
-        CalendarField(
-            label = "Date of birth *",
-            value = dateOfBirth,
-            onValueChange = { dateOfBirth = it; dateOfBirthError = null },
-            // Nobody is born tomorrow, and a future date would derive a negative age.
-            maximum = java.time.LocalDate.now(),
-            clearable = true,
-            supportingText = dateOfBirthError ?: "Shown as an age."
-        )
-        CalendarField(
-            label = "Craft start date *",
-            value = craftStartDate,
-            onValueChange = { craftStartDate = it; craftStartDateError = null },
-            // Nobody took up a craft tomorrow either.
-            maximum = java.time.LocalDate.now(),
-            clearable = true,
-            supportingText = craftStartDateError ?: "Shown as years of experience."
-        )
+        CompletenessAnchor("dateOfBirth") {
+            CalendarField(
+                label = "Date of birth *",
+                value = dateOfBirth,
+                onValueChange = { dateOfBirth = it; dateOfBirthError = null },
+                // Nobody is born tomorrow, and a future date would derive a negative age.
+                maximum = java.time.LocalDate.now(),
+                clearable = true,
+                supportingText = dateOfBirthError ?: "Shown as an age."
+            )
+        }
+        CompletenessAnchor("craftStartDate") {
+            CalendarField(
+                label = "Craft start date *",
+                value = craftStartDate,
+                onValueChange = { craftStartDate = it; craftStartDateError = null },
+                // Nobody took up a craft tomorrow either.
+                maximum = java.time.LocalDate.now(),
+                clearable = true,
+                supportingText = craftStartDateError ?: "Shown as years of experience."
+            )
+        }
         OutlinedTextField(
             value = experienceYears,
             // Digits only, and capped at two of them: 0..90 mirrors the stage registry's own bounds
@@ -7218,25 +7285,34 @@ private fun ArtisanForm(
                 .fillMaxWidth()
                 .focusRequester(pehchanFocus)
         )
-        NumberedListInput(
-            label = "Do's",
-            items = dosItems,
-            error = dosError,
-            focusRequester = dosFocus,
-            helper = "What the artisan has learnt to do. One point per line."
-        ) { dosItems = it; dosError = null }
-        NumberedListInput(
-            label = "Don'ts",
-            items = dontsItems,
-            error = dontsError,
-            focusRequester = dontsFocus,
-            helper = "What the artisan avoids. One point per line."
-        ) { dontsItems = it; dontsError = null }
+        CompletenessAnchor("dos", dosFocus) {
+            NumberedListInput(
+                label = "Do's",
+                items = dosItems,
+                error = dosError,
+                focusRequester = dosFocus,
+                helper = "What the artisan has learnt to do. One point per line."
+            ) { dosItems = it; dosError = null }
+        }
+        CompletenessAnchor("donts", dontsFocus) {
+            NumberedListInput(
+                label = "Don'ts",
+                items = dontsItems,
+                error = dontsError,
+                focusRequester = dontsFocus,
+                helper = "What the artisan avoids. One point per line."
+            ) { dontsItems = it; dontsError = null }
+        }
         StatusControl(canSetStatus = canSetStatus, value = status) { status = it }
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "artisan", recordId = editing!!.id, onError = onError)
         }
-        MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
+        // The photograph and the location fix are both taken here.
+        CompletenessAnchor("photo") {
+            CompletenessAnchor("location") {
+                MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
+            }
+        }
         SaveButton(
             state = if (saving) SaveState.SAVING else SaveState.IDLE,
             idleLabel = if (isEdit) "Update artisan" else "Save artisan"
@@ -7377,8 +7453,15 @@ private fun WorkshopForm(
     // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
     // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.WORKSHOP)
+    val workshopPhotos = rememberImageCount(media.uris)
     RecordCard(title = if (isEdit) recordUpdateTitle("workshop") else "Add workshop") {
         DraftOfferCard(draft)
+        FormCompletenessLine(
+            kind = CompletenessKind.WORKSHOP,
+            values = mapOf("startDate" to startDate, "endDate" to endDate),
+            stored = editing?.completeness,
+            add = mapOf("artisans" to selectedArtisans.size, "crafts" to selectedCrafts.size, "photos" to workshopPhotos)
+        )
         RegisterUnsavedGuard(dirty = dirty) { submit() }
         media.draftInto(draft, "media")
         FormDraftAutosave(draft, dirty, label = title)
@@ -7391,42 +7474,52 @@ private fun WorkshopForm(
         // workshop ran — and they are labelled as one before being split into start and end.
         // CalendarField's range form (ui/DateTimeFields.FieldDateRangeField): typed dd/mm/yyyy boxes
         // and one themed range calendar, never the platform DatePickerDialog (owner, 2026-10-17).
-        FieldDateRangeField(
-            label = "Workshop duration",
-            start = startDate,
-            end = endDate,
-            onRangeChange = { from, to ->
-                startDate = from
-                endDate = to
+        CompletenessAnchor("startDate") {
+            CompletenessAnchor("endDate") {
+                FieldDateRangeField(
+                    label = "Workshop duration",
+                    start = startDate,
+                    end = endDate,
+                    onRangeChange = { from, to ->
+                        startDate = from
+                        endDate = to
+                    }
+                )
             }
-        )
+        }
         StatusControl(canSetStatus = canSetStatus, value = status) { status = it }
         // `Workshop.description` — the narrative of what happened at the workshop, and the field a
         // reader of the record is actually looking for. Both controls.
         TextInput("Description", description, minLines = 3, dictate = dictates("description"), rich = true) { description = it }
         MultiNoteInput(value = notes, dictate = dictates("notes")) { notes = it }
-        CheckboxMultiSelectField(
-            label = "Linked artisans",
-            emptyMessage = "No artisans available yet. Create an artisan first.",
-            options = artisanSearch.known.map { it.id to "${it.name} · ${it.place}" },
-            selectedIds = selectedArtisans,
-            server = artisanSearch.asServerSearch(::artisanSelectOption)
-        ) { id ->
-            selectedArtisans = if (selectedArtisans.contains(id)) selectedArtisans - id else selectedArtisans + id
+        CompletenessAnchor("artisans") {
+            CheckboxMultiSelectField(
+                label = "Linked artisans",
+                emptyMessage = "No artisans available yet. Create an artisan first.",
+                options = artisanSearch.known.map { it.id to "${it.name} · ${it.place}" },
+                selectedIds = selectedArtisans,
+                server = artisanSearch.asServerSearch(::artisanSelectOption)
+            ) { id ->
+                selectedArtisans = if (selectedArtisans.contains(id)) selectedArtisans - id else selectedArtisans + id
+            }
         }
-        CheckboxMultiSelectField(
-            label = "Crafts covered",
-            emptyMessage = "No crafts available yet. Create a craft first.",
-            options = crafts.map { it.id to (it.name + (it.place?.let { p -> " · $p" } ?: "")) },
-            selectedIds = selectedCrafts,
-            server = craftSearch.asServerSearch { SelectOption(it.id, it.name + (it.place?.let { p -> " · $p" } ?: "")) }
-        ) { id ->
-            selectedCrafts = if (selectedCrafts.contains(id)) selectedCrafts - id else selectedCrafts + id
+        CompletenessAnchor("crafts") {
+            CheckboxMultiSelectField(
+                label = "Crafts covered",
+                emptyMessage = "No crafts available yet. Create a craft first.",
+                options = crafts.map { it.id to (it.name + (it.place?.let { p -> " · $p" } ?: "")) },
+                selectedIds = selectedCrafts,
+                server = craftSearch.asServerSearch { SelectOption(it.id, it.name + (it.place?.let { p -> " · $p" } ?: "")) }
+            ) { id ->
+                selectedCrafts = if (selectedCrafts.contains(id)) selectedCrafts - id else selectedCrafts + id
+            }
         }
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "workshop", recordId = editing!!.id, onError = onError)
         }
-        MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
+        CompletenessAnchor("photo") {
+            MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
+        }
         SaveButton(
             state = if (saving) SaveState.SAVING else SaveState.IDLE,
             idleLabel = if (isEdit) "Update workshop" else "Save workshop"
@@ -7688,8 +7781,24 @@ private fun ProductForm(
     // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
     // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.PRODUCT)
+    val productPhotos = rememberImageCount(media.uris)
     RecordCard(title = if (isEdit) recordUpdateTitle("product") else "Add product") {
         DraftOfferCard(draft)
+        FormCompletenessLine(
+            kind = CompletenessKind.PRODUCT,
+            values = mapOf(
+                "artisanId" to artisanId.ifBlank { null },
+                "sellingPrice" to sellingPrice.toDoubleOrNull(),
+                "costOfMaking" to costOfMaking.toDoubleOrNull(),
+                "timeTakenToCompleteProduct" to timeTaken,
+                "lengthInches" to length.toDoubleOrNull(),
+                "breadthInches" to breadth.toDoubleOrNull(),
+                "heightInches" to height.toDoubleOrNull(),
+                "marketDemand" to marketDemand
+            ),
+            stored = editing?.completeness,
+            add = mapOf("photos" to productPhotos)
+        )
         RegisterUnsavedGuard(dirty = dirty) { submit() }
         media.draftInto(draft, "media")
         workshop.draftInto(draft)
@@ -7737,6 +7846,7 @@ private fun ProductForm(
         } else {
             picker.options
         }
+        CompletenessAnchor("artisan") {
         DropdownField(
             label = "Linked artisan (fills artisan + place)",
             options = artisanOptionsForCraft.map { it.id to "${it.name} · ${it.place}" },
@@ -7763,6 +7873,7 @@ private fun ProductForm(
                 )
             }
         }
+        }
         // A claim about the REPOSITORY, so it waits for the repository's answer about THIS craft.
         // Printed off a stale roster it said "no artisans are linked to this craft yet" over a craft
         // with a dozen of them — which is why `loadedForCraft` records WHICH craft the loaded rows
@@ -7772,7 +7883,9 @@ private fun ProductForm(
         }
         RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus, titleCased = true, dictate = dictates("artisanName")) { artisanName = it }
         RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
-        TextInput("Time taken to complete", timeTaken, dictate = dictates("timeTakenToCompleteProduct")) { timeTaken = it }
+        CompletenessAnchor("timeTaken") {
+            TextInput("Time taken to complete", timeTaken, dictate = dictates("timeTakenToCompleteProduct")) { timeTaken = it }
+        }
         TextInput("Size", size, dictate = dictates("size")) { size = it }
         /*
          * THE THREE DIMENSION BOXES, AND WHY EACH ONE FORGETS ITS MARKER AS IT IS TYPED IN.
@@ -7783,11 +7896,13 @@ private fun ProductForm(
          * accepted number and types the identical digits back by hand. That is a hand-typed number and
          * must be recorded as one. See `data/MeasurementMarkers.kt`.
          */
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Box(modifier = Modifier.weight(1f)) { TextInput("Length (inches)", length, keyboardType = KeyboardType.Decimal, dictate = dictates("lengthInches")) { length = it; markers.forget("lengthInches") } }
-            Box(modifier = Modifier.weight(1f)) { TextInput("Breadth (inches)", breadth, keyboardType = KeyboardType.Decimal, dictate = dictates("breadthInches")) { breadth = it; markers.forget("breadthInches") } }
+        CompletenessAnchor("dimensions") {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Box(modifier = Modifier.weight(1f)) { TextInput("Length (inches)", length, keyboardType = KeyboardType.Decimal, dictate = dictates("lengthInches")) { length = it; markers.forget("lengthInches") } }
+                Box(modifier = Modifier.weight(1f)) { TextInput("Breadth (inches)", breadth, keyboardType = KeyboardType.Decimal, dictate = dictates("breadthInches")) { breadth = it; markers.forget("breadthInches") } }
+            }
+            TextInput("Height (inches)", height, keyboardType = KeyboardType.Decimal, dictate = dictates("heightInches")) { height = it; markers.forget("heightInches") }
         }
-        TextInput("Height (inches)", height, keyboardType = KeyboardType.Decimal, dictate = dictates("heightInches")) { height = it; markers.forget("heightInches") }
         /*
          * THE TWO MEASUREMENT ROUTES, DELIBERATELY IN THIS ORDER.
          *
@@ -7840,11 +7955,17 @@ private fun ProductForm(
             },
             onHeight = { value, marker -> height = numToText(value); markers.accept("heightInches", height, visionMarker(marker)) }
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Box(modifier = Modifier.weight(1f)) { TextInput("Cost of making", costOfMaking, keyboardType = KeyboardType.Decimal, dictate = dictates("costOfMaking")) { costOfMaking = it } }
-            Box(modifier = Modifier.weight(1f)) { TextInput("Selling price", sellingPrice, keyboardType = KeyboardType.Decimal, dictate = dictates("sellingPrice")) { sellingPrice = it } }
+        CompletenessAnchor("costOfMaking") {
+            CompletenessAnchor("sellingPrice") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Box(modifier = Modifier.weight(1f)) { TextInput("Cost of making", costOfMaking, keyboardType = KeyboardType.Decimal, dictate = dictates("costOfMaking")) { costOfMaking = it } }
+                    Box(modifier = Modifier.weight(1f)) { TextInput("Selling price", sellingPrice, keyboardType = KeyboardType.Decimal, dictate = dictates("sellingPrice")) { sellingPrice = it } }
+                }
+            }
         }
-        DropdownField("Market demand", marketDemandOptions.map { it to it }, marketDemand, includeNone = false) { marketDemand = it }
+        CompletenessAnchor("marketDemand") {
+            DropdownField("Market demand", marketDemandOptions.map { it to it }, marketDemand, includeNone = false) { marketDemand = it }
+        }
         /*
          * THE PRODUCT'S FOUR NARRATIVE COLUMNS, ALL FOUR WITH BOTH CONTROLS.
          *
@@ -7861,7 +7982,9 @@ private fun ProductForm(
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "product", recordId = editing!!.id, onError = onError)
         }
-        MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
+        CompletenessAnchor("photo") {
+            MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
+        }
         SaveButton(
             state = if (saving) SaveState.SAVING else SaveState.IDLE,
             idleLabel = if (isEdit) "Update product" else "Save product"
@@ -8607,8 +8730,25 @@ private fun ToolForm(
     // `ui/RecordDictationFields.kt`, and see `RecordDictationParityTest` for what keeps it and
     // the browser's own form from drifting apart.
     val dictates = recordDictationFor(RecordFormKind.TOOL)
+    val toolPhotos = rememberImageCount(media.uris) + rememberImageCount(stages.uris)
     RecordCard(title = if (isEdit) recordUpdateTitle("tool") else "Add tool") {
         DraftOfferCard(draft)
+        FormCompletenessLine(
+            kind = CompletenessKind.TOOL,
+            values = mapOf(
+                "artisanId" to artisanId.ifBlank { null },
+                "localName" to localName,
+                "material" to material,
+                "lengthInches" to length.toDoubleOrNull(),
+                "breadthInches" to breadth.toDoubleOrNull(),
+                "heightInches" to heightInches.toDoubleOrNull(),
+                "maker" to maker,
+                "traditionType" to traditionType,
+                "replacementCost" to replacementCost.toDoubleOrNull()
+            ),
+            stored = editing?.completeness,
+            add = mapOf("photos" to toolPhotos)
+        )
         RegisterUnsavedGuard(dirty = dirty) { submit() }
         media.draftInto(draft, "media")
         stages.draftInto(draft, "stages")
@@ -8625,7 +8765,9 @@ private fun ToolForm(
         // `ui/RecordProseField.kt` commits a spoken phrase through the CALLER's `onValueChange`, not
         // through the text field's — so a spoken toolkit name mirrors exactly as a typed one does.
         RequiredInput("Toolkit name", toolkitName, toolkitNameError, toolkitNameFocus, titleCased = true, dictate = dictates("toolkitName")) { applyToolkitName(it) }
-        TextInput("Local name", localName, dictate = dictates("localName")) { localName = it }
+        CompletenessAnchor("localName") {
+            TextInput("Local name", localName, dictate = dictates("localName")) { localName = it }
+        }
         // TOUCHING THIS BOX ENDS THE MIRROR, FOR GOOD — typing, pasting, dictating or CLEARING it.
         // Clearing by hand is an explicit edit like any other: the box stays empty and the toolkit
         // name stops writing into it. There is no re-arming gesture and there must not be one.
@@ -8699,21 +8841,23 @@ private fun ToolForm(
                 )
             }
         val artisanRows = toolArtisanRows(artisanOptionsForCraft)
-        CheckboxMultiSelectField(
-            label = "Linked artisans (fills artisan + place)",
-            options = artisanRows,
-            selectedIds = artisanIds.toSet(),
-            placeholder = if (craftIds.isEmpty()) "Select a linked craft first" else "Select",
-            emptyMessage = "No artisans available for the crafts selected above.",
-            enabled = craftIds.isNotEmpty(),
-            // The sheet lists the crafts' roster as the server pages and searches it, in the same
-            // craft-then-name order as the rows above.
-            server = picker.search.asServerSearchRows(countsRows = true) { toolArtisanRows(it) },
-            // The whole selection, once — see the craft picker above. "Clear all" here used to replay
-            // N unticks, and the N-1th rewrote `artisanName`/`place` from the last surviving artisan
-            // before the Nth returned.
-            onSelectedChange = { selection -> onArtisansChanged(selection) }
-        )
+        CompletenessAnchor("artisan") {
+            CheckboxMultiSelectField(
+                label = "Linked artisans (fills artisan + place)",
+                options = artisanRows,
+                selectedIds = artisanIds.toSet(),
+                placeholder = if (craftIds.isEmpty()) "Select a linked craft first" else "Select",
+                emptyMessage = "No artisans available for the crafts selected above.",
+                enabled = craftIds.isNotEmpty(),
+                // The sheet lists the crafts' roster as the server pages and searches it, in the same
+                // craft-then-name order as the rows above.
+                server = picker.search.asServerSearchRows(countsRows = true) { toolArtisanRows(it) },
+                // The whole selection, once — see the craft picker above. "Clear all" here used to replay
+                // N unticks, and the N-1th rewrote `artisanName`/`place` from the last surviving artisan
+                // before the Nth returned.
+                onSelectedChange = { selection -> onArtisansChanged(selection) }
+            )
+        }
         // A claim about the REPOSITORY, so it waits for the repository's answer about THESE crafts.
         // Printed off a stale roster it said "no artisans are linked to this craft yet" over a craft
         // with a dozen of them — which is why the picker records WHICH crafts the loaded rows belong
@@ -8729,7 +8873,9 @@ private fun ToolForm(
         RequiredInput("Artisan name", artisanName, artisanNameError, artisanNameFocus, titleCased = true, dictate = dictates("artisanName")) { artisanName = it }
         RequiredInput("Place", place, placeError, placeFocus, titleCased = true, dictate = dictates("place")) { place = it }
         TextInput("Process used in", processUsedIn, dictate = dictates("processUsedIn")) { processUsedIn = it }
-        TextInput("Material", material, dictate = dictates("material")) { material = it }
+        CompletenessAnchor("material") {
+            TextInput("Material", material, dictate = dictates("material")) { material = it }
+        }
         TextInput("Years in use", yearsInUse, keyboardType = KeyboardType.Number, dictate = dictates("yearsInUse")) { yearsInUse = it }
         /*
          * THE CENTIMETRE PAIR. The labels say "(cm)" as of 2026-09-15 and the LABELS ARE THE ONLY
@@ -8774,9 +8920,11 @@ private fun ToolForm(
          * `heightInches` fills "Height (cm)" below. LENGTH IS STANDALONE: it has no cm partner and no
          * new column, by the repository owner's decision, so its handler is unchanged.
          */
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Box(modifier = Modifier.weight(1f)) { TextInput("Length (inches)", length, keyboardType = KeyboardType.Decimal, dictate = dictates("lengthInches")) { length = it; markers.forget("lengthInches") } }
-            Box(modifier = Modifier.weight(1f)) { TextInput("Breadth (inches)", breadth, keyboardType = KeyboardType.Decimal, dictate = dictates("breadthInches")) { breadth = it; markers.forget("breadthInches"); propagateDimension(it, ::cmTextFromInches) { partner -> width = partner } } }
+        CompletenessAnchor("dimensions") {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Box(modifier = Modifier.weight(1f)) { TextInput("Length (inches)", length, keyboardType = KeyboardType.Decimal, dictate = dictates("lengthInches")) { length = it; markers.forget("lengthInches") } }
+                Box(modifier = Modifier.weight(1f)) { TextInput("Breadth (inches)", breadth, keyboardType = KeyboardType.Decimal, dictate = dictates("breadthInches")) { breadth = it; markers.forget("breadthInches"); propagateDimension(it, ::cmTextFromInches) { partner -> width = partner } } }
+            }
         }
         // THE THIRD OF THE INCH TRIPLE, and the box whose absence silently cost the unit. The grid
         // panel below proposes all three; until 2026-09-14 this client had nowhere to put the third,
@@ -8860,9 +9008,15 @@ private fun ToolForm(
             // CONVERSION, after the marker, and is given no provenance of its own.
             onHeight = { value, marker -> heightInches = numToText(value); markers.accept("heightInches", heightInches, visionMarker(marker)); cmTextFromInches(heightInches)?.let { height = it } }
         )
-        DropdownField("Maker", makerOptions.map { it to it }, maker, includeNone = false) { maker = it }
-        DropdownField("Tradition type", traditionOptions.map { it to it }, traditionType, includeNone = false) { traditionType = it }
-        TextInput("Replacement cost", replacementCost, keyboardType = KeyboardType.Decimal, dictate = dictates("replacementCost")) { replacementCost = it }
+        CompletenessAnchor("maker") {
+            DropdownField("Maker", makerOptions.map { it to it }, maker, includeNone = false) { maker = it }
+        }
+        CompletenessAnchor("traditionType") {
+            DropdownField("Tradition type", traditionOptions.map { it to it }, traditionType, includeNone = false) { traditionType = it }
+        }
+        CompletenessAnchor("replacementCost") {
+            TextInput("Replacement cost", replacementCost, keyboardType = KeyboardType.Decimal, dictate = dictates("replacementCost")) { replacementCost = it }
+        }
         // The tool form's two narrative columns. `processUsedIn` above stays single-line and takes
         // no editor — it is single-line on the web form too, and `components/forms/ToolForm.tsx`'s
         // own test pins it that way — but it NOW TAKES THE MICROPHONE (2026-09-13), on both
@@ -8876,7 +9030,9 @@ private fun ToolForm(
         if (isEdit) {
             RecordMediaSection(repository = repository, context = context, linkedType = "tool", recordId = editing!!.id, onError = onError)
         }
-        MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
+        CompletenessAnchor("photo") {
+            MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
+        }
         SaveButton(
             state = if (saving) SaveState.SAVING else SaveState.IDLE,
             idleLabel = if (isEdit) "Update tool" else "Save tool"
@@ -9672,7 +9828,9 @@ private data class RecordRow(
     val id: String,
     val label: String,
     val text: String,
-    val interview: QuestionnaireInterviewDetailDto? = null
+    val interview: QuestionnaireInterviewDetailDto? = null,
+    /** The server's completeness block for the record (2026-10-18), drawn as the card's ring. */
+    val completeness: CompletenessDto? = null
 )
 
 /**
@@ -9688,37 +9846,39 @@ private suspend fun recordRowsPage(
     mode: EntryMode,
     search: String?,
     page: Int,
-    workshopIds: List<String>? = EVERY_WORKSHOP
+    workshopIds: List<String>? = EVERY_WORKSHOP,
+    /** The record completeness filter's wire value (`incomplete` / `required`), or null for all. */
+    completeness: String? = null
 ): PageResponse<RecordRow> {
     fun <T> PageResponse<T>.rows(row: (T) -> RecordRow) =
         PageResponse(items.map(row), total, this.page, pageSize, pages)
     return when (mode) {
-        EntryMode.ARTISAN -> repository.artisansSearchPage(search, page).rows {
-            RecordRow(it.id, recordOptionLabel(it), artisanSearchText(it))
+        EntryMode.ARTISAN -> repository.artisansSearchPage(search, page, completeness = completeness).rows {
+            RecordRow(it.id, recordOptionLabel(it), artisanSearchText(it), completeness = it.completeness)
         }
         EntryMode.CRAFT -> repository.craftsSearchPage(search, page).rows {
             RecordRow(it.id, recordOptionLabel(it), craftSearchText(it))
         }
-        EntryMode.PRODUCT -> repository.productsSearchPage(search, page).rows {
-            RecordRow(it.id, recordOptionLabel(it), "${it.productName} ${it.artisanName} ${it.craftName}")
+        EntryMode.PRODUCT -> repository.productsSearchPage(search, page, completeness).rows {
+            RecordRow(it.id, recordOptionLabel(it), "${it.productName} ${it.artisanName} ${it.craftName}", completeness = it.completeness)
         }
         EntryMode.PROCESS -> repository.processesSearchPage(search, page).rows {
             RecordRow(it.id, recordOptionLabel(it), "${it.name} ${it.product?.productName.orEmpty()}")
         }
-        EntryMode.TOOL -> repository.toolsSearchPage(search, page).rows {
-            RecordRow(it.id, recordOptionLabel(it), "${it.toolkitName} ${it.artisanName} ${it.craftName}")
+        EntryMode.TOOL -> repository.toolsSearchPage(search, page, completeness).rows {
+            RecordRow(it.id, recordOptionLabel(it), "${it.toolkitName} ${it.artisanName} ${it.craftName}", completeness = it.completeness)
         }
-        EntryMode.WORKSHOP -> repository.workshopsSearchPage(search, page).rows {
+        EntryMode.WORKSHOP -> repository.workshopsSearchPage(search, page, completeness).rows {
             val title = it.title.ifBlank { "Untitled workshop" }
-            RecordRow(it.id, title, "$title ${it.place.orEmpty()}")
+            RecordRow(it.id, title, "$title ${it.place.orEmpty()}", completeness = it.completeness)
         }
         EntryMode.MEDIA -> repository.mediaSearchPage(search, page).rows { m ->
             val label = m.caption?.takeIf { it.isNotBlank() } ?: m.originalFilename.ifBlank { "Media" }
             RecordRow(m.id, label, "$label ${m.originalFilename} ${m.mediaType}")
         }
-        EntryMode.QUESTIONNAIRE -> repository.interviewsSearchPage(workshopIds, search, page).rows { iv ->
+        EntryMode.QUESTIONNAIRE -> repository.interviewsSearchPage(workshopIds, search, page, completeness).rows { iv ->
             val names = iv.artisans.mapNotNull { it.artisan?.name }.distinct().joinToString(", ")
-            RecordRow(iv.id, iv.title.ifBlank { "Untitled interview" }, "$names ${iv.title}", interview = iv)
+            RecordRow(iv.id, iv.title.ifBlank { "Untitled interview" }, "$names ${iv.title}", interview = iv, completeness = iv.completeness)
         }
         else -> PageResponse(emptyList(), 0, 1, SERVER_SEARCH_PAGE_SIZE, 0)
     }
@@ -9751,7 +9911,8 @@ private fun rememberRecordRows(
     mode: EntryMode?,
     workshopIds: List<String>? = EVERY_WORKSHOP,
     key: Any? = mode,
-    enabled: Boolean = mode != null
+    enabled: Boolean = mode != null,
+    completeness: String? = null
 ): ServerSearchState<RecordRow> = rememberServerSearch(
     key = key,
     cached = emptyList(),
@@ -9759,7 +9920,7 @@ private fun rememberRecordRows(
     idOf = { it.id },
     textOf = { it.text },
     enabled = enabled
-) { term, page -> recordRowsPage(repository, mode ?: EntryMode.ARTISAN, term, page, workshopIds) }
+) { term, page -> recordRowsPage(repository, mode ?: EntryMode.ARTISAN, term, page, workshopIds, completeness) }
 
 // ===========================================================================
 // My Activity — every record the current user created, most recent first
@@ -12367,16 +12528,27 @@ private fun RecordViewScreen(
     mode: EntryMode,
     recordId: String,
     canUpdate: Boolean,
-    onUpdate: () -> Unit,
+    /** Open the edit form; the argument is the field a completeness chip asked for, or null. */
+    onUpdate: (String?) -> Unit,
     canOverrideCompletion: Boolean,
     showProvenance: Boolean,
     onError: (String) -> Unit
 ) {
+    // The record's completeness block, reported by the detail below once it has loaded (2026-10-18).
+    var completeness by remember(mode, recordId) { mutableStateOf<CompletenessDto?>(null) }
+    RefreshCompletenessRules(repository)
     if (canUpdate) {
-        Button(onClick = onUpdate, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+        Button(onClick = { onUpdate(null) }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
             Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text(RECORD_UPDATE_LABEL)
+        }
+    }
+    // Under Update: what this record still lacks. The chips open the form at the field for a reader
+    // who may update it; for anyone else they are plain words.
+    completeness?.let { block ->
+        RecordCard(title = "Completeness") {
+            CompletenessMeter(block = block, canUpdate = canUpdate, onUpdate = { key -> onUpdate(key) })
         }
     }
     ViewDataDetail(
@@ -12385,8 +12557,30 @@ private fun RecordViewScreen(
         recordId = recordId,
         canOverrideCompletion = canOverrideCompletion,
         showProvenance = showProvenance,
-        onError = onError
+        onError = onError,
+        onCompleteness = { completeness = it }
     )
+}
+
+/** Fetch the completeness rules once per process, so a newer table reaches this phone without a release. */
+private val completenessRulesRefreshed = java.util.concurrent.atomic.AtomicBoolean(false)
+
+@Composable
+private fun RefreshCompletenessRules(repository: FieldRepository) {
+    val context = LocalContext.current.applicationContext
+    LaunchedEffect(Unit) {
+        if (completenessRulesRefreshed.compareAndSet(false, true)) {
+            runCatching { RecordCompletenessStore.refresh(context) { repository.completenessRulesText() } }
+                .onFailure { completenessRulesRefreshed.set(false) }
+        }
+    }
+}
+
+/** The live completeness line at the top of a record form, over the form's own state (`ui/CompletenessMeter.kt`). */
+@Composable
+private fun FormCompletenessLine(kind: String, values: Map<String, Any?>, stored: CompletenessDto?, add: Map<String, Int>) {
+    val rules = rememberCompletenessRules() ?: return
+    LiveCompletenessLine(evaluateCompleteness(rules, kind, values, liveCompletenessCounts(rules, kind, stored, add)))
 }
 
 @Composable
@@ -12397,7 +12591,9 @@ private fun ViewDataDetail(
     /** Admin AND admin view on — the web's `adminMode && isAdmin(user)` for the completion matrix. */
     canOverrideCompletion: Boolean = false,
     showProvenance: Boolean = false,
-    onError: (String) -> Unit
+    onError: (String) -> Unit,
+    /** The loaded record's completeness block (artisan, product, tool, workshop, interview), or null. */
+    onCompleteness: (CompletenessDto?) -> Unit = {}
 ) {
     val context = LocalContext.current
     /** The record's load failed: drawn as a failure with Try again, which bumps [loadAttempt]. */
@@ -12433,7 +12629,7 @@ private fun ViewDataDetail(
         }
         EntryMode.ARTISAN -> {
             var d by remember(recordId) { mutableStateOf<ArtisanDetailDto?>(null) }
-            LaunchedEffect(recordId, loadAttempt) { runCatching { repository.artisan(recordId) }.onSuccess { d = it }.onFailure { loadError = it.apiErrorMessage("Couldn't load this artisan.") } }
+            LaunchedEffect(recordId, loadAttempt) { runCatching { repository.artisan(recordId) }.onSuccess { d = it; onCompleteness(it.completeness) }.onFailure { loadError = it.apiErrorMessage("Couldn't load this artisan.") } }
             val v = d ?: return run { LoadingCard(mode, loadError, retryLoad) }
             RecordCard(title = v.name.ifBlank { "Artisan" }) {
                 if (showProvenance) ProvenanceSection(meta = v.extraMetadata, createdByName = v.createdBy?.name)
@@ -12463,7 +12659,7 @@ private fun ViewDataDetail(
         }
         EntryMode.PRODUCT -> {
             var d by remember(recordId) { mutableStateOf<ProductDetailDto?>(null) }
-            LaunchedEffect(recordId, loadAttempt) { runCatching { repository.product(recordId) }.onSuccess { d = it }.onFailure { loadError = it.apiErrorMessage("Couldn't load this product.") } }
+            LaunchedEffect(recordId, loadAttempt) { runCatching { repository.product(recordId) }.onSuccess { d = it; onCompleteness(it.completeness) }.onFailure { loadError = it.apiErrorMessage("Couldn't load this product.") } }
             val v = d ?: return run { LoadingCard(mode, loadError, retryLoad) }
             RecordCard(title = v.productName.ifBlank { "Product" }) {
                 if (showProvenance) ProvenanceSection(meta = v.extraMetadata, createdByName = v.createdBy?.name)
@@ -12482,7 +12678,7 @@ private fun ViewDataDetail(
         }
         EntryMode.TOOL -> {
             var d by remember(recordId) { mutableStateOf<ToolDetailDto?>(null) }
-            LaunchedEffect(recordId, loadAttempt) { runCatching { repository.tool(recordId) }.onSuccess { d = it }.onFailure { loadError = it.apiErrorMessage("Couldn't load this tool.") } }
+            LaunchedEffect(recordId, loadAttempt) { runCatching { repository.tool(recordId) }.onSuccess { d = it; onCompleteness(it.completeness) }.onFailure { loadError = it.apiErrorMessage("Couldn't load this tool.") } }
             val v = d ?: return run { LoadingCard(mode, loadError, retryLoad) }
             RecordCard(title = v.toolkitName.ifBlank { "Tool" }) {
                 if (showProvenance) ProvenanceSection(meta = v.extraMetadata, createdByName = v.createdBy?.name)
@@ -12500,7 +12696,7 @@ private fun ViewDataDetail(
         }
         EntryMode.WORKSHOP -> {
             var d by remember(recordId) { mutableStateOf<WorkshopDetailDto?>(null) }
-            LaunchedEffect(recordId, loadAttempt) { runCatching { repository.workshop(recordId) }.onSuccess { d = it }.onFailure { loadError = it.apiErrorMessage("Couldn't load this workshop.") } }
+            LaunchedEffect(recordId, loadAttempt) { runCatching { repository.workshop(recordId) }.onSuccess { d = it; onCompleteness(it.completeness) }.onFailure { loadError = it.apiErrorMessage("Couldn't load this workshop.") } }
             val v = d ?: return run { LoadingCard(mode, loadError, retryLoad) }
             RecordCard(title = v.title.ifBlank { "Workshop" }) {
                 if (showProvenance) ProvenanceSection(meta = v.extraMetadata, createdByName = v.createdBy?.name)
@@ -12541,6 +12737,8 @@ private fun ViewDataDetail(
                     // the repository growing, and neither is scoped by workshop, because the record
                     // has already been chosen.
                     val selected = repository.interview(recordId)
+                    // The record opened, not the group's representative: the chips edit THIS sitting.
+                    onCompleteness(selected.completeness)
                     val group = interviewGroup(repository, selected)
                     // Media is pulled per record through the media endpoint (which carries uploader +
                     // transcript), then de-duplicated by id across the whole group.
@@ -14111,8 +14309,24 @@ private fun QuestionnaireForm(
         )
     }
 
+    val interviewRecordings = media.uris.size + qMedia.uris.size + questionAudio.values.sumOf { it.size }
     RecordCard(title = if (isEdit) recordUpdateTitle("interview") else "Add questionnaire interview") {
         DraftOfferCard(draft)
+        // A new sitting's date is stamped by the server when it is saved, so it is never "missing" here.
+        FormCompletenessLine(
+            kind = CompletenessKind.INTERVIEW,
+            values = mapOf(
+                "interviewDate" to (if (isEdit) editing?.interviewDate else "on-save"),
+                "place" to place,
+                "language" to language
+            ),
+            stored = editing?.completeness,
+            add = mapOf(
+                "artisans" to selectedArtisans.size,
+                "answers" to answers.values.count { it.value.isNotBlank() },
+                "recordings" to interviewRecordings
+            )
+        )
         if (adminView && editing != null) {
             ProvenanceSection(meta = editing.extraMetadata, createdByName = editing.createdBy?.name)
         }
@@ -14153,7 +14367,9 @@ private fun QuestionnaireForm(
         // date was a field to tab past that could only ever be wrong -- and a spoken date is the one
         // thing a recogniser gets wrong in a way that still parses, so no microphone would go on one
         // even if it came back. `absent` in the form contract holds all three guides to that.
-        TextInput("Place", place, titleCased = true, dictate = false) { place = it }
+        CompletenessAnchor("place") {
+            TextInput("Place", place, titleCased = true, dictate = false) { place = it }
+        }
         /*
           -- LANGUAGE IS FREE TEXT, AND THE DROPDOWN THAT STOOD HERE WAS THE DRIFT -------------------
 
@@ -14171,7 +14387,9 @@ private fun QuestionnaireForm(
           is indistinguishable in the archive from one they did, and this is the column the archive
           reports language BY. The browser opens this box blank. So does this one.
         */
-        TextInput("Language", language, dictate = false) { language = it }
+        CompletenessAnchor("language") {
+            TextInput("Language", language, dictate = false) { language = it }
+        }
         // The workshop no longer leads the form but still leads everything under it in MEANING: it
         // is the context the interview belongs to, it chooses the instrument in the next field, and
         // it scopes the artisan roster two fields down.
@@ -14270,6 +14488,7 @@ private fun QuestionnaireForm(
           drifts and the longest-lived. The browse screen's filter keeps its own word on purpose --
           see [ViewDataScreen], and `distinctLabels` in the contract for the argument.
         */
+        CompletenessAnchor("artisans") {
         SearchableMultiSelectField(
             label = "Artisans interviewed",
             options = artisanPickerOptions,
@@ -14340,6 +14559,7 @@ private fun QuestionnaireForm(
                 }
             }
         }
+        }
         /*
           THE FAILED NARROWING, BESIDE THE CONTROL IT IS ABOUT — and not in the screen's error banner,
           which is for the failures that stop the form working. A roster that could not be narrowed
@@ -14394,7 +14614,9 @@ private fun QuestionnaireForm(
             onChange = { capturedLocation = it },
             onMessage = onError
         )
-        Text("Tap a section to answer it.", color = Muted, fontSize = 12.sp)
+        CompletenessAnchor("answers") {
+            Text("Tap a section to answer it.", color = Muted, fontSize = 12.sp)
+        }
         sections.forEach { section ->
             val activeQuestions = section.questions.filter { it.isActive }
             if (activeQuestions.isNotEmpty()) {
@@ -14564,7 +14786,9 @@ private fun QuestionnaireForm(
         }
         // Attach photos, video, audio files and other media to this interview (with live upload
         // progress) — the same media array used by every other record form.
-        MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
+        CompletenessAnchor("recording") {
+            MediaCaptureSection(repository = repository, media = media, onMessage = onError, onError = onError)
+        }
         /*
          * THE ONE `MultiNoteInput` WITH NO MICROPHONE, AND THE OPT-OUT IS THE POINT OF THE FLAG.
          *

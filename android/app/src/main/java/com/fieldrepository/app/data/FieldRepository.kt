@@ -1513,13 +1513,16 @@ class FieldRepository(
     suspend fun artisansSearchPage(
         search: String?,
         page: Int,
-        workshopIds: List<String>? = null
+        workshopIds: List<String>? = null,
+        /** The record completeness filter's wire value, or null for every record. */
+        completeness: String? = null
     ): PageResponse<ArtisanDto> =
         api.artisans(
             page = page,
             pageSize = 100,
             workshopIds = workshopIds.toQueryCsv(),
-            search = search?.blankToNull()
+            search = search?.blankToNull(),
+            completeness = completeness
         )
 
     /** [artisansSearchPage] for crafts. */
@@ -1527,20 +1530,20 @@ class FieldRepository(
         api.crafts(page = page, pageSize = 100, search = search?.blankToNull())
 
     /** [artisansSearchPage] for products. */
-    suspend fun productsSearchPage(search: String?, page: Int): PageResponse<ProductDetailDto> =
-        api.products(page = page, pageSize = 100, search = search?.blankToNull())
+    suspend fun productsSearchPage(search: String?, page: Int, completeness: String? = null): PageResponse<ProductDetailDto> =
+        api.products(page = page, pageSize = 100, search = search?.blankToNull(), completeness = completeness)
 
     /** [artisansSearchPage] for tools. */
-    suspend fun toolsSearchPage(search: String?, page: Int): PageResponse<ToolDetailDto> =
-        api.tools(page = page, pageSize = 100, search = search?.blankToNull())
+    suspend fun toolsSearchPage(search: String?, page: Int, completeness: String? = null): PageResponse<ToolDetailDto> =
+        api.tools(page = page, pageSize = 100, search = search?.blankToNull(), completeness = completeness)
 
     /** [artisansSearchPage] for processes. */
     suspend fun processesSearchPage(search: String?, page: Int): PageResponse<ProcessDetailDto> =
         api.processes(page = page, pageSize = 100, search = search?.blankToNull())
 
     /** [artisansSearchPage] for workshops. */
-    suspend fun workshopsSearchPage(search: String?, page: Int): PageResponse<WorkshopDetailDto> =
-        api.workshops(page = page, pageSize = 100, search = search?.blankToNull())
+    suspend fun workshopsSearchPage(search: String?, page: Int, completeness: String? = null): PageResponse<WorkshopDetailDto> =
+        api.workshops(page = page, pageSize = 100, search = search?.blankToNull(), completeness = completeness)
 
     /** [artisansSearchPage] for media files. */
     suspend fun mediaSearchPage(search: String?, page: Int): PageResponse<MediaFileDto> =
@@ -1550,14 +1553,16 @@ class FieldRepository(
     suspend fun interviewsSearchPage(
         workshopIds: List<String>?,
         search: String?,
-        page: Int
+        page: Int,
+        completeness: String? = null
     ): PageResponse<QuestionnaireInterviewDetailDto> =
         api.interviews(
             page = page,
             pageSize = 100,
             workshopIds = workshopIds.toQueryCsv(),
             workshopId = workshopIds.singleWorkshopIdOrNull(),
-            search = search?.blankToNull()
+            search = search?.blankToNull(),
+            completeness = completeness
         )
 
     /**
@@ -1725,6 +1730,9 @@ class FieldRepository(
         api.createArtisan(idempotencyKey, body)
 
     suspend fun artisan(id: String): ArtisanDetailDto = api.artisan(id)
+
+    /** The completeness rules file as text — see [RecordCompletenessStore.refresh]. */
+    suspend fun completenessRulesText(): String = api.completenessRules().use { it.string() }
 
     /**
      * Is this Aadhaar number already on an artisan? The form's pre-flight duplicate check, run while

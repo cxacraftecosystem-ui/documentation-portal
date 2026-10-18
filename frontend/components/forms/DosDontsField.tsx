@@ -35,9 +35,12 @@ export function DosDontsField({
   label,
   helper,
   defaultValue,
-  required = true
+  required = true,
+  fieldKey
 }: {
   name: string;
+  /** The completeness rule key this box answers — the `data-field` a meter pill scrolls to. */
+  fieldKey?: string;
   label: string;
   helper?: string;
   defaultValue?: string | null;
@@ -86,7 +89,7 @@ export function DosDontsField({
      * could not tell the Do's from the Don'ts. The group carries the visible heading and each row
      * carries the ordinal it is drawn with — what is announced is what is printed.
      */
-    <div className="relative grid content-start gap-1.5" role="group" aria-labelledby={groupId} aria-describedby={helper ? helperId : undefined}>
+    <div data-field={fieldKey} className="relative grid content-start gap-1.5" role="group" aria-labelledby={groupId} aria-describedby={helper ? helperId : undefined}>
       <span id={groupId} className="field-label">
         {label}
         <RequiredMark when={required} />

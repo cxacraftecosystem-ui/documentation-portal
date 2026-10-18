@@ -285,8 +285,18 @@ interface FieldRepositoryApi {
          */
         @Query("search") search: String? = null,
         /** Only rows this account created — My Activity asks the SERVER, so nothing past page one is lost. */
-        @Query("createdBy") createdBy: String? = null
+        @Query("createdBy") createdBy: String? = null,
+        /** `incomplete` / `required` / `complete` — the record completeness filter (2026-10-18). */
+        @Query("completeness") completeness: String? = null
     ): PageResponse<ArtisanDto>
+
+    /**
+     * The record completeness rules (`shared/record-completeness.json`), raw. OkHttp's disk cache keeps
+     * the answer and revalidates it with the server's ETag, and `RecordCompletenessStore` keeps a copy
+     * in filesDir, so a phone offline still judges records with the newest rules it has seen.
+     */
+    @GET("records/completeness-rules")
+    suspend fun completenessRules(): ResponseBody
 
     @GET("crafts")
     suspend fun crafts(
@@ -378,7 +388,9 @@ interface FieldRepositoryApi {
          */
         @Query("search") search: String? = null,
         /** Only rows this account created — My Activity asks the SERVER, so nothing past page one is lost. */
-        @Query("createdBy") createdBy: String? = null
+        @Query("createdBy") createdBy: String? = null,
+        /** `incomplete` / `required` / `complete` — the record completeness filter (2026-10-18). */
+        @Query("completeness") completeness: String? = null
     ): PageResponse<ProductDetailDto>
 
     @GET("products/{id}")
@@ -416,7 +428,9 @@ interface FieldRepositoryApi {
          */
         @Query("search") search: String? = null,
         /** Only rows this account created — My Activity asks the SERVER, so nothing past page one is lost. */
-        @Query("createdBy") createdBy: String? = null
+        @Query("createdBy") createdBy: String? = null,
+        /** `incomplete` / `required` / `complete` — the record completeness filter (2026-10-18). */
+        @Query("completeness") completeness: String? = null
     ): PageResponse<ToolDetailDto>
 
     @GET("tools/{id}")
@@ -441,7 +455,9 @@ interface FieldRepositoryApi {
         /** Only rows this account created — My Activity asks the SERVER, so nothing past page one is lost. */
         @Query("createdBy") createdBy: String? = null,
         /** The route's free-text filter (title, place, notes), for the record pickers. */
-        @Query("search") search: String? = null
+        @Query("search") search: String? = null,
+        /** `incomplete` / `required` / `complete` — the record completeness filter (2026-10-18). */
+        @Query("completeness") completeness: String? = null
     ): PageResponse<WorkshopDetailDto>
 
     @GET("workshops/{id}")
@@ -775,7 +791,9 @@ interface FieldRepositoryApi {
         /** Only rows this account created — My Activity asks the SERVER, so nothing past page one is lost. */
         @Query("createdBy") createdBy: String? = null,
         // The route's own text filter (`questionnaire.py`'s `search`), used by the app-wide search.
-        @Query("search") search: String? = null
+        @Query("search") search: String? = null,
+        /** `incomplete` / `required` / `complete` — the record completeness filter (2026-10-18). */
+        @Query("completeness") completeness: String? = null
     ): PageResponse<QuestionnaireInterviewDetailDto>
 
     @GET("questionnaire/interviews/{id}")

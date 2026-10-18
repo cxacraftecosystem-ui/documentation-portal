@@ -26,6 +26,9 @@ import { DictatedTextInput } from "@/components/richtext/DictatedTextInput";
 import { appendDictatedPhrase } from "@/components/richtext/dictatedValue";
 import { DictationUnavailableNotice } from "@/components/richtext/DictationUnavailableNotice";
 import { PageHeader } from "@/components/PageHeader";
+import { CompletenessFilter } from "@/components/records/CompletenessFilter";
+import { RowCompletenessRing } from "@/components/records/CompletenessRing";
+import { LiveCompleteness } from "@/components/records/LiveCompleteness";
 import { OpenableRow, RecordTitleLink } from "@/components/records/OpenableRow";
 import { Pagination } from "@/components/Pagination";
 import {
@@ -49,7 +52,8 @@ import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { ApiError, apiFetch, buildQuery, listResource } from "@/lib/api";
 import { formatDate } from "@/lib/format";
-import { locationFromForm, recordedAtFromForm, recordedTimezoneFromForm, textValue } from "@/lib/forms";
+import { parseCompletenessFilter, type CompletenessFilter as CompletenessValue } from "@/lib/completenessCore";
+import { locationFromForm, recordedAtFromForm, recordedTimezoneFromForm, textValue, useFocusField } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
 import {
   audioExtensionForMimeType,
@@ -394,6 +398,7 @@ function QuestionnairePageBody() {
    * down as it opens and restored here — see `lib/listReturn.ts`. The funnel returns through
    * `FunnelFilters`' `restore`, whose first `onChange` keeps the restored page.
    */
+  const [completeness, setCompleteness] = useState<CompletenessValue>("");
   const listReturn = useListReturn("questionnaire");
   const restoredPage = useRef<number | null>(null);
   useEffect(() => {
@@ -405,10 +410,11 @@ function QuestionnairePageBody() {
     }
     restoredPage.current = note.page;
     setPage(note.page);
+    setCompleteness(parseCompletenessFilter(note.completeness));
   }, [listReturn.restored]);
   const restoreListScroll = listReturn.restoreScroll;
   useEffect(() => restoreListScroll(Boolean(data)), [data, restoreListScroll]);
-  const rememberPlace = () => listReturn.remember({ query: searchQuery, page, funnel });
+  const rememberPlace = () => listReturn.remember({ query: searchQuery, page, funnel, completeness });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /**
@@ -862,7 +868,8 @@ function QuestionnairePageBody() {
         // equivalent: see `components/questionnaires/interviewArtisans.ts`.
         workshopId: funnel.workshopId || undefined,
         artisanId: funnel.artisanId || undefined,
-        search: searchQuery || undefined
+        search: searchQuery || undefined,
+        completeness: completeness || undefined
       });
       // The answer to a question already moved on from must not land last and win — see the ref.
       if (generation !== currentInterviewLoad.current) return;
@@ -900,7 +907,7 @@ function QuestionnairePageBody() {
     if (!funnelReady) return;
     loadInterviews();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [funnelReady, page, funnel.workshopId, funnel.artisanId, searchQuery]);
+  }, [funnelReady, page, funnel.workshopId, funnel.artisanId, searchQuery, completeness]);
 
   // Leaving the page mid-recording must release the microphone and the clock, not leak either.
   useEffect(() => {
@@ -1185,6 +1192,19 @@ function QuestionnairePageBody() {
     allowed: true,
     errorMessage: "Unable to load that interview"
   });
+  // A meter pill's `?focus=<key>` from the interview's page, once the deep-linked sitting is seeded.
+  useFocusField(Boolean(editing) && !deepLinkLoading);
+  // The live line over what the form holds. A new sitting's date is stamped by the server on save
+  // (it is derived from when the capture happened), so it is never "missing" before the first save.
+  const completenessValues = useMemo(() => (editing ? undefined : { interviewDate: "on-save" }), [editing]);
+  const completenessCounts = useMemo(
+    () => ({
+      artisans: selectedArtisanIds.length,
+      answers: Object.values(answers).filter((answer) => answer.trim()).length,
+      recordings: mediaFiles.length + Object.values(questionAudioFiles).reduce((sum, files) => sum + files.length, 0)
+    }),
+    [selectedArtisanIds, answers, mediaFiles, questionAudioFiles]
+  );
 
   /**
    * THE WAY FORWARD OUT OF "THIS ARTISAN SET IS ALREADY TAKEN" — the third complaint, answerable now.
@@ -1810,6 +1830,7 @@ function QuestionnairePageBody() {
             Loading that interview...
           </div>
         ) : null}
+        <LiveCompleteness kind="interview" formRef={formRef} stored={editing} values={completenessValues} counts={completenessCounts} />
         {/* The carried context seeds a NEW sitting; on an edit the record itself is the context. */}
         {editing ? null : <CarryContextBanner offer={carry.applied} onChange={clearCarriedContext} />}
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
@@ -1855,14 +1876,16 @@ function QuestionnairePageBody() {
               field to tab past that could only ever be wrong. AND NO MICROPHONE ON A DATE even if one
               were re-added: a spoken date is the one thing a recogniser gets wrong in a way that
               still parses. */}
-          <DictatedTextInput
-            name="place"
-            label="Place"
-            titleCased
-            explainWhenUnavailable={false}
-            value={place}
-            onChange={setPlace}
-          />
+          <div className="min-w-0" data-field="place">
+            <DictatedTextInput
+              name="place"
+              label="Place"
+              titleCased
+              explainWhenUnavailable={false}
+              value={place}
+              onChange={setPlace}
+            />
+          </div>
           {/*
             Language is FREE TEXT here and not a closed vocabulary, which is why it gets a microphone
             at all. The column is `str | None` with no enum behind it on either side — the placeholder
@@ -1870,14 +1893,16 @@ function QuestionnairePageBody() {
             perfectly good value. A dropdown of language names is the change that would REMOVE the
             microphone, not one that would sit beside it.
           */}
-          <DictatedTextInput
-            name="language"
-            label="Language"
-            placeholder="Bangla, Hindi, English..."
-            explainWhenUnavailable={false}
-            value={language}
-            onChange={setLanguage}
-          />
+          <div className="min-w-0" data-field="language">
+            <DictatedTextInput
+              name="language"
+              label="Language"
+              placeholder="Bangla, Hindi, English..."
+              explainWhenUnavailable={false}
+              value={language}
+              onChange={setLanguage}
+            />
+          </div>
           {/* The workshop leads every other dropdown: it is the context the interview belongs to. */}
           <WorkshopSelect state={workshop} saving={saving} />
           {/*
@@ -1962,7 +1987,7 @@ function QuestionnairePageBody() {
             beside it are short by comparison.
           */}
           <div className="md:col-span-2">
-            <Field label="Artisans interviewed">
+            <Field label="Artisans interviewed" fieldKey="artisans">
               <MultiSelectDropdown
                 values={selectedArtisanIds}
                 onChange={(next) => {
@@ -2186,17 +2211,19 @@ function QuestionnairePageBody() {
         <QuestionnaireCaptureControls prefs={capture} onChange={updateCapture} />
         {/* Always offered, as on Android: audio for the interview as a whole, distinct from the
             per-section and per-question takes and never hidden by the answer-box toggle. */}
-        <MediaCaptureField
-          files={mediaFiles}
-          onFilesChange={setMediaFiles}
-          title="Interview audio"
-          description="Record or upload. Transcribed when available."
-          allowDocuments={false}
-          allowedTypes={["AUDIO"]}
-        />
+        <div data-field="recording">
+          <MediaCaptureField
+            files={mediaFiles}
+            onFilesChange={setMediaFiles}
+            title="Interview audio"
+            description="Record or upload. Transcribed when available."
+            allowDocuments={false}
+            allowedTypes={["AUDIO"]}
+          />
+        </div>
         <UploadProgress progress={interviewProgress} sectionId={INTERVIEW_SECTION} label={INTERVIEW_SECTION_LABEL} />
         <LocationFields />
-        <div className="grid gap-3">
+        <div className="grid gap-3" data-field="answers">
           {orderedGroups.map(([code, group], index) => {
             const tally = sectionTally(group);
             const sectionClips = savedMedia.bySection.get(group.section.id) ?? [];
@@ -2496,6 +2523,13 @@ function QuestionnairePageBody() {
           onSubmit={applySearch}
           placeholder="Search interviews by title, place, or notes"
         />
+        <CompletenessFilter
+          value={completeness}
+          onChange={(next) => {
+            setCompleteness(next);
+            setPage(1);
+          }}
+        />
       </div>
 
       <section className="panel overflow-hidden">
@@ -2523,9 +2557,12 @@ function QuestionnairePageBody() {
                 {data.items.map((interview) => (
                   <OpenableRow key={interview.id} href={recordViewHref("questionnaire", interview.id)!} onOpen={rememberPlace}>
                     <td className="px-4 py-3">
-                      <RecordTitleLink href={recordViewHref("questionnaire", interview.id)!} onOpen={rememberPlace}>
-                        {interview.title}
-                      </RecordTitleLink>
+                      <div className="flex items-center gap-2">
+                        <RowCompletenessRing block={interview.completeness} />
+                        <RecordTitleLink href={recordViewHref("questionnaire", interview.id)!} onOpen={rememberPlace}>
+                          {interview.title}
+                        </RecordTitleLink>
+                      </div>
                       <div className="text-xs text-ink-500">{interview.place ?? "-"}</div>
                     </td>
                     <td className="px-4 py-3 text-ink-700">

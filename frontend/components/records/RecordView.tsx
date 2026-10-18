@@ -19,6 +19,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { CollabPanel } from "@/components/CollabPanel";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
 import { PageHeader } from "@/components/PageHeader";
+import { CompletenessMeter } from "@/components/records/CompletenessMeter";
 import { RecordMediaList } from "@/components/records/RecordMediaList";
 import {
   RECORD_VIEW_ENDPOINT,
@@ -29,6 +30,7 @@ import {
 import { StatusBadge } from "@/components/StatusBadge";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
+import { isCompletenessKind, type CompletenessBlock } from "@/lib/completenessCore";
 import { canCreateRecords } from "@/lib/permissions";
 import { canUpdateRecord, recordUpdateHref, type RecordViewType } from "@/lib/recordView";
 import type { Artisan, MediaFile, QuestionnaireResponse, RecordStatus, User } from "@/lib/types";
@@ -85,6 +87,13 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
   const Icon = ICON[type];
   const updateHref = recordUpdateHref(type, id);
   const title = record ? recordTitle(type, record) : noun.charAt(0).toUpperCase() + noun.slice(1);
+  const mayUpdate = Boolean(updateHref) && canUpdateRecord(user, type);
+  // The server's block (2026-10-18), on the five kinds that have rules ("questionnaire" is the
+  // interview). Its pills open the edit form at the missing field for a reader who may update; for
+  // anyone else they are plain words. Crafts and processes have no rules and draw nothing.
+  const completenessKind = type === "questionnaire" ? "interview" : type;
+  const completeness =
+    record && isCompletenessKind(completenessKind) ? ((record as { completeness?: CompletenessBlock | null }).completeness ?? null) : null;
 
   return (
     <>
@@ -106,6 +115,7 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
         error ? null : <div className="panel p-4 text-sm text-ink-muted">Loading this {noun}…</div>
       ) : (
         <div className="grid gap-5">
+          {completeness ? <CompletenessMeter block={completeness} updateHref={mayUpdate ? updateHref : null} /> : null}
           <section className="panel p-4" aria-label={`${title} details`}>
             <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
               {record.status ? <StatusBadge status={record.status} /> : null}

@@ -132,6 +132,10 @@ own hard-won craft knowledge: the part of the archive that cannot be reconstruct
   caught), and everywhere the data is *shared* it appears masked as `XXXX XXXX 9012`.
 - **If you are shown a mask, leave it alone.** Saving a form with the mask still in the box is
   recognised as "unchanged"; you do not have to retype the number.
+- **The ring shows what is still missing.** Every artisan, product, tool, interview and workshop
+  carries a small ring on its row and a line on its page ("2 fields left: date of birth, photo");
+  tap a missing field to open the form at it. *Incomplete* and *Missing required* above each list
+  narrow it to the records that need work.
 - **Pehchan card**: answer Yes/No first. Answering Yes makes the card number required; answering No
   clears it. It is not possible to store a card number for an artisan who says they hold no card.
 - **Date of birth and Craft start date are required** (since 2026-10-17). The age and the years of

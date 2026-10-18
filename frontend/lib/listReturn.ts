@@ -20,6 +20,8 @@ export type ListReturn = {
   page: number;
   /** The funnel filter (workshop / craft / artisan), for the lists that carry one. */
   funnel?: { workshopId: string; craftId: string; artisanId: string } | null;
+  /** The completeness filter (`incomplete` / `required`), for the five lists with a meter. */
+  completeness?: "incomplete" | "required" | "";
   scrollY: number;
   savedAt: number;
 };
@@ -56,6 +58,7 @@ export function decodeListReturn(raw: string | null | undefined, now = Date.now(
               artisanId: typeof funnel.artisanId === "string" ? funnel.artisanId : ""
             }
           : null,
+      completeness: parsed.completeness === "incomplete" || parsed.completeness === "required" ? parsed.completeness : undefined,
       savedAt
     };
   } catch {

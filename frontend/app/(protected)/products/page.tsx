@@ -13,6 +13,8 @@ import { EmptyState } from "@/components/EmptyState";
 import { EMPTY_FUNNEL, FunnelFilters, type FunnelValue, type FunnelWorkshop } from "@/components/FunnelFilters";
 import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
 import { PageHeader } from "@/components/PageHeader";
+import { CompletenessFilter } from "@/components/records/CompletenessFilter";
+import { RowCompletenessRing } from "@/components/records/CompletenessRing";
 import { Pagination } from "@/components/Pagination";
 import { ResizableTh } from "@/components/ResizableTh";
 import { RowActions, rowAction } from "@/components/RowActions";
@@ -23,6 +25,7 @@ import { useListReturn } from "@/components/hooks/useListReturn";
 import { OpenableRow, RecordTitleLink } from "@/components/records/OpenableRow";
 import { recordUpdateHref, recordViewHref } from "@/lib/recordView";
 import { apiFetch, listResource } from "@/lib/api";
+import { parseCompletenessFilter, type CompletenessFilter as CompletenessValue } from "@/lib/completenessCore";
 import { formatDate } from "@/lib/format";
 import type { PageResult, ProductDocumentation } from "@/lib/types";
 
@@ -36,6 +39,7 @@ export default function ProductsPage() {
   const [page, setPage] = useState(1);
   const [funnel, setFunnel] = useState<FunnelValue>(EMPTY_FUNNEL);
   const [funnelReady, setFunnelReady] = useState(false);
+  const [completeness, setCompleteness] = useState<CompletenessValue>("");
   const [activePreview, setActivePreview] = useState<PreviewMedia | null>(null);
   const [collabId, setCollabId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -50,6 +54,7 @@ export default function ProductsPage() {
           workshopId: funnel.workshopId || undefined,
           craftId: funnel.craftId || undefined,
           artisanId: funnel.artisanId || undefined,
+          completeness: completeness || undefined,
           page,
           pageSize: 20
         })
@@ -65,7 +70,7 @@ export default function ProductsPage() {
     if (!funnelReady) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [funnelReady, page, applied, funnel]);
+  }, [funnelReady, page, applied, funnel, completeness]);
 
   // Live search: debounce typing by 350ms; Enter applies immediately via onSubmit.
   useEffect(() => {
@@ -98,10 +103,11 @@ export default function ProductsPage() {
     }
     restoredPage.current = note.page;
     setPage(note.page);
+    setCompleteness(parseCompletenessFilter(note.completeness));
   }, [listReturn.restored]);
   const restoreListScroll = listReturn.restoreScroll;
   useEffect(() => restoreListScroll(Boolean(data)), [data, restoreListScroll]);
-  const rememberPlace = () => listReturn.remember({ query: applied, page, funnel });
+  const rememberPlace = () => listReturn.remember({ query: applied, page, funnel, completeness });
 
   function onFunnelChange(next: FunnelValue, _workshop: FunnelWorkshop | null) {
     setFunnel(next);
@@ -160,6 +166,15 @@ export default function ProductsPage() {
         />
       </div>
       <FunnelFilters value={funnel} onChange={onFunnelChange} showArtisan restore={listReturn.restoredFunnel} />
+      <div className="mb-3">
+        <CompletenessFilter
+          value={completeness}
+          onChange={(next) => {
+            setCompleteness(next);
+            setPage(1);
+          }}
+        />
+      </div>
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       <section className="panel overflow-hidden">
         {!data ? (
@@ -188,9 +203,12 @@ export default function ProductsPage() {
                 {data.items.map((product) => (
                   <OpenableRow key={product.id} href={recordViewHref("product", product.id)!} onOpen={rememberPlace}>
                     <td className="px-4 py-3">
-                      <RecordTitleLink href={recordViewHref("product", product.id)!} onOpen={rememberPlace}>
-                        {product.productName}
-                      </RecordTitleLink>
+                      <div className="flex items-center gap-2">
+                        <RowCompletenessRing block={product.completeness} />
+                        <RecordTitleLink href={recordViewHref("product", product.id)!} onOpen={rememberPlace}>
+                          {product.productName}
+                        </RecordTitleLink>
+                      </div>
                       <div className="text-xs text-ink-500">{product.localName ?? product.productType}</div>
                     </td>
                     <td className="px-4 py-3 text-ink-700">{product.craftName}</td>

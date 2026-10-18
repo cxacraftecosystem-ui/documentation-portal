@@ -61,6 +61,7 @@ from app.services.questionnaire_instruments import (
     require_questionnaire,
     resolve_questionnaire_id,
 )
+from app.services import completeness as completeness_module
 from app.services.concurrency import gather_reads
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.record_filters import (
@@ -855,6 +856,8 @@ async def list_interviews(
     # My Activity page had to fetch page 1 of the WHOLE repository and sift it client-side, which
     # silently under-reported the moment the repository outgrew one page.
     createdBy: str | None = None,
+    # incomplete | required | complete — see services/completeness.py.
+    completeness: str | None = None,
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
@@ -926,6 +929,8 @@ async def list_interviews(
         where["status"] = statusFilter
     if createdBy:
         where["createdById"] = createdBy
+    if completeness_mode := completeness_module.parse_mode(completeness):
+        and_filters.append(completeness_module.missing_where("interview", completeness_mode))
     if and_filters:
         where["AND"] = and_filters
     add_date_range(where, "interviewDate", dateFrom, dateTo)
@@ -949,7 +954,8 @@ async def list_interviews(
     # caller's own uploads otherwise. `media_url_owners` is the media LIST's answer, one query
     # dearer, and copying it here would be the second spelling of one rule this repository keeps
     # paying for.
-    return page_payload(public_encode(items, current_user), total, page, page_size)
+    encoded = await completeness_module.attach("interview", public_encode(items, current_user), client=db)
+    return page_payload(encoded, total, page, page_size)
 
 
 # Scalar fields a "create for an existing set" may back-fill on the canonical interview — but ONLY
@@ -1010,7 +1016,7 @@ async def merge_into_interview(
     # The viewer, for the reason `list_interviews` states in full. A fold ANSWERS WITH THE
     # CANONICAL ROW so the client attaches its media to the shared entry — which it cannot do
     # while the recordings already on that row come back without a URL to play them from.
-    return public_encode(canonical, current_user)
+    return await completeness_module.attach("interview", public_encode(canonical, current_user), client=db)
 
 
 @questionnaire_router.post("/interviews", status_code=status.HTTP_201_CREATED)
@@ -1109,7 +1115,7 @@ async def create_interview(
     # and those load in one wave here instead of a re-read followed by six more statements.
     await hydrate_relations([created], RELATIONS)
     # The viewer, for the reason `list_interviews` states in full.
-    return public_encode(created, current_user)
+    return await completeness_module.attach("interview", public_encode(created, current_user), client=db)
 
 
 @questionnaire_router.get("/interviews/by-artisans")
@@ -1440,7 +1446,7 @@ async def get_interview(
     await hydrate_relations([interview], RELATIONS)
     # The viewer, for the reason `list_interviews` states in full. The dependency was named `_`
     # while the value was genuinely unused; it is used now, so it is named.
-    return public_encode(interview, current_user)
+    return await completeness_module.attach("interview", public_encode(interview, current_user), client=db)
 
 
 @questionnaire_router.patch("/interviews/{interview_id}")
@@ -1485,7 +1491,7 @@ async def update_interview(
     updated = await db.questionnaireinterview.find_unique(where={"id": interview_id})
     await hydrate_relations([updated], RELATIONS)
     # The viewer, for the reason `list_interviews` states in full.
-    return public_encode(updated, current_user)
+    return await completeness_module.attach("interview", public_encode(updated, current_user), client=db)
 
 
 #: The two columns of one answer that hold a researcher's words. A merge may FILL either where the

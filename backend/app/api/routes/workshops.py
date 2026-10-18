@@ -40,6 +40,7 @@ from app.schemas.questionnaire import WorkshopQuestionnaireUpdate
 from app.schemas.records import WORKSHOP_TYPES, WorkshopCreate, WorkshopUpdate
 from app.services.questionnaire_instruments import require_questionnaire
 from app.services.access import guard_record_edit, record_revision
+from app.services import completeness as completeness_module
 from app.services.concurrency import gather_reads
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.records import (
@@ -236,6 +237,8 @@ async def list_workshops(
     # My Activity page had to fetch page 1 of the WHOLE repository and sift it client-side, which
     # silently under-reported the moment the repository outgrew one page.
     createdBy: str | None = None,
+    # incomplete | required | complete — see services/completeness.py.
+    completeness: str | None = None,
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
@@ -264,6 +267,8 @@ async def list_workshops(
         where["status"] = statusFilter
     if createdBy:
         where["createdById"] = createdBy
+    # Into the AND list beside visibility, never onto ``where`` itself.
+    completeness_module.add_filter(where, "workshop", completeness)
     # dateFrom/dateTo filter on startDate — the workshop's own timeline, matching the ordering below.
     add_date_range(where, "startDate", dateFrom, dateTo)
     # ORDERING IS DELIBERATE — by the date the workshop HAPPENED, most recent first, NOT by
@@ -288,7 +293,8 @@ async def list_workshops(
         order=[{"startDate": "desc"}, {"date": "desc"}, {"createdAt": "desc"}],
         relations=RELATIONS,
     )
-    return page_payload(public_encode(items), total, page, page_size)
+    encoded = await completeness_module.attach("workshop", public_encode(items), client=db)
+    return page_payload(encoded, total, page, page_size)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -313,7 +319,7 @@ async def create_workshop(
             replayed.id, payload.artisanIds or [], payload.craftIds or []
         )
         await hydrate_relations([replayed], RELATIONS)
-        return public_encode(replayed)
+        return await completeness_module.attach("workshop", public_encode(replayed), client=db)
     data = clean_data(payload.model_dump())
     artisan_ids = data.pop("artisanIds", [])
     craft_ids = data.pop("craftIds", [])
@@ -344,7 +350,7 @@ async def create_workshop(
             raise
         await _repair_empty_rosters(raced.id, artisan_ids, craft_ids)
         await hydrate_relations([raced], RELATIONS)
-        return public_encode(raced)
+        return await completeness_module.attach("workshop", public_encode(raced), client=db)
     if artisan_ids:
         await replace_workshop_artisans(created.id, artisan_ids)
     if craft_ids:
@@ -353,7 +359,7 @@ async def create_workshop(
     # loaded here. Reading the whole workshop back to learn what we already know cost another
     # cross-region round trip, plus one more per relation behind it.
     await hydrate_relations([created], RELATIONS)
-    return public_encode(created)
+    return await completeness_module.attach("workshop", public_encode(created), client=db)
 
 
 # --------------------------------------------------------------------------- the mapping gap
@@ -665,7 +671,7 @@ async def decide_workshop_access_request(
 async def get_workshop(workshop_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     workshop = await require_record(db.workshop, workshop_id)
     await hydrate_relations([workshop], RELATIONS)
-    return public_encode(workshop)
+    return await completeness_module.attach("workshop", public_encode(workshop), client=db)
 
 
 @router.patch("/{workshop_id}")
@@ -738,7 +744,7 @@ async def update_workshop(
     # ``update`` already handed back the saved row, so the relations are grafted onto it instead of
     # reading the whole workshop a second time from another region.
     await hydrate_relations([updated], RELATIONS)
-    return public_encode(updated)
+    return await completeness_module.attach("workshop", public_encode(updated), client=db)
 
 
 @router.get("/{workshop_id}/submission-check")
@@ -1079,7 +1085,7 @@ async def set_workshop_questionnaire(
         where={"id": workshop_id}, data={"questionnaireId": target}
     )
     await hydrate_relations([updated], RELATIONS)
-    return public_encode(updated)
+    return await completeness_module.attach("workshop", public_encode(updated), client=db)
 
 
 @router.delete("/{workshop_id}", status_code=status.HTTP_204_NO_CONTENT)

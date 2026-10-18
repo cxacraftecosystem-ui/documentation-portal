@@ -27,7 +27,7 @@ Enums: `UserRole`, `AuthProvider`, `AccessStatus`, `RecordStatus`, `WorkshopType
 
 ## API surface
 
-**176 operations** in the working tree — 78 GET, 59 POST, 19 DELETE,
+**177 operations** in the working tree — 79 GET, 59 POST, 19 DELETE,
 11 PATCH, 9 PUT. 2 of them (`/health`, `/health/ready`) are declared
 on the app rather than on a router; the rest are spread across `backend/app/api/routes/`:
 
@@ -58,6 +58,7 @@ on the app rather than on a router; the rest are spread across `backend/app/api/
 | `feedback.py` | 3 |
 | `map_points.py` | 2 |
 | `reference.py` | 2 |
+| `completeness.py` | 1 |
 | `dashboard.py` | 1 |
 | `public.py` | 1 |
 | `search.py` | 1 |
@@ -104,9 +105,9 @@ no key is skipped wherever it sits.
 
 | Surface | Files | Cases | Runner |
 |---|---|---|---|
-| Backend unit (`backend/tests/`) | 78 | 1257 `def test_` | `python -m pytest -q` from `backend/` |
-| Web end-to-end (`frontend/e2e/`) | 56 | 805 `test(` | Playwright, `frontend/playwright.config.ts` |
-| Android unit (`android/app/src/test/`) | 66 | 822 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
+| Backend unit (`backend/tests/`) | 79 | 1283 `def test_` | `python -m pytest -q` from `backend/` |
+| Web end-to-end (`frontend/e2e/`) | 58 | 816 `test(` | Playwright, `frontend/playwright.config.ts` |
+| Android unit (`android/app/src/test/`) | 70 | 853 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
 | Android instrumented | **none** — the `src/androidTest` source set does not exist | — | not run in CI |
 
 The backend case count is `def test_` occurrences; pytest reports a larger number because
@@ -117,11 +118,11 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 
 | Area | Tracked files | Tracked lines | Tree files | Tree lines |
 |---|---|---|---|---|
-| `backend/app` | 129 | 49,206 | 129 | 49,206 |
-| `frontend/app` | 57 | 20,078 | 57 | 20,078 |
-| `frontend/components` | 193 | 55,763 | 193 | 55,763 |
-| `frontend/lib` | 83 | 28,862 | 83 | 28,862 |
-| `android/app/src/main/java` | 123 | 84,737 | 123 | 84,737 |
+| `backend/app` | 131 | 49,659 | 131 | 49,659 |
+| `frontend/app` | 57 | 20,206 | 57 | 20,206 |
+| `frontend/components` | 197 | 56,160 | 197 | 56,160 |
+| `frontend/lib` | 85 | 29,167 | 85 | 29,167 |
+| `android/app/src/main/java` | 128 | 86,327 | 128 | 86,327 |
 
 Two columns because the two numbers get quoted interchangeably and disagree by however much work is
 uncommitted. **Tracked** is `git ls-files`, which is the figure to use in a write-up — it is

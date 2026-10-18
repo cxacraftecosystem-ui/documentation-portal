@@ -1,3 +1,5 @@
+import type { CompletenessBlock } from "@/lib/completenessCore";
+
 export type UserRole =
   | "MASTER_ADMIN"
   | "ADMIN"
@@ -175,6 +177,8 @@ export type Craft = {
 };
 
 export type Artisan = {
+  /** Which fields this record still lacks — computed on read by the server (lib/completenessCore.ts). */
+  completeness?: CompletenessBlock | null;
   id: string;
   name: string;
   localName?: string | null;
@@ -270,6 +274,8 @@ export type ArtisanIdentityConflict = {
 };
 
 export type Workshop = {
+  /** Which fields this record still lacks — computed on read by the server (lib/completenessCore.ts). */
+  completeness?: CompletenessBlock | null;
   id: string;
   title: string;
   /**
@@ -371,6 +377,8 @@ export type MediaFile = {
 };
 
 export type ProductDocumentation = {
+  /** Which fields this record still lacks — computed on read by the server (lib/completenessCore.ts). */
+  completeness?: CompletenessBlock | null;
   id: string;
   craftName: string;
   place: string;
@@ -470,6 +478,8 @@ export type ToolArtisanLink = {
 };
 
 export type ToolDocumentation = {
+  /** Which fields this record still lacks — computed on read by the server (lib/completenessCore.ts). */
+  completeness?: CompletenessBlock | null;
   id: string;
   craftName: string;
   place: string;
@@ -649,6 +659,8 @@ export type QuestionnaireResponse = {
 };
 
 export type QuestionnaireInterview = {
+  /** Which fields this record still lacks — computed on read by the server (lib/completenessCore.ts). */
+  completeness?: CompletenessBlock | null;
   id: string;
   title: string;
   interviewDate?: string | null;

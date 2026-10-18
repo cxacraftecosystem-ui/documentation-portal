@@ -124,7 +124,8 @@ export const GUIDE_STEPS: GuideStep[] = [
     watch: [
       "Do’s and Don’ts are required — one point per line.",
       "Choose a craft or type a new one.",
-      "Photo details are added to the notes automatically."
+      "Photo details are added to the notes automatically.",
+      "The ring on each record shows what’s still missing; tap a field to fill it in."
     ]
   },
   {
