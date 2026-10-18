@@ -13,7 +13,7 @@ in that order, and every secret it needs. Sister documents:
 
 ## 1. The pipeline
 
-**Eight workflow files, in five groups that do not talk to each other.** Only the first group is a
+**Nine workflow files, in six groups that do not talk to each other.** Only the first group is a
 chain; the rest are named here rather than counted, because a count is the one fact a new file
 falsifies silently.
 
@@ -27,6 +27,8 @@ falsifies silently.
 5. **The emulator smoke** — `android-emulator.yml`, run by hand only (`workflow_dispatch`, since
    2026-10-09). Boots an emulator and drives the debug APK through what targetSdk 37 changed. Gates
    nothing.
+6. **The uptime probe** — `monitor.yml`, every 15 minutes (since 2026-10-17). Watches production;
+   says nothing about the code.
 
 ```mermaid
 flowchart LR
@@ -65,6 +67,7 @@ under "it runs; it does not gate", for what this still does not cover.
 | 6 | Keep Supabase active | `.github/workflows/keep-supabase-active.yml` | nightly cron | Pings Postgres so Supabase does not pause the free-tier project. |
 | 7 | Back up the database | `.github/workflows/backup-db.yml` | scheduled | `pg_dump` to S3. |
 | 8 | Android emulator smoke | `.github/workflows/android-emulator.yml` | manual only (`workflow_dispatch`; inputs `api-level`, default `37.0`, and `target`) | Builds the same debug APK as row 3, and the release variant unsigned to check what its manifest declares (target 37, no local-network permission); boots an emulator and runs `android/scripts/emulator-smoke.py`: launch, edge-to-edge insets in portrait, landscape and at a large-screen size, back and home, and — with a second debug build aimed at a stub on the runner — the Android 17 local-network permission. Screenshots and logcat come back as an artifact. Signs nothing in, publishes nothing. |
+| 9 | Uptime probe | `.github/workflows/monitor.yml` | cron every 15 minutes, plus manual | Asks production four questions from a GitHub runner: is the API up (`/health`), can it reach the database in under 2000 ms (`/health/ready`), does the web app serve its home page, and is the Android App Link file (`/.well-known/assetlinks.json`) served as JSON for `com.fieldrepository.app` with the release certificate from `ANDROID_RELEASE_CERT_SHA256`. Any red check fails the run and opens an issue labelled `outage` (updated, not duplicated, while it lasts); the first all-green run comments and closes it. The `outage` label is reserved for the probe: it only edits or closes an issue it opened itself (marked by a hidden `outage-signature` line), so an issue a person labels `outage` by hand stays open until a person closes it. Same shape as designer-portal's. It runs on GitHub, so a GitHub outage silences it; a free external checker on `/health/ready` is the upgrade. |
 
 **Rows 3 and 5 are the two halves of one rule worth stating plainly: `android-build.yml` builds
 DEBUG and only debug, and `publish-android.yml` is the only workflow that reaches a handset.** A

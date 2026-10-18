@@ -1,0 +1,108 @@
+name: CodeQL
+
+# ─── WHY THIS FILE EXISTS: DEFAULT SETUP COULD NOT COMPILE THE ANDROID APP ────────────────────
+# Code scanning was first switched on as GitHub's "default setup" (2026-10-17). Its Kotlin job
+# (run 39050243459) ran Gradle's autobuild, which compiled debug and release together under CodeQL
+# and died with "java.lang.OutOfMemoryError: GC overhead limit exceeded" in
+# :app:compileDebugKotlin, so the java-kotlin analysis was recorded as "unsuccessful execution"
+# and Kotlin, the largest language here by bytes, went unscanned.
+#
+# This is the "advanced setup" replacement: the same four languages, with the Kotlin job set up
+# exactly as android-build.yml sets up its compile (JDK 25, the same SDK packages), compiling one
+# variant with a larger heap. The other three need no build (`build-mode: none`).
+#
+# ─── IT ONLY UPLOADS ONCE THE REPOSITORY IS SWITCHED TO ADVANCED ──────────────────────────────
+# GitHub refuses results from this workflow while default setup is still on ("CodeQL analyses
+# from advanced configurations cannot be processed when the default setup is enabled"). Before
+# merging, a repository admin opens Settings → Code security → Code scanning → CodeQL analysis →
+# "…" → Switch to advanced, and closes the workflow editor GitHub then offers (this file is that
+# workflow; do not commit a second one).
+# Until then the Analyze step fails at the upload, after the database and queries have run.
+#
+# Every `uses:` is a commit SHA with the human tag in a trailing comment, as in the other
+# workflows; `.github/dependabot.yml` keeps them current.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Mondays 03:17 UTC: new queries in a CodeQL release reach code nobody touched that week.
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: java-kotlin
+            build-mode: manual
+          - language: javascript-typescript
+            build-mode: none
+          - language: python
+            build-mode: none
+          - language: actions
+            build-mode: none
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # ── Kotlin only: the toolchain android-build.yml uses ─────────────────────────────────────
+      - name: Set up JDK 25
+        if: matrix.language == 'java-kotlin'
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: gradle
+
+      - name: Prepare the Android build
+        if: matrix.language == 'java-kotlin'
+        working-directory: android
+        # The same SDK packages as android-build.yml installs; move them together.
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          sdkmanager="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null 2>&1 || true
+          "$sdkmanager" "platforms;android-37.0" "build-tools;37.0.0" > /dev/null
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: Compile Kotlin (debug) under CodeQL
+        if: matrix.language == 'java-kotlin'
+        working-directory: android
+        # One variant only. Default setup's autobuild ran debug and release in parallel and died with "OutOfMemoryError: GC overhead limit exceeded": CodeQL needs the
+        # Kotlin compiler in-process so it can extract, which puts it on the Gradle daemon's heap
+        # (2 GB in gradle.properties). Debug compiles `main` plus `debug`; there is no `release`
+        # source set, so nothing is skipped. The heap is raised for this run only.
+        run: >-
+          ./gradlew :app:compileDebugKotlin
+          --no-daemon --no-build-cache --console=plain --stacktrace
+          -Dorg.gradle.jvmargs="-Xmx6g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
+          -Pkotlin.compiler.execution.strategy=in-process
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          category: /language:${{ matrix.language }}
