@@ -490,6 +490,7 @@ import com.fieldrepository.app.data.StagedMedia
 import com.fieldrepository.app.data.TaskDto
 import com.fieldrepository.app.data.WorkshopAccessLevelDto
 import com.fieldrepository.app.data.WorkshopAssignmentDto
+import com.fieldrepository.app.data.WorkshopMappingCounts
 import com.fieldrepository.app.data.WorkshopMappingPlanDto
 import com.fieldrepository.app.data.WorkshopSubmissionCheckDto
 import com.fieldrepository.app.data.titleCasePreview
@@ -17015,6 +17016,7 @@ private fun WorkshopMappingCard(
     var loading by remember { mutableStateOf(true) }
     var applying by remember { mutableStateOf(false) }
     var appliedTotal by remember { mutableStateOf<Int?>(null) }
+    var savingAuto by remember { mutableStateOf(false) }
     // Re-check bumps this, which re-keys the effect below. A plain function call would need its own
     // coroutine scope and could overlap with the load already in flight.
     var reloadKey by remember { mutableStateOf(0) }
@@ -17032,10 +17034,33 @@ private fun WorkshopMappingCard(
 
     RecordCard(title = "Records not filed under a workshop", icon = Icons.Filled.Link) {
         Text(
-            "Records without a workshop are hidden from workshop views. File them here.",
+            "Hidden from workshop views. Records with a filed parent are filed each night; the rest need a look.",
             color = MaterialTheme.field.muted,
             fontSize = 12.sp
         )
+
+        // THE NIGHTLY SWITCH (2026-10-20) — the web card's Toggle, same label, same line under it. Absent
+        // against a server without the job, which sends no `autoMap`.
+        plan?.autoMap?.let { status ->
+            AppToggle(
+                label = "File clear-cut records each night",
+                checked = status.enabled,
+                busy = savingAuto,
+                description = WorkshopMappingCounts.autoMapLine(status, plan?.let { WorkshopMappingCounts.totalClearCut(it) } ?: 0),
+                onCheckedChange = { next ->
+                    scope.launch {
+                        savingAuto = true
+                        runCatching { repository.setUnmappedAuto(next) }
+                            .onSuccess { saved -> plan = plan?.copy(autoMap = saved) }
+                            .onFailure { failure ->
+                                if (failure is kotlinx.coroutines.CancellationException) throw failure
+                                onError(failure.apiErrorMessage("The setting could not be saved."))
+                            }
+                        savingAuto = false
+                    }
+                }
+            )
+        }
 
         val current = plan
         when {
@@ -17058,14 +17083,18 @@ private fun WorkshopMappingCard(
 
             else -> {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    MappingStatTile("Not filed", current.totals.unassigned, Modifier.weight(1f))
-                    MappingStatTile("Can be filed", current.totals.resolved, Modifier.weight(1f))
+                    MappingStatTile("Need a look", WorkshopMappingCounts.totalNeedsReview(current), Modifier.weight(1f))
+                    MappingStatTile(
+                        "Suggested",
+                        maxOf(0, current.totals.resolved - WorkshopMappingCounts.totalClearCut(current)),
+                        Modifier.weight(1f)
+                    )
                     MappingStatTile("Need a person", current.totals.unresolved, Modifier.weight(1f))
                 }
 
-                // Only the buckets with something to say. Five lines reading "0 product records" bury the
-                // one line that matters.
-                current.buckets.filter { it.unassigned > 0 }.forEach { bucket ->
+                // Only the buckets with something left for a person. The clear-cut rows are the nightly
+                // job's.
+                current.buckets.filter { WorkshopMappingCounts.needsReview(it) > 0 }.forEach { bucket ->
                     Column(
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier
@@ -17073,13 +17102,14 @@ private fun WorkshopMappingCard(
                             .background(MaterialTheme.field.surface50, MaterialTheme.shapes.small)
                             .padding(10.dp)
                     ) {
-                        val noun = if (bucket.unassigned == 1) bucket.singular else bucket.plural
+                        val needsReview = WorkshopMappingCounts.needsReview(bucket)
+                        val noun = if (needsReview == 1) bucket.singular else bucket.plural
                         Text(
-                            "${bucket.unassigned} $noun" +
+                            "$needsReview $noun" +
                                 if (bucket.applied != null) {
                                     " — ${bucket.applied} filed just now"
                                 } else {
-                                    " — ${bucket.resolved} can be filed" +
+                                    " — ${WorkshopMappingCounts.suggested(bucket)} suggested" +
                                         if (bucket.unresolved > 0) ", ${bucket.unresolved} need a person" else ""
                                 },
                             color = MaterialTheme.colorScheme.onSurface,
@@ -17097,7 +17127,7 @@ private fun WorkshopMappingCard(
                         // whether 924 files were filed because their parent records said so or because their
                         // timestamps merely fell inside a window — different levels of certainty, and the card
                         // must not flatten them into one number.
-                        bucket.byRung.forEach { entry ->
+                        WorkshopMappingCounts.reviewRungs(bucket).forEach { entry ->
                             Text(
                                 "${entry.count} because ${entry.copy}.",
                                 color = MaterialTheme.field.body,

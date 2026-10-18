@@ -24,6 +24,7 @@ from app.services.access import (
     tier_at_least,
 )
 from app.services import email_outbox, mailer
+from app.services.artisan_merge import survivor_of
 from app.services.records import public_encode
 
 router = APIRouter(prefix="/data-access", tags=["data-access"])
@@ -352,6 +353,10 @@ async def list_comments(
 
 @router.post("/comments", status_code=status.HTTP_201_CREATED)
 async def add_comment(payload: CommentIn, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    # A queued comment on an artisan merged away since belongs on the survivor: the old id resolves
+    # to no owner and the comment would be refused on every replay.
+    if payload.recordType.strip().lower() == "artisan":
+        payload.recordId = await survivor_of(payload.recordId) or payload.recordId
     owner_id = await _resolve_record_owner(payload.recordType, payload.recordId)
     tier = await effective_tier_for_record(current_user, owner_id, payload.recordType, payload.recordId)
     if not tier_at_least(tier, "COMMENT") and not await _reviews_owner(current_user, owner_id):

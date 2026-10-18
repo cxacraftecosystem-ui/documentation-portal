@@ -139,6 +139,11 @@ def _matches(row: Any, where: dict[str, Any] | None) -> bool:
             if "in" in expected:
                 if actual not in expected["in"]:
                     return False
+            elif "has" in expected:
+                # A scalar-list column holding the value (``AssignedTask.artisanIds``), as Postgres's
+                # ``= ANY`` reads it. Added for ``services/artisan_merge``.
+                if expected["has"] not in (actual or []):
+                    return False
             elif "contains" in expected:
                 needle = str(expected["contains"]).lower()
                 if needle not in str(actual or "").lower():

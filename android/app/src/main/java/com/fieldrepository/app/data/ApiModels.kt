@@ -1814,7 +1814,9 @@ data class WorkshopMappingRowDto(
     val reason: String? = null,
     val reasonCopy: String? = null,
     /** Every workshop the deciding rung pointed at. More than one is what AMBIGUOUS means. */
-    val candidateTitles: List<String> = emptyList()
+    val candidateTitles: List<String> = emptyList(),
+    /** Settled by its parent record — the server files these itself each night (2026-10-20). */
+    val clearCut: Boolean = false
 )
 
 @Serializable
@@ -1855,6 +1857,10 @@ data class WorkshopMappingBucketDto(
     val unassigned: Int = 0,
     val resolved: Int = 0,
     val unresolved: Int = 0,
+    /** Rows the nightly job files on its own; null from a server without it. */
+    val clearCut: Int? = null,
+    /** Everything else — what this card leads with. Null from a server without the nightly job. */
+    val needsReview: Int? = null,
     val byRung: List<WorkshopMappingRungCountDto> = emptyList(),
     val byReason: List<WorkshopMappingReasonCountDto> = emptyList(),
     val byWorkshop: List<WorkshopMappingWorkshopCountDto> = emptyList(),
@@ -1876,17 +1882,71 @@ data class WorkshopMappingTotalsDto(
     val unassigned: Int = 0,
     val resolved: Int = 0,
     val unresolved: Int = 0,
+    val clearCut: Int? = null,
+    val needsReview: Int? = null,
     /** Null on the preview; the number of rows actually written on the response to the button. */
     val applied: Int? = null
 )
+
+/** The nightly filing of clear-cut records — GET /workshops/unmapped's `autoMap`, PUT .../auto. */
+@Serializable
+data class WorkshopAutoMapDto(
+    val enabled: Boolean = true,
+    val runsAt: String = "02:00",
+    val timezone: String = "Asia/Kolkata",
+    val lastRunAt: String? = null,
+    val lastFiled: Int = 0
+)
+
+@Serializable
+data class WorkshopAutoMapRequest(val enabled: Boolean)
 
 @Serializable
 data class WorkshopMappingPlanDto(
     /** The workshops as time spans, so the screen can say what the dates were read as. */
     val workshops: List<WorkshopMappingWindowDto> = emptyList(),
     val buckets: List<WorkshopMappingBucketDto> = emptyList(),
-    val totals: WorkshopMappingTotalsDto = WorkshopMappingTotalsDto()
+    val totals: WorkshopMappingTotalsDto = WorkshopMappingTotalsDto(),
+    /** Null from a server without the nightly job; the card then shows no switch. */
+    val autoMap: WorkshopAutoMapDto? = null
 )
+
+/**
+ * The card's counts — the web's `components/settings/workshopMapping.ts`, rule for rule. The server
+ * files the PARENT-rung rows itself each night, so the card leads with what is left for a person, and
+ * every count falls back to the older payload's fields.
+ */
+object WorkshopMappingCounts {
+    const val CLEAR_CUT_RUNG = "PARENT"
+
+    fun clearCut(bucket: WorkshopMappingBucketDto): Int =
+        bucket.clearCut ?: (bucket.byRung.firstOrNull { it.rung == CLEAR_CUT_RUNG }?.count ?: 0)
+
+    fun needsReview(bucket: WorkshopMappingBucketDto): Int = bucket.needsReview ?: (bucket.unassigned - clearCut(bucket))
+
+    fun suggested(bucket: WorkshopMappingBucketDto): Int = maxOf(0, bucket.resolved - clearCut(bucket))
+
+    fun totalNeedsReview(plan: WorkshopMappingPlanDto): Int =
+        plan.totals.needsReview ?: plan.buckets.sumOf { needsReview(it) }
+
+    fun totalClearCut(plan: WorkshopMappingPlanDto): Int = plan.totals.clearCut ?: plan.buckets.sumOf { clearCut(it) }
+
+    fun reviewRungs(bucket: WorkshopMappingBucketDto): List<WorkshopMappingRungCountDto> =
+        bucket.byRung.filter { it.rung != CLEAR_CUT_RUNG }
+
+    private fun records(count: Int): String = if (count == 1) "1 record" else "$count records"
+
+    /** One line under the nightly switch — the web's `autoMapLine`, word for word. */
+    fun autoMapLine(status: WorkshopAutoMapDto?, pending: Int): String {
+        if (status == null) return ""
+        if (!status.enabled) return if (pending > 0) "${records(pending)} waiting to be filed." else "Off."
+        return listOfNotNull(
+            "Every night at ${status.runsAt}.",
+            if (pending > 0) "${records(pending)} tonight." else null,
+            if (status.lastRunAt != null) "Last run filed ${status.lastFiled}." else null
+        ).joinToString(" ")
+    }
+}
 
 // --- Cross-researcher data access (Sharing) ---
 

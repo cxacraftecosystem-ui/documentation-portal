@@ -1724,8 +1724,60 @@ model AppSetting {
   batchWindowStart   String   @default("02:00")
   batchWindowEnd     String   @default("05:00")
   batchTimezone      String   @default("Asia/Kolkata")
+  /// THE NIGHTLY WORKSHOP FILING (A6). Once a night the queue worker files every record whose PARENT
+  /// record already names a workshop — the clear-cut rung of services/workshop_inference — so the
+  /// admin card on /workshops is left holding only the rows that need a person. On by default; an
+  /// admin may switch it off there. `LastRunAt` doubles as the claim: the worker takes the night by a
+  /// conditional update on it, so two processes can never both run it.
+  workshopAutoMapEnabled    Boolean   @default(true)
+  workshopAutoMapLastRunAt  DateTime?
+  /// What the last night's run filed, as {"at", "applied", "byBucket"}. Null until it has run once.
+  workshopAutoMapLastResult Json?
   updatedAt          DateTime @updatedAt
   updatedById        String?
+}
+
+/// ONE MERGE OF TWO ARTISAN RECORDS THAT WERE THE SAME PERSON (C24) — the audit row and the undo.
+///
+/// The surviving artisan keeps its id; the merged one's children (products, tools, media, interview
+/// sittings, workshop rosters, section verdicts, comments, revisions, review history, sharing scope
+/// and task scopes) are re-pointed at it and the merged row is deleted. Everything needed to put it
+/// back — the merged row's every column, the survivor's columns before and after, and the id of every
+/// row that moved — is held here, so an admin can undo it for 30 days.
+///
+/// NO FOREIGN KEYS, deliberately: `mergedId` names a row that no longer exists, and `survivorId` must
+/// outlive a later delete of the survivor so the history still reads. `mergedById`/`undoneById` are
+/// audit stamps, like `reviewedById` elsewhere.
+///
+/// The row is also the REDIRECT: a phone that queued a product against the merged artisan before it
+/// synced replays it later, and the write is pointed at `survivorId` instead of failing (see
+/// services/artisan_merge.redirect_merged_artisans).
+model ArtisanMerge {
+  id             String    @id @default(cuid())
+  survivorId     String
+  mergedId       String
+  survivorName   String
+  mergedName     String
+  /// IN_PROGRESS while the writes run, DONE when they finished, UNDONE once reversed.
+  status         String    @default("IN_PROGRESS")
+  /// {fieldKey: "keep" | "merge" | "both"} as the admin chose it.
+  picks          Json
+  survivorBefore Json
+  survivorAfter  Json?
+  mergedSnapshot Json
+  /// The ids of every row re-pointed, per relation, and the link rows folded into the survivor's own.
+  moves          Json
+  mergedById     String?
+  createdAt      DateTime  @default(now())
+  completedAt    DateTime?
+  undoneAt       DateTime?
+  undoneById     String?
+  /// What the undo left alone because someone edited it after the merge.
+  undoNotes      Json?
+
+  @@index([mergedId])
+  @@index([survivorId])
+  @@index([createdAt])
 }
 
 /// A workshop-to-researcher assignment made by an admin. Only researchers assigned to a workshop may

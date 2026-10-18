@@ -4,6 +4,7 @@ from typing import Any, NamedTuple
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.db import db
+from app.services.artisan_merge import created_merged_record, merged_redirects, redirect_merged_artisans
 from app.core.deps import (
     require_record_creator,
     assert_can_contribute_relation,
@@ -752,6 +753,8 @@ async def create_tool(
         ):
             await hydrate_relations([replayed], _LINK_RELATIONS)
         return _tool_payload(replayed)
+    # A queued write naming an artisan merged away since lands on the survivor (services/artisan_merge).
+    await redirect_merged_artisans(payload)
     data = decimal_to_string(clean_data(payload.model_dump()))
     # THE TWO LINK LISTS COME OUT OF THE BODY HERE, above everything that reads ``data`` as columns,
     # and the ids are checked before the first write. ``craftId``/``craftName``/``artisanId`` are
@@ -821,6 +824,8 @@ async def update_tool(
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     tool = await require_record(db.tooldocumentation, tool_id)
+    # A queued write naming an artisan merged away since lands on the survivor (services/artisan_merge).
+    await redirect_merged_artisans(payload)
     # ``exclude_unset=True`` IS THE PRECONDITION OF ``clearable``, not a stylistic choice: it is what
     # makes a present key mean "the caller sent this". Drop it and every optional the client left
     # alone would arrive as ``None`` and be written as an explicit NULL over stored data.
@@ -963,7 +968,17 @@ async def assign_tool_artisans(
     # Every artisan being added is fetched in ONE query and every link written in ONE insert. Asking
     # per artisan cost two cross-region round trips each, so assigning a tool to a workshop's worth
     # of makers took longer than recording the tool did.
-    wanted = [aid for aid in dict.fromkeys(payload.artisanIds) if aid and aid not in have]
+    #
+    # A queued assignment naming an artisan merged away since lands on the survivor, as every other
+    # write does (services/artisan_merge). ``via`` remembers the old id so the researcher who
+    # recorded that artisan keeps the right to assign it.
+    redirects = await merged_redirects()
+    via: dict[str, str] = {}
+    for aid in payload.artisanIds:
+        if aid in redirects:
+            via.setdefault(redirects[aid], aid)
+    asked = [redirects.get(aid, aid) for aid in payload.artisanIds]
+    wanted = [aid for aid in dict.fromkeys(asked) if aid and aid not in have]
     if not wanted:
         return await _assigned_artisans(tool_id)
     artisans = await db.artisan.find_many(where={"id": {"in": wanted}})
@@ -973,6 +988,8 @@ async def assign_tool_artisans(
         if artisan is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
         if not may_assign_any and getattr(artisan, "createdById", None) != current_user.id:
+            if artisan_id in via and await created_merged_record(via[artisan_id], current_user.id):
+                continue
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail=_FOREIGN_ARTISAN_REFUSAL
             )

@@ -4,6 +4,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, status
 
 from app.core.db import db
+from app.services.artisan_merge import redirect_merged_artisans
 from app.core.deps import require_record_creator, assert_can_delete, get_current_user
 from app.schemas.records import ProductCreate, ProductUpdate
 from app.services.access import guard_record_edit
@@ -198,6 +199,8 @@ async def create_product(
     )
     if replayed is not None:
         return public_encode(replayed)
+    # A queued write naming an artisan merged away since lands on the survivor (services/artisan_merge).
+    await redirect_merged_artisans(payload)
     data = decimal_to_string(clean_data(payload.model_dump()))
     data = await attach_location(data)
     # Workshop entries: enforce assignment, then flag + pin a late submission for admin approval.
@@ -244,6 +247,8 @@ async def update_product(
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     product = await require_record(db.productdocumentation, product_id)
+    # A queued write naming an artisan merged away since lands on the survivor (services/artisan_merge).
+    await redirect_merged_artisans(payload)
     # ``exclude_unset=True`` IS THE PRECONDITION OF ``clearable``, not a stylistic choice: it is what
     # makes a present key mean "the caller sent this". Drop it and every optional the client left
     # alone would arrive as ``None`` and be written as an explicit NULL over stored data.

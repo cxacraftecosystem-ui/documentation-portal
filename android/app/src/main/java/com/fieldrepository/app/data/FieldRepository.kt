@@ -1821,6 +1821,10 @@ class FieldRepository(
      */
     suspend fun mapUnmappedRecords(): WorkshopMappingPlanDto = api.mapUnmappedRecords()
 
+    /** Switch the nightly filing of clear-cut records. Throws on failure, like the two calls above. */
+    suspend fun setUnmappedAuto(enabled: Boolean): WorkshopAutoMapDto =
+        api.setUnmappedAuto(WorkshopAutoMapRequest(enabled))
+
     suspend fun createArtisan(body: ArtisanCreateRequest, idempotencyKey: String? = null): ArtisanDto =
         api.createArtisan(idempotencyKey, body)
 

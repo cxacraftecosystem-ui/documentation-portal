@@ -11,6 +11,7 @@ from app.core.deps import (
 )
 from app.schemas.records import ArtisanCreate, ArtisanUpdate, drop_masked_identity_numbers
 from app.services.access import guard_record_edit
+from app.services.artisan_merge import created_merged_record, survivor_of
 from app.services.artisan_form_contract import assert_required_dates, take_form_contract
 from app.services.artisan_identity import mask_aadhaar, normalize_aadhaar
 from app.services.concurrency import gather_reads
@@ -397,6 +398,8 @@ async def create_artisan(
 
 @router.get("/{artisan_id}")
 async def get_artisan(artisan_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    # A link to an artisan merged away since opens the one it was merged into.
+    artisan_id = await survivor_of(artisan_id) or artisan_id
     artisan = await require_record(db.artisan, artisan_id)
     await hydrate_relations([artisan], RELATIONS)
     # Masked unless this caller is entitled to the raw number (creator, or professor+) — decided
@@ -411,6 +414,9 @@ async def update_artisan(
     payload: ArtisanUpdate,
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
+    # A queued edit of an artisan merged away since lands on the survivor (services/artisan_merge).
+    asked_id = artisan_id
+    artisan_id = await survivor_of(artisan_id) or artisan_id
     artisan = await require_record(db.artisan, artisan_id)
     # ``exclude_unset=True`` IS THE PRECONDITION OF ``clearable``, not a stylistic choice: it is what
     # makes a present key mean "the caller sent this". Drop it and every optional the client left
@@ -438,7 +444,13 @@ async def update_artisan(
     check = None
     if "workshopId" in data and data.get("workshopId") != artisan.workshopId:
         check = await enforce_workshop_submission(current_user, data.get("workshopId"))
-    await guard_record_edit(artisan, current_user, data, "artisan")
+    # The researcher who recorded the merged-away artisan may still edit it under its old id: their
+    # queued write would otherwise be refused on the survivor someone else owns (see
+    # ``created_merged_record``). Any other caller is asked the ordinary question.
+    privileged = None
+    if asked_id != artisan_id and await created_merged_record(asked_id, current_user.id):
+        privileged = True
+    await guard_record_edit(artisan, current_user, data, "artisan", privileged=privileged)
     await apply_status_policy_update(current_user, artisan, data)
     # Stamped after the edit guard (the stamp is the API's bookkeeping, never a contributor's edit)
     # and pinned after the status policy, so an already-flagged record cannot be self-approved.
@@ -674,5 +686,9 @@ async def get_artisan_questionnaire(artisan_id: str, _: Any = Depends(get_curren
 @router.delete("/{artisan_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_artisan(artisan_id: str, current_user: Any = Depends(get_current_user)) -> None:
     assert_can_delete(current_user)
+    # A queued delete of an artisan merged away since: the record is already gone, which is what was
+    # asked, so answer done. Deleting the survivor instead would delete a different record's data.
+    if await survivor_of(artisan_id) is not None and await db.artisan.find_unique(where={"id": artisan_id}) is None:
+        return
     await require_record(db.artisan, artisan_id)
     await db.artisan.delete(where={"id": artisan_id})

@@ -65,6 +65,7 @@ flowchart TB
 
   subgraph ops["Operations"]
     AS[AppSetting]
+    AM[ArtisanMerge]
     MS["ManagedSecret<br/>+ SecretTestResult"]
     AR[AppRelease]
     TK[AssignedTask]
@@ -379,7 +380,8 @@ path, so an edit that goes through the normal PATCH is captured; a direct databa
 
 | Model | Holds | Notes |
 |---|---|---|
-| `AppSetting` | repository-wide settings | includes `transcriptionMode` (`RAW`/`REFINED`/`REFINED_TRANSLATED`) and the STT provider order |
+| `AppSetting` | repository-wide settings | includes `transcriptionMode` (`RAW`/`REFINED`/`REFINED_TRANSLATED`), the STT provider order, and the nightly workshop filing (`workshopAutoMap*`: on/off, the night's claim, what the last run filed — `services/workshop_auto_map.py`) |
+| `ArtisanMerge` | one merge of two artisan records that were the same person | the audit row, the undo (every column of the merged row, the survivor before and after, the id of every re-pointed row; undoable for 30 days, identity numbers masked after) and the redirect for queued writes that still name the merged id. No foreign keys, by design — `services/artisan_merge.py` |
 | `ManagedSecret` | runtime-editable provider keys | value is **Fernet-encrypted at rest**; never returned in full, only a masked preview |
 | `SecretTestResult` | the last reachability check per key | so "is this key working" has an answer that is not a guess |
 | `AppRelease` | published Android APKs | the OTA channel; `versionCode` is what devices compare |

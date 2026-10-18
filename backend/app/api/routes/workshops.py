@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 
 from app.core.db import db
 from app.core.deps import (
@@ -75,6 +76,9 @@ from app.services.workshop_access import (
     valid_level,
     workshop_is_curated,
 )
+from app.services.app_settings import load_app_settings
+from app.services.artisan_merge import redirect_merged_artisans
+from app.services.workshop_auto_map import auto_map_status, set_auto_map_enabled
 from app.services.workshop_inference import (
     apply_workshop_mapping,
     plan_workshop_mapping,
@@ -308,6 +312,10 @@ async def create_workshop(
     # ABOVE THE GATES, NEVER BELOW: on a replay the row already exists, so re-asking can only turn a
     # create that SUCCEEDED into a 403, and it keeps ``attach_location`` from minting a second,
     # unreferenced ``Location`` row per replay.
+    #
+    # A queued create that names an artisan merged away since it was saved would fail the roster's
+    # foreign key on every replay; point it at the survivor first, before the replay repair too.
+    await redirect_merged_artisans(payload)
     replayed = await client_key_replay(db.workshop, payload.clientKey, user_id=current_user.id)
     if replayed is not None:
         await _repair_empty_rosters(
@@ -383,7 +391,24 @@ async def unmapped_records(_: Any = Depends(require_admin)) -> dict[str, Any]:
     many interviews the completion matrix is missing — is served by ``GET /questionnaire/completion``
     itself, so nobody has to hold this entitlement to understand their own screen.
     """
-    return await plan_workshop_mapping()
+    plan = await plan_workshop_mapping()
+    # ADDITIVE (2026-10-20): the nightly job's state, so the card can say "filed automatically each
+    # night" and lead with the rows that still need a person.
+    plan["autoMap"] = auto_map_status(await load_app_settings())
+    return plan
+
+
+class AutoMapSetting(BaseModel):
+    enabled: bool
+
+
+@router.put("/unmapped/auto")
+async def set_unmapped_auto(
+    payload: AutoMapSetting, current_user: Any = Depends(require_admin)
+) -> dict[str, Any]:
+    """Switch the nightly filing of clear-cut records on or off. Admin only."""
+    row = await set_auto_map_enabled(payload.enabled, getattr(current_user, "id", None))
+    return auto_map_status(row)
 
 
 @router.post("/unmapped/map")
@@ -700,6 +725,9 @@ async def update_workshop(
     current_user: Any = Depends(require_workshop_manager),
 ) -> dict[str, Any]:
     workshop = await require_record(db.workshop, workshop_id)
+    # A queued PATCH naming a merged artisan: without this the roster's delete_many runs and the
+    # create_many then fails the foreign key, emptying "Artisans attending" on every replay.
+    await redirect_merged_artisans(payload)
     # NO ``clearable`` TUPLE ON THIS ROUTE, AND ITS ABSENCE IS A NAMED DECISION RATHER THAN AN
     # OVERSIGHT. ``Workshop``'s four nullable scalars — ``description``, ``notes``, ``startDate``,
     # ``endDate`` — therefore remain a 200 that does nothing when a client sends an explicit null,

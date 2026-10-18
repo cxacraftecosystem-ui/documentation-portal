@@ -193,7 +193,10 @@ async def guard_record_edit(
     ask early. Omit it and this asks for itself, which is what every route but `routes/tools` does;
     pass it and the two queries are not repeated. It cannot be used to GRANT privilege that the
     function would not have found on its own — a route computing it any other way would be inventing
-    a second answer to the one question this module exists to answer once.
+    a second answer to the one question this module exists to answer once. ONE NAMED EXCEPTION:
+    ``routes/artisans`` passes True for the creator of an artisan merged into this one, writing
+    under the old id (``artisan_merge.created_merged_record``): they owned that record before the
+    merge folded it in here.
     """
     from app.core.deps import assert_can_contribute_fields
 

@@ -8,6 +8,7 @@ from prisma.errors import UniqueViolationError
 
 from app.core.config import get_settings
 from app.core.db import db
+from app.services.artisan_merge import redirect_merged_artisans
 from app.core.deps import get_current_user, is_admin, require_admin
 from app.schemas.media import (
     MediaCompleteRequest,
@@ -405,6 +406,8 @@ async def complete_media_upload(
     # cannot register a media row over another user's staged object.
     _assert_owns_object(payload.objectKey, current_user)
 
+    # A queued write naming an artisan merged away since lands on the survivor (services/artisan_merge).
+    await redirect_merged_artisans(payload)
     data = clean_data(payload.model_dump(exclude={"processingRequests"}))
     data = await attach_location(data)
     data["bucket"] = data.get("bucket") or settings.aws_s3_bucket
