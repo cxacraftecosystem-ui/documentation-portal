@@ -775,9 +775,7 @@ async def merge_artisans(keep_id: str, merge_id: str, picks: dict[str, str] | No
                 "recordType": "artisan",
                 "recordId": keep_id,
                 "editedById": get_value(user, "id"),
-                "changes": Json(
-                    {column: {"old": jsonable_encoder(keep.get(column)), "new": jsonable_encoder(value)} for column, value in changes.items()}
-                ),
+                "changes": Json(_ledger(keep, changes)),
             }
         )
 
@@ -966,9 +964,7 @@ async def undo_merge(merge_id: str, user: Any) -> dict[str, Any]:
                     "recordType": "artisan",
                     "recordId": survivor_id,
                     "editedById": get_value(user, "id"),
-                    "changes": Json(
-                        {k: {"old": jsonable_encoder(current.get(k)), "new": jsonable_encoder(v)} for k, v in plain.items()}
-                    ),
+                    "changes": Json(_ledger(current, plain)),
                 }
             )
 
@@ -1213,6 +1209,20 @@ _LEGACY_AADHAAR: tuple[str, ...] = (
 _IDENTITY_COLUMNS = (aadhaar_fingerprint.FINGERPRINT_FIELD, *_LEGACY_AADHAAR, "pehchanCardNumber")
 #: The columns that hold a raw identity number, which a snapshot keeps only for its undo window.
 _RAW_IDENTITY_COLUMNS = (*_LEGACY_AADHAAR, "pehchanCardNumber")
+
+
+def _ledger(before: dict[str, Any], changes: dict[str, Any]) -> dict[str, Any]:
+    """The edit-history entry for a merge or its undo. The Aadhaar is recorded as changed, never by
+    value: one valueless entry under ``aadhaarNumber``, as every other artisan edit records it."""
+    out = {column: {"old": jsonable_encoder(before.get(column)), "new": jsonable_encoder(value)} for column, value in changes.items()}
+    if any(column in out for column in _AADHAAR_COLUMNS):
+        for column in _AADHAAR_COLUMNS:
+            out.pop(column, None)
+        after = {**before, **changes}
+        out[aadhaar_fingerprint.NUMBER_FIELD] = aadhaar_fingerprint.ledger_entry(
+            aadhaar_fingerprint.has_aadhaar(before), aadhaar_fingerprint.has_aadhaar(after)
+        )
+    return out
 
 
 def _scrub(snap: Any) -> dict[str, Any]:

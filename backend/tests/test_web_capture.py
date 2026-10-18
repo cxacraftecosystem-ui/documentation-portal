@@ -607,6 +607,15 @@ def test_the_outcome_cannot_wipe_a_stored_number_or_drop_without_one():
     # Leaving the flag alone, or re-sending it on a flagged record, is fine.
     assert artisan_routes.reconcile_aadhaar_not_shared({"phone": "x"}, stored=flagged) == {"phone": "x"}
     assert artisan_routes.reconcile_aadhaar_not_shared({"aadhaarNotShared": True}, stored=flagged)["aadhaarNumber"] is None
+    # A number on file as a fingerprint (the 2026-10-17 register) counts as on file too.
+    fingerprinted = SimpleNamespace(aadhaarNumber=None, aadhaarFingerprint="ab" * 32, aadhaarNotShared=False)
+    with pytest.raises(HTTPException) as refused_fp:
+        artisan_routes.reconcile_aadhaar_not_shared({"aadhaarNotShared": True}, stored=fingerprinted)
+    assert refused_fp.value.status_code == 422
+    # An ordinary number edit on an unflagged record is not also a flag edit.
+    assert artisan_routes.reconcile_aadhaar_not_shared({"aadhaarNumber": VALID_AADHAAR}, stored=fingerprinted) == {
+        "aadhaarNumber": VALID_AADHAAR
+    }
 
 
 def test_the_update_route_hands_the_stored_artisan_to_the_reconcile():

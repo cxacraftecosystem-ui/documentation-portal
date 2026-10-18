@@ -333,7 +333,9 @@ def reconcile_aadhaar_not_shared(data: dict[str, Any], stored: Any | None = None
     """
     number = data.get("aadhaarNumber")
     if isinstance(number, str) and number.strip():
-        data["aadhaarNotShared"] = False
+        # Cleared only where it was or could be set, so an ordinary number edit is not also a flag edit.
+        if stored is None or "aadhaarNotShared" in data or get_value(stored, "aadhaarNotShared"):
+            data["aadhaarNotShared"] = False
         return data
     if stored is not None:
         # On file means a fingerprint, or a legacy number the backfill has not reached yet.

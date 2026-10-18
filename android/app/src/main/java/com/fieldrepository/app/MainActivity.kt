@@ -5461,7 +5461,7 @@ private fun ArtisanAadhaarField(
                 if (error != null) {
                     Text(error)
                 } else if (onRecord != null) {
-                    Text("On record: $onRecord. Type a new number only to replace it.", color = Muted, fontSize = 12.sp)
+                    Text("On record: $onRecord. Type a new number only to replace it.", color = Muted, style = MaterialTheme.typography.bodySmall)
                 } else {
                     Text(
                         if (required) {

@@ -59,7 +59,7 @@ class _Table(FakeTable):
 
 class _Db:
     UNIQUE_KEYS: dict[str, tuple[tuple[str, ...], ...]] = {
-        "artisan": (("aadhaarNumber",), ("pehchanCardNumber",)),
+        "artisan": (("aadhaarNumber",), ("aadhaarFingerprint",), ("pehchanCardNumber",)),
         "questionnaireinterview": (("questionnaireId", "artisanSetKey"),),
         "workshopartisan": (("workshopId", "artisanId"),),
         "toolartisan": (("toolId", "artisanId"),),
@@ -542,3 +542,65 @@ def test_merging_away_a_survivor_warns_and_the_old_undo_says_why_it_cannot(db: _
     response = _call("POST", f"/artisans/merge/{first}/undo")
     assert response.status_code == 409
     assert "merged into Sita Devi" in response.json()["detail"]
+
+
+# --- the Aadhaar fingerprint ----------------------------------------------------------------------
+
+FINGERPRINT = "ab" * 32
+
+
+def _fingerprint_the_duplicate(db: _Db) -> None:
+    """The duplicate as the fingerprint release stores it: no full number, a fingerprint and the last four."""
+    dup = _row(db, "artisan", "dup")
+    dup.aadhaarNumber = None
+    dup.aadhaarFingerprint = FINGERPRINT
+    dup.aadhaarLast4 = "2346"
+    keep = _row(db, "artisan", "keep")
+    keep.aadhaarFingerprint = None
+    keep.aadhaarLast4 = None
+
+
+def test_the_preview_masks_a_fingerprinted_aadhaar(db: _Db) -> None:
+    _fingerprint_the_duplicate(db)
+    body = _call("GET", "/artisans/merge/preview", keepId="keep", mergeId="dup").json()
+    fields = {field["key"]: field for field in body["fields"]}
+    assert fields["aadhaarNumber"]["merge"] == "XXXX XXXX 2346"
+    assert fields["aadhaarNumber"]["default"] == "merge"
+    assert FINGERPRINT not in str(body)
+
+
+def test_two_different_fingerprints_warn(db: _Db) -> None:
+    _fingerprint_the_duplicate(db)
+    keep = _row(db, "artisan", "keep")
+    keep.aadhaarFingerprint = "cd" * 32
+    keep.aadhaarLast4 = "1111"
+    body = _call("GET", "/artisans/merge/preview", keepId="keep", mergeId="dup").json()
+    assert any("Aadhaar numbers differ" in warning for warning in body["warnings"])
+
+
+def test_a_merge_moves_a_fingerprinted_aadhaar_whole_and_records_no_value(db: _Db) -> None:
+    _fingerprint_the_duplicate(db)
+    response = _merge()
+    assert response.status_code == 200, response.text
+    keep = _row(db, "artisan", "keep")
+    # Possible only because the duplicate's unique fingerprint was freed first.
+    assert keep.aadhaarFingerprint == FINGERPRINT and keep.aadhaarLast4 == "2346"
+    ledger = [row for row in db.recordrevision.rows if row.recordId == "keep" and row.id != "rv1"]
+    entry = unjson(ledger[0].changes)
+    assert "aadhaarFingerprint" not in entry and "aadhaarLast4" not in entry
+    assert entry["aadhaarNumber"]["redacted"] is True
+    assert FINGERPRINT not in str(entry) and "2346" not in str(entry)
+
+
+def test_undo_gives_the_fingerprint_back(db: _Db) -> None:
+    _fingerprint_the_duplicate(db)
+    merge_id = _merge().json()["id"]
+    response = _call("POST", f"/artisans/merge/{merge_id}/undo")
+    assert response.status_code == 200, response.text
+    assert response.json()["kept"] == []
+    dup = _row(db, "artisan", "dup")
+    keep = _row(db, "artisan", "keep")
+    assert dup.aadhaarFingerprint == FINGERPRINT and dup.aadhaarLast4 == "2346"
+    assert keep.aadhaarFingerprint is None and keep.aadhaarLast4 is None
+    undo_ledger = unjson(db.recordrevision.rows[-1].changes)
+    assert undo_ledger["aadhaarNumber"]["redacted"] is True

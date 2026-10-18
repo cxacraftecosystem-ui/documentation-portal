@@ -123,7 +123,11 @@ class OutboxFixTest {
         val queue = File(dir, "queue.json")
         val entry = refused().copy(failureCode = "artisan_identity_conflict", existingRecordId = "a9", existingRecordLabel = "Ramesh Chhipa, Bagru")
         OfflineQueueFile.write(queue, listOf(entry))
-        assertEquals(entry, OfflineQueueFile.read(queue) { error(it) }.single())
+        val back = OfflineQueueFile.read(queue) { error(it) }.single()
+        // The body's Aadhaar is sealed at rest (or, with no keystore as here, withheld): AadhaarAtRestTest
+        // covers that. Everything this test is about comes back as written.
+        assertFalse(back.payloadJson.contains("234123412346"))
+        assertEquals(entry.copy(payloadJson = back.payloadJson), back)
     }
 
     @Test

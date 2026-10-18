@@ -614,14 +614,13 @@ private fun RetypeAadhaarDialog(
     var error by remember(entry.id) { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Type the Aadhaar number again", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
+        title = { Text("Type the Aadhaar number again", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium) },
         text = {
             Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     last4?.let { "“${entry.label}” is safe. Type the number ending $it to send it." }
                         ?: "“${entry.label}” is safe. Type the artisan's Aadhaar number to send it.",
-                    fontSize = 13.sp,
-                    lineHeight = 19.sp
+                    style = MaterialTheme.typography.bodyMedium
                 )
                 OutlinedTextField(
                     value = typed,
@@ -647,8 +646,8 @@ private fun RetypeAadhaarDialog(
                         ?: last4?.takeIf { !typed.endsWith(it) }?.let { "That number doesn't end in $it. Check the card." }
                     if (problem != null) error = problem else onTyped(typed)
                 }
-            ) { Text("Send it", fontSize = 13.sp) }
+            ) { Text("Send it", style = MaterialTheme.typography.labelLarge) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Not now", fontSize = 13.sp) } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Not now", style = MaterialTheme.typography.labelLarge) } }
     )
 }

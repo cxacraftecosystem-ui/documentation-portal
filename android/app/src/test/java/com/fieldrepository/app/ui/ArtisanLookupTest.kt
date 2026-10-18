@@ -61,7 +61,8 @@ class ArtisanLookupTest {
             "src/main/java/com/fieldrepository/app/MainActivity.kt",
         )
         assertTrue(source.contains("if (notSharedOffered) AppToggle("))
-        assertTrue(source.contains("aadhaarNumber = aadhaarForBody(aadhaar, aadhaarNotShared, editing?.aadhaarNumber)"))
+        // An edit left empty beside the mask keeps the number on record (null, left out of the body).
+        assertTrue(source.contains("aadhaarNumber = if (keepsStoredAadhaar) null else aadhaarForBody(aadhaar, aadhaarNotShared, editing?.aadhaarNumber)"))
         assertFalse(source.contains("aadhaarNumber = if (aadhaarNotShared) \"\" else"))
     }
 }
