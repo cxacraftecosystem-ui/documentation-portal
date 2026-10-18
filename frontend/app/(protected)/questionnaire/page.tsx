@@ -2,13 +2,14 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowDown, ArrowUp, ClipboardList, GripVertical, Lock, Mic, Pencil, Plus, Save, Square, Trash2 } from "lucide-react";
 
 import { CappedListNotice } from "@/components/data/CappedListNotice";
 import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { OnDeviceDictationButton } from "@/components/dictation/OnDeviceDictationButton";
 import { EmptyState } from "@/components/EmptyState";
+import { interviewFromSearchParams } from "@/lib/unifiedSearch";
 import { Field, MultiNoteField, Select, TextArea, TextInput } from "@/components/FormControls";
 import { CarryContextBanner, carryScope, useCarryContext } from "@/components/forms/CarryContextBanner";
 import { LocationFields } from "@/components/forms/LocationFields";
@@ -339,6 +340,12 @@ function QuestionnairePageBody() {
   const { adminMode } = useAdminView();
   const { addCompleted } = useUploads();
   const searchParams = useSearchParams();
+  const router = useRouter();
+  // `?interview=<id>` (a search result, docs/SEARCH.md) opens that interview read-only.
+  const interviewLink = interviewFromSearchParams(searchParams);
+  useEffect(() => {
+    if (interviewLink) router.replace(`/questionnaire/interviews/${encodeURIComponent(interviewLink)}`);
+  }, [interviewLink, router]);
   const [sections, setSections] = useState<QuestionnaireSection[]>([]);
   /**
    * WHICH INSTRUMENT THIS CAPTURE IS ON. Two exist and their section codes collide completely, so

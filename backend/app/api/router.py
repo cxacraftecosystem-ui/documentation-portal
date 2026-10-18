@@ -8,10 +8,11 @@ from app.api.routes import (
     artisan_merge,
     artisans,
     auth,
-    craft_codes,
-    cross_portal,
     completeness,
+    craft_codes,
     crafts,
+    cross_portal,
+    cross_portal_search,
     dashboard,
     data_access,
     data_browser,
@@ -57,6 +58,8 @@ api_router.include_router(craft_codes.router)
 api_router.include_router(cross_portal.router)
 # The completeness rules file (GET /records/completeness-rules), for the clients' offline copies.
 api_router.include_router(completeness.router)
+# The designer portal's searches of this portal (signed peer routes; docs/SEARCH.md).
+api_router.include_router(cross_portal_search.router)
 api_router.include_router(workshops.router)
 api_router.include_router(products.router)
 api_router.include_router(processes.router)

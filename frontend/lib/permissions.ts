@@ -274,7 +274,7 @@ export const ROUTE_GUARDS: RouteGuard[] = [
     gate: "require_dataset_downloader",
     title: "Dataset access required",
     message:
-      "Needs dataset access. Use Browse records instead."
+      "Needs dataset access. Use Search instead."
   },
   { path: "/artisans/new", ...RECORD_CREATOR_GUARD },
   { path: "/products/new", ...RECORD_CREATOR_GUARD },

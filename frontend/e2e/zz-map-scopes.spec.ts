@@ -186,11 +186,11 @@ test("a pin can be navigated from", async ({ page }) => {
   const panel = page.getByRole("region", { name: "Bareilly" });
   await expect(panel).toBeVisible();
 
-  // Specifically a RECORD link. The panel also carries an "Open these in Browse records" link, and
+  // Specifically a RECORD link. The panel also carries an "Open these in Search" link, and
   // matching the first link in the region would pass on that one while the list was still loading.
   const record = panel.locator("a[href^='/artisans/'], a[href^='/products/'], a[href^='/tools/']");
   await expect(record.first()).toBeVisible({ timeout: 30_000 });
-  await expect(panel.getByRole("link", { name: /Browse records/ })).toBeVisible();
+  await expect(panel.getByRole("link", { name: /Open these in Search/ })).toBeVisible();
 
   await page.screenshot({ path: path.join(OUT, "1280-pin-panel.png"), fullPage: true });
   // With the panel open is where the page DID scroll sideways: a record title is arbitrary text, and

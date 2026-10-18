@@ -152,6 +152,7 @@ import com.fieldrepository.app.ui.appMenuHidesPage
 import com.fieldrepository.app.ui.appMenuShowing
 import com.fieldrepository.app.ui.appSearchCachedItems
 import com.fieldrepository.app.ui.appSearchRemoteItems
+import com.fieldrepository.app.ui.RemoteRecordScreen
 import com.fieldrepository.app.ui.appSearchScreenItems
 import com.fieldrepository.app.ui.appSearchSettingItems
 import com.fieldrepository.app.ui.closeAppMenu
@@ -762,6 +763,11 @@ private sealed interface Screen {
      * its tools, which is how "Assignment board" on the Tasks screen lands straight on the board.
      */
     data class AdminHub(val section: AdminHubEntry? = null) : Screen
+    /**
+     * One record from the other portal, read-only (docs/SEARCH.md), opened from a search result with
+     * a portal chip. [from] is where Back returns.
+     */
+    data class RemoteRecord(val type: String, val id: String, val from: Screen? = null) : Screen
 }
 
 /** Context carried forward from a just-saved record into a follow-up record. */
@@ -2028,6 +2034,7 @@ private fun HomeScreen(
             // what lets the single header arrow replace the in-page "All admin tools" button — the
             // arrow, the system back gesture and the back gesture all route through here.
             is Screen.AdminHub -> if (s.section != null) Screen.AdminHub() else Screen.Dashboard
+            is Screen.RemoteRecord -> s.from ?: Screen.Dashboard
             is Screen.Dashboard -> Screen.Dashboard
         }
         // Back to a list from a record puts the list back where it was scrolled (see `pageScroll`).
@@ -2061,6 +2068,7 @@ private fun HomeScreen(
         is Screen.MyAiKeys -> null
         is Screen.TwoStepVerification -> null
         is Screen.DataBrowser -> "Data Browser"
+        is Screen.RemoteRecord -> null
         // A reviewer who is not an admin lands on the review tool alone (see the AdminHub branch
         // below), so the header must not announce a hub of admin tools they were never given.
         is Screen.AdminHub -> if (s.section == AdminHubEntry.REVIEWS && !(isAdmin && adminChrome)) {
@@ -2098,6 +2106,8 @@ private fun HomeScreen(
         }
         // The legacy app-settings screen, which no menu reaches.
         is Screen.Settings -> null
+        // Opened from the search header, which is not a menu row.
+        is Screen.RemoteRecord -> null
         is Screen.Browse, is Screen.Edit, is Screen.View -> null
         is Screen.Create -> when (s.mode) {
             EntryMode.ARTISAN -> NavDestination.RECORD_ARTISAN
@@ -2144,7 +2154,10 @@ private fun HomeScreen(
         appSearchRemoteItems(
             repository = repository,
             query = query,
-            openRecord = { type, id -> attemptExit { openSearchRecord(type, id) } }
+            openRecord = { type, id -> attemptExit { openSearchRecord(type, id) } },
+            openRemote = { type, id ->
+                attemptExit { message = null; screen = Screen.RemoteRecord(type, id, from = screen) }
+            }
         )
 
     // `appMenuShowing` and not `isOpen`, which stays false for the whole opening slide: Back pressed
@@ -2828,6 +2841,7 @@ private fun HomeScreen(
                     }
                 }
             )
+            is Screen.RemoteRecord -> RemoteRecordScreen(repository = repository, type = s.type, id = s.id)
 
             is Screen.Settings -> SettingsScreen(
                 repository = repository,

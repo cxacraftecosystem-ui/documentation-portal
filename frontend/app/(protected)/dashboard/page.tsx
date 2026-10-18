@@ -148,7 +148,7 @@ function DashboardView() {
     // volunteer contributes.
     { label: "Questionnaire", icon: ClipboardList, newHref: "/questionnaire?new=1", updateHref: "/questionnaire", newLabel: "New" },
     { label: "Miscellaneous Media", icon: Images, newHref: "/media", newLabel: "Upload" },
-    // Reading is never gated: without dataset access the tile leads to Browse records instead.
+    // Reading is never gated: without dataset access the tile leads to Search instead.
     { label: "View Data", icon: Eye, newHref: canDownloadDataset(user) ? "/data" : "/search", newLabel: "Open" },
     // The two web-only reading surfaces, which had no entry point anywhere and were reachable only
     // by typing the URL. They sit here, after View Data, because all three answer "show me what is
@@ -276,7 +276,7 @@ function DashboardView() {
           As <span className="font-medium text-ink-700">{roleLabel(user?.role)}</span> you can add to existing records
           from{" "}
           <Link href="/search" className="font-medium text-purple-700 dark:text-purple-300 underline-offset-2 hover:underline">
-            Browse records
+            Search
           </Link>
           . New records need Researcher access.{" "}
           <Link href="/guide" className="font-medium text-purple-700 dark:text-purple-300 underline-offset-2 hover:underline">

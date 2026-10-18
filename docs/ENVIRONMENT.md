@@ -258,6 +258,26 @@ box `.env`; none is created by this repository.
 | `CROSS_PORTAL_TOKEN` | With the flag on | — | **Yes** | Shared by both servers. Authenticates requests and signs answers. 32+ characters. |
 | `AADHAAR_FINGERPRINT_KEY` | With the flag on | — | **Yes** | Not a cross-portal variable: the artisan register's Aadhaar fingerprint key (SSM `/iit/shared/aadhaar-fingerprint-key`, the same value on both servers), which the lookup reuses. Without it the feature stays off. Never rotate it: every stored fingerprint, and so every cross-portal match, depends on it. There is no `CROSS_PORTAL_AADHAAR_HMAC_KEY`. |
 
+### One search across both portals — shipped OFF
+
+One index per portal (`SearchDocument`), kept current by database triggers and drained by the queue
+worker every 15 seconds; ranked by Postgres full-text and trigram, and by meaning when embeddings
+are on. The designer portal's results arrive over the C27 signed channel for the roles allowed to
+see them, and this portal answers the designer portal's searches only with records it may share
+(every artisan named has granted sharing consent). [SEARCH.md](SEARCH.md) has the whole contract.
+Roll out in this order: both backends with every flag off; `UNIFIED_SEARCH_ENABLED` (let the queue
+drain); the cross-portal values on both servers, then `CROSS_PORTAL_SEARCH_ENABLED`; embeddings last.
+Every value goes to the GitHub Actions secrets **and** the box `.env`.
+
+| Variable | Required | Default | Secret | Notes |
+|---|---|---|---|---|
+| `UNIFIED_SEARCH_ENABLED` | No | **`false`** | No | Opens `GET /api/search/unified` and lets the worker build the index. Off: the route answers 404, clients use `GET /api/search`, and the queue only fills. |
+| `SEARCH_EMBEDDINGS_ENABLED` | No | **`false`** | No | The AI flag. Meaning ranking runs only when this is on, the provider has a key (`OPENAI_API_KEY`, or the Gemini keys) and the `embedding` column exists (pgvector). Off: `"mode": "text"` and no provider call. |
+| `SEARCH_EMBEDDING_PROVIDER` | No | `openai` | No | `openai` or `gemini`. Gemini's free tier may train on inputs; keep it opt-in. |
+| `SEARCH_EMBEDDING_MODEL` | No | `text-embedding-3-small` | No | Asked for 768 dimensions, fixed in code and in the migration. |
+| `CROSS_PORTAL_SEARCH_ENABLED` | No | **`false`** | No | Asks the designer portal and answers its searches (`/api/cross-portal/peer/search*`). Also needs `CROSS_PORTAL_TOKEN`, `CROSS_PORTAL_AADHAAR_HMAC_KEY` and `DESIGNER_PORTAL_API_URL`; the designer portal needs its own flag, the same secrets and `FIELD_REPOSITORY_API_URL`. |
+| `DESIGNER_PORTAL_API_URL` | With cross-portal search | — | No | The designer portal's API base up to `/api`, e.g. `https://<designer-api-host>/api`. Only cross-portal search calls it. |
+
 ### AI-drafted interview answers (C28) — shipped OFF
 
 | Variable | Required | Default | Secret | Notes |

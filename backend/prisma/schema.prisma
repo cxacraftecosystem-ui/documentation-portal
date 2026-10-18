@@ -669,10 +669,18 @@ model CrossPortalAccessLog {
   remoteUserId    String?
   remoteArtisanId String?
   matchedBy       String?
+  /// This portal's own account behind a RECORD_VIEW it asked the designer portal for (docs/SEARCH.md).
+  userId          String?
+  /// SEARCH and RECORD_VIEW rows: the record type and id opened, and how many results went out.
+  /// Never the query text.
+  entityType      String?
+  entityId        String?
+  resultCount     Int?
   createdAt       DateTime @default(now())
 
   @@index([artisanId, createdAt])
   @@index([remoteUserId, createdAt])
+  @@index([remoteUserId, action, createdAt])
   @@index([createdAt])
 }
 
@@ -2334,4 +2342,45 @@ model WeeklyDigest {
 
   @@unique([userId, weekStart])
   @@index([weekStart, status])
+}
+
+/// ONE SEARCH ACROSS BOTH PORTALS (docs/SEARCH.md): the index this portal keeps of its own records.
+/// Written only by services/search_indexer.py through raw SQL; ``tsv`` is a generated column and the
+/// ``embedding`` vector(768) column (present only where pgvector is installed) is deliberately not
+/// declared. Migrations are deploy-only; never ``db push`` this model.
+model SearchDocument {
+  id               String    @id
+  entityType       String
+  entityId         String
+  title            String
+  subtitle         String?
+  body             String    @default("")
+  place            String?
+  craftIds         String[]  @default([])
+  craftCodes       String[]  @default([])
+  workshopIds      String[]  @default([])
+  artisanIds       String[]  @default([])
+  designWorkshopId String?
+  audience         String    @default("ALL")
+  shareable        Boolean   @default(false)
+  openPath         String
+  recordDate       DateTime? @db.Timestamptz
+  contentHash      String
+  embeddedHash     String?
+  updatedAt        DateTime  @default(now()) @db.Timestamptz
+  tsv              Unsupported("tsvector")?
+
+  @@unique([entityType, entityId])
+  @@index([entityType, recordDate(sort: Desc)])
+}
+
+/// Records waiting to be (re)indexed. Filled by the ``search_enqueue()`` triggers and drained by the
+/// queue worker in small batches.
+model SearchIndexQueue {
+  id         BigInt   @id @default(autoincrement())
+  entityType String
+  entityId   String
+  enqueuedAt DateTime @default(now()) @db.Timestamptz
+
+  @@index([enqueuedAt])
 }
