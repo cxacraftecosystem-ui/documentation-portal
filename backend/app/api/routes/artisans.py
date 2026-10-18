@@ -738,4 +738,22 @@ async def delete_artisan(artisan_id: str, current_user: Any = Depends(get_curren
     if await survivor_of(artisan_id) is not None and await db.artisan.find_unique(where={"id": artisan_id}) is None:
         return
     await require_record(db.artisan, artisan_id)
+    # Questionnaire v2 (DESIGN 3.8): an artisan who is a recording subject or has answers is never
+    # deleted out from under them (the rows are RESTRICT). Merge the duplicate instead.
+    if callable(getattr(type(db), "query_raw", None)):
+        rows = await db.query_raw(
+            'SELECT (SELECT count(*) FROM "QuestionnaireRecordingSubject" WHERE "artisanId" = $1) + '
+            '(SELECT count(*) FROM "QuestionnaireAnswer" WHERE "artisanId" = $1) AS n',
+            artisan_id,
+        )
+        held = int(rows[0]["n"]) if rows else 0
+        if held:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "HAS_RECORDINGS",
+                    "message": f"This artisan has {held} questionnaire takes or answers. Merge them into the other record instead.",
+                    "count": held,
+                },
+            )
     await db.artisan.delete(where={"id": artisan_id})

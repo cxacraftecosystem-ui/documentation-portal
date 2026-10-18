@@ -389,6 +389,21 @@ class Settings(BaseSettings):
     )
     cross_portal_token: str | None = Field(default=None, alias="CROSS_PORTAL_TOKEN")
 
+    # ── QUESTIONNAIRE V2 (C:/dev/IIT/docs/questionnaire/DESIGN_2026-10-18.md; docs/ENVIRONMENT.md) ─
+    #
+    # OFF BY DEFAULT: the backend ships dark (rollout step 2). While false, every v2 route answers 404
+    # and every old route (POST /questionnaire/interviews, /media/complete with "questionnaire")
+    # behaves exactly as before; GET /questionnaire/config tells both clients which screens to draw.
+    # The owner flips it after the backfill (rollout steps 3 and 4).
+    questionnaire_v2: bool = Field(default=False, alias="QUESTIONNAIRE_V2")
+    # Decision 5: old builds stop CREATING sessions 30 days after every active device runs the new
+    # build. Unset = old builds keep creating. Set (e.g. "0.0.14") = a create from a lower
+    # X-App-Version gets 503 + Retry-After (which old builds treat as transient) and the P14 banner;
+    # their queued clips are always accepted.
+    questionnaire_min_app_version_for_create: str | None = Field(
+        default=None, alias="QUESTIONNAIRE_MIN_APP_VERSION_FOR_CREATE"
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

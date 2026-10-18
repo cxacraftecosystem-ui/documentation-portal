@@ -9,6 +9,7 @@ from prisma import Json
 from pydantic import Field, ValidationError
 
 from app.core.db import db
+from app.services.questionnaire_v2.live import live_media_where
 from app.core.deps import (
     ROLE_RANK,
     can_access_review,
@@ -25,6 +26,8 @@ from app.core.deps import (
 )
 from app.schemas.common import APIModel, ReviewAction
 from app.schemas.questionnaire import QuestionnaireInterviewUpdate
+from app.services.questionnaire_v2 import review as v2_review
+from app.services.questionnaire_v2 import shims as v2_shims
 from app.schemas.records import (
     ArtisanUpdate,
     ProcessUpdate,
@@ -476,7 +479,7 @@ _MEDIA_TAGS: dict[str, tuple[str, ...]] = {
     "product": ("product",),
     "tool": ("tool",),
     "process": ("process",),
-    "questionnaire": ("questionnaire", "questionnaireinterview"),
+    "questionnaire": ("questionnaire", "questionnaireinterview", "questionnaire_session"),
 }
 _MEDIA_COLUMNS: dict[str, str] = {
     "product": "productId",
@@ -549,7 +552,7 @@ async def media_of_records(
     steps = await _process_steps([rid for t, rid in wanted if t == "process"], client)
     clauses = [clause for t, rid in wanted for clause in _media_clauses(t, rid, steps.get(rid, []))]
     files = await (client or db).mediafile.find_many(
-        where={"status": {"in": list(statuses)}, "OR": clauses}, include={"uploadedBy": True}
+        where=live_media_where({"status": {"in": list(statuses)}, "OR": clauses}), include={"uploadedBy": True}
     )
     for media in files:
         for t, rid in wanted:
@@ -629,6 +632,10 @@ async def approve_record_media(
         return 0
     grouped = await media_of_records([(key, record_id)], client=client)
     files = cascade_eligible(grouped.get((key, record_id), []), reviewer)
+    if key == "questionnaire" and files and v2_shims.enabled():
+        # Questionnaire v2: a removed take, or one waiting for a decision, never rides an approval.
+        excluded = await v2_review.excluded_media_ids(client or db, record_id)
+        files = [f for f in files if str(get_value(f, "id")) not in excluded]
     if not files:
         return 0
     return await approve_media_with_record(
@@ -702,6 +709,10 @@ async def set_review_status(
     # carries, with the same reviewer and moment. A failure part-way leaves all of them as they were,
     # never a record approved over files that silently stayed pending. Rejecting or sending a record
     # back does not touch its files; each file keeps its own Reject.
+    v2_session = record_type.lower() == "questionnaire" and v2_shims.enabled()
+    if v2_session and new_status == "APPROVED":
+        # DESIGN 3.10: 0 participants, no content, or a take waiting for a decision -> 409 with the reason.
+        await v2_review.assert_may_approve(db, record_id)
     media_approved = 0
     async with db.tx(max_wait=REVIEW_TX_MAX_WAIT, timeout=REVIEW_TX_TIMEOUT) as tx:
         tx_delegate, _log_type, _relation = delegate_for(record_type, tx)
@@ -711,6 +722,8 @@ async def set_review_status(
             media_approved = await approve_record_media(
                 record_type, record_id, reviewer, client=tx, reviewed_at=data["reviewedAt"]
             )
+            if v2_session:
+                await v2_review.approve_revisions(tx, record_id)
     if notify:
         label_fields = next((labels for t, _d, labels in _PENDING_SOURCES if t == record_type.lower()), ("name", "title"))
         await email_outbox.notify_review_decision(

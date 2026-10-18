@@ -21,10 +21,13 @@ from app.services.app_settings import (
     transcription_mode,
     within_processing_window,
 )
+from app.services import consent_gate
 from app.services.s3 import get_object_bytes
+from app import transcription
 
 TRANSCRIPTION = "TRANSCRIPTION"
 MEASUREMENT = "MEASUREMENT"
+SHA_VERIFY = "SHA_VERIFY"
 QUEUED = "QUEUED"
 PROCESSING = "PROCESSING"
 COMPLETED = "COMPLETED"
@@ -193,8 +196,11 @@ async def process_next_media_jobs(
     # (spare capacity) so we don't wait for the night when nothing else is happening — but never while a
     # rate-limit cooldown is in effect. Lighter MEASUREMENT jobs always run.
     app_settings = await load_app_settings()
+    # THE PAUSE (owner correction (d), 18 Oct 2026) outranks every window: while it is set no
+    # transcription job is even selected, so no provider is called and every job stays QUEUED.
     allow_transcription = (
-        (within_processing_window(app_settings) or _server_is_idle())
+        not await transcription.is_paused()
+        and (within_processing_window(app_settings) or _server_is_idle())
         and not _transcription_in_cooldown(now)
     )
     if not allow_transcription:
@@ -257,6 +263,10 @@ async def transcribe_media_now(media: Any, settings: Settings | None = None) -> 
     caller can surface it."""
     settings = settings or get_settings()
     media_id = str(_value(media, "id"))
+    # Paused, or not cleared by the consent gate: queue it (or say why not) and call nobody.
+    if await transcription.is_paused() or await consent_gate.verdict(media_id) != consent_gate.ALLOW:
+        queued = await transcription.enqueue(media_id, "transcribe-now", requested_by_id=_value(media, "uploadedById"))
+        return {**queued, "text": None, "message": transcription.PAUSED_REASON if queued.get("paused") else None}
     await db.mediafile.update(where={"id": media_id}, data={"transcriptStatus": PROCESSING})
     content = await asyncio.to_thread(get_object_bytes, _value(media, "objectKey"))
     result = await transcribe_audio_bytes(
@@ -383,6 +393,27 @@ async def _lock_job(job_id: str, worker_id: str) -> Any | None:
 
 async def _process_job(job: Any, settings: Settings) -> None:
     media = job.mediaFile
+    if job.jobType == SHA_VERIFY:
+        # Questionnaire v2: hash the stored object (streamed, never held whole) and apply the
+        # identical-bytes rules. Calls no outside service.
+        from app.services.questionnaire_v2 import recordings as v2_recordings
+
+        result = await v2_recordings.verify_sha(media.id)
+        await _complete_job(job.id, result)
+        return
+    if job.jobType == TRANSCRIPTION:
+        # The consent gate on every outside send (DESIGN 3.11): a file that is not cleared is parked
+        # with the reason and the job is closed; recording consent later re-enqueues it.
+        gate = await consent_gate.verdict(media.id)
+        if gate != consent_gate.ALLOW:
+            await db.mediafile.update(
+                where={"id": media.id}, data={"transcriptStatus": consent_gate.TRANSCRIPT_STATUS_FOR[gate]}
+            )
+            await db.mediaprocessingjob.update(
+                where={"id": job.id},
+                data={"status": "CANCELLED", "error": f"Consent gate: {gate}", "completedAt": datetime.now(UTC)},
+            )
+            return
     content = await asyncio.to_thread(get_object_bytes, media.objectKey)
     if job.jobType == TRANSCRIPTION:
         result = await transcribe_audio_bytes(

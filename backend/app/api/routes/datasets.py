@@ -62,6 +62,7 @@ from fastapi.responses import StreamingResponse
 
 from app.core.config import get_settings
 from app.core.db import db
+from app.services.questionnaire_v2.live import live_media_where
 from app.core.deps import (
     DATASET_READ_SCOPE,
     get_value,
@@ -442,12 +443,12 @@ async def _media_by_tag(dataset: Dataset, rows: list[Any]) -> dict[str, list[Any
     if not ids:
         return {}
     media = await db.mediafile.find_many(
-        where={
+        where=live_media_where({
             "AND": [
                 {"linkedRecordType": {"in": list(dataset.media_tags)}},
                 {"linkedRecordId": {"in": ids}},
             ]
-        }
+        })
     )
     index: dict[str, list[Any]] = {}
     for item in media:

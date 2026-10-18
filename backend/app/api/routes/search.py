@@ -4,6 +4,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 
 from app.core.db import db
+from app.services.questionnaire_v2.live import live_media_where
 from app.core.deps import get_current_user
 from app.services.concurrency import gather_reads
 from app.services.pagination import normalize_pagination
@@ -126,6 +127,7 @@ async def global_search(
             ),
         ))
     if "media" in selected:
+        media_where = live_media_where(media_where)
         planned.append(("media", db.mediafile.count(where=media_where)))
         planned.append(
             ("media_rows", db.mediafile.find_many(where=media_where, skip=skip, take=page_size, order=_ORDER))

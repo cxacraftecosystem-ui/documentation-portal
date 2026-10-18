@@ -1258,6 +1258,7 @@ def media_relation_data(record_type: str | None, record_id: str | None) -> dict[
         "tool": "toolId",
         "questionnaire": "questionnaireInterviewId",
         "questionnaireinterview": "questionnaireInterviewId",
+        "questionnaire_session": "questionnaireInterviewId",
     }
     field = field_map.get(normalized)
     return {field: record_id} if field else {}

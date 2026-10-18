@@ -31,6 +31,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.core.db import db
+from app.services.questionnaire_v2.live import live_media_where
 from app.core.deps import get_value, is_empty_value
 from app.services import answer_drafts
 from app.services.concurrency import gather_reads
@@ -245,7 +246,7 @@ async def consolidate_for_artisan(
             db.questionnaireresponse.find_many(
                 where={"interviewId": {"in": interview_ids}}, include={"answeredBy": True}
             ),
-            db.mediafile.find_many(where=media_where),
+            db.mediafile.find_many(where=live_media_where(media_where)),
             db.questionnaireinterviewartisan.find_many(
                 where={"interviewId": {"in": interview_ids}}, include={"artisan": True}
             ),

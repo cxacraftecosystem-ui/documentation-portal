@@ -4,7 +4,18 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from prisma.errors import UniqueViolationError
+from pydantic import ValidationError
+
+from app.schemas.questionnaire_v2 import CompleteRequest as V2CompleteRequest
+from app.schemas.questionnaire_v2 import MultipartCreateRequest as V2MultipartCreateRequest
+from app.schemas.questionnaire_v2 import PresignRequest as V2PresignRequest
+from app.services import consent_gate
+from app.services.questionnaire_v2 import recordings as v2_recordings
+from app.services.questionnaire_v2 import shims as v2_shims
+from app.services.questionnaire_v2.live import live_media_where
 
 from app.core.config import get_settings
 from app.core.db import db
@@ -17,11 +28,9 @@ from app.schemas.media import (
     MultipartCompleteRequest,
     MultipartCompleteResponse,
     MultipartCreateRequest,
-    MultipartCreateResponse,
     MultipartPresignPartsRequest,
     MultipartPresignPartsResponse,
     PresignRequest,
-    PresignResponse,
     TranscriptRefineRequest,
     TranscriptUpdateRequest,
 )
@@ -181,11 +190,52 @@ async def _public(rows: Any, viewer: Any = None, *, media_urls: Any = _UNSET_URL
     return encoded
 
 
-@router.post("/presign", response_model=PresignResponse)
+V2_TYPE = "questionnaire_session"
+
+
+async def _body(request: Request) -> dict[str, Any]:
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001 - not JSON: the old route's 422
+        raise RequestValidationError([{"type": "json_invalid", "loc": ("body",), "msg": "JSON body expected", "input": None}]) from None
+    if not isinstance(body, dict):
+        raise RequestValidationError([{"type": "dict_type", "loc": ("body",), "msg": "An object is expected", "input": body}])
+    return body
+
+
+def _old(model: Any, body: dict[str, Any]) -> Any:
+    """Validate an old-shape body with the old route's error shape (FastAPI's 422 list)."""
+    try:
+        return model.model_validate(body)
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors()) from None
+
+
+async def _v2(model: Any, body: dict[str, Any]) -> Any:
+    from app.api.routes.questionnaire_v2 import v2_enabled
+    from app.services.questionnaire_v2.common import fail
+
+    if not v2_enabled():
+        fail("NOT_FOUND")
+    try:
+        return model.model_validate(body)
+    except ValidationError as exc:
+        errors = [{"loc": [str(p) for p in e.get("loc", ())], "msg": e.get("msg")} for e in exc.errors()]
+        fail("VALIDATION_FAILED", errors[0]["msg"] if errors else None, errors=errors)
+
+
+@router.post("/presign")
 async def presign_media_upload(
-    payload: PresignRequest,
+    request: Request,
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
+    """Presign one upload. ``linkedRecordType: "questionnaire_session"`` is the v2 shape (DESIGN
+    5.5): the server writes an upload intent, mints the S3 leaf and signs the sha256; every other
+    body is the unchanged old route."""
+    body = await _body(request)
+    if str(body.get("linkedRecordType") or "").lower() == V2_TYPE:
+        return await v2_recordings.presign(await _v2(V2PresignRequest, body), current_user)
+    payload = _old(PresignRequest, body)
     settings = get_settings()
     object_key = make_object_key(current_user.id, payload.filename)
     return {
@@ -204,14 +254,21 @@ def _assert_owns_object(object_key: str, current_user: Any) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only manage your own uploads")
 
 
-@router.post("/multipart/create", response_model=MultipartCreateResponse)
+@router.post("/multipart/create")
 async def create_multipart(
-    payload: MultipartCreateRequest,
+    request: Request,
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Start a multipart (chunked) upload for a large file. The client uploads each part straight to
     S3 via the presigned URLs from /multipart/presign-parts, then calls /multipart/complete; S3
-    stitches the parts into a single object."""
+    stitches the parts into a single object.
+
+    A v2 questionnaire clip (``linkedRecordType: "questionnaire_session"``) reuses the open upload
+    of its intent and lists the parts already done, so a client resumes after a drop."""
+    body = await _body(request)
+    if str(body.get("linkedRecordType") or "").lower() == V2_TYPE:
+        return await v2_recordings.multipart_create(await _v2(V2MultipartCreateRequest, body), current_user)
+    payload = _old(MultipartCreateRequest, body)
     settings = get_settings()
     object_key = make_object_key(current_user.id, payload.filename)
     upload_id = await asyncio.to_thread(create_multipart_upload, object_key, payload.mimeType)
@@ -259,6 +316,16 @@ async def complete_multipart(
         "bucket": settings.aws_s3_bucket,
         "publicUrl": public_url_for_key(payload.objectKey),
     }
+
+
+@router.get("/uploads/{client_clip_key}")
+async def upload_state(client_clip_key: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Questionnaire v2: the parts already uploaded for a clip, so a client can resume after a
+    restart. 404 when no intent exists."""
+    from app.api.routes.questionnaire_v2 import require_v2
+
+    await require_v2()
+    return await v2_recordings.upload_state(client_clip_key, current_user)
 
 
 @router.post("/multipart/abort")
@@ -382,9 +449,30 @@ async def _finish_pending_media(existing: Any, processing_requests: list[str] | 
 
 @router.post("/complete", status_code=status.HTTP_201_CREATED)
 async def complete_media_upload(
-    payload: MediaCompleteRequest,
+    request: Request,
     current_user: Any = Depends(get_current_user),
-) -> dict[str, Any]:
+) -> Any:
+    """Register an uploaded object.
+
+    ``linkedRecordType: "questionnaire_session"``: the v2 /complete (DESIGN 5.5): atomic, idempotent
+    on ``clientClipKey`` then ``objectKey``, never refused on coverage, 201 the first time and 200 on
+    a replay, and the stored answer carries no signed URL.
+
+    Every other body is the old route, unchanged. With QUESTIONNAIRE_V2 on, an old build's clip
+    (``linkedRecordType: "questionnaire"``) also gets a v2 recording through the legacy resolver (the
+    shim, DESIGN 5.6); its response keeps the old shape and never a new error code.
+    """
+    body = await _body(request)
+    if str(body.get("linkedRecordType") or "").lower() == V2_TYPE:
+        recording, created = await v2_recordings.complete(await _v2(V2CompleteRequest, body), current_user)
+        return JSONResponse(recording, status_code=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+    payload = _old(MediaCompleteRequest, body)
+    answer = await _complete_old(payload, current_user)
+    await v2_shims.after_legacy_complete(answer, payload, current_user)
+    return answer
+
+
+async def _complete_old(payload: MediaCompleteRequest, current_user: Any) -> dict[str, Any]:
     settings = get_settings()
     processing_requests = payload.processingRequests
 
@@ -503,6 +591,8 @@ async def list_media(
     if uploadedBy:
         where["uploadedById"] = uploadedBy
     add_date_range(where, "createdAt", dateFrom, dateTo)
+    # The live-media filter: a soft-removed questionnaire take is invisible here (and restorable).
+    where = live_media_where(where)
     total = await db.mediafile.count(where=where)
     items = await db.mediafile.find_many(
         where=where,
@@ -526,6 +616,7 @@ ORPHAN_FK_FIELDS = {
     "tool": "toolId",
     "questionnaire": "questionnaireInterviewId",
     "questionnaireinterview": "questionnaireInterviewId",
+    "questionnaire_session": "questionnaireInterviewId",
 }
 
 
@@ -622,6 +713,7 @@ def _relink_delegate(record_type: str) -> Any:
         "tool": db.tooldocumentation,
         "questionnaire": db.questionnaireinterview,
         "questionnaireinterview": db.questionnaireinterview,
+        "questionnaire_session": db.questionnaireinterview,
         # Miscellaneous media can be linked to another miscellaneous media item (no typed FK; the
         # generic linkedRecordType/linkedRecordId tags carry the association).
         "media": db.mediafile,
@@ -644,7 +736,7 @@ async def list_orphan_media(current_user: Any = Depends(require_admin)) -> list[
         for rec_type, fk in ORPHAN_FK_FIELDS.items()
     ]
     rows = await db.mediafile.find_many(
-        where={"OR": conditions},
+        where=live_media_where({"OR": conditions}),
         include=INCLUDE,
         order={"createdAt": "desc"},
     )
@@ -705,6 +797,14 @@ async def refine_media_transcript(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only refine the transcript of media you uploaded",
         )
+    # An AI refinement or translation is an outside send: the consent gate decides (DESIGN 3.11).
+    # Files made on or before 18 Oct 2026 are covered by the owner's attestation (correction (c));
+    # until its backfill is applied they would read AWAITING, so the gate asks only of newer files.
+    verdict = consent_gate.ALLOW if consent_gate.covered_by_attestation(media) else await consent_gate.verdict(media_id)
+    if verdict != consent_gate.ALLOW:
+        from app.services.questionnaire_v2.common import fail
+
+        fail("CONSENT_REFUSED" if verdict == consent_gate.REFUSED else "CONSENT_NOT_RECORDED")
     transcript = getattr(media, "transcriptText", None)
     return await refine_transcript_text(transcript, payload.translate, get_settings())
 
@@ -880,6 +980,12 @@ async def delete_media(media_id: str, current_user: Any = Depends(get_current_us
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only delete media you uploaded",
         )
+    # A QUESTIONNAIRE TAKE IS NEVER HARD-DELETED FROM HERE (DESIGN 3.8): it is soft-removed through the
+    # recording service, restorable, and only a verified duplicate is ever purged.
+    take = await db.questionnairerecording.find_unique(where={"mediaFileId": media_id})
+    if take is not None:
+        await v2_recordings.remove(take.id, current_user)
+        return
     object_key = getattr(media, "objectKey", None)
     await db.mediafile.delete(where={"id": media_id})
     # Drop the underlying object too, but only once no other MediaFile still references it, and never

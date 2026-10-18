@@ -260,6 +260,22 @@ box `.env`; none is created by this repository.
 |---|---|---|---|---|
 | `AI_ANSWER_DRAFTS_ENABLED` | No | **`false`** | No | Lets a researcher draft a section's unanswered questions from the interview's transcript. Drafts are inert until a person accepts or edits the section; accepted answers carry `answerOrigin` `MACHINE_SUGGESTED` / `MACHINE_SUGGESTED_EDITED` and are labelled "Machine-suggested". Runs on the researcher's own AI key or the deployment's (the keys above). Off: every `/api/questionnaire/*/drafts` route answers 404. |
 
+### Questionnaire v2 — shipped dark
+
+The redesign of `C:/dev/IIT/docs/questionnaire/DESIGN_2026-10-18.md` (sessions, recordings, computed
+coverage, canonical answers). Off: every v2 route answers 404, `POST /api/questionnaire/interviews`
+and `/api/media/complete` behave exactly as before, and `GET /api/questionnaire/config` tells both
+clients to draw the old screens. The consent routes (`/api/artisans/{id}/consent`) and the
+transcription pause work either way. See `docs/questionnaire/API.md`.
+
+| Variable | Required | Default | Secret | Notes |
+|---|---|---|---|---|
+| `QUESTIONNAIRE_V2` | No | **`false`** | No | The switch. The owner turns it on after the legacy backfill has been applied (rollout steps 3 and 4). |
+| `QUESTIONNAIRE_MIN_APP_VERSION_FOR_CREATE` | No | unset | No | Owner decision 5: once every active device runs the new build (plus 30 days), set this to that version. A session create from a lower `X-App-Version` then gets `503` + `Retry-After: 86400` and the update banner; its queued clips are always accepted. |
+
+The transcription pause is not a variable: it is `AppSetting.transcriptionPaused`, which migration
+`20261022090000_consent_and_pause` adds as `true` (owner correction (d), 18 Oct 2026).
+
 ### Not read by `config.py`
 
 | Variable | Read by | Required | Default | Secret | Notes |
