@@ -87,6 +87,11 @@ def test_transcribe_now_refuses_while_paused_and_sends_nothing(monkeypatch) -> N
     async def _row(*_a: Any, **_k: Any) -> Any:
         return None  # no settings row at all: paused
 
+    class _Gate:
+        async def verdict(self, _media: Any) -> Any:
+            return SimpleNamespace(may_send=True, refusal=None)
+
+    monkeypatch.setattr(media_queue.recording_consent, "gate", _Gate())
     monkeypatch.setattr(media_queue, "load_app_settings", _row)
     monkeypatch.setattr(media_queue, "transcribe_audio_bytes", _never)
     monkeypatch.setattr(requests, "post", _never)

@@ -294,12 +294,13 @@ async def transcribe_media_now(media: Any, settings: Settings | None = None) -> 
     raises on an AI failure — it records the status/error on the media row and returns the result so the
     caller can surface it."""
     settings = settings or get_settings()
-    # THE PAUSE HOLDS HERE TOO. "Transcribe now" bypasses the queue and the window, never the pause.
-    if transcription_paused(await load_app_settings()):
-        raise transcription_jobs.TranscriptionPaused()
     verdict = await recording_consent.gate.verdict(media)
     if not verdict.may_send:
         raise recording_consent.ConsentRefused(verdict)
+    # THE PAUSE HOLDS HERE TOO, after consent (the more useful sentence). "Transcribe now"
+    # bypasses the queue and the window, never the pause.
+    if transcription_paused(await load_app_settings()):
+        raise transcription_jobs.TranscriptionPaused()
     media_id = str(_value(media, "id"))
     await db.mediafile.update(where={"id": media_id}, data={"transcriptStatus": PROCESSING})
     source_path = await asyncio.to_thread(download_to_temp, _value(media, "objectKey"))
