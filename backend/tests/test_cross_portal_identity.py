@@ -15,7 +15,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.routes import cross_portal as routes
-from app.services import cross_portal
+from app.services import cross_portal, cross_portal_peer
 
 pytestmark = pytest.mark.anyio
 
@@ -142,6 +142,8 @@ def world(monkeypatch):
     )
     monkeypatch.setattr(routes, "db", fake)
     monkeypatch.setattr(routes, "get_settings", lambda: _settings())
+    # The peer admission is the shared services/cross_portal_peer, which reads its own settings.
+    monkeypatch.setattr(cross_portal_peer, "get_settings", lambda: _settings())
     revisions: list[Any] = []
 
     async def record_revision(record, user, data, record_type, **_k):
@@ -257,7 +259,9 @@ async def test_the_peer_is_refused_without_the_token_or_a_nonce_and_404_while_of
         await routes.require_peer(request, authorization=f"Bearer {TOKEN}", x_cross_portal_nonce="short")
     assert exc.value.status_code == 401
     assert await routes.require_peer(request, authorization=f"Bearer {TOKEN}", x_cross_portal_nonce=NONCE)
-    monkeypatch.setattr(routes, "get_settings", lambda: _settings(cross_portal_identity_enabled=False))
+    monkeypatch.setattr(
+        cross_portal_peer, "get_settings", lambda: _settings(cross_portal_identity_enabled=False)
+    )
     with pytest.raises(HTTPException) as exc:
         await routes.require_peer(request, authorization=f"Bearer {TOKEN}", x_cross_portal_nonce=NONCE)
     assert exc.value.status_code == 404

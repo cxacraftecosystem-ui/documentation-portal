@@ -377,6 +377,24 @@ class Settings(BaseSettings):
         default=None, alias="CROSS_PORTAL_AADHAAR_HMAC_KEY"
     )
 
+    # ── ONE SEARCH ACROSS BOTH PORTALS (docs/SEARCH.md; docs/ENVIRONMENT.md) ──────────────────────
+    # ALL OFF BY DEFAULT. ``UNIFIED_SEARCH_ENABLED`` opens ``GET /search/unified`` and lets the queue
+    # worker drain ``SearchIndexQueue``; off, the route answers 404 and every client falls back to the
+    # legacy ``GET /search``. ``SEARCH_EMBEDDINGS_ENABLED`` is the AI flag: meaning ranking calls the
+    # embedding provider on the deployment's key, so it stays off until the owner turns it on, and
+    # even then runs only where pgvector is installed. ``CROSS_PORTAL_SEARCH_ENABLED`` also needs the
+    # C27 token and HMAC key and DESIGNER_PORTAL_API_URL (``cross_portal.search_active``).
+    unified_search_enabled: bool = Field(default=False, alias="UNIFIED_SEARCH_ENABLED")
+    search_embeddings_enabled: bool = Field(default=False, alias="SEARCH_EMBEDDINGS_ENABLED")
+    search_embedding_provider: str = Field(default="openai", alias="SEARCH_EMBEDDING_PROVIDER")
+    search_embedding_model: str = Field(
+        default="text-embedding-3-small", alias="SEARCH_EMBEDDING_MODEL"
+    )
+    cross_portal_search_enabled: bool = Field(default=False, alias="CROSS_PORTAL_SEARCH_ENABLED")
+    # The designer portal's API base up to and including /api, e.g. https://api.<designer-domain>/api.
+    # Only cross-portal search calls it; the identity routes are answered here and never call out.
+    designer_portal_api_url: str | None = Field(default=None, alias="DESIGNER_PORTAL_API_URL")
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

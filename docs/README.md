@@ -53,6 +53,7 @@ flowchart TD
 | [PERMISSIONS.md](PERMISSIONS.md) | The six-tier ladder, the full capability matrix, the review state machine, the late-submission gate, and the three access systems layered on top |
 | [MEDIA_PIPELINE.md](MEDIA_PIPELINE.md) | Every tactic both clients use to get a photograph off a phone on a bad network without losing it |
 | [SECURITY.md](SECURITY.md) | Transport, secrets, PII and Aadhaar handling, the authorisation model's security properties, and the open risk register |
+| [SEARCH.md](SEARCH.md) | One search across both portals: the per-portal index and its triggers, full-text, trigram and (behind the AI flag) meaning ranking, the signed peer search with the designer portal, consent, and the rollout order |
 
 ### Operating it
 

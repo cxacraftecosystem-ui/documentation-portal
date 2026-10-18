@@ -211,4 +211,44 @@ class AppSearchTest {
         assertEquals(settings.size, opened)
         assertTrue(settings.any { appSearchLocalMatch(it, "dark mode") })
     }
+
+    // ── one search across both portals (docs/SEARCH.md) ───────────────────────────────────────
+
+    @Test
+    fun `clusters, transcripts and reports sit where the shared vocabulary puts them`() {
+        val order = AppSearchGroup.entries
+        assertEquals(order.indexOf(AppSearchGroup.CRAFTS) + 1, order.indexOf(AppSearchGroup.CLUSTERS))
+        assertEquals(order.indexOf(AppSearchGroup.INTERVIEWS) + 1, order.indexOf(AppSearchGroup.TRANSCRIPTS))
+        assertEquals(order.indexOf(AppSearchGroup.TRANSCRIPTS) + 1, order.indexOf(AppSearchGroup.REPORTS))
+        val sections = groupAppSearchResults(
+            listOf(
+                item(AppSearchGroup.REPORTS, "r", "Bagru report"),
+                item(AppSearchGroup.CLUSTERS, "c", "Bagru cluster"),
+                item(AppSearchGroup.TRANSCRIPTS, "t", "Bagru talk"),
+                item(AppSearchGroup.ARTISANS, "a", "Bagru")
+            ),
+            "bagru"
+        )
+        assertEquals(
+            listOf(AppSearchGroup.ARTISANS, AppSearchGroup.CLUSTERS, AppSearchGroup.TRANSCRIPTS, AppSearchGroup.REPORTS),
+            sections.map { it.group }
+        )
+    }
+
+    @Test
+    fun `the same key from two portals is two results, from one portal it is one`() {
+        val local = AppSearchItem(AppSearchGroup.ARTISANS, "x1", "Meena", Icons.Filled.Star) {}
+        val again = AppSearchItem(AppSearchGroup.ARTISANS, "x1", "Meena", Icons.Filled.Star) {}
+        val remote = AppSearchItem(AppSearchGroup.ARTISANS, "x1", "Meena", Icons.Filled.Star, portal = "fieldRepository") {}
+        val sections = groupAppSearchResults(listOf(local, again, remote), "meena")
+        assertEquals(2, sections.single().items.size)
+        assertEquals(listOf(null, "fieldRepository"), sections.single().items.map { it.portal })
+    }
+
+    @Test
+    fun `local items carry no portal and the chip names the other portal`() {
+        assertEquals(null, item(AppSearchGroup.ARTISANS, "a", "Bagru").portal)
+        assertEquals("Field Repository", appSearchPortalLabel("fieldRepository"))
+        assertEquals("Designer portal", appSearchPortalLabel("designer"))
+    }
 }

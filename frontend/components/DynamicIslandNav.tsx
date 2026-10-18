@@ -103,7 +103,7 @@ export const NAV_ITEMS: NavItem[] = [
 
   // Record — every entry here creates something, so it follows the CREATE dependency, not the list
   // one. Hiding an entry therefore never hides the DATA behind it: the list endpoints stay open to
-  // any signed-in user, and "Browse records" / "View Data" remain the read route to the same records.
+  // any signed-in user, and "Search" / "View Data" remain the read route to the same records.
   { href: "/artisans", label: "Record artisan", icon: Users, group: "Record", can: canCreateRecords, gate: "require_record_creator" },
   { href: "/products", label: "Record product", icon: Boxes, group: "Record", can: canCreateRecords, gate: "require_record_creator" },
   { href: "/processes", label: "Document process", icon: GitBranch, group: "Record", can: canCreateRecords, gate: "require_record_creator" },
@@ -118,7 +118,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/activity", label: "My Activity", icon: Activity, group: "Browse", can: everyone, gate: "get_current_user" },
   // Everyone can be a task assignee; the "assign" half of the page is gated inside it.
   { href: "/tasks", label: "Tasks", icon: ClipboardCheck, group: "Browse", can: everyone, gate: "get_current_user" },
-  { href: "/search", label: "Browse records", icon: Search, group: "Browse", can: everyone, gate: "get_current_user" },
+  { href: "/search", label: "Search", icon: Search, group: "Browse", can: everyone, gate: "get_current_user" },
   // The third way of reading the whole corpus, and it sits next to the other two on purpose:
   // /search reads it as a list, /data as a folder tree, /map as a place. Ungated to match /search,
   // because GET /map/points takes any signed-in caller and has already filtered every pin through

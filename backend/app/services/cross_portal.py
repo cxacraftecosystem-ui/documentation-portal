@@ -189,3 +189,78 @@ def shared_fields(artisan: Any) -> dict[str, Any]:
             value = value.isoformat()
         out[key] = value
     return out
+
+
+# ── ONE SEARCH ACROSS BOTH PORTALS (docs/SEARCH.md) ─────────────────────────────────────────────
+#
+# The same signed channel, now two-way: each portal answers the other's search over
+# ``POST /cross-portal/peer/search`` and ``.../search/record``. What crosses is a text projection of
+# each hit (:data:`PEER_ITEM_KEYS`) — never a file, a URL to one, or an identity field — and only for
+# records the answering portal marks shareable and whose artisans' consent is live.
+
+#: Every search type, in the order groups are shown. Both portals use this vocabulary; clusters,
+#: designWorkshops and reports exist on the designer portal only.
+SEARCH_TYPES: tuple[str, ...] = (
+    "artisans",
+    "crafts",
+    "clusters",
+    "workshops",
+    "designWorkshops",
+    "interviews",
+    "transcripts",
+    "reports",
+    "products",
+    "tools",
+    "processes",
+    "media",
+)
+
+#: Who may see the other portal's results. No field contributor, no crowdsource volunteer.
+CROSS_PORTAL_SEARCH_ROLES: frozenset[str] = frozenset(
+    {
+        "MASTER_ADMIN",
+        "ADMIN",
+        "MINISTRY_ADMIN",
+        "REGIONAL_DIRECTOR",
+        "ASSISTANT_DIRECTOR",
+        "PROFESSOR",
+        "INSPECTOR",
+        "DESIGNER",
+        "RESEARCHER",
+    }
+)
+
+#: The keys one peer search item may carry, and nothing else.
+PEER_ITEM_KEYS: tuple[str, ...] = (
+    "type",
+    "id",
+    "title",
+    "subtitle",
+    "snippet",
+    "highlights",
+    "place",
+    "craftCodes",
+    "recordDate",
+    "openUrl",
+)
+
+
+def peer_api_url(settings: Any) -> str:
+    """The other portal's API base up to ``/api``: FIELD_REPOSITORY_API_URL on the designer portal,
+    DESIGNER_PORTAL_API_URL on the Field Repository. Empty when neither is set."""
+    for name in ("field_repository_api_url", "designer_portal_api_url"):
+        value = (getattr(settings, name, None) or "").strip()
+        if value:
+            return value.rstrip("/")
+    return ""
+
+
+def search_active(settings: Any) -> bool:
+    """Cross-portal search may run: its own flag, both shared secrets, and the other portal's URL."""
+    if not getattr(settings, "cross_portal_search_enabled", False):
+        return False
+    if not _secret_ok(getattr(settings, "cross_portal_token", None)):
+        return False
+    if not _secret_ok(getattr(settings, "cross_portal_aadhaar_hmac_key", None)):
+        return False
+    return bool(peer_api_url(settings))

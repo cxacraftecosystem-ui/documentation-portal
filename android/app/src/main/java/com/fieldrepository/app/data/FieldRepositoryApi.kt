@@ -1073,6 +1073,18 @@ interface FieldRepositoryApi {
     @PUT("preferences/me")
     suspend fun updateMyPreferences(@Body body: PreferencesUpdateBody): PreferencesDto
 
+    // --- One search across both portals (docs/SEARCH.md). 404 while the server's switch is off. ---
+    @GET("search/unified")
+    suspend fun unifiedSearch(
+        @Query("q") q: String,
+        @Query("limit") limit: Int = 5,
+        @Query("types") types: String? = null,
+        @Query("scope") scope: String? = null,
+    ): UnifiedSearchResponse
+
+    @GET("search/remote/{type}/{id}")
+    suspend fun remoteRecord(@Path("type") type: String, @Path("id") id: String): RemoteRecord
+
     // --- Global search: five buckets sharing one page/pageSize ---
     // Dates are ISO-8601. pageSize is capped at 50 server-side.
     @GET("search")

@@ -17,19 +17,18 @@ for, and which artisan it reached, or that it reached none) — never the number
 with. Every consent change is a ``RecordRevision`` on the artisan, so a withdrawal leaves a trace.
 """
 
-import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import get_settings
 from app.core.db import db
 from app.core.deps import get_current_user, get_value
-from app.services import cross_portal
+from app.services import cross_portal, cross_portal_peer
 from app.services.access import record_edit_privilege, record_revision
 from app.services.artisan_identity import normalize_pehchan
 
@@ -43,38 +42,10 @@ def _active_or_404() -> Any:
     return settings
 
 
-async def require_peer(
-    request: Request,
-    authorization: str | None = Header(default=None),
-    x_cross_portal_nonce: str | None = Header(default=None),
-) -> Any:
-    """The designer portal's server, by the shared token and a fresh nonce, and nobody else."""
-    settings = _active_or_404()
-    if not cross_portal.bearer_matches(settings.cross_portal_token, authorization):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authorised.")
-    nonce = (x_cross_portal_nonce or "").strip()
-    if len(nonce) < cross_portal.MIN_NONCE_LENGTH or len(nonce) > 128:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authorised.")
-    request.state.cross_portal_nonce = nonce
-    return settings
-
-
-def _signed(settings: Any, request: Request, payload: Any, status_code: int = 200) -> Response:
-    """The answer, signed over the request it answers (method, peer path, nonce) and its body."""
-    body = json.dumps(payload, separators=(",", ":"), default=str).encode("utf-8")
-    signature = cross_portal.sign(
-        settings.cross_portal_token,
-        body,
-        method=request.method,
-        path=request.url.path,
-        nonce=getattr(request.state, "cross_portal_nonce", ""),
-    )
-    return Response(
-        content=body,
-        status_code=status_code,
-        media_type="application/json",
-        headers={cross_portal.SIGNATURE_HEADER: signature},
-    )
+# The peer admission and the answer signature live in ``services/cross_portal_peer``, which both
+# portals carry byte for byte (the search routes in ``routes/cross_portal_search`` use it too).
+require_peer = cross_portal_peer.require_peer
+_signed = cross_portal_peer.signed
 
 
 ACTION_LOOKUP = "LOOKUP"

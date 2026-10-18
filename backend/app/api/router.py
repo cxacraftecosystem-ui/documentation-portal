@@ -8,8 +8,9 @@ from app.api.routes import (
     artisans,
     auth,
     craft_codes,
-    cross_portal,
     crafts,
+    cross_portal,
+    cross_portal_search,
     dashboard,
     data_access,
     data_browser,
@@ -49,6 +50,8 @@ api_router.include_router(artisans.router)
 api_router.include_router(crafts.router)
 api_router.include_router(craft_codes.router)
 api_router.include_router(cross_portal.router)
+# The designer portal's searches of this portal (signed peer routes; docs/SEARCH.md).
+api_router.include_router(cross_portal_search.router)
 api_router.include_router(workshops.router)
 api_router.include_router(products.router)
 api_router.include_router(processes.router)

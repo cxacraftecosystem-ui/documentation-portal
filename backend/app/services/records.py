@@ -540,6 +540,12 @@ def contains(value: str) -> dict[str, Any]:
     return {"contains": value.translate(_UNSEARCHABLE), "mode": "insensitive"}
 
 
+def plain(value: str | None) -> str:
+    """``value`` with the bytes Postgres cannot store stripped out, as :func:`contains` does. For
+    text that reaches a raw query parameter instead of a Prisma filter (``/search/unified``)."""
+    return (value or "").translate(_UNSEARCHABLE)
+
+
 # =================================================================================================
 # WHO MAY SEE WHAT — two different questions, two different filters
 #

@@ -92,13 +92,15 @@ import java.io.IOException
  *  - SCREENS — the destinations this account's menu offers, from the same `visibleNavItems`, so a
  *    search can no more offer a screen the role may not open than the menu can;
  *  - SETTINGS — the rows of the settings screens, by name and by the words people use for them;
- *  - RECORDS — through the server's existing `GET /search` and the list endpoints' own `search`
- *    parameter. Offline, the records this phone already holds stand in for the server.
+ *  - RECORDS — through `GET /search/unified`, which ranks this portal's records and, for the roles
+ *    allowed, the other portal's (docs/SEARCH.md); where that answers 404 (switched off), through
+ *    `GET /search` and the list endpoints' own `search` parameter. Offline, the records this phone
+ *    already holds stand in for the server; nothing from the other portal is kept on the phone.
  *
  * ── THE RULES ARE PURE AND SHARED ───────────────────────────────────────────────────────────────
  *
  * [appSearchScore], [groupAppSearchResults] and [pushRecentSearch] are the ranking, grouping and
- * recent-search rules, unit-tested in `AppSearchTest`, and the web's `frontend/lib/globalSearch.ts`
+ * recent-search rules, unit-tested in `AppSearchTest`, and the web's `frontend/lib/unifiedSearch.ts`
  * implements the same ones: group order [AppSearchGroup], score 0 exact / 1 prefix / 2 word prefix /
  * 3 substring / 4 any other match, stable within a score, five per group, eight recents.
  *
@@ -113,12 +115,15 @@ enum class AppSearchGroup(val label: String) {
     SETTINGS("Settings"),
     ARTISANS("Artisans"),
     CRAFTS("Crafts"),
+    CLUSTERS("Clusters"),
     WORKSHOPS("Workshops"),
     DESIGN_WORKSHOPS("Design workshops"),
     PRODUCTS("Products"),
     TOOLS("Tools"),
     PROCESSES("Processes"),
     INTERVIEWS("Interviews"),
+    TRANSCRIPTS("Transcripts"),
+    REPORTS("Reports"),
     QUESTIONNAIRES("Questionnaires"),
     MEDIA("Media")
 }
@@ -126,8 +131,10 @@ enum class AppSearchGroup(val label: String) {
 /**
  * One thing a search can find.
  *
- * [key] identifies it within its [group] — a record id, or a destination name — so the same record
- * arriving from the server and from this phone's cache is shown once. [keywords] are the other words
+ * [key] identifies it within its [group] and [portal] — a record id, or a destination name — so the
+ * same record arriving from the server and from this phone's cache is shown once, while the same id
+ * from the other portal is a different record. [portal] is null for this app's own items and names
+ * the other portal ("fieldRepository" or "designer") for a cross-portal result, which draws a chip. [keywords] are the other words
  * a local item answers to ("dark mode" for the theme row); a server result never needs them, because
  * the server already decided it matched.
  */
@@ -138,8 +145,16 @@ class AppSearchItem(
     val icon: ImageVector,
     val subtitle: String? = null,
     val keywords: List<String> = emptyList(),
+    val portal: String? = null,
     val onOpen: () -> Unit
 )
+
+/** The other portal's name on a result's chip. */
+fun appSearchPortalLabel(portal: String): String = when (portal) {
+    "fieldRepository" -> "Field Repository"
+    "designer" -> "Designer portal"
+    else -> portal
+}
 
 /** A group as the panel draws it: the best [items] and how many matched in all. */
 class AppSearchSection(val group: AppSearchGroup, val items: List<AppSearchItem>, val total: Int)
@@ -181,7 +196,7 @@ fun appSearchLocalMatch(item: AppSearchItem, query: String): Boolean {
 }
 
 /**
- * The panel's sections: duplicates (same group and key) dropped keeping the first, each group ranked
+ * The panel's sections: duplicates (same group, portal and key) dropped keeping the first, each group ranked
  * by [appSearchScore] with ties left in arrival order, cut to [cap], and the groups laid out in
  * [AppSearchGroup] order with empty ones left out.
  */
@@ -190,8 +205,8 @@ fun groupAppSearchResults(
     query: String,
     cap: Int = APP_SEARCH_GROUP_CAP
 ): List<AppSearchSection> {
-    val seen = HashSet<Pair<AppSearchGroup, String>>()
-    val unique = items.filter { seen.add(it.group to it.key) }
+    val seen = HashSet<Triple<AppSearchGroup, String?, String>>()
+    val unique = items.filter { seen.add(Triple(it.group, it.portal, it.key)) }
     return AppSearchGroup.entries.mapNotNull { group ->
         val inGroup = unique.filter { it.group == group }
         if (inGroup.isEmpty()) {
@@ -757,6 +772,21 @@ private fun AppSearchRow(item: AppSearchItem, onClick: () -> Unit) {
                     color = MaterialTheme.field.muted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        item.portal?.let { portal ->
+            Spacer(Modifier.width(8.dp))
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            ) {
+                Text(
+                    appSearchPortalLabel(portal),
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                 )
             }
         }
