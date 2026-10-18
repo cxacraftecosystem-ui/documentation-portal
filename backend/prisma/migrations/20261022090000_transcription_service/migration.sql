@@ -161,4 +161,3 @@ ALTER TABLE "RecordingConsent" ADD CONSTRAINT "RecordingConsent_mediaFileId_fkey
 
 -- AddForeignKey
 ALTER TABLE "RecordingConsent" ADD CONSTRAINT "RecordingConsent_artisanId_fkey" FOREIGN KEY ("artisanId") REFERENCES "Artisan"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-

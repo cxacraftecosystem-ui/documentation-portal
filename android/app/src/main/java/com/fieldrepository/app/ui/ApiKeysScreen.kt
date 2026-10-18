@@ -433,6 +433,9 @@ fun ApiKeysScreen(
         // shared error line.
         ProviderOrderPanel(onMessage = onMessage)
 
+        // The service's switches and what it is doing. Admins read; the master admin changes.
+        TranscriptionPanel(canChange = state.secrets != null && !state.restricted)
+
         if (state.restricted) {
             ApiKeysRestrictedCard()
             return@Column

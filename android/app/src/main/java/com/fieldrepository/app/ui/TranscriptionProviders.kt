@@ -105,12 +105,25 @@ interface SttProviderApi {
  */
 object SttProviderClient {
     @Volatile
-    private var cached: SttProviderApi? = null
+    private var cached: Retrofit? = null
 
-    fun get(context: Context): SttProviderApi =
+    @Volatile
+    private var ladder: SttProviderApi? = null
+
+    @Volatile
+    private var settings: TranscriptionSettingsApi? = null
+
+    private fun retrofit(context: Context): Retrofit =
         cached ?: synchronized(this) { cached ?: build(context.applicationContext).also { cached = it } }
 
-    private fun build(context: Context): SttProviderApi {
+    fun get(context: Context): SttProviderApi =
+        ladder ?: retrofit(context).create(SttProviderApi::class.java).also { ladder = it }
+
+    /** The Transcription panel's endpoints, on the same session and transport as the ladder. */
+    fun transcription(context: Context): TranscriptionSettingsApi =
+        settings ?: retrofit(context).create(TranscriptionSettingsApi::class.java).also { settings = it }
+
+    private fun build(context: Context): Retrofit {
         val tokenStore = TokenStore(context)
         val json = Json {
             ignoreUnknownKeys = true
@@ -165,7 +178,6 @@ object SttProviderClient {
             .client(client)
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
-            .create(SttProviderApi::class.java)
     }
 
     private val GATEWAY_CODES = setOf(502, 503, 504)
