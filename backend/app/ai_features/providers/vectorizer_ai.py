@@ -76,7 +76,7 @@ class VectorizerAiProvider(VectorisationProvider):
             notes.append("this result is a test render and carries the vendor's watermark")
         credits = headers.get("X-Credits-Charged") or headers.get("x-credits-charged")
         if credits:
-            notes.append(f"vectorizer.ai charged {credits} credit(s)")
+            notes.append(f"vectorizer.ai charged {credits} {'credit' if credits.strip() == '1' else 'credits'}")
         return VectorResult(
             provider=self.provider_id,
             duration_ms=deadline.elapsed_ms,

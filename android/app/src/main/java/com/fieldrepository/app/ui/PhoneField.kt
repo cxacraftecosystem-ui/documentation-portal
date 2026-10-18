@@ -1,6 +1,7 @@
 package com.fieldrepository.app.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -34,7 +35,6 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 
 // ---------------------------------------------------------------------------
 // Artisan phone entry: an ISD-prefix picker beside the national number.
@@ -167,7 +167,7 @@ fun ArtisanPhoneField(value: String, error: String?, onValueChange: (String) -> 
     }
 
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Phone", color = Muted, fontSize = 12.sp)
+        Text("Phone", color = Muted, style = MaterialTheme.typography.bodySmall)
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             val dialWidth = rememberDialFieldWidth(maxWidth)
             // Top, not CenterVertically: an error hangs its supporting text BELOW the number field's

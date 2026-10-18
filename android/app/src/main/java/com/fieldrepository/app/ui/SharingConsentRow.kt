@@ -61,8 +61,8 @@ fun SharingConsentRow(artisanId: String) {
         Text(
             SharingConsentCopy.status(current, current.recordedAt?.take(10)),
             color = Muted,
-            fontSize = 12.sp,
+            style = MaterialTheme.typography.bodySmall,
         )
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
     }
 }

@@ -525,15 +525,49 @@ private fun bodyStyle(size: Int, lineHeight: Int, weight: FontWeight) = TextStyl
     letterSpacing = TrackingNormal
 )
 
+/*
+ * ── THE APP'S TYPE SCALE (DC-A20, 2026-10-17) ──────────────────────────────────────────────────
+ *
+ * Every piece of text in the app takes its size from ONE of the slots below. A literal
+ * `fontSize = N.sp` is refused by `TypeScaleGuardTest` outside a short allow-list. The roles the
+ * screens use:
+ *
+ *   HEADINGS, exactly three steps (Jakarta, bold unless the call site names a weight)
+ *     headlineSmall 24/32  H1  the screen title — one per screen
+ *     titleLarge    18/28  H2  a section or panel heading (`font-display text-lg font-bold`)
+ *     titleMedium   16/24  H3  a card, row or dialog title
+ *   BODY (Inter 400; a call site may pass a weight)
+ *     bodyLarge     16/24  reading text and form values
+ *     bodyMedium    14/20  the default sentence on a card
+ *     bodySmall     12/16  help, secondary and meta lines — the floor for anything a person reads
+ *   LABEL (Inter 500)
+ *     labelLarge    14/20  buttons, chips, menu items
+ *     labelMedium   12/16  small buttons and chip text
+ *     labelSmall    11/16  badges, counters, eyebrows — never a sentence
+ *   DISPLAY
+ *     displaySmall  34/40  the sign-in wordmark, and nothing else
+ *
+ * titleSmall, headlineMedium/Large and displayMedium/Large stay defined because Material's own
+ * components read them (a Tab label is titleSmall, a time picker's digits are displayLarge), but
+ * app code does not set them: the guard test refuses them too, so a fourth heading size cannot
+ * creep back in.
+ *
+ * The scale is the designer portal's, slot for slot, so the two apps set text the same way.
+ *
+ * NOTHING IS SET UNDER 11sp, except the dense labels drawn on top of what they label: the pin and
+ * scale-bar labels painted onto the map canvas (ui/MapScreen.kt), the letter inside a 20dp
+ * measuring mark (ui/RecordMeasureField.kt) and the picture name over the compare slider
+ * (ui/trace/TraceCompare.kt). A scale step there would cover the pin, the mark or the photo.
+ */
 private val FieldTypography = Typography(
-    // Display — text-7xl / 6xl / 5xl. The hero headline span is the ONLY web text this large
+    // Display — text-7xl / 6xl. The hero headline span is the ONLY web text this large
     // (`font-display text-4xl font-extrabold leading-[1.05] tracking-tight … sm:text-5xl
-    // lg:text-6xl`), so these three carry its weight and tracking. Line height stays on the
-    // Tailwind step rather than the hero's 1.05 override: a shared slot should be the ramp, and one
-    // marketing span is free to `.copy(lineHeight = …)`.
+    // lg:text-6xl`), so these carry its weight and tracking. displaySmall is the app's own display
+    // step rather than text-5xl: its one use is the sign-in wordmark, which at 48sp would not fit
+    // a 360dp phone on one line.
     displayLarge = displayStyle(72, 72, FontWeight.ExtraBold, TrackingTight),
     displayMedium = displayStyle(60, 60, FontWeight.ExtraBold, TrackingTight),
-    displaySmall = displayStyle(48, 48, FontWeight.ExtraBold, TrackingTight),
+    displaySmall = displayStyle(34, 40, FontWeight.ExtraBold, TrackingTight),
 
     // Headline — text-4xl / 3xl / 2xl. The 36 and 30 steps are the page/section headings
     // (`font-display text-3xl font-bold tracking-tight … sm:text-4xl`, 8 of them); headlineSmall is
@@ -542,11 +576,13 @@ private val FieldTypography = Typography(
     headlineMedium = displayStyle(30, 36, tracking = TrackingTight),
     headlineSmall = displayStyle(24, 32),
 
-    // Title — text-xl / base / sm. titleMedium is a card header (`<h2 class="font-display
-    // font-bold text-ink-900">`, 16px); titleSmall is the sub-head inside one. titleSmall is BOLD,
-    // not semibold: at text-sm the web writes `font-display text-sm font-bold` 17 times against
-    // `font-semibold` 5 (Markdown.tsx renders h3 bold and only h4 semibold).
-    titleLarge = displayStyle(20, 28),
+    // Title — text-lg / base / sm. titleLarge is text-lg, not text-xl: `font-display text-lg
+    // font-bold` is the web's single most common heading (40 uses — every panel header, card title
+    // and accordion title) against 7 for text-xl, so the H2 step is 18. titleMedium is a card
+    // header (`<h2 class="font-display font-bold text-ink-900">`, 16px). titleSmall is the
+    // component sub-head (Tab labels) and is BOLD, not semibold: at text-sm the web writes
+    // `font-display text-sm font-bold` 17 times against `font-semibold` 5.
+    titleLarge = displayStyle(18, 28),
     titleMedium = displayStyle(16, 24),
     titleSmall = displayStyle(14, 20),
 
@@ -575,16 +611,10 @@ private val FieldTypography = Typography(
 object FieldTextStyles {
     /**
      * `font-display text-lg font-bold` — the web's single most common heading recipe (40 uses:
-     * every panel header, card title and accordion title). Material's title ladder jumps 16 → 20
-     * and has nowhere to put 18, so it lives here rather than being rounded to a neighbouring slot.
+     * every panel header, card title and accordion title). It is the H2 step, titleLarge, and is
+     * kept under this name only so the call sites that already say CardTitle keep reading well.
      */
-    val CardTitle: TextStyle = TextStyle(
-        fontFamily = FieldDisplayFontFamily,
-        fontWeight = FontWeight.Bold,
-        fontSize = 18.sp,
-        lineHeight = 28.sp,
-        letterSpacing = TrackingNormal
-    )
+    val CardTitle: TextStyle = FieldTypography.titleLarge
 
     /** `.eyebrow` — text-[0.8125rem] font-semibold uppercase tracking-[0.14em]. Caller uppercases. */
     val Eyebrow: TextStyle = TextStyle(

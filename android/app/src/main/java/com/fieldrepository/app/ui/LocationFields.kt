@@ -37,7 +37,6 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.focus.onFocusChanged
 import com.fieldrepository.app.PINCODE_LENGTH
@@ -697,10 +696,10 @@ private fun GroupHeading(title: String, subtitle: String) {
             display = true,
             color = MaterialTheme.colorScheme.onSurface,
             fontWeight = FontWeight.SemiBold,
-            fontSize = 15.sp,
+            style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.semantics { heading() }
         )
-        Text(subtitle, color = MaterialTheme.field.muted, fontSize = 12.sp)
+        Text(subtitle, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -712,7 +711,7 @@ private fun GroupNotice(warn: Boolean, text: String) {
     Text(
         text,
         color = ink,
-        fontSize = 12.sp,
+        style = MaterialTheme.typography.bodySmall,
         modifier = Modifier
             .fillMaxWidth()
             .background(container, RoundedCornerShape(12.dp))
@@ -1269,7 +1268,7 @@ fun LocationFieldsSection(
                 Text(
                     "From ${source.fromName}'s record: ${inheritedFieldWords(result.filled)}. Change any box to override.",
                     color = MaterialTheme.field.body,
-                    fontSize = 12.sp
+                    style = MaterialTheme.typography.bodySmall
                 )
                 ActionRow {
                     OutlinedButton(
@@ -1319,7 +1318,7 @@ fun LocationFieldsSection(
                 Text(
                     source + fieldNames(written.fields) + ". Check and correct if needed.",
                     color = MaterialTheme.field.body,
-                    fontSize = 12.sp
+                    style = MaterialTheme.typography.bodySmall
                 )
                 ActionRow {
                     OutlinedButton(
@@ -1360,7 +1359,7 @@ fun LocationFieldsSection(
                         (value?.accuracy?.let { " (${radiusLabel(it)})" } ?: "") +
                         " — $named. Use as the artisan's location?",
                     color = MaterialTheme.field.body,
-                    fontSize = 12.sp
+                    style = MaterialTheme.typography.bodySmall
                 )
                 ActionRow {
                     OutlinedButton(
@@ -1388,7 +1387,7 @@ fun LocationFieldsSection(
                 Text(
                     "No address for the new point. The state, district and pincode below are from the previous one — check them.",
                     color = MaterialTheme.field.onWarningContainer,
-                    fontSize = 12.sp
+                    style = MaterialTheme.typography.bodySmall
                 )
                 ActionRow {
                     OutlinedButton(
@@ -1455,7 +1454,7 @@ fun LocationFieldsSection(
             Text(
                 "Connect once to download districts — then this works offline. New records need a district.",
                 color = MaterialTheme.field.muted,
-                fontSize = 12.sp
+                style = MaterialTheme.typography.bodySmall
             )
         }
 
@@ -1470,7 +1469,7 @@ fun LocationFieldsSection(
                     Text(
                         "Just the village or town name.",
                         color = MaterialTheme.field.muted,
-                        fontSize = 12.sp
+                        style = MaterialTheme.typography.bodySmall
                     )
                 },
                 singleLine = true,
@@ -1495,7 +1494,7 @@ fun LocationFieldsSection(
                     Text(
                         shown ?: "Six digits, if known.",
                         color = if (shown != null) MaterialTheme.colorScheme.error else MaterialTheme.field.muted,
-                        fontSize = 12.sp
+                        style = MaterialTheme.typography.bodySmall
                     )
                 },
                 singleLine = true,
@@ -1520,7 +1519,7 @@ fun LocationFieldsSection(
                 Text(
                     "Artisan pin: ${place.pinLat}, ${place.pinLng}",
                     color = MaterialTheme.field.body,
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.weight(1f)
                 )
                 TextButton(
@@ -1613,15 +1612,15 @@ fun LocationFieldsSection(
                     display = true,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 15.sp
+                    style = MaterialTheme.typography.titleMedium
                 )
-                Text(summary, color = MaterialTheme.field.muted, fontSize = 12.sp)
+                Text(summary, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
             }
             Text(
                 if (expanded) "Hide" else "Show",
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 13.sp,
+                style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.clearAndSetSemantics { }
             )
         }
@@ -1629,7 +1628,7 @@ fun LocationFieldsSection(
         // The requirement is announced even while collapsed: a researcher must not have to open a
         // panel to discover why Save refused. Not repeated once open — the card inside says it.
         if (required && value == null && showRequirementError && !expanded) {
-            Text(LOCATION_REQUIRED_MESSAGE, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+            Text(LOCATION_REQUIRED_MESSAGE, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
 
         AnimatedVisibility(visible = expanded) {
@@ -1644,7 +1643,7 @@ fun LocationFieldsSection(
                         else -> " No timestamp."
                     },
                 color = MaterialTheme.field.muted,
-                fontSize = 12.sp
+                style = MaterialTheme.typography.bodySmall
             )
         }
         /*

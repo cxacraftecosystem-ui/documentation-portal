@@ -28,6 +28,11 @@ export function bytes(value: number | string | undefined | null) {
   return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+/** "1 file", "3 files": a count whose noun agrees with it, so no screen prints "file(s)". */
+export function countNoun(count: number, one: string, many = `${one}s`): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
 export function blankToNull(value: FormDataEntryValue | null) {
   if (typeof value !== "string") return value;
   const trimmed = value.trim();

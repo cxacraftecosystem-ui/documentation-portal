@@ -41,7 +41,7 @@ fun SegmentedChoice(
     val shape = RoundedCornerShape(10.dp)
     val primary = MaterialTheme.colorScheme.primary
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, color = MaterialTheme.field.muted, fontSize = 12.sp)
+        Text(label, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -68,7 +68,7 @@ fun SegmentedChoice(
                     Text(
                         option.label,
                         color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                        fontSize = 13.sp,
+                        style = MaterialTheme.typography.bodyMedium,
                         fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium,
                         textAlign = TextAlign.Center,
                         maxLines = 2

@@ -15,7 +15,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.fieldrepository.app.WorkshopPickerState
 import com.fieldrepository.app.data.ArtisanDto
 import com.fieldrepository.app.data.CraftDto
@@ -586,7 +585,7 @@ internal fun RecordSwitcher(
         if (canJumpToRecordWorkshop) {
             ActionRow {
                 TextButton(onClick = { workshop.selectedId = currentWorkshopId }) {
-                    Text("Show this ${kind.singular}'s own workshop", fontSize = 12.sp)
+                    Text("Show this ${kind.singular}'s own workshop", style = MaterialTheme.typography.labelMedium)
                 }
             }
         }
@@ -609,10 +608,10 @@ internal fun RecordSwitcher(
         )
 
         switcher.message?.let {
-            Text(it, color = MaterialTheme.field.muted, fontSize = 12.sp)
+            Text(it, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
         }
         switcher.cutNotice?.let {
-            Text(it, color = MaterialTheme.field.muted, fontSize = 12.sp)
+            Text(it, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

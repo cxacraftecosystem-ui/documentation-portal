@@ -23,7 +23,6 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.fieldrepository.app.ui.SearchableSelectField
 import com.fieldrepository.app.ui.SelectOption
 // The two-typeface `Text`, shadowing androidx.compose.material3.Text — see ui/FieldText.kt.
@@ -127,8 +126,7 @@ fun TraceStylePicker(
             styles.firstOrNull { it.id == selectedId }?.description
                 ?: "A style sets every control at once. Pick one, then adjust.",
             color = MaterialTheme.field.muted,
-            fontSize = 11.sp,
-            lineHeight = 16.sp,
+            style = MaterialTheme.typography.bodySmall,
         )
     }
 }
@@ -186,8 +184,7 @@ fun TraceSubjectPicker(
                 }
             },
             color = MaterialTheme.field.muted,
-            fontSize = 11.sp,
-            lineHeight = 16.sp,
+            style = MaterialTheme.typography.bodySmall,
         )
     }
 }
@@ -248,8 +245,7 @@ fun TraceStyleSuggestion(
             "Suggested: “${suggested.name}”. " +
                 suggested.description,
             color = MaterialTheme.field.body,
-            fontSize = 11.sp,
-            lineHeight = 16.sp,
+            style = MaterialTheme.typography.bodySmall,
         )
         ActionRow {
             OutlinedButton(
@@ -259,7 +255,7 @@ fun TraceStyleSuggestion(
             ) {
                 Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("Use the “${suggested.name}” style", fontSize = 13.sp)
+                Text("Use the “${suggested.name}” style", style = MaterialTheme.typography.labelLarge)
             }
         }
     }

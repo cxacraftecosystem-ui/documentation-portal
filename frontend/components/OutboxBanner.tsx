@@ -31,6 +31,7 @@ import {
   syncOutbox,
   type OutboxEntry
 } from "@/lib/offline";
+import { countNoun } from "@/lib/format";
 
 /** Files across every batch of one entry — what the user attached, not how the form grouped it. */
 function fileCount(entry: OutboxEntry): number {
@@ -162,7 +163,7 @@ export function OutboxBanner() {
               <span className="text-sm font-medium">{entry.label}</span>
               <span className="ml-2 text-xs text-ink-500">
                 {new Date(entry.createdAt).toLocaleString()}
-                {fileCount(entry) ? ` · ${fileCount(entry)} file(s)` : ""}
+                {fileCount(entry) ? ` · ${countNoun(fileCount(entry), "file")}` : ""}
               </span>
               {entry.failure ? (
                 <p className="mt-0.5 flex items-start gap-1 text-xs text-error-600">

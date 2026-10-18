@@ -47,7 +47,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.fieldrepository.app.data.AccessRosterDto
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.UserDto
@@ -267,7 +266,7 @@ fun AccessRosterScreen(
         Text(
             "Who may sign in. Everyone else waits in the queue below.",
             color = Muted,
-            fontSize = 12.sp
+            style = MaterialTheme.typography.bodySmall
         )
 
         error?.let { NoticeLine(it, tone = NoticeTone.ERROR) { error = null } }
@@ -288,7 +287,7 @@ fun AccessRosterScreen(
                         display = true,
                         color = Body,
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = 15.sp,
+                        style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.weight(1f)
                     )
                     if (queue != null) CountPill(queueTotal)
@@ -296,16 +295,16 @@ fun AccessRosterScreen(
                 Text(
                     "Signed in but not on the roster. They wait until you decide.",
                     color = Muted,
-                    fontSize = 12.sp
+                    style = MaterialTheme.typography.bodySmall
                 )
 
                 val pending = queue
                 when {
-                    pending == null -> Text("Loading the queue…", color = Muted, fontSize = 12.sp)
+                    pending == null -> Text("Loading the queue…", color = Muted, style = MaterialTheme.typography.bodySmall)
                     pending.isEmpty() -> Text(
                         "Nobody is waiting.",
                         color = Muted,
-                        fontSize = 12.sp
+                        style = MaterialTheme.typography.bodySmall
                     )
                     else -> pending.forEach { entry ->
                         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
@@ -321,7 +320,7 @@ fun AccessRosterScreen(
 
                 // Truncation is stated, never silent — and the sentence says how to reach the rest.
                 accessQueueNotice(shown = pending?.size ?: 0, total = queueTotal)?.let {
-                    Text(it, color = MaterialTheme.field.warning, fontSize = 12.sp)
+                    Text(it, color = MaterialTheme.field.warning, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -334,12 +333,12 @@ fun AccessRosterScreen(
                     display = true,
                     color = Body,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 15.sp
+                    style = MaterialTheme.typography.titleMedium
                 )
                 Text(
                     "Only the email is needed. Their account is created at this role when they first sign in.",
                     color = Muted,
-                    fontSize = 12.sp
+                    style = MaterialTheme.typography.bodySmall
                 )
                 OutlinedTextField(
                     value = newEmail,
@@ -368,7 +367,7 @@ fun AccessRosterScreen(
                     // admin's own tier so it can never hand out more than the admin holds.
                     "Defaults to the lowest role.",
                     color = Muted,
-                    fontSize = 12.sp
+                    style = MaterialTheme.typography.bodySmall
                 )
                 OutlinedTextField(
                     value = newNote,
@@ -378,7 +377,7 @@ fun AccessRosterScreen(
                 )
                 // How they will sign in: an address alone is made into an account at their first
                 // sign-in; a password makes it now. See `accessSignInNote`.
-                Text(ACCESS_SIGN_IN_QUESTION, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                Text(ACCESS_SIGN_IN_QUESTION, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
                 listOf(
                     AccessSignIn.PROVIDER to ACCESS_SIGN_IN_PROVIDER,
                     AccessSignIn.PASSWORD to ACCESS_SIGN_IN_PASSWORD,
@@ -389,10 +388,10 @@ fun AccessRosterScreen(
                             .selectable(selected = signIn == option, role = Role.RadioButton, onClick = { signIn = option })
                     ) {
                         RadioButton(selected = signIn == option, onClick = null)
-                        Text(label, fontSize = 13.sp, modifier = Modifier.padding(start = 8.dp))
+                        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 8.dp))
                     }
                 }
-                Text(accessSignInNote(signIn), color = MaterialTheme.field.muted, fontSize = 12.sp)
+                Text(accessSignInNote(signIn), color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
                 if (signIn == AccessSignIn.PASSWORD) {
                     OutlinedTextField(
                         value = newPassword,
@@ -489,7 +488,7 @@ fun AccessRosterScreen(
 
         val list = rows
         when {
-            list == null -> Text("Loading the roster…", color = Muted, fontSize = 12.sp)
+            list == null -> Text("Loading the roster…", color = Muted, style = MaterialTheme.typography.bodySmall)
             list.isEmpty() -> Text(
                 if (appliedSearch.isNotBlank() || statusFilter.isNotBlank()) {
                     "No matches."
@@ -497,7 +496,7 @@ fun AccessRosterScreen(
                     "The roster is empty."
                 },
                 color = Muted,
-                fontSize = 12.sp
+                style = MaterialTheme.typography.bodySmall
             )
             else -> list.forEach { entry ->
                 RosterRow(
@@ -533,7 +532,7 @@ fun AccessRosterScreen(
         }
 
         if (list != null) {
-            Text(accessRosterPageNotice(rosterPage, rosterPages, rosterTotal), color = Muted, fontSize = 12.sp)
+            Text(accessRosterPageNotice(rosterPage, rosterPages, rosterTotal), color = Muted, style = MaterialTheme.typography.bodySmall)
             ActionRow {
                 OutlinedButton(enabled = rosterPage > 1, onClick = { rosterPage -= 1 }) { Text("Previous") }
                 OutlinedButton(enabled = rosterPage < rosterPages, onClick = { rosterPage += 1 }) { Text("Next") }
@@ -543,7 +542,7 @@ fun AccessRosterScreen(
         Text(
             "The master admin is always allowed and can't be removed.",
             color = Muted,
-            fontSize = 12.sp
+            style = MaterialTheme.typography.bodySmall
         )
     }
 
@@ -587,8 +586,8 @@ private fun PendingRequestRow(
         // No display name, no picture, no "reason for joining": the pending queue is the one screen
         // in this product where a stranger can cause content to appear, and nothing they control is
         // rendered here beyond the address they proved they own.
-        Text(entry.email, color = Body, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Text(accessRequestLabel(entry.requestCount), color = Muted, fontSize = 12.sp)
+        Text(entry.email, color = Body, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(accessRequestLabel(entry.requestCount), color = Muted, style = MaterialTheme.typography.bodySmall)
         SearchableSelectField(
             label = "Joins as",
             options = roleOptions,
@@ -631,27 +630,27 @@ private fun RosterRow(
                 entry.fullName ?: entry.accountName ?: "Name not recorded",
                 color = Body,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp
+                style = MaterialTheme.typography.bodyMedium
             )
-            Text(entry.email, color = Muted, fontSize = 12.sp)
+            Text(entry.email, color = Muted, style = MaterialTheme.typography.bodySmall)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatusPill(entry.status)
-                Text(accessInvitationLabel(entry.status, entry.firstSeenAt), color = Muted, fontSize = 12.sp)
+                Text(accessInvitationLabel(entry.status, entry.firstSeenAt), color = Muted, style = MaterialTheme.typography.bodySmall)
             }
             Text(
                 accessJoinedLabel(entry.joinedAt) + " · " + roleLabelFor(entry.grantedRole),
                 color = Muted,
-                fontSize = 12.sp
+                style = MaterialTheme.typography.bodySmall
             )
             // The two disagree the moment somebody is promoted through the users screen, and an
             // admin reading only the roster would be looking at a stale tier and believing it
             // current. So the live one is printed whenever it differs.
             entry.accountRole?.takeIf { it != entry.grantedRole }?.let {
-                Text("Account is now ${roleLabelFor(it)}", color = Muted, fontSize = 12.sp)
+                Text("Account is now ${roleLabelFor(it)}", color = Muted, style = MaterialTheme.typography.bodySmall)
             }
-            Text(accessRequestLabel(entry.requestCount), color = Muted, fontSize = 12.sp)
+            Text(accessRequestLabel(entry.requestCount), color = Muted, style = MaterialTheme.typography.bodySmall)
             entry.notes?.takeIf { it.isNotBlank() }?.let {
-                Text(it, color = Muted, fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                Text(it, color = Muted, style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
             }
             if (entry.status == "ACTIVE") {
                 // Never labelled "Delete". The verb has to say what happens, and what happens is
@@ -683,7 +682,7 @@ private fun CountPill(count: Int) {
         Text(
             count.toString(),
             color = MaterialTheme.field.warning,
-            fontSize = 12.sp,
+            style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
         )
@@ -719,7 +718,7 @@ private fun StatusPill(status: String) {
                 Icon(Icons.Filled.VerifiedUser, contentDescription = null, tint = content, modifier = Modifier.size(12.dp))
                 Spacer(Modifier.width(4.dp))
             }
-            Text(accessStatusLabel(status), color = content, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            Text(accessStatusLabel(status), color = content, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
         }
     }
 }
@@ -735,8 +734,8 @@ private fun NoticeLine(text: String, tone: NoticeTone, onDismiss: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp)
         ) {
-            Text(text, color = content, fontSize = 12.sp, modifier = Modifier.weight(1f))
-            TextButton(onClick = onDismiss) { Text("Dismiss", color = content, fontSize = 12.sp) }
+            Text(text, color = content, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+            TextButton(onClick = onDismiss) { Text("Dismiss", color = content, style = MaterialTheme.typography.labelMedium) }
         }
     }
 }

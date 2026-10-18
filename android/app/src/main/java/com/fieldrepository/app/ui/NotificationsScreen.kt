@@ -90,7 +90,7 @@ fun NotificationsScreen(
         Text(
             if (unread > 0) "$unread unread" else "You're all caught up.",
             color = Muted,
-            fontSize = 14.sp,
+            style = MaterialTheme.typography.bodyMedium,
         )
 
         if (LocalAlerts.permissionNeeded() && !alertsAllowed) {
@@ -100,7 +100,7 @@ fun NotificationsScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Get an alert on this phone when something new arrives.", fontSize = 14.sp)
+                    Text("Get an alert on this phone when something new arrives.", style = MaterialTheme.typography.bodyMedium)
                     ActionRow {
                         Button(
                             onClick = {
@@ -130,12 +130,12 @@ fun NotificationsScreen(
         }
 
         if (!reachable && !syncing) {
-            Text("Offline — showing what's on this phone.", color = Muted, fontSize = 13.sp)
+            Text("Offline — showing what's on this phone.", color = Muted, style = MaterialTheme.typography.bodyMedium)
         }
 
         when {
-            items.isEmpty() && syncing -> Text("Loading…", color = Muted, fontSize = 13.sp)
-            items.isEmpty() -> Text("No notifications yet", color = Muted, fontSize = 14.sp)
+            items.isEmpty() && syncing -> Text("Loading…", color = Muted, style = MaterialTheme.typography.bodyMedium)
+            items.isEmpty() -> Text("No notifications yet", color = Muted, style = MaterialTheme.typography.bodyMedium)
             else -> items.forEach { item ->
                 NotificationRow(item) {
                     scope.launch {
@@ -178,12 +178,12 @@ private fun NotificationRow(item: AppNotificationDto, onOpen: () -> Unit) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
                 Text(
                     item.title,
-                    fontSize = 15.sp,
+                    style = MaterialTheme.typography.bodyLarge,
                     fontWeight = if (item.read) FontWeight.Normal else FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                item.body?.takeIf { it.isNotBlank() }?.let { Text(it, fontSize = 13.sp, color = Muted, maxLines = 2) }
-                Text(notificationWhen(item.createdAt), fontSize = 12.sp, color = Muted)
+                item.body?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Muted, maxLines = 2) }
+                Text(notificationWhen(item.createdAt), style = MaterialTheme.typography.bodySmall, color = Muted)
             }
         }
     }

@@ -48,7 +48,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.fieldrepository.app.data.ConnectivityObserver
 import com.fieldrepository.app.ui.richtext.RichTextEditor
@@ -498,7 +497,7 @@ internal fun RecordDictationButton(
                 Text(
                     recordDictationLabel(tag),
                     color = MaterialTheme.field.muted,
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.labelMedium,
                     maxLines = 1
                 )
             }
@@ -553,7 +552,7 @@ internal fun RecordDictationButton(
                         // not have, and the alternative is discovering it as a refusal after a tap.
                         "Offline languages depend on this phone's installed packs.",
                         color = MaterialTheme.field.muted,
-                        fontSize = 12.sp
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
             },
@@ -807,16 +806,16 @@ fun RecordProseField(
                     .fillMaxWidth()
                     .let { base -> focusRequester?.let { base.focusRequester(it) } ?: base }
             )
-            help?.let { Text(it, color = MaterialTheme.field.muted, fontSize = 12.sp) }
+            help?.let { Text(it, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall) }
         }
 
         // Three words. The researcher is watching the words appear in the box; anything longer here
         // describes what they can already see.
         if (spoken.isNotBlank()) {
-            Text("Listening — speak now.", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+            Text("Listening — speak now.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
         dictationError?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
         /*
          * THE HONEST ABSENCE. A box that was asked for a microphone and has no recogniser to give it
@@ -835,7 +834,7 @@ fun RecordProseField(
          * itself.
          */
         if (dictate && !available) {
-            Text(RECORD_DICTATION_UNAVAILABLE, color = MaterialTheme.field.muted, fontSize = 12.sp)
+            Text(RECORD_DICTATION_UNAVAILABLE, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
         }
         below()
     }

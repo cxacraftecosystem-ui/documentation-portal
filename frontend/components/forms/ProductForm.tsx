@@ -46,6 +46,7 @@ import { hasRank } from "@/lib/permissions";
 import type { Artisan, Craft, ProductDocumentation, RecordStatus } from "@/lib/types";
 import { marketDemandOptions, productTypes } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
+import { countNoun } from "@/lib/format";
 
 /** B5: the artisan picker's row — "Ramesh Chhipa · Block printing · Bagru", the parts that exist. */
 export function artisanPickerLabel(artisan: Artisan) {

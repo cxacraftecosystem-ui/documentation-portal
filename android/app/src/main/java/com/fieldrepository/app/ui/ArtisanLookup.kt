@@ -122,8 +122,8 @@ fun ArtisanLookupCard(
     }
 
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Find the artisan first", display = true, fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurface)
-        Text("Search by Aadhaar number or name.", color = MaterialTheme.field.muted, fontSize = 12.sp)
+        Text("Find the artisan first", display = true, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
+        Text("Search by Aadhaar number or name.", color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
         OutlinedTextField(
             value = query,
             onValueChange = { query = it; matches = null; problem = null },
@@ -139,10 +139,10 @@ fun ArtisanLookupCard(
             }
             Button(onClick = { onStart(lookupStart(query)) }) { Text("Record a new artisan") }
         }
-        problem?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
+        problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         matches?.let { found ->
             if (found.isEmpty()) {
-                Text("No match. Record them as a new artisan.", color = MaterialTheme.field.body, fontSize = 13.sp)
+                Text("No match. Record them as a new artisan.", color = MaterialTheme.field.body, style = MaterialTheme.typography.bodyMedium)
             } else {
                 found.forEach { match ->
                     Row(
@@ -154,8 +154,8 @@ fun ArtisanLookupCard(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(match.name, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                            if (match.detail.isNotEmpty()) Text(match.detail, color = MaterialTheme.field.muted, fontSize = 12.sp)
+                            Text(match.name, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            if (match.detail.isNotEmpty()) Text(match.detail, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
                         }
                         OutlinedButton(onClick = { onOpen(match.id) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Open") }
                     }

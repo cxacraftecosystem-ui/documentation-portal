@@ -115,12 +115,12 @@ fun OfflineOutboxTray(
     confirmDiscard?.let { entry ->
         AlertDialog(
             onDismissRequest = { confirmDiscard = null },
-            title = { Text(if (entry.offersExistingRecord()) "Discard this copy?" else "Discard this save?", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
+            title = { Text(if (entry.offersExistingRecord()) "Discard this copy?" else "Discard this save?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) },
             text = {
                 Text(
                     outboxDiscardSentence(entry.label, entry.media.size, clash = entry.offersExistingRecord()),
                     color = MaterialTheme.field.body,
-                    fontSize = 13.sp,
+                    style = MaterialTheme.typography.bodyMedium,
                     lineHeight = 19.sp
                 )
             },
@@ -129,15 +129,15 @@ fun OfflineOutboxTray(
                     val doomed = entry
                     confirmDiscard = null
                     act { if (onDiscard(doomed.id)) "“${doomed.label}” deleted from this phone." else "This entry is no longer queued." }
-                }) { Text("Discard", color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
+                }) { Text("Discard", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
             },
-            dismissButton = { TextButton(onClick = { confirmDiscard = null }) { Text("Keep it", fontSize = 13.sp) } }
+            dismissButton = { TextButton(onClick = { confirmDiscard = null }) { Text("Keep it", style = MaterialTheme.typography.bodyMedium) } }
         )
     }
 
     AlertDialog(
         onDismissRequest = onClose,
-        title = { Text("Saves that need you", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
+        title = { Text("Saves that need you", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
@@ -146,11 +146,11 @@ fun OfflineOutboxTray(
                 when {
                     loading -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FieldCircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Text("Reading the queue…", color = MaterialTheme.field.muted, fontSize = 12.sp)
+                        Text("Reading the queue…", color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
                     }
-                    refused.isEmpty() -> Text("Nothing is waiting on you.", color = MaterialTheme.field.muted, fontSize = 13.sp)
+                    refused.isEmpty() -> Text("Nothing is waiting on you.", color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodyMedium)
                     else -> {
-                        Text("The server refused these. Nothing was deleted.", color = MaterialTheme.field.muted, fontSize = 12.sp)
+                        Text("The server refused these. Nothing was deleted.", color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
                         refused.forEach { entry ->
                             RefusedEntryCard(
                                 entry = entry,
@@ -170,11 +170,11 @@ fun OfflineOutboxTray(
                 }
                 note?.let {
                     HorizontalDivider(color = MaterialTheme.field.hairline)
-                    Text(it, color = MaterialTheme.field.body, fontSize = 12.sp, lineHeight = 17.sp)
+                    Text(it, color = MaterialTheme.field.body, style = MaterialTheme.typography.bodySmall, lineHeight = 17.sp)
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onClose) { Text("Close", fontSize = 13.sp) } }
+        confirmButton = { TextButton(onClick = onClose) { Text("Close", style = MaterialTheme.typography.bodyMedium) } }
     )
 }
 
@@ -195,42 +195,42 @@ private fun RefusedEntryCard(
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text(entry.label, color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text(entry.label, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
         Text(
             listOfNotNull(
                 entry.type.replaceFirstChar { it.uppercase() },
                 when (entry.media.size) { 0 -> null; 1 -> "1 file with it"; else -> "${entry.media.size} files with it" }
             ).joinToString(" · "),
             color = MaterialTheme.field.muted,
-            fontSize = 11.sp
+            style = MaterialTheme.typography.bodySmall
         )
         if (clash) {
             Text(
                 "ALREADY ON THE REGISTER" + (entry.existingRecordLabel?.let { ": $it" } ?: ""),
                 color = MaterialTheme.field.warning,
-                fontSize = 10.sp,
+                style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold
             )
         }
         // Verbatim, never truncated: the server's sentence, written for this person.
-        Text(entry.failure.orEmpty(), color = MaterialTheme.field.warning, fontSize = 12.sp, lineHeight = 17.sp)
+        Text(entry.failure.orEmpty(), color = MaterialTheme.field.warning, style = MaterialTheme.typography.bodySmall, lineHeight = 17.sp)
         ActionRow(
             destructive = {
                 OutlinedButton(onClick = onDiscard, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text("Discard", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                    Text("Discard", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
             }
         ) {
             if (clash) {
                 Button(onClick = onUseExisting, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text("Use existing artisan", fontSize = 12.sp)
+                    Text("Use existing artisan", style = MaterialTheme.typography.bodySmall)
                 }
             }
             if (entry.isFixable()) {
                 if (clash) {
-                    OutlinedButton(onClick = onFix, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Fix and send", fontSize = 12.sp) }
+                    OutlinedButton(onClick = onFix, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Fix and send", style = MaterialTheme.typography.bodySmall) }
                 } else {
-                    Button(onClick = onFix, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Fix and send", fontSize = 12.sp) }
+                    Button(onClick = onFix, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Fix and send", style = MaterialTheme.typography.bodySmall) }
                 }
             }
             MediaActionButton(action = MediaAction.RETRY, text = "Try again", onClick = onRetry, enabled = !busy)
@@ -257,15 +257,15 @@ private fun FixAndSendDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Fix “${entry.label}”", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
+        title = { Text("Fix “${entry.label}”", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text(entry.failure.orEmpty(), color = MaterialTheme.field.warning, fontSize = 12.sp, lineHeight = 17.sp)
+                Text(entry.failure.orEmpty(), color = MaterialTheme.field.warning, style = MaterialTheme.typography.bodySmall, lineHeight = 17.sp)
                 if (fields.isEmpty()) {
-                    Text("Nothing in this save can be edited here. Try again, or discard it.", color = MaterialTheme.field.muted, fontSize = 12.sp)
+                    Text("Nothing in this save can be edited here. Try again, or discard it.", color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
                 }
                 shown.forEach { field ->
                     val marked = Modifier.then(
@@ -275,7 +275,7 @@ private fun FixAndSendDialog(
                     )
                     Column(modifier = marked, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         if (field.highlighted) {
-                            Text("Named by the server", color = MaterialTheme.field.warning, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Named by the server", color = MaterialTheme.field.warning, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
                         }
                         OutlinedTextField(
                             value = edits[field.path].orEmpty(),
@@ -296,8 +296,8 @@ private fun FixAndSendDialog(
             TextButton(
                 enabled = !busy && fields.isNotEmpty(),
                 onClick = { onSend(applyPayloadEdits(payload, fields, edits.toMap())) }
-            ) { Text("Send", fontSize = 13.sp) }
+            ) { Text("Send", style = MaterialTheme.typography.bodyMedium) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", fontSize = 13.sp) } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", style = MaterialTheme.typography.bodyMedium) } }
     )
 }

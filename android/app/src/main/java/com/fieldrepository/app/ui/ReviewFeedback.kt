@@ -212,7 +212,7 @@ fun MediaRejectAction(mediaId: String, label: String) {
             minLines = 2,
             modifier = Modifier.fillMaxWidth()
         )
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
         val ready = review.reasons.isEmpty() || ReviewFeedbackCopy.refusalReady(reason, note)
         ActionRow {
             Button(
@@ -296,16 +296,16 @@ fun ReviewNoteBanner(repository: FieldRepository, recordType: String, recordId: 
                     ReviewFeedbackCopy.heading(state, current.reviewerName),
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 14.sp
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
             current.reasonLabel?.takeIf { it.isNotBlank() }?.let {
-                Text(it, color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                Text(it, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
             }
             current.notes?.takeIf { it.isNotBlank() && it != current.reasonLabel }?.let {
-                Text(it, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+                Text(it, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium)
             }
-            Text(ReviewFeedbackCopy.nextStep(state), color = Muted, fontSize = 12.sp)
+            Text(ReviewFeedbackCopy.nextStep(state), color = Muted, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -350,19 +350,19 @@ fun SentBackCard(
                     Text(
                         ReviewFeedbackCopy.title(sentBack + rejected),
                         display = true,
-                        fontSize = 17.sp,
+                        style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    Text(ReviewFeedbackCopy.note(sentBack, rejected), color = Muted, fontSize = 12.sp)
+                    Text(ReviewFeedbackCopy.note(sentBack, rejected), color = Muted, style = MaterialTheme.typography.bodySmall)
                 }
-                Text(if (open) "Hide" else "Show", color = Coral, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(if (open) "Hide" else "Show", color = Coral, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
             }
             if (open) {
-                failed?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
+                failed?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
                 val list = items
                 if (list == null && failed == null) {
-                    Text("Loading…", color = Muted, fontSize = 12.sp)
+                    Text("Loading…", color = Muted, style = MaterialTheme.typography.bodySmall)
                 }
                 list?.forEach { item ->
                     Column(
@@ -373,22 +373,22 @@ fun SentBackCard(
                             .clickable(role = Role.Button, onClickLabel = "Open ${item.label}") { onOpen(item.recordType, item.id) }
                             .padding(vertical = 6.dp)
                     ) {
-                        Text(item.label, color = Body, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text(item.label, color = Body, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
                         Text(
                             listOfNotNull(
                                 ReviewFeedbackCopy.heading(item.status, item.reviewerName),
                                 item.reasonLabel?.takeIf { it.isNotBlank() }
                             ).joinToString(" · "),
                             color = Muted,
-                            fontSize = 12.sp
+                            style = MaterialTheme.typography.bodySmall
                         )
                         item.reviewNotes?.takeIf { it.isNotBlank() && it != item.reasonLabel }?.let {
-                            Text(it, color = Body, fontSize = 13.sp)
+                            Text(it, color = Body, style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }
                 if (list != null && list.isEmpty()) {
-                    Text("Nothing sent back.", color = Muted, fontSize = 12.sp)
+                    Text("Nothing sent back.", color = Muted, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -476,10 +476,10 @@ fun RecordReviewBar(
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.RateReview, contentDescription = null, tint = Coral, modifier = Modifier.size(18.dp))
-                Text("Waiting for your review", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text("Waiting for your review", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
             }
-            if (late) Text("Submitted outside workshop dates — admins only can approve.", color = Coral, fontSize = 12.sp)
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
+            if (late) Text("Submitted outside workshop dates — admins only can approve.", color = Coral, style = MaterialTheme.typography.bodySmall)
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
             ActionRow(
                 destructive = {
                     OutlinedButton(
@@ -576,6 +576,6 @@ fun ReviewReasonPicker(panel: String, reasons: List<ReviewReasonDto>, reasonCode
         onSelect = onPick
     )
     if (panel == "reject" && offered.firstOrNull { it.code == reasonCode }?.fixable == true) {
-        Text("This sends it back to be fixed.", color = Muted, fontSize = 12.sp)
+        Text("This sends it back to be fixed.", color = Muted, style = MaterialTheme.typography.bodySmall)
     }
 }

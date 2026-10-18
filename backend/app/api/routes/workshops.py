@@ -550,7 +550,7 @@ async def request_workshop_access(
     missing = [wid for wid in wanted if wid not in found]
     if missing:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Workshop(s) not found: {', '.join(missing)}"
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"{'Workshop' if len(missing) == 1 else 'Workshops'} not found: {', '.join(missing)}"
         )
     # The whole multi-select is decided from ONE read of the caller's existing rows, then written as
     # at most one insert and one update. Asking for a season of twenty workshops previously cost two
@@ -1116,7 +1116,7 @@ async def set_workshop_questionnaire(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
-                    f"{len(blocked)} open task(s) at this workshop are scoped to sections of the "
+                    f"{len(blocked)} open {'task at this workshop is' if len(blocked) == 1 else 'tasks at this workshop are'} scoped to sections of the "
                     f"current questionnaire. Clear or re-scope them first, or resend with "
                     f"reassignTasks=true to clear their sectionIds."
                 ),

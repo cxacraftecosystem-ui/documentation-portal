@@ -141,7 +141,7 @@ class SmokeFixesTest {
 
     @Test
     fun `the files-ready tile draws its actions in tile ink`() {
-        val start = main.indexOf("file(s) ready")
+        val start = main.indexOf("\"file\")} ready")
         val tile = main.substring(start, start + 2600)
         assertTrue(tile.contains("onTile = true"))
         assertTrue(tile.contains("Text(\"Clear batch\", color = tileInk"))

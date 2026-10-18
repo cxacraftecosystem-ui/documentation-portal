@@ -673,7 +673,7 @@ def assert_can_contribute_fields(record: Any, user: Any, data: dict[str, Any], o
     if locked_fields:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Only the original contributor or an admin can change or clear populated field(s): {', '.join(sorted(locked_fields))}",
+            detail=f"Only the original contributor or an admin can change or clear populated {'field' if len(locked_fields) == 1 else 'fields'}: {', '.join(sorted(locked_fields))}",
         )
 
 

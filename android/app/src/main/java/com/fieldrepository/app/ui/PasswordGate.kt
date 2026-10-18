@@ -190,7 +190,7 @@ fun PasswordGateScreen(
         Text(
             PASSWORD_GATE_HEADING,
             display = true,
-            fontSize = 24.sp,
+            style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.onBackground
         )
         // TERSE, and neutral about WHY: see `PASSWORD_GATE_SENTENCE` for the reasons this no longer
@@ -199,7 +199,7 @@ fun PasswordGateScreen(
         Text(
             PASSWORD_GATE_SENTENCE,
             color = MaterialTheme.field.muted,
-            fontSize = 13.sp,
+            style = MaterialTheme.typography.bodyMedium,
             lineHeight = 19.sp
         )
 
@@ -256,14 +256,14 @@ fun PasswordGateScreen(
                     // true of the server then.
                     passwordRuleLine(PASSWORD_CHANGE_SESSIONS),
                     color = MaterialTheme.field.muted,
-                    fontSize = 12.sp
+                    style = MaterialTheme.typography.bodySmall
                 )
                 error?.let {
                     Text(
                         it,
                         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                         color = MaterialTheme.colorScheme.error,
-                        fontSize = 13.sp,
+                        style = MaterialTheme.typography.bodyMedium,
                         lineHeight = 18.sp
                     )
                 }
@@ -468,7 +468,7 @@ fun SetPasswordLinkScreen(
         Text(
             "Set your password",
             display = true,
-            fontSize = 24.sp,
+            style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.onBackground
         )
 
@@ -489,7 +489,7 @@ fun SetPasswordLinkScreen(
                     Text(
                         "Password set. Other devices were signed out.",
                         color = MaterialTheme.field.muted,
-                        fontSize = 13.sp,
+                        style = MaterialTheme.typography.bodyMedium,
                         lineHeight = 19.sp
                     )
                     Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) {
@@ -526,7 +526,7 @@ fun SetPasswordLinkScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         FieldCircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Text("Checking this link…", color = MaterialTheme.field.muted, fontSize = 13.sp)
+                        Text("Checking this link…", color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
                 refusal?.let {
@@ -534,7 +534,7 @@ fun SetPasswordLinkScreen(
                         it,
                         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                         color = MaterialTheme.colorScheme.error,
-                        fontSize = 13.sp,
+                        style = MaterialTheme.typography.bodyMedium,
                         lineHeight = 18.sp
                     )
                 }
@@ -542,7 +542,7 @@ fun SetPasswordLinkScreen(
                     Text(
                         passwordLinkPurposeLine(purpose),
                         color = MaterialTheme.field.muted,
-                        fontSize = 12.sp
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
 
@@ -573,14 +573,14 @@ fun SetPasswordLinkScreen(
                     Text(
                         passwordRuleLine("This link works once."),
                         color = MaterialTheme.field.muted,
-                        fontSize = 12.sp
+                        style = MaterialTheme.typography.bodySmall
                     )
                     error?.let {
                         Text(
                             it,
                             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                             color = MaterialTheme.colorScheme.error,
-                            fontSize = 13.sp,
+                            style = MaterialTheme.typography.bodyMedium,
                             lineHeight = 18.sp
                         )
                     }
@@ -688,7 +688,7 @@ fun IssuedPasswordLinkPanel(
                 display = true,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.field.onWarningContainer,
-                fontSize = 14.sp
+                style = MaterialTheme.typography.bodyMedium
             )
             // READ-ONLY AND SELECTABLE rather than a `Text`, so the value can be picked up by hand
             // where the clipboard is refused. `readOnly` and not `enabled = false`: a disabled field
@@ -704,14 +704,14 @@ fun IssuedPasswordLinkPanel(
             Text(
                 passwordLinkPurposeLine(link.purpose) + " Expires " + expires + ".",
                 color = MaterialTheme.field.onWarningContainer,
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.bodySmall,
                 lineHeight = 17.sp
             )
             Text(
                 // TERSE, but this sentence earns its place: nothing can show this link again.
                 "Shown once — copy it and send it yourself.",
                 color = MaterialTheme.field.onWarningContainer,
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.bodySmall,
                 lineHeight = 17.sp
             )
             ActionRow {
@@ -726,7 +726,7 @@ fun IssuedPasswordLinkPanel(
                         }.isSuccess
                     },
                 ) {
-                    Text(if (copied) "Copied" else "Copy", maxLines = 1, softWrap = false, fontSize = 13.sp)
+                    Text(if (copied) "Copied" else "Copy", maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelLarge)
                 }
                 OutlinedButton(
                     // NO LOCAL BUSY FLAG. The withdrawal is a network call the CALLER owns and
@@ -735,11 +735,11 @@ fun IssuedPasswordLinkPanel(
                     // disables the row's issue button while its own request is in flight.
                     onClick = onWithdraw,
                 ) {
-                    Text("Withdraw", maxLines = 1, softWrap = false, fontSize = 13.sp)
+                    Text("Withdraw", maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelLarge)
                 }
             }
             TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth(), shape = RectangleShape) {
-                Text("Done", fontSize = 12.sp)
+                Text("Done", style = MaterialTheme.typography.labelMedium)
             }
         }
     }

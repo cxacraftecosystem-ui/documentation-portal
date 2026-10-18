@@ -166,3 +166,10 @@ fun titleCasePreview(value: String): String? {
     val normalised = titleCase(value)
     return normalised.takeIf { it.isNotEmpty() && it != value }
 }
+
+/**
+ * "1 file", "3 files" — a count with its noun agreeing, so no screen prints "file(s)". [many]
+ * defaults to the regular English plural; pass it for the irregular ones.
+ */
+fun countNoun(count: Int, one: String, many: String = "${one}s"): String =
+    "$count ${if (count == 1) one else many}"

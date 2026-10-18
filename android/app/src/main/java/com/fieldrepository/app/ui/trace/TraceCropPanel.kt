@@ -58,7 +58,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 // The two-typeface `Text`, shadowing androidx.compose.material3.Text — see ui/FieldText.kt.
 import com.fieldrepository.app.ui.ActionRow
 import com.fieldrepository.app.ui.Text
@@ -174,7 +173,7 @@ internal fun TraceFramePanel(
                 Text(
                     "The part of the photograph to trace",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
@@ -188,8 +187,7 @@ internal fun TraceFramePanel(
                             "${applied.frameWidth}×${applied.frameHeight}."
                     },
                     color = MaterialTheme.field.muted,
-                    fontSize = 11.sp,
-                    lineHeight = 16.sp,
+                    style = MaterialTheme.typography.bodySmall,
                 )
             }
             OutlinedButton(
@@ -197,7 +195,7 @@ internal fun TraceFramePanel(
                 enabled = enabled,
                 modifier = Modifier.heightIn(min = 48.dp),
             ) {
-                Text(if (open) "Done" else "Choose a frame", fontSize = 12.sp)
+                Text(if (open) "Done" else "Choose a frame", style = MaterialTheme.typography.labelMedium)
             }
         }
 
@@ -260,7 +258,7 @@ private fun TraceFrameChooser(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             FieldCircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-            Text("Opening the photograph…", color = MaterialTheme.field.muted, fontSize = 12.sp)
+            Text("Opening the photograph…", color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
         }
 
         else -> TracePanelNote(
@@ -376,8 +374,7 @@ private fun TraceFrameEditor(
         Text(
             "${traceCropReadout(box, frameWidth, frameHeight)} $TRACE_CROP_ENGINE_NOTE",
             color = MaterialTheme.field.muted,
-            fontSize = 11.sp,
-            lineHeight = 16.sp,
+            style = MaterialTheme.typography.bodySmall,
         )
 
         /* ── Committing ─────────────────────────────────────────────────────────────────────── */
@@ -398,7 +395,7 @@ private fun TraceFrameEditor(
             ) {
                 Icon(Icons.Filled.Crop, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("Use this frame", fontSize = 12.sp)
+                Text("Use this frame", style = MaterialTheme.typography.labelMedium)
             }
             if (applied != null || !traceIsWholeFrame(box, frameWidth, frameHeight)) {
                 OutlinedButton(
@@ -410,7 +407,7 @@ private fun TraceFrameEditor(
                     enabled = enabled,
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) {
-                    Text("Use whole photo", fontSize = 12.sp)
+                    Text("Use whole photo", style = MaterialTheme.typography.labelMedium)
                 }
             }
         }

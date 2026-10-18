@@ -46,7 +46,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.fieldrepository.app.data.ArtisanDto
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.apiErrorMessage
@@ -289,7 +288,7 @@ private fun ConsolidatedIndex(
                 Text(
                     "Pick an artisan to read all their answers as one document.",
                     color = MaterialTheme.field.muted,
-                    fontSize = 12.sp
+                    style = MaterialTheme.typography.bodySmall
                 )
 
                 OutlinedTextField(
@@ -319,9 +318,9 @@ private fun ConsolidatedIndex(
                 Text(
                     "Artisans in the chosen workshops.",
                     color = MaterialTheme.field.muted,
-                    fontSize = 12.sp
+                    style = MaterialTheme.typography.bodySmall
                 )
-                search.note?.let { Text(it, color = MaterialTheme.field.muted, fontSize = 12.sp) }
+                search.note?.let { Text(it, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall) }
             }
             }
         }
@@ -329,14 +328,14 @@ private fun ConsolidatedIndex(
         when {
             failed -> item(key = "index-failed", contentType = "card") {
                 ConsolidatedCard(title = "Could not load artisans") {
-                    Text("Check the connection and try again.", color = MaterialTheme.field.body, fontSize = 13.sp)
+                    Text("Check the connection and try again.", color = MaterialTheme.field.body, style = MaterialTheme.typography.bodyMedium)
                     TextButton(onClick = { search.retry() }) { Text("Try again") }
                 }
             }
 
             loading -> item(key = "index-loading", contentType = "card") {
                 ConsolidatedCard(title = "Loading artisans…") {
-                    Text("Loading artisans…", color = MaterialTheme.field.muted, fontSize = 12.sp)
+                    Text("Loading artisans…", color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
                 }
             }
 
@@ -349,7 +348,7 @@ private fun ConsolidatedIndex(
                             else -> "No artisans recorded yet."
                         },
                         color = MaterialTheme.field.muted,
-                        fontSize = 13.sp
+                        style = MaterialTheme.typography.bodyMedium
                     )
                 }
             }
@@ -362,7 +361,7 @@ private fun ConsolidatedIndex(
                         Text(
                             "Artisans (${search.total ?: rows.size})",
                             display = true,
-                            fontSize = 16.sp,
+                            style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.padding(top = 16.dp, bottom = 6.dp)
@@ -442,7 +441,7 @@ private fun ArtisanPickRow(artisan: ArtisanDto, onOpen: () -> Unit) {
                     .joinToString(" · ")
                     .ifBlank { "No craft recorded" },
                 color = MaterialTheme.field.muted,
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -521,10 +520,10 @@ private fun ConsolidatedDocument(
         // Not the chrome's back arrow, which leaves the whole destination: this steps from the document
         // to the picker, the move the web makes by following its own URL back.
         TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp)) {
-            Text("All artisans", fontSize = 12.sp)
+            Text("All artisans", style = MaterialTheme.typography.labelMedium)
         }
         if (subtitle.isNotBlank()) {
-            Text(subtitle, color = MaterialTheme.field.muted, fontSize = 12.sp)
+            Text(subtitle, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
         }
         if (current != null) {
             val count = current.summary.interviewCount
@@ -536,7 +535,7 @@ private fun ConsolidatedDocument(
                     "All answers, from $count interview$plural."
                 },
                 color = MaterialTheme.field.muted,
-                fontSize = 12.sp
+                style = MaterialTheme.typography.bodySmall
             )
         }
         WorkshopScopeSelect(scope = scope, label = "Workshops in this document")
@@ -545,7 +544,7 @@ private fun ConsolidatedDocument(
     when {
         error != null && current == null ->
             ConsolidatedCard(title = "This questionnaire could not be loaded") {
-                Text(error.orEmpty(), color = MaterialTheme.field.body, fontSize = 13.sp)
+                Text(error.orEmpty(), color = MaterialTheme.field.body, style = MaterialTheme.typography.bodyMedium)
             }
 
         current == null -> ConsolidatedCard(title = "Gathering answers…") {
@@ -588,7 +587,7 @@ private fun NothingRecordedCard(artisanName: String, interviewCount: Int, scoped
                     ", with nothing filed yet."
             },
             color = MaterialTheme.field.muted,
-            fontSize = 13.sp
+            style = MaterialTheme.typography.bodyMedium
         )
     }
 }
@@ -715,7 +714,7 @@ private fun SectionCard(section: ConsolidatedSectionDto) {
                 Spacer(Modifier.width(8.dp))
                 Text(
                     section.title,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -835,7 +834,7 @@ private fun UnfiledCard(rows: List<ConsolidatedAnswerDto>) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 "Recordings with no section (${rows.size})",
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -880,7 +879,7 @@ private fun ConsolidatedCard(
                 Text(
                     title,
                     display = true,
-                    fontSize = 16.sp,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )

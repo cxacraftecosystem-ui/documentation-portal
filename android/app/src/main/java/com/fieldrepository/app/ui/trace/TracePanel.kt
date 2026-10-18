@@ -443,8 +443,7 @@ fun TracePanel(
                 Text(
                     "Turn the pencil drawing into vector line art. Added as a separate file; works offline.",
                     color = MaterialTheme.field.muted,
-                    fontSize = 11.sp,
-                    lineHeight = 16.sp,
+                    style = MaterialTheme.typography.bodySmall,
                 )
             } else {
                 // THE STATE, IN WORDS, WITHOUT EXPANDING ANYTHING — drawn in the foreground colour for
@@ -452,7 +451,7 @@ fun TracePanel(
                 Text(
                     summary,
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     lineHeight = 17.sp,
                 )
                 Text(
@@ -460,8 +459,7 @@ fun TracePanel(
                     // been told something specific and false by a card that said nothing.
                     "Closing discards the trace. Anything added stays added.",
                     color = MaterialTheme.field.muted,
-                    fontSize = 11.sp,
-                    lineHeight = 16.sp,
+                    style = MaterialTheme.typography.bodySmall,
                 )
             }
             // KEPT RATHER THAN REPLACED BY THE HEADER: a row that happens to be tappable is not a
@@ -476,7 +474,7 @@ fun TracePanel(
                     Spacer(Modifier.width(6.dp))
                     Text(
                         if (summary == null) "Trace a sketch" else "Open the tracing card again",
-                        fontSize = 13.sp,
+                        style = MaterialTheme.typography.labelLarge,
                     )
                 }
             }
@@ -989,7 +987,7 @@ private fun TracePanelOpen(
         if (loading) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FieldCircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                Text("Starting the tracing engine…", color = MaterialTheme.field.muted, fontSize = 12.sp)
+                Text("Starting the tracing engine…", color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
             }
             return@Column
         }
@@ -1140,7 +1138,7 @@ private fun TracePanelOpen(
                 ) {
                     Text(
                         "Adjust for ${tracePresetName(tables.subjects, subjectId).lowercase(Locale.ROOT)}",
-                        fontSize = 13.sp,
+                        style = MaterialTheme.typography.labelLarge,
                     )
                 }
             }
@@ -1234,7 +1232,7 @@ private fun TracePanelOpen(
             ) {
                 Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("Update the preview", fontSize = 13.sp)
+                Text("Update the preview", style = MaterialTheme.typography.labelLarge)
             }
         }
 
@@ -1248,8 +1246,7 @@ private fun TracePanelOpen(
             Text(
                 "Limits are estimates for this phone.",
                 color = MaterialTheme.field.muted,
-                fontSize = 11.sp,
-                lineHeight = 16.sp,
+                style = MaterialTheme.typography.bodySmall,
             )
         }
 
@@ -1261,7 +1258,7 @@ private fun TracePanelOpen(
             ) {
                 Icon(Icons.Filled.Gesture, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("Trace the sketch", fontSize = 13.sp)
+                Text("Trace the sketch", style = MaterialTheme.typography.labelLarge)
             }
             Button(
                 onClick = { attach() },
@@ -1281,7 +1278,7 @@ private fun TracePanelOpen(
                   the wrong one and losing a file they cannot get back. The grammar is the portal's:
                   say what you are adding.
                 */
-                Text("Add the line art", fontSize = 13.sp)
+                Text("Add the line art", style = MaterialTheme.typography.labelLarge)
             }
             /*
               DECLINING IS A FIRST-CLASS OUTCOME AND NOT A CANCEL. A threshold is a decision to discard
@@ -1289,7 +1286,7 @@ private fun TracePanelOpen(
               with the actual sheet in front of them. It needs no explanation and nothing is written.
             */
             TextButton(onClick = onClose, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text("Keep photo as is", fontSize = 12.sp)
+                Text("Keep photo as is", style = MaterialTheme.typography.labelMedium)
             }
         }
 
@@ -1337,8 +1334,7 @@ private fun TracePanelOpen(
         Text(
             TRACE_ATTACH_SENTENCE,
             color = MaterialTheme.field.muted,
-            fontSize = 11.sp,
-            lineHeight = 16.sp,
+            style = MaterialTheme.typography.bodySmall,
         )
 
         /* ── The way out, at the point the work ends ────────────────────────────────────────── */
@@ -1456,7 +1452,7 @@ private fun TraceProgressRow(
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FieldCircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-            Text(sentence, color = MaterialTheme.field.body, fontSize = 12.sp)
+            Text(sentence, color = MaterialTheme.field.body, style = MaterialTheme.typography.bodySmall)
         }
 
         if (kind != null && kind.isFullResolution && progress != null) {
@@ -1471,8 +1467,7 @@ private fun TraceProgressRow(
                 Text(
                     "Counts stages until the first trace finishes.",
                     color = MaterialTheme.field.muted,
-                    fontSize = 11.sp,
-                    lineHeight = 16.sp,
+                    style = MaterialTheme.typography.bodySmall,
                 )
             }
         }
@@ -1487,7 +1482,7 @@ private fun TraceProgressRow(
                 // and inside the long ones, so the worst case is one sub-step — seconds at full resolution.
                 // A control that promised instant would be wrong, and a control that appeared to do nothing
                 // for four seconds is worse.
-                Text(if (stopping) "Stopping…" else "Stop", fontSize = 12.sp)
+                Text(if (stopping) "Stopping…" else "Stop", style = MaterialTheme.typography.labelMedium)
             }
         }
     }
@@ -1522,7 +1517,7 @@ private fun TraceNotes(notes: List<String>) {
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         notes.forEach { note ->
-            Text(note, color = MaterialTheme.field.body, fontSize = 11.sp, lineHeight = 16.sp)
+            Text(note, color = MaterialTheme.field.body, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -1533,7 +1528,7 @@ private fun TraceStatsRow(result: TraceResult) {
     Text(
         "${result.shapeCount} paths · ${result.nodeCount} nodes · ${traceSeconds(result.totalMillis)}",
         color = MaterialTheme.field.muted,
-        fontSize = 11.sp,
+        style = MaterialTheme.typography.bodySmall,
     )
 }
 
@@ -1638,8 +1633,7 @@ private fun TraceAdvancedSection(
             Text(
                 "No other settings are available on this phone.",
                 color = MaterialTheme.field.muted,
-                fontSize = 11.sp,
-                lineHeight = 16.sp,
+                style = MaterialTheme.typography.bodySmall,
             )
             return@Column
         }
@@ -1687,7 +1681,7 @@ private fun TraceAdvancedSection(
                 // [TRACE_DISCLOSURE_ACTION] for why the phrase is not this client's to choose.
                 traceDisclosureLabel(open, revealed, changedBehindDisclosure.size),
                 color = MaterialTheme.field.body,
-                fontSize = 13.sp,
+                style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f),
             )
@@ -1697,8 +1691,7 @@ private fun TraceAdvancedSection(
             Text(
                 traceDisclosureBlurb(revealed),
                 color = MaterialTheme.field.muted,
-                fontSize = 11.sp,
-                lineHeight = 16.sp,
+                style = MaterialTheme.typography.bodySmall,
             )
             // PROGRESSIVE DISCLOSURE IS ONLY HONEST IF WHAT IT HIDES CAN STILL ANNOUNCE ITSELF. The
             // toggle carries the COUNT because somebody who has learned to skip a paragraph still reads
@@ -1929,7 +1922,7 @@ private fun TraceNumberChoiceRow(
             }
         }
         control.options.firstOrNull { abs(it.value - value) < 0.5 }?.let {
-            Text(it.note, color = MaterialTheme.field.muted, fontSize = 11.sp, lineHeight = 16.sp)
+            Text(it.note, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
         }
         TraceRowTail(control, inactive)
     }
@@ -1949,11 +1942,11 @@ private fun TraceRowHeading(label: String, readout: String?, changed: Boolean) {
             // never sees the styling at all.
             if (changed) "$label · changed" else label,
             color = MaterialTheme.field.body,
-            fontSize = 12.sp,
+            style = MaterialTheme.typography.bodySmall,
             fontWeight = if (changed) FontWeight.SemiBold else FontWeight.Normal,
         )
         readout?.let {
-            Text(it, color = MaterialTheme.field.muted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            Text(it, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
         }
     }
 }
@@ -1961,9 +1954,9 @@ private fun TraceRowHeading(label: String, readout: String?, changed: Boolean) {
 /** The upstream's sentence, this client's sentence, and "this does nothing right now" if it does not. */
 @Composable
 private fun TraceRowTail(control: TraceControl, inactive: String?) {
-    Text(control.hint, color = MaterialTheme.field.muted, fontSize = 11.sp, lineHeight = 16.sp)
+    Text(control.hint, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
     control.handsetNote?.let {
-        Text(it, color = MaterialTheme.field.muted, fontSize = 11.sp, lineHeight = 16.sp)
+        Text(it, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
     }
     inactive?.let {
         // A SENTENCE, NOT A DISABLED ROW. Greying the control out would stop somebody setting a value
@@ -1972,8 +1965,7 @@ private fun TraceRowTail(control: TraceControl, inactive: String?) {
         Text(
             "Not used by the current settings. $it",
             color = MaterialTheme.field.muted,
-            fontSize = 11.sp,
-            lineHeight = 16.sp,
+            style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.Medium,
         )
     }
@@ -2019,8 +2011,7 @@ private fun TraceEmptyState(
         Text(
             "Add a photo above to turn its pencil drawing into vector line art.",
             color = MaterialTheme.field.muted,
-            fontSize = 11.sp,
-            lineHeight = 16.sp,
+            style = MaterialTheme.typography.bodySmall,
         )
     }
 }

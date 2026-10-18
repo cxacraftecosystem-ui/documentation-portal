@@ -182,8 +182,11 @@ private fun headingSize(level: Int): Int = when (level) {
     else -> 15
 }
 
-/** The paragraph-level styling for a block: its face, its size and its alignment. */
-private fun blockTextStyle(block: RichBlock, base: Color): TextStyle {
+/**
+ * The paragraph-level styling for a block: its face, its size and its alignment. [body] is the type
+ * scale's bodyLarge, so paragraphs and quotes are set in the app's body face and size.
+ */
+private fun blockTextStyle(block: RichBlock, base: Color, body: TextStyle): TextStyle {
     val alignment = when (block.align) {
         Align.CENTER -> TextAlign.Center
         Align.RIGHT -> TextAlign.End
@@ -191,19 +194,18 @@ private fun blockTextStyle(block: RichBlock, base: Color): TextStyle {
         else -> TextAlign.Start
     }
     return when (block.kind) {
-        BlockKind.HEADING -> TextStyle(
+        BlockKind.HEADING -> body.copy(
             fontSize = headingSize(block.level).sp,
             fontWeight = FontWeight.SemiBold,
             color = base,
             textAlign = alignment,
         )
-        BlockKind.QUOTE -> TextStyle(
-            fontSize = 15.sp,
+        BlockKind.QUOTE -> body.copy(
             fontStyle = FontStyle.Italic,
             color = base.copy(alpha = 0.86f),
             textAlign = alignment,
         )
-        else -> TextStyle(fontSize = 15.sp, color = base, textAlign = alignment)
+        else -> body.copy(color = base, textAlign = alignment)
     }
 }
 
@@ -499,7 +501,7 @@ fun RichTextEditor(
 
     Column(modifier = modifier.fillMaxWidth()) {
         if (label.isNotBlank()) {
-            Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
             Spacer(Modifier.height(4.dp))
         }
 
@@ -693,7 +695,7 @@ fun RichTextEditor(
 
         if (!help.isNullOrBlank()) {
             Spacer(Modifier.height(4.dp))
-            Text(help, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(help, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -769,7 +771,7 @@ private fun RichTextBlockRow(
     ) {
         when {
             block.kind == BlockKind.BULLET_ITEM -> {
-                Text("•", fontSize = 15.sp, modifier = Modifier.padding(end = 8.dp, top = 2.dp))
+                Text("•", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(end = 8.dp, top = 2.dp))
             }
             block.kind == BlockKind.ORDERED_ITEM -> {
                 // The ordinal comes from the model's own numbering, not from the row's position, so
@@ -777,7 +779,7 @@ private fun RichTextBlockRow(
                 // paragraph restarts in both places or in neither.
                 Text(
                     "${ordinal ?: 1}.",
-                    fontSize = 15.sp,
+                    style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.padding(end = 8.dp, top = 2.dp),
                 )
             }
@@ -801,7 +803,7 @@ private fun RichTextBlockRow(
                 if (edit != null) onTextEdit(edit) else onSelectionChanged(updated.selection)
             },
             enabled = enabled,
-            textStyle = blockTextStyle(block, colour),
+            textStyle = blockTextStyle(block, colour, MaterialTheme.typography.bodyLarge),
             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
             modifier = Modifier
@@ -936,13 +938,13 @@ private fun InlinePhotograph(
                     // picture, and it is the only thing that tells nine plates in one narrative
                     // apart.
                     caption.ifEmpty { "Photograph — the line below is its caption" },
-                    fontSize = 13.sp,
+                    style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
                 )
                 if (imageUrl == null) {
                     Text(
                         "Photo in this answer.",
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -960,7 +962,7 @@ private fun InlinePhotograph(
             ) {
                 Text(
                     "${block.widthPct.toInt()}% of the page width",
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.width(4.dp))

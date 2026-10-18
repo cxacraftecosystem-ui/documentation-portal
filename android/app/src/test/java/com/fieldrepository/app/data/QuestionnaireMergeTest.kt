@@ -313,7 +313,7 @@ class QuestionnaireMergeTest {
         /** `_MERGE_CONFLICT_CODE`, with the questions the route names. */
         const val MERGE_CONFLICT_409 = """
             {"detail":{"code":"merge_answer_conflict",
-             "message":"Both interviews answer 2 question(s) differently. Nothing was moved. Reconcile these answers first — whichever wording is right has to be chosen by somebody who was there, not by the server.",
+             "message":"Both interviews answer 2 questions differently. Nothing was moved. Reconcile these answers first — whichever wording is right has to be chosen by somebody who was there, not by the server.",
              "questions":[
                {"questionId":"q-d1","sectionCode":"D","prompt":"Which clay is used?","fields":["answerText"]},
                {"questionId":"q-f3","sectionCode":"F","prompt":"How many looms are in the workshop?","fields":["answerText","notes"]}]}}

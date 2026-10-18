@@ -607,7 +607,7 @@ fun FieldDateRangeField(
             Text(
                 label,
                 color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f)
             )
             TextButton(onClick = { showCalendar = true }) {

@@ -130,7 +130,7 @@ fun AnswerDraftsCard(
             }
         } else {
             pending.forEach { d ->
-                Text("${prompts[d.questionId]} · ${AnswerDrafts.LABEL}", color = Muted, fontSize = 12.sp)
+                Text("${prompts[d.questionId]} · ${AnswerDrafts.LABEL}", color = Muted, style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(
                     value = edits[d.questionId] ?: d.draftText,
                     onValueChange = { edits[d.questionId] = it },
@@ -164,7 +164,7 @@ fun AnswerDraftsCard(
             }
         }
         note?.let {
-            Text(it, color = Muted, fontSize = 12.sp, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+            Text(it, color = Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
         }
     }
 }

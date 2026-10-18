@@ -1868,7 +1868,7 @@ async def merge_interview_into(
             detail={
                 "code": _MERGE_CONFLICT_CODE,
                 "message": (
-                    f"Both interviews answer {len(named)} question(s) differently. Nothing was "
+                    f"Both interviews answer {len(named)} {'question' if len(named) == 1 else 'questions'} differently. Nothing was "
                     "moved. Make the answers match, then try again."
                 ),
                 "questions": named,
@@ -3017,7 +3017,8 @@ async def _remove_absent(
                 "reason": (
                     f"Section {section.code} was not in your spreadsheet, so it was switched off "
                     "rather than deleted: "
-                    f"{verdicts} completion verdict(s) and {tasks} assigned task(s) still point at "
+                    f"{verdicts} completion {'verdict' if verdicts == 1 else 'verdicts'} and {tasks} assigned "
+                    f"{'task' if tasks == 1 else 'tasks'} still point at "
                     "it. It is no longer asked. Nothing was removed from any task — check the "
                     "assignments if that section was somebody's work."
                 ),
@@ -3448,7 +3449,7 @@ async def update_questionnaire(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
-                    f"{len(titles)} workshop(s) still use this questionnaire and it cannot be "
+                    f"{len(titles)} {'workshop still uses' if len(titles) == 1 else 'workshops still use'} this questionnaire and it cannot be "
                     f"retired: {titles}. Rebind or detach them first."
                 ),
             )

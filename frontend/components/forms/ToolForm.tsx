@@ -52,6 +52,7 @@ import { ButtonRow } from "@/components/ui/ButtonRow";
 import { CarryForwardCards } from "@/components/CarryForwardCards";
 import { artisanStatedSource } from "@/components/forms/statedPrefill";
 import { failedFilesOf, RetryFailedUploads, type FailedUpload } from "@/components/media/RetryFailedUploads";
+import { countNoun } from "@/lib/format";
 
 /**
  * Dropdown label for a linked artisan: "Craft · Name · Place", craft FIRST.
@@ -1296,7 +1297,7 @@ function ToolFormBody({
       }
       if (stageFailed.length) {
         setError(
-          `Saved, but ${stageFailed.length} stage file(s) didn’t upload: ${stageFailed.join(", ")}. Reopen to retry.`
+          `Saved, but ${countNoun(stageFailed.length, "stage file")} didn’t upload: ${stageFailed.join(", ")}. Reopen to retry.`
         );
         setSaving(false);
         return;

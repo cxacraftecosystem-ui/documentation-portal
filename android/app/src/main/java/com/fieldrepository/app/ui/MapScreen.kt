@@ -575,7 +575,7 @@ fun MapScreen(
             Text(
                 "Where each craft is from, and where it was recorded.",
                 color = MaterialTheme.field.muted,
-                fontSize = 12.sp
+                style = MaterialTheme.typography.bodySmall
             )
 
             WorkshopScopeSelect(scope = workshopScope, label = "Workshops on this map")
@@ -607,7 +607,7 @@ fun MapScreen(
                 Text(
                     "Loading places…",
                     color = MaterialTheme.field.muted,
-                    fontSize = 12.sp
+                    style = MaterialTheme.typography.bodySmall
                 )
             }
 
@@ -622,19 +622,19 @@ fun MapScreen(
                                 "No records with a mapped address yet."
                             },
                             color = MaterialTheme.field.muted,
-                            fontSize = 13.sp
+                            style = MaterialTheme.typography.bodyMedium
                         )
 
                         geometryFailed -> Text(
                             "Map outline unavailable. Places are listed below.",
                             color = MaterialTheme.field.body,
-                            fontSize = 13.sp
+                            style = MaterialTheme.typography.bodyMedium
                         )
 
                         geometry == null -> Text(
                             "Drawing the outline…",
                             color = MaterialTheme.field.muted,
-                            fontSize = 12.sp
+                            style = MaterialTheme.typography.bodySmall
                         )
 
                         else -> IndiaMapCanvas(
@@ -652,7 +652,7 @@ fun MapScreen(
                         Text(
                             "Tap a pin to see it in the list.",
                             color = MaterialTheme.field.muted,
-                            fontSize = 11.sp
+                            style = MaterialTheme.typography.bodySmall
                         )
                     }
                 }
@@ -713,7 +713,7 @@ fun MapScreen(
         }
 
         if (loading && current != null) {
-            Text("Placing the records…", color = MaterialTheme.field.muted, fontSize = 12.sp)
+            Text("Placing the records…", color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -744,7 +744,7 @@ private fun DetailLevelControl(
     onSelect: (String) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-        Text("Detail", color = MaterialTheme.field.muted, fontSize = 12.sp)
+        Text("Detail", color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -756,17 +756,17 @@ private fun DetailLevelControl(
                 FilterChip(
                     selected = option == selected,
                     onClick = { onSelect(option) },
-                    label = { Text(levelLabel(option), fontSize = 12.sp) }
+                    label = { Text(levelLabel(option), style = MaterialTheme.typography.labelMedium) }
                 )
             }
         }
         levelHint(selected)?.let { hint ->
-            Text(hint, color = MaterialTheme.field.muted, fontSize = 11.sp)
+            Text(hint, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
         }
         Text(
             "International border as depicted by the Government of India. 43 newer districts have no published border; their records sit in the parent district.",
             color = MaterialTheme.field.muted,
-            fontSize = 11.sp
+            style = MaterialTheme.typography.bodySmall
         )
     }
 }
@@ -786,10 +786,10 @@ private fun FocusBanner(title: String, place: String?, onClear: () -> Unit) {
             "Showing $title in context" +
                 (place?.takeIf { it.isNotBlank() }?.let { " — recorded as “$it”" } ?: "") + ".",
             color = MaterialTheme.colorScheme.onPrimaryContainer,
-            fontSize = 13.sp
+            style = MaterialTheme.typography.bodyMedium
         )
         TextButton(onClick = onClear, contentPadding = PaddingValues(0.dp)) {
-            Text("Clear", fontSize = 12.sp)
+            Text("Clear", style = MaterialTheme.typography.labelMedium)
         }
     }
 }
@@ -1479,7 +1479,7 @@ private fun MapLegend(level: String) {
                 else -> "Outline: international border"
             },
             color = MaterialTheme.field.placeholder,
-            fontSize = 11.sp
+            style = MaterialTheme.typography.bodySmall
         )
     }
 }
@@ -1492,7 +1492,7 @@ private fun LegendEntry(label: String, swatch: DrawScope.(Float) -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         Canvas(modifier = Modifier.size(11.dp)) { swatch(size.minDimension) }
-        Text(label, color = MaterialTheme.field.muted, fontSize = 11.sp)
+        Text(label, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -1519,7 +1519,7 @@ private fun MapSummaryCard(
         Text(
             "Grouped by ${levelLabel(drawnLevel).lowercase(Locale.ROOT)}. $scopeSummary",
             color = MaterialTheme.field.muted,
-            fontSize = 11.sp
+            style = MaterialTheme.typography.bodySmall
         )
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -1573,7 +1573,7 @@ private fun MapSummaryCard(
                     }
                 },
                 color = MaterialTheme.field.muted,
-                fontSize = 11.sp,
+                style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -1592,7 +1592,7 @@ private fun MapSummaryCard(
                     "Address detail on the ${address.locations} " +
                         (if (address.locations == 1) "location" else "locations") + " in scope",
                     color = MaterialTheme.field.muted,
-                    fontSize = 10.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Medium
                 )
                 Text(
@@ -1600,13 +1600,13 @@ private fun MapSummaryCard(
                         "${address.withPincode} with a pincode · ${address.withSubjectPin} with a " +
                         "pin on the subject’s place.",
                     color = MaterialTheme.field.body,
-                    fontSize = 11.sp
+                    style = MaterialTheme.typography.bodySmall
                 )
                 if (address.withDistrict < address.locations) {
                     Text(
                         "Records without a district sit at the state capital.",
                         color = MaterialTheme.field.muted,
-                        fontSize = 11.sp
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
                 Text(
@@ -1615,7 +1615,7 @@ private fun MapSummaryCard(
                         " from the ${summary.anchorPins} " +
                         (if (summary.anchorPins == 1) "pin" else "pins") + " people have dropped.",
                     color = MaterialTheme.field.muted,
-                    fontSize = 11.sp
+                    style = MaterialTheme.typography.bodySmall
                 )
             }
         }
@@ -1646,7 +1646,7 @@ private fun MapStatTile(label: String, value: Int, icon: ImageVector?, modifier:
             Text(
                 label,
                 color = MaterialTheme.field.muted,
-                fontSize = 10.sp,
+                style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Medium
             )
         }
@@ -1654,7 +1654,7 @@ private fun MapStatTile(label: String, value: Int, icon: ImageVector?, modifier:
             value.toString(),
             display = true,
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 20.sp,
+            style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold
         )
     }
@@ -1709,11 +1709,11 @@ private fun MapPlaceListCard(
                 (childLevel?.let { ", or open a row for the ${it.lowercase(Locale.ROOT)}s inside it" } ?: "") +
                 ".",
             color = MaterialTheme.field.muted,
-            fontSize = 11.sp
+            style = MaterialTheme.typography.bodySmall
         )
 
         if (points.isEmpty() && unplaced.isEmpty()) {
-            Text("Nothing to place.", color = MaterialTheme.field.muted, fontSize = 12.sp)
+            Text("Nothing to place.", color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
             return@MapCard
         }
 
@@ -1879,7 +1879,7 @@ private fun PlaceRow(
                 ordinal.toString(),
                 display = true,
                 color = MaterialTheme.field.muted,
-                fontSize = 10.sp,
+                style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold
             )
         }
@@ -1896,7 +1896,7 @@ private fun PlaceRow(
                     "$ordinal. ${point.label}",
                     display = true,
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
+                    style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f, fill = false)
                 )
@@ -1904,7 +1904,7 @@ private fun PlaceRow(
                 if (isFocused) MapPill("This record", emphasised = true)
             }
 
-            Text(point.region, color = MaterialTheme.field.muted, fontSize = 11.sp)
+            Text(point.region, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
 
             Text(
                 "${point.total} " + (if (point.total == 1) "record" else "records") +
@@ -1915,7 +1915,7 @@ private fun PlaceRow(
                         ) { (bucket, count) -> countLabel(bucket, count) }
                         ),
                 color = MaterialTheme.field.body,
-                fontSize = 12.sp
+                style = MaterialTheme.typography.bodySmall
             )
 
             Text(
@@ -1953,7 +1953,7 @@ private fun PlaceRow(
                     }
                 },
                 color = MaterialTheme.field.muted,
-                fontSize = 11.sp
+                style = MaterialTheme.typography.bodySmall
             )
         }
     }
@@ -1991,7 +1991,7 @@ private fun PlaceRow(
                     Text(
                         childSummary(point, childLevel),
                         color = MaterialTheme.colorScheme.primary,
-                        fontSize = 11.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
@@ -2016,7 +2016,7 @@ private fun PlaceRow(
                                 "$ordinal.${childIndex + 1}",
                                 display = true,
                                 color = MaterialTheme.field.placeholder,
-                                fontSize = 10.sp,
+                                style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold
                             )
                             Column(
@@ -2026,15 +2026,15 @@ private fun PlaceRow(
                                 Text(
                                     child.label,
                                     color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 12.sp,
+                                    style = MaterialTheme.typography.bodySmall,
                                     fontWeight = FontWeight.Medium
                                 )
-                                Text(child.region, color = MaterialTheme.field.muted, fontSize = 11.sp)
+                                Text(child.region, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
                             }
                             Text(
                                 child.total.toString(),
                                 color = MaterialTheme.field.body,
-                                fontSize = 11.sp,
+                                style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
@@ -2044,7 +2044,7 @@ private fun PlaceRow(
                             "Showing the busiest. Switch to " +
                                 (childLevel ?: "DISTRICT").lowercase(Locale.ROOT) + " detail for all.",
                             color = MaterialTheme.field.muted,
-                            fontSize = 11.sp
+                            style = MaterialTheme.typography.bodySmall
                         )
                     }
                     // WHY THESE LEAD BACK INTO THE MAP AND NOT INTO THE RECORDS. Choosing one re-groups the
@@ -2055,7 +2055,7 @@ private fun PlaceRow(
                         "Choosing one moves the map to " +
                             (childLevel ?: "DISTRICT").lowercase(Locale.ROOT) + " detail.",
                         color = MaterialTheme.field.placeholder,
-                        fontSize = 11.sp
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
             }
@@ -2102,19 +2102,19 @@ private fun UnplacedBlock(unplaced: List<MapUnplacedDto>) {
             "Not on the map",
             display = true,
             color = MaterialTheme.field.onWarningContainer,
-            fontSize = 12.sp,
+            style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.SemiBold
         )
         Text(
             "No state or recognisable place, so no pin. Add a state to the record to map it.",
             color = MaterialTheme.field.onWarningContainer,
-            fontSize = 11.sp
+            style = MaterialTheme.typography.bodySmall
         )
         unplaced.forEach { entry ->
             Text(
                 "${entry.label} — ${entry.total} " + (if (entry.total == 1) "record" else "records"),
                 color = MaterialTheme.field.onWarningContainer,
-                fontSize = 11.sp
+                style = MaterialTheme.typography.bodySmall
             )
         }
     }
@@ -2183,7 +2183,7 @@ private fun MapPointPanel(
             }
         }
     ) {
-        Text(point.region, color = MaterialTheme.field.muted, fontSize = 11.sp)
+        Text(point.region, color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
 
         // Every finer place name that folded into this point. Grouping to a district does not lose
         // the town it was documented in — it says so here.
@@ -2192,7 +2192,7 @@ private fun MapPointPanel(
                 "Covers ${point.places.take(4).joinToString(", ")}" +
                     (if (point.places.size > 4) " and ${point.places.size - 4} more" else "") + ".",
                 color = MaterialTheme.field.muted,
-                fontSize = 11.sp
+                style = MaterialTheme.typography.bodySmall
             )
         }
 
@@ -2207,7 +2207,7 @@ private fun MapPointPanel(
                         "${point.pinnedRecords} of ${point.total} placed by pin."
                 },
                 color = MaterialTheme.field.muted,
-                fontSize = 11.sp
+                style = MaterialTheme.typography.bodySmall
             )
         }
 
@@ -2216,19 +2216,19 @@ private fun MapPointPanel(
             panelError != null -> Text(
                 panelError.orEmpty(),
                 color = MaterialTheme.colorScheme.error,
-                fontSize = 12.sp
+                style = MaterialTheme.typography.bodySmall
             )
 
             rows == null -> Text(
                 "Loading the records here…",
                 color = MaterialTheme.field.muted,
-                fontSize = 12.sp
+                style = MaterialTheme.typography.bodySmall
             )
 
             rows.isEmpty() -> Text(
                 "No records to list at this point.",
                 color = MaterialTheme.field.muted,
-                fontSize = 12.sp
+                style = MaterialTheme.typography.bodySmall
             )
 
             else -> {
@@ -2237,7 +2237,7 @@ private fun MapPointPanel(
                     Text(
                         "Most recent of each type. See Browse records for all.",
                         color = MaterialTheme.field.muted,
-                        fontSize = 11.sp
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
             }
@@ -2272,7 +2272,7 @@ private fun PointRecordRow(
         Text(
             row.type.uppercase(Locale.ROOT),
             color = MaterialTheme.field.muted,
-            fontSize = 9.sp,
+            style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             modifier = Modifier.width(62.dp)
@@ -2280,7 +2280,7 @@ private fun PointRecordRow(
         Text(
             row.title.ifBlank { "Untitled" },
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 12.sp,
+            style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -2329,7 +2329,7 @@ private fun MapCard(
                     title,
                     display = true,
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 18.sp,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
                 )
@@ -2350,7 +2350,7 @@ private fun MapPill(text: String, emphasised: Boolean = false) {
     Text(
         text,
         color = foreground,
-        fontSize = 9.sp,
+        style = MaterialTheme.typography.labelSmall,
         fontWeight = FontWeight.Medium,
         maxLines = 1,
         modifier = Modifier

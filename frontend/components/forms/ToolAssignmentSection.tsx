@@ -9,6 +9,7 @@ import { Dropdown, MultiSelectDropdown } from "@/components/ui/Dropdown";
 import { apiFetch, listResource } from "@/lib/api";
 import type { Artisan, Craft, ToolDocumentation } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
+import { countNoun } from "@/lib/format";
 
 /**
  * "Assign a tool to multiple artisans": the same documented tool can be mapped to several artisans
@@ -110,7 +111,7 @@ export function ToolAssignmentSection() {
       });
       setAssigned(updated);
       setArtisanIds([]);
-      setMessage(`This tool is now assigned to ${updated.length} artisan(s).`);
+      setMessage(`This tool is now assigned to ${countNoun(updated.length, "artisan")}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Assignment failed");
     } finally {
