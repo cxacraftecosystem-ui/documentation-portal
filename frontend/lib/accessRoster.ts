@@ -166,7 +166,7 @@ export function rosterCreateBody(fields: {
  * why the add "did nothing".
  */
 export async function addToAccessRoster(body: AccessRosterCreateBody) {
-  return apiFetch<AccessRosterEntry>("/access-roster", {
+  return apiFetch<AccessDecisionAnswer>("/access-roster", {
     method: "POST",
     body: JSON.stringify(body)
   });

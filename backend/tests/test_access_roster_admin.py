@@ -355,3 +355,30 @@ def test_an_admitted_address_with_no_account_shows_as_such(monkeypatch: pytest.M
     item = _call("GET", "/api/access-roster").json()["items"][0]
     assert item["userId"] is None
     assert item["firstSeenAt"] is None
+
+
+def test_a_change_of_role_on_manage_users_writes_the_audit_entry(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The sign-in list rule (``services/signin_role``): Manage users is the door that changes an
+    existing account's role, and the change writes one audit entry. An echo of the same role writes none."""
+    from app.services import signin_role
+
+    install(
+        monkeypatch,
+        FakeDb(
+            users=[_account("raised@example.org", role="RESEARCHER")],
+            roster=[_roster("raised@example.org", "ACTIVE")],
+        ),
+    )
+    _as("ADMIN")
+    caplog.set_level("WARNING", logger=signin_role.logger.name)
+
+    raised = _call("PATCH", "/api/users/id-raised@example.org", {"role": "PROFESSOR"})
+    assert raised.status_code == 200, raised.text
+    echoed = _call("PATCH", "/api/users/id-raised@example.org", {"role": "PROFESSOR"})
+    assert echoed.status_code == 200, echoed.text
+
+    audits = [r.getMessage() for r in caplog.records if r.getMessage().startswith(signin_role.ROLE_AUDIT_PREFIX)]
+    assert len(audits) == 1, audits
+    assert "user=id-raised@example.org by=admin-1 from=RESEARCHER to=PROFESSOR via=users" in audits[0]

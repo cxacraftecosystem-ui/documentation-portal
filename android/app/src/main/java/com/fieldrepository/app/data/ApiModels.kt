@@ -3208,7 +3208,9 @@ data class AccessRosterDto(
      * otherwise be looking at a stale tier and believing it current.
      */
     val accountRole: String? = null,
-    val accountName: String? = null
+    val accountName: String? = null,
+    /** On a decision's answer only: the sentence when an existing account kept its role (the sign-in list rule). */
+    val accountPromotionHeld: String? = null
 )
 
 /** `GET /access-roster/pending-count` — the notification, in its entirety. */

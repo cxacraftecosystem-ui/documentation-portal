@@ -133,6 +133,7 @@ async def test_an_approval_never_writes_an_account_and_says_when_it_keeps_its_ro
 def test_the_users_patch_is_the_door_that_audits_a_change_of_role():
     source = inspect.getsource(users_routes.update_user)
     assert "signin_role.audit_role_change(" in source
+    assert "before=role_before" in source
     assert 'via="users"' in source
 
 
@@ -144,3 +145,30 @@ def test_no_sign_in_door_writes_a_role_from_the_list():
     assert writes == ['data["role"] = "MASTER_ADMIN"'], writes
     assert "signin_role.role_for_new_account(" in source
     assert signin_role.NEW_ACCOUNTS_ONLY
+
+
+@pytest.mark.parametrize("vector", CONTRACT["roleKeptSentence"], ids=lambda v: f"{v['current']}+{v['listed']}")
+async def test_adding_an_address_never_writes_an_account_and_says_when_it_keeps_its_role(monkeypatch, vector):
+    """Adding an address by hand admits it like an approval, so it answers the same sentence."""
+    from app.schemas.access_roster import AccessRosterCreate
+
+    users = _Users(_account(vector["current"], email=vector["email"]) if vector["current"] else None)
+
+    class _Roster:
+        async def find_unique(self, where):
+            return None
+
+    async def _admit(email, *, granted_role, full_name, notes, decided_by_id):
+        return SimpleNamespace(email=email, grantedRole=granted_role)
+
+    monkeypatch.setattr(access_routes, "db", SimpleNamespace(user=users, accessroster=_Roster()))
+    monkeypatch.setattr(access_routes, "ensure_admitted", _admit)
+    monkeypatch.setattr(access_routes, "roster_payload", lambda row, **_kw: {"email": row.email})
+    monkeypatch.setattr(access_routes, "assert_role", lambda *_args: None)
+    actor = SimpleNamespace(id="admin-1", role="MASTER_ADMIN")
+
+    answer = await access_routes.add_to_roster(
+        AccessRosterCreate(email=vector["email"], grantedRole=vector["listed"]), current_user=actor
+    )
+    assert answer["accountPromotionHeld"] == vector["expect"]
+    assert (users.updates, users.creates) == ([], [])

@@ -101,6 +101,10 @@ private const val ROSTER_PAGE_SIZE = 20
  */
 private const val NEW_ACCOUNTS_ONLY = "New accounts only. To change an existing account, use Manage users."
 
+/** The server's `accountPromotionHeld` sentence on a decision's answer, or null. */
+internal fun heldSentence(answer: Any?): String? =
+    (answer as? AccessRosterDto)?.accountPromotionHeld?.trim()?.ifBlank { null }
+
 /**
  * How much of the pending queue the top section shows at once.
  *
@@ -234,8 +238,10 @@ fun AccessRosterScreen(
                 else repository.rejectAccessRosterEntry(entry.id)
             }
                 .onSuccess { updated ->
+                    // The sign-in list rule: an approval that left an existing account's role alone
+                    // answers the server's sentence, which replaces this screen's own receipt.
                     notice = if (approve) {
-                        "${updated.email} can sign in, as ${roleLabelFor(updated.grantedRole)}."
+                        heldSentence(updated) ?: "${updated.email} can sign in, as ${roleLabelFor(updated.grantedRole)}."
                     } else {
                         "${updated.email} refused. You can approve them later."
                     }
@@ -438,8 +444,10 @@ fun AccessRosterScreen(
                                 )
                             }
                                 .onSuccess { created ->
-                                    notice = accessAddedLine(created.email, signIn) + " " +
-                                        "Joins as ${roleLabelFor(created.grantedRole)}."
+                                    // Adding admits the address like an approval: an account already
+                                    // there at another role keeps it, and the server says so.
+                                    notice = heldSentence(created) ?: (accessAddedLine(created.email, signIn) + " " +
+                                        "Joins as ${roleLabelFor(created.grantedRole)}.")
                                     newEmail = ""
                                     newName = ""
                                     newNote = ""
@@ -528,7 +536,7 @@ fun AccessRosterScreen(
                             busyId = entry.id
                             error = null
                             runCatching { repository.approveAccessRosterEntry(entry.id, entry.grantedRole) }
-                                .onSuccess { notice = "${it.email} can sign in again."; reload() }
+                                .onSuccess { notice = heldSentence(it) ?: "${it.email} can sign in again."; reload() }
                                 .onFailure { error = it.apiErrorMessage("Unable to restore this entry") }
                             busyId = null
                         }

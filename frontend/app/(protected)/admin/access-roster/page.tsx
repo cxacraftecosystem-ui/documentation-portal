@@ -253,13 +253,20 @@ export default function AccessRosterPage() {
           mustChangePassword: addRequireChange
         })
       );
-      setNotice(
+      // Adding admits the address like an approval, so an account already there at another role
+      // keeps it and the server's sentence says so; amber while it is the notice.
+      const held = signIn === "PASSWORD" ? null : promotionHeldSentence(created);
+      const sent = sendInvite ? " Invitation sent." : "";
+      const message =
         signIn === "PASSWORD"
           ? `${created.email} can sign in as ${roleLabel(created.grantedRole)}${
               addRequireChange ? " and will choose a new password" : ""
             }. Send them the password.`
-          : `${created.email} added as ${roleLabel(created.grantedRole)}.${sendInvite ? " Invitation sent." : ""}`
-      );
+          : held
+            ? `${held}${sent}`
+            : `${created.email} added as ${roleLabel(created.grantedRole)}.${sent}`;
+      setHeldRole(held ? message : null);
+      setNotice(message);
       formElement.reset();
       setSignIn("PROVIDER");
       setAddRequireChange(true);
@@ -295,10 +302,10 @@ export default function AccessRosterPage() {
       // The server's sentence when an account already exists at another role, which approving
       // leaves alone; amber while it is the notice.
       const held = promotionHeldSentence(updated);
-      setHeldRole(held);
-      setNotice(
-        held ?? `${updated.email} approved as ${roleLabel(updated.grantedRole)}.${invite ? " Invitation sent." : ""}`
-      );
+      const sent = invite ? " Invitation sent." : "";
+      const message = held ? `${held}${sent}` : `${updated.email} approved as ${roleLabel(updated.grantedRole)}.${sent}`;
+      setHeldRole(held ? message : null);
+      setNotice(message);
       await reloadEverything();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to approve this request");

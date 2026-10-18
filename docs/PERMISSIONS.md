@@ -106,8 +106,8 @@ address that is not admitted becomes a PENDING request, never an account
 **The roster sets the role of a NEW account only** (the sign-in list rule, 2026-10-18,
 `backend/app/services/signin_role.py`). An entry's `grantedRole` is applied when the account is created
 by its first sign-in, never below `DEFAULT_SIGNUP_ROLE`. It never raises or lowers an existing account,
-at sign-in or when an entry is approved or restored; when an account exists at another role, the
-approval's answer carries `accountPromotionHeld` — "{email} already has an account, as {current}. Its
+at sign-in or when an entry is added, approved or restored; when an account exists at another role,
+the answer carries `accountPromotionHeld` — "{email} already has an account, as {current}. Its
 role stays; change it on Manage users." — which `/admin/access-roster` shows in place of its receipt. A
 change of role is an explicit act on Manage users (`PATCH /api/users/{id}`), which writes `AUDIT account
 role changed: user=… by=… from=… to=… via=users`. The configured master admin address is the

@@ -236,6 +236,10 @@ async def add_to_roster(
         if payload.sendInvite:
             # Never raises; a no-op when mail is not configured.
             await notify_access_granted(email, name=payload.fullName)
+        # Adding admits the ADDRESS, like an approval, so an account already there at another role
+        # keeps it and the answer says so (the sign-in list rule; the same key and sentence).
+        held = await _role_kept(row.email, role_value(getattr(row, "grantedRole", None)))
+        return {**roster_payload(row), "accountPromotionHeld": held}
     else:
         now = datetime.now(UTC)
         row = await db.accessroster.create(
