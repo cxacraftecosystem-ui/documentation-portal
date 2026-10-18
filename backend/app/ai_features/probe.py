@@ -137,6 +137,7 @@ def probe(settings: AiFeatureSettings | None = None) -> dict[str, Any]:
             "maxImageBytes": active.max_image_bytes,
             "maxImagePixels": active.max_image_pixels,
             "timeoutSeconds": active.timeout_seconds,
+            "transcriptInsightsMaxTranslateChars": active.transcript_insights_max_translate_chars,
         },
         # Names only. This report is meant to be pasted into a ticket.
         "configuredVariables": list(configured_vars()),

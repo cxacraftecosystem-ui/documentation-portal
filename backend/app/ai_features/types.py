@@ -11,11 +11,18 @@ from typing import Any, Literal
 
 
 class Capability(StrEnum):
-    """The three things this package can do. Values double as env-var infixes and JSON keys."""
+    """The things this package can do. Values double as env-var infixes and JSON keys.
+
+    ``TRANSCRIPT_INSIGHTS`` is the one text capability: a summary, key quotes and an English
+    translation of an interview transcript (services/transcript_insights). It is gated and probed
+    here like the image capabilities, but its calls go through the existing chat plumbing rather
+    than through a provider class.
+    """
 
     BACKGROUND_REMOVAL = "background_removal"
     FOREGROUND_SEPARATION = "foreground_separation"
     VECTORISATION = "vectorisation"
+    TRANSCRIPT_INSIGHTS = "transcript_insights"
 
 
 #: How a resource number was arrived at. Never label an unmeasured number MEASURED — the point of

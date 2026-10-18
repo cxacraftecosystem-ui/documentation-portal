@@ -46,7 +46,7 @@ from app.ai_features.probe import (
     is_available,
     probe,
 )
-from app.ai_features.registry import ALL_PROVIDERS, get_descriptor, providers_for
+from app.ai_features.registry import ALL_PROVIDERS, TEXT_VERBS, get_descriptor, providers_for
 from app.ai_features.service import remove_background, separate_foreground, vectorise_image
 from app.ai_features.settings import (
     CAPABILITY_ENV_VARS,
@@ -87,6 +87,7 @@ __all__ = [
     "reset_ai_settings_cache",
     # providers, as data
     "ALL_PROVIDERS",
+    "TEXT_VERBS",
     "ProviderDescriptor",
     "ProviderReadiness",
     "ResourceProfile",

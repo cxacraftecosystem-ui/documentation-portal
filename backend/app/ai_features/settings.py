@@ -56,6 +56,9 @@ ENV_VARS: tuple[str, ...] = (
     "AI_VECTOR_COLORMODE",
     "AI_VECTOR_FILTER_SPECKLE",
     "AI_VECTOR_COLOR_PRECISION",
+    "AI_TRANSCRIPT_INSIGHTS_ENABLED",
+    "AI_TRANSCRIPT_INSIGHTS_PROVIDER",
+    "AI_TRANSCRIPT_INSIGHTS_MAX_TRANSLATE_CHARS",
 )
 
 #: The two variables that gate and steer each capability. Errors and the probe quote these names
@@ -74,6 +77,10 @@ CAPABILITY_ENV_VARS: dict[Capability, tuple[str, str]] = {
     Capability.VECTORISATION: (
         "AI_IMAGE_VECTORISATION_ENABLED",
         "AI_IMAGE_VECTORISATION_PROVIDER",
+    ),
+    Capability.TRANSCRIPT_INSIGHTS: (
+        "AI_TRANSCRIPT_INSIGHTS_ENABLED",
+        "AI_TRANSCRIPT_INSIGHTS_PROVIDER",
     ),
 }
 
@@ -96,6 +103,10 @@ _DEFAULT_MAX_BYTES = 12 * 1024 * 1024
 # the box: RGBA at 24 MP is ~96 MB per copy, and matting holds several.
 _DEFAULT_MAX_PIXELS = 24_000_000
 _DEFAULT_TIMEOUT_SECONDS = 60.0
+# How much of a non-English transcript is translated in one run. 96k characters is roughly a
+# two-hour interview; the floor keeps a typo from turning every translation into a fragment.
+_DEFAULT_MAX_TRANSLATE_CHARS = 96_000
+_MIN_MAX_TRANSLATE_CHARS = 4_000
 
 _TRUE = frozenset({"1", "true", "yes", "on", "y", "t"})
 _FALSE = frozenset({"0", "false", "no", "off", "n", "f", ""})
@@ -109,10 +120,13 @@ class AiFeatureSettings:
     background_removal_enabled: bool = False
     foreground_separation_enabled: bool = False
     vectorisation_enabled: bool = False
+    transcript_insights_enabled: bool = False
 
     background_removal_provider: str = "auto"
     foreground_separation_provider: str = "auto"
     vectorisation_provider: str = "auto"
+    transcript_insights_provider: str = "auto"
+    transcript_insights_max_translate_chars: int = _DEFAULT_MAX_TRANSLATE_CHARS
 
     max_image_bytes: int = _DEFAULT_MAX_BYTES
     max_image_pixels: int = _DEFAULT_MAX_PIXELS
@@ -154,6 +168,7 @@ class AiFeatureSettings:
             Capability.BACKGROUND_REMOVAL: self.background_removal_enabled,
             Capability.FOREGROUND_SEPARATION: self.foreground_separation_enabled,
             Capability.VECTORISATION: self.vectorisation_enabled,
+            Capability.TRANSCRIPT_INSIGHTS: self.transcript_insights_enabled,
         }[capability]
 
     def provider_choice(self, capability: Capability) -> str:
@@ -162,6 +177,7 @@ class AiFeatureSettings:
             Capability.BACKGROUND_REMOVAL: self.background_removal_provider,
             Capability.FOREGROUND_SEPARATION: self.foreground_separation_provider,
             Capability.VECTORISATION: self.vectorisation_provider,
+            Capability.TRANSCRIPT_INSIGHTS: self.transcript_insights_provider,
         }[capability]
 
     def value_for(self, env_var: str) -> str | None:
@@ -219,6 +235,26 @@ def _as_float(raw: str | None, default: float, name: str, notes: list[str]) -> f
     return value
 
 
+def _as_max_translate_chars(raw: str | None, notes: list[str]) -> int:
+    """The translation cap. Anything unreadable or under the floor falls back to the default, with
+    a note: a fragmentary translation is worse than the documented size."""
+    name = "AI_TRANSCRIPT_INSIGHTS_MAX_TRANSLATE_CHARS"
+    if raw is None or not raw.strip():
+        return _DEFAULT_MAX_TRANSLATE_CHARS
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        notes.append(f"{name}={raw!r} is not an integer; using {_DEFAULT_MAX_TRANSLATE_CHARS}")
+        return _DEFAULT_MAX_TRANSLATE_CHARS
+    if value < _MIN_MAX_TRANSLATE_CHARS:
+        notes.append(
+            f"{name}={value} is below the minimum {_MIN_MAX_TRANSLATE_CHARS}; "
+            f"using {_DEFAULT_MAX_TRANSLATE_CHARS}"
+        )
+        return _DEFAULT_MAX_TRANSLATE_CHARS
+    return value
+
+
 def _as_str(raw: str | None, default: str) -> str:
     value = (raw or "").strip()
     return value or default
@@ -266,6 +302,15 @@ def build_settings(env: Mapping[str, str]) -> AiFeatureSettings:
             get("AI_FOREGROUND_SEPARATION_PROVIDER"), "auto"
         ).lower(),
         vectorisation_provider=_as_str(get("AI_IMAGE_VECTORISATION_PROVIDER"), "auto").lower(),
+        transcript_insights_enabled=_as_bool(
+            get("AI_TRANSCRIPT_INSIGHTS_ENABLED"), False, "AI_TRANSCRIPT_INSIGHTS_ENABLED", notes
+        ),
+        transcript_insights_provider=_as_str(
+            get("AI_TRANSCRIPT_INSIGHTS_PROVIDER"), "auto"
+        ).lower(),
+        transcript_insights_max_translate_chars=_as_max_translate_chars(
+            get("AI_TRANSCRIPT_INSIGHTS_MAX_TRANSLATE_CHARS"), notes
+        ),
         max_image_bytes=_as_int(
             get("AI_FEATURES_MAX_IMAGE_BYTES"), _DEFAULT_MAX_BYTES,
             "AI_FEATURES_MAX_IMAGE_BYTES", notes, minimum=1024,

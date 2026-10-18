@@ -30,6 +30,7 @@ from app.services.ai import (
     refine_transcript_text,
     transcribe_audio_bytes,
 )
+from app.services import transcript_insights
 from app.services.media_naming import display_filename, interview_record
 from app.services.media_queue import (
     enqueue_media_processing_jobs,
@@ -787,6 +788,10 @@ async def set_media_transcript(
         },
         include=INCLUDE,
     )
+    # A new transcript re-queues its summary unless a researcher has edited the summary; then
+    # nothing is queued and GET /media/{id}/insights shows it as stale.
+    if transcript_insights.enabled():
+        await transcript_insights.enqueue_after_transcript(media.id)
     return await _public(updated, current_user)
 
 

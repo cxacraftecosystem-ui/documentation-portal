@@ -33,6 +33,7 @@ from app.api.routes import (
     settings,
     tasks,
     tools,
+    transcript_insights,
     two_factor,
     users,
     workshops,
@@ -60,6 +61,8 @@ api_router.include_router(workshops.router)
 api_router.include_router(products.router)
 api_router.include_router(processes.router)
 api_router.include_router(tools.router)
+# Before media: GET /media/insights would otherwise be taken by GET /media/{media_id}.
+api_router.include_router(transcript_insights.router)
 api_router.include_router(media.router)
 api_router.include_router(answer_drafts.router)
 api_router.include_router(questionnaire.router)

@@ -161,11 +161,41 @@ VECTORIZER_AI = ProviderDescriptor(
     summary="Hosted tracing, generally cleaner curves than VTracer on photographic input.",
 )
 
+TEXT_VERBS = ProviderDescriptor(
+    id="text_verbs",
+    label="Text verbs (the resolved AI key)",
+    kind="hosted",
+    capabilities=frozenset({Capability.TRANSCRIPT_INSIGHTS}),
+    required_modules=("requests",),
+    required_settings=(),
+    # Never loaded through ``load_provider``: services/transcript_insights calls the existing chat
+    # plumbing (user_ai_keys.resolve, then OpenAI, Gemini or anthropic_verbs) directly.
+    implementation="",
+    resources=ResourceProfile(
+        basis="VENDOR_STATED",
+        model_download_mb=None,
+        peak_ram_mb=None,
+        latency="10-60 s per transcript: one summary call, then one call per 12,000-character "
+        "translation chunk, run one at a time",
+        money="per token on the resolved AI key",
+        notes=(
+            "The interview text leaves the server for OpenAI, Anthropic or Gemini, whichever key "
+            "resolves. Automatic runs and the backfill use the deployment's key; a researcher's "
+            "Regenerate uses their own key when they have one. No audio is loaded."
+        ),
+    ),
+    summary=(
+        "Summary, key quotes and an English translation of a transcript, on the same keys the "
+        "text verbs use."
+    ),
+)
+
 ALL_PROVIDERS: tuple[ProviderDescriptor, ...] = (
     REMBG_LOCAL,
     REMOVE_BG,
     VTRACER_LOCAL,
     VECTORIZER_AI,
+    TEXT_VERBS,
 )
 
 #: Order in which ``auto`` tries providers. Matting prefers the hosted service because the box
@@ -176,6 +206,7 @@ _PREFERENCE: dict[Capability, tuple[ProviderDescriptor, ...]] = {
     Capability.BACKGROUND_REMOVAL: (REMOVE_BG, REMBG_LOCAL),
     Capability.FOREGROUND_SEPARATION: (REMOVE_BG, REMBG_LOCAL),
     Capability.VECTORISATION: (VTRACER_LOCAL, VECTORIZER_AI),
+    Capability.TRANSCRIPT_INSIGHTS: (TEXT_VERBS,),
 }
 
 

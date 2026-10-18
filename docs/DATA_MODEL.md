@@ -311,6 +311,7 @@ mechanisms** — which is the single most confusing thing in the schema if you m
 ```mermaid
 erDiagram
   MediaFile ||--o{ MediaProcessingJob : "queues"
+  MediaFile ||--o{ TranscriptInsight : "summarised as (cascade)"
   User ||--o{ MediaFile : uploads
   User ||--o{ MediaProcessingJob : requests
 
@@ -331,12 +332,22 @@ erDiagram
     enum   status "review state"
   }
   MediaProcessingJob {
-    enum   jobType "TRANSCRIPTION | MEASUREMENT"
+    enum   jobType "TRANSCRIPTION | MEASUREMENT | TRANSCRIPT_INSIGHTS"
     enum   status "QUEUED PROCESSING COMPLETED FAILED CANCELLED"
     int    attempts
     int    maxAttempts
     datetime runAfter "backoff / cooldown"
     string lockedBy "single elected worker"
+  }
+  TranscriptInsight {
+    int      version "UNIQUE with mediaFileId"
+    string   sourceHash "sha256 of the transcript it was written from"
+    string[] summaryLines "at most 5, English"
+    json     quotes "original + english + speaker"
+    string   translationStatus "NOT_NEEDED COMPLETED PARTIAL FAILED"
+    json     generated "the machine output, frozen"
+    datetime editedAt "server-stamped; NULL = never edited"
+    datetime supersededAt "NULL = the current row"
   }
 ```
 
@@ -353,6 +364,15 @@ the XLSX export both do, via their `_MEDIA_TAG_SLOTS` / `_OWNER_TAGS` lists.
 > If you are drawing this relationship for a paper, draw it as two mechanisms. Earlier versions of
 > `ARCHITECTURE.md` drew `ProcessStep ||--o{ MediaFile` as an ordinary relation; there is no such
 > relation in the database, and a reader who trusts it will write a join that cannot be written.
+
+**`TranscriptInsight` is one row per generation run** (2026-10-18). A summary, key quotes and an
+English translation of the transcript, with provider, model and prompt version on the row. A
+regeneration never overwrites: it stamps the previous row's `supersededAt` and adds `version` + 1,
+so the current insight is the row with `supersededAt` NULL. A researcher's edit changes only that row
+and stamps `editedAt`/`editedById` (no relation, like `transcriptEditedById`); `generated` keeps what
+the model wrote. Deleting the media deletes its insights. **`MediaFile.transcriptSummary` is not a
+summary** — it holds the raw provider text under a refined transcript — and nothing writes insights
+into it. See [AI_FEATURES.md](AI_FEATURES.md) §10.
 
 `linkedRecordType`/`linkedRecordId` is also how Miscellaneous Media attaches to anything at all, and
 how `EntryComment` and `RecordRevision` address a record without one FK per table.
@@ -474,7 +494,7 @@ Every enum, and the thing to know about each. The list of names is generated int
 | `RecordStatus` | `DRAFT`, `PENDING`, `APPROVED`, `REJECTED`, `NEEDS_REVISION` | `NEEDS_REVISION` is the "sent back with comments" state |
 | `ReviewRecordType` | artisan, workshop, product, tool, process, questionnaire, media | processes and interviews are reviewable because the late-submission gate can pin them `PENDING` |
 | `MediaType` | image, video, audio, pdf, document, other | |
-| `MediaProcessingJobType` | `TRANSCRIPTION`, `MEASUREMENT` | |
+| `MediaProcessingJobType` | `TRANSCRIPTION`, `MEASUREMENT`, `TRANSCRIPT_INSIGHTS` | insights jobs are drained only while their AI flag is on, and never load the audio |
 | `MediaProcessingJobStatus` | queued, processing, completed, failed, cancelled | a throttled job returns to `QUEUED` **without** spending an attempt |
 | `ProcessStepType` | `SEQUENTIAL`, `GROUP` | ordered stage versus things done together |
 | `DataAccessTier` | `DOWNLOAD` < `COMMENT` < `EDIT` | ordered; each includes the ones below |

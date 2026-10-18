@@ -111,6 +111,7 @@ import com.fieldrepository.app.ui.TILE_OUTLINE_ALPHA
 import androidx.compose.foundation.BorderStroke
 import com.fieldrepository.app.ui.OutboxPendingBanner
 import com.fieldrepository.app.ui.FormDraft
+import com.fieldrepository.app.ui.TranscriptInsightsCard
 import com.fieldrepository.app.ui.RECORD_UPDATE_LABEL
 import com.fieldrepository.app.ui.recordUpdateAllowed
 import com.fieldrepository.app.ui.recordUpdateTitle
@@ -10784,6 +10785,13 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
                 // Render with the Markdown renderer so an approved (refined) transcript keeps its
                 // formatting/section breaks; a plain raw transcript is unaffected.
                 MarkdownText(markdown = transcriptText!!, color = Body)
+            }
+            if (repository != null) {
+                TranscriptInsightsCard(
+                    mediaId = media.id,
+                    load = { id -> repository.transcriptInsight(id) },
+                    formatDate = ::formatIsoDate
+                )
             }
             // AI refinement controls under the transcript (only where a repository is available, i.e.
             // the record/update & view screens). Turns the raw transcript into a clean conversation,

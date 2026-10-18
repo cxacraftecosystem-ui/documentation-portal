@@ -596,6 +596,14 @@ interface FieldRepositoryApi {
     @POST("media/{id}/transcribe-now")
     suspend fun transcribeNow(@Path("id") id: String): MediaFileDto
 
+    // Summary, key quotes and English translation of a transcript. 404 while the feature is off.
+    @GET("media/{id}/insights")
+    suspend fun transcriptInsight(@Path("id") id: String): TranscriptInsightViewDto
+
+    // The same for up to 50 media at once (comma-separated ids); translation text left out.
+    @GET("media/insights")
+    suspend fun transcriptInsights(@Query("ids") ids: String): TranscriptInsightBatchDto
+
     // Save an (approved, AI-refined) transcript in place of the stored one. Uploader or admin only.
     @POST("media/{id}/transcript")
     suspend fun setTranscript(@Path("id") id: String, @Body body: TranscriptUpdateRequest): MediaFileDto

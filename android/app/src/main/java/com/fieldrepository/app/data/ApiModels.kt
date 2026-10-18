@@ -3437,3 +3437,59 @@ data class PasswordLinkCheckDto(
     val reason: String? = null,
     val purpose: String? = null
 )
+
+// --- Interview summaries, key quotes and translations (GET /media/{id}/insights) ----------------
+// Read-only on Android. Every field has a default so an older or newer server never breaks decoding;
+// an unknown `state` is treated as nothing to show (see data/TranscriptInsights.kt).
+
+@Serializable
+data class InsightQuoteDto(
+    val original: String = "",
+    val english: String = "",
+    val speaker: String? = null
+)
+
+@Serializable
+data class InsightTranslationDto(
+    val status: String = "NOT_NEEDED",
+    val text: String? = null,
+    val note: String? = null
+)
+
+@Serializable
+data class InsightProvenanceDto(
+    val provider: String = "",
+    val modelId: String = "",
+    val modelVersion: String? = null,
+    val promptVersion: String = "",
+    val generatedAt: String? = null
+)
+
+@Serializable
+data class InsightEditedDto(val at: String? = null)
+
+@Serializable
+data class TranscriptInsightDto(
+    val id: String = "",
+    val version: Int = 0,
+    val sourceLanguage: String? = null,
+    val summaryLines: List<String> = emptyList(),
+    val quotes: List<InsightQuoteDto> = emptyList(),
+    val translation: InsightTranslationDto = InsightTranslationDto(),
+    val provenance: InsightProvenanceDto = InsightProvenanceDto(),
+    val edited: InsightEditedDto? = null
+)
+
+@Serializable
+data class TranscriptInsightViewDto(
+    val mediaId: String = "",
+    val state: String = "",
+    val stale: Boolean = false,
+    val canEdit: Boolean = false,
+    val canRegenerate: Boolean = false,
+    val error: String? = null,
+    val insight: TranscriptInsightDto? = null
+)
+
+@Serializable
+data class TranscriptInsightBatchDto(val items: Map<String, TranscriptInsightViewDto> = emptyMap())
