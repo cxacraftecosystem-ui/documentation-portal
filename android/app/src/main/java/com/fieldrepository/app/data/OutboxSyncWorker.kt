@@ -42,10 +42,22 @@ class OutboxSyncWorker(appContext: Context, params: WorkerParameters) : Coroutin
         if (tokenStore.getToken().isNullOrBlank()) return Result.success()
         // No read cache here: the activity's client owns that directory, and a sync pass only writes.
         val repository = FieldRepository(ApiClient.create(tokenStore), tokenStore)
-        runCatching { repository.syncOutbox(context) }
+        val userId = tokenStore.getUser()?.id
+        // Questionnaire v2: older-format entries drain through the shims first, then the
+        // per-session queue runs (data/QuestionnaireV2.kt, DESIGN §6.1.6).
+        val v2 = QuestionnaireV2.get(context)
+        val outcome = runCatching {
+            QuestionnaireSync.pass(
+                legacyDrain = { runCatching { repository.syncOutbox(context) } },
+                legacyQuestionnaireWaiting = {
+                    QuestionnaireSync.legacyQuestionnaireEntries(OfflineOutbox.all(context).replayableBy(userId))
+                },
+                v2 = { runCatching { v2.flushConsents() }; v2.outbox.sync(v2.transport, userId) }
+            )
+        }.getOrNull()
         val waiting = OfflineOutbox.all(context)
-            .replayableBy(tokenStore.getUser()?.id)
-            .count { it.failure == null }
+            .replayableBy(userId)
+            .count { it.failure == null } + (outcome?.v2Remaining?.coerceAtLeast(0) ?: 0)
         // Entries the server refused wait for a person, not for the network, so they never keep the
         // worker retrying. Anything else left means the pass stopped on a transient failure.
         return if (waiting > 0) Result.retry() else Result.success()

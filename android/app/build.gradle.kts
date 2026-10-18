@@ -453,6 +453,15 @@ dependencies {
     // Must equal the version in core-pipeline/build.gradle.kts — see settings.gradle.kts.
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
 
+    /*
+     * QR codes for joining a questionnaire session (data/JoinQr.kt): drawing the code in the session
+     * header, and reading one off a photo or a picked image so a second phone can join OFFLINE.
+     * ZXing core, the same artefact and version the Design Prototype Workshop app uses: pure Java,
+     * about 0.6 MB, and it runs on the JVM test classpath, so `QrJoinTest` encodes and decodes a real
+     * symbol. No camera library is added: the photo comes from the system camera.
+     */
+    implementation("com.google.zxing:core:3.5.4")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // A JVM unit-test source set, for the rules that are too important to be verifiable only by

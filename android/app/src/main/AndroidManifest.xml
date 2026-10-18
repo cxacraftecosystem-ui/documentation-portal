@@ -13,6 +13,12 @@
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <!-- Over-the-air self-update: install the APK the master admin pushed. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Questionnaire takes record in a foreground service (recording/RecordingService.kt) so a
+         locked screen, an app switch or Back never cuts a long interview short. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- The one-time "So long recordings aren't stopped." request (ui/questionnaire/BatteryPrompt.kt). -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- CAMERA must not imply a REQUIRED camera: every capture here also accepts a picked file. -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- Transport: TLS-only; the policy is res/xml/network_security_config.xml (minSdk 26 reads it),
@@ -108,5 +114,9 @@
                     android:path="/callback" />
             </intent-filter>
         </activity>
+        <service
+            android:name=".recording.RecordingService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
     </application>
 </manifest>

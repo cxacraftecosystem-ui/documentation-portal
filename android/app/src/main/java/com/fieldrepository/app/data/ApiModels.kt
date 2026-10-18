@@ -1136,7 +1136,14 @@ data class QuestionnaireQuestionDto(
      * WHICH ARTISAN FIELD ANSWERS THIS QUESTION (B8) — one of `ARTISAN_FIELD_OPTIONS`, set in the
      * question builder. Null on every question nobody has mapped, and on an older server.
      */
-    val artisanField: String? = null
+    val artisanField: String? = null,
+    /**
+     * Questionnaire v2 (DESIGN §1): the question's LINEAGE (the first row of its supersede chain)
+     * and its frozen display code ("D3"). Null on a server before v2; the v2 screens then fall back
+     * to the row id and the section code plus position.
+     */
+    val lineageId: String? = null,
+    val displayCode: String? = null
 )
 
 @Serializable
