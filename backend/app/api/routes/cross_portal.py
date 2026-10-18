@@ -186,19 +186,16 @@ async def peer_lookup(
                     settings, request, {"match": _answer(artisan, cross_portal.MATCHED_BY_PEHCHAN)}
                 )
     if payload.aadhaarCode:
-        # Only artisans who agreed are hashed at all: the set is small, and an artisan without
-        # consent is never even compared.
+        # Only artisans who agreed are compared at all: the set is small, and an artisan without
+        # consent is never even looked at. Each row's code is its stored aadhaarFingerprint (the
+        # same key and formula), or the legacy number's code before the backfill reaches it.
         consents = await db.artisansharingconsent.find_many(where={"granted": True})
         ids = [c.artisanId for c in consents]
-        rows = (
-            await db.artisan.find_many(where={"id": {"in": ids}, "aadhaarNumber": {"not": None}})
-            if ids
-            else []
-        )
-        key = settings.cross_portal_aadhaar_hmac_key
+        rows = await db.artisan.find_many(where={"id": {"in": ids}}) if ids else []
+        key = cross_portal.aadhaar_key(settings)
         for row in rows:
-            code = cross_portal.aadhaar_code(row.aadhaarNumber, key)
-            if cross_portal.codes_match(code, payload.aadhaarCode) and (
+            code = cross_portal.stored_aadhaar_code(row, key)
+            if code and cross_portal.codes_match(code, payload.aadhaarCode) and (
                 getattr(row, "status", None) != "REJECTED"
             ):
                 artisan = await _consenting(row.id)

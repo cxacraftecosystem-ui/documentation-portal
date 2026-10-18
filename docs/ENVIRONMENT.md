@@ -234,7 +234,7 @@ artisan agreed, and the designer portal's server asks the documentation portal's
 artisan; the form is filled and the records linked. The documentation portal is the source of truth
 for name, local name, gender, date of birth and the Pehchan pair; a linked record is refreshed from
 it. The raw Aadhaar number never leaves either server: the designer portal sends
-`HMAC-SHA256(CROSS_PORTAL_AADHAAR_HMAC_KEY, digits)`. Each server proves itself to the other with
+`HMAC-SHA256(AADHAAR_FINGERPRINT_KEY, digits)`, which is exactly the `aadhaarFingerprint` the artisan register stores, so each side compares stored fingerprints and needs no number. Each server proves itself to the other with
 `CROSS_PORTAL_TOKEN` (a bearer on the request, an HMAC of the body on the answer). The documentation
 portal answers only for an artisan whose "Share with the Designer Portal" consent is recorded.
 Every answer is signed over the request it answers (method, path and a fresh nonce), every peer
@@ -250,7 +250,7 @@ box `.env`; none is created by this repository.
 |---|---|---|---|---|
 | `CROSS_PORTAL_IDENTITY_ENABLED` | No | **`false`** | No | The switch. Off: the feature does not exist. |
 | `CROSS_PORTAL_TOKEN` | With the flag on | — | **Yes** | Shared by both servers. Authenticates requests and signs answers. 32+ characters. |
-| `CROSS_PORTAL_AADHAAR_HMAC_KEY` | With the flag on | — | **Yes** | Shared by both servers. Turns an Aadhaar number into a comparable code. 32+ characters. Rotating it needs both servers changed together; nothing stored depends on it. |
+| `AADHAAR_FINGERPRINT_KEY` | With the flag on | — | **Yes** | Not a cross-portal variable: the artisan register's Aadhaar fingerprint key (SSM `/iit/shared/aadhaar-fingerprint-key`, the same value on both servers), which the lookup reuses. Without it the feature stays off. Never rotate it: every stored fingerprint, and so every cross-portal match, depends on it. There is no `CROSS_PORTAL_AADHAAR_HMAC_KEY`. |
 
 ### AI-drafted interview answers (C28) — shipped OFF
 

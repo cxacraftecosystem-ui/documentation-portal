@@ -12,10 +12,15 @@ record is refreshed FROM it, never the other way round.
 ── THE THREE RULES, AND WHERE EACH LIVES ────────────────────────────────────────────────────────
 
 1. **The raw Aadhaar number never leaves either system.** The designer portal sends
-   ``HMAC-SHA256(key, the 12 digits)``; the documentation portal computes the same code over the
-   artisans whose consent it holds and compares. The key is a secret both servers share
-   (``CROSS_PORTAL_AADHAAR_HMAC_KEY``) and nothing else knows, so the code cannot be reversed by
-   hashing all 10^12 numbers — that is why it is an HMAC and not a plain hash. :func:`aadhaar_code`.
+   ``HMAC-SHA256(key, the 12 digits)``; the documentation portal compares it with the code of each
+   artisan whose consent it holds. The key is ``AADHAAR_FINGERPRINT_KEY``, the artisan register's
+   own fingerprint key (SSM ``/iit/shared/aadhaar-fingerprint-key``, the same value on both
+   servers), and nothing else knows it, so the code cannot be reversed by hashing all 10^12
+   numbers — that is why it is an HMAC and not a plain hash. :func:`aadhaar_code`. The code IS the
+   stored ``Artisan.aadhaarFingerprint`` (same key, same formula), so neither portal needs the number
+   to make it: :func:`stored_aadhaar_code` reads the fingerprint, and falls back to the legacy
+   ``aadhaarNumber`` only for a row the fingerprint backfill has not reached. There is no separate
+   cross-portal key: changing this one would orphan every stored fingerprint, so it is never rotated.
 2. **Both servers prove who they are.** The caller sends ``Authorization: Bearer <token>`` and a
    fresh ``X-Cross-Portal-Nonce``; the answer carries ``X-Cross-Portal-Signature``, an HMAC under the
    same token of the REQUEST (method, peer path, the nonce) and the exact body bytes, which the
@@ -40,6 +45,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 from typing import Any
 
 #: Shortest secret either server accepts. A shorter one leaves the feature off.
@@ -64,6 +70,9 @@ MIN_NONCE_LENGTH = 16
 MATCHED_BY_PEHCHAN = "PEHCHAN"
 MATCHED_BY_AADHAAR = "AADHAAR"
 MATCHED_BY = (MATCHED_BY_PEHCHAN, MATCHED_BY_AADHAAR)
+
+_TWELVE_DIGITS = re.compile(r"[0-9]{12}")
+_CODE = re.compile(r"[0-9a-f]{64}")
 
 #: The fields the documentation portal is the source of truth for. A refresh copies exactly these.
 IDENTITY_FIELDS: tuple[str, ...] = (
@@ -130,17 +139,42 @@ def active(settings: Any, *, needs_url: bool = False) -> bool:
         return False
     if not _secret_ok(getattr(settings, "cross_portal_token", None)):
         return False
-    if not _secret_ok(getattr(settings, "cross_portal_aadhaar_hmac_key", None)):
+    if not _secret_ok(aadhaar_key(settings)):
         return False
     if needs_url and not (getattr(settings, "field_repository_api_url", None) or "").strip():
         return False
     return True
 
 
+def aadhaar_key(settings: Any) -> str | None:
+    """The key Aadhaar codes are made under: ``AADHAAR_FINGERPRINT_KEY``. Never logged or returned."""
+    return (getattr(settings, "aadhaar_fingerprint_key", None) or "").strip() or None
+
+
 def aadhaar_code(number: str, key: str) -> str:
-    """``HMAC-SHA256(key, the 12 digits)`` as lower-case hex. ``number`` must already be normalised."""
+    """``HMAC-SHA256(key, the 12 digits)`` as lower-case hex. ``number`` must already be normalised.
+
+    Byte for byte ``aadhaar_fingerprint.fingerprint``: what the register stores as
+    ``Artisan.aadhaarFingerprint`` is this code.
+    """
     digits = "".join(ch for ch in number if ch.isdigit())
     return hmac.new(key.strip().encode("utf-8"), digits.encode("ascii"), hashlib.sha256).hexdigest()
+
+
+def stored_aadhaar_code(artisan: Any, key: str | None) -> str | None:
+    """The code for the Aadhaar an artisan row holds, or ``None`` when it holds none.
+
+    The stored ``aadhaarFingerprint`` first: it is already the code. Otherwise the legacy
+    ``aadhaarNumber``, for a row the fingerprint backfill has not reached (or a schema without the
+    fingerprint columns). Read with ``getattr`` so this works before and after either column exists.
+    """
+    stored = getattr(artisan, "aadhaarFingerprint", None)
+    if isinstance(stored, str) and _CODE.fullmatch(stored):
+        return stored
+    legacy = getattr(artisan, "aadhaarNumber", None)
+    if key and isinstance(legacy, str) and _TWELVE_DIGITS.fullmatch(legacy):
+        return aadhaar_code(legacy, key)
+    return None
 
 
 def peer_path(path: str) -> str:

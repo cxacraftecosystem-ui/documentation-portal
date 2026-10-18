@@ -22,6 +22,7 @@ pytestmark = pytest.mark.anyio
 TOKEN = "t" * 40
 KEY = "k" * 40
 AADHAAR = "234123412346"
+FP_ONLY_AADHAAR = "345634563452"
 
 
 @pytest.fixture(scope="module")
@@ -81,7 +82,7 @@ def _settings(**over):
     base = {
         "cross_portal_identity_enabled": True,
         "cross_portal_token": TOKEN,
-        "cross_portal_aadhaar_hmac_key": KEY,
+        "aadhaar_fingerprint_key": KEY,
     }
     base.update(over)
     return SimpleNamespace(**base)
@@ -132,11 +133,26 @@ def world(monkeypatch):
                 "status": "APPROVED",
                 "createdById": "u1",
             },
+            {
+                # Saved since the fingerprint release: the register holds only the fingerprint and
+                # the last four, and aadhaarNumber is NULL.
+                "id": "a3",
+                "name": "Fingerprint Only",
+                "pehchanCardNumber": None,
+                "aadhaarNumber": None,
+                "aadhaarFingerprint": cross_portal.aadhaar_code(FP_ONLY_AADHAAR, KEY),
+                "aadhaarLast4": FP_ONLY_AADHAAR[-4:],
+                "status": "APPROVED",
+                "createdById": "u1",
+            },
         ]
     )
     fake = SimpleNamespace(
         artisan=artisans,
-        artisansharingconsent=Table([{"artisanId": "a1", "granted": True}], key="artisanId"),
+        artisansharingconsent=Table(
+            [{"artisanId": "a1", "granted": True}, {"artisanId": "a3", "granted": True}],
+            key="artisanId",
+        ),
         crossportalartisanlink=Table(),
         crossportalaccesslog=Table(),
     )
@@ -173,7 +189,8 @@ def test_active_needs_the_flag_and_both_long_secrets():
     assert not cross_portal.active(_settings(cross_portal_identity_enabled=False))
     assert not cross_portal.active(_settings(cross_portal_token=None))
     assert not cross_portal.active(_settings(cross_portal_token="short"))
-    assert not cross_portal.active(_settings(cross_portal_aadhaar_hmac_key=""))
+    assert not cross_portal.active(_settings(aadhaar_fingerprint_key=""))
+    assert not cross_portal.active(_settings(aadhaar_fingerprint_key="short"))
     assert not cross_portal.active(_settings(), needs_url=True)
     assert cross_portal.active(_settings(field_repository_api_url="https://x/api"), needs_url=True)
 
@@ -183,6 +200,56 @@ def test_the_aadhaar_code_is_keyed_stable_and_never_the_number():
     assert code == cross_portal.aadhaar_code("2341 2341 2346", KEY)
     assert code != cross_portal.aadhaar_code(AADHAAR, "x" * 40)
     assert AADHAAR not in code and len(code) == 64
+
+
+def test_the_code_is_the_stored_fingerprint_under_the_register_key():
+    """The cross-portal code and Artisan.aadhaarFingerprint are one value: same key, same formula.
+
+    Written against the formula aadhaar_fingerprint.fingerprint documents (HMAC-SHA256 of the 12 ASCII
+    digits under the stripped, UTF-8 key, lower-case hex), so it holds with or without that module.
+    """
+    import hashlib
+    import hmac
+
+    expected = hmac.new(KEY.encode("utf-8"), AADHAAR.encode("ascii"), hashlib.sha256).hexdigest()
+    assert cross_portal.aadhaar_code(AADHAAR, KEY) == expected
+    assert cross_portal.aadhaar_key(_settings()) == KEY
+    assert cross_portal.aadhaar_key(_settings(aadhaar_fingerprint_key="  ")) is None
+    assert cross_portal.aadhaar_key(SimpleNamespace()) is None
+    try:
+        from app.services import aadhaar_fingerprint
+    except ImportError:
+        return
+    assert aadhaar_fingerprint.fingerprint(AADHAAR, KEY) == cross_portal.aadhaar_code(AADHAAR, KEY)
+
+
+def test_a_rows_code_comes_from_its_fingerprint_then_its_legacy_number():
+    fingerprint = cross_portal.aadhaar_code(AADHAAR, KEY)
+    # Since the fingerprint release: only the fingerprint is stored, and it is used as is.
+    assert (
+        cross_portal.stored_aadhaar_code(
+            SimpleNamespace(aadhaarFingerprint=fingerprint, aadhaarNumber=None), KEY
+        )
+        == fingerprint
+    )
+    # Before the backfill reaches a row (or without the fingerprint columns at all).
+    assert cross_portal.stored_aadhaar_code(SimpleNamespace(aadhaarNumber=AADHAAR), KEY) == fingerprint
+    # The fingerprint wins over a stale legacy value.
+    assert (
+        cross_portal.stored_aadhaar_code(
+            SimpleNamespace(aadhaarFingerprint=fingerprint, aadhaarNumber="987698769876"), KEY
+        )
+        == fingerprint
+    )
+    # Nothing usable: no code, never a code of a mask or a partial number.
+    for row in (
+        SimpleNamespace(),
+        SimpleNamespace(aadhaarFingerprint=None, aadhaarNumber=None),
+        SimpleNamespace(aadhaarNumber="XXXX XXXX 2346"),
+        SimpleNamespace(aadhaarFingerprint="not-a-fingerprint", aadhaarNumber=None),
+    ):
+        assert cross_portal.stored_aadhaar_code(row, KEY) is None
+    assert cross_portal.stored_aadhaar_code(SimpleNamespace(aadhaarNumber=AADHAAR), None) is None
 
 
 def test_signatures_are_bound_to_the_request_and_bearer_is_checked():
@@ -300,6 +367,19 @@ async def test_lookup_by_aadhaar_code_compares_only_consenting_artisans(world):
     assert code not in json.dumps(world.crossportalaccesslog.rows, default=str)
 
 
+async def test_lookup_by_aadhaar_code_matches_an_artisan_that_holds_only_the_fingerprint(world):
+    """After the fingerprint release a saved artisan has aadhaarNumber NULL; it must still match."""
+    code = cross_portal.aadhaar_code(FP_ONLY_AADHAAR, KEY)
+    found = _body(await routes.peer_lookup(routes.PeerLookup(aadhaarCode=code), _req(), _settings()))
+    assert found["match"]["artisanId"] == "a3"
+    assert found["match"]["matchedBy"] == "AADHAAR"
+    # Withdrawn consent: the same answer as no artisan at all.
+    world.artisansharingconsent.rows[1]["granted"] = False
+    assert _body(
+        await routes.peer_lookup(routes.PeerLookup(aadhaarCode=code), _req(), _settings())
+    ) == {"match": None}
+
+
 async def test_links_need_consent_and_withdrawal_removes_them(world, monkeypatch):
     link_req = _req(path="/cross-portal/peer/artisans/a1/links")
     linked = await routes.peer_link(
@@ -372,3 +452,6 @@ def test_the_config_defaults_to_off():
     fields = Settings.model_fields
     assert fields["cross_portal_identity_enabled"].default is False
     assert fields["cross_portal_token"].default is None
+    # Aadhaar codes are made under the register's fingerprint key; there is no second key to drift.
+    assert fields["aadhaar_fingerprint_key"].alias == "AADHAAR_FINGERPRINT_KEY"
+    assert "cross_portal_aadhaar_hmac_key" not in fields

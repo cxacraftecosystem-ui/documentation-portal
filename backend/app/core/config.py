@@ -162,6 +162,12 @@ class Settings(BaseSettings):
     two_factor_encryption_previous_keys: str | None = Field(
         default=None, alias="TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS"
     )
+    # The HMAC key the artisan register fingerprints Aadhaar numbers under
+    # (services/aadhaar_fingerprint.py). 32 random bytes, base64. THE SAME VALUE ON BOTH PORTALS, so
+    # the cross-portal link can compare fingerprints. Losing it makes every stored fingerprint
+    # unmatchable; changing it needs the numbers again. Backed up in SSM at
+    # /iit/shared/aadhaar-fingerprint-key. Unset: any write or lookup carrying an Aadhaar is refused.
+    aadhaar_fingerprint_key: str | None = Field(default=None, alias="AADHAAR_FINGERPRINT_KEY")
 
     # --- Security response headers (see app.main.SecurityHeadersMiddleware) ---------------------
     # HSTS tells browsers to refuse plaintext HTTP to this host for max_age seconds. It is only
@@ -366,16 +372,14 @@ class Settings(BaseSettings):
     # OFF BY DEFAULT, AND OFF UNTIL BOTH PORTALS HAVE IT. The lookup works only when the flag is on
     # AND both secrets are set (32 characters or more) on BOTH servers. Anything missing and
     # the routes answer 404 and neither client draws a single element. The token authenticates each
-    # server to the other (a bearer on the request, an HMAC of the body on the answer); the HMAC key
-    # turns an Aadhaar number into a code both servers can compare, so the number itself never leaves
-    # either system. Both values are the SAME on the two servers. Never commit either.
+    # server to the other (a bearer on the request, an HMAC of the body on the answer). Aadhaar codes
+    # are made under AADHAAR_FINGERPRINT_KEY (above), the register's own fingerprint key, so the
+    # number itself never leaves either system and a stored fingerprint IS the code. Both values are
+    # the SAME on the two servers. Never commit either.
     cross_portal_identity_enabled: bool = Field(
         default=False, alias="CROSS_PORTAL_IDENTITY_ENABLED"
     )
     cross_portal_token: str | None = Field(default=None, alias="CROSS_PORTAL_TOKEN")
-    cross_portal_aadhaar_hmac_key: str | None = Field(
-        default=None, alias="CROSS_PORTAL_AADHAAR_HMAC_KEY"
-    )
 
     model_config = SettingsConfigDict(
         env_file=".env",
