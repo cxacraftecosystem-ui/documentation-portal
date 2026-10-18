@@ -1248,10 +1248,12 @@ jobs:
           sudo systemctl restart fieldrepo-queue 2>/dev/null || true
           services_down=no
           if [ "$migrate_ok" != "1" ]; then echo "prisma migrate deploy failed after retries"; exit 1; fi
-          # App startup connects to Supabase (cross-region), so poll instead of a fixed sleep.
-          for i in $(seq 1 40); do
+          # App startup connects to Supabase (cross-region), so poll instead of a fixed sleep. Up to
+          # five minutes: on 2026-10-18 the 0.0.14 start took about 2 min 50 s on this swap-bound
+          # t3.small, and the old 80-second wait failed a deploy whose API then came up healthy.
+          for i in $(seq 1 150); do
             if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then echo "healthy after ${i} tries"; break; fi
-            if [ "$i" = "40" ]; then
+            if [ "$i" = "150" ]; then
               echo "service did not become healthy:"; sudo journalctl -u fieldrepo -n 80 --no-pager
               echo "The venv this box ran before is $(cat "$app/venv-previous" 2>/dev/null || echo 'not recorded'); backend/DEPLOY_AWS.md says how to go back to it, and why that only helps together with a redeploy of the commit it was built for."
               exit 1
