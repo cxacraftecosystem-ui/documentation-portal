@@ -1,4 +1,5 @@
-"""Search embeddings send text to OpenAI or Gemini, so a transcript is embedded only with consent.
+"""Search embeddings send text to OpenAI or Gemini, so a transcript or an interview is embedded only
+with consent.
 
 No database and no provider: ``search_indexer.db`` is a small in-memory stand-in for the two tables
 the embedder reads (``SearchDocument`` and the ``Consent`` ledger's newest row), ``embed`` counts what
@@ -70,10 +71,14 @@ def world(monkeypatch):
     async def verdict(media_id, *, client=None):
         return consent.get(media_id, consent_gate.AWAITING)
 
+    async def interview_verdict(interview_id, *, client=None):
+        return consent.get(f"interview:{interview_id}", consent_gate.AWAITING)
+
     monkeypatch.setattr(search_indexer, "db", db)
     monkeypatch.setattr(search_embeddings, "available", available)
     monkeypatch.setattr(search_embeddings, "embed", embed)
     monkeypatch.setattr(consent_gate, "verdict", verdict)
+    monkeypatch.setattr(consent_gate, "interview_verdict", interview_verdict)
     monkeypatch.setitem(search_indexer._consent_seen, "mark", None)
     search_indexer.reset_backoff()
     yield db, sent, consent
@@ -117,6 +122,33 @@ def test_consent_given_later_is_picked_up_by_itself(world):
     db.consent_rows.append(datetime.now(UTC))
     assert _run(search_indexer.embed_pending()) == 1
     assert sent == ["the artisan's words"]
+
+
+def test_an_interview_is_embedded_only_with_its_participants_consent(world):
+    """An interview document is its notes and every answer: the artisans' words, asked about the
+    way an answer draft from pasted text is (``consent_gate.interview_verdict``)."""
+    db, sent, consent = world
+    held = db.add("interviews", "i1", "what the weaver said")
+    db.add("crafts", "c1", "Dabu printing")
+    assert _run(search_indexer.embed_pending()) == 1
+    assert sent == ["Dabu printing"]
+    assert held["embeddedHash"] == search_indexer.EMBED_CONSENT_PREFIX + held["contentHash"]
+    consent["interview:i1"] = consent_gate.ALLOW
+    db.consent_rows.append(datetime.now(UTC))
+    assert _run(search_indexer.embed_pending()) == 1
+    assert sent == ["Dabu printing", "what the weaver said"]
+
+
+def test_a_withdrawn_participant_consent_stops_the_next_embedding_of_an_interview(world):
+    db, sent, consent = world
+    doc = db.add("interviews", "i1", "first answers")
+    consent["interview:i1"] = consent_gate.ALLOW
+    assert _run(search_indexer.embed_pending()) == 1
+    consent["interview:i1"] = consent_gate.REFUSED
+    db.consent_rows.append(datetime.now(UTC))
+    doc["contentHash"], doc["text"] = "h-i1-2", "edited answers"
+    assert _run(search_indexer.embed_pending()) == 0
+    assert sent == ["first answers"]
 
 
 def test_an_unreadable_consent_sends_nothing_and_is_asked_again(world, monkeypatch):

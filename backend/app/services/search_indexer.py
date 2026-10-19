@@ -19,9 +19,11 @@ is retried one document at a time: a document that fails alone while others succ
 (``embeddedHash = 'failed:' || contentHash``) and skipped until its text changes; when every one
 fails the provider is down, and the next pass waits (30 seconds, doubling to an hour).
 
-A TRANSCRIPT IS EMBEDDED ONLY WITH CONSENT. Embedding sends the text to OpenAI or Gemini, so a
-``transcripts`` document asks the one consent store (``consent_gate.verdict``, the question every other
-outside send asks) for its recording first. One that may not leave is marked
+A TRANSCRIPT OR AN INTERVIEW IS EMBEDDED ONLY WITH CONSENT. Embedding sends the text to OpenAI or
+Gemini, so a ``transcripts`` document asks the one consent store (``consent_gate.verdict``, the question
+every other outside send asks) for its recording first, and an ``interviews`` document (its notes and
+every answer, the artisans' words) asks ``consent_gate.interview_verdict`` for its participants, the
+same question an answer draft from pasted text asks. One that may not leave is marked
 (``embeddedHash = 'consent:' || contentHash``) and skipped, so it never holds up the documents behind
 it; whenever a new row lands in the ``Consent`` ledger every mark is cleared and those documents are
 asked again on the next pass, so a consent given later is picked up by itself.
@@ -53,10 +55,15 @@ EMBED_BACKOFF_CEILING_SECONDS = 3600.0
 #: The prefix ``embeddedHash`` carries for a document the provider refused on its own.
 EMBED_FAILED_PREFIX = "failed:"
 
-#: The prefix ``embeddedHash`` carries for a transcript whose recording consent does not let leave.
+#: The prefix ``embeddedHash`` carries for a document whose consent does not let it leave.
 EMBED_CONSENT_PREFIX = "consent:"
-#: Document types whose text is a recording's words, keyed to the recording by ``entityId``.
-CONSENT_GATED_TYPES = frozenset({"transcripts"})
+#: Document types whose text is someone's words, and the consent question each asks of its
+#: ``entityId``: a transcript's recording, an interview's participants.
+CONSENT_QUESTIONS = {
+    "transcripts": lambda entity_id: consent_gate.verdict(entity_id),
+    "interviews": lambda entity_id: consent_gate.interview_verdict(entity_id),
+}
+CONSENT_GATED_TYPES = frozenset(CONSENT_QUESTIONS)
 
 _embed_backoff = {"until": 0.0, "wait": 0.0}
 #: The newest ``Consent`` row seen by the last pass; a change clears the consent marks.
@@ -220,14 +227,15 @@ async def _release_consent_marks() -> None:
 
 
 async def _consented(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
-    """The rows that may be sent, and how many transcripts were marked because their recording's
-    consent keeps them here. A consent that cannot be read is neither sent nor marked."""
+    """The rows that may be sent, and how many were marked because their consent keeps them here.
+    A consent that cannot be read is neither sent nor marked."""
     allowed: list[dict[str, Any]] = []
     marked = 0
     for row in rows:
-        if row.get("entityType") in CONSENT_GATED_TYPES:
+        question = CONSENT_QUESTIONS.get(str(row.get("entityType")))
+        if question is not None:
             try:
-                verdict = await consent_gate.verdict(str(row["entityId"]))
+                verdict = await question(str(row["entityId"]))
             except Exception as exc:  # noqa: BLE001 - an unread consent is no consent; asked again later
                 logger.warning("search embeddings: consent of %s unread (%s)", row["entityId"], type(exc).__name__)
                 continue
@@ -246,7 +254,7 @@ async def _consented(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], 
 async def embed_pending(batch: int = 32, *, settings: Any | None = None) -> int:
     """Embed documents whose text changed since their last embedding. No-op unless available.
 
-    A transcript is sent only when its recording's consent allows it (module docstring)."""
+    A transcript or an interview is sent only when its consent allows it (module docstring)."""
     if not await search_embeddings.available(settings):
         return 0
     if time.monotonic() < _embed_backoff["until"]:

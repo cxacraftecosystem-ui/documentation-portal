@@ -103,7 +103,11 @@ any failure is text mode. Documents are embedded from title, subtitle and the fi
 characters of the body. A batch the provider refuses is retried one document at a time: a
 document refused alone is marked (`embeddedHash = 'failed:' || contentHash`) and skipped until its
 text changes; when every one is refused the provider is down, and the worker waits 30 seconds,
-doubling to an hour, before the next call. The vectors never leave this portal. With `SEARCH_EMBEDDING_PROVIDER=gemini` and the OpenAI model
+doubling to an hour, before the next call. **People's words are embedded only with
+consent** (the one consent store, `services/consent_gate`): a transcript asks `consent_gate.verdict`
+for its recording and an interview (notes and answers) `consent_gate.interview_verdict` for its
+participants; one that may not leave is marked (`embeddedHash = 'consent:' || contentHash`) and
+asked again whenever a new `Consent` row lands (`test_search_embedding_consent.py`). The vectors never leave this portal. With `SEARCH_EMBEDDING_PROVIDER=gemini` and the OpenAI model
 name left as it is, `gemini-embedding-001` is asked for the same 768 dimensions.
 
 ## 3. API
