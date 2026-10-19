@@ -22,6 +22,7 @@
  */
 
 import { saveBlobToDevice, saveUrlToDevice } from "@/lib/saveToDevice";
+import { recordingFilename } from "@/lib/naming";
 
 /** Exact MIME → extension pairs. Anything not listed falls back to the subtype (see below). */
 const EXTENSION_BY_MIME: Record<string, string> = {
@@ -106,7 +107,7 @@ const ILLEGAL_NAME_CHARS = /[\\/:*?"<>|\u0000-\u001f]/g;
  *   they will find it again. Path separators and other illegal characters become `_`.
  * - An original name with no extension gets one from the MIME type, so the saved file opens in
  *   the right app.
- * - No name at all: `voice-note-<stamp>.<ext>` for audio, `media-<stamp>.<ext>` for anything else.
+ * - No name at all: the NAMING 2.1 `<Portal>_<IST date>_<HHMM>_<What>.<ext>`.
  */
 export function localMediaFileName(name: string | null | undefined, mimeType: string | null | undefined, now: Date): string {
   const cleaned = (name ?? "").replace(ILLEGAL_NAME_CHARS, "_").trim().replace(/^\.+/, "");
@@ -116,8 +117,10 @@ export function localMediaFileName(name: string | null | undefined, mimeType: st
     const hasExtension = dot > 0 && dot < cleaned.length - 1;
     return hasExtension || extension === "bin" ? cleaned : `${cleaned}.${extension}`;
   }
-  const isAudio = (mimeType ?? "").trim().toLowerCase().startsWith("audio/");
-  return `${isAudio ? "voice-note" : "media"}-${fileStamp(now)}.${extension}`;
+  // NAMING 2.1: FieldRepository_2026-03-07_0905_Recording.webm, dated and timed in IST.
+  const base = (mimeType ?? "").trim().toLowerCase();
+  const what = base.startsWith("audio/") ? "Recording" : base.startsWith("video/") ? "Video" : base.startsWith("image/") ? "Photo" : "File";
+  return recordingFilename(null, extension, { capturedAt: now, what });
 }
 
 /**

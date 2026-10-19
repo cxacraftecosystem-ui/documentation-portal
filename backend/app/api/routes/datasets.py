@@ -78,10 +78,11 @@ from app.scale.rate_limit import (
     address_credential_attempt,
 )
 from app.schemas.auth import DatasetTokenRequest
-from app.services import two_factor
+from app.services import naming, two_factor
 from app.services.access_roster import normalise_email
 from app.services.concurrency import gather_reads
 from app.services.csv_export import record_media
+from app.services.media_naming import display_filename
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.record_fields import sheet_columns, sheet_row
 from app.services.record_filters import (
@@ -357,7 +358,8 @@ def _presign_media_row(row: Any) -> dict[str, Any] | None:
     object_key = get_value(row, "objectKey")
     if not object_key:
         return None
-    filename = get_value(row, "originalFilename") or f"{get_value(row, 'id')}"
+    # The NAMING 2.1 download name, built from the row; the stored key and originalFilename stay.
+    filename = display_filename(row)
     mime_type = get_value(row, "mimeType") or "application/octet-stream"
     try:
         url = presign_get_url(
@@ -710,7 +712,7 @@ def _stream_headers(total: int, filename: str) -> dict[str, str]:
     return {
         # The honest count, sent before the body — see this module's docstring.
         "X-Dataset-Total": str(total),
-        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Content-Disposition": naming.content_disposition(filename),
     }
 
 
@@ -828,7 +830,9 @@ async def stream_dataset_csv(
     return StreamingResponse(
         body(),
         media_type="text/csv; charset=utf-8",
-        headers=_stream_headers(total, f"{dataset.name}.csv"),
+        headers=_stream_headers(
+            total, naming.export_filename("Dataset", "Export", "csv", subject=dataset.name)
+        ),
     )
 
 

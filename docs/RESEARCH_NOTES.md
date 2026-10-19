@@ -1087,6 +1087,8 @@ which are pre-existing data and not a schema problem.
 
 ## 12. Result 8 — self-describing nomenclature derived at read time
 
+> **Superseded on 18 Oct 2026** by the one naming convention both portals share (`NAMING_2026-10-18.md` in the conventions folder of the IIT docs tree; `services/naming.py`, `lib/naming.ts`, `data/Naming.kt`, golden tables `shared/session-title.json` and `shared/naming-golden.json`): `Portal_Entity_Date[_Time]_Place_Craft_Subject_What[_Sequence][_n].ext`, ASCII, underscores between fields. The read-time derivation below still holds — stored keys and `originalFilename` are never renamed — but it now emits that grammar, and the old capture codes are only parsed. The measurements below are kept as the record of why.
+
 ### 12.1 The problem
 
 Every file was uploaded under a name the capture screen minted, and those names are codes:

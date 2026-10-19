@@ -10,6 +10,8 @@ annotated-types==0.8.0
     # via pydantic
 anthropic==1.12.1
     # via field-repository-backend (pyproject.toml)
+anyascii==0.3.3
+    # via field-repository-backend (pyproject.toml)
 anyio==4.15.1
     # via
     #   anthropic

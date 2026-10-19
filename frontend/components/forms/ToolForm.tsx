@@ -66,6 +66,22 @@ import { CarryForwardCards } from "@/components/CarryForwardCards";
 import { artisanStatedSource } from "@/components/forms/statedPrefill";
 import { failedFilesOf, RetryFailedUploads, type FailedUpload } from "@/components/media/RetryFailedUploads";
 import { countNoun } from "@/lib/format";
+import { recordingFilename, splitExtension } from "@/lib/naming";
+import { mediaKindWord } from "@/lib/media";
+
+/**
+ * A process-stage capture, named by the convention (NAMING 2.1): the step number is in What, so
+ * `FieldRepository_Tool_2026-06-19_1017_Tray-Attachment_Step-3-Photo_01.jpg`.
+ */
+function stageStepFile(file: File, index: number, toolName: string | null | undefined): File {
+  const name = recordingFilename("Tool", splitExtension(file.name)[1], {
+    capturedAt: new Date(file.lastModified || Date.now()),
+    subject: toolName,
+    what: `Step-${index + 1}-${mediaKindWord(file)}`,
+    sequence: "01"
+  });
+  return new File([file], name, { type: file.type, lastModified: file.lastModified });
+}
 
 /**
  * Dropdown label for a linked artisan: "Craft · Name · Place", craft FIRST.
@@ -1208,7 +1224,7 @@ function ToolFormBody({
               ]
             : []),
           ...stageFiles.map((file, index) => ({
-            files: [new File([file], `STAGE_STEP_${index + 1}_${file.name}`, { type: file.type, lastModified: file.lastModified })],
+            files: [stageStepFile(file, index, payload.toolkitName)],
             linkedRecordType: "tool",
             caption: `Process stage step ${index + 1} for ${payload.toolkitName || "tool"}`,
             location,
@@ -1304,7 +1320,7 @@ function ToolFormBody({
       for (const [index, file] of stageFiles.entries()) {
         try {
           await uploadMediaFile({
-            file: new File([file], `STAGE_STEP_${index + 1}_${file.name}`, { type: file.type, lastModified: file.lastModified }),
+            file: stageStepFile(file, index, saved.toolkitName),
             linkedRecordType: "tool",
             linkedRecordId: saved.id,
             caption: `Process stage step ${index + 1} for ${saved.toolkitName}`,

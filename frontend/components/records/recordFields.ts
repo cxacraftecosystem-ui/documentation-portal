@@ -1,5 +1,6 @@
 import { formatDate } from "@/lib/format";
 import type { RecordViewType } from "@/lib/recordView";
+import { workshopDisplayTitle, type WorkshopTitleFields } from "@/lib/workshopTitle";
 
 /**
  * WHAT A RECORD'S READ-ONLY VIEW PRINTS, as plain label/value rows.
@@ -207,7 +208,7 @@ export function recordTitle(type: RecordViewType, record: Loose): string {
     case "craft":
       return pick(record.name, "Craft");
     case "workshop":
-      return pick(record.title, "Untitled workshop");
+      return workshopDisplayTitle(record as WorkshopTitleFields);
     case "process":
       return pick(record.name, "Process");
     case "questionnaire":

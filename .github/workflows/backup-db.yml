@@ -200,12 +200,12 @@ jobs:
           # `set -o pipefail` above is load-bearing: without it the exit status of this line is
           # gzip's, and gzip is perfectly happy to compress a failed dump's partial output.
           "$PG_DUMP" "$DATABASE_URL" --no-owner --no-privileges --schema=public \
-            | gzip -9 > "backup-${stamp}.sql.gz"
-          ls -l "backup-${stamp}.sql.gz"
+            | gzip -9 > "FieldRepository_Database_${stamp}_Backup.sql.gz"
+          ls -l "FieldRepository_Database_${stamp}_Backup.sql.gz"
           # A local floor before spending an upload on it. 100 KB is far below a real dump of this
           # schema and far above an empty one — an authenticated connection to the WRONG (empty)
           # database gzips to about a kilobyte of DDL and would otherwise upload happily.
-          bytes="$(stat -c %s "backup-${stamp}.sql.gz")"
+          bytes="$(stat -c %s "FieldRepository_Database_${stamp}_Backup.sql.gz")"
           if [ "${bytes}" -lt 102400 ]; then
             echo "::error::the dump is only ${bytes} bytes. That is an empty or failed dump, not a backup of this repository's data. Check that DATABASE_URL names the production database and not a fresh one."
             exit 1
@@ -221,7 +221,7 @@ jobs:
             echo "::error::AWS_BACKUP_ACCESS_KEY_ID / AWS_BACKUP_SECRET_ACCESS_KEY are not set. They are the fieldrepo-backup-writer user's keys, NOT the deploy keys; SSM holds a copy at /iit/documentation-portal/backup-writer-*."
             exit 1
           fi
-          aws s3 cp "backup-${stamp}.sql.gz" \
+          aws s3 cp "FieldRepository_Database_${stamp}_Backup.sql.gz" \
             "s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/${stamp}.sql.gz" \
             --only-show-errors
           echo "uploaded s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/${stamp}.sql.gz"
@@ -315,7 +315,7 @@ jobs:
             exit 0
           fi
           wkey="${wprefix}${stamp}.sql.gz"
-          aws s3 cp "backup-${stamp}.sql.gz" "s3://${BACKUP_BUCKET}/${wkey}" --only-show-errors
+          aws s3 cp "FieldRepository_Database_${stamp}_Backup.sql.gz" "s3://${BACKUP_BUCKET}/${wkey}" --only-show-errors
           size="$(aws s3api list-objects-v2 --bucket "${BACKUP_BUCKET}" --prefix "${wkey}" \
             --query "Contents[?Key=='${wkey}'].Size | [0]" --output text)"
           case "${size}" in

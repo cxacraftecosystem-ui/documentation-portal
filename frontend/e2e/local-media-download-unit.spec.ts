@@ -63,15 +63,21 @@ test.describe("localMediaFileName", () => {
     // Illegal characters are replaced, and a leading dot cannot make the file hidden.
     ["a/b:c*d?.jpg", "image/jpeg", "a_b_c_d_.jpg"],
     [".hidden.png", "image/png", "hidden.png"],
-    // No name at all: voice notes and everything else.
-    ["", "audio/webm;codecs=opus", "voice-note-2026-03-07-090502.webm"],
-    [null, "audio/mp4", "voice-note-2026-03-07-090502.m4a"],
-    ["   ", "image/jpeg", "media-2026-03-07-090502.jpg"],
-    [undefined, undefined, "media-2026-03-07-090502.bin"]
   ];
   for (const [name, mime, expected] of rows) {
     test(`${JSON.stringify(name)} + ${JSON.stringify(mime)} -> ${expected}`, () => {
       expect(localMediaFileName(name, mime, NOW)).toBe(expected);
     });
   }
+
+  // No name at all: the NAMING 2.1 name, dated and timed in IST (asserted by shape, because the
+  // runner's zone is not IST, and exactly for an instant whose IST reading is fixed).
+  const dated = (what: string, ext: string) => new RegExp(`^FieldRepository_\\d{4}-\\d{2}-\\d{2}_\\d{4}_${what}\\.${ext}$`);
+  test("an unnamed file gets the conventional dated name", () => {
+    expect(localMediaFileName("", "audio/webm;codecs=opus", NOW)).toMatch(dated("Recording", "webm"));
+    expect(localMediaFileName(null, "audio/mp4", NOW)).toMatch(dated("Recording", "m4a"));
+    expect(localMediaFileName("   ", "image/jpeg", NOW)).toMatch(dated("Photo", "jpg"));
+    expect(localMediaFileName(undefined, undefined, NOW)).toMatch(dated("File", "bin"));
+    expect(localMediaFileName("", "audio/webm", new Date(Date.UTC(2026, 2, 7, 3, 35)))).toBe("FieldRepository_2026-03-07_0905_Recording.webm");
+  });
 });

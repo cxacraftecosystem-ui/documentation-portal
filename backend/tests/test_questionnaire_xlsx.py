@@ -647,7 +647,7 @@ def test_two_downloads_of_one_questionnaire_have_different_filenames():
     is the last thing standing between an admin and that mistake."""
     title = "2nd Craft Toolkit Workshop"
     assert download_filename(title) != question_set_filename(title)
-    assert question_set_filename(title).endswith("-questions.xlsx")
+    assert question_set_filename(title).endswith("_Questions.xlsx")  # NAMING 2.1
     assert download_filename(title).endswith(".xlsx")
 
 

@@ -37,6 +37,7 @@ import { locationFromForm, textValue } from "@/lib/forms";
 import { inferMediaType, uploadMediaBatch, type BatchProgress } from "@/lib/media";
 import { UploadsProvider, useUploads } from "@/lib/uploads";
 import type { MediaFile, MediaType, PageResult } from "@/lib/types";
+import { workshopDisplayTitle } from "@/lib/workshopTitle";
 
 // ---------------------------------------------------------------------------
 // Android parity: mediaLinkModes — the EXACT list + labels of record types a
@@ -84,7 +85,7 @@ function entryLabel(type: string, row: EntryRow): string {
     case "artisan":
       return [text(row.name), text(row.place)].filter(Boolean).join(" · ") || "Artisan";
     case "workshop":
-      return text(row.title) || "Untitled workshop";
+      return workshopDisplayTitle({ title: text(row.title), date: text(row.date) || null, place: text(row.place) || null });
     case "craft":
       return [text(row.name), text(row.place)].filter(Boolean).join(" · ") || "Craft";
     case "tool":

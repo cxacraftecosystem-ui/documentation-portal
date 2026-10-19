@@ -1,4 +1,5 @@
 import { API_BASE, ApiError, apiFetch, getSessionMarker } from "@/lib/api";
+import { field, questionSequence, recordingFilename, sectionSequence, splitExtension } from "@/lib/naming";
 import type { MediaFile, MediaType } from "@/lib/types";
 
 /**
@@ -31,146 +32,26 @@ export function inferMediaType(file: File): MediaType {
 // ---------------------------------------------------------------------------
 
 /**
- * Every file this app uploads is named
+ * Every file this app uploads is named by the one convention both portals use (`lib/naming.ts`,
+ * docs/conventions/NAMING_2026-10-18.md):
  *
- *     {RecordType}-{RecordName}-{Descriptor}-{ddMMyyyyHHmm}.{ext}
+ *     Portal_Entity_Date_Time_Place_Craft_Subject_What_Sequence.ext
  *
- *     Artisan-Giriraj-Prasad-Chhipa-Interview-Section-D-Answer-3-010720261824.wav
- *     Product-Bagru-Block-Print-Photo-2-200620261153.jpg
- *     Process-Dabu-Printing-Step-2-Dyeing-Video-1-210620261430.mp4
+ *     DesignWorkshop_Interview_2026-07-01_1824_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Recording_D-Q03.m4a
+ *     DesignWorkshop_Product_2026-06-22_1043_Indigo-Dabu-Saree_Photo_03.jpg
+ *     DesignWorkshop_Process_2026-06-23_1519_Preparation-Of-Bamboo_Step-4-Video_01.mp4
  *
  * because the researcher reads that name with the folder gone — out of an extracted zip, in a
- * downloads list, on a laptop that never saw this app. `D_SEC_GIRIRAJ_001046_010720261824.wav`
- * identified a file to the screen that wrote it and to nobody else: it says nothing about which of
- * several Girirajs spoke, or which part of the interview this is. So the name itself has to answer
- * what kind of record the file hangs off, which record, what the file is, and when it was taken.
- *
- * This is the browser half of backend/app/services/media_naming.py, which rebuilds the same name at
- * read time from the row for everything already uploaded. The two must agree — the character rule,
- * the word vocabulary and the byte budget below are that module's, deliberately, not a second
- * opinion — so move them together when either side moves.
+ * downloads list, on a laptop that never saw this app. The name is also the S3 leaf, so it is ASCII.
+ * backend/app/services/media_naming.py rebuilds the same shape at read time for everything already
+ * uploaded under an older code.
  */
 
-/** The two path separators plus the punctuation Windows reserves. */
-const UNSAFE_NAME_CHARS = new Set('<>:"/\\|?*'.split(""));
-/**
- * Cc control characters; Cf invisible format characters (which include the bidi overrides that can
- * render a filename back-to-front); Cs lone surrogates, which no encoder will take.
- */
-const UNSAFE_CATEGORIES = /[\p{Cc}\p{Cf}\p{Cs}]/u;
-/**
- * ...except the zero-width joiner and non-joiner, which are Cf but LOAD-BEARING in Devanagari and
- * other Indic scripts, where they select conjunct and half forms. Dropping them misspells names.
- * Spelled by code point because a character that is invisible in source is a character an editor,
- * a formatter or a careless copy-paste will silently eat.
- */
-const KEEP_FORMAT = new Set([String.fromCharCode(0x200c), String.fromCharCode(0x200d)]);
-/**
- * A letter, a digit or a combining mark — anything else is a word boundary. Marks are kept
- * deliberately: they are not alphanumeric, but they are half of the syllable they sit on, and a
- * splitter that treated them as separators would shatter every Indic word into loose consonants.
- */
-const NAME_WORD_CHAR = /[\p{L}\p{N}\p{M}]/u;
-/** Windows refuses these device names in any case, with or without an extension. */
-const RESERVED_NAMES = new Set([
-  "CON",
-  "PRN",
-  "AUX",
-  "NUL",
-  ...Array.from({ length: 9 }, (_, i) => `COM${i + 1}`),
-  ...Array.from({ length: 9 }, (_, i) => `LPT${i + 1}`)
-]);
-
-/**
- * The whole leaf, in characters and in BYTES — a filesystem counts bytes, and one Devanagari
- * character costs three of them, so a name that passes a length check in the browser can still be
- * refused on write. 200 leaves room under the 255-byte limit for the `-2` a duplicate name picks up
- * on the way out of an export.
- */
-const MAX_NAME_CHARS = 150;
-const MAX_NAME_BYTES = 200;
-/** Enough of a record name to identify it; the rest of the budget belongs to the descriptor. */
-const MAX_RECORD_NAME_CHARS = 60;
-/** A step name is free text a researcher typed and runs to a sentence more often than not. */
-const MAX_STEP_NAME_CHARS = 32;
-
-const nameEncoder = new TextEncoder();
-
-function byteLength(value: string): number {
-  return nameEncoder.encode(value).length;
-}
-
-/** Drop only the characters a filesystem or a zip genuinely cannot carry, in any script. */
-export function safeNameChars(value: string | null | undefined): string {
-  let out = "";
-  for (const ch of value ?? "") {
-    if (UNSAFE_NAME_CHARS.has(ch)) continue;
-    if (UNSAFE_CATEGORIES.test(ch) && !KEEP_FORMAT.has(ch)) continue;
-    out += ch;
-  }
-  return out;
-}
-
-/** Trim to both limits at once, never mid-character. */
-function clipName(value: string, maxChars: number, maxBytes: number): string {
-  // Code points, not UTF-16 units: slicing by index can cut a surrogate pair in half.
-  const chars = Array.from(value).slice(0, maxChars);
-  while (chars.length > 0 && byteLength(chars.join("")) > maxBytes) chars.pop();
-  return chars.join("");
-}
-
-/**
- * {@link clipName}, but cutting back to a whole word when it has to cut at all.
- *
- * This trims already-hyphenated text, so a blind slice leaves "Cane-Bamboo-an" — a fragment that
- * reads as a word the record does not contain. Dropping the partial word says less and says nothing
- * false. A single very long word has no boundary to retreat to, and there the blind cut stands.
- */
-function clipWords(value: string, maxChars: number, maxBytes: number): string {
-  const clipped = clipName(value, maxChars, maxBytes);
-  if (clipped === value) return value;
-  const cut = clipped.lastIndexOf("-");
-  return (cut > 0 ? clipped.slice(0, cut) : clipped).replace(/^-+|-+$/g, "");
-}
-
-function trimNameEnds(value: string): string {
-  return value.replace(/^[-. ]+/, "").replace(/[-. ]+$/, "");
-}
-
-/**
- * Words joined by hyphens, with every script intact: "Cane, Bamboo and Block Printing" reads
- * "Cane-Bamboo-and-Block-Printing", and "गिरीराज प्रसाद छीपा" keeps its characters and simply gains
- * hyphens. Idempotent, so a descriptor that is already hyphenated passes through unchanged.
- */
-export function hyphenateName(value: string | null | undefined): string {
-  let out = "";
-  for (const ch of safeNameChars(value)) {
-    out += NAME_WORD_CHAR.test(ch) || KEEP_FORMAT.has(ch) ? ch : "-";
-  }
-  return out.replace(/-{2,}/g, "-").replace(/^-+|-+$/g, "");
-}
-
-/**
- * The capture moment as `ddMMyyyyHHmm` — 010720261728 is 1 July 2026, 17:28.
- *
- * Local time, because the researcher matches these names against their own field notes and their own
- * clock, not against UTC.
- *
- * Twelve digits, never fourteen. Seconds would make every name a different length depending on which
- * screen wrote it, and the backend now cuts them off the older uploads that carry them so that one
- * precision reads across the whole repository. Two files of one minute are separated instead by the
- * `-2` the export appends — see `unique_name` in backend/app/services/media_naming.py.
- */
-export function mediaTimestamp(at: Date = new Date()): string {
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${pad(at.getDate())}${pad(at.getMonth() + 1)}${at.getFullYear()}${pad(at.getHours())}${pad(at.getMinutes())}`;
-}
-
-/** What each kind of file is called in a name. Plain words, never the app's IMG/VID/AUD codes. */
+/** What each kind of file is, as the What field. Plain words, never the app's IMG/VID/AUD codes. */
 const KIND_WORD: Record<MediaType, string> = {
   IMAGE: "Photo",
   VIDEO: "Video",
-  AUDIO: "Audio-Note",
+  AUDIO: "Recording",
   PDF: "Document",
   DOCUMENT: "Document",
   OTHER: "File"
@@ -180,27 +61,31 @@ export function mediaKindWord(subject: File | MediaType): string {
   return KIND_WORD[typeof subject === "string" ? subject : inferMediaType(subject)] ?? "File";
 }
 
-/** 1-based, whole, and never zero — the index is half of what keeps two names apart. */
+/** What a file IS (the What field) and which of its kind (the Sequence field). */
+export type MediaDescriptor = { what: string; sequence?: string };
+
+/** 1-based, whole, and never zero. */
 function positiveIndex(index: number | null | undefined): number {
   const value = Math.trunc(index ?? 0);
   return value > 0 ? value : 1;
 }
 
-/**
- * `Photo-2`, `Video-1`, `Audio-Note-3`, `Document-1` — what a file is when it is simply one of a
- * record's captures. The index is its place among that record's media of every kind, so it must
- * continue past the files already attached rather than restart at 1 on a second save; that
- * continuation, with the minute stamp, is what keeps two names apart in the first place, before the
- * export's `-2` has to.
- */
-export function describeMedia(subject: File | MediaType, index: number): string {
-  return `${mediaKindWord(subject)}-${positiveIndex(index)}`;
+function twoDigits(index: number | null | undefined): string {
+  return String(positiveIndex(index)).padStart(2, "0");
 }
 
 /**
- * `Interview-Section-K-Answer-1` for a clip answering one question, `Interview-Section-D` for a
- * recording covering a whole section — which is not an answer to any single question, so it claims
- * no answer number. A clip that names no section at all falls back to what it plainly is.
+ * `Photo` + `02`: what a file is when it is simply one of a record's captures. The index is its place
+ * among that record's media of every kind, so it continues past the files already attached.
+ */
+export function describeMedia(subject: File | MediaType, index: number): MediaDescriptor {
+  return { what: mediaKindWord(subject), sequence: twoDigits(index) };
+}
+
+/**
+ * `Recording` + `K-Q01` for a clip answering one question, `D-All` for a recording covering a whole
+ * section — which answers no single question, so it claims no number. A clip that names no section
+ * falls back to what it plainly is.
  */
 export function describeInterviewAudio({
   sectionCode,
@@ -212,32 +97,29 @@ export function describeInterviewAudio({
   answerNumber?: number | null;
   subject: File | MediaType;
   index: number;
-}): string {
-  const section = hyphenateName(sectionCode).toUpperCase();
-  if (!section) return `Interview-${describeMedia(subject, index)}`;
-  if (answerNumber && answerNumber > 0) return `Interview-Section-${section}-Answer-${Math.trunc(answerNumber)}`;
-  return `Interview-Section-${section}`;
+}): MediaDescriptor {
+  const what = mediaKindWord(subject);
+  if (!field(sectionCode)) return describeMedia(subject, index);
+  if (answerNumber && answerNumber > 0) return { what, sequence: questionSequence(sectionCode, answerNumber) };
+  return { what, sequence: sectionSequence(sectionCode) };
 }
 
 /**
  * `Grid-Measurement-Length-Breadth` / `Grid-Measurement-Height`. A grid photo whose axis the screen
- * did not record gets the bare `Grid-Measurement` rather than a guess that would be wrong half the
- * time — a name that says less is still useful, a name that says the wrong thing is not.
+ * did not record gets the bare `Grid-Measurement` rather than a guess.
  */
-export function describeMeasurementGrid(axis: "lengthBreadth" | "height" | null | undefined): string {
-  if (axis === "lengthBreadth") return "Grid-Measurement-Length-Breadth";
-  if (axis === "height") return "Grid-Measurement-Height";
-  return "Grid-Measurement";
+export function describeMeasurementGrid(
+  axis: "lengthBreadth" | "height" | null | undefined,
+  index = 1
+): MediaDescriptor {
+  const what =
+    axis === "lengthBreadth" ? "Grid-Measurement-Length-Breadth" : axis === "height" ? "Grid-Measurement-Height" : "Grid-Measurement";
+  return { what, sequence: twoDigits(index) };
 }
 
-/**
- * `Step-2-Dyeing-Video-1` — the step's number and the name the researcher gave it, then what the
- * file is. The step name is the one piece of free text in a descriptor, so it is clipped to a whole
- * word: a step called "mixing lime and gum arabic overnight" contributes as much as it can.
- */
+/** `Step-4-Video` + `01`: the step's number, then what the file is. */
 export function describeProcessStep({
   stepNumber,
-  stepName,
   subject,
   index
 }: {
@@ -245,65 +127,44 @@ export function describeProcessStep({
   stepName?: string | null;
   subject: File | MediaType;
   index: number;
-}): string {
+}): MediaDescriptor {
   const head = stepNumber && stepNumber > 0 ? `Step-${Math.trunc(stepNumber)}` : "Step";
-  const name = clipWords(hyphenateName(stepName), MAX_STEP_NAME_CHARS, MAX_STEP_NAME_CHARS * 3);
-  return [head, name, describeMedia(subject, index)].filter(Boolean).join("-");
+  return { what: `${head}-${mediaKindWord(subject)}`, sequence: twoDigits(index) };
 }
 
-/** `Pre-Process-Video-1` — a capture of what happens before the documented process begins. */
-export function describePreProcess(subject: File | MediaType, index: number): string {
-  return `Pre-Process-${describeMedia(subject, index)}`;
+/** `Pre-Process-Video` + `01` — a capture of what happens before the documented process begins. */
+export function describePreProcess(subject: File | MediaType, index: number): MediaDescriptor {
+  return { what: `Pre-Process-${mediaKindWord(subject)}`, sequence: twoDigits(index) };
 }
 
 /** What a file is named after: the record it hangs off, what it is, and when it was captured. */
 export type MediaNameSpec = {
-  /** The word that opens the name: Artisan, Product, Tool, Process, Workshop, Craft. */
+  /** The Entity: Artisan, Product, Tool, Process, Workshop, Interview, Group-Interview. */
   recordType: string;
-  /** That record's own name, as stored — the artisan, the product, the process. */
+  /** That record's own name, as stored — the artisan, the product, the process (the Subject). */
   recordName: string;
-  /** What this file IS, from the vocabulary above. */
-  descriptor: string;
+  /** What this file IS and which of its kind. */
+  descriptor: MediaDescriptor;
   /** Capture time; defaults to now, which is when a browser upload is being named. */
   at?: Date;
+  place?: string | null;
+  craft?: string | null;
 };
 
 function extensionOf(filename: string): string {
-  const dot = filename.lastIndexOf(".");
-  return dot > 0 ? safeNameChars(filename.slice(dot)) : "";
+  return splitExtension(filename)[1];
 }
 
-/**
- * The name for one file, or "" when the pieces yield nothing nameable.
- *
- * The budget is spent on the record name and nothing else. The descriptor and the timestamp are
- * precisely what tells one artisan's forty clips apart, so they are never trimmed; the record name
- * absorbs the whole shortfall, and if the tail alone has eaten the budget the head goes entirely —
- * leaving a name that says less about which record this belongs to but still says exactly which
- * file it is.
- */
+/** The NAMING 2.1 name for one captured file (ASCII, at most 150 characters). */
 export function mediaFileName(file: File, spec: MediaNameSpec): string {
-  const extension = extensionOf(file.name);
-  const tail = [hyphenateName(spec.descriptor), mediaTimestamp(spec.at)].filter(Boolean).join("-");
-  const budget = MAX_NAME_BYTES - byteLength(`-${tail}${extension}`);
-
-  let head = "";
-  if (budget > 0) {
-    const name = clipWords(hyphenateName(spec.recordName), MAX_RECORD_NAME_CHARS, budget);
-    // Re-clip the pair: a long type word plus a short name can still overrun.
-    head = clipWords([hyphenateName(spec.recordType), name].filter(Boolean).join("-"), MAX_NAME_CHARS, budget);
-  }
-
-  let stem = trimNameEnds(
-    [head, tail]
-      .filter(Boolean)
-      .join("-")
-      .replace(/-{2,}/g, "-")
-  );
-  if (!stem) return "";
-  // CON, PRN, LPT1 ... are refused by Windows with or without an extension.
-  if (RESERVED_NAMES.has(stem.split(".")[0].toUpperCase())) stem = `${stem}_`;
-  return trimNameEnds(clipName(stem, MAX_NAME_CHARS, MAX_NAME_BYTES - byteLength(extension))) + extension;
+  return recordingFilename(spec.recordType, extensionOf(file.name), {
+    capturedAt: spec.at ?? new Date(),
+    place: spec.place,
+    craft: spec.craft,
+    subject: spec.recordName,
+    what: spec.descriptor.what,
+    sequence: spec.descriptor.sequence
+  });
 }
 
 /**
@@ -315,8 +176,6 @@ export function mediaFileName(file: File, spec: MediaNameSpec): string {
  */
 export function renameMediaFile(file: File, spec: MediaNameSpec): File {
   const name = mediaFileName(file, spec);
-  // Nothing nameable — keep what the device called it rather than upload a file with no name at all.
-  if (!name) return file;
   return new File([file], name, { type: file.type, lastModified: file.lastModified });
 }
 

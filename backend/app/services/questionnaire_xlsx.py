@@ -87,6 +87,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 # See the module docstring: shared, not restated. `_put` is the single door every value in an .xlsx
 # this repo produces goes through, and it is what stops Excel offering to repair the download.
 from app.services.xlsx_report import XLSX_MIME, _put, _sanitise
+from app.services import naming
 
 # MAX_QUESTIONS, MAX_SECTIONS and SHEET_QUESTIONS ARE DECLARED HERE AND THE PORT DOES NOT DECLARE
 # THEM, although its own caller imports MAX_SECTIONS. A surface that says one thing and is used for
@@ -112,7 +113,7 @@ __all__ = [
     "question_set_filename",
 ]
 
-PRO_FORMA_FILENAME = "questionnaire-pro-forma.xlsx"
+PRO_FORMA_FILENAME = naming.export_filename("Questionnaire", "Pro-Forma", "xlsx", dated=False)
 
 # Sheet names. The parser prefers the working sheet by name and the writer emits these, but neither
 # depends on them: an admin who renamed the tab is still read (see `_pick_sheet`).
@@ -1341,14 +1342,10 @@ def build_question_set_workbook(
     return buffer.getvalue()
 
 
-def _filename_stem(title: str | None) -> str:
-    stem = re.sub(r"[^A-Za-z0-9 _-]+", "", _sanitise(title or "questionnaire")).strip()
-    return re.sub(r"\s+", "-", stem)[:80].strip("-") or "questionnaire"
-
-
 def download_filename(title: str | None) -> str:
     """A safe, readable filename for a questionnaire download."""
-    return f"{_filename_stem(title)}.xlsx"
+    # NAMING 2.1: <Portal>_Questionnaire_2026-10-18_Craft-Survey-2026_Export.xlsx
+    return naming.export_filename("Questionnaire", "Export", "xlsx", subject=_sanitise(title or ""))
 
 
 def question_set_filename(title: str | None) -> str:
@@ -1359,4 +1356,6 @@ def question_set_filename(title: str | None) -> str:
     the instrument forty interviews are already attached to and starting a fresh one. The name is the
     last thing standing between an admin and that mistake, so it says which one this is.
     """
-    return f"{_filename_stem(title)}-questions.xlsx"
+    return naming.export_filename(
+        "Questionnaire", "Questions", "xlsx", subject=_sanitise(title or "")
+    )

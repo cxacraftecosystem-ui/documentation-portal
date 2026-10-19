@@ -58,6 +58,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Iterable
 
 from app.core.db import db
+from app.services import naming
 from app.services.concurrency import gather_reads
 
 # The rung names, as they travel to the client. Constants because both platforms render them, and a
@@ -207,6 +208,18 @@ def _aware(value: Any) -> datetime | None:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
+def workshop_title(workshop: Any) -> str:
+    """The typed title, or (only when blank) its generated default ``Workshop_Date_Place`` (NAMING
+    2.4) in place of a shared "Untitled workshop"."""
+    return str(getattr(workshop, "title", "") or "") or naming.session_title(
+        {
+            "entity": "Workshop",
+            "date": getattr(workshop, "date", None),
+            "place": getattr(workshop, "place", None),
+        }
+    )
+
+
 def build_windows(workshops: Iterable[Any]) -> list[WorkshopWindow]:
     """Every workshop as a half-open span ``[start, end)`` covering WHOLE DAYS.
 
@@ -254,7 +267,7 @@ def build_windows(workshops: Iterable[Any]) -> list[WorkshopWindow]:
         windows.append(
             WorkshopWindow(
                 id=workshop.id,
-                title=str(getattr(workshop, "title", "") or "Untitled workshop"),
+                title=workshop_title(workshop),
                 start=start,
                 end=end,
             )
@@ -374,7 +387,7 @@ async def run_ladder() -> LadderRun:
 
     windows = build_windows(workshops)
     workshop_titles: dict[str, str] = {
-        workshop.id: str(getattr(workshop, "title", "") or "Untitled workshop")
+        workshop.id: workshop_title(workshop)
         for workshop in workshops
     }
 

@@ -138,16 +138,15 @@ def _face(settings: Any, artisan: Any, card: Any, photo: bytes | None) -> artisa
     )
 
 
-PORTAL = naming.PORTAL_FIELD_REPOSITORY
 def _card_file_name(faces: list[Any]) -> str:
     """One card names its artisan; a sheet is the day's artisan cards (services/naming.py)."""
     if len(faces) == 1:
         face = faces[0]
         return naming.file_name(
-            PORTAL, "Artisan", "Artisan-Card", "pdf",
-            day=naming.ist_date(), place=face.cluster, craft=face.craft, subject=face.name,
+            entity="Artisan", what="Artisan-Card", ext="pdf",
+            date=naming.now_ist(), place=face.cluster, craft=face.craft, subject=face.name,
         )
-    return naming.file_name(PORTAL, "Artisan", "Artisan-Cards", "pdf", day=naming.ist_date())
+    return naming.file_name(entity="Artisan", what="Artisan-Cards", ext="pdf", date=naming.now_ist())
 
 
 def _pdf(content: bytes, filename: str) -> Response:
