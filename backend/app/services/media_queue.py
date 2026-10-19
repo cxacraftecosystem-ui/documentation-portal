@@ -478,7 +478,7 @@ async def _process_job(job: Any, settings: Settings) -> None:
         return
     if job.jobType == TRANSCRIPTION:
         # RE-READ AT THE MOMENT OF SENDING, so a consent withdrawn after the job was queued holds.
-        # One question over both consent stores (services/recording_consent).
+        # One question over the one consent store (services/recording_consent, services/consent_gate).
         verdict = await recording_consent.gate.verdict(media)
         if not verdict.may_send:
             await _record_consent_refusal(media, verdict)

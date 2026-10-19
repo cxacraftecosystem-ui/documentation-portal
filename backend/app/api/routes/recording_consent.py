@@ -1,8 +1,12 @@
 """Record whether an artisan's recordings may be sent for transcription (the consent rule).
 
 ``/artisans/{id}/recording-consent`` answers for every recording of that artisan;
-``/media/{id}/recording-consent`` for one recording, and wins over the artisan's answer. Anyone who
+``/media/{id}/recording-consent`` for one recording, and wins over the artisan's grant. Anyone who
 may edit the record may record the answer, and every change is appended, never overwritten.
+
+Both write the ONE consent store, the ``Consent`` ledger (``services/consent_gate.py``): the artisan
+route is the same row ``/artisans/{id}/consent`` writes. The web and Android apps now use that route;
+these stay for the Android builds already installed.
 """
 
 from __future__ import annotations
@@ -45,7 +49,7 @@ async def _media_or_404(media_id: str) -> Any:
 async def get_artisan_recording_consent(artisan_id: str, _: Any = Depends(get_current_user)) -> dict[str, Any]:
     await _artisan_or_404(artisan_id)
     row = await recording_consent.latest_decision(artisan_id=artisan_id)
-    return recording_consent.payload(row, str(row.decision) if row else recording_consent.NOT_RECORDED)
+    return recording_consent.payload(row, str(row["state"]) if row else recording_consent.NOT_RECORDED)
 
 
 @router.put("/artisans/{artisan_id}/recording-consent")

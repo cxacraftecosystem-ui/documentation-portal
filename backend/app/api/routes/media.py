@@ -812,10 +812,11 @@ async def refine_media_transcript(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only refine the transcript of media you uploaded",
         )
-    # An AI refinement or translation is an outside send: the consent gate decides (DESIGN 3.11).
-    # Files made on or before 18 Oct 2026 are covered by the owner's attestation (correction (c));
-    # until its backfill is applied they would read AWAITING, so the gate asks only of newer files.
-    verdict = consent_gate.ALLOW if consent_gate.covered_by_attestation(media) else await consent_gate.verdict(media_id)
+    # An AI refinement or translation is an outside send: the one consent gate decides (DESIGN 3.11,
+    # the one consent store of 19 Oct 2026), exactly as the queue does. Files made on or before
+    # 18 Oct 2026 pass by the owner's attestation once its backfill has written their RECORDING rows;
+    # a refusal recorded after the attestation still stops them.
+    verdict = await consent_gate.verdict(media_id)
     if verdict != consent_gate.ALLOW:
         from app.services.questionnaire_v2.common import fail
 

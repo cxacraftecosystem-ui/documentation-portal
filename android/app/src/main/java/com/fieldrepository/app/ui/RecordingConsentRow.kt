@@ -15,7 +15,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.data.RecordingConsentClient
 import com.fieldrepository.app.data.RecordingConsentCopy
-import com.fieldrepository.app.data.RecordingConsentDto
+import com.fieldrepository.app.data.QConsentGet
 import kotlinx.coroutines.launch
 
 /**
@@ -28,7 +28,7 @@ fun RecordingConsentRow(artisanId: String) {
     val context = LocalContext.current
     val client = remember { RecordingConsentClient.create(context) }
     val scope = rememberCoroutineScope()
-    var consent by remember(artisanId) { mutableStateOf<RecordingConsentDto?>(null) }
+    var consent by remember(artisanId) { mutableStateOf<QConsentGet?>(null) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(artisanId) {
@@ -39,7 +39,7 @@ fun RecordingConsentRow(artisanId: String) {
         AppToggle(
             label = RecordingConsentCopy.LABEL,
             description = RecordingConsentCopy.DESCRIPTION,
-            checked = current.granted,
+            checked = RecordingConsentCopy.granted(current),
             busy = busy,
             onCheckedChange = { next ->
                 busy = true
@@ -53,7 +53,7 @@ fun RecordingConsentRow(artisanId: String) {
             },
         )
         Text(
-            RecordingConsentCopy.status(current, current.attestedAt?.take(10)),
+            RecordingConsentCopy.status(current, current.recordedAt?.take(10)),
             color = Muted,
             style = MaterialTheme.typography.bodySmall,
         )
