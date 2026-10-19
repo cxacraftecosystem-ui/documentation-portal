@@ -872,8 +872,10 @@ that **runs** Gradle (25, the current Temurin LTS), not the bytecode level, whic
 `compileOptions` — so a JDK bump changes no output, and a bytecode bump needs Android to document a
 higher level first.
 
-**A deploy hangs on the health poll.** Stage 1 polls `http://127.0.0.1:8000/health` 40 times at 2 s
-and dumps `journalctl -u fieldrepo -n 80` on failure. Read that output first; the usual causes are a
+**A deploy fails on the health poll.** The release script starts the new release on the idle loopback
+port (8000 or 8001), polls its `/health` for up to ten minutes and dumps `journalctl -u
+fieldrepo-api@<port> -n 80` on failure; the old release keeps serving throughout
+([backend/DEPLOY_AWS.md](../backend/DEPLOY_AWS.md) §13). Read that output first; the usual causes are a
 bad `BACKEND_ENV` value and Supabase pooler connection exhaustion — both covered in
 [QA_AUDIT.md](QA_AUDIT.md).
 

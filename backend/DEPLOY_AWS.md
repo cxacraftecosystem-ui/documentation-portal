@@ -74,31 +74,40 @@ Smoke test, then run as a service:
 ./.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000   # Ctrl-C after /health works
 ```
 
-### systemd unit (keeps it running + restarts on reboot)
+### systemd units (keep it running + restart on reboot)
 
-`/etc/systemd/system/fieldrepo.service`:
+The API runs as `fieldrepo-api@<port>`, a template unit with one instance per loopback port (8000 or
+8001), from `/home/ubuntu/app/slots/<port>/backend`; nginx proxies to one of them, and the deploy
+switches it (§13). `backend/deploy/blue_green.sh` installs the template on every deploy and
+`infra/terraform/user_data.sh` writes the same one on a new box; by hand, copy it from either.
+`/etc/systemd/system/fieldrepo-api@.service`:
 
 ```ini
 [Unit]
-Description=Field Repository API
+Description=Field Repository API on port %i
 After=network.target
 
 [Service]
 User=ubuntu
-WorkingDirectory=/home/ubuntu/app/backend
-EnvironmentFile=/home/ubuntu/app/backend/.env
+WorkingDirectory=/home/ubuntu/app/slots/%i/backend
+EnvironmentFile=/home/ubuntu/app/slots/%i/backend/.env
 # ONE worker, bound to localhost (nginx fronts it). Two workers reintroduced the
 # SIGKILL/orphaned-Prisma-engine 500 outage (commit 44923bc); the media queue runs in its own
-# service below, so the web process must have MEDIA_QUEUE_WORKER_ENABLED=false in .env.
+# service below, so the web process must have MEDIA_QUEUE_WORKER_ENABLED=false.
 Environment=MEDIA_QUEUE_WORKER_ENABLED=false
-ExecStart=/home/ubuntu/app/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
-KillMode=control-group
+ExecStart=/home/ubuntu/app/slots/%i/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port %i --workers 1
 Restart=always
 RestartSec=10
+KillMode=control-group
+TimeoutStopSec=20
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+By hand, put the tree at `/home/ubuntu/app/slots/8000/backend` and link
+`/home/ubuntu/app/backend` to it (`ln -s slots/8000/backend /home/ubuntu/app/backend`), so the queue
+unit below and every command in this guide find it.
 
 `/etc/systemd/system/fieldrepo-queue.service` (the media/transcription queue, decoupled from the
 web process so ffmpeg + AI work never blocks requests):
@@ -122,8 +131,8 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-sudo systemctl daemon-reload && sudo systemctl enable --now fieldrepo fieldrepo-queue
-sudo systemctl status fieldrepo fieldrepo-queue
+sudo systemctl daemon-reload && sudo systemctl enable --now fieldrepo-api@8000 fieldrepo-queue
+sudo systemctl status fieldrepo-api@8000 fieldrepo-queue
 curl http://localhost:8000/health
 ```
 
@@ -265,10 +274,10 @@ Creates the **S3 bucket** (public-read `media/*` + CORS), an **IAM user** with
 `PutObject/GetObject/DeleteObject` and a fresh **access key**, and an EC2 box (**t3.small** with an
 **encrypted** gp3 root since 2026-10-09; the box running that day is a t3.micro, §10) with an
 **Elastic IP**, a 2 GiB swap file, **nginx** (reverse proxy on 80,
-so port 8000 is never exposed) and **ffmpeg** (needed for Whisper long-audio
+so ports 8000 and 8001 are never exposed) and **ffmpeg** (needed for Whisper long-audio
 chunking), **upstream CPython 3.14.8** (a pinned, checksummed python-build-standalone build under
-`/opt/cpython`, not apt's; §9), plus the `fieldrepo`
-and `fieldrepo-queue` systemd units. The DB stays on Supabase.
+`/opt/cpython`, not apt's; §9), plus the `fieldrepo-api@` template
+and the `fieldrepo-queue` systemd units (§13). The DB stays on Supabase.
 
 > **Changing the AMI filter, the instance type or the root volume's encryption replaces the instance
 > on the next `apply`.** `main.tf` moved from the
@@ -460,9 +469,10 @@ but glibc (`ldd`: libc, libm, libpthread, libdl, librt, libutil).
 
 | Path | What it is |
 |---|---|
-| `/opt/cpython/3.14.8+20261009` | The interpreter, owned by root, its standard library's bytecode compiled at install. Never changed in place: a new pin is a new directory beside it. A deploy deletes one only after a healthy restart, and only when no venv under `venvs/` runs on it. |
+| `/opt/cpython/3.14.8+20261009` | The interpreter, owned by root, its standard library's bytecode compiled at install. Never changed in place: a new pin is a new directory beside it. A deploy deletes one only after a healthy restart, and only when no venv under `venvs/` or `slots/<port>/venv` runs on it. |
 | `/home/ubuntu/app/venvs/cpython-3.14.8+20261009-<16 hex>` | One venv per interpreter build and lock: the hex is the start of the lock's SHA-256. `.complete` inside it is written last (`python -VV`, then the interpreter's path); a directory without it is a build that did not finish and is rebuilt. A venv whose `bin/python` does not resolve to the pinned interpreter is refused, never reused. Owned by `ubuntu`, like everything under `/home/ubuntu/app`. |
-| `/home/ubuntu/app/backend/.venv` | A **symlink** to the venv in use. The two systemd units run `.venv/bin/python`, so they never change when the venv does. |
+| `/home/ubuntu/app/slots/<port>/venv` | That port's own `cp -a` of the `venvs/` venv above, made by each release to that port, with its scripts' paths rewritten to the copy, and its own `.complete`. The project is installed and the Prisma client generated **here**, never in the `venvs/` one, so a release never rewrites the client the live port or the rollback tree runs on (§13). |
+| `/home/ubuntu/app/backend/.venv` | A **symlink** to the live port's `slots/<port>/venv` (`/home/ubuntu/app/backend` is itself a link to the live port's tree, §13). The units run `.venv/bin/python`, so they never change when the venv does. |
 | `/home/ubuntu/app/venvs/py3.14-<16 hex>` | 24.04 box only: the venv the apt-based deploy built on the morning of 2026-10-09, on deadsnakes' `/usr/bin/python3.14`. The first deploy on the pinned interpreter switches away from it and names it in `venv-previous`, which keeps it until a later deploy moves on. |
 | `/home/ubuntu/app/venvs/py3.12-legacy` | 24.04 box only: the 3.12 venv every deploy before 2026-10-09 built in place, moved aside by the first 3.14 deploy and kept for rollback. |
 | `/home/ubuntu/app/venv-wanted`, `venv-previous` | The venv the last deploy built or chose, and the one `.venv` pointed at before it. |
@@ -608,7 +618,7 @@ To point the services at the previous venv by hand, without a deploy:
 ```bash
 cat /home/ubuntu/app/venv-previous                     # the venv .venv pointed at before
 ln -sfn "$(cat /home/ubuntu/app/venv-previous)" /home/ubuntu/app/backend/.venv
-sudo systemctl restart fieldrepo fieldrepo-queue
+bash /home/ubuntu/app/backend/deploy/blue_green.sh restart
 ```
 
 That only helps when the code on disk runs on that venv. It never does on `py3.12-legacy` under
@@ -737,7 +747,7 @@ box, in this order:
    so it reads the same `.env`):
 
    ```
-   cd /home/ubuntu/app/current/backend
+   cd /home/ubuntu/app/backend
    .venv/bin/python -m scripts.backfill_aadhaar_fingerprint             # dry run: counts only
    .venv/bin/python -m scripts.backfill_aadhaar_fingerprint --apply     # writes, then verifies
    ```
@@ -810,7 +820,7 @@ and the SSM SecureString `/iit/documentation-portal/artisan-card-key`.
 3. **Backfill, on the box, after that release is live:**
 
    ```
-   cd /home/ubuntu/app/current/backend
+   cd /home/ubuntu/app/backend
    .venv/bin/python -m scripts.backfill_artisan_cards            # dry run: counts only
    .venv/bin/python -m scripts.backfill_artisan_cards --apply    # issues the missing cards
    ```
@@ -822,3 +832,69 @@ and the SSM SecureString `/iit/documentation-portal/artisan-card-key`.
 and bump `ARTISAN_CARD_KEY_VERSION`. Cards printed under the old key keep verifying; reissuing them is
 optional. **Rollback** is safe: older code ignores the new tables and column.
 
+---
+
+## 13. Zero-downtime releases (2026-10-19)
+
+Until 0.0.16 every backend deploy stopped the API, migrated, restarted it and waited for `/health`.
+On this swap-bound t3.small the start alone takes three to eight minutes, and CloudFront answered 502
+for all of it. Since this change the old release keeps serving until the new one answers `/health`.
+The box side is `backend/deploy/blue_green.sh`, piped over ssh by `deploy-backend.yml` so the box
+always runs the copy from the commit being deployed.
+
+**The layout.**
+
+| Path | What it is |
+|---|---|
+| `/home/ubuntu/app/slots/8000/backend`, `slots/8001/backend` | One tree per loopback port: code, its own `.env`, and a `.venv` link to the port's own venv. |
+| `/home/ubuntu/app/slots/8000/venv`, `slots/8001/venv` | The port's own copy (`cp -a`) of the venv the build step chose under `venvs/`. `prisma generate` writes the client into the venv it runs from, so with one venv shared by both ports (most deploys, since the lock rarely changes) a release would regenerate the live port's and the rollback tree's client before switching. Each release replaces only the idle port's copy. |
+| `fieldrepo-api@8000`, `fieldrepo-api@8001` | The API on that port. One runs; it is the one enabled for boot. |
+| `/etc/nginx/sites-available/fieldrepo` | `proxy_pass http://127.0.0.1:<port>;` names the live port. nginx is the truth: whatever it proxies to is live. |
+| `/home/ubuntu/app/backend` | A link to the live port's tree. The queue unit, the one-off scripts and every command in this guide go through it. |
+| `/home/ubuntu/app/next` | During a deploy only: a link to the idle port's tree, which every `.env` step writes to. |
+| `/home/ubuntu/app/legacy-backend` | The tree the old single-port `fieldrepo.service` ran, kept by the first deploy that converted the box. Delete it once the new layout has served a release or two. |
+
+**A release, in order.** `prepare` names the idle port, stops anything left running there, copies the
+live `.env` into its tree and points `next` at it. The code is synced into that tree and every `.env`
+step edits it there; the live tree is not touched. `release` then copies the venv the build step
+chose to the idle port's `slots/<port>/venv`, installs the project and generates the Prisma client
+into that copy, pauses the queue, runs `prisma migrate deploy`
+while the live port still serves, starts the idle port, waits up to **ten minutes** by the clock for
+its `/health` (a line every twenty seconds), points nginx at it with a reload (connections in flight
+finish on the old port), checks `/health` through nginx, and only then stops the old port, moves
+`/home/ubuntu/app/backend` and starts the queue on the new tree. Anything that fails before the
+switch stops the new port and leaves nginx on the old one, which never stopped: the run is red and
+nobody using the site notices. `backend/deploy/test_blue_green.sh` (Checks, "Deploy scripts") runs
+every one of these paths against stubs and fails if nginx is ever left on a port nothing serves.
+
+**Migrations run while the old release serves,** so each release's migrations must keep the
+previous release working: add first, drop in a later release, as §12's run order does. If
+`prisma migrate deploy` fails three times with the queue stopped, **for any reason**, the script
+stops the live API and tries five more times, the one path that still has downtime; the log says so
+in a warning. The fallback exists for a pooler with no session left for the schema engine
+(EMAXCONNSESSION), but the script does not read the error, so a migration that is simply wrong also
+takes the API down for the five further attempts (about a minute) before the old port is restarted
+and the run fails. Read the three attempts in the log to tell the two apart.
+
+**Two APIs share the box for the overlap,** a few minutes at most, with the queue paused. On
+2026-10-19 the box had 1.9 GB of memory and 2 GB of swap, 1.5 GB of it in use.
+
+**On the box** (as `ubuntu`, by SSM):
+
+```bash
+bash /home/ubuntu/app/backend/deploy/blue_green.sh status     # live port, units, venvs
+bash /home/ubuntu/app/backend/deploy/blue_green.sh restart    # after a hand edit of the live .env
+bash /home/ubuntu/app/backend/deploy/blue_green.sh rollback   # back to the other port's tree
+sudo journalctl -u fieldrepo-api@8001 -n 80 --no-pager        # the port named by status
+```
+
+`restart` restarts the live port in place, so it does stop the API for its start-up. `rollback`
+starts the other port's tree (the release before this one, on its own venv and Prisma client), waits for
+`/health` and switches nginx back, with no downtime and no build. It is safe while the schema has not
+moved past what that code reads; §12 names the release you must not roll back past.
+
+**Redeploying a commit from before this change** would rsync into the link at
+`/home/ubuntu/app/backend` and restart a `fieldrepo.service` that no longer exists. Roll forward
+instead. If you must, first put the old layout back: stop both `fieldrepo-api@` units, replace the
+link with a real copy of the live tree (`cp -a`), restore `fieldrepo.service` from that commit's
+`infra/terraform/user_data.sh`, set nginx back to port 8000, then deploy.

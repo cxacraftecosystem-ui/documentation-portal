@@ -6,8 +6,9 @@
 # interpreter: upstream CPython 3.14.8 from a pinned, checksummed python-build-standalone build,
 # under /opt/cpython (the end of this file says why it comes last and why it is not apt's).
 # The actual code is deployed by the GitHub Actions workflow (deploy-backend.yml), which also builds
-# the API's venv from backend/requirements.lock under /home/ubuntu/app/venvs and points
-# /home/ubuntu/app/backend/.venv at it; nothing here installs a Python package.
+# the API's venv from backend/requirements.lock under /home/ubuntu/app/venvs, copies it to the port
+# it releases to (/home/ubuntu/app/slots/<port>/venv) and points that tree's .venv at the copy;
+# nothing here installs a Python package.
 #
 # It runs as root under cloud-init, once. To launch a box with it: backend/DEPLOY_AWS.md §10 has the
 # exact `aws ec2 run-instances` call. The file must reach EC2 with LF line endings (.gitattributes
@@ -58,10 +59,15 @@ nginx -t
 systemctl enable nginx
 systemctl restart nginx
 
-# --- systemd unit for the API (uvicorn) --------------------------------------
-# `.venv` below is a symlink the deploy maintains, to /home/ubuntu/app/venvs/cpython-<version>+<build>-
-# <hash of the lock>; the unit never needs to change when the venv does (deploy-backend.yml says why
-# it is a symlink and not a directory).
+# --- systemd units for the API (uvicorn), one per loopback port --------------
+# The API runs as fieldrepo-api@8000 or fieldrepo-api@8001, from /home/ubuntu/app/slots/<port>/backend,
+# and nginx proxies to one of them: each deploy starts the idle port beside the live one and switches
+# nginx only once it answers /health (backend/deploy/blue_green.sh). That script installs this same
+# template on every deploy, so the two must stay identical; it is written here so a new box has it.
+# `.venv` below is a symlink the deploy maintains, to that port's own copy of
+# /home/ubuntu/app/venvs/cpython-<version>+<build>-<hash of the lock> (/home/ubuntu/app/slots/<port>/venv:
+# `prisma generate` writes into the venv, so the ports never share one); the unit never needs to
+# change when the venv does (deploy-backend.yml says why it is a symlink and not a directory).
 # IMPORTANT: a SINGLE uvicorn process (NOT --workers 2). With >1 worker uvicorn runs a
 # multiprocess supervisor that health-pings each worker over a pipe (answered by a daemon thread)
 # and SIGKILLs any worker that fails to pong within timeout_worker_healthcheck. On this small,
@@ -73,25 +79,22 @@ systemctl restart nginx
 # The media queue runs in its OWN service (fieldrepo-queue, below), so its heavy AI/ffmpeg work is
 # never in the request-serving process — that both removes the SIGKILL trigger and keeps responses
 # fast (no CloudFront 504). MEDIA_QUEUE_WORKER_ENABLED=false disables the in-process queue here.
-cat > /etc/systemd/system/fieldrepo.service <<'UNIT'
+cat > /etc/systemd/system/fieldrepo-api@.service <<'UNIT'
+# Written by backend/deploy/blue_green.sh. One instance per loopback port; nginx proxies to one.
+# A SINGLE uvicorn process, never --workers 2: infra/terraform/user_data.sh says why.
 [Unit]
-Description=Field Repository API
+Description=Field Repository API on port %i
 After=network.target
 
 [Service]
 User=ubuntu
-WorkingDirectory=/home/ubuntu/app/backend
-EnvironmentFile=/home/ubuntu/app/backend/.env
-# Applied AFTER EnvironmentFile so it always wins: the web process must never run the queue.
+WorkingDirectory=/home/ubuntu/app/slots/%i/backend
+EnvironmentFile=/home/ubuntu/app/slots/%i/backend/.env
+# After EnvironmentFile so it always wins: the web process must never run the queue.
 Environment=MEDIA_QUEUE_WORKER_ENABLED=false
-ExecStart=/home/ubuntu/app/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+ExecStart=/home/ubuntu/app/slots/%i/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port %i --workers 1
 Restart=always
-# 10s (not 3s) between restarts so that IF the process ever does exit while the Supabase
-# transaction pooler is at its client-connection ceiling, restarts don't hammer the pooler
-# faster than its connections can drain. (The app also now keeps serving and reconnects to
-# the DB in the background instead of exiting, so this is defense-in-depth.)
 RestartSec=10
-# Reap the whole control group on stop/restart so a Prisma query-engine is never left orphaned.
 KillMode=control-group
 TimeoutStopSec=20
 
@@ -123,9 +126,8 @@ WantedBy=multi-user.target
 UNIT
 
 systemctl daemon-reload
-# Services are enabled here; they start cleanly once the deploy workflow has placed
-# the code and the .env file under /home/ubuntu/app/backend.
-systemctl enable fieldrepo || true
+# The queue is enabled here and starts cleanly once the first deploy has made /home/ubuntu/app/backend
+# (a link to the live port's tree). The API's port is enabled by that deploy, on the port it starts.
 systemctl enable fieldrepo-queue || true
 mkdir -p /home/ubuntu/app/venvs
 chown -R ubuntu:ubuntu /home/ubuntu/app

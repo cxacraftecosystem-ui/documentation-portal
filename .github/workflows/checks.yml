@@ -863,3 +863,21 @@ jobs:
             exit 1
           fi
           exit "$status"
+
+  # The box side of the backend deploy, proved without a box (2026-10-19). backend/deploy/blue_green.sh
+  # is what deploy-backend.yml pipes over ssh to release the API with no downtime; the test runs it
+  # against stubbed systemctl, nginx and curl and fails if nginx is ever left pointing at a port
+  # nothing serves. shellcheck is on the runner image. Not a branch-protection gate; seconds to run.
+  deploy-scripts:
+    name: Deploy scripts
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: shellcheck
+        run: shellcheck --version && shellcheck -x backend/deploy/blue_green.sh backend/deploy/test_blue_green.sh
+
+      - name: Release logic against stubs
+        run: bash backend/deploy/test_blue_green.sh
