@@ -30,6 +30,7 @@ def test_recording_upload_filing_and_approval_never_consult_the_gate() -> None:
         "app/services/questionnaire_v2/answers.py", "app/api/routes/questionnaire_v2.py",
         "app/services/questionnaire_v2/recordings.py", "app/services/questionnaire_v2/sessions.py",
         "app/services/questionnaire_v2/corpus.py", "app/services/consent_gate.py",
+        "app/services/recording_consent.py",
     }
     for path in BACKEND.joinpath("app").rglob("*.py"):
         rel = path.relative_to(BACKEND).as_posix()

@@ -46,4 +46,6 @@ def test_the_shared_module_names_no_portal_specific_module(name):
                 "app.core.config",
                 "app.core.db",
                 "app.services",
+                # Shared byte for byte with the designer portal too (shared/standard-values-vectors.json).
+                "app.services.standard_values",
             }, line

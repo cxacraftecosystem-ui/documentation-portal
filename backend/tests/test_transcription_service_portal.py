@@ -18,6 +18,19 @@ import requests
 from app.services import ai, app_settings, media_queue, recording_consent, transcription_jobs
 
 
+@pytest.fixture(autouse=True)
+def _ledger_says_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests are about RecordingConsent, the pause and the queue; the questionnaire's consent
+    ledger (the other store recording_consent asks) answers "nothing recorded" unless a test says
+    otherwise, and the insights hold is lifted so only the pause decides what the drain selects."""
+
+    async def _awaiting(*_a: Any, **_k: Any) -> str:
+        return "AWAITING"
+
+    monkeypatch.setattr(recording_consent.ledger, "verdict", _awaiting)
+    monkeypatch.setattr(media_queue.transcript_insights, "enabled", lambda: True)
+
+
 def _never(*_a: Any, **_k: Any) -> Any:
     raise AssertionError("a provider was called")
 

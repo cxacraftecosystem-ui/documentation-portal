@@ -281,7 +281,8 @@ def test_with_the_feature_off_nothing_is_queued_and_queued_jobs_are_not_drained(
         return []
 
     async def no_settings():
-        return {}
+        # Unpaused, so this test sees the insights hold on its own (the pause has its own tests).
+        return {"transcriptionPaused": False}
 
     monkeypatch.setattr(fake.mediaprocessingjob, "find_many", find_many)
     monkeypatch.setattr(media_queue, "load_app_settings", no_settings)
@@ -291,7 +292,7 @@ def test_with_the_feature_off_nothing_is_queued_and_queued_jobs_are_not_drained(
     assert seen["where"]["jobType"] == {"not": "TRANSCRIPT_INSIGHTS"}
 
     monkeypatch.setattr(media_queue, "within_processing_window", lambda _s: False)
-    monkeypatch.setattr(media_queue, "_server_is_idle", lambda: False)
+    monkeypatch.setattr(media_queue, "_server_is_idle", lambda: False, raising=False)
     asyncio.run(media_queue.process_next_media_jobs(limit=5))
     assert seen["where"]["jobType"] == {"not_in": ["TRANSCRIPTION", "TRANSCRIPT_INSIGHTS"]}
 

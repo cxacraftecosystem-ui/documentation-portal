@@ -22,7 +22,7 @@ from app.services.app_settings import (
     transcription_paused,
     within_processing_window,
 )
-from app.services import consent_gate, transcript_insights
+from app.services import transcript_insights
 from app.services import transcription_enqueue as transcription
 from app.services.s3 import discard_temp, download_to_temp, get_object_bytes
 from app.services.transcription_store import open_key
@@ -317,10 +317,6 @@ async def transcribe_media_now(media: Any, settings: Settings | None = None) -> 
     if transcription_paused(await load_app_settings()):
         raise transcription_jobs.TranscriptionPaused()
     media_id = str(_value(media, "id"))
-    # Paused, or not cleared by the consent gate: queue it (or say why not) and call nobody.
-    if await transcription.is_paused() or await consent_gate.verdict(media_id) != consent_gate.ALLOW:
-        queued = await transcription.enqueue(media_id, "transcribe-now", requested_by_id=_value(media, "uploadedById"))
-        return {**queued, "text": None, "message": transcription.PAUSED_REASON if queued.get("paused") else None}
     await db.mediafile.update(where={"id": media_id}, data={"transcriptStatus": PROCESSING})
     source_path = await asyncio.to_thread(download_to_temp, _value(media, "objectKey"))
     try:
@@ -481,28 +477,8 @@ async def _process_job(job: Any, settings: Settings) -> None:
         )
         return
     if job.jobType == TRANSCRIPTION:
-        # The consent ledger (DESIGN 3.11) on every outside send: a file that is not cleared is parked
-        # with the reason and the job is closed; recording consent later re-enqueues it. The
-        # RecordingConsent rule below must ALSO let it through: both are asked, either refusal holds.
-        gate = await consent_gate.verdict(media.id)
-        if gate != consent_gate.ALLOW:
-            await db.mediafile.update(
-                where={"id": media.id}, data={"transcriptStatus": consent_gate.TRANSCRIPT_STATUS_FOR[gate]}
-            )
-            await db.mediaprocessingjob.update(
-                where={"id": job.id},
-                data={
-                    "status": "CANCELLED",
-                    "lockedAt": None,
-                    "lockedBy": None,
-                    "openKey": None,
-                    "error": f"Consent gate: {gate}",
-                    "completedAt": datetime.now(UTC),
-                },
-            )
-            return
-    if job.jobType == TRANSCRIPTION:
         # RE-READ AT THE MOMENT OF SENDING, so a consent withdrawn after the job was queued holds.
+        # One question over both consent stores (services/recording_consent).
         verdict = await recording_consent.gate.verdict(media)
         if not verdict.may_send:
             await _record_consent_refusal(media, verdict)

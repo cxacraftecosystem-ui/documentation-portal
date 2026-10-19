@@ -12,8 +12,11 @@ shared words), decided here against ``RecordingConsent`` rows:
 
 Every recording that existed on 18 Oct 2026 carries a GRANTED row by owner attestation, written by
 ``scripts/backfill_recording_consent_owner_attestation.py`` (dry run first). Nothing is flagged.
-Transcription ALSO asks the consent ledger (``services/consent_gate``, written for old recordings
-by ``scripts/backfill_consent_owner_attestation.py``): a send needs both to allow it.
+
+ONE RULE OVER BOTH STORES. The questionnaire keeps its consent in the ``Consent`` ledger (DESIGN
+3.11, ``scripts/backfill_consent_owner_attestation.py``). A refusal in either store refuses; a grant
+in either lets the recording go; otherwise it is NOT_RECORDED. Every outside send asks this one
+question, so the two stores can never disagree about a recording.
 
 A failed read refuses, never raises: an unknown consent must not become a send.
 """
@@ -24,6 +27,7 @@ import logging
 from typing import Any
 
 from app.core.db import db
+from app.services import consent_gate as ledger
 from app.transcription.consent import (
     GRANTED,
     NOT_RECORDED,
@@ -48,8 +52,8 @@ async def latest_decision(*, media_id: str | None = None, artisan_id: str | None
     return await db.recordingconsent.find_first(where=where, order=[{"attestedAt": "desc"}, {"createdAt": "desc"}])
 
 
-async def decision_for(media: Any) -> str:
-    """GRANTED, REFUSED or NOT_RECORDED for one stored recording. Raises on a failed read."""
+async def _recorded_here(media: Any) -> str:
+    """This store's answer: the recording's own row, else its artisan's newest, else NOT_RECORDED."""
     own = await latest_decision(media_id=str(_value(media, "id")))
     if own is not None:
         return str(own.decision)
@@ -58,6 +62,20 @@ async def decision_for(media: Any) -> str:
         theirs = await latest_decision(artisan_id=str(artisan_id))
         if theirs is not None:
             return str(theirs.decision)
+    return NOT_RECORDED
+
+
+async def decision_for(media: Any) -> str:
+    """GRANTED, REFUSED or NOT_RECORDED for one stored recording, over both stores (module
+    docstring). Raises on a failed read."""
+    here = await _recorded_here(media)
+    if here == REFUSED:
+        return REFUSED
+    verdict = await ledger.verdict(str(_value(media, "id")))
+    if verdict == ledger.REFUSED:
+        return REFUSED
+    if here == GRANTED or verdict == ledger.ALLOW:
+        return GRANTED
     return NOT_RECORDED
 
 

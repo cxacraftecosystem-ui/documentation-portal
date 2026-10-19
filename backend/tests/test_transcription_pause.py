@@ -7,6 +7,7 @@ entry point is replaced by one that fails the test, and every job stays QUEUED.
 
 from __future__ import annotations
 
+import pytest
 from qv2_fixtures import connect, needs_db, no_outside_calls, patch_db, record_take, run, seed, session_create, t
 
 pytestmark = needs_db
@@ -14,7 +15,7 @@ pytestmark = needs_db
 
 def test_nothing_reaches_a_provider_while_paused(monkeypatch) -> None:
     from app.services import transcription_enqueue as transcription
-    from app.services import consent_gate, media_queue
+    from app.services import consent_gate, media_queue, transcription_jobs
     from app.services.questionnaire_v2 import recordings, sessions
 
     async def go() -> None:
@@ -30,8 +31,9 @@ def test_nothing_reaches_a_provider_while_paused(monkeypatch) -> None:
         retry = await recordings.transcribe(take["id"], ids.lead, client=client)
         assert retry == {"status": "QUEUED", "paused": True}
         media = await client.mediafile.find_unique(where={"id": take["mediaFileId"]})
-        now_result = await media_queue.transcribe_media_now(media)
-        assert now_result["status"] == "QUEUED" and now_result["paused"] is True
+        # "Transcribe now" answers the pause (409 at the route) and calls nobody; the clip stays queued.
+        with pytest.raises(transcription_jobs.TranscriptionPaused):
+            await media_queue.transcribe_media_now(media)
         # Other suites share this database and leave their own queued jobs; put this clip's first.
         await client.execute_raw('UPDATE "MediaProcessingJob" SET "priority" = 0 WHERE "mediaFileId" = $1', take["mediaFileId"])
         result = await media_queue.process_next_media_jobs(limit=5, worker_id="test")
