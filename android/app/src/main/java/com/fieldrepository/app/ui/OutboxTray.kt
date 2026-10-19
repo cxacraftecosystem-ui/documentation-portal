@@ -21,6 +21,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -33,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.fieldrepository.app.data.OfflineOutbox
 import com.fieldrepository.app.data.PayloadField
 import com.fieldrepository.app.data.PendingEntry
 import com.fieldrepository.app.data.applyPayloadEdits
@@ -83,7 +85,10 @@ fun OfflineOutboxTray(
     var fixing by remember { mutableStateOf<PendingEntry?>(null) }
     var confirmDiscard by remember { mutableStateOf<PendingEntry?>(null) }
 
-    LaunchedEffect(reload) {
+    // A refusal the sync worker records while the tray is open joins the list without a reopen.
+    val revision by OfflineOutbox.revision.collectAsState()
+
+    LaunchedEffect(reload, revision) {
         loading = true
         refused = runCatching { entries() }.getOrDefault(emptyList()).filter { it.failure != null && !it.isPossibleDuplicate() }
         loading = false

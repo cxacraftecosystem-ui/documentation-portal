@@ -6,6 +6,10 @@ import android.net.NetworkCapabilities
 import android.net.Uri
 import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -287,6 +291,12 @@ object OfflineOutbox {
     private fun dir(context: Context): File = File(context.filesDir, "outbox").apply { mkdirs() }
     private fun mediaDir(context: Context): File = File(dir(context), "media").apply { mkdirs() }
     private fun queueFile(context: Context): File = File(dir(context), "queue.json")
+
+    /**
+     * Bumps on every write to the queue, from any writer in the process — the sync worker included.
+     * The banner keys its reads on it, so a hold recorded mid-pass shows without a reopen.
+     */
+    val revision: StateFlow<Long> get() = OfflineQueueFile.revision
 
     /** The one pending queue-level alert, cleared as it is taken so it is reported exactly once. */
     fun takeAlert(): String? = alert.getAndSet(null)
@@ -601,6 +611,10 @@ object OfflineOutbox {
  */
 internal object OfflineQueueFile {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val written = MutableStateFlow(0L)
+
+    /** Counts completed [write]s. Read through [OfflineOutbox.revision]. */
+    val revision: StateFlow<Long> = written.asStateFlow()
 
     /**
      * Read the queue, or quarantine it and say so through [onDamage].
@@ -640,6 +654,8 @@ internal object OfflineQueueFile {
         // all (AadhaarAtRest). A sent entry leaves the queue, so nothing of it outlives the send.
         val sealed = entries.map { it.copy(payloadJson = AadhaarAtRest.sealPayload(it.payloadJson)) }
         writeFileAtomically(file, json.encodeToString(sealed).toByteArray())
+        // After the bytes are down, so a reader woken by it sees the new queue.
+        written.update { it + 1 }
     }
 
     /** Move a damaged queue file out of the way, keeping every byte, and raise the alert. */
