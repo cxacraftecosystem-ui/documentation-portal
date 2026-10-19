@@ -41,7 +41,10 @@ const RESERVED_STEMS: ReadonlySet<string> = new Set([
   ...Array.from({ length: 9 }, (_, i) => `LPT${i + 1}`)
 ]);
 const ZW = new Set(["‌", "‍"]);
-const DISPLAY_CODE = /^([A-Za-z]+)[\s.-]*0*(\d+)$/;
+// A question number is read from the display code AFTER its own section code: "F21" in section F2
+// is question 1, not section F question 21. The section is never guessed from the display code.
+const CODE_GAP = /[ \t\r\n._-]+/g;
+const NUMBER_TAIL = /^[A-Z]*([0-9]+)$/;
 const VERSION = /^v\d+(?:\.\d+)*$/;
 const DOUBLE_EXTENSIONS = [".sql.gz", ".tar.gz"];
 const INDIC_BLOCKS = [0x0900, 0x0980, 0x0a00, 0x0a80, 0x0b00, 0x0b80, 0x0c00, 0x0c80, 0x0d00];
@@ -400,11 +403,27 @@ export function fileName(input: FileNameInput): string {
   );
 }
 
-export type TargetRef = { sectionCode: string; displayCode?: string | null };
+/**
+ * A recording target. `sectionCode` is the question's own section and is the only source of the
+ * section piece. A question carries `questionNumber`, or a `displayCode` read relative to the
+ * section code; neither one means the whole section.
+ */
+export type TargetRef = { sectionCode: string; displayCode?: string | null; questionNumber?: number | null };
 
-function questionNumber(displayCode: string): [string, number] | null {
-  const m = DISPLAY_CODE.exec(displayCode.trim());
-  return m ? [m[1].toUpperCase(), Number(m[2])] : null;
+const compactCode = (text: unknown) => String(text ?? "").trim().replace(CODE_GAP, "").toUpperCase();
+
+/**
+ * The question number in `displayCode` once `sectionCode` is taken off its front: ("F2", "F21") -> 1,
+ * ("F2", "F2.13") -> 13, ("D", "D03") -> 3. A display code that does not start with the section code
+ * gives its trailing digits (("F2", "Q4") -> 4).
+ */
+export function questionNumber(sectionCode: string, displayCode: string): number | null {
+  const code = compactCode(displayCode);
+  const sec = compactCode(sectionCode);
+  const rest = sec && code.startsWith(sec) ? code.slice(sec.length) : "";
+  if (/^[0-9]+$/.test(rest)) return Number(rest);
+  const m = NUMBER_TAIL.exec(code);
+  return m ? Number(m[1]) : null;
 }
 
 /** `D-Q03`, `B-All`, `F-Q01-Q06`, plus `-P2` for a continuation or `-T2` for a solo repeat. */
@@ -415,13 +434,13 @@ export function recordingSequence(
   const bySection = new Map<string, { all: boolean; numbers: number[] }>();
   for (const t of targets) {
     let code = t.sectionCode ? joinField(fieldWords(t.sectionCode, true)).toUpperCase() : "";
-    if (!code && t.displayCode) code = questionNumber(t.displayCode)?.[0] ?? "";
     if (!code) continue;
     if (!bySection.has(code)) bySection.set(code, { all: false, numbers: [] });
     const entry = bySection.get(code)!;
-    if (t.displayCode) {
-      const parsed = questionNumber(t.displayCode);
-      if (parsed) entry.numbers.push(parsed[1]);
+    const hasNumber = t.questionNumber !== null && t.questionNumber !== undefined;
+    if (hasNumber || t.displayCode) {
+      const n = hasNumber ? Math.trunc(Number(t.questionNumber)) : questionNumber(t.sectionCode, t.displayCode ?? "");
+      if (n !== null && Number.isFinite(n)) entry.numbers.push(n);
     } else entry.all = true;
   }
   const q = (n: number) => `Q${String(n).padStart(2, "0")}`;
@@ -447,7 +466,7 @@ export function questionSequence(
 ): string {
   const sec = joinField(fieldWords(section, true)).toUpperCase();
   if (!sec || question === null || question === undefined || String(question).trim() === "") return "";
-  const target = { sectionCode: sec, displayCode: `${sec}${Math.trunc(Number(question))}` };
+  const target = { sectionCode: sec, questionNumber: Math.trunc(Number(question)) };
   return recordingSequence([target], { part: opts.part, position: opts.take, rosterCount: 1 }) ?? "";
 }
 

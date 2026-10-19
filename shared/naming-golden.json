@@ -879,6 +879,191 @@
         "section": "d"
       },
       "sequence": "D-All"
+    },
+    {
+      "input": {
+        "section": "F2",
+        "question": 1
+      },
+      "sequence": "F2-Q01"
+    },
+    {
+      "input": {
+        "section": "F2",
+        "question": 21
+      },
+      "sequence": "F2-Q21"
+    },
+    {
+      "input": {
+        "section": "B12",
+        "question": 3,
+        "take": 2
+      },
+      "sequence": "B12-Q03-T2"
+    },
+    {
+      "input": {
+        "section": "f2"
+      },
+      "sequence": "F2-All"
+    }
+  ],
+  "recordingSequences": [
+    {
+      "input": {
+        "targets": [
+          {
+            "sectionCode": "F2",
+            "displayCode": "F21"
+          }
+        ]
+      },
+      "sequence": "F2-Q01"
+    },
+    {
+      "input": {
+        "targets": [
+          {
+            "sectionCode": "F2",
+            "displayCode": "F2.13"
+          }
+        ]
+      },
+      "sequence": "F2-Q13"
+    },
+    {
+      "input": {
+        "targets": [
+          {
+            "sectionCode": "F2",
+            "displayCode": "F2-01"
+          },
+          {
+            "sectionCode": "F2",
+            "displayCode": "F2.6"
+          }
+        ]
+      },
+      "sequence": "F2-Q01-Q06"
+    },
+    {
+      "input": {
+        "targets": [
+          {
+            "sectionCode": "f2",
+            "displayCode": "f2 1"
+          }
+        ]
+      },
+      "sequence": "F2-Q01"
+    },
+    {
+      "input": {
+        "targets": [
+          {
+            "sectionCode": "F",
+            "displayCode": "F21"
+          }
+        ]
+      },
+      "sequence": "F-Q21"
+    },
+    {
+      "input": {
+        "targets": [
+          {
+            "sectionCode": "D",
+            "displayCode": "D3"
+          }
+        ]
+      },
+      "sequence": "D-Q03"
+    },
+    {
+      "input": {
+        "targets": [
+          {
+            "sectionCode": "F2",
+            "displayCode": null,
+            "questionNumber": 4
+          }
+        ]
+      },
+      "sequence": "F2-Q04"
+    },
+    {
+      "input": {
+        "targets": [
+          {
+            "sectionCode": "F2",
+            "displayCode": "Q4"
+          }
+        ]
+      },
+      "sequence": "F2-Q04"
+    },
+    {
+      "input": {
+        "targets": [
+          {
+            "sectionCode": "F2",
+            "displayCode": null
+          }
+        ]
+      },
+      "sequence": "F2-All"
+    },
+    {
+      "input": {
+        "targets": [
+          {
+            "sectionCode": "",
+            "displayCode": "F21"
+          }
+        ]
+      },
+      "sequence": null
+    },
+    {
+      "input": {
+        "targets": [
+          {
+            "sectionCode": "F2",
+            "displayCode": "F21"
+          },
+          {
+            "sectionCode": "G1",
+            "displayCode": "G13"
+          }
+        ]
+      },
+      "sequence": "F2-Q01-G1-Q03"
+    },
+    {
+      "input": {
+        "targets": [
+          {
+            "sectionCode": "F2",
+            "displayCode": "F21"
+          }
+        ],
+        "position": 2,
+        "rosterCount": 1
+      },
+      "sequence": "F2-Q01-T2"
+    },
+    {
+      "input": {
+        "targets": [
+          {
+            "sectionCode": "F2",
+            "displayCode": "F21"
+          }
+        ],
+        "part": 2
+      },
+      "sequence": "F2-Q01-P2"
     }
   ],
   "asciiLeaves": [
