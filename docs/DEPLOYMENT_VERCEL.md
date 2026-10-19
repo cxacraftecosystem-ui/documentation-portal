@@ -349,11 +349,11 @@ deletes any `BACKEND_CORS_ORIGINS` line the secret carries and writes
 `https://field-repository.vercel.app,http://localhost:3000` in its place, on every deploy. So to
 change production's origins, change that step in `.github/workflows/deploy-backend.yml` and push: a
 change to that file counts as a backend change and deploys. The workflow rewrites `.env` on the
-instance and restarts `fieldrepo` and `fieldrepo-queue`. Editing the secret changes nothing the box
+instance and starts the API on it beside the old one, switching only once it is healthy. Editing the secret changes nothing the box
 reads for this key.
 
-To apply it by hand, SSH to the box, edit `/home/ubuntu/app/backend/.env` and
-`sudo systemctl restart fieldrepo fieldrepo-queue`.
+To apply it by hand, SSH to the box, edit `/home/ubuntu/app/backend/.env` and run
+`bash /home/ubuntu/app/backend/deploy/blue_green.sh restart`.
 
 ### 4.2 S3 bucket CORS
 

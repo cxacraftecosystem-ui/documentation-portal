@@ -473,5 +473,7 @@ def test_the_deploy_never_loses_a_two_step_key() -> None:
     assert "two-factor-before" in workflow and "earlier keys carried" in workflow
     # A malformed secret fails on the runner, before the box is touched.
     assert workflow.index("- name: Check the two-step encryption key secrets") < workflow.index("- name: Write .env on the server")
-    # And after the restart, a secret no configured key opens fails the deploy.
-    assert '"$py" -m scripts.reencrypt_two_factor_secrets; rc=$?' in workflow and '[ "$rc" = 3 ]' in workflow
+    # And after the switch, a secret no configured key opens fails the deploy (the release script).
+    release = (REPO / "backend/deploy/blue_green.sh").read_text(encoding="utf-8")
+    assert "backend/deploy/blue_green.sh" in workflow
+    assert '"$py" -m scripts.reencrypt_two_factor_secrets); rc=$?' in release and '[ "$rc" = 3 ]' in release

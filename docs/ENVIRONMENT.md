@@ -38,8 +38,8 @@ cd ..\frontend; Copy-Item .env.local.example .env.local # then edit
    build time. Anyone can read them in devtools, and changing one requires a **rebuild/redeploy** to
    take effect. Never put a real secret behind that prefix.
 2. **The backend caches its settings.** `get_settings()` is `@lru_cache`d, so a running uvicorn
-   process never notices an edited `.env`. Always restart (`sudo systemctl restart fieldrepo
-   fieldrepo-queue`, or Ctrl-C the dev server) after a change.
+   process never notices an edited `.env`. Always restart (`bash /home/ubuntu/app/backend/deploy/blue_green.sh restart` on the
+   box, or Ctrl-C the dev server) after a change.
 3. **In Vercel, every `NEXT_PUBLIC_*` variable must be type `Encrypted`, never `Sensitive`.**
    Sensitive is write-only: Vercel will not return that value to anyone afterwards, including to the
    `vercel pull` our CI runs before it builds. Because the build happens on a GitHub runner rather

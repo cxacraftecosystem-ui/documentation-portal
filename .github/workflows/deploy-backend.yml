@@ -54,9 +54,10 @@ on:
 
 # cancel-in-progress is deliberately OFF. This workflow now starts on every push to main,
 # so overlapping runs are far more likely than they were with the old paths filter — and
-# cancelling mid-deploy is destructive here: the remote script stops the fieldrepo service
-# before running `prisma migrate deploy`, so a run killed in that window can leave the API
-# down with no restart step to come. Queueing is slower and safe; cancelling is not.
+# cancelling mid-deploy is still worth avoiding: backend/deploy/blue_green.sh keeps the live API
+# serving until the new one answers /health, but its one fallback (no pooler session left for the
+# migration) stops the live API first, and a run killed there leaves it to the script's exit trap.
+# Queueing is slower and safe; cancelling is not.
 # ─── LEAST PRIVILEGE, AND `actions: read` IS NOT OPTIONAL HERE ───────────────────────────────
 # This file had no `permissions:` block, so the token every step received was the repository
 # default — historically read/WRITE on contents, i.e. a token that can push to main, sitting in a
@@ -399,6 +400,9 @@ jobs:
           && needs.wait-for-checks.outputs.superseded != 'true'
           && (needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-26.04
+    # A backstop over the slowest honest run (a venv rebuild, then the release's own ten-minute
+    # health limit), so a hung ssh cannot hold the deploy group for the default six hours.
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -693,11 +697,32 @@ jobs:
           printf '%s\n' "$want" > "$app/venv-wanted"
           REMOTE
 
+      # ─── ZERO DOWNTIME: THE RELEASE GOES TO THE IDLE PORT'S TREE (2026-10-19) ─────────────────────
+      # Every deploy used to stop the API, migrate, restart it and wait for /health: three to eight
+      # minutes of 502s on this swap-bound box. The API now runs on one of two loopback ports, each
+      # with its own tree under /home/ubuntu/app/slots/<port>/backend, and nginx proxies to one of
+      # them. `prepare` names the idle port, gives its tree a copy of the live .env and points
+      # /home/ubuntu/app/next at it; every step below writes there, never to the live tree; the last
+      # step starts the idle port, waits for /health and only then switches nginx. The layout,
+      # rollback and the one fallback that still stops the API: backend/deploy/blue_green.sh and
+      # backend/DEPLOY_AWS.md, "Zero-downtime releases". The script travels over stdin, so the box
+      # runs the copy from this commit.
+      - name: Pick the idle port for this release
+        run: |
+          set -euo pipefail
+          port="$(ssh ubuntu@${{ secrets.EC2_HOST }} 'bash -s -- prepare' < backend/deploy/blue_green.sh | tail -n1)"
+          case "$port" in 8000|8001) ;; *) echo "::error::prepare printed '$port', not a port"; exit 1 ;; esac
+          echo "CAND_PORT=$port" >> "$GITHUB_ENV"
+          echo "this release goes to port $port"
+
+      # Into the idle tree. `.env` and the deploy's own files there are excluded, so `--delete` keeps
+      # the .env `prepare` just copied in.
       - name: Sync code to the server
         run: |
           rsync -az --delete \
             --exclude '.venv' --exclude '__pycache__' --exclude '*.pyc' \
-            ./backend/ ubuntu@${{ secrets.EC2_HOST }}:/home/ubuntu/app/backend/
+            --exclude '/.env' --exclude '/.env.two-factor-before' --exclude '/.dburl' \
+            ./backend/ "ubuntu@${{ secrets.EC2_HOST }}:/home/ubuntu/app/slots/${CAND_PORT}/backend/"
 
       # A malformed two-step key would stop the API starting (app/core/config.py refuses it), on a box
       # that is slow to come back. So the Actions secrets are checked HERE, on the runner, before the
@@ -729,7 +754,7 @@ jobs:
       - name: Write .env on the server (piped over the SSH tunnel, never on the command line)
         run: |
           printf '%s' "$BACKEND_ENV" | ssh ubuntu@${{ secrets.EC2_HOST }} \
-            'f=/home/ubuntu/app/backend/.env; umask 077; [ -e "$f.two-factor-before" ] || { grep -E "^TWO_FACTOR_ENCRYPTION_(KEY|PREVIOUS_KEYS)=" "$f" 2>/dev/null || true; } > "$f.two-factor-before"; cat > "$f" && chmod 600 "$f"'
+            'f=/home/ubuntu/app/next/.env; umask 077; [ -e "$f.two-factor-before" ] || { grep -E "^TWO_FACTOR_ENCRYPTION_(KEY|PREVIOUS_KEYS)=" "$f" 2>/dev/null || true; } > "$f.two-factor-before"; cat > "$f" && chmod 600 "$f"'
         env:
           BACKEND_ENV: ${{ secrets.BACKEND_ENV }}
 
@@ -778,11 +803,11 @@ jobs:
             exit 1
           fi
           printf '%s' "$DB_URL" | ssh ubuntu@${{ secrets.EC2_HOST }} \
-            'umask 077 && cat > /home/ubuntu/app/backend/.dburl'
+            'umask 077 && cat > /home/ubuntu/app/next/.dburl'
           ssh ubuntu@${{ secrets.EC2_HOST }} 'bash -s' <<'REMOTE'
           set -euo pipefail
-          cd /home/ubuntu/app/backend
-          trap 'rm -f /home/ubuntu/app/backend/.dburl' EXIT
+          cd /home/ubuntu/app/next
+          trap 'rm -f /home/ubuntu/app/next/.dburl' EXIT
           url="$(cat .dburl)"
           [ -n "$url" ] || { echo "the piped DATABASE_URL arrived empty"; exit 1; }
           # The .env write above uses `printf '%s'`, which emits NO trailing newline, so a bare `>>`
@@ -825,7 +850,7 @@ jobs:
         run: |
           ssh ubuntu@${{ secrets.EC2_HOST }} 'bash -s' <<'REMOTE'
           set -euo pipefail
-          cd /home/ubuntu/app/backend
+          cd /home/ubuntu/app/next
           # The step above writes this file with `printf '%s'`, which emits NO trailing newline, so a
           # bare `>>` glues the new key onto the end of whatever the last line is and silently
           # corrupts that variable. Guarantee the newline first. (This is not hypothetical: the first
@@ -850,7 +875,7 @@ jobs:
         run: |
           ssh ubuntu@${{ secrets.EC2_HOST }} "FROM='$MAIL_FROM_ADDRESS' REGION='$MAIL_SES_REGION' bash -s" <<'REMOTE'
           set -euo pipefail
-          cd /home/ubuntu/app/backend
+          cd /home/ubuntu/app/next
           [ -s .env ] && [ -n "$(tail -c1 .env)" ] && printf '\n' >> .env
           sed -i '/^MAIL_FROM_ADDRESS=/d;/^MAIL_SES_REGION=/d' .env
           if [ -n "$FROM" ]; then printf 'MAIL_FROM_ADDRESS=%s\n' "$FROM" >> .env; fi
@@ -877,7 +902,7 @@ jobs:
           if [ -n "$YAHOO_CLIENT_ID" ] && [ -n "$YAHOO_CLIENT_SECRET" ]; then
             frag+="YAHOO_CLIENT_ID=$YAHOO_CLIENT_ID"$'\n'"YAHOO_CLIENT_SECRET=$YAHOO_CLIENT_SECRET"$'\n'
           fi
-          printf '%s' "$frag" | ssh ubuntu@${{ secrets.EC2_HOST }} "ENVFILE='/home/ubuntu/app/backend/.env' bash -c '
+          printf '%s' "$frag" | ssh ubuntu@${{ secrets.EC2_HOST }} "ENVFILE='/home/ubuntu/app/next/.env' bash -c '
             set -euo pipefail
             frag=\$(cat)
             [ -s \"\$ENVFILE\" ] && [ -n \"\$(tail -c1 \"\$ENVFILE\")\" ] && printf \"\n\" >> \"\$ENVFILE\"
@@ -910,7 +935,7 @@ jobs:
           set -euo pipefail
           SITE=/etc/nginx/sites-available/fieldrepo
           SNIP=/etc/nginx/snippets/origin-verify.conf
-          ENVFILE="/home/ubuntu/app/backend/.env"
+          ENVFILE="/home/ubuntu/app/next/.env"
           tmp="$(mktemp)"
           {
             echo '# Written by deploy-backend.yml from ORIGIN_VERIFY_SECRET. CloudFront sends this value as the'
@@ -1006,7 +1031,7 @@ jobs:
             printf 'AP=%q\n' "$(trim "$TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS")"
             cat <<'REMOTE'
           set -euo pipefail
-          ENVFILE=/home/ubuntu/app/backend/.env
+          ENVFILE=/home/ubuntu/app/next/.env
           BEFORE="$ENVFILE.two-factor-before"
           shape='^[A-Za-z0-9_-]{1,32}:[A-Za-z0-9_-]{43}=?$'
           val() { [ -f "$1" ] || return 0; { grep -E "^$2=" "$1" || true; } | tail -n1 | cut -d= -f2- | tr -d "[:space:]\"'"; }
@@ -1070,7 +1095,7 @@ jobs:
             printf 'line=WEB_PROXY_SECRET=%s\n' "$WEB_PROXY_SECRET"
             cat <<'REMOTE'
           set -euo pipefail
-          ENVFILE=/home/ubuntu/app/backend/.env
+          ENVFILE=/home/ubuntu/app/next/.env
           [ -s "$ENVFILE" ] && [ -n "$(tail -c1 "$ENVFILE")" ] && printf '\n' >> "$ENVFILE"
           sed -i '/^WEB_PROXY_SECRET=/d' "$ENVFILE"
           printf '%s\n' "$line" >> "$ENVFILE"
@@ -1107,7 +1132,7 @@ jobs:
             printf 'AK=%q\n' "$key"
             cat <<'REMOTE'
           set -euo pipefail
-          ENVFILE=/home/ubuntu/app/backend/.env
+          ENVFILE=/home/ubuntu/app/next/.env
           have=$({ grep -E '^AADHAAR_FINGERPRINT_KEY=' "$ENVFILE" || true; } | tail -n1 | cut -d= -f2- | tr -d "[:space:]\"'")
           if [ -z "$AK" ]; then
             if [ -n "$have" ]; then echo "Aadhaar fingerprint key: kept from the box"; else echo "::warning::AADHAAR_FINGERPRINT_KEY is not set; artisan saves carrying an Aadhaar will answer 503"; fi
@@ -1152,7 +1177,7 @@ jobs:
             printf 'CK=%q\n' "$key"
             cat <<'REMOTE'
           set -euo pipefail
-          ENVFILE=/home/ubuntu/app/backend/.env
+          ENVFILE=/home/ubuntu/app/next/.env
           have=$({ grep -E '^ARTISAN_CARD_KEY=' "$ENVFILE" || true; } | tail -n1 | cut -d= -f2- | tr -d "[:space:]\"'")
           if [ -z "$CK" ]; then
             if [ -n "$have" ]; then echo "Artisan card key: kept from the box"; else echo "::warning::ARTISAN_CARD_KEY is not set; artisan cards stay hidden"; fi
@@ -1184,7 +1209,7 @@ jobs:
             printf 'FLAG=%q\n' "$flag"
             cat <<'REMOTE'
           set -euo pipefail
-          ENVFILE=/home/ubuntu/app/backend/.env
+          ENVFILE=/home/ubuntu/app/next/.env
           if [ -z "$FLAG" ]; then echo "Monday summary switch: kept from the box"; exit 0; fi
           [ -s "$ENVFILE" ] && [ -n "$(tail -c1 "$ENVFILE")" ] && printf '\n' >> "$ENVFILE"
           sed -i '/^WEEKLY_DIGEST_ENABLED=/d' "$ENVFILE"
@@ -1194,182 +1219,23 @@ jobs:
           } | ssh ubuntu@$EC2_HOST 'bash -s'
 
       # ─── THE PROJECT, THE PRISMA CLIENT, THE MIGRATION, THE SWITCH ──────────────────────────────
-      # Everything up to the switch happens inside the venv the build step chose, while the API is
-      # still serving from the old one; the switch happens with both services stopped. The order of
-      # the stop, the migration and the restart is the one this step has always had (the comment on
-      # the migration says why), with two additions: fieldrepo-queue now stops BEFORE the switch
-      # instead of only restarting after it, so no process has the old venv half-imported when
-      # `.venv` changes underneath it, and the switch itself sits between the migration and the
-      # restart.
-      - name: Install the project, migrate, switch to the new venv, restart
+      # backend/deploy/blue_green.sh `release`, from this commit: the project editable into the venv
+      # the build step chose (`--no-deps`, then `pip check`), the pinned Node for the Prisma CLI,
+      # `prisma generate`, then `prisma migrate deploy` with the queue paused and the live port still
+      # serving, the idle port started, /health waited for (ten minutes by the clock, a line every
+      # twenty seconds), nginx reloaded onto it, and only then the old port stopped and the queue
+      # started on the new tree. Any failure before the switch leaves nginx on the old port, which
+      # never stopped, and fails the run. After it, the two-step dry run (exit 3 fails the deploy)
+      # and the tidy of venvs, Node and interpreters no tree uses.
+      #
+      # THE FALLBACK. Migrations talk to the Supabase pooler in session mode, and the schema engine
+      # once found no session left (EMAXCONNSESSION) with the API holding its share. The queue is
+      # stopped first, which frees its sessions; if three tries still fail, the script stops the live
+      # API to free the rest, as every deploy did before, and says so in the log.
+      - name: Migrate, start the new release beside the live one, switch when healthy
         run: |
-          ssh ubuntu@${{ secrets.EC2_HOST }} 'bash -s' <<'REMOTE'
-          set -euxo pipefail
-          app=/home/ubuntu/app
-          cd "$app/backend"
-          want="$(cat "$app/venv-wanted")"
-          target="$app/venvs/$want"
-          test -f "$target/.complete"
-          py="$target/bin/python"
-          # This project, editable and WITHOUT its dependencies: the lock decided every version in the
-          # build step, and `--no-deps` is what stops pip re-resolving pyproject's floors here and
-          # quietly lifting a pin. `pip check` then refuses a lock that pyproject's floors have
-          # outgrown (Checks runs the same line; this one covers a manual dispatch, which skips the
-          # wait for Checks), before anything is stopped.
-          "$py" -m pip install --quiet --disable-pip-version-check --no-deps -e .
-          "$py" -m pip check
-
-          # THE NODE THE PRISMA CLI RUNS ON, PINNED. prisma-client-py downloads Node into
-          # ~/.cache/prisma-python/nodeenv the first time it needs one and never looks at it again:
-          # this box got 26.3.0 that way and kept it. So the version lives here, the newest 26.x (the
-          # major the box already ran; 26 becomes Node's LTS on 2026-10-28), installed beside the old
-          # one with the nodeenv module the venv already carries (prisma depends on it) and swapped in
-          # by symlink. PRISMA_USE_GLOBAL_NODE=false keeps a Node that somebody later installs
-          # system-wide from quietly taking over from the pin. Bump it by hand to the newest 26.x
-          # listed at https://nodejs.org/dist/index.json; backend/Dockerfile's prisma stage takes the
-          # same major.
-          node_pin=26.11.1
-          cache=/home/ubuntu/.cache/prisma-python
-          mkdir -p "$cache"
-          have="$("$cache/nodeenv/bin/node" --version 2>/dev/null || true)"
-          if [ "$have" != "v$node_pin" ]; then
-            dest="$cache/nodeenv-$node_pin"
-            if [ "$("$dest/bin/node" --version 2>/dev/null || true)" != "v$node_pin" ]; then
-              rm -rf "$dest"
-              "$py" -m nodeenv --prebuilt --node="$node_pin" "$dest"
-            fi
-            "$dest/bin/node" --version
-            if [ -d "$cache/nodeenv" ] && [ ! -L "$cache/nodeenv" ]; then
-              rm -rf "$cache/nodeenv-replaced"
-              mv "$cache/nodeenv" "$cache/nodeenv-replaced"
-            fi
-            ln -sfn "nodeenv-$node_pin" "$cache/nodeenv.next"
-            mv -T "$cache/nodeenv.next" "$cache/nodeenv"
-          fi
-          export PRISMA_USE_GLOBAL_NODE=false
-          "$cache/nodeenv/bin/node" --version
-
-          # Generated INTO THE NEW VENV while the API still runs from the old one. PATH first, because
-          # `prisma generate` runs the `prisma-client-py` generator it finds there.
-          PATH="$target/bin:$PATH" "$py" -m prisma generate
-          # Migrations talk to the Supabase pooler in SESSION mode (pool_size 15). The running app
-          # holds most of those client sessions across its uvicorn workers, so the schema engine had
-          # no connection left and failed with "EMAXCONNSESSION max clients reached". Stop the app to
-          # free its sessions, then migrate (with a short retry for any sessions the pooler hasn't
-          # reclaimed yet). The app is ALWAYS restarted afterwards, so a transient migrate failure
-          # never leaves the API down — but a genuine migrate failure still fails the deploy.
-          # The queue worker stops first, for the switch below; it holds pooler sessions too.
-          #
-          # "ALWAYS" IS THE EXIT TRAP'S JOB, NOT ONLY THE ORDER OF THE LINES (2026-10-09). The migrate
-          # loop cannot end this script, but the switch below can: under `set -e` a failed rename, or
-          # a full disk on the one-line write of venv-previous, would exit here with both services
-          # stopped and nothing left to start them. Run in a container against this script verbatim,
-          # that case left fieldrepo and fieldrepo-queue both inactive. So any exit between the stop
-          # and the restart restarts both, onto whatever `.venv` points at by then, and the deploy
-          # still fails with the error above the trap's output.
-          services_down=no
-          bring_back() {
-            if [ "$services_down" = yes ]; then
-              echo "::error::the deploy ended between stopping the services and restarting them; restarting both on $(readlink -f .venv 2>/dev/null || echo 'an unreadable .venv') before failing"
-              sudo systemctl restart fieldrepo || true
-              sudo systemctl restart fieldrepo-queue 2>/dev/null || true
-            fi
-          }
-          trap bring_back EXIT
-          services_down=yes
-          sudo systemctl stop fieldrepo-queue 2>/dev/null || true
-          sudo systemctl stop fieldrepo || true
-          sleep 5
-          migrate_ok=0
-          for attempt in 1 2 3 4 5; do
-            if PATH="$target/bin:$PATH" "$py" -m prisma migrate deploy; then migrate_ok=1; break; fi
-            echo "migrate attempt ${attempt} failed; waiting for pooler sessions to drain..."; sleep 10
-          done
-
-          # THE SWITCH, with both services stopped. On the first deploy after 2026-10-09 `.venv` is
-          # the real 3.12 directory every earlier deploy built in place: it moves to
-          # venvs/py3.12-legacy and stays there as the rollback venv (python3.12 stays installed for
-          # it). A freshly built box has no `.venv` at all and gets the symlink straight away. From
-          # then on `.venv` is a symlink, and switching is one rename(2) of a new symlink over the
-          # old one. The switch happens even when the migration failed, because the code on
-          # disk is this commit's and only this venv is built for it; the restart below has always
-          # happened either way, and the trap above makes that true of a failed switch too.
-          previous=""
-          if [ -L .venv ]; then
-            previous="$(readlink -f .venv)"
-          elif [ -d .venv ]; then
-            previous="$app/venvs/py3.12-legacy"
-            rm -rf "$previous"
-            mv .venv "$previous"
-          fi
-          ln -sfn "$target" .venv.next
-          mv -T .venv.next .venv
-          if [ -n "$previous" ] && [ "$previous" != "$target" ]; then
-            printf '%s\n' "$previous" > "$app/venv-previous"
-          fi
-          sudo systemctl restart fieldrepo
-          # The media queue runs in its OWN service (decoupled from uvicorn so its heavy AI/ffmpeg
-          # work can never starve uvicorn's worker health-ping and get the worker SIGKILLed, which
-          # used to orphan Prisma query-engines and exhaust the pooler -> HTTP 500). Restart it too
-          # so it picks up the new code; '|| true' keeps deploys working on a box provisioned before
-          # this service existed.
-          sudo systemctl restart fieldrepo-queue 2>/dev/null || true
-          services_down=no
-          if [ "$migrate_ok" != "1" ]; then echo "prisma migrate deploy failed after retries"; exit 1; fi
-          # App startup connects to Supabase (cross-region), so poll instead of a fixed sleep. Up to
-          # TWELVE minutes, by the clock rather than by a count of tries (a try itself can hang on this
-          # swap-bound t3.small): on 2026-10-18 the 0.0.14 start took about 2 min 50 s, and on
-          # 2026-10-19 the 0.0.15 start (six new migrations, a larger import) ran past the five
-          # minutes this loop then allowed and failed a deploy whose API came up healthy minutes later.
-          deadline=$(( $(date +%s) + 720 ))
-          for i in $(seq 1 100000); do
-            if curl -fsS -m 10 http://127.0.0.1:8000/health >/dev/null 2>&1; then echo "healthy after ${i} tries"; break; fi
-            if [ "$(date +%s)" -ge "$deadline" ]; then
-              echo "service did not become healthy:"; sudo journalctl -u fieldrepo -n 80 --no-pager
-              echo "The venv this box ran before is $(cat "$app/venv-previous" 2>/dev/null || echo 'not recorded'); backend/DEPLOY_AWS.md says how to go back to it, and why that only helps together with a redeploy of the commit it was built for."
-              exit 1
-            fi
-            sleep 2
-          done
-          curl -fsS http://127.0.0.1:8000/health
-          # EVERY TWO-STEP SECRET STILL OPENS. A key lost on the way to the box (see the pin step) would
-          # lock those people out with no error anywhere. A dry run writes nothing and names account
-          # ids, never secrets. Exit 3 means some secret opens with no configured key and fails the
-          # deploy; any other failure (a busy pooler) is only a warning, as it says nothing of the keys.
-          if grep -q '^TWO_FACTOR_ENCRYPTION_KEY=.' .env; then
-            set +e
-            "$py" -m scripts.reencrypt_two_factor_secrets; rc=$?
-            set -e
-            if [ "$rc" = 3 ]; then echo "::error::the two-step secrets above open with no configured key: put the missing key in TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS and deploy again"; exit 1; fi
-            if [ "$rc" != 0 ]; then echo "::warning::the two-step key check could not run (exit $rc)"; fi
-          fi
-
-          # Healthy, so tidy up: keep the venv now running, the one before it and the 3.12 rollback
-          # venv, and only the pinned Node. Nothing is deleted on any path that failed above.
-          keep_previous="$(cat "$app/venv-previous" 2>/dev/null || true)"
-          for d in "$app"/venvs/*; do
-            [ -d "$d" ] || continue
-            case "$d" in "$target"|"$keep_previous"|"$app/venvs/py3.12-legacy") continue ;; esac
-            rm -rf "$d"
-          done
-          for d in "$cache"/nodeenv-*; do
-            [ -d "$d" ] || continue
-            [ "$d" = "$cache/nodeenv-$node_pin" ] || rm -rf "$d"
-          done
-          # And an interpreter under /opt/cpython that no venv left above runs on: the pinned one
-          # always stays (the venv now running is built on it), and so does the one the previous venv
-          # needs. Only /opt/cpython is looked at. The apt interpreters, /usr/bin/python3.12 and a
-          # 24.04 box's deadsnakes /usr/bin/python3.14, are the rollback venvs' and are never touched
-          # here; a redeploy of an older commit installs its own pin again, checksum and all.
-          for d in /opt/cpython/*; do
-            [ -d "$d" ] || continue
-            used=no
-            for v in "$app"/venvs/*; do
-              case "$(readlink -f "$v/bin/python" 2>/dev/null || true)" in "$d"/*) used=yes; break ;; esac
-            done
-            [ "$used" = yes ] || sudo rm -rf "$d"
-          done
-          REMOTE
+          set -euo pipefail
+          ssh ubuntu@${{ secrets.EC2_HOST }} "bash -s -- release '${CAND_PORT}'" < backend/deploy/blue_green.sh
 
       # `if: always()`: a deploy that fails or is cancelled must not leave port 22 open to a runner
       # address that will be handed to somebody else. An already-absent rule is the state wanted.
