@@ -51,7 +51,8 @@ def test_ci_tests_the_version_the_box_runs():
     text = CHECKS.read_text(encoding="utf-8")
     versions = re.findall(r'^\s*python-version:\s*"?([0-9][0-9.]*)"?\s*$', text, re.MULTILINE)
     box = _pins(DEPLOY)["cpython"]
-    assert versions == [box], f"checks.yml tests {versions}, the box runs {box}: move them together"
+    # One copy per job that sets up Python (the suite, and the database-backed suite), every one the box's.
+    assert versions and set(versions) == {box}, f"checks.yml tests {versions}, the box runs {box}: move them together"
 
 
 def test_both_installers_refuse_a_download_before_unpacking_it():
