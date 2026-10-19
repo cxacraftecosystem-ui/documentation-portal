@@ -214,6 +214,22 @@ class NamingTest {
     }
 
     @Test
+    fun recordingSequencesReadTheQuestionAfterItsOwnSectionCode() {
+        // "F21" in section F2 is question 1: the section comes from the target, never from the display code.
+        val rows = golden()["recordingSequences"]!!.jsonArray
+        assertTrue(rows.isNotEmpty())
+        for (row in rows) {
+            val i = row.jsonObject["input"]!!.jsonObject
+            val targets = i["targets"]!!.jsonArray.map { t ->
+                val o = t.jsonObject
+                Naming.NameTarget(o.str("sectionCode"), o.str("displayCode"), o.int("questionNumber"))
+            }
+            val expected = row.jsonObject.str("sequence")
+            assertEquals(i.toString(), expected, Naming.recordingSequence(targets, part = i.int("part"), position = i.int("position"), rosterCount = i.int("rosterCount")))
+        }
+    }
+
+    @Test
     fun leavesAndCollisionsMatchTheGoldenTable() {
         val g = golden()
         for (row in g["asciiLeaves"]!!.jsonArray) {

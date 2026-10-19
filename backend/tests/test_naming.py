@@ -204,6 +204,16 @@ def test_fields_places_sequences_leaves_and_collisions_match_the_golden_table():
         assert naming.dedupe_names(row["input"]) == row["names"], row
 
 
+@pytest.mark.parametrize("row", golden()["recordingSequences"], ids=lambda r: json.dumps(r["input"])[:60])
+def test_recording_sequences_read_the_question_after_its_own_section_code(row):
+    # "F21" in section F2 is question 1: the section comes from the target, never from the display code.
+    i = row["input"]
+    got = naming.recording_sequence(
+        i["targets"], part=i.get("part"), position=i.get("position"), roster_count=i.get("rosterCount")
+    )
+    assert got == row["sequence"]
+
+
 def test_workshop_file_names_match_the_golden_table():
     for row in golden()["workshops"]:
         i = row["input"]

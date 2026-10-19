@@ -17,9 +17,11 @@ import {
   placeField,
   questionSequence,
   recordingFilename,
+  recordingSequence,
   type RecordingNameInput,
   sectionSequence,
   sessionTitle,
+  type TargetRef,
   type TitleFields,
   type TitleInput,
   workshopFilename
@@ -129,6 +131,19 @@ test("transliteration, fields, places and sequences match the golden table", () 
     const { section, question, take, part } = row.input;
     const got = "question" in row.input ? questionSequence(section, question, { take, part }) : sectionSequence(section);
     expect(got, JSON.stringify(row.input)).toBe(row.sequence);
+  }
+});
+
+test("recording sequences read the question after its own section code", () => {
+  // "F21" in section F2 is question 1: the section comes from the target, never from the display code.
+  type RecRow = {
+    input: { targets: TargetRef[]; part?: number | null; position?: number | null; rosterCount?: number | null };
+    sequence: string | null;
+  };
+  expect(GOLDEN.recordingSequences.length).toBeGreaterThan(0);
+  for (const row of GOLDEN.recordingSequences as RecRow[]) {
+    const { targets, part, position, rosterCount } = row.input;
+    expect(recordingSequence(targets, { part, position, rosterCount }), JSON.stringify(row.input)).toBe(row.sequence);
   }
 });
 

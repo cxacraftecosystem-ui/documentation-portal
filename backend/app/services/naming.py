@@ -55,7 +55,10 @@ RESERVED_STEMS = frozenset(
     {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
 )
 _ZW = frozenset({"\u200c", "\u200d"})  # ZWNJ / ZWJ: load-bearing inside Indic words
-_DISPLAY_CODE = re.compile(r"^([A-Za-z]+)[\s.-]*0*(\d+)$")
+# A question number is read from the display code AFTER its own section code: "F21" in section F2
+# is question 1, not section F question 21. The section is never guessed from the display code.
+_CODE_GAP = re.compile(r"[ \t\r\n._-]+")
+_NUMBER_TAIL = re.compile(r"^[A-Z]*([0-9]+)$")
 _VERSION = re.compile(r"^v\d+(?:\.\d+)*$")
 _DOUBLE_EXTENSIONS = (".sql.gz", ".tar.gz")
 
@@ -473,13 +476,42 @@ def file_name(
 
 @dataclass
 class TargetRef:
+    """A recording target. ``sectionCode`` is the question's own section and is the only source of
+    the section piece. A question carries ``questionNumber``, or a ``displayCode`` read relative to
+    the section code; neither one means the whole section."""
+
     sectionCode: str
-    displayCode: str | None = None  # None: the whole section
+    displayCode: str | None = None
+    questionNumber: int | None = None
+
+    @property
+    def is_question(self) -> bool:
+        return self.questionNumber is not None or bool(self.displayCode)
 
 
-def _question_number(display_code: str) -> tuple[str, int] | None:
-    match = _DISPLAY_CODE.match(display_code.strip())
-    return (match.group(1).upper(), int(match.group(2))) if match else None
+def _compact(text: str) -> str:
+    return _CODE_GAP.sub("", str(text or "").strip()).upper()
+
+
+def question_number(section_code: str, display_code: str) -> int | None:
+    """The question number in ``display_code`` once ``section_code`` is taken off its front:
+    ``("F2", "F21")`` -> 1, ``("F2", "F2.13")`` -> 13, ``("D", "D03")`` -> 3. A display code that
+    does not start with the section code gives its trailing digits (``("F2", "Q4")`` -> 4)."""
+    code, sec = _compact(display_code), _compact(section_code)
+    if sec and code.startswith(sec) and code[len(sec):].isdigit() and code[len(sec):].isascii():
+        return int(code[len(sec):])
+    match = _NUMBER_TAIL.match(code)
+    return int(match.group(1)) if match else None
+
+
+def _target(raw: TargetRef | Mapping[str, Any]) -> TargetRef:
+    if isinstance(raw, TargetRef):
+        return raw
+    number = raw.get("questionNumber")
+    return TargetRef(
+        sectionCode=raw.get("sectionCode") or "", displayCode=raw.get("displayCode"),
+        questionNumber=int(number) if number is not None else None,
+    )
 
 
 def recording_sequence(
@@ -491,20 +523,17 @@ def recording_sequence(
     by_section: dict[str, dict[str, Any]] = {}
     order: list[str] = []
     for raw in targets:
-        t = raw if isinstance(raw, TargetRef) else TargetRef(sectionCode=raw.get("sectionCode") or "", displayCode=raw.get("displayCode"))
+        t = _target(raw)
         code = join_field(field_words(t.sectionCode, ascii_only=True)).upper() if t.sectionCode else ""
-        if not code and t.displayCode:
-            parsed = _question_number(t.displayCode)
-            code = parsed[0] if parsed else ""
         if not code:
             continue
         if code not in by_section:
             by_section[code] = {"all": False, "numbers": []}
             order.append(code)
-        if t.displayCode:
-            parsed = _question_number(t.displayCode)
-            if parsed:
-                by_section[code]["numbers"].append(parsed[1])
+        if t.is_question:
+            number = t.questionNumber if t.questionNumber is not None else question_number(t.sectionCode, t.displayCode or "")
+            if number is not None:
+                by_section[code]["numbers"].append(number)
         else:
             by_section[code]["all"] = True
     pieces: list[str] = []
@@ -533,7 +562,7 @@ def question_sequence(section: Any, question: Any, *, take: int | None = None, p
     sec = join_field(field_words(section, ascii_only=True)).upper()
     if not sec or question is None or str(question).strip() == "":
         return ""
-    target = TargetRef(sectionCode=sec, displayCode=f"{sec}{int(question)}")
+    target = TargetRef(sectionCode=sec, questionNumber=int(question))
     return recording_sequence([target], part=part, position=take, roster_count=1) or ""
 
 

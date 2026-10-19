@@ -46,7 +46,11 @@ object Naming {
         setOf("CON", "PRN", "AUX", "NUL") + (1..9).map { "COM$it" } + (1..9).map { "LPT$it" }
     private val DOUBLE_EXTENSIONS = listOf(".sql.gz", ".tar.gz")
     private val VERSION = Regex("^v\\d+(?:\\.\\d+)*$")
-    private val DISPLAY_CODE = Regex("^([A-Za-z]+)[\\s.-]*0*(\\d+)$")
+    // A question number is read from the display code AFTER its own section code: "F21" in section F2
+    // is question 1, not section F question 21. The section is never guessed from the display code.
+    private val CODE_GAP = Regex("[ \\t\\r\\n._-]+")
+    private val NUMBER_TAIL = Regex("^[A-Z]*([0-9]+)$")
+    private val DIGITS = Regex("^[0-9]+$")
     private val ZW = setOf(0x200c, 0x200d)
 
     // ── Indic inherent vowel (session-title.json rules.transliteration) ─────────────────────────
@@ -417,25 +421,37 @@ object Naming {
         )
     }
 
-    /** A recording target as the name sees it: a section code, or a question display code ("D3"). */
-    data class NameTarget(val sectionCode: String? = null, val displayCode: String? = null)
+    /**
+     * A recording target. [sectionCode] is the question's own section and is the only source of the
+     * section piece. A question carries [questionNumber], or a [displayCode] read relative to the
+     * section code; neither one means the whole section.
+     */
+    data class NameTarget(val sectionCode: String? = null, val displayCode: String? = null, val questionNumber: Int? = null)
 
-    private fun questionNumber(displayCode: String): Pair<String, Int>? {
-        val m = DISPLAY_CODE.matchEntire(displayCode.trim()) ?: return null
-        val number = m.groupValues[2].toIntOrNull() ?: return null
-        return m.groupValues[1].uppercase(Locale.ROOT) to number
+    private fun compactCode(text: String?): String = CODE_GAP.replace(text.orEmpty().trim(), "").uppercase(Locale.ROOT)
+
+    /**
+     * The question number in [displayCode] once [sectionCode] is taken off its front: ("F2", "F21") -> 1,
+     * ("F2", "F2.13") -> 13, ("D", "D03") -> 3. A display code that does not start with the section code
+     * gives its trailing digits (("F2", "Q4") -> 4).
+     */
+    fun questionNumber(sectionCode: String?, displayCode: String?): Int? {
+        val code = compactCode(displayCode)
+        val sec = compactCode(sectionCode)
+        val rest = if (sec.isNotEmpty() && code.startsWith(sec)) code.substring(sec.length) else ""
+        if (DIGITS.matches(rest)) return rest.toIntOrNull()
+        return NUMBER_TAIL.matchEntire(code)?.groupValues?.get(1)?.toIntOrNull()
     }
 
     /** `D-Q03`, `B-All`, `F-Q01-Q06`, plus `-P2` for a continuation or `-T2` for a solo repeat. */
     fun recordingSequence(targets: List<NameTarget>, part: Int? = null, position: Int? = null, rosterCount: Int? = null): String? {
         val bySection = LinkedHashMap<String, Pair<Boolean, MutableList<Int>>>()
         for (t in targets) {
-            var code = t.sectionCode?.takeIf { it.isNotEmpty() }?.let { joinField(fieldWords(it, true)).uppercase(Locale.ROOT) }.orEmpty()
-            if (code.isEmpty() && !t.displayCode.isNullOrEmpty()) code = questionNumber(t.displayCode)?.first.orEmpty()
+            val code = t.sectionCode?.takeIf { it.isNotEmpty() }?.let { joinField(fieldWords(it, true)).uppercase(Locale.ROOT) }.orEmpty()
             if (code.isEmpty()) continue
             val entry = bySection.getOrPut(code) { false to mutableListOf() }
-            if (!t.displayCode.isNullOrEmpty()) {
-                questionNumber(t.displayCode)?.let { entry.second.add(it.second) }
+            if (t.questionNumber != null || !t.displayCode.isNullOrEmpty()) {
+                (t.questionNumber ?: questionNumber(t.sectionCode, t.displayCode))?.let { entry.second.add(it) }
             } else {
                 bySection[code] = true to entry.second
             }
@@ -465,7 +481,7 @@ object Naming {
         val q = question?.toString()?.trim().orEmpty()
         if (sec.isEmpty() || q.isEmpty()) return ""
         val number = q.toDoubleOrNull()?.toInt() ?: return ""
-        return recordingSequence(listOf(NameTarget(sec, "$sec$number")), part = part, position = take, rosterCount = 1).orEmpty()
+        return recordingSequence(listOf(NameTarget(sec, questionNumber = number)), part = part, position = take, rosterCount = 1).orEmpty()
     }
 
     /** `D-All`: a recording that covers a whole section. */
