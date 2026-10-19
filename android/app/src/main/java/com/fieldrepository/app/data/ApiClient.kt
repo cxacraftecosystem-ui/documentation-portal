@@ -204,6 +204,9 @@ object ApiClient {
                 throw lastError ?: IOException("Request failed after $maxAttempts attempts")
             }
             .addInterceptor(sessionInterceptor(tokenStore, BuildConfig.DEFAULT_API_BASE_URL.toHttpUrlOrNull()))
+            // X-Client-Time and X-App-Version on every request, and the clock offset off every
+            // answer (questionnaire v2, DESIGN §3.9). Headers only; the server logs the version.
+            .addInterceptor(ClientClock.interceptor())
             .addInterceptor(logging)
             .build()
 

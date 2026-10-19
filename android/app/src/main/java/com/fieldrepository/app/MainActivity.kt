@@ -587,6 +587,11 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Locale
 import com.fieldrepository.app.ui.FieldCircularProgressIndicator
+import com.fieldrepository.app.data.QuestionnaireV2
+import com.fieldrepository.app.ui.questionnaire.ArtisanQuestionnaireRecord
+import com.fieldrepository.app.ui.questionnaire.QuestionnaireV2Nav
+import com.fieldrepository.app.ui.questionnaire.QuestionnaireV2Screen
+import com.fieldrepository.app.ui.questionnaire.openAppDownloadPage
 
 class MainActivity : ComponentActivity() {
     /**
@@ -1080,6 +1085,10 @@ private fun RepositoryApp(
     // simply leaves what the device already had on screen.
     val latestPreferences by rememberUpdatedState(preferences)
     val preferencesContext = LocalContext.current.applicationContext
+    val questionnaireV2Context = LocalContext.current.applicationContext
+    LaunchedEffect(user?.id) {
+        if (user != null) runCatching { QuestionnaireV2.get(questionnaireV2Context).refreshConfig() }
+    }
     LaunchedEffect(user?.id) {
         if (user == null) return@LaunchedEffect
         // With the store, so a change queued on this device while offline wins over an older row.
@@ -1879,6 +1888,13 @@ private fun HomeScreen(
      */
     fun screenFor(mode: EntryMode): Screen =
         if (mode == EntryMode.DATA_BROWSER) Screen.DataBrowser else Screen.Create(mode)
+
+    // "Continue with Giriraj" / "Start session" on an artisan's questionnaire record opens the
+    // questionnaire screen with that artisan already chosen (questionnaire v2).
+    val questionnaireV2Request by QuestionnaireV2Nav.pending.collectAsState()
+    LaunchedEffect(questionnaireV2Request) {
+        if (questionnaireV2Request != null) screen = screenFor(EntryMode.QUESTIONNAIRE)
+    }
 
     fun refresh() {
         scope.launch {
@@ -2722,7 +2738,26 @@ private fun HomeScreen(
                     },
                     onError = { showMessage(it) }
                 )
-                EntryMode.QUESTIONNAIRE -> QuestionnaireForm(
+                EntryMode.QUESTIONNAIRE -> {
+                // QUESTIONNAIRE V2 (docs/questionnaire/DESIGN_2026-10-18.md): sessions, the coverage grid
+                // and the recording service, once the server's `GET /questionnaire/config` says v2 is on.
+                // Until then, and for the builder (overflow menu), the screen below is unchanged.
+                val v2Context = LocalContext.current
+                val v2Config by remember { QuestionnaireV2.get(v2Context) }.config.collectAsState()
+                var questionnaireBuilder by remember { mutableStateOf(false) }
+                val v2Prefill by QuestionnaireV2Nav.pending.collectAsState()
+                if (v2Config?.v2Enabled == true && !questionnaireBuilder) {
+                    QuestionnaireV2Screen(
+                        repository = repository,
+                        artisans = artisans,
+                        meId = user?.id,
+                        prefillArtisanIds = listOfNotNull(v2Prefill),
+                        onOpenBuilder = { questionnaireBuilder = true },
+                        onUpdateApp = { openAppDownloadPage(v2Context) },
+                        onError = { showMessage(it) }
+                    )
+                    LaunchedEffect(v2Prefill) { if (v2Prefill != null) QuestionnaireV2Nav.pending.value = null }
+                } else QuestionnaireForm(
                     repository = repository,
                     sections = sections,
                     artisans = artisans,
@@ -2754,6 +2789,7 @@ private fun HomeScreen(
                     onError = { showMessage(it) },
                     onSaved = { message = "Questionnaire interview saved"; refresh(); goDashboard() }
                 )
+                }
                 EntryMode.TASKS -> MyTasksScreen(
                     repository = repository,
                     // Being an assignee is never admin chrome; HANDING WORK OUT is (the web lists
@@ -11017,6 +11053,19 @@ private fun TranscribeNowButton(transcribing: Boolean, hasExisting: Boolean, onC
 @Composable
 private fun ArtisanQuestionnaireData(repository: FieldRepository, artisanId: String) {
     val context = LocalContext.current
+    // Questionnaire v2: the artisan's record (summary, timeline, by question) replaces this panel.
+    val v2 = remember { QuestionnaireV2.get(context) }
+    val v2Config by v2.config.collectAsState()
+    if (v2Config?.v2Enabled == true) {
+        var artisanName by remember(artisanId) { mutableStateOf("") }
+        LaunchedEffect(artisanId) { runCatching { repository.artisan(artisanId) }.onSuccess { artisanName = it.name } }
+        ArtisanQuestionnaireRecord(
+            v2 = v2, artisanId = artisanId, artisanName = artisanName,
+            onContinueWith = { QuestionnaireV2Nav.pending.value = it },
+            onStartSession = { QuestionnaireV2Nav.pending.value = it }
+        )
+        return
+    }
     var data by remember(artisanId) { mutableStateOf<ArtisanQuestionnaireDto?>(null) }
     var loading by remember(artisanId) { mutableStateOf(true) }
     LaunchedEffect(artisanId) {
