@@ -7,18 +7,18 @@ import org.junit.Test
 class RecordingConsentCopyTest {
     @Test
     fun notAskedYet() {
-        assertEquals("Not asked yet", RecordingConsentCopy.status(RecordingConsentDto(), null))
+        assertEquals("Not asked yet", RecordingConsentCopy.status(QConsentGet(), null))
     }
 
     @Test
     fun ownerAttestationIsNamed() {
-        val consent = RecordingConsentDto(decision = "GRANTED", recorded = true, granted = true, source = "owner attestation")
+        val consent = QConsentGet(state = "GRANTED", source = "owner attestation")
         assertEquals("Agreed on 18 Oct 2026 · confirmed by the owner", RecordingConsentCopy.status(consent, "18 Oct 2026"))
     }
 
     @Test
     fun aDeclineIsSaidPlainly() {
-        val consent = RecordingConsentDto(decision = "REFUSED", recorded = true, granted = false)
+        val consent = QConsentGet(state = "REFUSED")
         assertEquals("Declined", RecordingConsentCopy.status(consent, null))
     }
 }

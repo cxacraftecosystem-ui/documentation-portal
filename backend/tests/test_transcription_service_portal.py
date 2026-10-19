@@ -19,15 +19,8 @@ from app.services import ai, app_settings, media_queue, recording_consent, trans
 
 
 @pytest.fixture(autouse=True)
-def _ledger_says_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
-    """These tests are about RecordingConsent, the pause and the queue; the questionnaire's consent
-    ledger (the other store recording_consent asks) answers "nothing recorded" unless a test says
-    otherwise, and the insights hold is lifted so only the pause decides what the drain selects."""
-
-    async def _awaiting(*_a: Any, **_k: Any) -> str:
-        return "AWAITING"
-
-    monkeypatch.setattr(recording_consent.ledger, "verdict", _awaiting)
+def _insights_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The insights hold is lifted so only the pause decides what the drain selects."""
     monkeypatch.setattr(media_queue.transcript_insights, "enabled", lambda: True)
 
 
@@ -277,50 +270,46 @@ def test_the_language_hint_prefers_the_recording_then_the_state() -> None:
 # --- The consent rule: per recording, else per artisan, else not sent -------------------------
 
 
-class _Consents:
-    def __init__(self, rows: list[Any]) -> None:
-        self.rows = rows
+def _verdict(monkeypatch, rows: dict[tuple[str, str], str], media: Any) -> Any:
+    """The one consent store, faked at the gate's two reads: current rows and a recording's subjects."""
+    from app.services import consent_gate
 
-    async def find_first(self, *, where: dict[str, Any], **_kwargs: Any) -> Any:
-        for row in reversed(self.rows):
-            if all(getattr(row, key, None) == value for key, value in where.items()):
-                return row
-        return None
+    async def _states(subject_type: str, ids: list[str], **_k: Any) -> dict[str, Any]:
+        return {i: {"state": rows[(subject_type, i)]} for i in ids if (subject_type, i) in rows}
 
+    async def _subjects(media_id: str, _client: Any) -> list[str]:
+        return [media.artisanId] if getattr(media, "artisanId", None) else []
 
-def _consent(**fields: Any) -> Any:
-    return SimpleNamespace(**{"mediaFileId": None, "artisanId": None, **fields})
-
-
-def _verdict(monkeypatch, rows: list[Any], media: Any) -> Any:
-    monkeypatch.setattr(recording_consent, "db", SimpleNamespace(recordingconsent=_Consents(rows)))
+    monkeypatch.setattr(consent_gate, "current_states", _states)
+    monkeypatch.setattr(consent_gate, "_media_subjects", _subjects)
     return asyncio.run(recording_consent.gate.verdict(media))
 
 
-def test_a_recordings_own_answer_wins_over_its_artisans(monkeypatch) -> None:
+def test_a_recordings_own_refusal_wins_over_its_artisans_grant(monkeypatch) -> None:
     media = SimpleNamespace(id="m-1", artisanId="a-1")
-    rows = [_consent(artisanId="a-1", decision="GRANTED"), _consent(mediaFileId="m-1", decision="REFUSED")]
+    rows = {("ARTISAN", "a-1"): "GRANTED", ("RECORDING", "m-1"): "REFUSED"}
     verdict = _verdict(monkeypatch, rows, media)
     assert not verdict.may_send and verdict.decision == "REFUSED"
 
 
 def test_an_artisans_answer_covers_every_recording_of_them(monkeypatch) -> None:
     media = SimpleNamespace(id="m-2", artisanId="a-1")
-    assert _verdict(monkeypatch, [_consent(artisanId="a-1", decision="GRANTED")], media).may_send
+    assert _verdict(monkeypatch, {("ARTISAN", "a-1"): "GRANTED"}, media).may_send
 
 
 def test_no_answer_is_not_recorded_and_is_not_sent(monkeypatch) -> None:
-    verdict = _verdict(monkeypatch, [], SimpleNamespace(id="m-3", artisanId=None))
+    verdict = _verdict(monkeypatch, {}, SimpleNamespace(id="m-3", artisanId=None))
     assert not verdict.may_send and verdict.decision == "NOT_RECORDED"
     assert verdict.refusal.startswith("Consent not recorded.")
 
 
 def test_a_failed_read_refuses_rather_than_sends(monkeypatch) -> None:
-    class _Broken:
-        async def find_first(self, **_kwargs: Any) -> Any:
-            raise RuntimeError("database blinked")
+    from app.services import consent_gate
 
-    monkeypatch.setattr(recording_consent, "db", SimpleNamespace(recordingconsent=_Broken()))
+    async def _broken(*_a: Any, **_k: Any) -> Any:
+        raise RuntimeError("database blinked")
+
+    monkeypatch.setattr(consent_gate, "current_states", _broken)
     assert not asyncio.run(recording_consent.gate.verdict(SimpleNamespace(id="m-4", artisanId="a-1"))).may_send
 
 
@@ -357,47 +346,77 @@ def test_enqueue_keeps_the_recording_and_notes_why_it_was_not_sent(monkeypatch) 
     assert notes[0]["data"]["transcriptError"].startswith("Consent not recorded.")
 
 
-# --- Consent backfill (owner attestation): idempotent, flags nothing, sends nothing ----------
+# --- The data script that merges RecordingConsent into the ledger: dry run first, copies once ----
 
 
-def _load_backfill():
+def _load_merge():
     import importlib.util
+    import sys
     from pathlib import Path
 
-    path = Path(__file__).resolve().parents[1] / "scripts" / "backfill_recording_consent_owner_attestation.py"
-    spec = importlib.util.spec_from_file_location("backfill_recording_consent_owner_attestation", path)
+    path = Path(__file__).resolve().parents[1] / "scripts" / "migrate_recording_consent_to_ledger.py"
+    spec = importlib.util.spec_from_file_location("migrate_recording_consent_to_ledger", path)
     module = importlib.util.module_from_spec(spec)
-    import sys
-
-    sys.modules[spec.name] = module  # dataclasses resolve their module through sys.modules
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
 
-def test_the_consent_backfill_covers_each_uncovered_recording_once(monkeypatch) -> None:
-    backfill = _load_backfill()
-    consents = [_consent(artisanId="a-9", decision="GRANTED"), _consent(mediaFileId="m-2", decision="REFUSED")]
-    media = [
-        SimpleNamespace(id="m-1", artisanId=None),
-        SimpleNamespace(id="m-2", artisanId=None),
-        SimpleNamespace(id="m-3", artisanId="a-9"),
-    ]
+def _old(row_id: str, **fields: Any) -> dict[str, Any]:
+    base = {
+        "id": row_id, "mediaFileId": None, "artisanId": None, "decision": "GRANTED", "source": None,
+        "attestedById": "u-1", "attestedAt": "2026-10-18T06:30:00+00:00", "note": None,
+        "actorExists": True, "copied": False,
+    }
+    return {**base, **fields}
 
-    class _Consents:
-        async def find_many(self, *, where: dict[str, Any]) -> list[Any]:
-            if "mediaFileId" in where and where["mediaFileId"] == {"not": None}:
-                return [c for c in consents if c.mediaFileId]
-            return [c for c in consents if c.artisanId and not c.mediaFileId]
 
-        async def create_many(self, *, data: list[dict[str, Any]]) -> int:
-            for row in data:
-                consents.append(_consent(**row))
-            return len(data)
+def test_the_merge_maps_each_old_row_to_one_ledger_row() -> None:
+    merge = _load_merge()
+    owner = merge.mapped(_old("rc-1", mediaFileId="m-1", source="owner attestation"))
+    assert owner["subject_type"] == "RECORDING" and owner["subject_id"] == "m-1"
+    assert owner["basis"] == "OWNER_ATTESTATION" and owner["source"] == "owner attestation"
+    assert owner["migrated_from"] == "RecordingConsent:rc-1"
+    assert owner["recorded_at"].isoformat() == "2026-10-18T06:30:00+00:00"
+    app = merge.mapped(_old("rc-2", artisanId="a-1", decision="REFUSED", note="asked twice"))
+    assert (app["subject_type"], app["subject_id"], app["state"]) == ("ARTISAN", "a-1", "REFUSED")
+    assert app["basis"] == "VERBAL_RECORDED" and app["source"] == "researcher" and app["note"] == "asked twice"
+    assert merge.mapped(_old("rc-3", artisanId="a-1", decision="MAYBE")) is None
+    assert merge.mapped(_old("rc-4")) is None
 
-    class _Media:
-        async def find_many(self, *, skip: int = 0, **_kwargs: Any) -> list[Any]:
-            return media[skip:]
 
-    monkeypatch.setattr(backfill, "db", SimpleNamespace(recordingconsent=_Consents(), mediafile=_Media()))
+def test_the_merge_plans_only_uncopied_rows_and_reports_the_fallback_actor() -> None:
+    merge = _load_merge()
+    plan = merge.plan([
+        _old("rc-1", mediaFileId="m-1"),
+        _old("rc-2", artisanId="a-1", copied=True),
+        _old("rc-3", artisanId="a-2", attestedById=None, actorExists=False),
+        _old("rc-4", artisanId="a-3", decision="MAYBE"),
+    ])
+    assert [t["migrated_from"] for t, _ in plan["to_copy"]] == ["RecordingConsent:rc-1", "RecordingConsent:rc-3"]
+    assert [needs for _, needs in plan["to_copy"]] == [False, True]
+    assert (plan["copied"], plan["unreadable"], plan["total"]) == (1, 1, 4)
+    report = merge.report(plan)
+    assert "fallback actor" in report and "RecordingConsent rows changed or deleted,none" in report
+
+
+def test_the_merge_copies_once_and_attributes_an_orphan_to_the_fallback_actor(monkeypatch) -> None:
+    merge = _load_merge()
+    appended: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    async def _append(_client: Any, **row: Any) -> Any:
+        if row["migrated_from"] in seen:
+            return None
+        seen.add(row["migrated_from"])
+        appended.append(row)
+        return {"id": "x"}
+
+    monkeypatch.setattr(merge.ledger, "append", _append)
     monkeypatch.setattr(requests, "post", _never)
-    assert asyncio.run(backfill.recordings_without_consent()) == ["m-1"]
+    plan = merge.plan([_old("rc-1", artisanId="a-1"), _old("rc-2", artisanId="a-2", attestedById=None, actorExists=False)])
+    assert asyncio.run(merge.apply(None, plan, "owner-1")) == 2
+    assert appended[1]["actor_id"] == "owner-1" and "no longer on record" in appended[1]["note"]
+    assert asyncio.run(merge.apply(None, plan, "owner-1")) == 0
+    with pytest.raises(SystemExit):
+        asyncio.run(merge.apply(None, merge.plan([_old("rc-9", artisanId="a", attestedById=None)]), None))

@@ -57,11 +57,14 @@ from tests.test_upload_bounds import CARD_REMEDY, DICTATION_REMEDY
 
 MB = 1024 * 1024
 
+# An ADMIN, because ``POST /media/transcribe`` is admin-only now (the clip carries no subject the one
+# consent store could be asked about; ``tests/test_inline_transcribe_consent.py``). The measurement
+# route is open to every signed-in account and does not mind which.
 RESEARCHER = SimpleNamespace(
     id="user-1",
     email="researcher@example.test",
     name="Researcher",
-    role="RESEARCHER",
+    role="ADMIN",
 )
 
 _APP = FastAPI()

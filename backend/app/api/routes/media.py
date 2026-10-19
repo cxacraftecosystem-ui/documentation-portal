@@ -355,9 +355,17 @@ async def transcribe_media_audio(
     # the route was authenticated, but the caller's identity went nowhere. It is needed now: the
     # person at the microphone is who a personal provider key belongs to, and a transcription that
     # cannot say whose it is has to be billed to the organisation by default.
-    current_user: Any = Depends(get_current_user),
+    #
+    # ADMINS ONLY (the one consent store, 19 Oct 2026). The clip names no recording, interview or
+    # artisan, so there is no consent to ask about it, and an open door here would let anyone the
+    # gate refuses on a stored recording download it and post it here to get the words back. No web
+    # or Android screen calls this route (both dictation controls are on-device); its one caller is
+    # ``scripts/live-smoke.ps1``, signed in as the master admin. designer-portal's twin is admin-only
+    # for the same reason. Pinned by ``tests/test_inline_transcribe_consent.py``.
+    current_user: Any = Depends(require_admin),
 ) -> dict[str, Any]:
-    """Transcribe one dictated clip inline, bounded at ``DICTATION_MAX_UPLOAD_BYTES``.
+    """Transcribe one dictated clip inline, bounded at ``DICTATION_MAX_UPLOAD_BYTES``. Admins only:
+    the clip carries no subject the one consent store could be asked about.
 
     THE REMEDY IS A LITERAL HERE RATHER THAN AN IMPORT, and that is the instruction
     ``tests/test_upload_bounds.py`` leaves with ``DICTATION_REMEDY``: the sentence belongs to THIS
@@ -812,10 +820,11 @@ async def refine_media_transcript(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only refine the transcript of media you uploaded",
         )
-    # An AI refinement or translation is an outside send: the consent gate decides (DESIGN 3.11).
-    # Files made on or before 18 Oct 2026 are covered by the owner's attestation (correction (c));
-    # until its backfill is applied they would read AWAITING, so the gate asks only of newer files.
-    verdict = consent_gate.ALLOW if consent_gate.covered_by_attestation(media) else await consent_gate.verdict(media_id)
+    # An AI refinement or translation is an outside send: the one consent gate decides (DESIGN 3.11,
+    # the one consent store of 19 Oct 2026), exactly as the queue does. Files made on or before
+    # 18 Oct 2026 pass by the owner's attestation once its backfill has written their RECORDING rows;
+    # a refusal recorded after the attestation still stops them.
+    verdict = await consent_gate.verdict(media_id)
     if verdict != consent_gate.ALLOW:
         from app.services.questionnaire_v2.common import fail
 

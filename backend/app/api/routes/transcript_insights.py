@@ -9,6 +9,8 @@ INCLUDED IN ``api/router.py`` BEFORE ``media.router``. ``GET /media/insights`` w
 matched by ``GET /media/{media_id}``.
 
 Nothing here generates. Regenerate queues a job and returns 202; the worker does the work.
+Regenerate asks the one consent store first and answers 409 with the reason when the transcript may
+not leave the server; the worker asks again at the moment of sending.
 """
 
 from datetime import UTC, datetime
@@ -164,6 +166,9 @@ async def regenerate_insight(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="There is no transcript to summarise yet.",
         )
+    refusal = await insights.consent_refusal(media)
+    if refusal is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=refusal)
     active = await insights.active_job(media_id)
     row = await insights.current_insight(media_id)
     edited = row is not None and row.editedAt is not None

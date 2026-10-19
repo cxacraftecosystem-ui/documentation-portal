@@ -21,6 +21,7 @@ from transcript_insights_fakes import FakeDb, Row
 from app.ai_features import Capability, probe
 from app.ai_features.settings import build_settings
 from app.services import transcript_insights as ti
+from app.transcription.consent import verdict_for
 
 ON = {"AI_FEATURES_ENABLED": "true", "AI_TRANSCRIPT_INSIGHTS_ENABLED": "true"}
 
@@ -56,6 +57,14 @@ def fake(monkeypatch):
     monkeypatch.setattr(ti, "enabled", lambda: True)
     monkeypatch.setattr(ti, "get_settings", lambda: SimpleNamespace(
         media_queue_job_max_attempts=3, openai_chat_model="gpt-4o-mini"))
+    # Consent granted unless a test withdraws it (``consent`` below).
+    db.consent = {}
+
+    async def verdict(media):
+        media_id = media if isinstance(media, str) else getattr(media, "id", None)
+        return verdict_for(db.consent.get(media_id, "GRANTED"))
+
+    monkeypatch.setattr(ti.recording_consent.gate, "verdict", verdict)
     return db
 
 
@@ -804,3 +813,50 @@ def test_signed_out_callers_are_refused_before_the_flag_is_read(fake, monkeypatc
         client.post("/api/media/m1/insights/regenerate", json={}),
     ]
     assert [r.status_code for r in responses] == [401] * 4
+
+
+# --------------------------------------------------------------------------------------------
+# Consent: the transcript leaves the server only when the one consent store allows it
+# --------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("withdrawn", ["REFUSED", "NOT_RECORDED"])
+def test_a_withdrawn_consent_queues_no_insights_job_from_any_trigger(fake, provider, monkeypatch, withdrawn):
+    from app.api.routes import media as media_routes
+
+    async def _public(row, _viewer=None, **_kwargs):
+        return {"id": row.id}
+
+    async def require_record(_delegate, record_id):
+        return fake.mediafile.get(record_id)
+
+    monkeypatch.setattr(media_routes, "db", fake)
+    monkeypatch.setattr(media_routes, "_public", _public)
+    monkeypatch.setattr(media_routes, "require_record", require_record)
+    media = fake.add_media(transcriptText=ENGLISH, transcriptStatus="COMPLETED")
+    fake.consent[media.id] = withdrawn
+
+    # 1. a transcription landing, 2. a transcript edit, 3. Regenerate.
+    _completed_transcription(fake, media)
+    asyncio.run(media_routes.set_media_transcript(media.id, SimpleNamespace(text="New words."), OWNER))
+    refused = _client(OWNER).post(f"/api/media/{media.id}/insights/regenerate", json={"discardEdits": True})
+    assert refused.status_code == 409
+    expected = ti.CONSENT_REFUSED if withdrawn == "REFUSED" else ti.CONSENT_NOT_RECORDED
+    assert refused.json() == {"detail": expected}
+    assert not [j for j in fake.mediaprocessingjob.rows if j.jobType == "TRANSCRIPT_INSIGHTS"]
+    assert provider.calls == []
+
+
+def test_consent_withdrawn_after_the_job_was_queued_fails_the_job_and_sends_nothing(fake, provider):
+    from app.services import media_queue
+
+    media = fake.add_media(transcriptText=ENGLISH, transcriptStatus="COMPLETED")
+    assert asyncio.run(ti.enqueue(media.id, requested_by_id="usr_owner")) is not None
+    fake.mediaprocessingjob.rows.clear()
+    job = _insights_job(fake, media, requested_by="usr_owner")
+    fake.consent[media.id] = "REFUSED"
+    asyncio.run(media_queue._process_job(job, SimpleNamespace()))
+    stored = fake.mediaprocessingjob.get(job.id)
+    assert stored.status == "FAILED" and stored.error == ti.CONSENT_REFUSED
+    assert provider.calls == []
+    assert not fake.transcriptinsight.rows

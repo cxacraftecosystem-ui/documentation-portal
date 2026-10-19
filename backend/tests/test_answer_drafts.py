@@ -199,7 +199,32 @@ def world(monkeypatch):
         return {1: "Since my grandfather", 2: "My mother"}, "anthropic", "claude-sonnet-5"
 
     monkeypatch.setattr(routes.ad, "draft_answers", fake_draft)
-    return SimpleNamespace(db=fake, asked=asked)
+    consent = _consent_store(monkeypatch)
+    return SimpleNamespace(db=fake, asked=asked, consent=consent)
+
+
+def _consent_store(monkeypatch) -> dict[str, dict[str, str]]:
+    """The one consent store, as current rows per subject: interview i1 and its recording m1 are
+    artisan a1's words, and a1 has GRANTED. The rule itself (``ledger.decide``) is the real one."""
+    from app.services import consent_gate
+
+    consent: dict[str, dict[str, str]] = {"ARTISAN": {"a1": "GRANTED"}, "RECORDING": {}}
+
+    async def current_states(subject_type, ids, *, purpose="EXTERNAL_PROCESSING", client=None):
+        known = consent.get(subject_type, {})
+        return {i: {"state": known[i]} for i in ids if i in known}
+
+    async def media_subjects(_media_id, _client):
+        return ["a1"]
+
+    class _Participants:
+        async def query_raw(self, _sql, interview_id):
+            return [{"artisanId": "a1"}] if interview_id == "i1" else []
+
+    monkeypatch.setattr(consent_gate, "current_states", current_states)
+    monkeypatch.setattr(consent_gate, "_media_subjects", media_subjects)
+    monkeypatch.setattr(consent_gate, "_db", lambda _client: _Participants())
+    return consent
 
 
 USER = SimpleNamespace(id="u1", role="RESEARCHER")
@@ -392,3 +417,42 @@ def test_the_consolidated_csv_carries_the_origin_in_its_last_column():
 def test_a_merge_fill_keeps_the_answers_origin():
     source = (BACKEND / "app/api/routes/questionnaire.py").read_text(encoding="utf-8")
     assert 'fill["answerOrigin"] = get_value(row, "answerOrigin")' in source
+
+
+# ── consent: drafting sends the transcript to an AI provider ──────────────────────────────────
+
+
+async def test_a_withdrawn_consent_stops_a_draft_from_a_recording(world):
+    world.consent["ARTISAN"]["a1"] = "REFUSED"
+    with pytest.raises(HTTPException) as exc:
+        await routes.draft_section("i1", routes.DraftIn(sectionId="s1", mediaId="m1"), USER)
+    assert exc.value.status_code == 409 and exc.value.detail == routes.CONSENT_REFUSED
+    assert world.asked == [] and world.db.questionnaireanswerdraft.rows == []
+
+
+async def test_a_refusal_for_the_recording_itself_stops_its_draft(world):
+    world.consent["RECORDING"]["m1"] = "REFUSED"
+    with pytest.raises(HTTPException) as exc:
+        await routes.draft_section("i1", routes.DraftIn(sectionId="s1", mediaId="m1"), USER)
+    assert exc.value.status_code == 409
+    assert world.asked == []
+
+
+async def test_a_withdrawn_consent_stops_a_draft_from_pasted_text(world):
+    pasted = routes.DraftIn(sectionId="s1", transcript="Typed out from my notes.")
+    out = await routes.draft_section("i1", pasted, USER)
+    assert out["drafted"] == 2, "granted: the pasted text is drafted from"
+    world.asked.clear()
+    world.consent["ARTISAN"]["a1"] = "REFUSED"
+    with pytest.raises(HTTPException) as exc:
+        await routes.draft_section("i1", pasted, USER)
+    assert exc.value.status_code == 409 and exc.value.detail == routes.CONSENT_REFUSED
+    assert world.asked == []
+
+
+async def test_pasted_text_in_an_interview_with_no_participant_waits_for_consent(world):
+    world.db.questionnaireinterview.rows.append({"id": "i2", "questionnaireId": "qn1", "createdById": "u1"})
+    with pytest.raises(HTTPException) as exc:
+        await routes.draft_section("i2", routes.DraftIn(sectionId="s1", transcript="Words."), USER)
+    assert exc.value.status_code == 409 and exc.value.detail == routes.CONSENT_NOT_RECORDED
+    assert world.asked == []

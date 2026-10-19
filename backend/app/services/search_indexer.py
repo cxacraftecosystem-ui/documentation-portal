@@ -19,6 +19,15 @@ is retried one document at a time: a document that fails alone while others succ
 (``embeddedHash = 'failed:' || contentHash``) and skipped until its text changes; when every one
 fails the provider is down, and the next pass waits (30 seconds, doubling to an hour).
 
+A TRANSCRIPT OR AN INTERVIEW IS EMBEDDED ONLY WITH CONSENT. Embedding sends the text to OpenAI or
+Gemini, so a ``transcripts`` document asks the one consent store (``consent_gate.verdict``, the question
+every other outside send asks) for its recording first, and an ``interviews`` document (its notes and
+every answer, the artisans' words) asks ``consent_gate.interview_verdict`` for its participants, the
+same question an answer draft from pasted text asks. One that may not leave is marked
+(``embeddedHash = 'consent:' || contentHash``) and skipped, so it never holds up the documents behind
+it; whenever a new row lands in the ``Consent`` ledger every mark is cleared and those documents are
+asked again on the next pass, so a consent given later is picked up by itself.
+
 The queue worker (``app/worker.py``) calls both every 15 seconds while UNIFIED_SEARCH_ENABLED is on,
 in small batches, because the production box is memory-bound.
 """
@@ -33,7 +42,7 @@ import uuid
 from typing import Any
 
 from app.core.db import db
-from app.services import search_embeddings, search_index
+from app.services import consent_gate, search_embeddings, search_index
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +55,19 @@ EMBED_BACKOFF_CEILING_SECONDS = 3600.0
 #: The prefix ``embeddedHash`` carries for a document the provider refused on its own.
 EMBED_FAILED_PREFIX = "failed:"
 
+#: The prefix ``embeddedHash`` carries for a document whose consent does not let it leave.
+EMBED_CONSENT_PREFIX = "consent:"
+#: Document types whose text is someone's words, and the consent question each asks of its
+#: ``entityId``: a transcript's recording, an interview's participants.
+CONSENT_QUESTIONS = {
+    "transcripts": lambda entity_id: consent_gate.verdict(entity_id),
+    "interviews": lambda entity_id: consent_gate.interview_verdict(entity_id),
+}
+CONSENT_GATED_TYPES = frozenset(CONSENT_QUESTIONS)
+
 _embed_backoff = {"until": 0.0, "wait": 0.0}
+#: The newest ``Consent`` row seen by the last pass; a change clears the consent marks.
+_consent_seen: dict[str, Any] = {"mark": None}
 
 _UPSERT = """
 INSERT INTO "SearchDocument" (
@@ -192,28 +213,86 @@ def reset_backoff() -> None:
     _embed_backoff["wait"] = 0.0
 
 
+async def _release_consent_marks() -> None:
+    """Clear every consent mark once the ledger has a row the last pass had not seen."""
+    latest = await db.query_raw('SELECT max("createdAt") AS at, count(*) AS n FROM "Consent"')
+    mark = (str(latest[0]["at"]), int(latest[0]["n"])) if latest else None
+    if mark == _consent_seen["mark"]:
+        return
+    await db.execute_raw(
+        'UPDATE "SearchDocument" SET "embeddedHash" = NULL WHERE "embeddedHash" LIKE $1',
+        EMBED_CONSENT_PREFIX + "%",
+    )
+    _consent_seen["mark"] = mark
+
+
+async def _consented(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """The rows that may be sent, and how many were marked because their consent keeps them here.
+    A consent that cannot be read is neither sent nor marked."""
+    allowed: list[dict[str, Any]] = []
+    marked = 0
+    for row in rows:
+        question = CONSENT_QUESTIONS.get(str(row.get("entityType")))
+        if question is not None:
+            try:
+                verdict = await question(str(row["entityId"]))
+            except Exception as exc:  # noqa: BLE001 - an unread consent is no consent; asked again later
+                logger.warning("search embeddings: consent of %s unread (%s)", row["entityId"], type(exc).__name__)
+                continue
+            if verdict != consent_gate.ALLOW:
+                await db.execute_raw(
+                    'UPDATE "SearchDocument" SET "embeddedHash" = $1 WHERE "id" = $2',
+                    EMBED_CONSENT_PREFIX + str(row["contentHash"]),
+                    row["id"],
+                )
+                marked += 1
+                continue
+        allowed.append(row)
+    return allowed, marked
+
+
 async def embed_pending(batch: int = 32, *, settings: Any | None = None) -> int:
-    """Embed documents whose text changed since their last embedding. No-op unless available."""
+    """Embed documents whose text changed since their last embedding. No-op unless available.
+
+    A transcript or an interview is sent only when its consent allows it (module docstring)."""
     if not await search_embeddings.available(settings):
         return 0
     if time.monotonic() < _embed_backoff["until"]:
         return 0
+    await _release_consent_marks()
+    while True:
+        found = await _pending(batch)
+        if not found:
+            return 0
+        rows, marked = await _consented(found)
+        if rows:
+            return await _embed_rows(rows, settings)
+        if not marked:
+            return 0
+        # A batch of nothing but marked transcripts reads the next one: the marks keep them out of it.
+
+
+async def _pending(batch: int) -> list[dict[str, Any]]:
     rows = await db.query_raw(
         """
-        SELECT "id", "contentHash",
+        SELECT "id", "contentHash", "entityType", "entityId",
                concat_ws(E'\\n', "title", "subtitle", left("body", $2::int)) AS text
           FROM "SearchDocument"
          WHERE "embeddedHash" IS DISTINCT FROM "contentHash"
            AND "embeddedHash" IS DISTINCT FROM ($3 || "contentHash")
+           AND "embeddedHash" IS DISTINCT FROM ($4 || "contentHash")
          ORDER BY "updatedAt"
          LIMIT $1
         """,
         batch,
         EMBED_BODY_CHARS,
         EMBED_FAILED_PREFIX,
+        EMBED_CONSENT_PREFIX,
     )
-    if not rows:
-        return 0
+    return [dict(row) for row in rows]
+
+
+async def _embed_rows(rows: list[dict[str, Any]], settings: Any | None) -> int:
     try:
         vectors = await search_embeddings.embed([str(r["text"]) for r in rows], settings=settings)
     except search_embeddings.EmbeddingError as exc:

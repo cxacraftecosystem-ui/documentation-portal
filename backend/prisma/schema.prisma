@@ -157,7 +157,7 @@ enum MediaProcessingJobType {
 // Every value list below is shared/enums.json, spelled as the merged platform will spell it, and
 // scripts/generate_shared.py --check fails when one drifts from that file.
 
-/// M0. One consent ledger, the same model on both portals (the convergence diff, section 3).
+/// M0. The one consent store, the same model on both portals (the convergence diff, section 3).
 enum ConsentState {
   NOT_RECORDED
   GRANTED
@@ -2258,17 +2258,20 @@ model MediaUploadIntent {
   @@index([uploaderId])
 }
 
-/// M0. THE consent ledger (the convergence diff, section 3), append-only; the same model on both
-/// portals. `consent_current_v` (raw SQL) is the latest row per (subjectType, subjectId, purpose).
+/// THE ONE CONSENT STORE (owner decision, 19 Oct 2026), append-only; the same model, the same
+/// migration (`20261103090000_one_consent_store`) and the same rule (`app/transcription/ledger.py`)
+/// in both portals. `consent_current_v` (raw SQL) is the newest row per (subjectType, subjectId,
+/// purpose); older rows are the history. ARTISAN is one consent per artisan whichever portal asked;
+/// WORKSHOP is designer-portal's per-workshop answer; RECORDING scopes a consent to one recording.
 model Consent {
   id              String             @id @default(cuid())
   subjectType     ConsentSubjectType
-  /// artisanId, or the mediaFileId for RECORDING
+  /// artisanId, designWorkshopId, userId, or the mediaFileId for RECORDING
   subjectId       String
   purpose         ConsentPurpose
   state           ConsentState
   basis           ConsentBasis
-  /// "researcher" (captured in the app) | "owner attestation"
+  /// "researcher" (recorded in either app) | "owner attestation"
   source          String
   /// The consent wording version.
   version         Int                @default(1)
@@ -2276,11 +2279,16 @@ model Consent {
   evidenceMediaId String?
   /// Who recorded it; the owner's account for the attestation. FK to User (Restrict) in the SQL.
   actorId         String
+  /// When the person answered (a device that was offline reports it later).
   recordedAt      DateTime
   createdAt       DateTime           @default(now())
+  /// "RecordingConsent:<id>" or "DwWorkshopConsentDecision:<id>" for a row copied from the older
+  /// consent tables by the data scripts; NULL for a consent recorded in the ledger itself.
+  migratedFrom    String?            @unique(map: "Consent_migratedFrom_key")
 
   @@unique([subjectType, subjectId, purpose, source, recordedAt], map: "Consent_idem_key")
   @@index([subjectType, subjectId, purpose, recordedAt], map: "Consent_subject_idx")
+  @@index([actorId], map: "Consent_actorId_idx")
 }
 
 model QuestionnaireResponse {
@@ -3065,6 +3073,11 @@ model TranscriptCache {
   @@unique([sha256, optionsHash])
 }
 
+/// SUPERSEDED BY `Consent` (one consent store, 19 Oct 2026): nothing writes this table any more.
+/// `scripts/migrate_recording_consent_to_ledger.py` copies its rows into the ledger (dry run first),
+/// and until it has run `services/consent_gate.py` folds the rows not yet copied into every read.
+/// Dropped by a later release, once the script has run against production.
+///
 /// WHETHER A RECORDING MAY LEAVE THIS SERVER to be transcribed or summarised (the consent rule, 18 Oct
 /// 2026). Scoped to one recording (`mediaFileId`) or to an artisan (`artisanId`, covering every
 /// recording of them). Missing consent blocks ONLY sending to outside services; recording is never

@@ -1,22 +1,18 @@
-"""The consent rule for recordings in this portal (owner decision, 18 Oct 2026).
+"""The consent rule for recordings, as the shared transcription package asks it (18 Oct 2026).
 
 Missing consent blocks ONLY sending a recording to an outside service: transcription, AI summaries
-and translation. Recording, upload and storage are never blocked. It is the same rule designer-portal
-enforces through ``DesignWorkshop.dictationConsent`` (``app/transcription/consent.py`` holds the
-shared words), decided here against ``RecordingConsent`` rows:
+and insights, translation. Recording, upload and storage are never blocked.
 
-* a row for the recording itself (``mediaFileId``) wins;
-* otherwise the newest row for the recording's artisan (``artisanId``) answers for every recording
-  of them;
-* otherwise consent is NOT_RECORDED and nothing is sent.
+ONE STORE (owner decision, 19 Oct 2026). Every answer lives in the ``Consent`` ledger, decided by
+``services/consent_gate.py`` with the rule designer-portal uses too (``app/transcription/ledger.py``).
+This module is the adapter the queue, "Transcribe now" and the insights job call
+(``app.transcription.consent.ConsentGate``), plus the two ``/recording-consent`` routes' reads and
+writes, kept so installed apps that still call those routes keep working; both apps now record the
+answer through ``/artisans/{id}/consent``, and every route writes the same ledger row.
 
-Every recording that existed on 18 Oct 2026 carries a GRANTED row by owner attestation, written by
-``scripts/backfill_recording_consent_owner_attestation.py`` (dry run first). Nothing is flagged.
-
-ONE RULE OVER BOTH STORES. The questionnaire keeps its consent in the ``Consent`` ledger (DESIGN
-3.11, ``scripts/backfill_consent_owner_attestation.py``). A refusal in either store refuses; a grant
-in either lets the recording go; otherwise it is NOT_RECORDED. Every outside send asks this one
-question, so the two stores can never disagree about a recording.
+The older ``RecordingConsent`` table is no longer written. Until
+``scripts/migrate_recording_consent_to_ledger.py`` has copied it into the ledger, the gate's reads
+fold its rows in (``consent_gate.current_states``).
 
 A failed read refuses, never raises: an unknown consent must not become a send.
 """
@@ -26,8 +22,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.core.db import db
-from app.services import consent_gate as ledger
+from app.services import consent_gate
+from app.transcription import ledger
 from app.transcription.consent import (
     GRANTED,
     NOT_RECORDED,
@@ -39,6 +35,7 @@ from app.transcription.consent import (
 logger = logging.getLogger(__name__)
 
 DECISIONS = (GRANTED, REFUSED)
+__all__ = ["NOT_RECORDED", "ConsentRefused", "gate"]
 
 
 def _value(record: Any, key: str) -> Any:
@@ -47,36 +44,18 @@ def _value(record: Any, key: str) -> Any:
     return getattr(record, key, None)
 
 
-async def latest_decision(*, media_id: str | None = None, artisan_id: str | None = None) -> Any | None:
-    where: dict[str, Any] = {"mediaFileId": media_id} if media_id else {"artisanId": artisan_id, "mediaFileId": None}
-    return await db.recordingconsent.find_first(where=where, order=[{"attestedAt": "desc"}, {"createdAt": "desc"}])
-
-
-async def _recorded_here(media: Any) -> str:
-    """This store's answer: the recording's own row, else its artisan's newest, else NOT_RECORDED."""
-    own = await latest_decision(media_id=str(_value(media, "id")))
-    if own is not None:
-        return str(own.decision)
-    artisan_id = _value(media, "artisanId")
+async def latest_decision(*, media_id: str | None = None, artisan_id: str | None = None) -> dict[str, Any] | None:
+    """The current row for one recording (its own answer) or one artisan, from the one store."""
+    if media_id:
+        return (await consent_gate.current_states(ledger.RECORDING, [media_id])).get(media_id)
     if artisan_id:
-        theirs = await latest_decision(artisan_id=str(artisan_id))
-        if theirs is not None:
-            return str(theirs.decision)
-    return NOT_RECORDED
+        return (await consent_gate.current_states(ledger.ARTISAN, [artisan_id])).get(artisan_id)
+    return None
 
 
 async def decision_for(media: Any) -> str:
-    """GRANTED, REFUSED or NOT_RECORDED for one stored recording, over both stores (module
-    docstring). Raises on a failed read."""
-    here = await _recorded_here(media)
-    if here == REFUSED:
-        return REFUSED
-    verdict = await ledger.verdict(str(_value(media, "id")))
-    if verdict == ledger.REFUSED:
-        return REFUSED
-    if here == GRANTED or verdict == ledger.ALLOW:
-        return GRANTED
-    return NOT_RECORDED
+    """GRANTED, REFUSED or NOT_RECORDED for one stored recording. Raises on a failed read."""
+    return ledger.state_for(await consent_gate.verdict(str(_value(media, "id"))))
 
 
 class RecordingConsentGate:
@@ -108,39 +87,32 @@ class ConsentRefused(Exception):
 async def record(
     *,
     decision: str,
-    actor_id: str | None,
+    actor_id: str,
     media_id: str | None = None,
     artisan_id: str | None = None,
     note: str | None = None,
-    source: str | None = None,
-    attested_at: Any = None,
-) -> Any:
-    """Append one decision. The newest row for a scope is the answer; older rows are the history."""
+) -> dict[str, Any]:
+    """Append one decision to the ledger and return it as :func:`payload` reads a row."""
     if decision not in DECISIONS:
         raise ValueError("decision must be GRANTED or REFUSED")
     if bool(media_id) == bool(artisan_id):
         raise ValueError("a consent is about one recording or one artisan")
-    data: dict[str, Any] = {
-        "decision": decision,
-        "attestedById": actor_id,
-        "note": (note or "").strip() or None,
-        "source": source,
-    }
     if media_id:
-        data["mediaFileId"] = media_id
-    if artisan_id:
-        data["artisanId"] = artisan_id
-    if attested_at is not None:
-        data["attestedAt"] = attested_at
-    return await db.recordingconsent.create(data=data)
+        await consent_gate.record_recording_consent(media_id, state=decision, actor_id=actor_id, note=note)
+    else:
+        await consent_gate.record_artisan_consent(
+            str(artisan_id), state=decision, basis=ledger.VERBAL_RECORDED, actor_id=actor_id, note=note
+        )
+    return await latest_decision(media_id=media_id, artisan_id=artisan_id) or {}
 
 
 def payload(row: Any | None, decision: str) -> dict[str, Any]:
+    """The ``/recording-consent`` wire shape, unchanged for the apps already installed."""
     return {
         "decision": decision,
-        "recorded": row is not None,
+        "recorded": bool(row),
         "granted": decision == GRANTED,
-        "note": _value(row, "note") if row is not None else None,
-        "source": _value(row, "source") if row is not None else None,
-        "attestedAt": _value(row, "attestedAt") if row is not None else None,
+        "note": _value(row, "note") if row else None,
+        "source": _value(row, "source") if row else None,
+        "attestedAt": _value(row, "recordedAt") if row else None,
     }
