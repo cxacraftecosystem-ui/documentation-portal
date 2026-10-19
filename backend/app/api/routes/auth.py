@@ -40,7 +40,6 @@ from google.oauth2 import id_token as google_id_token
 from app.core.config import get_settings
 from app.core.db import db
 from app.core.deps import (
-    ROLE_RANK,
     get_current_user,
     invalidate_cached_user,
     is_master_admin,
@@ -72,7 +71,15 @@ from app.schemas.auth import (
     TokenResponse,
     TwoFactorChallengeResponse,
 )
-from app.services import credential_links, email_outbox, mailer, oidc_sign_in, password_reset, two_factor
+from app.services import (
+    credential_links,
+    email_outbox,
+    mailer,
+    oidc_sign_in,
+    password_reset,
+    signin_role,
+    two_factor,
+)
 from app.services.access_roster import (
     ADMITTING_STATUS,
     INVALID_CREDENTIALS_DETAIL,
@@ -327,13 +334,12 @@ async def _sign_in_verified_address(
     # address — is exempt here exactly as they are on the password branch.
     await assert_access_admitted(email, existing)
 
-    # Only reachable for an admitted address (or the break-glass). ``grantedRole`` is the tier an
-    # administrator chose when they approved this person, and it is applied ONLY when provisioning
-    # or when it would be a PROMOTION — never as a demotion. A roster row that said
-    # CROWDSOURCE_VOLUNTEER because that was the default at approval time must not knock an admin,
-    # promoted afterwards through the users screen, back down to the bottom of the ladder on their
-    # next sign-in; that demotion would be invisible in the login response and would silently
-    # change who may review whose work.
+    # Only reachable for an admitted address (or the break-glass). ``grantedRole`` is the role an
+    # administrator chose when they approved this person, and it is applied ONLY WHEN THE ACCOUNT
+    # IS CREATED (the sign-in list rule, 2026-10-18, ``services/signin_role``). It never raises an
+    # existing account (a sign-in that changed somebody's powers would do it invisibly, with no
+    # administrator's name on it and no audit entry) and never lowers one (a row left at the
+    # default must not knock an admin, promoted since on Manage users, back to the bottom rung).
     admitted = await roster_row(email)
     granted = role_value(getattr(admitted, "grantedRole", None))
 
@@ -347,11 +353,11 @@ async def _sign_in_verified_address(
             data.update({"avatarUrl": avatar_url, "authProvider": "GOOGLE"})
         elif str(getattr(existing.authProvider, "value", existing.authProvider) or "").upper() == "LOCAL":
             data["authProvider"] = provider
+        # The configured master admin address is the break-glass, not the list: it is restored to
+        # MASTER_ADMIN as it always was. Nobody else's role is written here.
         if role == "MASTER_ADMIN":
             data["role"] = "MASTER_ADMIN"
             data["canManageQuestionnaire"] = True
-        elif granted and ROLE_RANK.get(granted, 0) > role_rank(existing):
-            data["role"] = granted
         updated = await db.user.update(
             where={"email": email},
             data=data,
@@ -363,13 +369,11 @@ async def _sign_in_verified_address(
         invalidate_cached_user(updated.id)
         return updated
 
-    if granted and ROLE_RANK.get(granted, 0) > ROLE_RANK.get(role, 0):
-        # A brand-new account for an address an administrator admitted at a tier above the signup
-        # floor. Without this the person an admin deliberately approved as, say, a RESEARCHER would
-        # arrive at a home screen with a volunteer's powers and no way to create anything, and the
-        # admin would have to go and promote them a second time — the manual step the roster's
-        # ``grantedRole`` column exists to remove.
-        role = granted
+    if role != "MASTER_ADMIN":
+        # A brand-new account for an address an administrator admitted, at the role they chose and
+        # never below the signup floor. Without this the person an admin deliberately approved as,
+        # say, a RESEARCHER would arrive at a home screen with a volunteer's powers.
+        role = signin_role.role_for_new_account(role, granted)
 
     created = await db.user.create(
         data={

@@ -96,6 +96,16 @@ import kotlinx.coroutines.launch
 private const val ROSTER_PAGE_SIZE = 20
 
 /**
+ * The sign-in list rule's copy (2026-10-18), byte for byte the server's `signin_role.NEW_ACCOUNTS_ONLY`
+ * and `shared/signin-role-contract.json`: the list sets the role of NEW accounts only.
+ */
+private const val NEW_ACCOUNTS_ONLY = "New accounts only. To change an existing account, use Manage users."
+
+/** The server's `accountPromotionHeld` sentence on a decision's answer, or null. */
+internal fun heldSentence(answer: Any?): String? =
+    (answer as? AccessRosterDto)?.accountPromotionHeld?.trim()?.ifBlank { null }
+
+/**
  * How much of the pending queue the top section shows at once.
  *
  * Bounded, and the remainder is STATED rather than silently dropped — see [accessQueueNotice]. A
@@ -228,8 +238,10 @@ fun AccessRosterScreen(
                 else repository.rejectAccessRosterEntry(entry.id)
             }
                 .onSuccess { updated ->
+                    // The sign-in list rule: an approval that left an existing account's role alone
+                    // answers the server's sentence, which replaces this screen's own receipt.
                     notice = if (approve) {
-                        "${updated.email} can sign in, as ${roleLabelFor(updated.grantedRole)}."
+                        heldSentence(updated) ?: "${updated.email} can sign in, as ${roleLabelFor(updated.grantedRole)}."
                     } else {
                         "${updated.email} refused. You can approve them later."
                     }
@@ -365,7 +377,7 @@ fun AccessRosterScreen(
                     // "All the users by default join as the lowest rung unless promoted there
                     // itself" — this control is the "there itself", and the server bounds it by the
                     // admin's own tier so it can never hand out more than the admin holds.
-                    "Defaults to the lowest role.",
+                    "Defaults to the lowest role. $NEW_ACCOUNTS_ONLY",
                     color = Muted,
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -432,8 +444,10 @@ fun AccessRosterScreen(
                                 )
                             }
                                 .onSuccess { created ->
-                                    notice = accessAddedLine(created.email, signIn) + " " +
-                                        "Joins as ${roleLabelFor(created.grantedRole)}."
+                                    // Adding admits the address like an approval: an account already
+                                    // there at another role keeps it, and the server says so.
+                                    notice = heldSentence(created) ?: (accessAddedLine(created.email, signIn) + " " +
+                                        "Joins as ${roleLabelFor(created.grantedRole)}.")
                                     newEmail = ""
                                     newName = ""
                                     newNote = ""
@@ -522,7 +536,7 @@ fun AccessRosterScreen(
                             busyId = entry.id
                             error = null
                             runCatching { repository.approveAccessRosterEntry(entry.id, entry.grantedRole) }
-                                .onSuccess { notice = "${it.email} can sign in again."; reload() }
+                                .onSuccess { notice = heldSentence(it) ?: "${it.email} can sign in again."; reload() }
                                 .onFailure { error = it.apiErrorMessage("Unable to restore this entry") }
                             busyId = null
                         }
@@ -596,6 +610,7 @@ private fun PendingRequestRow(
             enabled = !busy,
             onSelect = { role = it }
         )
+        Text(NEW_ACCOUNTS_ONLY, color = Muted, style = MaterialTheme.typography.bodySmall)
         ActionRow {
             Button(enabled = !busy, onClick = { onApprove(role) }) {
                 Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))

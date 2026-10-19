@@ -142,7 +142,7 @@ data class PendingEntry(
      * Aadhaar number — so the tray can offer "Use existing artisan" instead of a second copy.
      */
     val existingRecordId: String? = null,
-    val existingRecordLabel: String? = null,
+    val existingRecordLabel: String? = null,
     /**
      * THE SERVER HELD THIS ARTISAN AS A LIKELY DUPLICATE when it synced (409
      * `artisan_possible_duplicate`). Not a clash and not a refusal: the register recognised

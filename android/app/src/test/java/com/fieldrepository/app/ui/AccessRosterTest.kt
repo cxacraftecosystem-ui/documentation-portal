@@ -1,5 +1,6 @@
 package com.fieldrepository.app.ui
 
+import com.fieldrepository.app.data.AccessRosterDto
 import com.fieldrepository.app.data.CONNECTION_FAILED_SENTENCE
 import com.fieldrepository.app.data.apiFailure
 import com.fieldrepository.app.data.statusSentence
@@ -234,5 +235,14 @@ class AccessRosterTest {
         assertEquals(statusSentence(404), httpFailure(404, """{"detail":"Not Found"}""").apiFailure("x").message)
         assertEquals(statusSentence(403), httpFailure(403, "").apiFailure("x").message)
         assertEquals("Unable to load", RuntimeException("HTTP 403 Forbidden").apiFailure("Unable to load").message)
+    }
+
+    @Test
+    fun `an approval that kept an account's role shows the server's sentence, and nothing else does`() {
+        val said = "a@example.org already has an account, as Researcher. Its role stays; change it on Manage users."
+        assertEquals(said, heldSentence(AccessRosterDto(email = "a@example.org", accountPromotionHeld = "  $said ")))
+        assertNull(heldSentence(AccessRosterDto(email = "a@example.org")))
+        assertNull(heldSentence(AccessRosterDto(email = "a@example.org", accountPromotionHeld = "   ")))
+        assertNull(heldSentence(Unit))
     }
 }

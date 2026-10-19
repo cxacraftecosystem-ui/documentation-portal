@@ -22,7 +22,7 @@ from app.core.deps import (
 )
 from app.core.security import hash_password
 from app.schemas.users import UserCreate, UserUpdate
-from app.services import credential_links, email_outbox, mailer
+from app.services import credential_links, email_outbox, mailer, signin_role
 from app.services.access_roster import ensure_admitted
 from app.core.user_fields import public_user
 from app.services.two_factor import CLEAR_FAILURES
@@ -478,7 +478,14 @@ async def update_user(
     if ends_sessions:
         data["sessionsValidFrom"] = now
     promoted = "role" in data and ROLE_RANK.get(str(data["role"]), 0) > role_rank(user)
+    role_before = user.role  # read before the write: the audit line's "from"
     updated = await db.user.update(where={"id": user_id}, data=data)
+    # THE AUDIT ENTRY FOR A CHANGE OF ROLE (the sign-in list rule, ``services/signin_role``): this is
+    # the one door that changes an existing account's role, so it is the one that records it.
+    if "role" in data:
+        signin_role.audit_role_change(
+            user_id=user_id, actor_id=current_user.id, before=role_before, after=updated.role, via="users"
+        )
     if "email" in data and data["email"] != previous_email:
         # CHANGING SOMEBODY'S ADDRESS MOVES THEM PAST THEIR OWN ROSTER ROW. The gate is keyed by
         # email — that is what lets an admin admit a person before their account exists — so an
