@@ -778,3 +778,29 @@ def test_a_busy_failing_or_unreachable_provider_retries(fake, provider, error):
 def test_the_failed_translation_note_names_no_action_a_reader_may_not_have():
     assert ti.TRANSLATION_FAILED_NOTE == "The translation couldn't be finished."
     assert "egenerate" not in ti.TRANSLATION_FAILED_NOTE
+
+
+def test_the_translation_instruction_matches_designer_portal(fake, provider):
+    media = fake.add_media(transcriptText=HINDI, transcriptStatus="COMPLETED")
+    provider.replies = [summary_reply(), "Translated."]
+    asyncio.run(ti.generate(media, user_id=None))
+    assert provider.calls[1][1].startswith(
+        "Translate the following into English. Return the translation and nothing else — "
+        "no preamble and no note about the translation.\n\n"
+    )
+
+
+def test_signed_out_callers_are_refused_before_the_flag_is_read(fake, monkeypatch):
+    from app.api.routes import transcript_insights as routes
+
+    monkeypatch.setattr(ti, "enabled", lambda: False)
+    app = FastAPI()
+    app.include_router(routes.router, prefix="/api")
+    client = TestClient(app)
+    responses = [
+        client.get("/api/media/m1/insights"),
+        client.get("/api/media/insights?ids=m1"),
+        client.patch("/api/media/m1/insights", json={"version": 1, "summaryLines": ["x"]}),
+        client.post("/api/media/m1/insights/regenerate", json={}),
+    ]
+    assert [r.status_code for r in responses] == [401] * 4

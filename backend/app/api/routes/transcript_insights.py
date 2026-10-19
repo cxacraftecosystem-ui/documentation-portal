@@ -28,7 +28,9 @@ router = APIRouter(prefix="/media", tags=["media"])
 BATCH_MAX = 50
 
 
-def require_enabled() -> None:
+def require_enabled(_user: Any = Depends(get_current_user)) -> None:
+    """404 while the switch is off, AFTER authentication, so a caller with no session is refused
+    as on every other route rather than told whether the feature exists."""
     if not insights.enabled():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 

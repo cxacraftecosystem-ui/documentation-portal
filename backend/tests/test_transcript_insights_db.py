@@ -127,6 +127,14 @@ async def test_enqueue_and_generate_through_the_real_client(client, monkeypatch)
     assert (await ti.current_insight(media_id)).id == rows[1].id
 
 
+async def test_the_drain_filter_on_the_job_type_is_valid_sql(client):
+    """``not_in`` on the enum column, as the drain sends it with both kinds held back."""
+    rows = await client.mediaprocessingjob.find_many(
+        where={"jobType": {"not_in": ["TRANSCRIPTION", "TRANSCRIPT_INSIGHTS"]}}, take=1
+    )
+    assert isinstance(rows, list)
+
+
 async def test_a_regenerate_claims_an_automatic_job_once(client):
     from app.services import transcript_insights as ti
 

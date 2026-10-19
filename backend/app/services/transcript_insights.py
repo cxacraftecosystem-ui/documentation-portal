@@ -465,7 +465,8 @@ async def translate(primary: str, user_id: str | None) -> dict[str, Any]:
         try:
             result = await _chat(
                 TRANSLATE_SYSTEM,
-                "Translate into English. Reply with the translation only.\n\n" + chunk,
+                "Translate the following into English. Return the translation and nothing else — "
+                "no preamble and no note about the translation.\n\n" + chunk,
                 AiTask.TRANSLATE,
                 user_id,
             )
