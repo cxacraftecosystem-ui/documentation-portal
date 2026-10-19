@@ -7,8 +7,9 @@ designer-portal's gate calls. This module adds only what is this portal's: WHO a
 One question, asked before ANY outside send (speech-to-text, AI summary, insights, translation,
 answer drafting, search embeddings): may this recording leave the server? Text about people that is
 no one recording (an answer draft from a pasted transcript) asks :func:`interview_verdict`, the same
-rule over the interview's artisans. ``verdict(media)`` answers ALLOW, AWAITING or
-REFUSED:
+rule over the interview's artisans. Consent is ASSUMED BY DEFAULT and anyone can revoke it (owner
+decision, 19 Oct 2026: "the consent should be assumed by default, people can revoke it if
+required"). ``verdict(media)`` answers ALLOW or REFUSED:
 
 1. the recording's own current ``RECORDING`` row: REFUSED -> REFUSED; GRANTED -> ALLOW unless a
    subject refused later than that grant. The owner's attestation of 18 Oct 2026 writes these
@@ -17,9 +18,11 @@ REFUSED:
 2. the subjects are the recording's ANSWERED and PRESENT subjects; for media outside the
    questionnaire, the artisans of its linked record;
 3. any subject REFUSED -> REFUSED (``transcriptStatus = REFUSED_CONSENT``);
-4. every subject GRANTED -> ALLOW;
-5. otherwise, including a recording with no artisan subject -> AWAITING (``AWAITING_CONSENT``).
-   When consent is recorded later the item moves on by itself, subject to the pause.
+4. otherwise ALLOW: a subject with no answer counts as agreeing, and so does a recording with no
+   artisan subject. A later GRANTED after a refusal allows again and re-enqueues, subject to the pause.
+
+``AWAITING`` stays in the vocabulary only because recordings stored before 19 Oct 2026 can still
+carry ``AWAITING_CONSENT``; ``scripts/release_awaiting_consent.py`` moves them on.
 
 THE OLDER ``RecordingConsent`` TABLE IS READ ONLY AS A FALLBACK. Its rows are copied into the ledger
 by ``scripts/migrate_recording_consent_to_ledger.py`` (dry run first); until then
@@ -123,7 +126,7 @@ async def _media_subjects(media_id: str, client: Any) -> list[str]:
         return [str(row["artisanId"]) for row in rows]
     has_recording = await db.query_raw('SELECT 1 FROM "QuestionnaireRecording" WHERE "mediaFileId" = $1', media_id)
     if has_recording:
-        return []  # a questionnaire recording with no artisan subject: AWAITING
+        return []  # a questionnaire recording with no artisan subject: sent (no answer)
     rows = await db.query_raw(
         'SELECT m."artisanId" AS a FROM "MediaFile" m WHERE m."id" = $1 AND m."artisanId" IS NOT NULL '
         'UNION SELECT qa."artisanId" FROM "MediaFile" m JOIN "QuestionnaireInterviewArtisan" qa '
@@ -142,16 +145,18 @@ async def verdict(media: Any, *, client: Any = None) -> Verdict:
     return (await _decided(media_id, client))[0]
 
 
-async def _decided(media_id: str, client: Any) -> tuple[Verdict, dict[str, Any] | None]:
+async def _decided(media_id: str, client: Any) -> tuple[Verdict, dict[str, Any] | None, bool]:
+    """The verdict, the recording's own row, and whether any answer at all is on record."""
     grant = (await current_states(ledger.RECORDING, [media_id], client=client)).get(media_id)
     subjects = await _media_subjects(media_id, client)
     states = await current_states(ledger.ARTISAN, subjects, client=client)
-    return decide(grant, [states.get(artisan_id) for artisan_id in subjects]), grant
+    rows = [states.get(artisan_id) for artisan_id in subjects]
+    return decide(grant, rows), grant, grant is not None or any(rows)
 
 
 async def artisans_verdict(artisan_ids: Iterable[str], *, client: Any = None) -> Verdict:
-    """The rule for text that is about people but is no one recording (rules 3 to 5): every artisan
-    GRANTED allows, one REFUSED refuses, anything else (including no artisan at all) waits."""
+    """The rule for text that is about people but is no one recording (rules 3 and 4): one REFUSED
+    refuses; otherwise it is sent (no answer, or no artisan at all, counts as agreeing)."""
     ids = list(dict.fromkeys(str(i) for i in artisan_ids if i))
     states = await current_states(ledger.ARTISAN, ids, client=client)
     return decide(None, [states.get(artisan_id) for artisan_id in ids])
@@ -168,12 +173,12 @@ async def interview_verdict(interview_id: str, *, client: Any = None) -> Verdict
 
 async def verdict_detail(media_id: str, *, client: Any = None) -> dict[str, Any]:
     """``{"verdict", "source"}`` for a take row: the recording's own grant's source (the owner's
-    attestation of 18 Oct) when that grant is what lets it go, else "researcher" when the subjects'
-    consent recorded in the app decided it."""
-    result, grant = await _decided(media_id, client)
+    attestation of 18 Oct) when that grant is what lets it go, else "researcher" when an answer
+    recorded in the app decided it, else None (no answer on record: consent assumed by default)."""
+    result, grant, answered = await _decided(media_id, client)
     if result == ALLOW and (grant or {}).get("state") == ledger.GRANTED:
         return {"verdict": ALLOW, "source": (grant or {}).get("source") or SOURCE_OWNER}
-    return {"verdict": result, "source": SOURCE_RESEARCHER if result != AWAITING else None}
+    return {"verdict": result, "source": SOURCE_RESEARCHER if answered else None}
 
 
 class DocumentationConsentGate:

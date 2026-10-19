@@ -670,6 +670,14 @@ practice, where the researcher was sitting. The stated-address group (`state`, `
 misrepresents the subject's location; publishing it at all discloses the researcher's. See
 [DATA_MODEL.md §2.4](DATA_MODEL.md).
 
+**Sending people's words to an outside service is opt-out (owner decision, 2026-10-19).** Consent is
+assumed by default and anyone can revoke it: before speech-to-text, AI summaries, translation, answer
+drafting or search embeddings, the shared rule (`backend/app/transcription/ledger.py`, the same file in
+both portals, applied by `backend/app/services/consent_gate.py`) refuses only when a refusal is on
+record for the recording or one of its artisans. No answer sends; a later grant after a refusal sends
+again and re-queues the held recordings. A consent store that cannot be read sends nothing. The
+"Recordings may be transcribed" switch is on by default; switching it off records the refusal.
+
 ### 4A.3 Duplicate finder and merges
 
 - Candidate rows, reasons and logs carry codes ("Same Aadhaar", "Same district"), never an

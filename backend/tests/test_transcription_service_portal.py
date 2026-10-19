@@ -297,10 +297,16 @@ def test_an_artisans_answer_covers_every_recording_of_them(monkeypatch) -> None:
     assert _verdict(monkeypatch, {("ARTISAN", "a-1"): "GRANTED"}, media).may_send
 
 
-def test_no_answer_is_not_recorded_and_is_not_sent(monkeypatch) -> None:
-    verdict = _verdict(monkeypatch, {}, SimpleNamespace(id="m-3", artisanId=None))
-    assert not verdict.may_send and verdict.decision == "NOT_RECORDED"
-    assert verdict.refusal.startswith("Consent not recorded.")
+def test_no_answer_is_consent_assumed_by_default_and_is_sent(monkeypatch) -> None:
+    assert _verdict(monkeypatch, {}, SimpleNamespace(id="m-3", artisanId=None)).may_send
+    assert _verdict(monkeypatch, {}, SimpleNamespace(id="m-3", artisanId="a-9")).may_send
+
+
+def test_an_artisan_switching_off_stops_the_send_and_switching_on_allows_it(monkeypatch) -> None:
+    media = SimpleNamespace(id="m-5", artisanId="a-1")
+    refused = _verdict(monkeypatch, {("ARTISAN", "a-1"): "REFUSED"}, media)
+    assert not refused.may_send and refused.decision == "REFUSED"
+    assert _verdict(monkeypatch, {("ARTISAN", "a-1"): "GRANTED"}, media).may_send
 
 
 def test_a_failed_read_refuses_rather_than_sends(monkeypatch) -> None:
@@ -343,7 +349,7 @@ def test_enqueue_keeps_the_recording_and_notes_why_it_was_not_sent(monkeypatch) 
     )
     assert jobs == [] and created == []
     assert notes[0]["data"]["transcriptStatus"] == media_queue.FAILED
-    assert notes[0]["data"]["transcriptError"].startswith("Consent not recorded.")
+    assert notes[0]["data"]["transcriptError"].startswith("The consent record could not be read")
 
 
 # --- The data script that merges RecordingConsent into the ledger: dry run first, copies once ----

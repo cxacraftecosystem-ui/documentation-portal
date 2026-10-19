@@ -73,8 +73,8 @@ export function sessionCreateBody(form: StartSheetState, clientKey: string, now 
 
 /**
  * The start sheet (DESIGN §4.2). No title field: the generated title is previewed above Start as it
- * will be saved. The consent question shows inline for a chosen artisan without a consent row and
- * never blocks Start. The session is created through the outbox, so Start works offline.
+ * will be saved. The consent notice shows inline for a chosen artisan who has not agreed explicitly
+ * (consent is assumed by default, with Switch off beside it) or who refused, and never blocks Start. The session is created through the outbox, so Start works offline.
  */
 export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initialArtisanIds?: string[]; onStarted?: (key: string) => void }) {
   const router = useRouter();
@@ -96,7 +96,7 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
     languageOther: "",
     note: ""
   });
-  const [consentAsked, setConsentAsked] = useState<Record<string, "ASK" | "DONE">>({});
+  const [consentAsked, setConsentAsked] = useState<Record<string, "ASK" | "REFUSED" | "DONE">>({});
   const [coverage, setCoverage] = useState<ArtisanCoverage[]>([]);
   const [openMatch, setOpenMatch] = useState<OpenMatchItem | null>(null);
   const [busy, setBusy] = useState(false);
@@ -141,13 +141,13 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
     if (w?.questionnaireId) setForm((f) => ({ ...f, questionnaireId: w.questionnaireId! }));
   }, [form.workshopId, workshops]);
 
-  // Consent: ask for each chosen artisan whose current row is missing.
+  // Consent: tell the researcher for each chosen artisan with no answer (assumed, can be switched off) or a refusal.
   useEffect(() => {
     for (const id of form.artisanIds) {
       if (consentAsked[id]) continue;
       void questionnaireApi
         .getConsent(id)
-        .then((c) => setConsentAsked((m) => ({ ...m, [id]: c.state === "NOT_RECORDED" ? "ASK" : "DONE" })))
+        .then((c) => setConsentAsked((m) => ({ ...m, [id]: c.state === "GRANTED" ? "DONE" : c.state === "REFUSED" ? "REFUSED" : "ASK" })))
         .catch(() => setConsentAsked((m) => ({ ...m, [id]: "DONE" })));
     }
   }, [form.artisanIds, consentAsked]);
@@ -306,12 +306,13 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
           </p>
         ) : null}
         {chosen
-          .filter((a) => consentAsked[a.id] === "ASK")
+          .filter((a) => consentAsked[a.id] === "ASK" || consentAsked[a.id] === "REFUSED")
           .map((a) => (
             <ConsentQuestion
               key={a.id}
               artisanId={a.id}
               name={a.name}
+              refused={consentAsked[a.id] === "REFUSED"}
               onDismiss={() => setConsentAsked((m) => ({ ...m, [a.id]: "DONE" }))}
             />
           ))}

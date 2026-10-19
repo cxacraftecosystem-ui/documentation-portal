@@ -6,8 +6,8 @@
    2026). While paused, a job is still written as QUEUED, so nothing is lost, and the worker never
    picks it up (``services/media_queue.process_next_media_jobs``). No provider is called and nothing
    is retried;
-2. **the consent gate** (``services/consent_gate``): REFUSED -> ``REFUSED_CONSENT``, AWAITING ->
-   ``AWAITING_CONSENT``, and no job. Recording that consent later re-enqueues;
+2. **the consent gate** (``services/consent_gate``): REFUSED -> ``REFUSED_CONSENT`` and no job.
+   Consent is assumed by default (19 Oct 2026), so no answer is sent; a later grant re-enqueues;
 3. **dedup**: a verified byte-identical copy of a file that already has a COMPLETED transcript
    copies that transcript (``SKIPPED_DUPLICATE``) instead of paying for the audio twice;
 4. otherwise one QUEUED TRANSCRIPTION job, never two open ones per file.

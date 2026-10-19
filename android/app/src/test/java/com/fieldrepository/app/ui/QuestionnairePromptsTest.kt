@@ -82,7 +82,8 @@ class QuestionnairePromptsTest {
         assertEquals("Update when you have Wi-Fi. Your recordings are safe.", QuestionnaireCopy.s("p14.banner"))
         assertEquals("2 takes will keep uploading in the background.", QuestionnaireCopy.leaveBody(2))
         assertEquals("6 sections recorded for 3 artisans. 2 takes still uploading.", QuestionnaireCopy.finishBody(6, 3, 2))
-        assertEquals("May recordings of Giriraj be sent to outside services to be written down or translated?", QuestionnaireCopy.consentQuestion("Giriraj"))
+        assertEquals("Recordings of Giriraj may be sent to outside services to be written down or translated.", QuestionnaireCopy.consentNotice("Giriraj"))
+        assertEquals("Recordings of Giriraj are not sent to outside services: consent was refused.", QuestionnaireCopy.consentNotice("Giriraj", refused = true))
         assertEquals("Nandini started one with Giriraj and Meena at 10:12.", QuestionnaireCopy.p1Body("Nandini", listOf("Giriraj", "Meena"), Instant.parse("2026-07-01T04:42:00Z")))
     }
 

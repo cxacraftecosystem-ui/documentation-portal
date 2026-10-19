@@ -191,10 +191,11 @@ fun SessionStartSheet(
                 ) { form = form.copy(artisanIds = listOf(it)) }
             }
             coverageLine(v2, form, byId, questionnaires.firstOrNull { it.id == form.questionnaireId }?.sectionCount)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted) }
-            form.artisanIds.filter { consent.containsKey(it) && (consent[it] == null || consent[it] == "NOT_RECORDED") }.take(3).forEach { id ->
-                ConsentQuestion(byId[id]?.name.orEmpty(), onAnswer = { state ->
+            // Consent is assumed by default: a notice with Switch off for no answer, Switch back on after a refusal.
+            form.artisanIds.filter { consent.containsKey(it) && consent[it] in setOf(null, "NOT_RECORDED", "REFUSED") }.take(3).forEach { id ->
+                ConsentQuestion(byId[id]?.name.orEmpty(), refused = consent[id] == "REFUSED", onAnswer = { state ->
                     if (state == null) consent[id] = "SKIPPED" else {
-                        consent[id] = state
+                        consent[id] = "SKIPPED"
                         scope.launch { v2.recordConsent(id, state) }
                     }
                 })

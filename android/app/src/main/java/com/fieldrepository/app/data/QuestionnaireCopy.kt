@@ -133,9 +133,9 @@ object QuestionnaireCopy {
         "solo" to "Solo",
         "transcriptionPaused" to "Transcription paused",
         "transcriptionPausedReason" to "Transcription is paused.",
-        "waitingForConsent" to "Waiting for consent to transcribe",
+        "waitingForConsent" to "Waiting to be sent",
         "consentRefusedStatus" to "Not sent: consent refused",
-        "recordConsent" to "Record consent",
+        "recordConsent" to "Change consent",
         "retry" to "Retry",
         "transcribeNow" to "Transcribe now",
         "presentDidntAnswer" to "Present, didn't answer",
@@ -150,10 +150,10 @@ object QuestionnaireCopy {
         "moreTakes" to "{count} more takes",
         "retiredQuestions" to "Retired questions",
         "showRemoved" to "Show removed ({count})",
-        "consentQuestion" to "May recordings of {name} be sent to outside services to be written down or translated?",
-        "consentNotNow" to "Not now",
-        "consentYes" to "Yes, recorded",
-        "consentNo" to "No",
+        "consentNotice" to "Recordings of {name} may be sent to outside services to be written down or translated.",
+        "consentRefusedNotice" to "Recordings of {name} are not sent to outside services: consent was refused.",
+        "consentSwitchOff" to "Switch off",
+        "consentSwitchOn" to "Switch back on",
         "recordSummary" to "{covered} of {total} sections · {sessions} sessions · {repeats} repeats",
         "openSections" to "Open: {codes}",
         "continueWith" to "Continue with {name}",
@@ -220,9 +220,9 @@ object QuestionnaireCopy {
         "p1.title" to "openMatchTitle",
         "p1.new" to "openMatchNew",
         "p1.join" to "openMatchJoin",
-        "consent.notNow" to "consentNotNow",
-        "consent.yes" to "consentYes",
-        "consent.no" to "consentNo",
+        "consent.ok" to "ok",
+        "consent.switchOff" to "consentSwitchOff",
+        "consent.switchOn" to "consentSwitchOn",
         "consent.waiting" to "waitingForConsent",
         "consent.record" to "recordConsent",
         "workspace.finish" to "finish",
@@ -334,7 +334,6 @@ object QuestionnaireCopy {
         "sessions.builder" to "Builder",
         "sessions.join" to "Join session",
         "start.artisan" to "Artisan",
-        "consent.more" to "More",
         "inbox.nothing" to "Nothing to sort out.",
         "inbox.error" to "Couldn't load the inbox.",
         "join.scan" to "Scan QR code",
@@ -420,7 +419,9 @@ object QuestionnaireCopy {
     fun p1Body(researcher: String, names: List<String>, startedAt: Instant): String =
         t("openMatchBody", "researcher" to researcher, "artisans" to joinNames(names), "time" to clock(startedAt))
 
-    fun consentQuestion(firstName: String) = t("consentQuestion", "name" to firstName)
+    /** Consent is assumed by default (19 Oct 2026): the notice, or the refusal on record. */
+    fun consentNotice(firstName: String, refused: Boolean = false) =
+        t(if (refused) "consentRefusedNotice" else "consentNotice", "name" to firstName)
 
     // ── Workspace ─────────────────────────────────────────────────────────────────────────────
 

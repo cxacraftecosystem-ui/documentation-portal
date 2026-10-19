@@ -450,9 +450,8 @@ async def test_a_withdrawn_consent_stops_a_draft_from_pasted_text(world):
     assert world.asked == []
 
 
-async def test_pasted_text_in_an_interview_with_no_participant_waits_for_consent(world):
+async def test_pasted_text_in_an_interview_with_no_participant_is_drafted_by_default(world):
+    """Consent is assumed by default (19 Oct 2026): nobody refused, so the text is sent."""
     world.db.questionnaireinterview.rows.append({"id": "i2", "questionnaireId": "qn1", "createdById": "u1"})
-    with pytest.raises(HTTPException) as exc:
-        await routes.draft_section("i2", routes.DraftIn(sectionId="s1", transcript="Words."), USER)
-    assert exc.value.status_code == 409 and exc.value.detail == routes.CONSENT_NOT_RECORDED
-    assert world.asked == []
+    await routes.draft_section("i2", routes.DraftIn(sectionId="s1", transcript="Words."), USER)
+    assert world.asked != []

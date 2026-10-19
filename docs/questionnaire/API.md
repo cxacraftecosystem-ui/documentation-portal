@@ -46,7 +46,9 @@ in `Content-Disposition`; `kind=meta` answers the contract's `CorpusMeta`.
   is stored: positions, grids and snapshots are read from it.
 - **The consent gate:** `backend/app/services/consent_gate.py`. It is asked before every outside send
   (transcription, refinement, AI summaries and translation, answer drafting, search embeddings) and
-  never by recording, upload, filing or review. Summaries are asked when queued and again when the
+  never by recording, upload, filing or review. Consent is assumed by default (owner decision,
+  2026-10-19): only a recorded refusal stops a send, and recording `GRANTED` after a refusal re-queues
+  the artisan's held recordings. Summaries are asked when queued and again when the
   job runs; a draft from pasted text asks for the interview's participants; a transcript whose
   recording may not leave is not embedded, and is asked again whenever new consent is recorded.
 - **Transcription:** `backend/app/transcription/__init__.py`. `enqueue` is the only door; it checks the

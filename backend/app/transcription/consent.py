@@ -1,7 +1,8 @@
 """The consent rule, the same in both portals.
 
-Missing consent blocks ONLY sending a recording to an outside service (transcription, AI summary,
-translation). Recording is never blocked. Both portals keep every consent in ONE store, the
+Consent is assumed by default and anyone can revoke it (owner decision, 19 Oct 2026). A recorded
+refusal blocks ONLY sending a recording to an outside service (transcription, AI summary,
+translation); no answer on record counts as agreeing. Recording is never blocked. Both portals keep every consent in ONE store, the
 ``Consent`` ledger, and decide it with ONE rule (:mod:`ledger` in this package). Each portal names
 who a recording is about and hands the package a :class:`ConsentVerdict`:
 
@@ -28,8 +29,9 @@ GRANTED = "GRANTED"
 REFUSED = "REFUSED"
 NOT_RECORDED = "NOT_RECORDED"
 
-CONSENT_NOT_RECORDED_MESSAGE = (
-    "Consent not recorded. Record it to send this recording for transcription."
+#: Only for a consent store that could not be read: nothing is sent and the send is tried again.
+CONSENT_UNREADABLE_MESSAGE = (
+    "The consent record could not be read, so nothing was sent. It will be tried again."
 )
 CONSENT_REFUSED_MESSAGE = "Consent was refused, so this recording stays on this server."
 
@@ -42,11 +44,15 @@ class ConsentVerdict:
 
 
 def verdict_for(decision: str | None) -> ConsentVerdict:
+    """GRANTED and NOT_RECORDED (no answer, which counts as agreeing) send; REFUSED does not. None,
+    or a word this cannot read, is a store that could not be read: nothing is sent, never a guess."""
     if decision == GRANTED:
         return ConsentVerdict(True, GRANTED)
+    if decision == NOT_RECORDED:
+        return ConsentVerdict(True, NOT_RECORDED)
     if decision == REFUSED:
         return ConsentVerdict(False, REFUSED, CONSENT_REFUSED_MESSAGE)
-    return ConsentVerdict(False, NOT_RECORDED, CONSENT_NOT_RECORDED_MESSAGE)
+    return ConsentVerdict(False, NOT_RECORDED, CONSENT_UNREADABLE_MESSAGE)
 
 
 class ConsentGate(Protocol):

@@ -820,7 +820,7 @@ def test_signed_out_callers_are_refused_before_the_flag_is_read(fake, monkeypatc
 # --------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("withdrawn", ["REFUSED", "NOT_RECORDED"])
+@pytest.mark.parametrize("withdrawn", ["REFUSED"])
 def test_a_withdrawn_consent_queues_no_insights_job_from_any_trigger(fake, provider, monkeypatch, withdrawn):
     from app.api.routes import media as media_routes
 

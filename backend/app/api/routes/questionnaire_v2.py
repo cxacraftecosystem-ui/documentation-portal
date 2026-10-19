@@ -331,8 +331,9 @@ async def artisan_consent_get(
 @artisans_router.post("/{artisan_id}/consent", status_code=status.HTTP_201_CREATED)
 async def artisan_consent_post(artisan_id: str, request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
     """Append one consent row (append-only: a change is a new row). Never blocks recording; it only
-    decides whether a recording of this artisan may be SENT OUTSIDE. Recording GRANTED re-enqueues
-    their waiting recordings (still subject to the pause)."""
+    decides whether a recording of this artisan may be SENT OUTSIDE. Consent is assumed by default
+    (19 Oct 2026), so a refusal is what stops a send; recording GRANTED after one re-enqueues their
+    held recordings (still subject to the pause, and to anyone else's refusal)."""
     from app.core.db import db
 
     payload = await parse(request, S.ConsentPost)
@@ -346,7 +347,7 @@ async def artisan_consent_post(artisan_id: str, request: Request, user: Any = De
         waiting = await db.query_raw(
             'SELECT DISTINCT m."id" FROM "MediaFile" m JOIN "QuestionnaireRecording" r ON r."mediaFileId" = m."id" '
             'JOIN "QuestionnaireRecordingSubject" s ON s."recordingId" = r."id" WHERE s."artisanId" = $1 '
-            "AND m.\"transcriptStatus\" = 'AWAITING_CONSENT' AND m.\"removedAt\" IS NULL",
+            "AND m.\"transcriptStatus\" IN ('AWAITING_CONSENT', 'REFUSED_CONSENT') AND m.\"removedAt\" IS NULL",
             artisan_id,
         )
         for row in waiting:

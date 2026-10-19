@@ -14,19 +14,20 @@ recording (the owner's attestation of 18 Oct 2026 is written per recording); ``U
 usage-analytics consent.
 
 THE RULE (:func:`decide`), asked before anything leaves the server for an outside service
-(speech-to-text, AI summaries and insights, translation, answer drafting, search embeddings):
+(speech-to-text, AI summaries and insights, translation, answer drafting, search embeddings). Consent
+is ASSUMED BY DEFAULT and anyone can take it back (owner decision, 19 Oct 2026: "the consent should be
+assumed by default, people can revoke it if required"):
 
 1. a REFUSED row for the recording itself refuses;
 2. a GRANTED row for the recording allows, unless one of its subjects refused LATER than that grant
    (a withdrawal after the owner's attestation still stops the send);
 3. otherwise any subject that refused refuses;
-4. otherwise every subject granted allows;
-5. otherwise, including a recording with no subject at all, it waits (``AWAITING``): nothing is sent
-   and nothing is lost; once consent is recorded the recording moves on by itself.
+4. otherwise it is sent: a subject with no answer on record counts as agreeing, and so does a
+   recording with no subject at all. A later GRANTED row after a refusal allows again, because each
+   subject is read at its newest row.
 
-designer-portal asks the rule only once a recording has a workshop or any consent row (its own or one
-of its artisans'); a recording with neither, such as a designer's own dictation, is sent as it always
-was (``services/dictation_consent.py`` there says why).
+``AWAITING`` is kept in the vocabulary for stored statuses written before the rule changed; the rule
+itself never answers it.
 
 Recording, uploading, storing, playing, typing answers, review and export never ask: none of them
 sends anything anywhere.
@@ -120,11 +121,12 @@ def _moment(row: Any) -> datetime | None:
 
 
 def decide(recording: Any, subjects: Iterable[Any]) -> Verdict:
-    """The five rules (module docstring), as a pure function.
+    """The four rules (module docstring), as a pure function: ALLOW or REFUSED, never AWAITING.
 
     ``recording`` is the recording's own current row and ``subjects`` one current row per subject;
-    each is None (nothing recorded), a state string, or a row with ``state`` and ``recordedAt``.
-    A bare string carries no moment, so it can never be shown to be later than anything.
+    each is None (nothing recorded, which counts as agreeing), a state string, or a row with
+    ``state`` and ``recordedAt``. A bare string carries no moment, so it can never be shown to be
+    later than anything.
     """
     rows = list(subjects)
     own = _state(recording)
@@ -140,9 +142,7 @@ def decide(recording: Any, subjects: Iterable[Any]) -> Verdict:
         return ALLOW
     if refusals:
         return REFUSED
-    if rows and all(_state(row) == GRANTED for row in rows):
-        return ALLOW
-    return AWAITING
+    return ALLOW
 
 
 def state_for(verdict: str) -> str:
