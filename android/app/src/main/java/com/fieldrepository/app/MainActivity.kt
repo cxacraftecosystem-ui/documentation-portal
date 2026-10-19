@@ -8458,7 +8458,9 @@ private fun ToolForm(
      */
     val markers = remember(editing) { MeasurementMarkers() }
     var maker by remember(editing) { mutableStateOf(editing?.maker ?: "UNKNOWN") }.drafted(draft, "maker")
-    var traditionType by remember(editing) { mutableStateOf(editing?.traditionType ?: "UNKNOWN") }.drafted(draft, "traditionType")
+    // "" until answered: the dropdown offers the three shared answers, and a retired code an older
+    // row holds (MODERN, HYBRID) opens as its successor. Saved as UNKNOWN when left unanswered.
+    var traditionType by remember(editing) { mutableStateOf(StandardValues.traditionChoice(editing?.traditionType)) }.drafted(draft, "traditionType")
     var replacementCost by remember(editing) { mutableStateOf(numToText(editing?.replacementCost)) }.drafted(draft, "replacementCost")
     var suggestions by remember(editing) { mutableStateOf(editing?.suggestionsForToolImprovement ?: "") }.drafted(draft, "suggestions")
     var remarks by remember(editing) { mutableStateOf(editing?.remarks ?: "") }.drafted(draft, "remarks")
@@ -8784,7 +8786,7 @@ private fun ToolForm(
                 weight = weight.toDoubleOrNull(),
                 radius = radius.toDoubleOrNull(),
                 maker = maker,
-                traditionType = traditionType,
+                traditionType = traditionType.ifBlank { StandardValues.TRADITION_UNANSWERED },
                 replacementCost = replacementCost.toDoubleOrNull(),
                 suggestionsForToolImprovement = suggestions.blankToNull(),
                 remarks = remarks.blankToNull(),
@@ -9279,7 +9281,7 @@ private fun ToolForm(
             onHeight = { value, marker -> heightInches = numToText(value); markers.accept("heightInches", heightInches, visionMarker(marker)); cmTextFromInches(heightInches)?.let { height = it } }
         )
         DropdownField("Maker", makerOptions.map { it to it }, maker, includeNone = false) { maker = it }
-        DropdownField("Tradition type", StandardValues.TRADITION_OPTIONS, traditionType, includeNone = false) { traditionType = it }
+        DropdownField("Tradition type", StandardValues.TRADITION_OPTIONS, traditionType, placeholder = "Select tradition type") { traditionType = it }
         TextInput("Replacement cost", replacementCost, keyboardType = KeyboardType.Decimal, dictate = dictates("replacementCost")) { replacementCost = it }
         // The tool form's two narrative columns. `processUsedIn` above stays single-line and takes
         // no editor — it is single-line on the web form too, and `components/forms/ToolForm.tsx`'s
@@ -13232,7 +13234,7 @@ private fun ViewDataDetail(
                 DetailRow("Material", v.material)
                 DetailRow("Material type", StandardValues.materialFamilyLabel(v.materialFamily))
                 DetailRow("Maker", v.maker)
-                DetailRow("Tradition", v.traditionType)
+                DetailRow("Tradition", StandardValues.traditionLabel(v.traditionType))
                 DetailRow("Used in", v.processUsedIn)
                 DetailRow("Remarks", v.remarks)
                 DetailRow("Status", v.status)

@@ -50,6 +50,8 @@ class StandardValuesParityTest {
         assertEquals(entries(values["genders"], "label"), StandardValues.GENDERS)
         assertEquals(entries(values["traditionTypes"], "label"), StandardValues.TRADITION_TYPES)
         assertEquals(entries(values["materialFamilies"], "label"), StandardValues.MATERIAL_FAMILIES)
+        val retired = values["retiredTraditionCodes"]!!.jsonObject.mapValues { it.value.jsonPrimitive.content }
+        assertEquals(retired, StandardValues.RETIRED_TRADITION_CODES)
         val phone = values["phone"]!!.jsonObject
         assertEquals(phone["defaultCountryCode"].text(), StandardValues.DEFAULT_COUNTRY_CODE)
         val india = phone["nationalDigits"]!!.jsonObject["+91"]!!.jsonArray.map { it.jsonPrimitive.content.toInt() }
@@ -104,6 +106,21 @@ class StandardValuesParityTest {
             val row = element.jsonObject
             assertEquals(row.toString(), row["value"].text(), StandardValues.languageName(row["input"].text()))
         }
+    }
+
+    @Test
+    fun theTraditionDropdownOffersTheOwnersThreeAndReadsARetiredCodeAsItsSuccessor() {
+        assertEquals(
+            listOf("Traditional", "Contemporary", "Transitional (Hybrid)"),
+            StandardValues.TRADITION_OPTIONS.map { it.second },
+        )
+        assertEquals("CONTEMPORARY", StandardValues.traditionChoice("MODERN"))
+        assertEquals("TRANSITIONAL", StandardValues.traditionChoice("HYBRID"))
+        assertEquals("TRADITIONAL", StandardValues.traditionChoice("TRADITIONAL"))
+        assertEquals("", StandardValues.traditionChoice("UNKNOWN"))
+        assertEquals("", StandardValues.traditionChoice(null))
+        assertEquals("Transitional (Hybrid)", StandardValues.traditionLabel("HYBRID"))
+        assertEquals("Contemporary", StandardValues.traditionLabel("CONTEMPORARY"))
     }
 
     @Test

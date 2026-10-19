@@ -184,7 +184,10 @@ class ArtisanCreate(APIModel):
           "Yes implies a number" without rejecting a request the client could not have made correctly.
         """
         if self.pehchanCardAvailable is None:
-            self.pehchanCardAvailable = bool(self.pehchanCardNumber)
+            # Under the artisan form contract the answer is required, so it is left unanswered
+            # here for the route to refuse with its sentence; only the old shape is resolved.
+            if self.formContract is None or self.formContract < 2:
+                self.pehchanCardAvailable = bool(self.pehchanCardNumber)
         elif self.pehchanCardAvailable:
             if not self.pehchanCardNumber:
                 raise ValueError(

@@ -1,6 +1,6 @@
 {
   "_about": "Standard values shared by the Designer Portal and the Field Repository (convergence point 10). This file is byte-identical in both repositories; tests/test_standard_values.py holds that. Stored values are the 'code' of each entry (gender stores its 'label', which is what both portals have always stored). 'aliases' are input spellings that normalise to the entry; matching folds case, accents, punctuation and spaces. A code, once published, is never reused or renamed. Change both repositories together.",
-  "version": 1,
+  "version": 2,
   "phone": {
     "defaultCountryCode": "+91",
     "nationalDigits": {
@@ -43,10 +43,12 @@
   ],
   "traditionTypes": [
     {"code": "TRADITIONAL", "label": "Traditional", "aliases": []},
-    {"code": "MODERN", "label": "Modern", "aliases": ["CONTEMPORARY"]},
-    {"code": "HYBRID", "label": "Hybrid", "aliases": ["TRANSITIONAL", "Traditional form, contemporary use"]},
+    {"code": "CONTEMPORARY", "label": "Contemporary", "aliases": ["MODERN"]},
+    {"code": "TRANSITIONAL", "label": "Transitional (Hybrid)", "aliases": ["HYBRID", "Traditional form, contemporary use"]},
     {"code": "UNKNOWN", "label": "Unknown", "aliases": ["Not known"]}
   ],
+  "_aboutTraditionTypes": "The three answers a form offers are TRADITIONAL, CONTEMPORARY and TRANSITIONAL; UNKNOWN is the stored state of a question nobody answered and is never offered. MODERN and HYBRID were the codes before 2026-10-19: they stay in the database enum so older rows and older builds still load, every client reads them as the entry in 'retiredTraditionCodes', and scripts/standardise_values.py --apply rewrites the rows.",
+  "retiredTraditionCodes": {"MODERN": "CONTEMPORARY", "HYBRID": "TRANSITIONAL"},
   "materialFamilies": [
     {"code": "COTTON", "label": "Cotton", "aliases": []},
     {"code": "SILK", "label": "Silk", "aliases": ["Tussar", "Tasar", "Muga", "Eri"]},

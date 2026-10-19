@@ -67,12 +67,20 @@ object StandardValues {
         Entry("OTHER", "Other"),
     )
 
+    // Tradition (owner decision, 2026-10-19): a form offers "Traditional", "Contemporary" and
+    // "Transitional (Hybrid)". UNKNOWN is the unanswered default and is never offered; MODERN and
+    // HYBRID are retired codes an older row may still hold, read as their successors.
     val TRADITION_TYPES: List<Entry> = listOf(
         Entry("TRADITIONAL", "Traditional"),
-        Entry("MODERN", "Modern", listOf("CONTEMPORARY")),
-        Entry("HYBRID", "Hybrid", listOf("TRANSITIONAL", "Traditional form, contemporary use")),
+        Entry("CONTEMPORARY", "Contemporary", listOf("MODERN")),
+        Entry("TRANSITIONAL", "Transitional (Hybrid)", listOf("HYBRID", "Traditional form, contemporary use")),
         Entry("UNKNOWN", "Unknown", listOf("Not known")),
     )
+
+    /** The stored state of a tradition question nobody answered. Never one of the offered answers. */
+    const val TRADITION_UNANSWERED = "UNKNOWN"
+
+    val RETIRED_TRADITION_CODES: Map<String, String> = mapOf("MODERN" to "CONTEMPORARY", "HYBRID" to "TRANSITIONAL")
 
     val MATERIAL_FAMILIES: List<Entry> = listOf(
         Entry("COTTON", "Cotton"),
@@ -148,7 +156,21 @@ object StandardValues {
     }
 
     val GENDER_LABELS: List<String> = GENDERS.map { it.label }
-    val TRADITION_OPTIONS: List<Pair<String, String>> = TRADITION_TYPES.map { it.code to it.label }
+    /** The three answers a form offers, in order. */
+    val TRADITION_OPTIONS: List<Pair<String, String>> =
+        TRADITION_TYPES.filter { it.code != TRADITION_UNANSWERED }.map { it.code to it.label }
+
+    /** What a tradition dropdown shows for a stored code: its offered answer, or "" when unanswered. */
+    fun traditionChoice(code: String?): String {
+        val current = if (code.isNullOrBlank()) "" else RETIRED_TRADITION_CODES[code] ?: code
+        return if (TRADITION_OPTIONS.any { it.first == current }) current else ""
+    }
+
+    /** A stored code's label; a retired code reads as its successor's. */
+    fun traditionLabel(code: String?): String? {
+        val current = code?.let { RETIRED_TRADITION_CODES[it] ?: it }
+        return TRADITION_TYPES.firstOrNull { it.code == current }?.label ?: code?.takeIf { it.isNotBlank() }
+    }
     val MATERIAL_FAMILY_OPTIONS: List<Pair<String, String>> = MATERIAL_FAMILIES.map { it.code to it.label }
 
     fun materialFamilyLabel(code: String?): String? = MATERIAL_FAMILIES.firstOrNull { it.code == code }?.label

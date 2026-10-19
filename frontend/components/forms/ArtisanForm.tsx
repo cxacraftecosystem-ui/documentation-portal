@@ -200,7 +200,10 @@ function PehchanFields({
   return (
     <>
       <div className="grid content-start gap-1">
-        <span className="field-label">Artisan Pehchan Card available</span>
+        <span className="field-label">
+          Artisan Pehchan Card available
+          <RequiredMark when />
+        </span>
         <Select
           name="pehchanCardAvailable"
           value={answer === null ? "" : answer ? PEHCHAN_YES : PEHCHAN_NO}

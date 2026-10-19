@@ -12,7 +12,10 @@ import {
   normalizeLanguage,
   normalizeMaterialFamily,
   normalizePhone,
-  normalizeTradition
+  normalizeTradition,
+  TRADITION_OPTIONS,
+  traditionChoice,
+  traditionLabel
 } from "@/lib/standardValues";
 
 /**
@@ -62,6 +65,21 @@ for (const [section, normalise] of LISTS) {
     }
   });
 }
+
+test("the tradition dropdown offers the owner's three and reads a retired code as its successor", () => {
+  expect(TRADITION_OPTIONS.map((option) => option.label)).toEqual([
+    "Traditional",
+    "Contemporary",
+    "Transitional (Hybrid)"
+  ]);
+  expect(traditionChoice("MODERN")).toBe("CONTEMPORARY");
+  expect(traditionChoice("HYBRID")).toBe("TRANSITIONAL");
+  expect(traditionChoice("TRADITIONAL")).toBe("TRADITIONAL");
+  expect(traditionChoice("UNKNOWN")).toBe("");
+  expect(traditionChoice(null)).toBe("");
+  expect(traditionLabel("HYBRID")).toBe("Transitional (Hybrid)");
+  expect(traditionLabel("CONTEMPORARY")).toBe("Contemporary");
+});
 
 test("material from text and language names", () => {
   for (const row of vectors.materialFamilyFromText) {

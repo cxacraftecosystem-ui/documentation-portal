@@ -1,6 +1,6 @@
 import { formatDate } from "@/lib/format";
 import type { RecordViewType } from "@/lib/recordView";
-import { languageName, phoneOf } from "@/lib/standardValues";
+import { languageName, phoneOf, traditionLabel } from "@/lib/standardValues";
 
 /**
  * WHAT A RECORD'S READ-ONLY VIEW PRINTS, as plain label/value rows.
@@ -126,7 +126,7 @@ export function recordFieldRows(type: RecordViewType, record: Loose): RecordFiel
         { label: "Place", value: text(record.place) },
         { label: "Material", value: text(record.material) },
         { label: "Maker", value: text(record.maker) },
-        { label: "Tradition", value: text(record.traditionType) },
+        { label: "Tradition", value: text(traditionLabel(record.traditionType as string | null | undefined)) },
         { label: "Used in", value: text(record.processUsedIn) },
         { label: "Years in use", value: text(record.yearsInUse) },
         { label: "Dimensions", value: dimensions(record) },

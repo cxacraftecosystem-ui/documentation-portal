@@ -118,11 +118,19 @@ enum MakerType {
   OTHER
 }
 
+// The tool's tradition (owner decision, 2026-10-19): "Traditional", "Contemporary" and
+// "Transitional (Hybrid)", from app/data/standard_values.json; UNKNOWN is the unanswered default.
+// MODERN and HYBRID are the codes before that decision. No form writes them now; they stay so older
+// rows and older builds still load, read as CONTEMPORARY and TRANSITIONAL, and
+// scripts/standardise_values.py --apply rewrites the rows. Keep them last: the shared test reads
+// this block as the list's codes followed by its retired codes.
 enum TraditionType {
   TRADITIONAL
+  CONTEMPORARY
+  TRANSITIONAL
+  UNKNOWN
   MODERN
   HYBRID
-  UNKNOWN
 }
 
 enum ReviewRecordType {

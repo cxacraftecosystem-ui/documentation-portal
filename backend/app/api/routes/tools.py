@@ -19,7 +19,7 @@ from app.schemas.records import (
 )
 from app.services.access import guard_record_edit, record_edit_privilege
 from app.services.concurrency import gather_reads
-from app.services.standard_values import StandardValueError, apply_tool_values
+from app.services.standard_values import StandardValueError, apply_tool_values, retired_tradition_codes
 from app.services.workshop_access import (
     enforce_workshop_submission,
     pin_pending_if_late,
@@ -712,7 +712,11 @@ async def list_tools(
     if maker:
         where["maker"] = maker
     if traditionType:
-        where["traditionType"] = traditionType
+        # A tool still holding a retired code (MODERN, HYBRID) is the same answer as its successor.
+        same = [traditionType] + [
+            old for old, new in retired_tradition_codes().items() if new == traditionType
+        ]
+        where["traditionType"] = same[0] if len(same) == 1 else {"in": same}
     if statusFilter:
         where["status"] = statusFilter
     if createdBy:

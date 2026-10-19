@@ -14,7 +14,9 @@ WHAT IT LOOKS AT, AND WHAT --apply WRITES
   (``Bangla``, ``Bengali``, ``bengali`` -> ``bn``).
 * ``ToolDocumentation.materialFamily``: set from the free ``material`` text only when that text
   names exactly one family (``Iron`` -> ``METAL``) and no family is set yet.
-* ``ToolDocumentation.traditionType``: counted only; the column is an enum and already standard.
+* ``ToolDocumentation.traditionType``: the codes retired on 2026-10-19 become the owner's wording
+  (``MODERN`` -> ``CONTEMPORARY``, shown "Contemporary"; ``HYBRID`` -> ``TRANSITIONAL``, shown
+  "Transitional (Hybrid)"). ``TRADITIONAL`` and the unanswered ``UNKNOWN`` stay as they are.
 * ``Craft.craftCode``: NEVER written. Every craft with no shared code is listed with the existing
   shared codes whose spellings share words with its name, for the owner to decide. Nothing is
   invented: a craft with no candidate says so.
@@ -58,6 +60,10 @@ sv = importlib.import_module("app.services.standard_values")
 
 IST = timezone(timedelta(hours=5, minutes=30))
 BATCH = 500
+#: Columns that are a Postgres enum, with the cast their UPDATE needs.
+ENUM_COLUMNS = {"traditionType": '::"TraditionType"'}
+#: Columns whose report spells out each old value and what it becomes.
+MAPPED_COLUMNS = ("gender", "language", "traditionType")
 
 
 @dataclass
@@ -76,6 +82,15 @@ class FieldReport:
     def cannot_map(self, value: Any, row_id: str) -> None:
         self.unmappable.setdefault(str(value), []).append(row_id)
 
+    def mapped(self) -> list[dict[str, Any]]:
+        """Each old value the run rewrites, what it becomes and on how many rows."""
+        if self.column not in MAPPED_COLUMNS:
+            return []
+        pairs = Counter((str(old), str(new)) for _id, old, new in self.changes)
+        return [
+            {"from": old, "to": new, "rows": count} for (old, new), count in sorted(pairs.items())
+        ]
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "table": self.table,
@@ -84,6 +99,7 @@ class FieldReport:
             "alreadyStandard": self.standard,
             "blank": self.blank,
             "toChange": len(self.changes),
+            "mapped": self.mapped(),
             "unmappableRows": sum(len(ids) for ids in self.unmappable.values()),
             "unmappable": [
                 {"value": value, "rows": ids} for value, ids in sorted(self.unmappable.items())
@@ -204,15 +220,6 @@ async def check_material_family(client: Any) -> FieldReport:
     return report
 
 
-async def tradition_counts(client: Any) -> FieldReport:
-    report = FieldReport("ToolDocumentation", "traditionType")
-    async for row in _rows(client.tooldocumentation):
-        report.checked += 1
-        report.standard += 1
-        report.values[str(_get(row, "traditionType"))] += 1
-    return report
-
-
 async def craft_proposals(client: Any) -> list[dict[str, Any]]:
     """Crafts with no shared code, each with the shared codes whose spellings share its words."""
     from app.services import cross_portal_codes as cpc
@@ -273,8 +280,10 @@ async def apply_changes(client: Any, report: FieldReport) -> None:
                         row_id,
                     )
                 else:
+                    # An enum column takes its value through a cast; a text column as it is.
+                    cast = ENUM_COLUMNS.get(report.column, "")
                     await tx.execute_raw(
-                        f'UPDATE "{table}" SET "{report.column}" = $1 WHERE "id" = $2',
+                        f'UPDATE "{table}" SET "{report.column}" = $1{cast} WHERE "id" = $2',
                         new,
                         row_id,
                     )
@@ -299,11 +308,19 @@ async def run(client: Any, *, apply: bool) -> Report:
         )
     )
     report.fields.append(await check_material_family(client))
-    report.fields.append(await tradition_counts(client))
+    report.fields.append(
+        await check_list(
+            client,
+            "tooldocumentation",
+            "ToolDocumentation",
+            "traditionType",
+            sv.normalize_tradition,
+        )
+    )
     report.crafts = await craft_proposals(client)
     if apply:
         for item in report.fields:
-            if item.changes and item.column != "traditionType":
+            if item.changes:
                 await apply_changes(client, item)
     return report
 
@@ -324,6 +341,11 @@ def lines(report: Report, *, show_values: bool) -> list[str]:
         if item.values and item.column != "phone":
             counts = ", ".join(f"{value} {count}" for value, count in item.values.most_common())
             out += ["", f"{item.table}.{item.column} after the change: {counts}"]
+        if item.changes and item.column in MAPPED_COLUMNS:
+            mapped = ", ".join(
+                f"{row['from']!r} -> {row['to']} x{row['rows']}" for row in item.mapped()
+            )
+            out.append(f"{item.table}.{item.column} mapped: {mapped}")
         if item.unmappable:
             out += [
                 "",
@@ -340,7 +362,7 @@ def lines(report: Report, *, show_values: bool) -> list[str]:
                 f"      candidate {candidate['code']}: {candidate['name']} (word overlap {candidate['wordOverlap']})"
             )
         out.append(f"      {craft['proposal']}")
-    total = sum(len(item.changes) for item in report.fields if item.column != "traditionType")
+    total = sum(len(item.changes) for item in report.fields)
     out += ["", f"{verb} {total} value{'' if total == 1 else 's'} in total."]
     if not report.applied:
         out.append("Dry run: nothing was written. Pass --apply to write.")

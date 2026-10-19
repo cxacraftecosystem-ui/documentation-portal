@@ -7,7 +7,7 @@ This file is identical in the designer portal and the documentation portal. It h
   tested against too;
 * the write-path helpers: a stored legacy value re-sent unchanged is not refused;
 * the write paths to the helpers, read from source;
-* the Prisma ``TraditionType`` enum to the shared tradition codes;
+* the Prisma ``TraditionType`` enum to the shared tradition codes and the two retired ones;
 * the two repositories to each other when the sibling checkout is present, and to a pinned digest
   when it is not (CI has one repository).
 
@@ -37,8 +37,8 @@ IS_DESIGNER_PORTAL = any(ROOT.glob("android/app/src/main/java/com/designprototyp
 #: sha256 of the two shared files with LF line endings. Changing either file means changing this
 #: constant, and this test file is itself shared, so the other portal has to take the same change.
 PINNED = {
-    "backend/app/data/standard_values.json": "4776fcc1fe70c47e748987a763f39013f2def133543942ffc6cff7ebd49fe0ab",
-    "shared/standard-values-vectors.json": "f71e585c317cf5837ec171ceaa6caf5e165c195639e591f1757dbefe0baa850c",
+    "backend/app/data/standard_values.json": "b4cfcda12f4b0b0e981efcc6c11746defce5be7e95f3db6f40f953370398e308",
+    "shared/standard-values-vectors.json": "cede780e95b31ad1e357866281d7db1e716c6c507f516a02751686b1590cd74a",
 }
 
 SHARED_FILES = (
@@ -89,7 +89,21 @@ def test_the_tradition_codes_are_the_prisma_enum() -> None:
     schema = (BACKEND / "prisma" / "schema.prisma").read_text(encoding="utf-8")
     block = re.search(r"enum TraditionType \{([^}]*)\}", schema)
     assert block
-    assert block.group(1).split() == sv.tradition_codes()
+    assert block.group(1).split() == sv.tradition_codes() + list(sv.retired_tradition_codes())
+
+
+def test_the_tradition_list_is_the_owners_three_and_the_retired_codes_read_as_them() -> None:
+    assert [option["label"] for option in sv.tradition_options()] == [
+        "Traditional",
+        "Contemporary",
+        "Transitional (Hybrid)",
+    ]
+    assert sv.retired_tradition_codes() == {"MODERN": "CONTEMPORARY", "HYBRID": "TRANSITIONAL"}
+    for retired, successor in sv.retired_tradition_codes().items():
+        assert retired not in sv.tradition_codes()
+        assert sv.normalize_tradition(retired) == successor
+        assert sv.tradition_label(retired) == sv.tradition_label(successor)
+    assert sv.tradition_label("UNKNOWN") == "Unknown"
 
 
 def test_the_web_copy_is_the_same_bytes() -> None:
@@ -219,9 +233,13 @@ def test_apply_gender_tool_and_interview_values() -> None:
     with pytest.raises(sv.StandardValueError):
         sv.apply_artisan_values({"gender": "Unknown"}, stored=SimpleNamespace(gender=None))
     assert sv.apply_tool_values({"traditionType": "CONTEMPORARY", "materialFamily": "metal"}) == {
-        "traditionType": "MODERN",
+        "traditionType": "CONTEMPORARY",
         "materialFamily": "METAL",
     }
+    # An older build, or an editor re-sending a row the script has not reached, writes the successor.
+    assert sv.apply_tool_values(
+        {"traditionType": "HYBRID"}, stored=SimpleNamespace(traditionType="HYBRID")
+    ) == {"traditionType": "TRANSITIONAL"}
     assert sv.apply_tool_values({"traditionType": ""}) == {"traditionType": "UNKNOWN"}
     assert sv.apply_interview_values({"language": "Bangla"}) == {"language": "bn"}
     kutchi = SimpleNamespace(language="Kutchi")
@@ -414,12 +432,15 @@ def test_the_script_is_dry_by_default_and_reports_every_unmappable_value() -> No
     }
     material = by[("ToolDocumentation", "materialFamily")]
     assert material.changes == [("t1", None, "METAL")]
+    tradition = by[("ToolDocumentation", "traditionType")]
+    assert tradition.changes == [("t2", "MODERN", "CONTEMPORARY")] and tradition.standard == 1
     assert list(material.unmappable) == ["mango wood with an iron collar"]
     crafts = {c["craftId"]: c for c in report.crafts}
     assert crafts["c1"]["candidates"][0]["code"] == "bandhani"
     assert crafts["c2"]["candidates"] == []
     text = "\n".join(script.lines(report, show_values=False))
     assert "Dry run: nothing was written." in text
+    assert "ToolDocumentation.traditionType mapped: 'MODERN' -> CONTEMPORARY x1" in text
     assert script.report_filename(report).endswith("_Standard-Values_Report.json")
     assert "_Database_" in script.report_filename(report)
 
@@ -439,3 +460,8 @@ def test_the_script_applies_without_touching_updated_at() -> None:
         "a1",
     ) in client.writes
     assert not any("craftCode" in write[0] for write in client.writes)
+    assert (
+        'UPDATE "ToolDocumentation" SET "traditionType" = $1::"TraditionType" WHERE "id" = $2',
+        "CONTEMPORARY",
+        "t2",
+    ) in client.writes

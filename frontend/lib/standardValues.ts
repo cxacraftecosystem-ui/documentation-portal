@@ -10,6 +10,10 @@
  * Stored: phone digits in `phone` and the code in `phoneCountryCode` (+91 by default); a language
  * code ("bn"), shown by name ("Bengali"); the gender label; the TraditionType code; a material
  * family code.
+ *
+ * Tradition (owner decision, 2026-10-19): a form offers "Traditional", "Contemporary" and
+ * "Transitional (Hybrid)". UNKNOWN is the unanswered default and is never offered; MODERN and
+ * HYBRID are retired codes an older row may still hold, read as their successors.
  */
 import values from "./standard-values.json";
 
@@ -94,18 +98,34 @@ export function languageOptions(current?: string | null): StandardOption[] {
 
 export const GENDER_OPTIONS: readonly string[] = GENDERS.map((entry) => entry.label ?? entry.code);
 
-export const TRADITION_OPTIONS: readonly StandardOption[] = TRADITIONS.map((entry) => ({
+/** The stored state of a tradition question nobody answered. Never one of the offered answers. */
+export const TRADITION_UNANSWERED = "UNKNOWN";
+
+const RETIRED_TRADITIONS = values.retiredTraditionCodes as Record<string, string>;
+
+/** The three answers a form offers, in order. */
+export const TRADITION_OPTIONS: readonly StandardOption[] = TRADITIONS.filter(
+  (entry) => entry.code !== TRADITION_UNANSWERED
+).map((entry) => ({
   value: entry.code,
   label: entry.label ?? entry.code
 }));
+
+/** What a tradition dropdown shows for a stored code: its offered answer, or "" when unanswered. */
+export function traditionChoice(code: string | null | undefined): string {
+  const current = blank(code) ? "" : (RETIRED_TRADITIONS[String(code)] ?? String(code));
+  return TRADITION_OPTIONS.some((option) => option.value === current) ? current : "";
+}
 
 export const MATERIAL_FAMILY_OPTIONS: readonly StandardOption[] = MATERIALS.map((entry) => ({
   value: entry.code,
   label: entry.label ?? entry.code
 }));
 
+/** A stored code's label; a retired code reads as its successor's. */
 export function traditionLabel(code: string | null | undefined): string | null {
-  return TRADITIONS.find((entry) => entry.code === code)?.label ?? (code || null);
+  const current = code ? (RETIRED_TRADITIONS[code] ?? code) : code;
+  return TRADITIONS.find((entry) => entry.code === current)?.label ?? (code || null);
 }
 
 export function materialFamilyLabel(code: string | null | undefined): string | null {

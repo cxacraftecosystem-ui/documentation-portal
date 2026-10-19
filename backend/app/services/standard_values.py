@@ -18,8 +18,12 @@ WHAT IS STORED
   ``"bn"``.
 * Gender: the label (``"Male"``, ``"Female"``, ``"Transgender"``, ``"Other"``), which is what both
   portals have always stored and printed. The code beside it is for the merged platform.
-* Tool tradition: the ``TraditionType`` enum code. The designer portal's stage registry spells two
-  of them ``CONTEMPORARY`` and ``TRANSITIONAL``; those are accepted as aliases.
+* Tool tradition: the ``TraditionType`` enum code, one of three answers shown as "Traditional",
+  "Contemporary" and "Transitional (Hybrid)" (owner decision, 2026-10-19), the same three tokens
+  as the designer portal's stage registry; ``UNKNOWN`` is the unanswered default and is never
+  offered. ``MODERN`` and ``HYBRID``, the codes before that decision, stay in the enum so older rows
+  and older builds still load; they read as their successors (``retiredTraditionCodes``), and the
+  normalisation script rewrites the rows.
 * Tool material family: a code from the material list, beside the free ``material`` description.
 
 HOW INPUT IS MATCHED
@@ -150,7 +154,27 @@ def material_family_codes() -> list[str]:
     return [entry["code"] for entry in shared()["materialFamilies"]]
 
 
+#: The stored state of a tradition question nobody answered. Never one of the offered answers.
+TRADITION_UNANSWERED = "UNKNOWN"
+
+
+def retired_tradition_codes() -> dict[str, str]:
+    """``{"MODERN": "CONTEMPORARY", "HYBRID": "TRANSITIONAL"}``: enum members no form writes now."""
+    return dict(shared()["retiredTraditionCodes"])
+
+
+def tradition_options() -> list[dict[str, str]]:
+    """The answers a form offers, in order: every entry but the unanswered default."""
+    return [
+        {"code": entry["code"], "label": entry["label"]}
+        for entry in shared()["traditionTypes"]
+        if entry["code"] != TRADITION_UNANSWERED
+    ]
+
+
 def tradition_label(code: Any) -> str | None:
+    """The label a stored code is shown by; a retired code reads as its successor's label."""
+    code = retired_tradition_codes().get(code, code)
     for entry in shared()["traditionTypes"]:
         if entry["code"] == code:
             return entry["label"]
@@ -423,6 +447,7 @@ def catalogue() -> dict[str, Any]:
         "traditionTypes": [
             {"code": e["code"], "label": e["label"]} for e in values["traditionTypes"]
         ],
+        "retiredTraditionCodes": values["retiredTraditionCodes"],
         "materialFamilies": [
             {"code": e["code"], "label": e["label"]} for e in values["materialFamilies"]
         ],

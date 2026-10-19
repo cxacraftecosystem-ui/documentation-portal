@@ -796,5 +796,5 @@ export type WorkshopAssignment = {
 export const productTypes = ["FINISHED_GOOD", "SAMPLE", "RAW_MATERIAL", "COMPONENT", "PACKAGING", "OTHER"];
 export const marketDemandOptions = ["LOW", "MEDIUM", "HIGH", "SEASONAL", "UNKNOWN"];
 export const makerOptions = ["ARTISAN", "LOCAL_BLACKSMITH", "CARPENTER", "WORKSHOP", "FACTORY", "UNKNOWN", "OTHER"];
-export const traditionOptions = ["TRADITIONAL", "MODERN", "HYBRID", "UNKNOWN"];
+export const traditionOptions = ["TRADITIONAL", "CONTEMPORARY", "TRANSITIONAL"];
 export const mediaTypes: MediaType[] = ["IMAGE", "VIDEO", "AUDIO", "PDF", "DOCUMENT", "OTHER"];

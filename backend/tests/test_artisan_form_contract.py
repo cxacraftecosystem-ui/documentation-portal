@@ -1,7 +1,8 @@
 """THE ARTISAN FORM CONTRACT — one form in both portals, on the web and on Android (2026-10-17).
 
 The owner's decision: the designer portal adopts the documentation portal's artisan form. Date of
-birth and Craft start date are required on every NEW save; experience is two optional boxes,
+birth and Craft start date are required on every NEW save, and so is the answer to "Artisan Pehchan
+Card available" (2026-10-19: a new artisan's form starts with it unanswered, on both clients); experience is two optional boxes,
 "Experience (years)" and "Experience (months)", whose empty option is "Not stated"; Do's and Don'ts
 are "Do's" and "Don'ts". ``shared/artisan-form-contract.json`` declares it once and is byte-identical
 in both repositories. This file is identical in both too, and it holds:
@@ -63,6 +64,19 @@ def test_the_module_speaks_the_contracts_key_value_and_dates():
     assert table["datesRequiredFrom"] == afc.DATES_REQUIRED_CONTRACT
     assert [{"field": f, "words": w} for f, w in afc.REQUIRED_DATES] == [
         {"field": d["field"], "words": d["words"]} for d in table["requiredDates"]
+    ]
+
+
+def test_the_module_speaks_the_contracts_required_answers():
+    assert [{"field": f, "sentence": s} for f, s in afc.REQUIRED_ANSWERS] == [
+        {"field": a["field"], "sentence": a["sentence"]} for a in contract()["requiredAnswers"]
+    ]
+    assert afc.missing_required_answers({}) == ["Answer whether the artisan has a Pehchan card."]
+    assert afc.missing_required_answers({"pehchanCardAvailable": False}) == []
+    stored = SimpleNamespace(pehchanCardAvailable=True)
+    assert afc.missing_required_answers({}, stored=stored) == []
+    assert afc.missing_required_answers({"pehchanCardAvailable": None}, stored=stored) == [
+        "Answer whether the artisan has a Pehchan card."
     ]
 
 
@@ -169,8 +183,22 @@ async def test_a_create_under_the_contract_without_the_dates_is_refused(create_g
     assert create_gate == [], "refused before any helper is handed the body"
 
 
-async def test_a_create_under_the_contract_with_both_dates_goes_on_and_the_key_is_gone(create_gate):
+async def test_a_create_under_the_contract_without_the_pehchan_answer_is_refused(create_gate):
     body = _create_body(formContract=2, dateOfBirth="1971-03-04", craftStartDate="1994-06-01")
+    with pytest.raises(HTTPException) as refused:
+        await artisan_routes.create_artisan(body, current_user=CALLER)
+    assert refused.value.status_code == 422
+    assert refused.value.detail == "Answer whether the artisan has a Pehchan card."
+    assert create_gate == [], "refused before any helper is handed the body"
+
+
+async def test_a_create_under_the_contract_with_both_dates_goes_on_and_the_key_is_gone(create_gate):
+    body = _create_body(
+        formContract=2,
+        dateOfBirth="1971-03-04",
+        craftStartDate="1994-06-01",
+        pehchanCardAvailable=False,
+    )
     with pytest.raises(_Reached):
         await artisan_routes.create_artisan(body, current_user=CALLER)
     assert create_gate and "formContract" not in create_gate[0], "the key is not a column"
@@ -180,6 +208,8 @@ async def test_an_old_shape_create_without_the_dates_lands_as_before(create_gate
     with pytest.raises(_Reached):
         await artisan_routes.create_artisan(_create_body(), current_user=CALLER)
     assert create_gate and "dateOfBirth" not in create_gate[0]
+    # Unanswered Pehchan in the old shape resolves from the number, as it always did.
+    assert create_gate[0]["pehchanCardAvailable"] is False
 
 
 def _stored(**columns: Any) -> Any:
@@ -238,6 +268,18 @@ async def test_an_edit_keeps_a_stored_date_and_refuses_clearing_one(stored_row):
             "a-1", ArtisanUpdate(dateOfBirth=None, formContract=2), current_user=CALLER
         )
     assert refused.value.detail == "Enter the date of birth."
+
+
+async def test_an_edit_counts_the_stored_pehchan_answer(stored_row):
+    # Every stored row holds an answer (the column is never empty), so reading one is never blocked
+    # and an edit made under the contract is not refused for a question the record already answers.
+    stored_row["row"] = _stored(
+        dateOfBirth="1971-03-04", craftStartDate="1994-06-01", pehchanCardAvailable=True
+    )
+    with pytest.raises(_Reached):
+        await artisan_routes.update_artisan(
+            "a-1", ArtisanUpdate(phone="x", formContract=2), current_user=CALLER
+        )
 
 
 async def test_an_old_shape_edit_of_a_legacy_record_lands_as_before(stored_row):

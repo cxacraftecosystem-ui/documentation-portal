@@ -380,7 +380,9 @@ lists (`backend/app/data/standard_values.json`, the same file in both portals). 
 keep their old spellings until this runs: phones become digits plus a country code (`+91` when none
 is given), genders take their list label, interview languages their standard code (`Bangla` and
 `Bengali` become `bn`), and a tool's material family is set where its free `material` text names
-exactly one family. Crafts with no shared code are listed with candidate codes for the owner; the
+exactly one family. A tool's tradition held under a retired code takes the owner's wording (`MODERN`
+becomes `CONTEMPORARY`, "Contemporary"; `HYBRID` becomes `TRANSITIONAL`, "Transitional (Hybrid)"),
+and the report lists each old value with what it becomes. Crafts with no shared code are listed with candidate codes for the owner; the
 script never writes a craft code. Writes leave `updatedAt` alone, so no offline edit conflicts.
 
 **The owner reads the dry-run report and approves it before `--apply`.**

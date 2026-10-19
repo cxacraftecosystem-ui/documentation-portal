@@ -208,7 +208,7 @@ val RECORD_NOT_DICTATED: Map<RecordFormKind, Map<String, String>> = mapOf(
         "weight" to "A decimal measurement; spoken digits arrive as words and this box drops them silently.",
         "radius" to "A decimal measurement; spoken digits arrive as words and this box drops them silently.",
         "maker" to "Seven fixed options behind a dropdown; the answer is picked, not spoken.",
-        "traditionType" to "Four fixed options behind a dropdown; the answer is picked, not spoken.",
+        "traditionType" to "Three fixed options behind a dropdown; the answer is picked, not spoken.",
         "materialFamily" to "A closed list of material families behind a dropdown; the free description beside it, `material`, is dictated.",
         "replacementCost" to "Money, and the column wants a number rather than the words a recogniser hands back.",
         "status" to "A closed vocabulary behind a control most users cannot even set, so there is no typing here to reduce.",

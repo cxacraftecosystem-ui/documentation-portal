@@ -39,7 +39,13 @@ from typing import Any, Callable, Iterable
 
 from app.services.artisan_identity import mask_aadhaar
 from app.services.records import derive_age, derive_experience_years
-from app.services.standard_values import language_name, material_family_label, phone_of
+from app.services.standard_values import (
+    TRADITION_UNANSWERED,
+    language_name,
+    material_family_label,
+    phone_of,
+    tradition_label,
+)
 
 # ---------------------------------------------------------------------------
 # Value coercion
@@ -79,6 +85,15 @@ def date_str(value: Any) -> str | None:
         return value.strftime("%d %b %Y")
     except (AttributeError, ValueError):
         return str(value)
+
+
+def tradition_text(value: Any) -> str | None:
+    """A tool's tradition in the shared wording ("Transitional (Hybrid)"); a retired code reads as
+    its successor, and the unanswered default prints nothing, as ``enum_label`` does for it."""
+    raw = str(ev(value) or "").strip()
+    if not raw or raw == TRADITION_UNANSWERED:
+        return None
+    return tradition_label(raw) or enum_label(raw)
 
 
 def enum_label(value: Any) -> str | None:
@@ -497,7 +512,7 @@ TOOL = RecordSpec(
         _f("Radius", lambda t: num(t.radius)),
         _f("Cost", lambda t: money(t.replacementCost)),
         _f("Maker", lambda t: enum_label(t.maker)),
-        _f("Tradition", lambda t: enum_label(t.traditionType)),
+        _f("Tradition", lambda t: tradition_text(t.traditionType)),
         _f("Improvement suggestions", lambda t: t.suggestionsForToolImprovement),
         _f("Remarks", lambda t: t.remarks),
     ),

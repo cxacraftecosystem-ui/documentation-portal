@@ -333,28 +333,48 @@
    "value": "TRADITIONAL"
   },
   {
-   "input": "MODERN",
-   "value": "MODERN"
-  },
-  {
-   "input": "Modern",
-   "value": "MODERN"
+   "input": "Traditional",
+   "value": "TRADITIONAL"
   },
   {
    "input": "CONTEMPORARY",
-   "value": "MODERN"
+   "value": "CONTEMPORARY"
+  },
+  {
+   "input": "Contemporary",
+   "value": "CONTEMPORARY"
+  },
+  {
+   "input": "MODERN",
+   "value": "CONTEMPORARY"
+  },
+  {
+   "input": "Modern",
+   "value": "CONTEMPORARY"
   },
   {
    "input": "TRANSITIONAL",
-   "value": "HYBRID"
+   "value": "TRANSITIONAL"
+  },
+  {
+   "input": "Transitional",
+   "value": "TRANSITIONAL"
+  },
+  {
+   "input": "Transitional (Hybrid)",
+   "value": "TRANSITIONAL"
   },
   {
    "input": "HYBRID",
-   "value": "HYBRID"
+   "value": "TRANSITIONAL"
   },
   {
    "input": "hybrid",
-   "value": "HYBRID"
+   "value": "TRANSITIONAL"
+  },
+  {
+   "input": "traditional form, contemporary use",
+   "value": "TRANSITIONAL"
   },
   {
    "input": "UNKNOWN",
@@ -363,10 +383,6 @@
   {
    "input": "Not known",
    "value": "UNKNOWN"
-  },
-  {
-   "input": "traditional form, contemporary use",
-   "value": "HYBRID"
   },
   {
    "input": "Classical",
