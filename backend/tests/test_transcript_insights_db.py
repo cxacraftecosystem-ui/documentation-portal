@@ -119,7 +119,10 @@ async def test_enqueue_and_generate_through_the_real_client(client, monkeypatch)
 
     media_id = await _media(client)
     uploader = (await client.mediafile.find_unique(where={"id": media_id})).uploadedById
-    assert await ti.enqueue(media_id) is None, "no consent recorded: nothing is queued"
+    # Consent is assumed by default (19 Oct 2026): a refusal on record queues nothing, and a later
+    # grant allows it again.
+    await consent_gate.record_recording_consent(media_id, state="REFUSED", actor_id=uploader, client=client)
+    assert await ti.enqueue(media_id) is None, "consent refused: nothing is queued"
     await consent_gate.record_recording_consent(media_id, state="GRANTED", actor_id=uploader, client=client)
     job = await ti.enqueue(media_id)
     assert job is not None and job.jobType == "TRANSCRIPT_INSIGHTS" and job.priority == 80
