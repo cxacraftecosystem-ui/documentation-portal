@@ -6,8 +6,9 @@
 # interpreter: upstream CPython 3.14.8 from a pinned, checksummed python-build-standalone build,
 # under /opt/cpython (the end of this file says why it comes last and why it is not apt's).
 # The actual code is deployed by the GitHub Actions workflow (deploy-backend.yml), which also builds
-# the API's venv from backend/requirements.lock under /home/ubuntu/app/venvs and points
-# /home/ubuntu/app/backend/.venv at it; nothing here installs a Python package.
+# the API's venv from backend/requirements.lock under /home/ubuntu/app/venvs, copies it to the port
+# it releases to (/home/ubuntu/app/slots/<port>/venv) and points that tree's .venv at the copy;
+# nothing here installs a Python package.
 #
 # It runs as root under cloud-init, once. To launch a box with it: backend/DEPLOY_AWS.md §10 has the
 # exact `aws ec2 run-instances` call. The file must reach EC2 with LF line endings (.gitattributes
@@ -63,9 +64,10 @@ systemctl restart nginx
 # and nginx proxies to one of them: each deploy starts the idle port beside the live one and switches
 # nginx only once it answers /health (backend/deploy/blue_green.sh). That script installs this same
 # template on every deploy, so the two must stay identical; it is written here so a new box has it.
-# `.venv` below is a symlink the deploy maintains, to /home/ubuntu/app/venvs/cpython-<version>+<build>-
-# <hash of the lock>; the unit never needs to change when the venv does (deploy-backend.yml says why
-# it is a symlink and not a directory).
+# `.venv` below is a symlink the deploy maintains, to that port's own copy of
+# /home/ubuntu/app/venvs/cpython-<version>+<build>-<hash of the lock> (/home/ubuntu/app/slots/<port>/venv:
+# `prisma generate` writes into the venv, so the ports never share one); the unit never needs to
+# change when the venv does (deploy-backend.yml says why it is a symlink and not a directory).
 # IMPORTANT: a SINGLE uvicorn process (NOT --workers 2). With >1 worker uvicorn runs a
 # multiprocess supervisor that health-pings each worker over a pipe (answered by a daemon thread)
 # and SIGKILLs any worker that fails to pong within timeout_worker_healthcheck. On this small,

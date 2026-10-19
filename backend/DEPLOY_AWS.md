@@ -469,9 +469,10 @@ but glibc (`ldd`: libc, libm, libpthread, libdl, librt, libutil).
 
 | Path | What it is |
 |---|---|
-| `/opt/cpython/3.14.8+20261009` | The interpreter, owned by root, its standard library's bytecode compiled at install. Never changed in place: a new pin is a new directory beside it. A deploy deletes one only after a healthy restart, and only when no venv under `venvs/` runs on it. |
+| `/opt/cpython/3.14.8+20261009` | The interpreter, owned by root, its standard library's bytecode compiled at install. Never changed in place: a new pin is a new directory beside it. A deploy deletes one only after a healthy restart, and only when no venv under `venvs/` or `slots/<port>/venv` runs on it. |
 | `/home/ubuntu/app/venvs/cpython-3.14.8+20261009-<16 hex>` | One venv per interpreter build and lock: the hex is the start of the lock's SHA-256. `.complete` inside it is written last (`python -VV`, then the interpreter's path); a directory without it is a build that did not finish and is rebuilt. A venv whose `bin/python` does not resolve to the pinned interpreter is refused, never reused. Owned by `ubuntu`, like everything under `/home/ubuntu/app`. |
-| `/home/ubuntu/app/backend/.venv` | A **symlink** to the venv in use (`/home/ubuntu/app/backend` is itself a link to the live port's tree, §13). The units run `.venv/bin/python`, so they never change when the venv does. |
+| `/home/ubuntu/app/slots/<port>/venv` | That port's own `cp -a` of the `venvs/` venv above, made by each release to that port, with its scripts' paths rewritten to the copy, and its own `.complete`. The project is installed and the Prisma client generated **here**, never in the `venvs/` one, so a release never rewrites the client the live port or the rollback tree runs on (§13). |
+| `/home/ubuntu/app/backend/.venv` | A **symlink** to the live port's `slots/<port>/venv` (`/home/ubuntu/app/backend` is itself a link to the live port's tree, §13). The units run `.venv/bin/python`, so they never change when the venv does. |
 | `/home/ubuntu/app/venvs/py3.14-<16 hex>` | 24.04 box only: the venv the apt-based deploy built on the morning of 2026-10-09, on deadsnakes' `/usr/bin/python3.14`. The first deploy on the pinned interpreter switches away from it and names it in `venv-previous`, which keeps it until a later deploy moves on. |
 | `/home/ubuntu/app/venvs/py3.12-legacy` | 24.04 box only: the 3.12 venv every deploy before 2026-10-09 built in place, moved aside by the first 3.14 deploy and kept for rollback. |
 | `/home/ubuntu/app/venv-wanted`, `venv-previous` | The venv the last deploy built or chose, and the one `.venv` pointed at before it. |
@@ -845,7 +846,8 @@ always runs the copy from the commit being deployed.
 
 | Path | What it is |
 |---|---|
-| `/home/ubuntu/app/slots/8000/backend`, `slots/8001/backend` | One tree per loopback port: code, its own `.env`, and a `.venv` link to the venv it was built for. |
+| `/home/ubuntu/app/slots/8000/backend`, `slots/8001/backend` | One tree per loopback port: code, its own `.env`, and a `.venv` link to the port's own venv. |
+| `/home/ubuntu/app/slots/8000/venv`, `slots/8001/venv` | The port's own copy (`cp -a`) of the venv the build step chose under `venvs/`. `prisma generate` writes the client into the venv it runs from, so with one venv shared by both ports (most deploys, since the lock rarely changes) a release would regenerate the live port's and the rollback tree's client before switching. Each release replaces only the idle port's copy. |
 | `fieldrepo-api@8000`, `fieldrepo-api@8001` | The API on that port. One runs; it is the one enabled for boot. |
 | `/etc/nginx/sites-available/fieldrepo` | `proxy_pass http://127.0.0.1:<port>;` names the live port. nginx is the truth: whatever it proxies to is live. |
 | `/home/ubuntu/app/backend` | A link to the live port's tree. The queue unit, the one-off scripts and every command in this guide go through it. |
@@ -854,8 +856,9 @@ always runs the copy from the commit being deployed.
 
 **A release, in order.** `prepare` names the idle port, stops anything left running there, copies the
 live `.env` into its tree and points `next` at it. The code is synced into that tree and every `.env`
-step edits it there; the live tree is not touched. `release` then installs the project into the venv
-the build step chose, generates the Prisma client, pauses the queue, runs `prisma migrate deploy`
+step edits it there; the live tree is not touched. `release` then copies the venv the build step
+chose to the idle port's `slots/<port>/venv`, installs the project and generates the Prisma client
+into that copy, pauses the queue, runs `prisma migrate deploy`
 while the live port still serves, starts the idle port, waits up to **ten minutes** by the clock for
 its `/health` (a line every twenty seconds), points nginx at it with a reload (connections in flight
 finish on the old port), checks `/health` through nginx, and only then stops the old port, moves
@@ -865,10 +868,13 @@ nobody using the site notices. `backend/deploy/test_blue_green.sh` (Checks, "Dep
 every one of these paths against stubs and fails if nginx is ever left on a port nothing serves.
 
 **Migrations run while the old release serves,** so each release's migrations must keep the
-previous release working: add first, drop in a later release, as §12's run order does. If the pooler
-has no session left for the schema engine after three tries with the queue stopped, the script stops
-the live API to free its sessions and migrates again, the one path that still has downtime; the log
-says so in a warning. A migration that still fails restarts the old port and fails the run.
+previous release working: add first, drop in a later release, as §12's run order does. If
+`prisma migrate deploy` fails three times with the queue stopped, **for any reason**, the script
+stops the live API and tries five more times, the one path that still has downtime; the log says so
+in a warning. The fallback exists for a pooler with no session left for the schema engine
+(EMAXCONNSESSION), but the script does not read the error, so a migration that is simply wrong also
+takes the API down for the five further attempts (about a minute) before the old port is restarted
+and the run fails. Read the three attempts in the log to tell the two apart.
 
 **Two APIs share the box for the overlap,** a few minutes at most, with the queue paused. On
 2026-10-19 the box had 1.9 GB of memory and 2 GB of swap, 1.5 GB of it in use.
@@ -883,7 +889,7 @@ sudo journalctl -u fieldrepo-api@8001 -n 80 --no-pager        # the port named b
 ```
 
 `restart` restarts the live port in place, so it does stop the API for its start-up. `rollback`
-starts the other port's tree (the release before this one, on the venv it was built for), waits for
+starts the other port's tree (the release before this one, on its own venv and Prisma client), waits for
 `/health` and switches nginx back, with no downtime and no build. It is safe while the schema has not
 moved past what that code reads; §12 names the release you must not roll back past.
 

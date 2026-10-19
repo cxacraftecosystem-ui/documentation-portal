@@ -31,6 +31,10 @@ if [ "${1:-} ${2:-} ${3:-}" = "-m prisma migrate" ]; then
   n="$(cat "$STATE/migrate_failures" 2>/dev/null || echo 0)"
   if [ "$n" -gt 0 ]; then echo $((n - 1)) > "$STATE/migrate_failures"; exit 1; fi
 fi
+# Like prisma-client-py, the client lands in the venv whose python runs the generator.
+if [ "${1:-} ${2:-} ${3:-}" = "-m prisma generate" ]; then
+  cat app/VERSION > "$(cd "$(dirname "$0")/.." && pwd)/generated"
+fi
 exit 0
 PY
   chmod +x "$APP/venvs/v1/bin/python"
@@ -129,6 +133,28 @@ t_legacy_conversion() {
   [ -d "$APP/venvs/old" ]                                     # the rollback venv is kept
   [ ! -e "$APP/next" ]
   grep -q 'python -m scripts.reencrypt_two_factor_secrets' "$STATE/log"
+  no_gaps
+}
+
+# prisma generate rewrites site-packages in place, so each port gets its own copy of the build
+# step's venv: a release never touches the client the live port or the rollback tree runs.
+t_each_port_has_its_own_venv() {
+  setup; legacy_box
+  printf '#!%s
+echo generator
+' "$APP/venvs/v1/bin/python" > "$APP/venvs/v1/bin/prisma-client-py"
+  cand="$(prepare)"; fill_next 2; release "$cand"
+  cand="$(prepare)"; fill_next 3; release "$cand"
+  for p in 8000 8001; do
+    [ -d "$APP/slots/$p/venv" ] && [ ! -L "$APP/slots/$p/venv" ]
+    [ "$(readlink -f "$APP/slots/$p/backend/.venv")" = "$APP/slots/$p/venv" ]
+    [ -f "$APP/slots/$p/venv/.complete" ]
+    [ "$(head -n1 "$APP/slots/$p/venv/bin/prisma-client-py")" = "#!$APP/slots/$p/venv/bin/python" ]
+  done
+  grep -qx 'release 2' "$APP/slots/8001/venv/generated"     # the rollback tree's client, untouched
+  grep -qx 'release 3' "$APP/slots/8000/venv/generated"
+  [ ! -e "$APP/venvs/v1/generated" ] && [ -f "$APP/venvs/v1/.complete" ]   # the base is never written
+  [ "$(head -n1 "$APP/venvs/v1/bin/prisma-client-py")" = "#!$APP/venvs/v1/bin/python" ]
   no_gaps
 }
 

@@ -18,30 +18,38 @@
 # the API runs on one of two loopback ports, each with its own tree:
 #
 #   /home/ubuntu/app/slots/8000/backend    code, .env and a .venv symlink for port 8000
-#   /home/ubuntu/app/slots/8001/backend    the same for port 8001
+#   /home/ubuntu/app/slots/8000/venv       that port's own copy of the build step's venv
+#   /home/ubuntu/app/slots/8001/...        the same for port 8001
 #   /home/ubuntu/app/backend  ->  slots/<live port>/backend    (what operators and the queue use)
 #   /home/ubuntu/app/next     ->  slots/<idle port>/backend    (what the deploy is filling)
 #   fieldrepo-api@<port>.service           the API on that port (this file installs the template)
 #
-# A release fills the idle port's tree while the live port serves, migrates, starts the idle port,
-# waits for /health on it, points nginx at it (a reload, so no connection is dropped), and only then
-# stops the old port. If anything fails before the switch, the old port is still serving and the
-# deploy fails with nothing for users to notice. The previous port's tree stays on disk, so
-# `rollback` is a start and a switch, no build.
+# A release fills the idle port's tree and venv while the live port serves, migrates, starts the
+# idle port, waits for /health on it, points nginx at it (a reload, so no connection is dropped),
+# and only then stops the old port. If anything fails before the switch, the old port is still
+# serving and the deploy fails with nothing for users to notice. The previous port's tree and venv
+# stay on disk, so `rollback` is a start and a switch, no build.
+#
+# EACH PORT HAS ITS OWN VENV, a `cp -a` of the one the build step chose. `prisma generate` writes
+# the client INTO the venv's site-packages, so with one venv shared by both ports (the lock did not
+# change, which is most deploys) this release's client would replace the one the live port and the
+# rollback tree run on, before anything had switched.
 #
 # MIGRATIONS RUN WHILE THE OLD RELEASE SERVES. Each release's migrations must therefore keep the
 # previous release working (add first, drop in a later release), which is the rule
-# backend/DEPLOY_AWS.md's run orders already follow. If the pooler has no session left for the
-# schema engine (EMAXCONNSESSION) after three tries with the queue stopped, the live API is stopped
-# to free its sessions, exactly as every deploy did before this file: the one case that still has
-# downtime, and it says so in the log.
+# backend/DEPLOY_AWS.md's run orders already follow. If `prisma migrate deploy` fails three times
+# with the queue stopped, for any reason, the live API is stopped and the migration tried five more
+# times, exactly as every deploy did before this file. The case this is for is a pooler with no
+# session left for the schema engine (EMAXCONNSESSION), but the script cannot tell that from any
+# other failure, so a bad migration also costs the API until the old port is restarted. It is the
+# one path that still has downtime, and it says so in the log.
 #
 # The first deploy on the old layout (fieldrepo.service on 8000 from a real /home/ubuntu/app/backend)
 # converts it: the new release starts on 8001, the old unit is stopped and removed after the switch,
 # and the old tree is kept as /home/ubuntu/app/legacy-backend.
 #
 # Every path and command below can be redirected by the environment, which is how
-# backend/tests/test_blue_green_deploy.py runs this file against stubbed systemctl, nginx and curl.
+# backend/deploy/test_blue_green.sh runs this file against stubbed systemctl, nginx and curl.
 set -euo pipefail
 
 APP="${APP:-/home/ubuntu/app}"
@@ -63,6 +71,7 @@ say() { printf '%s\n' "$*" >&2; }
 die() { say "::error::$*"; exit 1; }
 other() { if [ "$1" = 8000 ]; then echo 8001; else echo 8000; fi; }
 tree_of() { echo "$APP/slots/$1/backend"; }
+venv_of() { echo "$APP/slots/$1/venv"; }
 active() { sudo systemctl is-active --quiet "$1" 2>/dev/null; }
 
 # The port nginx sends traffic to. nginx is the truth, not systemd: whatever it proxies to is live.
@@ -144,13 +153,23 @@ cmd_prepare() {
   echo "$cand"
 }
 
-# This release's project, Prisma client and Node, in the candidate tree and the venv the build step
-# chose. Nothing the live port runs on changes, except that `prisma generate` writes into a venv
-# both trees share when the lock did not change, as every deploy before this one did.
+# This release's venv, project, Prisma client and Node, in the candidate tree. The venv is the port's
+# own copy of the one the build step chose (`cp -a`, never hard links: generate rewrites files in
+# place), so nothing the live port or the rollback tree runs on changes.
 build_tree() {
-  local tree="$1" target="$2" py="$2/bin/python" have dest
+  local tree="$1" base="$2" venv="$3" py="$3/bin/python" have dest f
+  rm -rf "$venv"
+  cp -a "$base" "$venv"
+  rm -f "$venv/.complete"
+  # A venv's scripts and pyvenv.cfg name the directory it was built in: `prisma generate` runs
+  # bin/prisma-client-py, whose shebang would otherwise run the shared venv's python and write the
+  # client back into it. Text files only (-I); bin/python is a symlink to the interpreter, which
+  # grep -r does not follow, and stays as it is.
+  { grep -rlIF -- "$base" "$venv/bin" "$venv/pyvenv.cfg" 2>/dev/null || true; } | while IFS= read -r f; do
+    sed -i "s#$base#$venv#g" "$f"
+  done
   cd "$tree"
-  point .venv "$target"
+  point .venv "$venv"
   # Editable and WITHOUT dependencies: the lock decided every version in the build step, and
   # `pip check` refuses a lock pyproject's floors have outgrown, before anything is stopped.
   "$py" -m pip install --quiet --disable-pip-version-check --no-deps -e .
@@ -174,7 +193,9 @@ build_tree() {
   fi
   export PRISMA_USE_GLOBAL_NODE=false
   "$NODE_CACHE/nodeenv/bin/node" --version
-  PATH="$target/bin:$PATH" "$py" -m prisma generate
+  PATH="$venv/bin:$PATH" "$py" -m prisma generate
+  # Written last, so a copy killed half way is never taken for a venv `rollback` can start.
+  { "$py" -VV; readlink -f "$py"; } > "$venv/.complete"
 }
 
 migrate() {
@@ -259,11 +280,11 @@ promote() {
 cmd_release() {
   # cand and old_unit are global: the exit trap reads them.
   cand="${1:-}"; old_unit=""
-  local live tree want target previous
+  local live tree want target venv previous
   case "$cand" in 8000|8001) ;; *) die "release needs the port 'prepare' printed (8000 or 8001), got '$cand'" ;; esac
   live="$(live_port)"
   [ "$live" = "$(other "$cand")" ] || die "nginx proxies to $live, so $cand is the live port; run prepare again"
-  tree="$(tree_of "$cand")"
+  tree="$(tree_of "$cand")"; venv="$(venv_of "$cand")"
   [ "$(readlink -f "$APP/next")" = "$(readlink -f "$tree")" ] || die "$APP/next does not point at $tree; run prepare again"
   [ -s "$tree/.env" ] || die "$tree/.env is missing or empty; the .env steps did not run"
   want="$(cat "$APP/venv-wanted")"
@@ -272,7 +293,7 @@ cmd_release() {
   old_unit="$(live_unit "$live")"
   previous="$(readlink -f "$APP/backend/.venv" 2>/dev/null || true)"
 
-  build_tree "$tree" "$target"
+  build_tree "$tree" "$target" "$venv"
 
   # Whatever happens from here, the box ends with an API on some port and the queue running.
   queue_was=no; old_stopped=no; cand_started=no; handed_over=no
@@ -282,14 +303,14 @@ cmd_release() {
   # the second API needs. It starts again on the new tree at the end, or on the old one on failure.
   sudo systemctl stop "$QUEUE" 2>/dev/null || true
 
-  if ! migrate "$tree" "$target" 3; then
+  if ! migrate "$tree" "$venv" 3; then
     if [ -n "$old_unit" ]; then
-      say "::warning::the migration found no free pooler session with $old_unit serving; stopping it to free its sessions. The API is down until $UNIT@$cand answers /health."
+      say "::warning::prisma migrate deploy failed three times with $old_unit serving (read the attempts above: this fallback is for a pooler with no free session, EMAXCONNSESSION); stopping it to free its sessions and trying again. The API is down until $UNIT@$cand answers /health."
       sudo systemctl stop "$old_unit" || true
       old_stopped=yes
       sleep 5
     fi
-    migrate "$tree" "$target" 5 || die "prisma migrate deploy failed. Nothing was switched: nginx still proxies to $live, on the code that matches the schema the database has."
+    migrate "$tree" "$venv" 5 || die "prisma migrate deploy failed. Nothing was switched: nginx still proxies to $live, on the code that matches the schema the database has."
   fi
 
   sudo systemctl reset-failed "$UNIT@$cand" 2>/dev/null || true
@@ -302,7 +323,7 @@ cmd_release() {
   fi
 
   promote "$cand" "$old_unit"
-  if [ -n "$previous" ] && [ "$previous" != "$target" ]; then printf '%s\n' "$previous" > "$APP/venv-previous"; fi
+  if [ -n "$previous" ] && [ "$previous" != "$venv" ]; then printf '%s\n' "$previous" > "$APP/venv-previous"; fi
   if [ "$queue_was" = yes ] || [ -f "$UNIT_DIR/$QUEUE.service" ]; then
     sudo systemctl restart "$QUEUE" 2>/dev/null || true
   fi
@@ -312,7 +333,7 @@ cmd_release() {
   # with no error anywhere. A dry run writes nothing and names account ids, never secrets. Exit 3
   # fails the deploy (the release is live; the fix is a key in TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS and
   # another deploy); any other failure, such as a busy pooler, is only a warning.
-  local rc=0 py="$target/bin/python"
+  local rc=0 py="$venv/bin/python"
   if grep -q '^TWO_FACTOR_ENCRYPTION_KEY=.' "$tree/.env"; then
     set +e
     (cd "$tree" && "$py" -m scripts.reencrypt_two_factor_secrets); rc=$?
@@ -338,9 +359,10 @@ on_exit() {
   exit "$rc"
 }
 
-# Healthy and switched, so tidy up: keep every venv a tree still points at (both ports, the old
-# layout's tree), the one recorded as previous and the 3.12 rollback venv; only the pinned Node; and
-# only the interpreters under /opt/cpython that a kept venv runs on.
+# Healthy and switched, so tidy up: keep the venv the next release copies, every venv a tree still
+# points at (the old layout's tree, a port built before the per-port copies), the one recorded as
+# previous and the 3.12 rollback venv; only the pinned Node; and only the interpreters under
+# /opt/cpython that a kept venv or a port's own venv runs on.
 tidy() {
   local target="$1" keep d v used
   keep=" $target $(cat "$APP/venv-previous" 2>/dev/null || true) $APP/venvs/py3.12-legacy "
@@ -359,7 +381,7 @@ tidy() {
   for d in "${CPYTHON_ROOT:-/opt/cpython}"/*; do
     [ -d "$d" ] || continue
     used=no
-    for v in "$APP"/venvs/*; do
+    for v in "$APP"/venvs/* "$APP"/slots/*/venv; do
       case "$(readlink -f "$v/bin/python" 2>/dev/null || true)" in "$d"/*) used=yes; break ;; esac
     done
     [ "$used" = yes ] || sudo rm -rf "$d"
@@ -371,7 +393,7 @@ tidy() {
 cmd_rollback() {
   local live back tree
   live="$(live_port)"; back="$(other "$live")"; tree="$(tree_of "$back")"
-  [ -x "$tree/.venv/bin/python" ] || die "$tree has no runnable .venv; there is nothing on $back to roll back to"
+  [ -x "$tree/.venv/bin/python" ] && [ -f "$tree/.venv/.complete" ] || die "$tree has no complete .venv; there is nothing on $back to roll back to"
   [ -s "$tree/.env" ] || die "$tree/.env is missing"
   old_unit="$(live_unit "$live")"
   queue_was=no; old_stopped=no; cand_started=no; handed_over=no; cand="$back"

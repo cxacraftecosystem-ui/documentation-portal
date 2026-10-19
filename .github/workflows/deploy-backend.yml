@@ -1219,9 +1219,10 @@ jobs:
           } | ssh ubuntu@$EC2_HOST 'bash -s'
 
       # ─── THE PROJECT, THE PRISMA CLIENT, THE MIGRATION, THE SWITCH ──────────────────────────────
-      # backend/deploy/blue_green.sh `release`, from this commit: the project editable into the venv
-      # the build step chose (`--no-deps`, then `pip check`), the pinned Node for the Prisma CLI,
-      # `prisma generate`, then `prisma migrate deploy` with the queue paused and the live port still
+      # backend/deploy/blue_green.sh `release`, from this commit: the venv the build step chose copied
+      # (`cp -a`) to the idle port's own slots/<port>/venv, the project editable into that copy
+      # (`--no-deps`, then `pip check`), the pinned Node for the Prisma CLI, `prisma generate` into
+      # the copy (so the live port's and the rollback tree's client are never rewritten), then `prisma migrate deploy` with the queue paused and the live port still
       # serving, the idle port started, /health waited for (ten minutes by the clock, a line every
       # twenty seconds), nginx reloaded onto it, and only then the old port stopped and the queue
       # started on the new tree. Any failure before the switch leaves nginx on the old port, which
@@ -1230,8 +1231,9 @@ jobs:
       #
       # THE FALLBACK. Migrations talk to the Supabase pooler in session mode, and the schema engine
       # once found no session left (EMAXCONNSESSION) with the API holding its share. The queue is
-      # stopped first, which frees its sessions; if three tries still fail, the script stops the live
-      # API to free the rest, as every deploy did before, and says so in the log.
+      # stopped first, which frees its sessions; if three tries still fail, FOR ANY REASON (the
+      # script does not read the error, so a broken migration takes this path too), the script stops
+      # the live API, tries five more times, as every deploy did before, and says so in the log.
       - name: Migrate, start the new release beside the live one, switch when healthy
         run: |
           set -euo pipefail
