@@ -66,6 +66,7 @@ import { saveOrQueue } from "@/lib/offline";
 import { hasRank } from "@/lib/permissions";
 import type { AadhaarLookupResult, Artisan, ArtisanIdentityConflict, ArtisanIdentityMatch, Craft, RecordStatus } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
+import { RecordingConsentToggle } from "@/components/forms/RecordingConsentToggle";
 import { SharingConsentToggle } from "@/components/forms/SharingConsentToggle";
 
 // The shared gender list (lib/standardValues, the same file in both portals and on Android).
@@ -1415,6 +1416,7 @@ export function ArtisanForm({ initial }: { initial?: Artisan }) {
                 }}
               />
             ) : null}
+            {initial?.id ? <RecordingConsentToggle artisanId={initial.id} /> : null}
             {initial?.id ? <SharingConsentToggle artisanId={initial.id} /> : null}
           </div>
           <DosDontsField

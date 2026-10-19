@@ -1019,6 +1019,7 @@ model Artisan {
   questionnaireInterviews QuestionnaireInterviewArtisan[]
   sectionStatuses QuestionnaireSectionStatus[]
   sharingConsent  ArtisanSharingConsent?
+  recordingConsents RecordingConsent[]
   crossPortalLinks CrossPortalArtisanLink[]
   /// Likely-duplicate pairs this artisan is either side of. Cascade: a deleted (or merged-away)
   /// artisan's pairs go with it (services/artisan_duplicates.py).
@@ -1414,6 +1415,14 @@ model MediaFile {
   /// `services/media_queue` must never clear the flag.
   transcriptEditedAt DateTime?
   transcriptEditedById String?
+  /// TRANSCRIPTION SERVICE (18 Oct 2026). `[{startMs, endMs, speaker, text}]` from the provider that
+  /// answered, so subtitles read stored timings instead of paying for the audio again. Null for a
+  /// transcript made before the service, or by a provider that returns no timings (Whisper).
+  transcriptSegments Json?
+  /// The language the provider detected (`hin`, `multi`, ...). A record of what was heard, never a lock.
+  transcriptLanguage String?
+  /// Which provider produced `transcriptText` (`elevenlabs`, `deepgram`, `whisper`, `muse`, `cache`).
+  transcriptProvider String?
   linkedRecordType String?
   linkedRecordId   String?
   status           RecordStatus @default(PENDING)
@@ -1444,6 +1453,7 @@ model MediaFile {
   location   Location?             @relation(fields: [locationId], references: [id], onDelete: SetNull)
   processingJobs MediaProcessingJob[]
   insights       TranscriptInsight[]
+  recordingConsents RecordingConsent[]
 
   @@index([mediaType])
   @@index([uploadedById])
@@ -1527,11 +1537,17 @@ model MediaProcessingJob {
   requestedById  String?
   productId      String?
   toolId         String?
+  /// `<mediaFileId>:<jobType>` while the job is QUEUED or PROCESSING, NULL once it is finished. A
+  /// plain nullable unique IS the partial index (Postgres lets any number of NULLs through), so one
+  /// clip can never hold two open transcription jobs and pay twice. Rows from before 18 Oct 2026
+  /// keep NULL; enqueue also checks for an open job by hand, which covers them.
+  openKey        String?                  @unique
 
   mediaFile   MediaFile              @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
   requestedBy User?                  @relation("MediaProcessingRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
   product     ProductDocumentation?  @relation(fields: [productId], references: [id], onDelete: SetNull)
   tool        ToolDocumentation?     @relation(fields: [toolId], references: [id], onDelete: SetNull)
+  transcriptionChunks TranscriptionChunk[]
 
   @@index([status, runAfter, priority, createdAt])
   @@index([mediaFileId])
@@ -2019,7 +2035,14 @@ model AppSetting {
   /// Speech-to-text providers in the order the master admin ranked them. One with no configured key
   /// is skipped where it sits, so this ranks preference and never gates transcription.
   sttProviderOrder   String[] @default(["elevenlabs", "deepgram", "whisper"])
-  batchWindowEnabled Boolean  @default(false)
+  /// THE PAUSE (owner hold, 18 Oct 2026). TRUE ON DEPLOY: the queue, "Transcribe now", server
+  /// dictation, subtitles and every retry tool hold while it is set, and queued jobs stay QUEUED.
+  /// Only an admin action in Settings turns it off. See docs/DEFERRED_FOR_LAUNCH.md.
+  transcriptionPaused Boolean @default(true)
+  /// Providers switched off by an admin. Muse ships off: its processing location is undocumented.
+  sttProvidersDisabled String[] @default(["muse"])
+  /// The nightly window, ON by default for a new row once transcription is unpaused.
+  batchWindowEnabled Boolean  @default(true)
   batchWindowStart   String   @default("02:00")
   batchWindowEnd     String   @default("05:00")
   batchTimezone      String   @default("Asia/Kolkata")
@@ -2541,4 +2564,126 @@ model ArtisanDuplicateCandidate {
   @@index([artisanAId])
   @@index([artisanBId])
   @@index([decidedById])
+/// ONE PROVIDER KEY'S THROTTLE STATE (transcription service, 18 Oct 2026). A 429 from one provider
+/// cools down that provider and that key only, so the next provider is tried instead of the whole
+/// queue stopping; persisted so a restart does not forget it and both processes see it.
+model SttProviderState {
+  id             String    @id @default(cuid())
+  provider       String
+  /// The key's NAME (`ELEVENLABS_API_KEY`, `personal:openai`), never its value.
+  keyRef         String
+  cooldownUntil  DateTime?
+  consecutive429 Int       @default(0)
+  lastError      String?
+  lastErrorAt    DateTime?
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([provider, keyRef])
+}
+
+/// ONE PROVIDER CALL: what it cost and how it ended. Written as the call finishes, cache hits
+/// included, so the admin Transcription panel can show minutes, spend and the last failures. No
+/// foreign keys: the ledger outlives a deleted clip.
+model SttUsage {
+  id          String   @id @default(cuid())
+  provider    String
+  model       String?
+  keyRef      String?
+  mediaFileId String?
+  jobId       String?
+  partIndex   Int?
+  audioMs     Int?
+  latencyMs   Int      @default(0)
+  httpStatus  Int?
+  /// COMPLETED | EMPTY | throttled | cooling | budget | key | too_large | failed | unreachable
+  outcome     String
+  costUsd     Float    @default(0)
+  cacheHit    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([provider, createdAt])
+  @@index([createdAt])
+}
+
+/// A CEILING ON ONE PROVIDER FOR ONE PERIOD (DAY or MONTH, India time). A provider whose remaining
+/// minutes are below a recording's estimate is passed over; when every one is, the job waits for the
+/// next window. A job is never failed for budget.
+model SttBudget {
+  id          String   @id @default(cuid())
+  provider    String
+  period      String
+  minutesCap  Int?
+  spendCapUsd Float?
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+
+  @@unique([provider, period])
+}
+
+/// ONE PART OF A LONG RECORDING (Muse takes at most 10 minutes; Whisper 24 MB). A retry reuses every
+/// part already stored here and sends only the parts that failed.
+model TranscriptionChunk {
+  id        String   @id @default(cuid())
+  jobId     String
+  provider  String
+  partIndex Int
+  partCount Int
+  startMs   Int
+  endMs     Int
+  status    String
+  text      String?
+  segments  Json?
+  speakers  Int      @default(0)
+  language  String?
+  model     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  job MediaProcessingJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, provider, partIndex])
+}
+
+/// SAME BYTES, SAME OPTIONS, ONE PROVIDER CALL. Keyed on the recording's SHA-256 and the options that
+/// change a transcript; a hit copies the stored result over at no cost.
+model TranscriptCache {
+  id          String   @id @default(cuid())
+  sha256      String
+  optionsHash String
+  provider    String
+  model       String?
+  text        String
+  segments    Json?
+  language    String?
+  speakers    Int      @default(0)
+  hits        Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([sha256, optionsHash])
+}
+
+/// WHETHER A RECORDING MAY LEAVE THIS SERVER to be transcribed or summarised (the consent rule, 18 Oct
+/// 2026). Scoped to one recording (`mediaFileId`) or to an artisan (`artisanId`, covering every
+/// recording of them). Missing consent blocks ONLY sending to outside services; recording is never
+/// blocked. Append-only: the newest row for a scope is the answer, older rows are the history.
+model RecordingConsent {
+  id           String    @id @default(cuid())
+  mediaFileId  String?
+  artisanId    String?
+  /// GRANTED | REFUSED, the same words as designer-portal's DwDictationConsent.
+  decision     String
+  /// `owner attestation` for the 18 Oct 2026 backfill; NULL for a decision recorded in the app.
+  source       String?
+  /// Audit stamp, no relation (like `reviewedById`): removing an account must not rewrite history.
+  attestedById String?
+  attestedAt   DateTime  @default(now())
+  note         String?
+  createdAt    DateTime  @default(now())
+
+  mediaFile MediaFile? @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  artisan   Artisan?   @relation(fields: [artisanId], references: [id], onDelete: Cascade)
+
+  @@index([mediaFileId, createdAt])
+  @@index([artisanId, createdAt])
 }

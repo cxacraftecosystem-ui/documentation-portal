@@ -5,6 +5,7 @@ import com.fieldrepository.app.data.AnswerDrafts
 import com.fieldrepository.app.ui.AnswerDraftsCard
 import com.fieldrepository.app.ui.ArtisanCardPickerScan
 import com.fieldrepository.app.ui.ArtisanCardScanDialog
+import com.fieldrepository.app.ui.RecordingConsentRow
 import com.fieldrepository.app.ui.SharingConsentRow
 import android.Manifest
 import android.app.DownloadManager
@@ -7727,6 +7728,7 @@ private fun ArtisanForm(
                 .focusRequester(pehchanFocus)
         )
         // C27: the artisan's agreement to be looked up from the Designer Portal (drawn only while on).
+        if (isEdit) RecordingConsentRow(artisanId = editing!!.id)
         if (isEdit) SharingConsentRow(artisanId = editing!!.id)
         CompletenessAnchor("dos", dosFocus) {
             NumberedListInput(

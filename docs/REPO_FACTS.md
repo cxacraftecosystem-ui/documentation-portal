@@ -16,19 +16,19 @@ API lags the tree by however many commits have not been deployed; see
 
 | | Count |
 |---|---|
-| Prisma models | **58** |
+| Prisma models | **64** |
 | Prisma enums | **20** |
-| `@@index` declarations | 136 |
-| `@@unique` declarations | 21 |
+| `@@index` declarations | 140 |
+| `@@unique` declarations | 25 |
 
-Models: `User`, `PasswordResetToken`, `PasswordResetRequest`, `AccessRoster`, `AssignedTask`, `Feedback`, `UserPreference`, `AppRelease`, `Craft`, `CraftCode`, `CraftSpelling`, `ArtisanSharingConsent`, `CrossPortalArtisanLink`, `ArtisanCard`, `ArtisanCardEvent`, `CrossPortalAccessLog`, `GeoAlias`, `Location`, `Artisan`, `Workshop`, `WorkshopArtisan`, `WorkshopCraft`, `ProductDocumentation`, `ToolDocumentation`, `ToolArtisan`, `ToolCraft`, `MediaFile`, `TranscriptInsight`, `MediaProcessingJob`, `Questionnaire`, `QuestionnaireSection`, `QuestionnaireSectionStatus`, `QuestionnaireQuestion`, `QuestionnaireInterview`, `QuestionnaireInterviewArtisan`, `QuestionnaireResponse`, `QuestionnaireAnswerDraft`, `Process`, `ProcessStep`, `ReviewLog`, `AppSetting`, `ArtisanMerge`, `WorkshopAssignment`, `ManagedSecret`, `SecretTestResult`, `DataAccessGrant`, `DataAccessScopeItem`, `EntryComment`, `RecordRevision`, `UserAiCredential`, `EmailMessage`, `TwoFactorChallenge`, `IdempotencyKey`, `Notification`, `WeeklyDigest`, `SearchDocument`, `SearchIndexQueue`, `ArtisanDuplicateCandidate`.
+Models: `User`, `PasswordResetToken`, `PasswordResetRequest`, `AccessRoster`, `AssignedTask`, `Feedback`, `UserPreference`, `AppRelease`, `Craft`, `CraftCode`, `CraftSpelling`, `ArtisanSharingConsent`, `CrossPortalArtisanLink`, `ArtisanCard`, `ArtisanCardEvent`, `CrossPortalAccessLog`, `GeoAlias`, `Location`, `Artisan`, `Workshop`, `WorkshopArtisan`, `WorkshopCraft`, `ProductDocumentation`, `ToolDocumentation`, `ToolArtisan`, `ToolCraft`, `MediaFile`, `TranscriptInsight`, `MediaProcessingJob`, `Questionnaire`, `QuestionnaireSection`, `QuestionnaireSectionStatus`, `QuestionnaireQuestion`, `QuestionnaireInterview`, `QuestionnaireInterviewArtisan`, `QuestionnaireResponse`, `QuestionnaireAnswerDraft`, `Process`, `ProcessStep`, `ReviewLog`, `AppSetting`, `ArtisanMerge`, `WorkshopAssignment`, `ManagedSecret`, `SecretTestResult`, `DataAccessGrant`, `DataAccessScopeItem`, `EntryComment`, `RecordRevision`, `UserAiCredential`, `EmailMessage`, `TwoFactorChallenge`, `IdempotencyKey`, `Notification`, `WeeklyDigest`, `SearchDocument`, `SearchIndexQueue`, `ArtisanDuplicateCandidate`, `SttProviderState`, `SttUsage`, `SttBudget`, `TranscriptionChunk`, `TranscriptCache`, `RecordingConsent`.
 
 Enums: `UserRole`, `AuthProvider`, `AccessStatus`, `RecordStatus`, `WorkshopType`, `MediaType`, `ProductType`, `MarketDemand`, `MakerType`, `TraditionType`, `ReviewRecordType`, `MediaProcessingJobType`, `MediaProcessingJobStatus`, `ProcessStepType`, `DataAccessTier`, `DataAccessStatus`, `CredentialLinkPurpose`, `DuplicateKind`, `DuplicateStatus`, `DuplicateSource`.
 
 ## API surface
 
-**243 operations** in the working tree — 114 GET, 82 POST, 21 DELETE,
-12 PATCH, 14 PUT. 2 of them (`/health`, `/health/ready`) are declared
+**250 operations** in the working tree — 117 GET, 83 POST, 21 DELETE,
+12 PATCH, 17 PUT. 2 of them (`/health`, `/health/ready`) are declared
 on the app rather than on a router; the rest are spread across `backend/app/api/routes/`:
 
 | Route module | Operations |
@@ -61,12 +61,14 @@ on the app rather than on a router; the rest are spread across `backend/app/api/
 | `settings.py` | 5 |
 | `craft_codes.py` | 4 |
 | `preferences.py` | 4 |
+| `recording_consent.py` | 4 |
 | `transcript_insights.py` | 4 |
 | `app_release.py` | 3 |
 | `export.py` | 3 |
 | `feedback.py` | 3 |
 | `reference.py` | 3 |
 | `search.py` | 3 |
+| `transcription_admin.py` | 3 |
 | `cross_portal_search.py` | 2 |
 | `map_points.py` | 2 |
 | `completeness.py` | 1 |
@@ -107,7 +109,7 @@ Source of truth: `ROLE_RANK` in `backend/app/core/deps.py`, mirrored in
 
 ## Transcription provider chain
 
-Default order: 1. `elevenlabs`  2. `deepgram`  3. `whisper` — `DEFAULT_STT_PROVIDER_ORDER`
+Default order: 1. `elevenlabs`  2. `deepgram`  3. `whisper`  4. `muse` — `DEFAULT_STT_PROVIDER_ORDER`
 in `backend/app/services/app_settings.py`. A master admin can reorder it at runtime; a provider with
 no key is skipped wherever it sits.
 
@@ -115,9 +117,9 @@ no key is skipped wherever it sits.
 
 | Surface | Files | Cases | Runner |
 |---|---|---|---|
-| Backend unit (`backend/tests/`) | 122 | 1853 `def test_` | `python -m pytest -q` from `backend/` |
+| Backend unit (`backend/tests/`) | 125 | 1900 `def test_` | `python -m pytest -q` from `backend/` |
 | Web end-to-end (`frontend/e2e/`) | 79 | 1002 `test(` | Playwright, `frontend/playwright.config.ts` |
-| Android unit (`android/app/src/test/`) | 96 | 1023 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
+| Android unit (`android/app/src/test/`) | 98 | 1032 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
 | Android instrumented | **none** — the `src/androidTest` source set does not exist | — | not run in CI |
 
 The backend case count is `def test_` occurrences; pytest reports a larger number because
@@ -128,11 +130,11 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 
 | Area | Tracked files | Tracked lines | Tree files | Tree lines |
 |---|---|---|---|---|
-| `backend/app` | 173 | 65,647 | 173 | 65,647 |
-| `frontend/app` | 71 | 22,428 | 71 | 22,428 |
-| `frontend/components` | 240 | 62,778 | 240 | 62,778 |
+| `backend/app` | 196 | 68,960 | 196 | 68,960 |
+| `frontend/app` | 71 | 22,430 | 71 | 22,430 |
+| `frontend/components` | 242 | 63,154 | 242 | 63,154 |
 | `frontend/lib` | 107 | 33,157 | 107 | 33,157 |
-| `android/app/src/main/java` | 160 | 94,802 | 160 | 94,802 |
+| `android/app/src/main/java` | 164 | 95,416 | 164 | 95,416 |
 
 Two columns because the two numbers get quoted interchangeably and disagree by however much work is
 uncommitted. **Tracked** is `git ls-files`, which is the figure to use in a write-up — it is

@@ -7,6 +7,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { ApiKeysPanel } from "@/components/settings/ApiKeysPanel";
 import { ProviderOrderPanel } from "@/components/settings/ProviderOrderPanel";
 import { RestrictedPanel } from "@/components/settings/RestrictedPanel";
+import { TranscriptionPanel } from "@/components/settings/TranscriptionPanel";
 import { isAdmin, isMasterAdmin } from "@/lib/permissions";
 
 /**
@@ -80,6 +81,7 @@ export default function ApiKeysPage() {
       <div className="grid gap-4">
         {/* The ranking first: it is the control most admins come here for, and the only one they can
             all use. The key list below it is the master admin's. */}
+        <TranscriptionPanel canChange={master} />
         <ProviderOrderPanel />
         {master ? <ApiKeysPanel /> : null}
       </div>

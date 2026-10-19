@@ -292,6 +292,11 @@ class Settings(BaseSettings):
     elevenlabs_stt_model: str = Field(default="scribe_v1", alias="ELEVENLABS_STT_MODEL")
     deepgram_api_key: str | None = Field(default=None, alias="DEEPGRAM_API_KEY")
     deepgram_stt_model: str = Field(default="nova-3", alias="DEEPGRAM_STT_MODEL")
+    # Meta Muse Voice Transcribe, the fourth speech-to-text provider. SHIPS SWITCHED OFF
+    # (AppSetting.sttProvidersDisabled) until the owner accepts its undocumented processing
+    # location; see app/transcription/providers/muse.py.
+    meta_model_api_key: str | None = Field(default=None, alias="META_MODEL_API_KEY")
+    muse_stt_model: str = Field(default="muse-voice-transcribe-1.0", alias="MUSE_STT_MODEL")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     openai_transcription_model: str = Field(default="whisper-1", alias="OPENAI_TRANSCRIPTION_MODEL")
     # Chat model used to refine a raw transcript into a clean interviewer/interviewee conversation

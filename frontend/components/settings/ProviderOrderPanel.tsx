@@ -111,7 +111,8 @@ type ProviderOrderState = {
 const BUILT_IN_DEFAULT: Provider[] = [
   { id: "elevenlabs", name: "ElevenLabs", keyLabel: "ElevenLabs Scribe", keyName: "ELEVENLABS_API_KEY" },
   { id: "deepgram", name: "Deepgram", keyLabel: "Deepgram", keyName: "DEEPGRAM_API_KEY" },
-  { id: "whisper", name: "Whisper (OpenAI)", keyLabel: "OpenAI", keyName: "OPENAI_API_KEY" }
+  { id: "whisper", name: "Whisper (OpenAI)", keyLabel: "OpenAI", keyName: "OPENAI_API_KEY" },
+  { id: "muse", name: "Meta Muse", keyLabel: "Meta Muse", keyName: "META_MODEL_API_KEY" }
 ].map((entry) => ({
   ...entry,
   configured: false,

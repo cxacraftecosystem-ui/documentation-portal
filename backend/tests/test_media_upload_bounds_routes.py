@@ -94,6 +94,12 @@ class _Twin:
 def transcriber(monkeypatch: pytest.MonkeyPatch) -> _Twin:
     twin = _Twin({"available": True, "status": "COMPLETED", "text": "hello"})
     monkeypatch.setattr(media_routes, "transcribe_audio_bytes", twin)
+
+    async def _unpaused() -> bool:
+        return False
+
+    # Transcription ships PAUSED (owner hold, 18 Oct 2026); this test is about the bound once it is on.
+    monkeypatch.setattr(media_routes, "load_transcription_paused", _unpaused)
     return twin
 
 
