@@ -467,6 +467,12 @@ is dropped.
 
 **Which key pays.** `user_ai_keys.resolve`: automatic runs and the backfill use the deployment's
 key; Regenerate uses the researcher's own key when they have one. About two calls per transcript.
+Regenerate on an edited summary while an automatic job is active claims that job for the
+researcher, so it runs on their key instead of being skipped.
+
+**When it fails.** A refusal (key not accepted, request turned down, model declined) closes the job
+at once. A busy or unreachable provider retries. A failed translation keeps the summary and says
+only that the translation couldn't be finished, since read-only viewers and Android see it too.
 
 **What leaves the building.** The transcript text goes to OpenAI, Anthropic or Gemini, whichever key
 resolves. The Field Repository has no AI consent gate (the designer portal re-checks the artisan's

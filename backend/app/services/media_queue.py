@@ -566,8 +566,12 @@ async def _apply_transcription_result(job: Any, result: dict[str, Any]) -> None:
 
 async def _process_insights_job(job: Any, media: Any) -> None:
     """Summary, quotes and translation for one transcript. The requester's own key when a person
-    asked (Regenerate); the deployment's key for automatic runs and the backfill."""
-    requested_by = getattr(job, "requestedById", None)
+    asked (Regenerate); the deployment's key for automatic runs and the backfill.
+
+    A refused key, a declined request or a declined model gives the same answer every time, so it
+    closes the job at once; a busy or unreachable provider retries."""
+    # Read fresh: a Regenerate can claim an automatic job after it was queued or picked up.
+    requested_by = await transcript_insights.job_requester(job)
     if requested_by is None:
         # An automatic run never replaces a researcher's edits, even if they edited after it was
         # queued.
@@ -581,7 +585,10 @@ async def _process_insights_job(job: Any, media: Any) -> None:
         await _finalize_unavailable_job(job.id, {"status": UNAVAILABLE}, str(exc))
         return
     except transcript_insights.InsightsFailed as exc:
-        raise JobFailure(str(exc)) from None
+        if exc.retry:
+            raise JobFailure(str(exc)) from None
+        await _finalize_unavailable_job(job.id, {"status": FAILED}, str(exc))
+        return
     await _complete_job(job.id, outcome)
 
 

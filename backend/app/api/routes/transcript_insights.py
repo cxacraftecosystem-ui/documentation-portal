@@ -162,12 +162,19 @@ async def regenerate_insight(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="There is no transcript to summarise yet.",
         )
-    if await insights.active_job(media_id) is None:
-        row = await insights.current_insight(media_id)
-        if row is not None and row.editedAt is not None and not payload.discardEdits:
-            return JSONResponse(
-                status_code=status.HTTP_409_CONFLICT,
-                content={"detail": "Regenerating replaces your edits.", "code": "EDITS_WOULD_BE_REPLACED"},
-            )
+    active = await insights.active_job(media_id)
+    row = await insights.current_insight(media_id)
+    edited = row is not None and row.editedAt is not None
+    # An active automatic job skips an edited summary, so on an edited one it is no answer to this
+    # ask: the job is claimed for the caller instead. Any other active job already is the answer.
+    if active is not None and not (edited and getattr(active, "requestedById", None) is None):
+        return await _view(media, current_user)
+    if edited and not payload.discardEdits:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"detail": "Regenerating replaces your edits.", "code": "EDITS_WOULD_BE_REPLACED"},
+        )
+    # A claimed job runs on the caller's key, as a queued Regenerate would.
+    if active is None or not await insights.claim_for_requester(active.id, current_user.id):
         await insights.enqueue(media_id, requested_by_id=current_user.id)
     return await _view(media, current_user)

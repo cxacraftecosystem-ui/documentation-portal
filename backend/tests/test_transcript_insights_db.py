@@ -125,3 +125,14 @@ async def test_enqueue_and_generate_through_the_real_client(client, monkeypatch)
     assert rows[1].quotes == [{"original": "It takes three days.", "english": "It takes three days.",
                                "speaker": None}]
     assert (await ti.current_insight(media_id)).id == rows[1].id
+
+
+async def test_a_regenerate_claims_an_automatic_job_once(client):
+    from app.services import transcript_insights as ti
+
+    media_id = await _media(client)
+    job = await ti.enqueue(media_id)
+    owner = (await client.mediafile.find_unique(where={"id": media_id})).uploadedById
+    assert await ti.claim_for_requester(job.id, owner) is True
+    assert await ti.claim_for_requester(job.id, owner) is False  # already claimed
+    assert await ti.job_requester(job) == owner
