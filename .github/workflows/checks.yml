@@ -82,7 +82,7 @@ name: Checks
 # (`@v4`, `@v5`) resolved to, which changed nothing that ran; deploy-backend.yml's waited for a real
 # backend change, because any edit to that file redeploys the backend, and went in with the move to
 # Python 3.14 the same day. In that change every pin, in every workflow, moved to the LATEST release
-# of its action (actions/checkout v7.0.1, setup-python v7.0.0, setup-node v7.1.0, setup-java v6.0.1,
+# of its action (actions/checkout v7.0.1, setup-python v7.0.0, setup-node v7.1.0, setup-java v6.1.0,
 # upload-artifact v7.0.2, download-artifact v8.0.2, webfactory/ssh-agent v0.10.0), each SHA read back
 # through `gh api` from the release tag. A bump is now a Dependabot pull request that a reviewer can
 # read. A bump by hand re-resolves the tag and changes the SHA and its comment together: a SHA whose

@@ -648,7 +648,7 @@ because a `.env` that is quietly pointed at a real database is a much worse way 
   old tag resolved to, so nothing that ran changed; `deploy-backend.yml`'s pins waited for a real
   backend change, because any edit to that file redeploys the backend, and went in with the move to
   Python 3.14 the same day. That change also moved every pin to its action's **latest** release —
-  checkout v7.0.1, setup-python v7.0.0, setup-node v7.1.0, setup-java v6.0.1, upload-artifact
+  checkout v7.0.1, setup-python v7.0.0, setup-node v7.1.0, setup-java v6.1.0, upload-artifact
   v7.0.2, download-artifact v8.0.2, ssh-agent v0.10.0 — and every job to `runs-on: ubuntu-26.04`.
   Dependabot now also watches npm, pip, gradle, docker, docker-compose and terraform (monthly,
   minor and patch grouped). **Deliberately still unpinned:** the Vercel CLI, which
