@@ -73,7 +73,7 @@ class QuestionnaireContractTest {
         val local = Naming.recordingFileName(
             Naming.RecordingFields(
                 Naming.SessionFields(java.time.LocalDate.of(2026, 7, 1), place = "Bagru, Jaipur", workshopCraft = "Hand Block Printing", participantNames = listOf("Giriraj Prasad Chhipa")),
-                java.time.Instant.parse(r.capturedAt), r.capturedAtSource, listOf(Naming.NameTarget(displayCode = "D3"))
+                java.time.Instant.parse(r.capturedAt), r.capturedAtSource, listOf(Naming.NameTarget(sectionCode = "D", displayCode = "D3"))
             ), transliterate = { it }
         )
         assertEquals(r.downloadName, local)
