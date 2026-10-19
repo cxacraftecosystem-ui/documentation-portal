@@ -51,7 +51,8 @@ def test_ci_tests_the_version_the_box_runs():
     text = CHECKS.read_text(encoding="utf-8")
     versions = re.findall(r'^\s*python-version:\s*"?([0-9][0-9.]*)"?\s*$', text, re.MULTILINE)
     box = _pins(DEPLOY)["cpython"]
-    assert versions == [box], f"checks.yml tests {versions}, the box runs {box}: move them together"
+    # One copy per job that sets up Python (the suite, and the database-backed suite), every one the box's.
+    assert versions and set(versions) == {box}, f"checks.yml tests {versions}, the box runs {box}: move them together"
 
 
 #: The one line in each installer that unpacks the interpreter download onto the box.
@@ -62,6 +63,8 @@ RUNNER_UNPACK = 'tar -xzf "$RUNNER_TEMP/cpython.tar.gz"'
 
 
 def test_both_installers_refuse_a_download_before_unpacking_it():
+    # The order is the safety property: hash, compare, and only then `tar -x`. A refactor that moved
+    # the unpack above the comparison would still install the right build on every good day.
     for path in (DEPLOY, USER_DATA):
         text = path.read_text(encoding="utf-8")
         unpack = text.find(BOX_UNPACK)
@@ -86,6 +89,10 @@ def test_the_runner_reads_the_one_pin_and_refuses_a_download_before_unpacking_it
 
 
 def test_both_installers_compile_the_standard_library_before_the_build_takes_its_name():
+    # The tarball ships no bytecode and the prefix is root's, so the services (which run as ubuntu)
+    # can never cache any: whatever the installer does not compile, every start compiles again from
+    # source. It has to happen after the unpack and before the rename, while the tree is still
+    # nobody's but the installer's, and both installers must do it or the two kinds of box differ.
     stdlib_compile = "-I -m compileall"
     for path in (DEPLOY, USER_DATA):
         text = path.read_text(encoding="utf-8")

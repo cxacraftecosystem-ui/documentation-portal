@@ -289,8 +289,13 @@ one is the thing to argue about in review.
   anything anybody chose. That default is no longer small: ruff 0.16.10 reports 424 findings on this
   tree at target `py314` (398 at the old `py311`; measured 2026-10-09). Choose the rules first, then
   add the step.
-- **No Playwright end-to-end, no backend integration tests.** Both need a running app, a database and
-  real credentials. See §5.
+- **No Playwright end-to-end.** It needs a running app and real credentials. See §5.
+- **The database-backed backend tests run in their own job**, `Backend database tests` (`backend-db`,
+  since 2026-10-19), against a throwaway `pgvector/pgvector:pg17` service container: every Prisma
+  migration is applied to an empty database (and to a second one for the questionnaire backfill test,
+  which deletes every legacy row), the opt-in variables each module reads are set to loopback
+  placeholders, and the step fails if any test still skips on one of those gates. `Backend tests`
+  stays database-free on purpose. The new job is advisory: the deploys' `GATING_JOBS` do not name it.
 
 ### The backend dependency lock
 
