@@ -256,7 +256,7 @@ function TypeExtras({
           <ArtisanNextSteps artisan={record as unknown as Artisan} user={user} />
           <ArtisanCardPanel artisanId={record.id} canReissue={canUpdateRecord(user, "artisan")} />
           <ExistingMedia linkedRecordType="artisan" linkedRecordId={record.id} title="Attached media" readOnly />
-          <ArtisanQuestionnairePanel artisanId={record.id} />
+          <ArtisanQuestionnairePanel artisanId={record.id} artisanName={String((record as { name?: unknown }).name ?? "")} />
         </>
       );
     case "workshop":

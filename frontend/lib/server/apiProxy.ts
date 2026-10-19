@@ -96,6 +96,10 @@ const FORWARDED_REQUEST_HEADERS = new Set([
   "x-forwarded-for",
   "idempotency-key",
   "x-client-app",
+  // Questionnaire v2 (contract §1.1): the device clock, for the server's clock-offset answer, and the
+  // build, for the old-build cutoff.
+  "x-client-time",
+  "x-app-version",
   "x-confirm-provider",
   "x-confirm-sign-in",
   "x-sign-in-proof"

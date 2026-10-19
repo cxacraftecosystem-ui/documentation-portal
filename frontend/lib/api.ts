@@ -153,6 +153,35 @@ export function describeApiDetail(detail: unknown, fallback: string): string {
  */
 export { endSession, getSessionMarker } from "@/lib/session";
 
+/**
+ * The build this page is, sent as `X-App-Version` on every call (questionnaire contract §1.1) so the
+ * server can log versions and refuse creates from a build past its cutoff.
+ */
+export const APP_VERSION = `web-${(process.env.NEXT_PUBLIC_APP_VERSION ?? "").trim() || "0.1.0"}`;
+
+let clockOffsetMs: number | null = null;
+let clockOffsetAt = 0;
+
+/**
+ * `serverDate - clientTime` from the last response that carried a `Date` header, and when it was
+ * measured. The questionnaire's `capturedAt` correction reads it (DESIGN §3.9); an offset older than
+ * seven days makes a capture time "estimated" on the server.
+ */
+export function clockOffset(): { offsetMs: number; measuredAt: number } | null {
+  return clockOffsetMs === null ? null : { offsetMs: clockOffsetMs, measuredAt: clockOffsetAt };
+}
+
+/** Exported for the unit spec: a `Date` header against the client time the request left with. */
+export function recordClockOffset(dateHeader: string | null, sentAt: number, now: number = Date.now()) {
+  if (!dateHeader) return;
+  const server = Date.parse(dateHeader);
+  if (Number.isNaN(server)) return;
+  // `Date` has whole-second resolution and the response took time to come back: compare against the
+  // midpoint of the round trip, which halves the error.
+  clockOffsetMs = server - Math.round((sentAt + now) / 2);
+  clockOffsetAt = now;
+}
+
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (await apiFetchWithHeaders<T>(path, init)).body;
 }
@@ -174,12 +203,17 @@ export async function apiFetchWithHeaders<T>(
   if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
+  const sentAt = Date.now();
+  headers.set("X-Client-Time", new Date(sentAt).toISOString());
+  headers.set("X-App-Version", APP_VERSION);
 
   const response = await fetch(`${API_BASE}/api${path}`, {
     ...init,
     headers,
     cache: "no-store"
   });
+
+  recordClockOffset(response.headers.get("date"), sentAt);
 
   if (response.status === 204) return { body: undefined as T, headers: response.headers };
 

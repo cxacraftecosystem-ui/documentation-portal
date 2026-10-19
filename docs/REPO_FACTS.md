@@ -119,7 +119,7 @@ no key is skipped wherever it sits.
 | Surface | Files | Cases | Runner |
 |---|---|---|---|
 | Backend unit (`backend/tests/`) | 143 | 1965 `def test_` | `python -m pytest -q` from `backend/` |
-| Web end-to-end (`frontend/e2e/`) | 79 | 1002 `test(` | Playwright, `frontend/playwright.config.ts` |
+| Web end-to-end (`frontend/e2e/`) | 96 | 1062 `test(` | Playwright, `frontend/playwright.config.ts` |
 | Android unit (`android/app/src/test/`) | 98 | 1032 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
 | Android instrumented | **none** — the `src/androidTest` source set does not exist | — | not run in CI |
 
@@ -132,9 +132,9 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 | Area | Tracked files | Tracked lines | Tree files | Tree lines |
 |---|---|---|---|---|
 | `backend/app` | 217 | 74,318 | 217 | 74,318 |
-| `frontend/app` | 71 | 22,430 | 71 | 22,430 |
-| `frontend/components` | 242 | 63,154 | 242 | 63,154 |
-| `frontend/lib` | 107 | 33,157 | 107 | 33,157 |
+| `frontend/app` | 77 | 22,558 | 77 | 22,558 |
+| `frontend/components` | 264 | 66,764 | 264 | 66,764 |
+| `frontend/lib` | 119 | 35,412 | 119 | 35,412 |
 | `android/app/src/main/java` | 164 | 95,416 | 164 | 95,416 |
 
 Two columns because the two numbers get quoted interchangeably and disagree by however much work is

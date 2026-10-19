@@ -41,6 +41,7 @@ import { useAdminView } from "@/components/AdminViewProvider";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { useAuth } from "@/components/AuthProvider";
 import { usePendingAccessCount } from "@/components/hooks/usePendingAccessCount";
+import { useInboxCount } from "@/components/questionnaire/useInboxCount";
 import { HoveredLink, MenuItem } from "@/components/ui/navbar-menu";
 import { FieldRepoLogo } from "@/components/FieldRepoLogo";
 import {
@@ -89,6 +90,8 @@ const everyone = () => true;
  * badge lookup in the renderer cannot drift apart.
  */
 const ACCESS_ROSTER_HREF = "/admin/access-roster";
+/** Under questionnaire v2 the interview entry also carries the inbox's waiting count. */
+const QUESTIONNAIRE_HREF = "/questionnaire";
 
 /**
  * The single source of truth for navigation. Every destination carries its own predicate, so the
@@ -248,6 +251,7 @@ export function DynamicIslandNav() {
    * request for anybody else, so calling it unconditionally here costs a non-admin nothing.
    */
   const { pending: pendingAccess } = usePendingAccessCount();
+  const inboxWaiting = useInboxCount();
   const router = useRouter();
   const pathname = usePathname();
   const [active, setActive] = useState<string | null>(null);
@@ -389,8 +393,11 @@ export function DynamicIslandNav() {
    * server said nobody is waiting, and neither deserves a badge — a "0" rendered while the request
    * is still in flight would tell an admin the queue is empty at the exact moment it might not be.
    */
-  const badgeFor = (href: string): number | null =>
-    href === ACCESS_ROSTER_HREF && typeof pendingAccess === "number" && pendingAccess > 0 ? pendingAccess : null;
+  const badgeFor = (href: string): number | null => {
+    if (href === ACCESS_ROSTER_HREF) return typeof pendingAccess === "number" && pendingAccess > 0 ? pendingAccess : null;
+    if (href === QUESTIONNAIRE_HREF) return inboxWaiting;
+    return null;
+  };
 
   return (
     <>
