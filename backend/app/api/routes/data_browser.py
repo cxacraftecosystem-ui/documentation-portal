@@ -83,6 +83,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 
 from app.core.db import db
+from app.services.questionnaire_v2.live import live_media_where
 from app.core.deps import require_dataset_downloader
 from app.services import answer_drafts
 from app.services.records import owned_or_granted_where
@@ -570,7 +571,7 @@ async def _media(where: dict[str, Any], scope: Scope, *, named: bool = False) ->
     if named:
         kwargs["include"] = _NAMING_INCLUDE
     return await db.mediafile.find_many(
-        where=_and(where, scope.media), take=TAKE, order={"createdAt": "asc"}, **kwargs
+        where=live_media_where(_and(where, scope.media)), take=TAKE, order={"createdAt": "asc"}, **kwargs
     )
 
 
@@ -2122,7 +2123,7 @@ async def _report_media(where: dict[str, Any] | None, scope: Scope) -> list[Any]
         "order": {"createdAt": "desc"},
         "include": _REPORT_MEDIA_INCLUDE,
     }
-    scoped = _and(where or {}, scope.media)
+    scoped = live_media_where(_and(where or {}, scope.media))
     if scoped:
         kwargs["where"] = scoped
     return await db.mediafile.find_many(**kwargs)

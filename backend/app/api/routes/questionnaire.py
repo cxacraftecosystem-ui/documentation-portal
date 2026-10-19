@@ -15,7 +15,9 @@ from fastapi import (
     UploadFile,
     status,
 )
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
+from prisma import Json
 from prisma.errors import UniqueViolationError
 
 # csv_response is SHARED with the export router rather than restated: both hand a researcher a .csv
@@ -67,6 +69,7 @@ from app.services.questionnaire_instruments import (
 )
 from app.services import answer_drafts, cross_portal_codes
 from app.services import completeness as completeness_module
+from app.services.questionnaire_v2 import shims as v2_shims
 from app.services.concurrency import gather_reads
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.record_filters import (
@@ -379,6 +382,10 @@ async def section_payloads(questionnaire_id: str, active_only: bool = True) -> l
     return payload
 
 
+class _SetHeld(Exception):
+    """Another interview on the same instrument already holds this artisan set (legacy rule)."""
+
+
 async def replace_interview_artisans(interview_id: str, artisan_ids: list[str]) -> None:
     unique_ids = sorted({aid for aid in artisan_ids if aid})
     set_key = artisan_set_key(unique_ids)
@@ -405,10 +412,18 @@ async def replace_interview_artisans(interview_id: str, artisan_ids: list[str]) 
         if len(found) != len(unique_ids):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
     try:
-        await db.questionnaireinterview.update(
-            where={"id": interview_id}, data={"artisanSetKey": set_key}
-        )
-    except UniqueViolationError as exc:
+        # With v2 on, a set may sit many times (a session is a dated event), so no guard.
+        if set_key and not v2_shims.enabled():
+            # The guard the dropped unique used to give (M1): another interview on this instrument
+            # already holding the set refuses the edit.
+            row = await db.questionnaireinterview.find_unique(where={"id": interview_id})
+            holders = await db.questionnaireinterview.find_many(
+                where={"questionnaireId": row.questionnaireId if row else None, "artisanSetKey": set_key}
+            )
+            if any(h.id != interview_id for h in holders):
+                raise _SetHeld()
+        await db.questionnaireinterview.update(where={"id": interview_id}, data={"artisanSetKey": set_key})
+    except (UniqueViolationError, _SetHeld) as exc:
         # NAMES THE HOLDER. The refusal stands — this edit still does not happen — but the body now
         # carries what a client needs to offer the move instead of only printing prose.
         raise (await duplicate_set_conflict(interview_id, set_key)) from exc
@@ -788,6 +803,20 @@ async def update_question(
                     f"section belongs to «{section.questionnaireId}»."
                 ),
             )
+        if section.id != question.sectionId and v2_shims.enabled():
+            # QUESTIONNAIRE V2 (DESIGN 3.8): a question that has takes is never re-parented. Its
+            # recordings point at it by id, and coverage would silently move to another section.
+            takes = await db.query_raw(
+                'SELECT count(*) AS n FROM "QuestionnaireRecordingTarget" t JOIN "QuestionnaireRecording" r '
+                'ON r."id" = t."recordingId" WHERE r."removedAt" IS NULL AND t."questionLineageId" = $1',
+                getattr(question, "lineageId", None) or question.id,
+            )
+            if takes and int(takes[0]["n"]):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={"code": "HAS_RECORDINGS", "message": "This question has recordings. Add a new question in the other section instead.",
+                            "count": int(takes[0]["n"])},
+                )
         data.update(section_question_data(section))
         if "sortOrder" not in data or data["sortOrder"] is None:
             data["sortOrder"] = await next_question_sort_order(section.id)
@@ -799,6 +828,19 @@ async def update_question(
         data.get("sectionCode", question.sectionCode), data.get("prompt", question.prompt)
     )
     updated = await db.questionnairequestion.update(where={"id": question_id}, data=data)
+    # From questionnaire v2 on, every edit leaves history (DESIGN 7.2), so a later reader can tell
+    # what a recording was asked under.
+    changed = {
+        key: {"old": jsonable_encoder(getattr(question, key, None)), "new": jsonable_encoder(value)}
+        for key, value in data.items()
+        if key in ("prompt", "sectionId", "sortOrder", "helpText", "isActive", "artisanField")
+        and getattr(question, key, None) != value
+    }
+    if changed and v2_shims.enabled():
+        await db.recordrevision.create(
+            data={"recordType": "questionnaire_question", "recordId": question_id, "editedById": getattr(_, "id", None),
+                  "changes": Json(changed)}
+        )
     return public_encode(updated)
 
 
@@ -1089,6 +1131,7 @@ async def automatic_interview_title(
 @questionnaire_router.post("/interviews", status_code=status.HTTP_201_CREATED)
 async def create_interview(
     payload: QuestionnaireInterviewCreate,
+    request: Request,
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     # A queued write naming an artisan merged away since lands on the survivor (services/artisan_merge).
@@ -1119,6 +1162,20 @@ async def create_interview(
                     "the workshop uses."
                 ),
             )
+
+    # QUESTIONNAIRE V2 ON: the old-build shim (services/questionnaire_v2/shims). Every create makes a
+    # NEW session (a session is a dated event; no fold), the typed title is kept as legacyTitle and
+    # the title is generated. Same request and response shapes; never a new error code — after the
+    # cutoff an old build's create gets 503 + Retry-After, which it treats as transient.
+    if v2_shims.enabled():
+        v2_shims.assert_old_build_may_create(
+            request.headers.get("x-app-version"),
+            bearer=request.headers.get("authorization", "").lower().startswith("bearer "),
+        )
+        assert_can_create_records(current_user)
+        created = await v2_shims.create_interview_shim(payload, current_user, questionnaire_id, check)
+        await hydrate_relations([created], RELATIONS)
+        return public_encode(created, current_user)
 
     # One interview per exact artisan set PER INSTRUMENT: if one already exists for this set on this
     # instrument, fold into it instead of creating a duplicate. This holds for EVERY client (web +
@@ -1172,6 +1229,18 @@ async def create_interview(
     pin_pending_if_late(data, current_user, check=check)
     try:
         created = await db.questionnaireinterview.create(data=data)
+        if set_key:
+            # M1 dropped the (questionnaireId, artisanSetKey) unique, so a race that passed the
+            # look-ahead above is no longer refused by the database. Settle it here instead: every
+            # racer reads the same rows and agrees the earliest (createdAt, id) is canonical; a later
+            # racer deletes its bare row (no links or answers written yet) and folds into the winner.
+            same_set = await db.questionnaireinterview.find_many(
+                where={"questionnaireId": questionnaire_id, "artisanSetKey": set_key}
+            )
+            winner = min(same_set, key=lambda r: (str(getattr(r, "createdAt", "") or ""), str(r.id)), default=created)
+            if winner.id != created.id:
+                await db.questionnaireinterview.delete(where={"id": created.id})
+                return await merge_into_interview(winner, payload, current_user, check)
     except UniqueViolationError:
         # Race: a concurrent request won the create for this set ON THIS INSTRUMENT. Fold into the
         # canonical row. Scoped the same way the look-ahead above is, or the recovery would find the

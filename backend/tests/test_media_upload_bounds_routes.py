@@ -95,11 +95,14 @@ def transcriber(monkeypatch: pytest.MonkeyPatch) -> _Twin:
     twin = _Twin({"available": True, "status": "COMPLETED", "text": "hello"})
     monkeypatch.setattr(media_routes, "transcribe_audio_bytes", twin)
 
-    async def _unpaused() -> bool:
+    # These tests are about the size ceiling, so transcription is switched on for them: both the
+    # route's own read of the pause and the questionnaire door's. The pause itself is pinned in
+    # tests/test_transcription_service_portal.py and tests/test_questionnaire_v2_fix_round.py.
+    async def _unpaused(*_a: Any, **_k: Any) -> bool:
         return False
 
-    # Transcription ships PAUSED (owner hold, 18 Oct 2026); this test is about the bound once it is on.
     monkeypatch.setattr(media_routes, "load_transcription_paused", _unpaused)
+    monkeypatch.setattr(media_routes.transcription, "is_paused", _unpaused)
     return twin
 
 

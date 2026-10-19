@@ -5,6 +5,8 @@
 -- DEFAULT true, so the existing settings row reads PAUSED the moment this runs. That is the owner's
 -- hold of 18 Oct 2026: nothing transcribes on deploy, queued jobs stay QUEUED, and only an admin
 -- turning the switch off in Settings starts the queue again. Muse is added switched off.
+-- IF NOT EXISTS because 20261022090000_consent_and_pause (questionnaire M0) adds the same column,
+-- with the same default, and sorts first.
 --
 -- "MediaProcessingJob"."openKey" is a plain nullable unique, which is the partial index Prisma can
 -- state: every existing row keeps NULL, so the index builds on live data without a conflict.
@@ -22,7 +24,7 @@ ALTER TABLE "MediaProcessingJob" ADD COLUMN     "openKey" TEXT;
 
 -- AlterTable
 ALTER TABLE "AppSetting" ADD COLUMN     "sttProvidersDisabled" TEXT[] DEFAULT ARRAY['muse']::TEXT[],
-ADD COLUMN     "transcriptionPaused" BOOLEAN NOT NULL DEFAULT true,
+ADD COLUMN IF NOT EXISTS "transcriptionPaused" BOOLEAN NOT NULL DEFAULT true,
 ALTER COLUMN "batchWindowEnabled" SET DEFAULT true;
 
 -- CreateTable

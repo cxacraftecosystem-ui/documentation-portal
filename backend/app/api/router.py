@@ -30,6 +30,7 @@ from app.api.routes import (
     products,
     public,
     questionnaire,
+    questionnaire_v2,
     recording_consent,
     reference,
     review,
@@ -77,6 +78,9 @@ api_router.include_router(transcript_insights.router)
 api_router.include_router(media.router)
 api_router.include_router(answer_drafts.router)
 api_router.include_router(questionnaire.router)
+# Questionnaire v2 (dark behind QUESTIONNAIRE_V2; consent routes always on).
+api_router.include_router(questionnaire_v2.router)
+api_router.include_router(questionnaire_v2.artisans_router)
 api_router.include_router(dashboard.router)
 api_router.include_router(search.router)
 api_router.include_router(map_points.router)

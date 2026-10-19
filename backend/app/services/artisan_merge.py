@@ -934,6 +934,13 @@ async def merge_artisans(keep_id: str, merge_id: str, picks: dict[str, str] | No
         await db.crossportalartisanlink.delete_many(where={"id": {"in": [snap["id"] for snap in dropped]}})
     await _merge_consent(moves["sharingConsent"], merged_id=merge_id, survivor_id=keep_id)
 
+    # 4b. Questionnaire v2: recording subjects, canonical answers (pinned, else most recent, wins;
+    # the other becomes a revision), take drafts and consent rows, in their own transaction. They
+    # reference the artisan with RESTRICT, so without this the delete below would refuse.
+    from app.services.questionnaire_v2.merge import merge_artisan_rows
+
+    await merge_artisan_rows(keep_id, merge_id, client=db)
+
     # 5. The merged row goes. 6. Done.
     await db.artisan.delete(where={"id": merge_id})
     done = await db.artisanmerge.update(

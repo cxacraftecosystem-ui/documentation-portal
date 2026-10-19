@@ -76,8 +76,14 @@ CREATE_ROUTES = frozenset(
         "/api/processes",
         "/api/questionnaire/interviews",
         "/api/data-access/comments",
+        # Questionnaire v2 (DESIGN 5): sessions and clip completes replay from both outboxes. Presign
+        # stays OUT: it answers with a URL that expires, and it is idempotent through clientClipKey.
+        "/api/questionnaire/sessions",
+        "/api/media/complete",
     }
 )
+#: Consent is append-only and recorded from an outbox too: POST /api/artisans/{id}/consent.
+CONSENT_ROUTE = re.compile(r"^/api/artisans/[^/]+/consent$")
 
 
 # Review decisions, which the Android outbox replays exactly as it replays a create: an approval
@@ -91,7 +97,12 @@ REVIEW_BULK_ROUTE = "/api/review/bulk-approve"
 
 def is_create_route(path: str) -> bool:
     trimmed = path.rstrip("/")
-    return trimmed in CREATE_ROUTES or trimmed == REVIEW_BULK_ROUTE or bool(REVIEW_DECISION_ROUTE.match(trimmed))
+    return (
+        trimmed in CREATE_ROUTES
+        or trimmed == REVIEW_BULK_ROUTE
+        or bool(REVIEW_DECISION_ROUTE.match(trimmed))
+        or bool(CONSENT_ROUTE.match(trimmed))
+    )
 _KEY_RE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 # Creates answer small JSON. A body larger than this is passed through and not stored.
 MAX_STORED_BODY = 256 * 1024

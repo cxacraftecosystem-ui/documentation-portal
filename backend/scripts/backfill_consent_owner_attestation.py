@@ -1,119 +1,147 @@
-"""Record consent for every recording that already exists (owner attestation, 18 Oct 2026).
+"""Record the owner's consent attestation of 18 Oct 2026 (owner correction (c); DESIGN 7.6).
 
-THE OWNER'S WORDS: consent exists for all existing recordings, including those still waiting to be
-transcribed; backfill consent records for them, attested by the owner on 18 Oct 2026, source
-'owner attestation', and do not flag them.
+THE OWNER CONFIRMED that consent exists for every recording made before this date, including the
+ones still waiting for transcription. This writes that statement into the consent ledger, once per
+recording, so the consent gate lets those files through and nobody is ever asked about them:
 
-WHAT IT WRITES: one ``RecordingConsent`` row (GRANTED, ``source = 'owner attestation'``,
-``attestedAt = 2026-10-18``, the owner as ``attestedById``, the attestation note) for every AUDIO
-``MediaFile`` that has no consent row of its own and whose artisan has none either. Designer-portal's
-twin (``scripts/backfill_consent_owner_attestation.py`` there) does the same per workshop.
+    Consent{subjectType: RECORDING, subjectId: <mediaFileId>, purpose: EXTERNAL_PROCESSING,
+            state: GRANTED, basis: OWNER_ATTESTATION, source: "owner attestation",
+            actorId: <the owner's user id>, recordedAt: 2026-10-18T00:00+05:30,
+            note: "Owner attested on 18 Oct 2026 that consent exists for all recordings made before this date."}
 
-WHAT IT NEVER DOES: create a transcription job, call a provider, overwrite an answer a person
-recorded, or flag a recording. The queue is paused anyway.
+SCOPE: every MediaFile of type AUDIO or VIDEO created on or before 2026-10-18 23:59 IST that still
+exists (soft-removed ones included; hard-deleted ones are gone). Files made later get NO row: they
+need per-artisan consent.
 
-IDEMPOTENT: a second run finds nothing to do, because every recording it covered now has a row.
+IT ALSO sets ``MediaFile.consentAtSend = GRANTED`` where a transcript already exists (the ~408 sent
+before any consent record). It changes NO job, NO status and NO transcript, writes no flag and
+queues nothing: transcription stays paused (correction (d)).
 
-USAGE (from backend/; ``DATABASE_URL`` comes from ``backend/.env``. NEVER point this at production
-for a dry run you do not mean: the dry run reads only, the ``--fix`` run writes):
+DRY RUN BY DEFAULT, idempotent (the ledger's unique key makes a second apply write nothing), and it
+refuses a database host you did not name. NEVER run it as part of a test or from a laptop against
+production; the owner approves the dry-run report first.
 
-    python scripts/backfill_consent_owner_attestation.py                        # DRY RUN
-    python scripts/backfill_consent_owner_attestation.py --fix --owner-email owner@example.org
+    cd backend
+    python scripts/backfill_consent_owner_attestation.py --allow-host <db host>          # dry run + report
+    python scripts/backfill_consent_owner_attestation.py --allow-host <db host> --apply \\
+        --owner-email <owner> --approved-report ../docs/ops/<report with Approved-by line>
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import pathlib
+import csv
+import io
 import sys
-from datetime import UTC, datetime
+from datetime import UTC
+from pathlib import Path
+from typing import Any
 
-BACKEND = pathlib.Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(BACKEND))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.core.db import connect_db, db, disconnect_db  # noqa: E402
-from app.transcription.consent import (  # noqa: E402
-    GRANTED,
-    OWNER_ATTESTATION_NOTE,
-    OWNER_ATTESTATION_SOURCE,
+from scripts import qv2_guard  # noqa: E402
+
+from app.services import naming  # noqa: E402
+from app.services.consent_gate import ATTESTATION_CUTOFF, ATTESTATION_RECORDED_AT  # noqa: E402
+
+NOTE = "Owner attested on 18 Oct 2026 that consent exists for all recordings made before this date."
+SOURCE = "owner attestation"
+RECORDED_AT = ATTESTATION_RECORDED_AT.astimezone(UTC).replace(tzinfo=None).isoformat(timespec="milliseconds")
+CUTOFF = ATTESTATION_CUTOFF.astimezone(UTC).replace(tzinfo=None).isoformat(timespec="milliseconds")
+SCOPE_SQL = (
+    'FROM "MediaFile" m WHERE m."mediaType" IN (\'AUDIO\', \'VIDEO\') AND m."createdAt" <= $1::timestamp'
+)
+MISSING_SQL = (
+    " AND NOT EXISTS (SELECT 1 FROM \"Consent\" c WHERE c.\"subjectType\" = 'RECORDING' AND c.\"subjectId\" = m.\"id\" "
+    "AND c.\"purpose\" = 'EXTERNAL_PROCESSING' AND c.\"source\" = $2 AND c.\"recordedAt\" = $3::timestamp)"
 )
 
-ATTESTED_AT = datetime(2026, 10, 18, 6, 30, tzinfo=UTC)
-PAGE = 500
+
+async def plan(client: Any) -> dict[str, Any]:
+    rows = await client.query_raw(
+        'SELECT m."mediaType"::text AS type, COALESCE(m."transcriptStatus", \'(none)\') AS status, count(*) AS n, '
+        "count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM \"Consent\" c WHERE c.\"subjectType\" = 'RECORDING' "
+        "AND c.\"subjectId\" = m.\"id\" AND c.\"purpose\" = 'EXTERNAL_PROCESSING' AND c.\"source\" = $2 "
+        'AND c."recordedAt" = $3::timestamp)) AS missing, '
+        "count(*) FILTER (WHERE m.\"transcriptText\" IS NOT NULL AND m.\"consentAtSend\" IS NULL) AS send_mark "
+        + SCOPE_SQL + " GROUP BY 1, 2 ORDER BY 1, 2",
+        CUTOFF, SOURCE, RECORDED_AT,
+    )
+    later = await client.query_raw(
+        'SELECT count(*) AS n FROM "MediaFile" m WHERE m."mediaType" IN (\'AUDIO\', \'VIDEO\') AND m."createdAt" > $1::timestamp',
+        CUTOFF,
+    )
+    return {"rows": rows, "later": int(later[0]["n"]) if later else 0}
 
 
-async def recordings_without_consent() -> list[str]:
-    """AUDIO recordings with no consent row of their own and none for their artisan."""
-    covered_media = {
-        row.mediaFileId
-        for row in await db.recordingconsent.find_many(where={"mediaFileId": {"not": None}})
-    }
-    covered_artisans = {
-        row.artisanId
-        for row in await db.recordingconsent.find_many(where={"artisanId": {"not": None}, "mediaFileId": None})
-    }
-    missing: list[str] = []
-    skip = 0
-    while True:
-        page = await db.mediafile.find_many(
-            where={"mediaType": "AUDIO"}, order={"createdAt": "asc"}, skip=skip, take=PAGE
-        )
-        if not page:
-            break
-        for media in page:
-            if media.id in covered_media:
-                continue
-            if media.artisanId and media.artisanId in covered_artisans:
-                continue
-            missing.append(media.id)
-        skip += len(page)
-    return missing
+def report(p: dict[str, Any]) -> str:
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(["mediaType", "transcriptStatus", "inScope", "rowsToWrite", "consentAtSendToMark"])
+    totals = [0, 0, 0]
+    for r in p["rows"]:
+        writer.writerow([r["type"], r["status"], int(r["n"]), int(r["missing"]), int(r["send_mark"])])
+        totals[0] += int(r["n"])
+        totals[1] += int(r["missing"])
+        totals[2] += int(r["send_mark"])
+    writer.writerow(["TOTAL", "", *totals])
+    writer.writerow(["created after the cutoff (no row; per-artisan consent needed)", "", p["later"], 0, 0])
+    writer.writerow(["source", SOURCE, "recordedAt", "2026-10-18T00:00+05:30", ""])
+    writer.writerow(["jobs, statuses and transcripts changed", "none", "", "", ""])
+    return buffer.getvalue()
 
 
-async def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--fix", "--execute", action="store_true", help="apply (default: dry run)")
-    parser.add_argument("--owner-email", help="the owner's account, recorded as the attesting person")
-    args = parser.parse_args()
-    for stream in (sys.stdout, sys.stderr):
-        if hasattr(stream, "reconfigure"):
-            stream.reconfigure(errors="replace")
-    await connect_db()
+async def apply(client: Any, owner_id: str) -> tuple[int, int]:
+    written = await client.execute_raw(
+        'INSERT INTO "Consent" ("id", "subjectType", "subjectId", "purpose", "state", "basis", "source", "version", "note", '
+        '"actorId", "recordedAt") SELECT md5(random()::text || m."id"), \'RECORDING\', m."id", \'EXTERNAL_PROCESSING\', \'GRANTED\', '
+        "'OWNER_ATTESTATION', $2, 1, $4, $5, $3::timestamp " + SCOPE_SQL
+        + ' ON CONFLICT ("subjectType", "subjectId", "purpose", "source", "recordedAt") DO NOTHING',
+        CUTOFF, SOURCE, RECORDED_AT, NOTE, owner_id,
+    )
+    marked = await client.execute_raw(
+        'UPDATE "MediaFile" m SET "consentAtSend" = \'GRANTED\' WHERE m."mediaType" IN (\'AUDIO\', \'VIDEO\') '
+        'AND m."createdAt" <= $1::timestamp AND m."transcriptText" IS NOT NULL AND m."consentAtSend" IS NULL',
+        CUTOFF,
+    )
+    return int(written or 0), int(marked or 0)
+
+
+async def run(args: argparse.Namespace) -> int:
+    url = qv2_guard.database_url(args)
+    qv2_guard.check_host(url, args.allow_host)
+    client = await qv2_guard.connect(url)
     try:
-        owner_id = None
-        if args.fix:
-            if not args.owner_email:
-                print("--fix needs --owner-email: the row must name who attested.", file=sys.stderr)
-                return 2
-            owner = await db.user.find_first(where={"email": args.owner_email.strip().lower()})
-            if owner is None:
-                print(f"No account for {args.owner_email}.", file=sys.stderr)
-                return 2
-            owner_id = owner.id
-        missing = await recordings_without_consent()
-        if args.fix and owner_id:
-            for start in range(0, len(missing), PAGE):
-                await db.recordingconsent.create_many(
-                    data=[
-                        {
-                            "mediaFileId": media_id,
-                            "decision": GRANTED,
-                            "source": OWNER_ATTESTATION_SOURCE,
-                            "attestedById": owner_id,
-                            "attestedAt": ATTESTED_AT,
-                            "note": OWNER_ATTESTATION_NOTE,
-                        }
-                        for media_id in missing[start : start + PAGE]
-                    ]
-                )
-        verb = "Recorded" if args.fix else "Would record"
-        print(f"{verb} consent (owner attestation, 18 Oct 2026) for {len(missing)} recording(s).")
-        print("No transcription job was created and no provider was called.")
+        async with client.tx() as tx:
+            await qv2_guard.assert_read_only(tx)
+            text = report(await plan(tx))
+        name = naming.export_filename(entity="Artisan", what="Consent-Backfill-Dry-Run-Report", ext="csv")
+        if not args.apply:
+            qv2_guard.write_report(args.out, name, text)
+            print(text)
+            print("DRY RUN: nothing was written. The owner approves the report before --apply.")
+            return 0
+        approver, day = qv2_guard.check_approval(args.approved_report, text)
+        owner_email = (args.owner_email or approver).strip().lower()
+        owners = await client.query_raw('SELECT "id" FROM "User" WHERE lower("email") = $1', owner_email)
+        if not owners:
+            raise qv2_guard.Refused(f"no user with the owner's email {owner_email!r}")
+        async with client.tx() as tx:
+            written, marked = await apply(tx, str(owners[0]["id"]))
+        print(f"APPLIED (approved by {approver} on {day}): {written} consent rows written, {marked} files marked consentAtSend=GRANTED.")
+        return 0
     finally:
-        await disconnect_db()
-    return 0
+        await client.disconnect()
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    qv2_guard.add_common_arguments(parser)
+    parser.add_argument("--owner-email", default=None, help="the owner's account (defaults to the Approved-by email)")
+    args = parser.parse_args(argv)
+    return asyncio.run(run(args))
 
 
 if __name__ == "__main__":
-    raise SystemExit(asyncio.run(main()))
+    raise SystemExit(main())

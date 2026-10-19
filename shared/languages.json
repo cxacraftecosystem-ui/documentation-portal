@@ -1,0 +1,31 @@
+{
+  "contract": "shared-languages",
+  "version": 1,
+  "owner": "feature/s-standardise. Added by feature/q-backend because s-standardise had not landed; at merge time s-standardise's version wins.",
+  "rule": "Interview and recording languages are stored as these codes. `other` is paired with a short free-text `languageOther`. `bn` is spelled \"Bengali\" everywhere. Aliases map legacy free text onto a code, case-insensitively after trimming.",
+  "languages": [
+    {"code": "as", "label": "Assamese"},
+    {"code": "bn", "label": "Bengali"},
+    {"code": "en", "label": "English"},
+    {"code": "gu", "label": "Gujarati"},
+    {"code": "hi", "label": "Hindi"},
+    {"code": "kn", "label": "Kannada"},
+    {"code": "ml", "label": "Malayalam"},
+    {"code": "mr", "label": "Marathi"},
+    {"code": "ne", "label": "Nepali"},
+    {"code": "or", "label": "Odia"},
+    {"code": "pa", "label": "Punjabi"},
+    {"code": "sat", "label": "Santali"},
+    {"code": "ta", "label": "Tamil"},
+    {"code": "te", "label": "Telugu"},
+    {"code": "ur", "label": "Urdu"},
+    {"code": "other", "label": "Other"}
+  ],
+  "aliases": {
+    "Bangla": "bn",
+    "Bengla": "bn",
+    "bangla": "bn",
+    "hindi": "hi",
+    "HINDI": "hi"
+  }
+}

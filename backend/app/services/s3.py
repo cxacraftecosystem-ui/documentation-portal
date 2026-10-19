@@ -357,3 +357,60 @@ def delete_object(object_key: str) -> None:
     """Remove a single object. Used to clean up staged uploads that were cancelled before save."""
     settings = get_settings()
     _client().delete_object(Bucket=settings.aws_s3_bucket, Key=object_key)
+
+
+# ── questionnaire v2 (DESIGN 5.5) ──────────────────────────────────────────────────────────────
+def presign_put_url_checksum(object_key: str, mime_type: str, checksum_b64: str | None, expires_in: int = 900) -> str:
+    """A presigned single PUT that S3 rejects unless the body's sha256 equals ``checksum_b64``.
+
+    ``ChecksumSHA256`` is SIGNED into the URL, so the client must send ``x-amz-checksum-sha256``
+    with exactly this value (the presign response lists it in ``headers``) and S3 refuses any other
+    bytes (``BadDigest``). Only questionnaire v2 clips use it; every older client keeps the
+    unchanged ``presign_put_url`` above, whose signed headers they already send.
+    """
+    params: dict[str, Any] = {"Bucket": get_settings().aws_s3_bucket, "Key": object_key, "ContentType": mime_type}
+    if checksum_b64:
+        params["ChecksumSHA256"] = checksum_b64
+    return _client().generate_presigned_url(ClientMethod="put_object", Params=params, ExpiresIn=expires_in, HttpMethod="PUT")
+
+
+def list_uploaded_parts(object_key: str, upload_id: str) -> list[dict[str, Any]]:
+    """The parts S3 already holds for an open multipart upload, so a client resumes after a restart."""
+    parts: list[dict[str, Any]] = []
+    marker = 0
+    client = _client()
+    while True:
+        response = client.list_parts(
+            Bucket=get_settings().aws_s3_bucket, Key=object_key, UploadId=upload_id, PartNumberMarker=marker
+        )
+        parts.extend({"partNumber": int(p["PartNumber"]), "etag": str(p["ETag"])} for p in response.get("Parts", []))
+        if not response.get("IsTruncated"):
+            return parts
+        marker = int(response.get("NextPartNumberMarker") or 0)
+
+
+def stream_sha256(object_key: str, chunk_size: int = 1024 * 1024) -> tuple[str, int]:
+    """(hex sha256, size) of a stored object, read in chunks so a 40-minute WAV is never held whole."""
+    import hashlib
+
+    digest = hashlib.sha256()
+    size = 0
+    response = _client().get_object(Bucket=get_settings().aws_s3_bucket, Key=object_key)
+    body = response["Body"]
+    try:
+        for chunk in iter(lambda: body.read(chunk_size), b""):
+            digest.update(chunk)
+            size += len(chunk)
+    finally:
+        body.close()
+    return digest.hexdigest(), size
+
+
+def object_exists(object_key: str) -> bool:
+    from botocore.exceptions import ClientError
+
+    try:
+        _client().head_object(Bucket=get_settings().aws_s3_bucket, Key=object_key)
+        return True
+    except ClientError:
+        return False

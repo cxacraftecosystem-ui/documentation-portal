@@ -21,6 +21,7 @@ from app.api.routes.data_browser import (
     workshop_reaches_artisan,
 )
 from app.core.db import db
+from app.services.questionnaire_v2.live import live_media_where
 from app.core.deps import can_download_dataset, get_current_user
 from app.services import answer_drafts
 from app.services.access import owner_download_scope
@@ -265,7 +266,7 @@ async def dataset_manifest(
         media_where: dict[str, Any] = {"OR": media_or}
         if media_vis:
             media_where = {"AND": [media_where, media_vis]}
-        media = await db.mediafile.find_many(where=media_where, take=MEDIA_TAKE)
+        media = await db.mediafile.find_many(where=live_media_where(media_where), take=MEDIA_TAKE)
         truncated = truncated or len(media) >= MEDIA_TAKE
 
     # Group media by the single slot it belongs in.

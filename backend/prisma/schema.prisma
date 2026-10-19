@@ -149,6 +149,128 @@ enum MediaProcessingJobType {
   TRANSCRIPTION
   MEASUREMENT
   TRANSCRIPT_INSIGHTS
+  /// Questionnaire v2 (M1): the worker streams the stored object and records its real sha256.
+  SHA_VERIFY
+}
+
+// ── Questionnaire v2 and the consent ledger (DESIGN_2026-10-18.md section 2) ──────────────────────
+// Every value list below is shared/enums.json, spelled as the merged platform will spell it, and
+// scripts/generate_shared.py --check fails when one drifts from that file.
+
+/// M0. One consent ledger, the same model on both portals (the convergence diff, section 3).
+enum ConsentState {
+  NOT_RECORDED
+  GRANTED
+  REFUSED
+}
+
+/// RECORDING is written only by the owner's 18 Oct 2026 attestation (scripts/backfill_consent_owner_attestation.py).
+enum ConsentSubjectType {
+  ARTISAN
+  WORKSHOP
+  USER
+  RECORDING
+}
+
+/// EXTERNAL_PROCESSING covers speech-to-text, AI summaries, translation and answer drafting.
+enum ConsentPurpose {
+  EXTERNAL_PROCESSING
+  CROSS_PORTAL_SHARING
+  USAGE_ANALYTICS
+}
+
+enum ConsentBasis {
+  VERBAL_RECORDED
+  VERBAL_WITNESSED
+  SIGNED_FORM
+  OWNER_ATTESTATION
+}
+
+enum SessionState {
+  OPEN
+  CLOSED
+}
+
+enum SessionPurpose {
+  FIRST_SITTING
+  FOLLOW_UP
+  REDO
+}
+
+enum SessionOrigin {
+  NATIVE
+  LEGACY_RECONSTRUCTED
+}
+
+enum ResearcherRole {
+  LEAD
+  CONTRIBUTOR
+  VOLUNTEER
+}
+
+/// Coverage counts ANSWERED subjects only. PRESENT: in the room, did not answer.
+enum SubjectRole {
+  ANSWERED
+  PRESENT
+}
+
+/// The researcher's choice, per subject, in the "Already recorded" prompt.
+enum RepeatReason {
+  REDO
+  FOLLOW_UP
+  RE_INTERVIEW
+  NEW_SETTING
+}
+
+/// Set by the server only.
+enum TakeFlag {
+  CONCURRENT
+  LATE_ARRIVAL
+  AFTER_CLOSE
+  LEGACY
+}
+
+enum CapturedAtSource {
+  DEVICE
+  FILE_METADATA
+  SESSION_DATE
+  UPLOAD_TIME
+  UPLOAD_TIME_OUT_OF_WINDOW
+}
+
+enum RecordingFiling {
+  FILED
+  NEEDS_DECISION
+}
+
+enum RecordingProvenance {
+  NATIVE
+  SHIM
+  LEGACY_META
+  LEGACY_CAPTION_TEXT
+  LEGACY_FILENAME
+  MANUAL
+}
+
+/// THE one answer-origin list (convergence quick win 3) plus PREFILL.
+enum AnswerOrigin {
+  TYPED
+  TRANSCRIPT
+  MACHINE_SUGGESTED
+  MACHINE_SUGGESTED_EDITED
+  PREFILL
+}
+
+enum AnswerAttribution {
+  INDIVIDUAL
+  GROUP_SHARED
+}
+
+/// Quick win 7: QuestionnaireSectionStatus.status, a fixed list (M1 casts the live rows).
+enum SectionStatus {
+  COMPLETED
+  NEEDS_REVIEW
+  NEEDS_REDO
 }
 
 enum MediaProcessingJobStatus {
@@ -1423,6 +1545,17 @@ model MediaFile {
   transcriptLanguage String?
   /// Which provider produced `transcriptText` (`elevenlabs`, `deepgram`, `whisper`, `muse`, `cache`).
   transcriptProvider String?
+  /// QUESTIONNAIRE V2 (M1). Soft removal: every reader filters through `live_media_where()`
+  /// (services/questionnaire_v2/live.py), so a removed file is invisible but restorable.
+  removedAt        DateTime?
+  removedById      String?
+  /// The client's sha256 (hex), copied from `checksum` in M1; replaces it in M4.
+  contentSha256    String?
+  /// When the worker hashed the stored object itself (SHA_VERIFY). Only a verified match collapses copies.
+  shaVerifiedAt    DateTime?
+  /// What consent stood at when this file was last sent to an outside service. GRANTED on files
+  /// already transcribed on 18 Oct 2026 (owner attestation, scripts/backfill_consent_owner_attestation.py).
+  consentAtSend    ConsentState?
   linkedRecordType String?
   linkedRecordId   String?
   status           RecordStatus @default(PENDING)
@@ -1473,6 +1606,8 @@ model MediaFile {
   // Composite rather than bare workshopId: a workshop's media is the one parent set big enough that
   // the data browser's `ORDER BY createdAt` over it is worth serving from the index too.
   @@index([workshopId, createdAt])
+  // Questionnaire v2: "is this exact file already here?" before and after upload.
+  @@index([contentSha256])
 }
 
 /// A summary, key quotes and (for a non-English transcript) an English translation of one media
@@ -1691,8 +1826,9 @@ model QuestionnaireSectionStatus {
   id        String   @id @default(cuid())
   artisanId String
   sectionId String
-  // COMPLETED (green) | NEEDS_REVIEW (yellow) | NEEDS_REDO (red).
-  status    String
+  // COMPLETED (green) | NEEDS_REVIEW (yellow) | NEEDS_REDO (red). An enum since questionnaire v2
+  // M1 (quick win 7); the migration casts the live rows and refuses to run over any other value.
+  status    SectionStatus
   setById   String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1779,6 +1915,13 @@ model QuestionnaireQuestion {
   /// many weavers?" is a different question); the new row has a code only if its wording is in the
   /// shared file. A question written in the builder that is not in the file has none.
   questionCode    String?
+  /// QUESTIONNAIRE V2 (M1). The id of the first row of this question's supersede chain: a reword
+  /// keeps the lineage, so answers and coverage never reset. Set by a trigger on insert (own id)
+  /// and carried to the replacement when `supersededById` is written.
+  lineageId       String?
+  /// "F7": generated once per lineage (section code + next number), frozen. It does not move on
+  /// reorder or reword. Unique per instrument among live rows (partial index in M1).
+  displayCode     String?
 
   questionnaire Questionnaire         @relation(fields: [questionnaireId], references: [id], onDelete: Restrict)
   /// Restrict, changed from SetNull on 2026-09-13. Nothing in this app hard-deletes a section —
@@ -1799,6 +1942,7 @@ model QuestionnaireQuestion {
   /// its replacement print as one question rather than two with the answers split between them.
   @@index([supersededById])
   @@index([questionCode])
+  @@index([lineageId])
 }
 
 model QuestionnaireInterview {
@@ -1851,6 +1995,33 @@ model QuestionnaireInterview {
   /// `QuestionnaireInterviewUpdate` has no such field and `APIModel` is `extra="forbid"`, so a
   /// client that tries gets a 422 from pydantic before the handler sees it.
   questionnaireId String
+  // ── QUESTIONNAIRE V2 (M1): the API calls this row a "session", a dated event ─────────────────
+  // `title` above now holds the GENERATED title (app/services/naming.session_title), rewritten in the
+  // same transaction as any change to its inputs and never accepted from a client.
+  /// Idempotent create, and the key carried in the join QR.
+  clientKey       String?        @unique
+  /// 6 characters, online join only.
+  joinCode        String?        @unique
+  /// NOT NULL from M4. Legacy rows get theirs from the backfill.
+  sessionDate     DateTime?      @db.Date
+  sessionDateEstimated Boolean   @default(false)
+  startedAt       DateTime?
+  endedAt         DateTime?
+  closedAt        DateTime?
+  state           SessionState   @default(OPEN)
+  purpose         SessionPurpose @default(FIRST_SITTING)
+  origin          SessionOrigin  @default(NATIVE)
+  /// At most 80 characters; replaces the typed title.
+  note            String?
+  /// The old typed title (or an old build's): searchable, shown only on legacy sessions.
+  legacyTitle     String?
+  /// A shared/languages.json code, or "other" with `languageOther`. `language` stays read-only until M4.
+  languageCode    String?
+  languageOther   String?
+  /// Quick win 6: a session may belong to a design workshop instead. No FK on this portal.
+  designWorkshopId String?
+  mergedIntoId    String?
+  version         Int            @default(1)
 
   createdBy User                             @relation("QuestionnaireCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   location  Location?                        @relation(fields: [locationId], references: [id], onDelete: SetNull)
@@ -1860,8 +2031,14 @@ model QuestionnaireInterview {
   responses QuestionnaireResponse[]
   media     MediaFile[]                      @relation("QuestionnaireMedia")
   answerDrafts QuestionnaireAnswerDraft[]
+  researchers QuestionnaireInterviewResearcher[]
 
-  @@unique([questionnaireId, artisanSetKey])
+  // THE UNIQUE ON (questionnaireId, artisanSetKey) WAS DROPPED IN M1 (questionnaire v2, decision D1):
+  // a session is a dated event, and the same artisans sitting twice is normal. A plain index stays
+  // for the legacy fold, which still runs while QUESTIONNAIRE_V2 is false.
+  @@index([questionnaireId, artisanSetKey])
+  @@index([sessionDate])
+  @@index([state, startedAt])
   @@index([createdById])
   @@index([status])
   @@index([interviewDate])
@@ -1875,12 +2052,235 @@ model QuestionnaireInterviewArtisan {
   interviewId String
   artisanId   String
   createdAt   DateTime @default(now())
+  /// Questionnaire v2 (M1): participant order, and the Present / Away toggles.
+  sortOrder   Int       @default(0)
+  joinedAt    DateTime?
+  leftAt      DateTime?
 
   interview QuestionnaireInterview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  // The artisan side becomes Restrict in M3, after the delete routes refuse with 409.
   artisan   Artisan                @relation(fields: [artisanId], references: [id], onDelete: Cascade)
 
   @@id([interviewId, artisanId])
   @@index([artisanId])
+}
+
+/// QUESTIONNAIRE V2 (M1). Who was there on the research side. The creator and anyone who joins are
+/// added at create or join; volunteers through "Add researcher".
+model QuestionnaireInterviewResearcher {
+  interviewId String
+  userId      String
+  role        ResearcherRole
+  addedAt     DateTime @default(now())
+
+  interview QuestionnaireInterview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+
+  @@id([interviewId, userId])
+  @@index([userId])
+}
+
+/// QUESTIONNAIRE V2 (M1). One recording, stored once, 1:1 with its MediaFile. Its session is
+/// `mediaFile.questionnaireInterviewId`, the single link from a clip to a session.
+model QuestionnaireRecording {
+  id                  String   @id @default(cuid())
+  mediaFileId         String   @unique
+  /// Minted at record start or file pick; makes /media/complete idempotent.
+  clientClipKey       String   @unique
+  deviceCapturedAt    DateTime?
+  /// serverNow - deviceNow at the device's last sync.
+  clockOffsetMs       Int?
+  /// Corrected; the ordering key of every timeline and take position.
+  capturedAt          DateTime
+  capturedAtSource    CapturedAtSource
+  durationMs          Int?
+  /// Participants present at capture start (solo = 1).
+  rosterCount         Int
+  recordedById        String
+  /// Part 2 of this recording.
+  continuationOfId    String?
+  /// The take this one replaces; soft-removed inside this row's /complete transaction.
+  replacesRecordingId String?
+  /// The prior takes the researcher saw in the "Already recorded" prompt.
+  ackedRecordingIds   String[] @default([])
+  filing              RecordingFiling @default(FILED)
+  /// CONCURRENT | UNRESOLVED_LEGACY | AFTER_CLOSE | NO_PARTICIPANTS | SAME_FILE_OTHER_SESSION
+  decisionKind        String?
+  provenance          RecordingProvenance
+  /// Defaults to the session's.
+  languageCode        String?
+  removedAt           DateTime?
+  removedById         String?
+  /// From sequence questionnaire_change_seq, bumped on every change; the snapshot's cursor.
+  changeSeq           BigInt   @default(dbgenerated("nextval('questionnaire_change_seq'::regclass)"))
+  version             Int      @default(1)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  targets  QuestionnaireRecordingTarget[]
+  subjects QuestionnaireRecordingSubject[]
+  events   QuestionnaireRecordingEvent[]
+
+  @@index([changeSeq])
+  @@index([continuationOfId])
+}
+
+/// The clip-to-question link by foreign key (quick win 4). One take can cover F1-F6, so a table.
+model QuestionnaireRecordingTarget {
+  recordingId       String
+  /// "S:<sectionId>" or "Q:<lineageId>"
+  targetKey         String
+  sectionId         String?
+  /// The lineage root row.
+  questionLineageId String?
+  /// The exact wording asked.
+  askedQuestionId   String?
+
+  recording QuestionnaireRecording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+
+  @@id([recordingId, targetKey])
+  @@index([questionLineageId])
+  @@index([sectionId])
+}
+
+model QuestionnaireRecordingSubject {
+  recordingId  String
+  artisanId    String
+  role         SubjectRole
+  /// true: narrowed through "Answered by".
+  named        Boolean       @default(false)
+  repeatReason RepeatReason?
+  flag         TakeFlag?
+
+  recording QuestionnaireRecording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+
+  @@id([recordingId, artisanId])
+  @@index([artisanId])
+}
+
+/// Append-only history: MOVE | REFILE | SUBJECTS | DECIDE | REMOVE | RESTORE | DATE_EDIT | MAKE_PRIMARY
+model QuestionnaireRecordingEvent {
+  id          String   @id @default(cuid())
+  recordingId String
+  kind        String
+  before      Json?
+  after       Json?
+  actorId     String
+  at          DateTime @default(now())
+
+  recording QuestionnaireRecording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+
+  @@index([recordingId, at])
+}
+
+/// One canonical answer per artisan per question lineage. Every change is a revision.
+model QuestionnaireAnswer {
+  id                String  @id @default(cuid())
+  artisanId         String
+  questionnaireId   String
+  questionLineageId String
+  currentRevisionId String?
+  pinned            Boolean @default(false)
+  version           Int     @default(1)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  revisions QuestionnaireAnswerRevision[]
+
+  @@unique([artisanId, questionLineageId])
+  @@index([questionnaireId])
+}
+
+model QuestionnaireAnswerRevision {
+  id                   String            @id @default(cuid())
+  answerId             String
+  text                 String
+  languageCode         String?
+  origin               AnswerOrigin
+  attribution          AnswerAttribution
+  /// The wording at the time.
+  askedQuestionId      String
+  /// REQUIRED: the review home (the source take's session, or the session it was typed in).
+  sessionId            String
+  sourceRecordingId    String?
+  /// Stale-source flag: "Transcript changed since this answer".
+  sourceTranscriptHash String?
+  /// The artisan column a PREFILL came from, as it read then.
+  sourceFieldValue     String?
+  status               RecordStatus      @default(PENDING)
+  actorId              String
+  createdAt            DateTime          @default(now())
+
+  answer QuestionnaireAnswer @relation(fields: [answerId], references: [id], onDelete: Cascade)
+
+  @@index([answerId, createdAt])
+  @@index([sessionId])
+}
+
+/// Drafts a recording's transcript proposes (POST /recordings/{id}/answer-proposals). Never answers:
+/// a person accepts a draft through PUT /answers. `artisanId` is null until "Whose answer is this?"
+/// is settled for an unnamed group take. (The older QuestionnaireAnswerDraft keeps serving the
+/// s-cross-portal drafts route until M4; DESIGN section 2 recreates it under this shape.)
+model QuestionnaireTakeDraft {
+  id                String   @id @default(cuid())
+  recordingId       String
+  questionLineageId String
+  artisanId         String   @default("")
+  text              String
+  origin            AnswerOrigin
+  model             String?
+  createdAt         DateTime @default(now())
+
+  @@unique([recordingId, questionLineageId, artisanId], map: "QuestionnaireTakeDraft_recording_lineage_artisan_key")
+}
+
+/// QUESTIONNAIRE V2 (M1). A presign the server knows about: written at presign, closed by /complete.
+/// Re-presigning the same `clientClipKey` signs the SAME objectKey and reuses an open multipart upload.
+model MediaUploadIntent {
+  id                String    @id @default(cuid())
+  objectKey         String    @unique
+  clientClipKey     String    @unique
+  sessionId         String
+  uploaderId        String
+  sizeBytes         BigInt
+  contentType       String
+  contentSha256     String?
+  multipartUploadId String?
+  partSize          Int?
+  /// now + 30 days, the idempotency window.
+  expiresAt         DateTime
+  closedAt          DateTime?
+  mediaFileId       String?
+  /// The presign's targets and subjects, so /complete and the "To file" inbox can name them.
+  meta              Json?
+  createdAt         DateTime  @default(now())
+
+  @@index([closedAt, expiresAt])
+  @@index([uploaderId])
+}
+
+/// M0. THE consent ledger (the convergence diff, section 3), append-only; the same model on both
+/// portals. `consent_current_v` (raw SQL) is the latest row per (subjectType, subjectId, purpose).
+model Consent {
+  id              String             @id @default(cuid())
+  subjectType     ConsentSubjectType
+  /// artisanId, or the mediaFileId for RECORDING
+  subjectId       String
+  purpose         ConsentPurpose
+  state           ConsentState
+  basis           ConsentBasis
+  /// "researcher" (captured in the app) | "owner attestation"
+  source          String
+  /// The consent wording version.
+  version         Int                @default(1)
+  note            String?
+  evidenceMediaId String?
+  /// Who recorded it; the owner's account for the attestation. FK to User (Restrict) in the SQL.
+  actorId         String
+  recordedAt      DateTime
+  createdAt       DateTime           @default(now())
+
+  @@unique([subjectType, subjectId, purpose, source, recordedAt], map: "Consent_idem_key")
+  @@index([subjectType, subjectId, purpose, recordedAt], map: "Consent_subject_idx")
 }
 
 model QuestionnaireResponse {

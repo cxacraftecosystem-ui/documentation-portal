@@ -22,7 +22,8 @@ from app.services.app_settings import (
     transcription_paused,
     within_processing_window,
 )
-from app.services import transcript_insights
+from app.services import consent_gate, transcript_insights
+from app.services import transcription_enqueue as transcription
 from app.services.s3 import discard_temp, download_to_temp, get_object_bytes
 from app.services.transcription_store import open_key
 from app.transcription import schedule
@@ -30,6 +31,7 @@ from prisma import Json
 
 TRANSCRIPTION = "TRANSCRIPTION"
 MEASUREMENT = "MEASUREMENT"
+SHA_VERIFY = "SHA_VERIFY"
 #: Summary, key quotes and translation of a transcript (services/transcript_insights). Text only:
 #: it never loads the audio, and it is not held back by the processing window or the transcription
 #: rate-limit cooldown. Drained only while its AI capability flag is on.
@@ -315,6 +317,10 @@ async def transcribe_media_now(media: Any, settings: Settings | None = None) -> 
     if transcription_paused(await load_app_settings()):
         raise transcription_jobs.TranscriptionPaused()
     media_id = str(_value(media, "id"))
+    # Paused, or not cleared by the consent gate: queue it (or say why not) and call nobody.
+    if await transcription.is_paused() or await consent_gate.verdict(media_id) != consent_gate.ALLOW:
+        queued = await transcription.enqueue(media_id, "transcribe-now", requested_by_id=_value(media, "uploadedById"))
+        return {**queued, "text": None, "message": transcription.PAUSED_REASON if queued.get("paused") else None}
     await db.mediafile.update(where={"id": media_id}, data={"transcriptStatus": PROCESSING})
     source_path = await asyncio.to_thread(download_to_temp, _value(media, "objectKey"))
     try:
@@ -449,11 +455,52 @@ async def _lock_job(job_id: str, worker_id: str) -> Any | None:
 
 async def _process_job(job: Any, settings: Settings) -> None:
     media = job.mediaFile
+    if job.jobType == SHA_VERIFY:
+        # Questionnaire v2: hash the stored object (streamed, never held whole) and apply the
+        # identical-bytes rules. Calls no outside service.
+        from app.services.questionnaire_v2 import recordings as v2_recordings
+
+        result = await v2_recordings.verify_sha(media.id)
+        await _complete_job(job.id, result)
+        return
     # Insights are text only: branch BEFORE the S3 fetch so a summary never pulls the audio into
     # memory on a 1 GiB box.
     if job.jobType == TRANSCRIPT_INSIGHTS:
         await _process_insights_job(job, media)
         return
+    if job.jobType == TRANSCRIPTION and await transcription.is_paused():
+        # The pause can be set after this job was selected: hand it back untouched, no provider call.
+        await db.mediaprocessingjob.update(
+            where={"id": job.id},
+            data={
+                "status": QUEUED,
+                "lockedAt": None,
+                "lockedBy": None,
+                "attempts": max(int(job.attempts or 0) - 1, 0),
+            },
+        )
+        return
+    if job.jobType == TRANSCRIPTION:
+        # The consent ledger (DESIGN 3.11) on every outside send: a file that is not cleared is parked
+        # with the reason and the job is closed; recording consent later re-enqueues it. The
+        # RecordingConsent rule below must ALSO let it through: both are asked, either refusal holds.
+        gate = await consent_gate.verdict(media.id)
+        if gate != consent_gate.ALLOW:
+            await db.mediafile.update(
+                where={"id": media.id}, data={"transcriptStatus": consent_gate.TRANSCRIPT_STATUS_FOR[gate]}
+            )
+            await db.mediaprocessingjob.update(
+                where={"id": job.id},
+                data={
+                    "status": "CANCELLED",
+                    "lockedAt": None,
+                    "lockedBy": None,
+                    "openKey": None,
+                    "error": f"Consent gate: {gate}",
+                    "completedAt": datetime.now(UTC),
+                },
+            )
+            return
     if job.jobType == TRANSCRIPTION:
         # RE-READ AT THE MOMENT OF SENDING, so a consent withdrawn after the job was queued holds.
         verdict = await recording_consent.gate.verdict(media)
