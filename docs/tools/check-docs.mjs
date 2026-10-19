@@ -93,7 +93,7 @@ function routeFacts() {
 }
 
 function roleFacts() {
-  const src = read(join(REPO, "backend", "app", "core", "deps.py"));
+  const src = read(join(REPO, "backend", "app", "core", "roles.py"));
   const block = src.match(/ROLE_RANK: dict\[str, int\] = \{([\s\S]*?)\}/);
   if (!block) return [];
   return [...block[1].matchAll(/"(\w+)":\s*(\d+)/g)].map((m) => ({ role: m[1], rank: Number(m[2]) }));
@@ -306,7 +306,7 @@ someone deployed from a branch.
 
 ${roles.map((r) => `- \`${r.role}\` — rank **${r.rank}**`).join("\n")}
 
-Source of truth: \`ROLE_RANK\` in \`backend/app/core/deps.py\`, mirrored in
+Source of truth: \`ROLE_RANK\` in \`backend/app/core/roles.py\`, mirrored in
 \`frontend/lib/permissions.ts\`. The two are checked against each other by this script.
 
 ## Transcription provider chain

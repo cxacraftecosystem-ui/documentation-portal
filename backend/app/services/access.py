@@ -8,7 +8,7 @@ RecordRevision so an admin can reconstruct the original values and every subsequ
 from typing import Any
 
 from fastapi import HTTPException, status
-from fastapi.encoders import jsonable_encoder
+from app.core.fastapi_lazy import jsonable_encoder
 from prisma import Json
 
 from app.core.db import db
@@ -64,7 +64,7 @@ async def effective_tier_for_record(
     GRANTED grant from the owner to the user that covers this record (all-data, or the subset list).
     Returns None when the user has no access beyond plain viewing.
     """
-    from app.core.deps import get_value, is_admin
+    from app.core.roles import get_value, is_admin
 
     if is_admin(user):
         return "EDIT"
@@ -125,7 +125,7 @@ async def record_revision(record: Any, user: Any, data: dict[str, Any], record_t
     Call with the cleaned update payload BEFORE field-provenance is merged in, so provenance bookkeeping
     is not mistaken for a content edit. No-op when nothing meaningful changed.
     """
-    from app.core.deps import get_value, values_match
+    from app.core.roles import get_value, values_match
 
     changes: dict[str, Any] = {}
     for field, new_value in data.items():
@@ -239,7 +239,7 @@ async def owner_download_scope(user: Any, owner_id: str) -> dict[str, set[str]] 
     permission, the owner themselves, or an active all-data DOWNLOAD+ grant). Returns
     {recordType: {recordIds}} when only a subset grant applies. Raises 403 when there is no access.
     """
-    from app.core.deps import can_download_dataset, get_value, is_admin
+    from app.core.roles import can_download_dataset, get_value, is_admin
 
     if is_admin(user) or can_download_dataset(user) or get_value(user, "id") == owner_id:
         return None

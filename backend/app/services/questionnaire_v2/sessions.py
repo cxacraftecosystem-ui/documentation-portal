@@ -15,7 +15,7 @@ from typing import Any
 
 from prisma.errors import UniqueViolationError
 
-from app.core.deps import can_create_records, has_rank, is_admin
+from app.core.roles import can_create_records, has_rank, is_admin
 from app.services import consent_gate
 from app.services.questionnaire_v2 import titles
 from app.services.questionnaire_v2.common import (

@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from fastapi.encoders import jsonable_encoder
+from app.core.fastapi_lazy import jsonable_encoder
 from prisma.errors import UniqueViolationError
 
 from app.core.config import Settings, get_settings

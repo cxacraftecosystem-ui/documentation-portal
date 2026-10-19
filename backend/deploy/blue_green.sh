@@ -33,7 +33,9 @@
 # EACH PORT HAS ITS OWN VENV, a `cp -a` of the one the build step chose. `prisma generate` writes
 # the client INTO the venv's site-packages, so with one venv shared by both ports (the lock did not
 # change, which is most deploys) this release's client would replace the one the live port and the
-# rollback tree run on, before anything had switched.
+# rollback tree run on, before anything had switched. Since 2026-10-19 the generate runs on the
+# GitHub runner instead, into a venv named for the lock AND the schema, and the box installs nothing
+# (build_tree says so); the copy stays, so a port's venv never changes under it.
 #
 # MIGRATIONS RUN WHILE THE OLD RELEASE SERVES. Each release's migrations must therefore keep the
 # previous release working (add first, drop in a later release), which is the rule
@@ -106,6 +108,8 @@ WorkingDirectory=$APP/slots/%i/backend
 EnvironmentFile=$APP/slots/%i/backend/.env
 # After EnvironmentFile so it always wins: the web process must never run the queue.
 Environment=MEDIA_QUEUE_WORKER_ENABLED=false
+# Two malloc arenas, not glibc's eight per core: backend/deploy/blue_green.sh says why.
+Environment=MALLOC_ARENA_MAX=2
 ExecStart=$APP/slots/%i/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port %i --workers 1
 Restart=always
 RestartSec=10
@@ -119,6 +123,21 @@ UNITFILE
     sudo install -m 644 "$tmp" "$UNIT_DIR/$UNIT@.service"
     sudo systemctl daemon-reload
     say "installed $UNIT_DIR/$UNIT@.service"
+  fi
+  # MALLOC_ARENA_MAX=2 for the queue as well. Its unit is user_data.sh's and this script does not own
+  # it, so the setting goes in a drop-in, which also reaches a box provisioned before 2026-10-19.
+  # glibc gives every thread that allocates its own arena, up to eight per core; each keeps the memory
+  # it once held, and asyncio.to_thread, boto3's transfer threads and the query engine's client make
+  # threads that come and go. Two arenas cost nothing measurable at this box's concurrency (the
+  # python:3.14 container, 2026-10-19: the same RSS at idle with and without) and bound what a burst
+  # of threads can strand. jemalloc was not adopted: nothing measured needs it, and it is a package.
+  printf '%s
+' '# Written by backend/deploy/blue_green.sh.' '[Service]' 'Environment=MALLOC_ARENA_MAX=2' > "$tmp"
+  if ! cmp -s "$tmp" "$UNIT_DIR/$QUEUE.service.d/memory.conf"; then
+    sudo mkdir -p "$UNIT_DIR/$QUEUE.service.d"
+    sudo install -m 644 "$tmp" "$UNIT_DIR/$QUEUE.service.d/memory.conf"
+    sudo systemctl daemon-reload
+    say "installed $UNIT_DIR/$QUEUE.service.d/memory.conf"
   fi
   rm -f "$tmp"
 }
@@ -153,27 +172,37 @@ cmd_prepare() {
   echo "$cand"
 }
 
-# This release's venv, project, Prisma client and Node, in the candidate tree. The venv is the port's
-# own copy of the one the build step chose (`cp -a`, never hard links: generate rewrites files in
-# place), so nothing the live port or the rollback tree runs on changes.
+# The candidate tree on its port's own copy of the venv the build step chose, and the Node the Prisma
+# CLI runs on. NO pip and NO `prisma generate` here (2026-10-19): deploy-backend.yml builds the venv,
+# Prisma client included, on the GitHub runner and ships it, so the box installs nothing while the
+# old release serves. The venv's name carries the hashes of the lock AND of prisma/schema.prisma, so
+# a release whose schema changed gets a venv of its own. The project itself is not installed into the
+# venv: every unit, script and step runs `python -m` from the tree, so `app` is found on the working
+# directory, as it always was first.
+#
+# Each port still gets its own copy (`cp -a`). Nothing on the box writes into a venv any more, but
+# the copy keeps the venv the live port and the rollback tree run on out of reach of whatever a later
+# release or `tidy` does to the shared one.
 build_tree() {
-  local tree="$1" base="$2" venv="$3" py="$3/bin/python" have dest f
+  local tree="$1" base="$2" venv="$3" py="$3/bin/python" have dest f want_schema built_schema
+  # The client in the venv was generated from this tree's schema, or the release stops here, before
+  # anything is copied, stopped or migrated.
+  if [ -f "$base/.schema-sha256" ] && [ -f "$tree/prisma/schema.prisma" ]; then
+    want_schema="$(sha256sum "$tree/prisma/schema.prisma" | cut -d' ' -f1)"
+    built_schema="$(cat "$base/.schema-sha256")"
+    [ "$want_schema" = "$built_schema" ] || die "$base holds a Prisma client generated from schema $built_schema, and this tree's prisma/schema.prisma is $want_schema. Nothing was changed."
+  fi
   rm -rf "$venv"
   cp -a "$base" "$venv"
   rm -f "$venv/.complete"
-  # A venv's scripts and pyvenv.cfg name the directory it was built in: `prisma generate` runs
-  # bin/prisma-client-py, whose shebang would otherwise run the shared venv's python and write the
-  # client back into it. Text files only (-I); bin/python is a symlink to the interpreter, which
-  # grep -r does not follow, and stays as it is.
+  # A venv's scripts and pyvenv.cfg name the directory it was built in, so the copy's are pointed at
+  # the copy. Text files only (-I); bin/python is a symlink to the interpreter, which grep -r does not
+  # follow, and stays as it is.
   { grep -rlIF -- "$base" "$venv/bin" "$venv/pyvenv.cfg" 2>/dev/null || true; } | while IFS= read -r f; do
     sed -i "s#$base#$venv#g" "$f"
   done
   cd "$tree"
   point .venv "$venv"
-  # Editable and WITHOUT dependencies: the lock decided every version in the build step, and
-  # `pip check` refuses a lock pyproject's floors have outgrown, before anything is stopped.
-  "$py" -m pip install --quiet --disable-pip-version-check --no-deps -e .
-  "$py" -m pip check
   # The Node the Prisma CLI runs on, pinned: prisma-client-py downloads one the first time and never
   # looks again. The newest 26.x (https://nodejs.org/dist/index.json); backend/Dockerfile's prisma
   # stage takes the same major.
@@ -193,7 +222,6 @@ build_tree() {
   fi
   export PRISMA_USE_GLOBAL_NODE=false
   "$NODE_CACHE/nodeenv/bin/node" --version
-  PATH="$venv/bin:$PATH" "$py" -m prisma generate
   # Written last, so a copy killed half way is never taken for a venv `rollback` can start.
   { "$py" -VV; readlink -f "$py"; } > "$venv/.complete"
 }
@@ -201,7 +229,9 @@ build_tree() {
 migrate() {
   local tree="$1" target="$2" tries="$3" attempt
   for attempt in $(seq 1 "$tries"); do
-    if (cd "$tree" && PATH="$target/bin:$PATH" "$target/bin/python" -m prisma migrate deploy); then return 0; fi
+    # app.prisma_cli is `python -m prisma` with the generated types left unloaded: the plain CLI
+    # imported all 28 MB of them first, 585 MB and minutes before its first statement.
+    if (cd "$tree" && PATH="$target/bin:$PATH" "$target/bin/python" -m app.prisma_cli migrate deploy); then return 0; fi
     say "migrate attempt $attempt/$tries failed"
     [ "$attempt" = "$tries" ] || sleep 10
   done

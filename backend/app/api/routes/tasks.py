@@ -93,18 +93,13 @@ from app.services.questionnaire_instruments import (
 from app.services.record_filters import artisan_workshop_clause
 from app.services.concurrency import gather_reads
 from app.services.records import clean_data, public_encode
+from app.services.task_status import LIVE_STATUSES, SUBMITTED
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
-# The assignee's "I have finished" — a CLAIM awaiting a decision, not the decision. Named for the
-# act that provably happened (somebody submitted it) rather than for a reviewer who may not exist
-# yet: "IN_REVIEW" would assert that a person is looking at it, which the row cannot support, and
-# "DONE_PENDING_REVIEW" would put the substring DONE into a value that is emphatically not done —
-# one careless `"DONE" in task.status` and an unapproved task counts as finished repository-wide.
-# The word the OWNER uses ("under review") is the assignee-facing LABEL, see STATUS_LABELS.
-SUBMITTED = "SUBMITTED"
+# SUBMITTED and LIVE_STATUSES live in app/services/task_status.py, which says what each means.
 
 TASK_STATUSES = {"OPEN", "IN_PROGRESS", SUBMITTED, "DONE", "CANCELLED"}
 # Fixed key order for every statusCounts map on the wire. A dict built with `.get(status, 0) + 1`
@@ -112,10 +107,6 @@ TASK_STATUSES = {"OPEN", "IN_PROGRESS", SUBMITTED, "DONE", "CANCELLED"}
 # all and a client reading `counts.SUBMITTED` would fault on the happy path.
 STATUS_COUNT_KEYS = ("OPEN", "IN_PROGRESS", SUBMITTED, "DONE", "CANCELLED")
 
-# WORK THE ASSIGNEE STILL OWES. Unchanged on purpose: this is the set `is_overdue` consults, and
-# SUBMITTED must stay out of it. A task handed in on the 1st and approved on the 12th would
-# otherwise flip to overdue on the 8th and put the reviewer's delay on the researcher's record.
-LIVE_STATUSES = {"OPEN", "IN_PROGRESS"}
 # WORK THE REVIEWER OWES — the admin's approval queue.
 REVIEW_STATUSES = {SUBMITTED}
 # STILL ON THE ASSIGNEE'S SCREEN, by anybody's doing. The owner's "for it to not pop up next time"

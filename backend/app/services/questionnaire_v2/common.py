@@ -7,8 +7,6 @@ import secrets
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any, NoReturn
 
-from fastapi import HTTPException
-
 IST = timezone(timedelta(hours=5, minutes=30), name="IST")
 JOIN_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I/L: read aloud across a courtyard
 JOIN_CODE_LENGTH = 6
@@ -42,6 +40,10 @@ STATUS = {
 
 def fail(code: str, message: str | None = None, **extra: Any) -> NoReturn:
     """Raise the contract's error: ``{"detail": {"code", "message", ...}}``."""
+    # Imported here, not at the top: the queue worker imports this module (the nightly session close)
+    # and would otherwise load FastAPI for an exception it never raises (tests/test_import_footprint.py).
+    from fastapi import HTTPException
+
     raise HTTPException(status_code=STATUS[code], detail={"code": code, "message": message or MESSAGES[code], **extra})
 
 

@@ -22,9 +22,6 @@ from typing import Any
 from urllib.parse import urlsplit
 from uuid import uuid4
 
-import boto3
-from botocore.client import Config
-
 from app.core.config import get_settings
 from app.services.naming import ascii_leaf, content_disposition
 
@@ -89,6 +86,11 @@ def _client():
         endpoint = f"https://s3.dualstack.{settings.aws_region}.amazonaws.com"
         s3_config = {"addressing_style": "virtual"}
     _warn_if_insecure_endpoint(endpoint)
+    # Imported here, not at the top: boto3 and botocore are 8 MB the queue worker would otherwise
+    # hold from start-up while it waits for a job (backend/tests/test_import_footprint.py).
+    import boto3
+    from botocore.client import Config
+
     return boto3.client(
         "s3",
         region_name=settings.aws_region,

@@ -40,12 +40,11 @@ import time as monotonic_time
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Iterable
 
-from fastapi import HTTPException, status
-from fastapi.encoders import jsonable_encoder
+from app.core.fastapi_lazy import HTTPException, jsonable_encoder, status
 from prisma import Json
 
 from app.core.db import db
-from app.core.deps import get_value, values_match
+from app.core.roles import get_value, values_match
 from app.services import aadhaar_fingerprint
 from app.services.artisan_identity import mask_aadhaar
 from app.services.concurrency import gather_reads

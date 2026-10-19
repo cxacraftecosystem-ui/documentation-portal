@@ -3,8 +3,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, NamedTuple
 
-from fastapi import HTTPException, status
-from fastapi.encoders import jsonable_encoder
+from app.core.fastapi_lazy import HTTPException, jsonable_encoder, status
 from prisma import Json
 
 from app.core.db import db
@@ -263,7 +262,7 @@ def public_encode(obj: Any, viewer: Any = None, *, media_urls: Any = _UNSET) -> 
     Pass the current user from any route whose caller legitimately needs the real number — the
     artisan edit form is the reason that path exists.
     """
-    from app.core.deps import can_download_dataset, get_value, has_rank
+    from app.core.roles import can_download_dataset, get_value, has_rank
 
     encoded = jsonable_encoder(obj)
     if viewer is None:
@@ -307,7 +306,7 @@ async def media_url_owners(viewer: Any) -> set[str] | None:
     ``visibility``'s own precedent for grant-gated reads and is still grant-gated.
     """
     from app.core.db import db
-    from app.core.deps import can_download_dataset, get_value, has_rank
+    from app.core.roles import can_download_dataset, get_value, has_rank
 
     if has_rank(viewer, "PROFESSOR") or can_download_dataset(viewer):
         return ALL_MEDIA_URLS
@@ -639,7 +638,7 @@ async def owned_or_granted_where(user: Any, owner_field: str = "createdById") ->
     filter, Postgres answers the same question inside the query it was already running, against the
     ``granteeId`` index that exists for exactly this.
     """
-    from app.core.deps import get_value, has_rank
+    from app.core.roles import get_value, has_rank
 
     if has_rank(user, "PROFESSOR"):
         return {}
@@ -669,7 +668,7 @@ async def own_rows_where(user: Any, owner_field: str = "createdById") -> dict[st
     labelled as their own work. Now that reading is open, "mine" has to be asked for explicitly, and
     this is where it is asked.
     """
-    from app.core.deps import get_value
+    from app.core.roles import get_value
 
     return {owner_field: get_value(user, "id")}
 
@@ -682,7 +681,7 @@ def apply_status_policy_create(user: Any, data: dict[str, Any]) -> dict[str, Any
     One thing outranks this: a submission made after its workshop ended. Routes that accept a
     ``workshopId`` call ``workshop_access.pin_pending_if_late`` immediately AFTER this, which pins such
     a record to PENDING even for a professor+ — only an admin may approve a late entry."""
-    from app.core.deps import has_rank
+    from app.core.roles import has_rank
 
     if has_rank(user, "PROFESSOR"):
         data.setdefault("status", "APPROVED")
@@ -702,7 +701,7 @@ async def apply_status_policy_update(user: Any, record: Any, data: dict[str, Any
     ``pin_pending_if_late`` sit in between — the pin must run after this so a record flagged as a late
     workshop submission stays PENDING regardless of what this policy would have allowed).
     Mutates and returns ``data``; a no-op for records with no status column (``status`` never present)."""
-    from app.core.deps import can_review_record, enum_or_raw, get_value, has_rank
+    from app.core.roles import can_review_record, enum_or_raw, get_value, has_rank
 
     if "status" not in data:
         return data
@@ -1169,7 +1168,7 @@ def merge_field_provenance(new_data: dict[str, Any], user: Any, previous: Any | 
     delete the most useful fact on the row. ``services/measurement_provenance`` holds the whole
     argument.
     """
-    from app.core.deps import get_value, is_empty_value, values_match
+    from app.core.roles import get_value, is_empty_value, values_match
 
     incoming_extra = new_data.get("extraMetadata")
     base_extra: dict[str, Any] = dict(incoming_extra) if isinstance(incoming_extra, dict) else {}
@@ -1249,7 +1248,7 @@ def resubmit_status(record: Any, user: Any, data: dict[str, Any]) -> dict[str, A
     editors (admins tidying up, contributors filling gaps) never flip the status. Call after
     guard_record_edit, before the prisma update. Mutates and returns ``data``; a no-op for records
     without a status column."""
-    from app.core.deps import get_value
+    from app.core.roles import get_value
 
     current = get_value(record, "status")
     current_value = str(getattr(current, "value", current)) if current is not None else None

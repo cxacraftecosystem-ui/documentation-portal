@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.core.deps import ROLE_RANK, is_master_admin, role_rank
+from app.core.roles import ROLE_RANK, is_master_admin, role_rank
 
 #: The record types the queue holds, by Prisma delegate name. Media is left out, as in the queue.
 PENDING_RECORD_DELEGATES: tuple[tuple[str, str], ...] = (
