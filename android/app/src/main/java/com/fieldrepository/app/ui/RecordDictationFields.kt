@@ -149,6 +149,7 @@ val RECORD_NOT_DICTATED: Map<RecordFormKind, Map<String, String>> = mapOf(
         // Added 2026-09-14, with `craftStartDate` above and for the same reason.
         "experienceMonths" to "A closed 0..11 list behind a picker; nothing is typed, so a microphone would have nowhere to put a word, and the browser's own box says exactly that beside it. Eleven and not twelve because this is a REMAINDER — twelve months is a year the `experienceYears` box above already holds — and \"twelve\" is precisely the answer a spoken sentence offers into a column whose CHECK constraint then refuses it.",
         "phone" to "A number behind a dial-code control, with the same digits-as-words problem and no tolerance at all for a wrong digit.",
+        "phoneCountryCode" to "The dial code beside the number, picked from the country list; there is nothing to speak.",
         "email" to "A recogniser writes \"at\" for the @ sign and punctuates a domain, so the box would reliably produce a value its own validator then refuses.",
         "aadhaarNumber" to "A regulated identity number. A mis-heard digit fails the checksum on the server, or worse passes it and files this artisan under somebody else's number.",
         "pehchanCardAvailable" to "A yes/no answer behind a dropdown; a recogniser answers a yes/no question with a sentence.",
@@ -207,7 +208,8 @@ val RECORD_NOT_DICTATED: Map<RecordFormKind, Map<String, String>> = mapOf(
         "weight" to "A decimal measurement; spoken digits arrive as words and this box drops them silently.",
         "radius" to "A decimal measurement; spoken digits arrive as words and this box drops them silently.",
         "maker" to "Seven fixed options behind a dropdown; the answer is picked, not spoken.",
-        "traditionType" to "Four fixed options behind a dropdown; the answer is picked, not spoken.",
+        "traditionType" to "Three fixed options behind a dropdown; the answer is picked, not spoken.",
+        "materialFamily" to "A closed list of material families behind a dropdown; the free description beside it, `material`, is dictated.",
         "replacementCost" to "Money, and the column wants a number rather than the words a recogniser hands back.",
         "status" to "A closed vocabulary behind a control most users cannot even set, so there is no typing here to reduce.",
     ),

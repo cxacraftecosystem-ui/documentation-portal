@@ -284,34 +284,21 @@
     {
       "key": "language",
       "label": "Language",
-      "control": "text",
+      "control": "select",
       "required": false,
       "note": [
-        "The language the interview was conducted in, as FREE TEXT and not a closed vocabulary.",
-        "",
-        "The web argues this where it draws it (page.tsx:1012-1018): the column is `str | None` with no",
-        "enum behind it on either side, and the artisan's own answer — \"Kutchi, and some Gujarati\" — is",
-        "a perfectly good value that no list of language names can hold. A dropdown here is not a",
-        "narrower version of this control; it is a different control that cannot express the answer.",
-        "",
-        "THE HANDSET DREW A DROPDOWN — twenty-four scheduled languages plus \"Other\", preserving any",
-        "pre-existing free-text value as an extra option — AND THE OWNER'S RULING MADE THAT A DRIFT. It",
-        "was not in the reported list, which named the missing fields and the artisan widget; it is",
-        "recorded here because a contract that quietly omitted it would be the third register in this",
-        "repository that looks authoritative and is held to nothing.",
-        "",
-        "CLOSED on 2026-09-16: the handset now draws `TextInput(\"Language\", …)` (MainActivity.kt:12795)",
-        "and the \"Other\" row is gone with the list. The \"Other\" row is worth one more sentence, because",
-        "it is the proof rather than a detail — it recorded that the researcher had an answer and then",
-        "threw the answer away. The dropdown's `?: \"Hindi\"` seed went with it: on a closed vocabulary a",
-        "default is a starting position, on a free-text box it is an ANSWER the form supplies on the",
-        "researcher's behalf, indistinguishable in the archive from one they typed."
+        "The language the interview was conducted in, from the shared list of standard codes",
+        "(convergence point 10, owner decision of 18 Oct 2026, which supersedes the 2026-09-16 free-text",
+        "ruling). The value is a code (\"bn\") and the label its name (\"Bengali\"); the list is",
+        "backend/app/data/standard_values.json, the same file in both portals, ported to",
+        "frontend/lib/standardValues.ts and data/StandardValues.kt. A value stored before the list",
+        "stays selectable, first, so no save overwrites it."
       ],
       "web": {
-        "component": "DictatedTextInput"
+        "component": "Select"
       },
       "android": {
-        "composable": "TextInput"
+        "composable": "DropdownField"
       }
     },
     {

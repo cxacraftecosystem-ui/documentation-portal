@@ -4,7 +4,8 @@
 
 The artisan form is the same in the designer portal and the documentation portal, web and Android.
 Under it, **Date of birth** and **Craft start date** are required on every NEW save — a create, and
-an edit made from the artisan form. Experience stays two optional boxes, years (0..90) and months
+an edit made from the artisan form — and so is the answer to **Artisan Pehchan Card available**
+(Yes or No; a new artisan's form starts with it unanswered, never on a pre-filled Yes). Experience stays two optional boxes, years (0..90) and months
 (0..11, a remainder), stored in ``Artisan.experienceYears`` / ``Artisan.experienceMonths``; that
 representation was already the same in both portals, so the contract needed no data migration.
 
@@ -26,12 +27,14 @@ ends with a later change that removes this branch once no build older than the c
 field — not with a date in code, because a clock-driven refusal would also start refusing the
 spreadsheet import and the review queue, which are not the artisan form.
 
-── WHAT A STORED RECORD WITHOUT THE DATES DOES ──────────────────────────────────────────────────
+── WHAT A STORED RECORD WITHOUT THE DATES, OR WITHOUT AN ANSWER, DOES ───────────────────────────
 
 It still loads and still displays ("Not stated" on the form's experience months box, an empty date
 box). An edit of it from the artisan form asks for the missing dates before it saves, and a PATCH
 carrying the key is checked against the row as it will be AFTER the write — the stored value counts
-where the body does not mention the date, an explicit null does not.
+where the body does not mention the date, an explicit null does not. The Pehchan answer follows the
+same rule; its column is never empty, so a stored record is never refused for it, and a stored Yes
+with no number on file is asked for the number (or a No) by the form, as it always was.
 
 The documentation portal carries the same module under the same name; change both.
 """
@@ -50,6 +53,12 @@ DATES_REQUIRED_CONTRACT = 2
 REQUIRED_DATES: tuple[tuple[str, str], ...] = (
     ("dateOfBirth", "date of birth"),
     ("craftStartDate", "craft start date"),
+)
+
+
+#: The required answers that are not dates, in form order, with the sentence a refusal speaks.
+REQUIRED_ANSWERS: tuple[tuple[str, str], ...] = (
+    ("pehchanCardAvailable", "Answer whether the artisan has a Pehchan card."),
 )
 
 
@@ -79,6 +88,37 @@ def missing_required_dates(data: dict[str, Any], stored: Any | None = None) -> l
 def refusal_sentence(missing: list[str]) -> str:
     """ "Enter the date of birth." / "Enter the date of birth and the craft start date." """
     return "Enter the " + " and the ".join(missing) + "."
+
+
+def missing_required_answers(data: dict[str, Any], stored: Any | None = None) -> list[str]:
+    """The refusal sentence of each required answer this save would leave unanswered, in form order.
+
+    The same rule as the dates: the stored answer counts where the body is silent, a null does not.
+    """
+    missing: list[str] = []
+    for field, sentence in REQUIRED_ANSWERS:
+        if field in data:
+            value = data[field]
+        else:
+            value = getattr(stored, field, None) if stored is not None else None
+        if value is None or (isinstance(value, str) and not value.strip()):
+            missing.append(sentence)
+    return missing
+
+
+def assert_form_contract(
+    contract: int | None, data: dict[str, Any], stored: Any | None = None
+) -> None:
+    """Both rules of the contract, dates first: what the create and edit routes call."""
+    assert_required_dates(contract, data, stored)
+    if contract is None or contract < DATES_REQUIRED_CONTRACT:
+        return
+    missing = missing_required_answers(data, stored)
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=missing[0],
+        )
 
 
 def assert_required_dates(

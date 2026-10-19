@@ -168,7 +168,7 @@ data class ArtisanDto(
     val createdById: String? = null,
     val createdAt: String? = null,
     /** Which fields this record still lacks, computed by the server on read (`data/RecordCompleteness.kt`). */
-    val completeness: CompletenessDto? = null,
+    val completeness: CompletenessDto? = null,
     /**
      * The artisan card (`backend/app/services/artisan_card.py`), sent only while cards are on: this
      * portal's live card, the last four Aadhaar digits the card prints (never more), and the
@@ -802,6 +802,8 @@ data class ArtisanCreateRequest(
     val localName: String? = null,
     val gender: String? = null,
     val phone: String? = null,
+    /** The phone's country code; `phone` is digits only (StandardValues). */
+    val phoneCountryCode: String? = null,
     val email: String? = null,
     val place: String,
     val address: String? = null,
@@ -1015,6 +1017,8 @@ data class ToolCreateRequest(
     val englishName: String? = null,
     val processUsedIn: String? = null,
     val material: String? = null,
+    /** A code from the shared material list (StandardValues); `material` stays free text. */
+    val materialFamily: String? = null,
     val yearsInUse: Int? = null,
     val height: Double? = null,
     val width: Double? = null,
@@ -1403,6 +1407,8 @@ data class ArtisanDetailDto(
     val localName: String? = null,
     val gender: String? = null,
     val phone: String? = null,
+    /** The phone's country code; `phone` is digits only (StandardValues). */
+    val phoneCountryCode: String? = null,
     val email: String? = null,
     val place: String = "",
     val address: String? = null,
@@ -1557,6 +1563,8 @@ data class ToolDetailDto(
     val place: String = "",
     val processUsedIn: String? = null,
     val material: String? = null,
+    /** A code from the shared material list (StandardValues); `material` stays free text. */
+    val materialFamily: String? = null,
     val yearsInUse: Int? = null,
     // Decimal columns arrive as JSON strings; typed String? to keep list parsing from failing.
     val height: String? = null,

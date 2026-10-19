@@ -184,6 +184,8 @@ export type Artisan = {
   localName?: string | null;
   gender?: string | null;
   phone?: string | null;
+  /** The phone's country code; `phone` is digits only (lib/standardValues). */
+  phoneCountryCode?: string | null;
   email?: string | null;
   place: string;
   address?: string | null;
@@ -501,6 +503,8 @@ export type ToolDocumentation = {
   englishName?: string | null;
   processUsedIn?: string | null;
   material?: string | null;
+  /** A code from the shared material list (lib/standardValues). */
+  materialFamily?: string | null;
   yearsInUse?: number | null;
   height?: string | number | null;
   width?: string | number | null;
@@ -804,7 +808,7 @@ export type WorkshopAssignment = {
 export const productTypes = ["FINISHED_GOOD", "SAMPLE", "RAW_MATERIAL", "COMPONENT", "PACKAGING", "OTHER"];
 export const marketDemandOptions = ["LOW", "MEDIUM", "HIGH", "SEASONAL", "UNKNOWN"];
 export const makerOptions = ["ARTISAN", "LOCAL_BLACKSMITH", "CARPENTER", "WORKSHOP", "FACTORY", "UNKNOWN", "OTHER"];
-export const traditionOptions = ["TRADITIONAL", "MODERN", "HYBRID", "UNKNOWN"];
+export const traditionOptions = ["TRADITIONAL", "CONTEMPORARY", "TRANSITIONAL"];
 export const mediaTypes: MediaType[] = ["IMAGE", "VIDEO", "AUDIO", "PDF", "DOCUMENT", "OTHER"];
 
 /** One key quote: the speaker's own words and their English. */

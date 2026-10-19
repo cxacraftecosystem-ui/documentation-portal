@@ -24,11 +24,23 @@
     "queued by an older build still replays. A body WITH formContract >= 2 is refused (422, the",
     "sentence below) when it leaves a required date empty. On an edit, the stored value counts for a",
     "date the body leaves out; an explicit null does not. Existing records without the dates still",
-    "load and display, and an edit made from the artisan form asks for them."
+    "load and display, and an edit made from the artisan form asks for them.",
+    "",
+    "The same holds for each required answer below: a body WITH formContract >= 2 that leaves it",
+    "unanswered is refused with its sentence; on an edit the stored answer counts. A record whose",
+    "Pehchan card says Yes with no number on file still loads; an edit from the artisan form asks for",
+    "the number or a No before it saves."
   ],
   "requiredDates": [
     { "field": "dateOfBirth", "label": "Date of birth", "words": "date of birth" },
     { "field": "craftStartDate", "label": "Craft start date", "words": "craft start date" }
+  ],
+  "requiredAnswers": [
+    {
+      "field": "pehchanCardAvailable",
+      "label": "Artisan Pehchan Card available",
+      "sentence": "Answer whether the artisan has a Pehchan card."
+    }
   ],
   "refusalVectors": [
     { "dateOfBirth": null, "craftStartDate": null, "sentence": "Enter the date of birth and the craft start date." },

@@ -118,11 +118,19 @@ enum MakerType {
   OTHER
 }
 
+// The tool's tradition (owner decision, 2026-10-19): "Traditional", "Contemporary" and
+// "Transitional (Hybrid)", from app/data/standard_values.json; UNKNOWN is the unanswered default.
+// MODERN and HYBRID are the codes before that decision. No form writes them now; they stay so older
+// rows and older builds still load, read as CONTEMPORARY and TRANSITIONAL, and
+// scripts/standardise_values.py --apply rewrites the rows. Keep them last: the shared test reads
+// this block as the list's codes followed by its retired codes.
 enum TraditionType {
   TRADITIONAL
+  CONTEMPORARY
+  TRANSITIONAL
+  UNKNOWN
   MODERN
   HYBRID
-  UNKNOWN
 }
 
 enum ReviewRecordType {
@@ -856,8 +864,13 @@ model Artisan {
   id            String       @id @default(cuid())
   name          String
   localName     String?
+  /// One of the shared gender labels (app/data/standard_values.json): Male, Female, Transgender, Other.
   gender        String?
+  /// The national number, ASCII digits only (10 for +91). The country code is the column below.
   phone         String?
+  /// The phone's country code, "+91" unless the number is from elsewhere; null when there is no
+  /// phone. Shown together as "+91 98765 43210" (app/services/standard_values.py).
+  phoneCountryCode String?
   email         String?
   place         String
   /// ── THE AADHAAR: A KEYED FINGERPRINT AND THE LAST FOUR DIGITS, NEVER THE NUMBER (2026-10-17) ──
@@ -1243,6 +1256,9 @@ model ToolDocumentation {
   englishName                   String?
   processUsedIn                 String?
   material                      String?
+  /// The material family from the shared list (app/data/standard_values.json, the same 17 codes
+  /// as the stage registry's MATERIAL_FAMILY). `material` stays the free description.
+  materialFamily                String?
   yearsInUse                    Int?
   height                        Decimal?      @db.Decimal(10, 2)
   width                         Decimal?      @db.Decimal(10, 2)

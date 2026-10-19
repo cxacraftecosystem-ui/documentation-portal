@@ -6,6 +6,7 @@
  * as the Artisan columns; `e2e/web-capture-unit.spec.ts` holds the two lists to each other.
  */
 import type { Artisan } from "@/lib/types";
+import { phoneOf } from "@/lib/standardValues";
 
 export const ARTISAN_FIELD_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
   { value: "name", label: "Name" },
@@ -42,7 +43,7 @@ export function artisanFieldValue(field: string, artisan: Artisan, interviewer: 
     case "gender":
       return artisan.gender ?? "";
     case "phone":
-      return artisan.phone ?? "";
+      return phoneOf(artisan) ?? "";
     case "email":
       return artisan.email ?? "";
     case "dateOfBirth":

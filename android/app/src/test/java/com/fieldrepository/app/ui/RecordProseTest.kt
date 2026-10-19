@@ -455,7 +455,7 @@ class RecordProseTest {
         // 2026-09-14: 13 → 15. `craftStartDate` and `experienceMonths` reached the wire with the
         // record-parity work; both are excluded, so no dictated total moves anywhere below.
         // 16 since 2026-10-17: `aadhaarNotShared`, the C18 "Not shared by artisan" switch.
-        RecordFormKind.ARTISAN to (6 to 16),
+        RecordFormKind.ARTISAN to (6 to 17),
         // 2026-09-14: 6 → 7 for `workshopType`.
         RecordFormKind.WORKSHOP to (4 to 7),
         // 2026-09-14: 11 → 12 for `measurementMethods`, which the measurement-provenance work put on
@@ -467,7 +467,7 @@ class RecordProseTest {
         // 2026-09-15: 17 → 19 for `craftIds` and `artisanIds`, the two link lists the multi-craft
         // work put on the tool body. Both excluded — they are ticked, never typed, exactly as the
         // workshop form's pair of the same names already is — so no dictated total moves.
-        RecordFormKind.TOOL to (10 to 19),
+        RecordFormKind.TOOL to (10 to 20),
         RecordFormKind.PROCESS to (3 to 8),
         RecordFormKind.MEDIA to (2 to 2),
         RecordFormKind.LOCATION to (1 to 12),

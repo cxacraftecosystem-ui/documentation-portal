@@ -93,6 +93,7 @@ from app.services.questionnaire_xlsx import (
     parse_questionnaire_workbook,
     question_set_filename,
 )
+from app.services.standard_values import StandardValueError, apply_interview_values
 from app.services.uploads import read_upload_bounded
 from app.services.records import (
     Relation,
@@ -1148,6 +1149,7 @@ async def create_interview(
     # would take away the contribution path these two tiers exist for.
     assert_can_create_records(current_user)
     data = clean_data(payload.model_dump(exclude={"artisanIds", "responses"}))
+    _standardise(apply_interview_values, data)
     # B8: a sitting with no title is named for who, what and when — never refused for it.
     if not (data.get("title") or "").strip():
         data["title"] = await automatic_interview_title(
@@ -1535,6 +1537,7 @@ async def update_interview(
     # A queued write naming an artisan merged away since lands on the survivor (services/artisan_merge).
     await redirect_merged_artisans(payload)
     data = clean_data(payload.model_dump(exclude_unset=True, exclude={"artisanIds", "responses"}))
+    _standardise(apply_interview_values, data, interview)
     data = await attach_location(data)
     # Moving a record into (or between) workshops is a workshop submission too, so the create-time
     # guard can't be bypassed by PATCHing the workshop in afterwards.
@@ -3516,3 +3519,11 @@ async def set_default_questionnaire(
 # routes it finds at the moment it is called rather than holding a live reference.
 router.include_router(questionnaire_router)
 router.include_router(instruments_router)
+
+
+def _standardise(apply: Any, data: dict[str, Any], stored: Any = None) -> None:
+    """The shared standard values (``services/standard_values``): a value off its list is a 422."""
+    try:
+        apply(data, stored)
+    except StandardValueError as exc:
+        raise HTTPException(status_code=422, detail=exc.message) from exc

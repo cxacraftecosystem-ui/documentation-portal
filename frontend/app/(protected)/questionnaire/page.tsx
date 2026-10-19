@@ -79,6 +79,8 @@ import { ARTISAN_FIELD_OPTIONS, artisanFieldLabel, artisanPrefill, automaticInte
 import { applyTranscripts, TRANSCRIPT_SOURCE, transcriptAnswerText, transcriptOffer } from "@/lib/transcriptAnswer";
 import { Badge } from "@/components/ui/Badge";
 import { AnswerDraftsPanel, isMachineSuggested, MachineSuggestedBadge } from "@/components/questionnaire/AnswerDraftsPanel";
+import { phoneOf } from "@/lib/standardValues";
+import { languageOptions } from "@/lib/standardValues";
 
 /**
  * The API's own ceiling on an interview title — `QuestionnaireInterviewCreate.title` is
@@ -2075,21 +2077,21 @@ function QuestionnairePageBody() {
             {placeFilled && place === placeFilled ? <p className="text-xs text-ink-500">From the artisan.</p> : null}
           </div>
           {/*
-            Language is FREE TEXT here and not a closed vocabulary, which is why it gets a microphone
-            at all. The column is `str | None` with no enum behind it on either side — the placeholder
-            names three examples and the artisan's own answer ("Kutchi, and some Gujarati") is a
-            perfectly good value. A dropdown of language names is the change that would REMOVE the
-            microphone, not one that would sit beside it.
+            Language is the shared list (lib/standardValues, convergence point 10): the value is a
+            standard code ("bn") and the label its name ("Bengali"), the same list the designer
+            portal and both apps use. A value stored before the list stays selectable, first.
           */}
           <div className="min-w-0" data-field="language">
-            <DictatedTextInput
-              name="language"
-              label="Language"
-              placeholder="Bangla, Hindi, English..."
-              explainWhenUnavailable={false}
-              value={language}
-              onChange={setLanguage}
-            />
+            <Field label="Language">
+              <Select name="language" value={language} onChange={(event) => setLanguage(event.target.value)}>
+                <option value="">Select language</option>
+                {languageOptions(language).map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
           </div>
           {/* The workshop leads every other dropdown: it is the context the interview belongs to. */}
           <WorkshopSelect state={workshop} saving={saving} />
@@ -2390,7 +2392,7 @@ function QuestionnairePageBody() {
               <div><span className="font-medium text-ink">Craft:</span> {selectedArtisan.craft?.name ?? "-"}</div>
               <div><span className="font-medium text-ink">Place:</span> {selectedArtisan.place}</div>
               <div><span className="font-medium text-ink">Gender:</span> {selectedArtisan.gender ?? "-"}</div>
-              <div><span className="font-medium text-ink">Contact:</span> {selectedArtisan.phone || selectedArtisan.email || "-"}</div>
+              <div><span className="font-medium text-ink">Contact:</span> {phoneOf(selectedArtisan) || selectedArtisan.email || "-"}</div>
             </div>
           </section>
         ) : null}

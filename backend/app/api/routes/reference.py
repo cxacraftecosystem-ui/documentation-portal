@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends
 from app.core.deps import get_current_user
 from app.services.address import address_reference
 from app.services.district_lineage import lineage_reference
+from app.services.standard_values import catalogue
 
 router = APIRouter(prefix="/reference", tags=["reference"])
 
@@ -55,3 +56,10 @@ async def get_district_lineage(_: Any = Depends(get_current_user)) -> dict[str, 
     three Delhi entries are reported as unverified rather than given a plausible-looking parent.
     """
     return lineage_reference()
+
+
+@router.get("/standard-values")
+async def get_standard_values(_: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """The shared lists (convergence point 10): phone rule, languages, genders, tool tradition and
+    material family. The same file in both portals; ``services/standard_values``."""
+    return catalogue()

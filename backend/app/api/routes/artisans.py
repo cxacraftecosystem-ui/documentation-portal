@@ -17,7 +17,7 @@ from app.schemas.records import ArtisanCreate, ArtisanUpdate, drop_masked_identi
 from app.services import cross_portal_codes
 from app.services.access import guard_record_edit
 from app.services.artisan_merge import created_merged_record, survivor_of
-from app.services.artisan_form_contract import assert_required_dates, take_form_contract
+from app.services.artisan_form_contract import assert_form_contract, take_form_contract
 from app.services import aadhaar_fingerprint, artisan_card, artisan_card_store, artisan_duplicates
 from app.services.artisan_identity import aadhaar_error, mask_aadhaar, normalize_aadhaar
 from app.services import completeness as completeness_module
@@ -46,6 +46,7 @@ from app.services.records import (
     take_expected_updated_at,
     viewable_where,
 )
+from app.services.standard_values import StandardValueError, apply_artisan_values
 from app.services.workshop_access import (
     enforce_workshop_submission,
     link_workshop_artisan,
@@ -120,6 +121,7 @@ _CLEARABLE_COLUMNS = (
     "localName",
     "gender",
     "phone",
+    "phoneCountryCode",
     "email",
     "address",
     "notes",
@@ -562,6 +564,7 @@ async def create_artisan(
     current_user: Any = Depends(require_record_creator),
 ) -> dict[str, Any]:
     data = clean_data(payload.model_dump())
+    _standardise(apply_artisan_values, data)
     # Not a column: which likely duplicates the person saving was shown and called different people.
     acknowledged = data.pop("duplicateAcknowledged", None)
     location_input = payload.location
@@ -569,7 +572,7 @@ async def create_artisan(
     # payload; ``aadhaar`` is held only for the duplicate check below.
     aadhaar = _seal_aadhaar(data)
     # The artisan form contract: both dates required on a save made under it, the old shape accepted.
-    assert_required_dates(take_form_contract(data), data)
+    assert_form_contract(take_form_contract(data), data)
     data = await resolve_craft_id(data, current_user)
     data = await attach_location(data)
     # Workshop entries: enforce assignment, then flag + pin a late submission for admin approval.
@@ -660,6 +663,7 @@ async def update_artisan(
     # makes a present key mean "the caller sent this". Drop it and every optional the client left
     # alone would arrive as ``None`` and be written as an explicit NULL over stored data.
     data = clean_data(payload.model_dump(exclude_unset=True), clearable=_CLEARABLE_COLUMNS)
+    _standardise(apply_artisan_values, data, artisan)
     # The precondition is a QUESTION, not a column — taken out of the body on the line after the
     # clean, because everything between here and the write reads ``data``: ``guard_record_edit``
     # diffs it into a ``RecordRevision``, ``merge_field_provenance`` stamps a contributor against
@@ -667,7 +671,7 @@ async def update_artisan(
     expected_updated_at = take_expected_updated_at(data)
     # Checked against the row as it will be after this write: a date the body leaves out keeps the
     # stored value, so a record saved before the contract must gain both. Old shape: unchanged.
-    assert_required_dates(take_form_contract(data), data, stored=artisan)
+    assert_form_contract(take_form_contract(data), data, stored=artisan)
     # ABOVE ``guard_record_edit``, and that ordering is the whole of the safety in a backend with no
     # transactions: ``guard_record_edit`` ends in ``record_revision``, which COMMITS a ledger row
     # asserting a change, and there is nothing here to roll it back with.
@@ -961,3 +965,11 @@ async def delete_artisan(artisan_id: str, current_user: Any = Depends(get_curren
         return
     await require_record(db.artisan, artisan_id)
     await db.artisan.delete(where={"id": artisan_id})
+
+
+def _standardise(apply: Any, data: dict[str, Any], stored: Any = None) -> None:
+    """The shared standard values (``services/standard_values``): a value off its list is a 422."""
+    try:
+        apply(data, stored)
+    except StandardValueError as exc:
+        raise HTTPException(status_code=422, detail=exc.message) from exc
