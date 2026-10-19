@@ -47,6 +47,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -462,8 +463,10 @@ fun OutboxPendingBanner(
     var refused by remember { mutableStateOf<List<PendingEntry>>(emptyList()) }
     var reload by remember { mutableStateOf(0) }
     var trayOpen by remember { mutableStateOf(false) }
+    // Every queue write, the background worker's included: a hold recorded mid-pass shows live.
+    val revision by OfflineOutbox.revision.collectAsState()
     // Read whether anything is refused even while folded, so the banner can say so without a tap.
-    LaunchedEffect(pendingUploads, reload) {
+    LaunchedEffect(pendingUploads, reload, revision) {
         refused = runCatching { entries() }.getOrDefault(emptyList()).filter { it.failure != null }
     }
     if (trayOpen) {
@@ -502,7 +505,7 @@ fun OutboxPendingBanner(
             },
         )
     }
-    LaunchedEffect(expanded, pendingUploads, reload) {
+    LaunchedEffect(expanded, pendingUploads, reload, revision) {
         if (!expanded) return@LaunchedEffect
         val queue = runCatching { entries() }.getOrDefault(emptyList())
         refused = queue.filter { it.failure != null }
