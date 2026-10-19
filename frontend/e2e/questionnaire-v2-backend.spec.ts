@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import { expect, request as requests, test, type APIRequestContext } from "@playwright/test";
 
 /**
  * The web client's v2 calls against a REAL backend running `feature/q-backend` with
@@ -7,6 +7,10 @@ import { expect, test, type APIRequestContext } from "@playwright/test";
  * IT WRITES: it creates a session and returns it for changes. So it runs only against a local stack
  * on a throwaway database: E2E_QV2_BASE_URL must be a localhost URL, and E2E_QV2_QUESTIONNAIRE_ID and
  * E2E_QV2_ARTISAN_ID name a seeded instrument and artisan there. It refuses any other host.
+ *
+ * REVIEW IS A SECOND ACCOUNT. Nobody reviews a record made at their own tier, so the approve and
+ * return steps sign in as E2E_REVIEWER_EMAIL / E2E_REVIEWER_PASSWORD (a master admin over an admin
+ * creator, say). Without them those steps are skipped, not faked.
  */
 
 const BASE = process.env.E2E_QV2_BASE_URL ?? "";
@@ -14,14 +18,19 @@ const EMAIL = process.env.E2E_EMAIL ?? "";
 const PASSWORD = process.env.E2E_PASSWORD ?? "";
 const QUESTIONNAIRE = process.env.E2E_QV2_QUESTIONNAIRE_ID ?? "";
 const ARTISAN = process.env.E2E_QV2_ARTISAN_ID ?? "";
+const REVIEWER_EMAIL = process.env.E2E_REVIEWER_EMAIL ?? "";
+const REVIEWER_PASSWORD = process.env.E2E_REVIEWER_PASSWORD ?? "";
+const SAME_SITE = { "Sec-Fetch-Site": "same-origin" };
 const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test(BASE);
 
 test.skip(!BASE || !EMAIL || !PASSWORD || !QUESTIONNAIRE || !ARTISAN, "Set E2E_QV2_BASE_URL, E2E_EMAIL, E2E_PASSWORD, E2E_QV2_QUESTIONNAIRE_ID and E2E_QV2_ARTISAN_ID.");
 test.skip(Boolean(BASE) && !LOCAL, "This spec writes; it runs only against a local stack.");
-test.use({ baseURL: BASE });
+// The site's /api proxy refuses a write that does not say it came from this site (lib/server/apiProxy.ts);
+// a browser sends Sec-Fetch-Site itself, an API request context has to say it.
+test.use({ baseURL: BASE, extraHTTPHeaders: SAME_SITE });
 
-async function signIn(request: APIRequestContext) {
-  const res = await request.post("/api/auth/login", { data: { email: EMAIL, password: PASSWORD } });
+async function signIn(request: APIRequestContext, email = EMAIL, password = PASSWORD) {
+  const res = await request.post("/api/auth/login", { data: { email, password } });
   expect(res.ok(), await res.text()).toBe(true);
 }
 
@@ -66,10 +75,15 @@ test("session create, read, review and inbox speak the backend's shapes", async 
   expect(detail.grid.questionnaireId).toBe(QUESTIONNAIRE);
 
   // Review uses the `questionnaire` record type; an empty session cannot be approved.
-  const approve = await request.post(`/api/review/questionnaire/${session.id}/approve`, { data: { notes: null } });
-  expect(approve.status()).toBe(409);
-  const returned = await request.post(`/api/review/questionnaire/${session.id}/revise`, { data: { notes: "Add the place." } });
-  expect(returned.status(), await returned.text()).toBe(200);
+  if (REVIEWER_EMAIL && REVIEWER_PASSWORD) {
+    const reviewer = await requests.newContext({ baseURL: BASE, extraHTTPHeaders: SAME_SITE });
+    await signIn(reviewer, REVIEWER_EMAIL, REVIEWER_PASSWORD);
+    const approve = await reviewer.post(`/api/review/questionnaire/${session.id}/approve`, { data: { notes: null } });
+    expect(approve.status(), await approve.text()).toBe(409);
+    const returned = await reviewer.post(`/api/review/questionnaire/${session.id}/revise`, { data: { notes: "Add the place." } });
+    expect(returned.status(), await returned.text()).toBe(200);
+    await reviewer.dispose();
+  }
 
   const inbox = await (await request.get("/api/questionnaire/inbox")).json();
   for (const key of ["toFile", "needsDecision", "legacy", "setDates", "noParticipants", "emptySessions", "primaryChanged"]) {
