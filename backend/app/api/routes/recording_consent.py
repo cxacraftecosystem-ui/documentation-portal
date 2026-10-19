@@ -4,7 +4,7 @@
 ``/media/{id}/recording-consent`` for one recording, and wins over the artisan's grant. Anyone who
 may edit the record may record the answer, and every change is appended, never overwritten.
 
-Both write the ONE consent store, the ``Consent`` ledger (``services/consent_gate.py``): the artisan
+Both write the ONE consent store, the ``Consent`` ledger (``services/recording_consent.py``): the artisan
 route is the same row ``/artisans/{id}/consent`` writes. The web and Android apps now use that route;
 these stay for the Android builds already installed.
 """
