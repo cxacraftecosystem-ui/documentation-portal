@@ -512,8 +512,8 @@ CONSENT_REFUSED = "Consent was refused, so this transcript is not sent for a sum
 
 async def consent_refusal(media: Any) -> str | None:
     """None when the one consent store lets this recording's transcript leave the server, else the
-    sentence to show. A failed read refuses (``recording_consent.gate``)."""
-    verdict = await recording_consent.gate.verdict(media)
+    sentence to show. A failed read refuses (``recording_consent.gate``). ``media`` is a row or its id."""
+    verdict = await recording_consent.gate.verdict({"id": media} if isinstance(media, str) else media)
     if verdict.may_send:
         return None
     return CONSENT_REFUSED if verdict.decision == recording_consent.REFUSED else CONSENT_NOT_RECORDED
