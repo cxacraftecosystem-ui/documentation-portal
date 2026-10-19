@@ -38,6 +38,10 @@ async def client(monkeypatch):
     prisma = Prisma(datasource={"url": url})
     await prisma.connect()
     monkeypatch.setattr(ti, "db", prisma)
+    # The consent gate reads the ledger through the app's client.
+    import app.core.db as core_db
+
+    monkeypatch.setattr(core_db, "db", prisma)
     monkeypatch.setattr(ti, "enabled", lambda: True)
     try:
         yield prisma
@@ -111,7 +115,12 @@ async def test_enqueue_and_generate_through_the_real_client(client, monkeypatch)
     monkeypatch.setattr(ti.user_ai_keys, "resolve", resolve)
     monkeypatch.setattr(ti, "_chat_sync", lambda *a, **k: {"text": reply, "provider": "openai",
                                                            "model": "gpt-4o-mini", "modelVersion": None})
+    from app.services import consent_gate
+
     media_id = await _media(client)
+    uploader = (await client.mediafile.find_unique(where={"id": media_id})).uploadedById
+    assert await ti.enqueue(media_id) is None, "no consent recorded: nothing is queued"
+    await consent_gate.record_recording_consent(media_id, state="GRANTED", actor_id=uploader, client=client)
     job = await ti.enqueue(media_id)
     assert job is not None and job.jobType == "TRANSCRIPT_INSIGHTS" and job.priority == 80
     assert await ti.enqueue(media_id) is None  # one active job at a time
@@ -125,3 +134,16 @@ async def test_enqueue_and_generate_through_the_real_client(client, monkeypatch)
     assert rows[1].quotes == [{"original": "It takes three days.", "english": "It takes three days.",
                                "speaker": None}]
     assert (await ti.current_insight(media_id)).id == rows[1].id
+
+
+async def test_a_withdrawn_consent_queues_no_summary_through_the_real_ledger(client):
+    from app.services import consent_gate
+    from app.services import transcript_insights as ti
+
+    media_id = await _media(client)
+    uploader = (await client.mediafile.find_unique(where={"id": media_id})).uploadedById
+    await consent_gate.record_recording_consent(media_id, state="GRANTED", actor_id=uploader, client=client)
+    await consent_gate.record_recording_consent(media_id, state="REFUSED", actor_id=uploader, client=client)
+    assert await ti.consent_refusal(media_id) == ti.CONSENT_REFUSED
+    assert await ti.enqueue(media_id) is None
+    assert await client.mediaprocessingjob.count(where={"mediaFileId": media_id}) == 0
