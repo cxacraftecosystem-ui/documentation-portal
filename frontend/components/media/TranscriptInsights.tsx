@@ -46,26 +46,31 @@ function InsightsPanel({
 }) {
   const confirm = useOptionalConfirm();
   const [editing, setEditing] = useState(false);
+  const [askReplace, setAskReplace] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const insight = view.insight;
   const working = isWorking(view);
   const mayRegenerate = !readOnly && view.canRegenerate && !working;
+  // No editing while a new version is being written: it would supersede the edit.
+  const mayEdit = !readOnly && view.canEdit && Boolean(insight) && !working;
 
   async function regenerate() {
     setError(null);
-    let discardEdits = false;
-    if (needsRegenerateConfirm(view)) {
-      if (!confirm) return;
-      const ok = await confirm({
-        title: "Regenerating replaces your edits.",
-        confirmLabel: "Replace",
-        cancelLabel: "Keep",
-        tone: "warning"
-      });
-      if (!ok) return;
-      discardEdits = true;
-    }
+    if (!needsRegenerateConfirm(view)) return start(false);
+    // A page without the confirm dialog asks inline instead.
+    if (!confirm) return setAskReplace(true);
+    const ok = await confirm({
+      title: "Regenerating replaces your edits.",
+      confirmLabel: "Replace",
+      cancelLabel: "Keep",
+      tone: "warning"
+    });
+    if (ok) await start(true);
+  }
+
+  async function start(discardEdits: boolean) {
+    setAskReplace(false);
     setBusy(true);
     try {
       replace(await regenerateInsight(view.mediaId, discardEdits));
@@ -106,14 +111,26 @@ function InsightsPanel({
           }}
         />
       ) : insight ? (
-        <InsightBody view={view} />
+        <InsightBody key={insight.version} view={view} />
       ) : null}
 
       {error ? <p className="mt-2 text-sm text-red-700">{error}</p> : null}
 
-      {!editing && !readOnly && (view.canEdit || mayRegenerate) ? (
+      {askReplace ? (
+        <div className="mt-3 grid gap-2" role="group" aria-label="Regenerate">
+          <p className="text-sm text-ink-700">Regenerating replaces your edits.</p>
+          <ButtonRow align="end" size="sm">
+            <button type="button" className="field-button-secondary" onClick={() => setAskReplace(false)} disabled={busy}>
+              Keep
+            </button>
+            <button type="button" className="field-button" onClick={() => void start(true)} disabled={busy}>
+              Replace
+            </button>
+          </ButtonRow>
+        </div>
+      ) : !editing && (mayEdit || mayRegenerate) ? (
         <ButtonRow align="end" size="sm" className="mt-3">
-          {view.canEdit && insight ? (
+          {mayEdit ? (
             <button type="button" className="field-button-secondary" onClick={() => setEditing(true)} disabled={busy}>
               <Pencil className="h-4 w-4" aria-hidden />
               Edit

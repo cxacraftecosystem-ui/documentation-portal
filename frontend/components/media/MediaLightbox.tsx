@@ -55,7 +55,7 @@ function LightboxTranscript({ item }: { item: PreviewMedia }) {
       <div className="rounded-md border border-line-200 bg-field-50 p-3">
         <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">Transcript</div>
         <Markdown text={text} />
-        {item.id ? <TranscriptInsights mediaId={item.id} readOnly /> : null}
+        {item.id && status === "COMPLETED" ? <TranscriptInsights mediaId={item.id} readOnly /> : null}
       </div>
     );
   }

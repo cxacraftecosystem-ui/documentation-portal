@@ -16,7 +16,11 @@ import {
   createInsightBatcher,
   editRows,
   isWorking,
-  needsRegenerateConfirm
+  needsRegenerateConfirm,
+  pollDelay,
+  POLL_LIMIT_MS,
+  POLL_MS,
+  POLL_SLOW_MS
 } from "@/lib/transcriptInsights";
 import type { TranscriptInsightView } from "@/lib/types";
 
@@ -141,4 +145,31 @@ test("the section is drawn under a completed transcript and read-only in the lig
   expect(component).toContain("The transcript changed after this summary.");
   expect(component).toContain("Summarising…");
   expect(component).not.toMatch(/coming soon|not available yet/i);
+});
+
+test("polling slows down after ten minutes instead of stopping", () => {
+  expect(pollDelay(0)).toBe(POLL_MS);
+  expect(pollDelay(POLL_LIMIT_MS)).toBe(POLL_MS);
+  expect(pollDelay(POLL_LIMIT_MS + 1)).toBe(POLL_SLOW_MS);
+  expect(read("lib", "transcriptInsights.ts")).not.toContain("setInterval");
+});
+
+test("no editing while a new version is written, and a regenerated translation is not stale", () => {
+  const component = read("components", "media", "TranscriptInsights.tsx");
+  expect(component).toMatch(/const mayEdit = [^;]*!working;/);
+  expect(component).toContain("{mayEdit ? (");
+  expect(component).toContain("<InsightBody key={insight.version} view={view} />");
+});
+
+test("a page without the confirm dialog asks inline before replacing edits", () => {
+  const component = read("components", "media", "TranscriptInsights.tsx");
+  expect(component).not.toContain("if (!confirm) return;");
+  expect(component).toContain("if (!confirm) return setAskReplace(true);");
+  expect(component).toMatch(/onClick=\{\(\) => setAskReplace\(false\)\}[\s\S]*?Keep[\s\S]*?onClick=\{\(\) => void start\(true\)\}[\s\S]*?Replace/);
+});
+
+test("the lightbox draws the section only under a completed transcript", () => {
+  expect(read("components", "media", "MediaLightbox.tsx")).toContain(
+    'item.id && status === "COMPLETED" ? <TranscriptInsights mediaId={item.id} readOnly />'
+  );
 });

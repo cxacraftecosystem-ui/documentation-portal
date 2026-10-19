@@ -640,3 +640,167 @@ def test_execute_queues_only_eligible_media_at_priority_90_and_is_idempotent(fak
     assert asyncio.run(backfill.run(["--execute", "--include-stale"])) == 0
     assert {j.mediaFileId for j in fake.mediaprocessingjob.rows
             if j.jobType == "TRANSCRIPT_INSIGHTS"} == {wanted.id, done.id}
+
+
+
+# --------------------------------------------------------------------------------------------
+# Summaries follow-ups (designer-portal PR #39)
+# --------------------------------------------------------------------------------------------
+
+
+def _automatic_job(fake, media, status="QUEUED"):
+    row = Row(id=f"auto_{media.id}", mediaFileId=media.id, jobType="TRANSCRIPT_INSIGHTS",
+              status=status, attempts=0, maxAttempts=3, requestedById=None, error=None,
+              createdAt=datetime.now(UTC))
+    fake.mediaprocessingjob.rows.append(row)
+    return row
+
+
+@pytest.mark.parametrize("status", ["QUEUED", "PROCESSING"])
+def test_regenerate_on_an_edited_summary_claims_the_active_automatic_job(
+    fake, provider, monkeypatch, status
+):
+    from app.services import media_queue
+
+    media = _ready(fake, provider)
+    fake.transcriptinsight.rows[0].editedAt = datetime.now(UTC)
+    auto = _automatic_job(fake, media, status)
+    client = _client(OWNER)
+    refused = client.post(f"/api/media/{media.id}/insights/regenerate", json={"discardEdits": False})
+    assert refused.status_code == 409 and refused.json()["code"] == "EDITS_WOULD_BE_REPLACED"
+    assert auto.requestedById is None
+
+    accepted = client.post(f"/api/media/{media.id}/insights/regenerate", json={"discardEdits": True})
+    assert accepted.status_code == 202 and accepted.json()["state"] == status
+    jobs = [j for j in fake.mediaprocessingjob.rows if j.jobType == "TRANSCRIPT_INSIGHTS"]
+    assert jobs == [auto] and auto.requestedById == "usr_owner"
+
+    # The worker reads the requester fresh, so the claimed job runs instead of being skipped, on
+    # the requester's key.
+    keys = []
+
+    async def resolve(user_id, _task):
+        keys.append(user_id)
+        return provider.credential
+
+    monkeypatch.setattr(ti.user_ai_keys, "resolve", resolve)
+    provider.replies = [summary_reply("en", quotes=[])]
+    asyncio.run(media_queue._process_job(Row(**{**auto.__dict__, "requestedById": None,
+                                                "mediaFile": media}), SimpleNamespace()))
+    assert auto.status == "COMPLETED" and auto.result["status"] == "COMPLETED"
+    current = asyncio.run(ti.current_insight(media.id))
+    assert current.version == 2 and current.editedAt is None
+    assert keys and set(keys) == {"usr_owner"}
+
+
+def test_regenerate_while_a_requested_job_is_active_queues_nothing_more(fake, provider):
+    media = _ready(fake, provider)
+    fake.transcriptinsight.rows[0].editedAt = datetime.now(UTC)
+    asked = _automatic_job(fake, media)
+    asked.requestedById = "usr_admin"
+    response = _client(OWNER).post(f"/api/media/{media.id}/insights/regenerate", json={})
+    assert response.status_code == 202 and response.json()["state"] == "QUEUED"
+    assert asked.requestedById == "usr_admin"
+    assert len([j for j in fake.mediaprocessingjob.rows if j.jobType == "TRANSCRIPT_INSIGHTS"]) == 1
+
+
+def test_regenerate_on_an_unedited_summary_leaves_an_active_automatic_job_alone(fake, provider):
+    media = _ready(fake, provider)
+    auto = _automatic_job(fake, media)
+    response = _client(OWNER).post(f"/api/media/{media.id}/insights/regenerate", json={})
+    assert response.status_code == 202 and response.json()["state"] == "QUEUED"
+    assert auto.requestedById is None
+    assert len([j for j in fake.mediaprocessingjob.rows if j.jobType == "TRANSCRIPT_INSIGHTS"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("code", "sentence"),
+    [(401, ti.KEY_REFUSED), (403, ti.KEY_REFUSED), (400, ti.REQUEST_REFUSED), (413, ti.REQUEST_REFUSED)],
+)
+def test_a_refused_key_or_request_closes_the_job_without_retrying(fake, provider, code, sentence):
+    import requests
+
+    from app.services import media_queue
+
+    provider.fail_on = {1: requests.HTTPError(response=SimpleNamespace(status_code=code))}
+    media = fake.add_media(transcriptText=ENGLISH, transcriptStatus="COMPLETED")
+    job = _insights_job(fake, media, requested_by="usr_owner")
+    asyncio.run(media_queue._process_job(job, SimpleNamespace()))  # does not raise: no retry
+    stored = fake.mediaprocessingjob.get(job.id)
+    assert stored.status == "FAILED" and stored.error == sentence
+    assert stored.result == {"status": "FAILED"}
+    assert len(provider.calls) == 1
+
+
+def test_a_declined_summary_is_not_retried(fake, provider):
+    from app.services import media_queue
+
+    provider.fail_on = {1: ti.InsightsFailed(ti.MODEL_DECLINED, retry=False)}
+    media = fake.add_media(transcriptText=ENGLISH, transcriptStatus="COMPLETED")
+    job = _insights_job(fake, media, requested_by="usr_owner")
+    asyncio.run(media_queue._process_job(job, SimpleNamespace()))
+    stored = fake.mediaprocessingjob.get(job.id)
+    assert stored.status == "FAILED" and stored.error == ti.MODEL_DECLINED
+
+
+def test_an_anthropic_refusal_is_a_failure_that_does_not_retry(monkeypatch):
+    from app.services import anthropic_verbs
+    from app.services.ai_providers import AiProvider
+
+    monkeypatch.setattr(anthropic_verbs, "chat_verb", lambda **_k: {"status": "REFUSED", "text": None})
+    credential = SimpleNamespace(provider=AiProvider.ANTHROPIC, model="m", api_key="k")
+    with pytest.raises(ti.InsightsFailed) as caught:
+        ti._chat_sync("s", "u", credential, SimpleNamespace(), json_mode=True)
+    assert caught.value.retry is False and str(caught.value) == ti.MODEL_DECLINED
+
+
+@pytest.mark.parametrize("error", [
+    "busy",
+    "server",
+    "unreachable",
+])
+def test_a_busy_failing_or_unreachable_provider_retries(fake, provider, error):
+    import requests
+
+    from app.services import media_queue
+
+    provider.fail_on = {1: {
+        "busy": requests.HTTPError(response=SimpleNamespace(status_code=503)),
+        "server": requests.HTTPError(response=SimpleNamespace(status_code=500)),
+        "unreachable": requests.ConnectionError("no route"),
+    }[error]}
+    media = fake.add_media(transcriptText=ENGLISH, transcriptStatus="COMPLETED")
+    job = _insights_job(fake, media, requested_by="usr_owner")
+    with pytest.raises(media_queue.JobFailure):
+        asyncio.run(media_queue._process_job(job, SimpleNamespace()))
+
+
+def test_the_failed_translation_note_names_no_action_a_reader_may_not_have():
+    assert ti.TRANSLATION_FAILED_NOTE == "The translation couldn't be finished."
+    assert "egenerate" not in ti.TRANSLATION_FAILED_NOTE
+
+
+def test_the_translation_instruction_matches_designer_portal(fake, provider):
+    media = fake.add_media(transcriptText=HINDI, transcriptStatus="COMPLETED")
+    provider.replies = [summary_reply(), "Translated."]
+    asyncio.run(ti.generate(media, user_id=None))
+    assert provider.calls[1][1].startswith(
+        "Translate the following into English. Return the translation and nothing else — "
+        "no preamble and no note about the translation.\n\n"
+    )
+
+
+def test_signed_out_callers_are_refused_before_the_flag_is_read(fake, monkeypatch):
+    from app.api.routes import transcript_insights as routes
+
+    monkeypatch.setattr(ti, "enabled", lambda: False)
+    app = FastAPI()
+    app.include_router(routes.router, prefix="/api")
+    client = TestClient(app)
+    responses = [
+        client.get("/api/media/m1/insights"),
+        client.get("/api/media/insights?ids=m1"),
+        client.patch("/api/media/m1/insights", json={"version": 1, "summaryLines": ["x"]}),
+        client.post("/api/media/m1/insights/regenerate", json={}),
+    ]
+    assert [r.status_code for r in responses] == [401] * 4

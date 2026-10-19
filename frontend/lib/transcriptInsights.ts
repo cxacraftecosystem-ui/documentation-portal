@@ -9,7 +9,8 @@
  * for that.
  *
  * A 404 means the feature is switched off (or the media is gone): the section is hidden, with no
- * message. While a summary is queued or being written the hook polls every 15 s, for 10 minutes.
+ * message. While a summary is queued or being written the hook polls every 15 s for 10 minutes,
+ * then every minute until it lands: a job can wait behind a long transcription backlog.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -20,6 +21,7 @@ import type { InsightQuote, TranscriptInsightView } from "@/lib/types";
 export const BATCH_MAX = 50;
 export const POLL_MS = 15_000;
 export const POLL_LIMIT_MS = 10 * 60_000;
+export const POLL_SLOW_MS = 60_000;
 export const SUMMARY_MAX_LINES = 5;
 export const SUMMARY_LINE_MAX = 400;
 export const QUOTES_MAX = 8;
@@ -110,6 +112,11 @@ export function isWorking(view: TranscriptInsightView | null | undefined): boole
   return view?.state === "QUEUED" || view?.state === "PROCESSING";
 }
 
+/** How long to wait before the next poll, `elapsedMs` after the work started or was asked for. */
+export function pollDelay(elapsedMs: number): number {
+  return elapsedMs > POLL_LIMIT_MS ? POLL_SLOW_MS : POLL_MS;
+}
+
 /**
  * The insight for one media file. `view` is undefined while loading, null when hidden.
  * `replace` lets the component adopt the answer of a PATCH or a regenerate.
@@ -135,18 +142,20 @@ export function useTranscriptInsight(mediaId: string | null | undefined, { enabl
   useEffect(() => {
     if (!mediaId || !working) return;
     let cancelled = false;
-    const timer = window.setInterval(() => {
-      if (Date.now() - started.current > POLL_LIMIT_MS) {
-        window.clearInterval(timer);
-        return;
-      }
-      void sharedLoad(mediaId).then((answer) => {
-        if (!cancelled && answer !== "error") setView(answer);
-      });
-    }, POLL_MS);
+    let timer = 0;
+    const next = () => {
+      timer = window.setTimeout(() => {
+        void sharedLoad(mediaId).then((answer) => {
+          if (cancelled) return;
+          if (answer !== "error") setView(answer);
+          next();
+        });
+      }, pollDelay(Date.now() - started.current));
+    };
+    next();
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
     };
   }, [mediaId, working]);
 
