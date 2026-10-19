@@ -89,33 +89,42 @@ test("the filter value and the rules pick are defensive", () => {
   expect(pickRules(BUNDLED_RULES, { contract: "other", version: 99, kinds: {} })).toBe(BUNDLED_RULES);
 });
 
-test("focusField scrolls to and focuses the anchored field, skipping a mirror twin", async ({ page }) => {
-  await page.setContent(`
-    <div style="height:2400px"></div>
-    <div data-field="craftStartDate">
-      <input tabindex="-1" aria-hidden="true" name="mirror" />
-      <input id="typed" name="craftStartDate" />
-    </div>
-    <div style="height:2400px"></div>`);
-  const source = focusField.toString();
-  const found = await page.evaluate(([src, key]) => {
-    const fn = new Function(`return (${src})`)() as (k: string, r?: ParentNode) => boolean;
-    return fn(key, document);
-  }, [source, "craftStartDate"] as const);
-  expect(found).toBe(true);
-  await expect(page.locator("#typed")).toBeFocused();
-  await expect(page.locator('[data-field="craftStartDate"]')).toHaveAttribute("data-flash", "true");
-  // The scroll is smooth unless reduced motion is asked for, so it is polled rather than read once.
-  await expect
-    .poll(() =>
-      page.locator("#typed").evaluate((el) => {
-        const box = el.getBoundingClientRect();
-        return box.top >= 0 && box.bottom <= window.innerHeight;
-      })
-    )
-    .toBe(true);
-  const missing = await page.evaluate(([src]) => (new Function(`return (${src})`)() as (k: string) => boolean)("nowhere"), [source] as const);
-  expect(missing).toBe(false);
+test("focusField scrolls to and focuses the anchored field, skipping a mirror twin", () => {
+  // No browser: unit specs run without one in CI (checks.yml), so the DOM is a hand-made stand-in
+  // that records what focusField asks of it.
+  const calls: string[] = [];
+  let focused: string | null = null;
+  const typed = { focus: () => (focused = "typed") };
+  const anchor = {
+    dataset: {} as Record<string, string>,
+    classList: { add: (name: string) => calls.push(`add:${name}`), remove: () => undefined },
+    scrollIntoView: (options: ScrollIntoViewOptions) => calls.push(`scroll:${options.block}`),
+    matches: () => false,
+    querySelector: (selector: string) => {
+      calls.push(`control:${selector}`);
+      return typed;
+    }
+  };
+  const root = {
+    querySelector: (selector: string) => (selector === '[data-field="craftStartDate"]' ? anchor : null)
+  };
+  const g = globalThis as unknown as { document?: unknown; window?: unknown };
+  const saved = { document: g.document, window: g.window };
+  g.document = { documentElement: { dataset: { reducedMotion: "true" } } };
+  g.window = { matchMedia: () => ({ matches: true }), setTimeout: () => 0 };
+  try {
+    expect(focusField("craftStartDate", root as unknown as ParentNode)).toBe(true);
+    expect(focused).toBe("typed");
+    expect(anchor.dataset.flash).toBe("true");
+    expect(calls).toContain("scroll:center");
+    // The mirror twin (tabindex -1) is never the control that takes focus.
+    const control = calls.find((call) => call.startsWith("control:")) ?? "";
+    expect(control).toContain(':not([tabindex="-1"])');
+    expect(focusField("nowhere", root as unknown as ParentNode)).toBe(false);
+  } finally {
+    g.document = saved.document;
+    g.window = saved.window;
+  }
 });
 
 test("every record form carries the anchors its rules name", () => {
