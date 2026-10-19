@@ -103,9 +103,9 @@ name: Checks
 #   Wiring a linter into CI before the rule set exists gates on an accident. Choose the rules in
 #   pyproject first (the sibling repository's `[tool.ruff.lint]` is the worked example, dated per-file
 #   baseline included), then add the step.
-# • NO PLAYWRIGHT E2E, NO BACKEND INTEGRATION. Both need a running app, a database, and credentials.
-#   That is a genuinely larger piece of work than these three jobs, and pretending otherwise by
-#   half-wiring it is how a suite ends up "running" against nothing. docs/CI.md §5 keeps it listed.
+# • NO PLAYWRIGHT E2E. It needs a running app and credentials, a genuinely larger piece of work
+#   than these jobs; docs/CI.md §5 keeps it listed. The database-backed backend tests DO run, in
+#   job 4 (`Backend database tests`, since 2026-10-19), against a throwaway Postgres service.
 
 on:
   pull_request:
@@ -174,6 +174,10 @@ jobs:
     # DO NOT "improve" any of these into something real, and DO NOT add a Postgres service container.
     # A database here would promote the suite from "cannot touch data" to "runs against whatever CI
     # happens to have", which is a different suite with different failure modes, unreviewed.
+    #
+    # THE DATABASE-BACKED TESTS RUN IN JOB 4 (`backend-db`, since 2026-10-19), NOT HERE. The split is
+    # the point: this job keeps proving the suite collects and passes with nothing to connect to, and
+    # job 4 sets the opt-in variables above against a throwaway, migrated Postgres service container.
     env:
       PYTHONUTF8: "1"
       DATABASE_URL: "postgresql://ci:ci@ci.invalid:5432/no_such_database"
@@ -724,3 +728,138 @@ jobs:
             echo "Only the known pre-existing documentation problems were reported; the comment on this job says what each one is and who fixes it."
           fi
           exit 0
+
+  # ═══════════════════════════════════════════════════════════════════════════════════════
+  # 4 · The database-backed suite  (added 2026-10-19)
+  # ═══════════════════════════════════════════════════════════════════════════════════════
+  #
+  # THE OTHER HALF OF JOB 1, NOT A REPLACEMENT FOR IT. Job 1 has no database and must keep having
+  # none: it is what proves the suite collects and passes with nothing to connect to. The modules
+  # that need Postgres opt in by name — each reads its own variable and skips without it — and until
+  # this job they ran only on a developer's laptop, by hand, before a merge. Here they run on every
+  # pull request and push to main, against a Postgres that is created empty, migrated, and thrown
+  # away with the runner.
+  #
+  # THE GATES, AND THE VARIABLE EACH ONE READS (grep `skipif` under backend/tests/ to re-derive):
+  #   SEARCH_DB_TESTS=1              tests/search_support.py `needs_search_db` (and a non-hosted DSN)
+  #   ARTISAN_CARD_DB_TESTS=1        tests/test_artisan_card_db.py
+  #   ARTISAN_DUPLICATE_DB_TESTS=1   tests/_duplicates_db.py `skip_without_db`
+  #   TRANSCRIPT_INSIGHTS_DB_TESTS=1 tests/test_transcript_insights_db.py
+  #   QV2_TEST_DATABASE_URL          tests/qv2_fixtures.py `needs_db`
+  #   REVIEW_SQL_TEST_DATABASE_URL   tests/test_review_pending_sql_db.py, test_review_media_cascade_sql_db.py
+  #   RECORD_COMPLETENESS_DATABASE_URL tests/test_record_completeness.py
+  #   DATABASE_URL on loopback       tests/test_weekly_digest_db.py (a listening local Postgres)
+  #   QV2_BACKFILL_DATABASE_URL      tests/test_questionnaire_v2_backfill.py — its OWN database,
+  #                                  because it deletes every legacy row before seeding
+  # A new opt-in gate needs its variable added below, or it skips here exactly as it does in job 1.
+  # The step after the run fails the job if any skip reason still names one of these gates.
+  #
+  # Every value is a CI placeholder. The DSNs are loopback to the service container; nothing here
+  # is, or may become, a repository secret.
+  #
+  # Advisory, like the sibling repository's `Backend integration tests`: the deploy workflows'
+  # GATING_JOBS name the three jobs above, not this one.
+  backend-db:
+    name: Backend database tests
+    runs-on: ubuntu-26.04
+    # A hung query against a service container would otherwise burn the six-hour default.
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        # PostgreSQL 17, production's major and docker-compose.yml's `postgres:17-alpine`, in
+        # pgvector's build: migration 20261025090000_search_document installs `vector` where the
+        # extension exists, and the search tests rank by it.
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: field_repository
+        ports:
+          # The steps run on the host, so the DSN says 127.0.0.1, not the service name.
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PYTHONUTF8: "1"
+      DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"
+      JWT_SECRET: "ci-db-tests-not-a-secret-0123456789abcdef"
+      AWS_ACCESS_KEY_ID: "ci-placeholder"
+      AWS_SECRET_ACCESS_KEY: "ci-placeholder"
+      AWS_S3_BUCKET: "ci-placeholder"
+      MASTER_ADMIN_EMAIL: "ci@example.invalid"
+      SEARCH_DB_TESTS: "1"
+      ARTISAN_CARD_DB_TESTS: "1"
+      ARTISAN_DUPLICATE_DB_TESTS: "1"
+      TRANSCRIPT_INSIGHTS_DB_TESTS: "1"
+      QV2_TEST_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"
+      REVIEW_SQL_TEST_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"
+      RECORD_COMPLETENESS_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"
+      QV2_BACKFILL_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository_backfill"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          # Job 1's version, for job 1's reason; test_interpreter_pin.py holds every copy to the box.
+          python-version: "3.14.8"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.lock
+            backend/pyproject.toml
+
+      - name: Install the backend from the lock
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock
+          pip install --no-deps -e .
+
+      - name: Fetch the Prisma engines and generate the client
+        # The fetch is explicit so a missing engine is reported here, not by the first test that
+        # opens a connection.
+        run: |
+          set -euo pipefail
+          python -m prisma py fetch
+          python -m prisma generate --schema prisma/schema.prisma
+
+      - name: Create the backfill database and apply the migrations to both
+        # `migrate deploy`, never `migrate dev`. This is also the one place in CI where the whole
+        # migration history is applied to an EMPTY database, so a migration that only works on top of
+        # production's shape fails here.
+        run: |
+          set -euo pipefail
+          # Through the service container's own psql, so the runner image needs no client.
+          docker exec "${{ job.services.postgres.id }}" \
+            psql -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE field_repository_backfill'
+          python -m prisma migrate deploy --schema prisma/schema.prisma
+          DATABASE_URL="$QV2_BACKFILL_DATABASE_URL" python -m prisma migrate deploy --schema prisma/schema.prisma
+
+      - name: Run the suite against the database
+        # The whole suite, as in job 1: a selection is a list that goes stale. `-rs` here, unlike job
+        # 1, because the skip reasons are what the next step reads.
+        run: |
+          set -uo pipefail
+          status=0
+          if ! python -m pytest -rfs --durations=15 | tee pytest-db.log; then
+            status=1
+          fi
+          # A gate that stayed shut reports green and proves nothing, so a skip naming one of the
+          # opt-in variables is a failure of this job's setup.
+          gated=$(grep -E '^SKIPPED .*(_DB_TESTS|_DATABASE_URL|DATABASE_URL naming a running Postgres)' pytest-db.log || :)
+          if [ -n "$gated" ]; then
+            printf '%s\n' "$gated"
+            echo "::error::database-backed tests still skipped on their opt-in gate. Add the variable they read to this job's env."
+            exit 1
+          fi
+          exit "$status"
