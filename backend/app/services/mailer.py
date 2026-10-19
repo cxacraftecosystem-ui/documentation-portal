@@ -119,6 +119,41 @@ class SendFailed(Exception):
         self.permanent = permanent
 
 
+#: The reason an outbox row records when it was not sent to a reserved address.
+RESERVED_ADDRESS_REASON = "reserved test address"
+
+#: RFC 2606 / RFC 6761 names that never take mail. A seeded account (``admin@example.com``) or a
+#: test fixture must not reach SES: the message bounces and repeated bounces hurt the sender's
+#: reputation. The second-level names cover their subdomains; the top-level names cover any domain
+#: under them.
+RESERVED_EMAIL_DOMAINS = frozenset({"example.com", "example.org", "example.net"})
+RESERVED_EMAIL_TLDS = frozenset({"test", "example", "invalid", "localhost"})
+
+
+def reserved_email_domain(address: str | None) -> str | None:
+    """The reserved, non-deliverable domain ``address`` is on, lower-cased, or ``None``.
+
+    Case-insensitive, and a trailing dot is ignored. A string with no ``@`` is not judged here: it
+    is not an address, and SES refuses it on its own.
+    """
+    text = (address or "").strip()
+    if "@" not in text:
+        return None
+    domain = text.rsplit("@", 1)[1].strip().rstrip(".").lower()
+    if not domain:
+        return None
+    if any(domain == name or domain.endswith("." + name) for name in RESERVED_EMAIL_DOMAINS):
+        return domain
+    if domain.rsplit(".", 1)[-1] in RESERVED_EMAIL_TLDS:
+        return domain
+    return None
+
+
+def is_reserved_email(address: str | None) -> bool:
+    """True when ``address`` is on a reserved domain that never takes mail (see above)."""
+    return reserved_email_domain(address) is not None
+
+
 def mail_configured(settings: Settings | None = None) -> bool:
     settings = settings or get_settings()
     return bool((settings.mail_from_address or "").strip())

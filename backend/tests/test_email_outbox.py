@@ -92,7 +92,7 @@ class _Notifications:
         return row
 
 def _person(uid: str) -> SimpleNamespace:
-    return SimpleNamespace(id=uid, name=f"Person {uid}", email=f"{uid}@example.org")
+    return SimpleNamespace(id=uid, name=f"Person {uid}", email=f"{uid}@aicraft.iitkgp.ac.in")
 
 
 @pytest.fixture
@@ -136,7 +136,7 @@ def _drain() -> dict[str, int]:
 def _queue(kind: str = mailer.TASK_SENT_BACK) -> Any:
     return asyncio.run(
         email_outbox.enqueue(
-            kind, to_address="assignee@example.org", recipient_id="assignee",
+            kind, to_address="assignee@aicraft.iitkgp.ac.in", recipient_id="assignee",
             params={"taskTitle": "Photograph the looms", "actorName": "Ravi"},
         )
     )
@@ -152,10 +152,10 @@ def test_nothing_is_queued_or_drained_without_mail(world: Any, monkeypatch: pyte
 
 def test_a_message_is_sent_and_logged_on_its_row(world: Any) -> None:
     _queue()
-    assert _drain() == {"processed": 1, "sent": 1, "retrying": 0, "failed": 0}
+    assert _drain() == {"processed": 1, "sent": 1, "retrying": 0, "failed": 0, "skipped": 0}
     (row,) = world.db.emailmessage.rows
     assert row.status == "SENT" and row.providerMessageId == "ses-1" and row.sentAt is not None
-    assert world.sent[0]["to"] == "assignee@example.org"
+    assert world.sent[0]["to"] == "assignee@aicraft.iitkgp.ac.in"
 
 
 def test_a_throttle_waits_and_retries_and_a_rejection_fails(world: Any) -> None:
@@ -185,7 +185,7 @@ def test_no_log_line_carries_an_address(world: Any, caplog: pytest.LogCaptureFix
     world.outcome["error"] = mailer.SendFailed("MessageRejected", permanent=True)
     _drain()
     joined = "\n".join(r.getMessage() for r in caplog.records)
-    assert "mail:" in joined and "assignee@example.org" not in joined
+    assert "mail:" in joined and "assignee@aicraft.iitkgp.ac.in" not in joined
 
 
 @pytest.mark.parametrize(
@@ -240,9 +240,9 @@ def test_a_task_notice_failure_never_reaches_the_request(world: Any, monkeypatch
 
 
 def test_the_access_e_mail_reaches_an_address_with_no_account_yet(world: Any) -> None:
-    assert asyncio.run(email_outbox.notify_access_granted("newcomer@example.org", name="Newcomer"))
+    assert asyncio.run(email_outbox.notify_access_granted("newcomer@aicraft.iitkgp.ac.in", name="Newcomer"))
     (row,) = world.db.emailmessage.rows
-    assert row.kind == mailer.ACCESS_GRANTED and row.toAddress == "newcomer@example.org"
+    assert row.kind == mailer.ACCESS_GRANTED and row.toAddress == "newcomer@aicraft.iitkgp.ac.in"
     assert row.recipientId is None
 
 
@@ -279,14 +279,14 @@ def test_nobody_hears_in_app_about_their_own_move(world: Any) -> None:
 def test_a_password_notice_lands_in_app_once(world: Any) -> None:
     user = world.people["assignee"]
     assert asyncio.run(email_outbox.notify_password_event(user, mailer.PASSWORD_CHANGED))
-    assert asyncio.run(email_outbox.notify_password_event(user, mailer.PASSWORD_CHANGED, to_address="old@example.org"))
-    assert [r.toAddress for r in world.db.emailmessage.rows] == ["assignee@example.org", "old@example.org"]
+    assert asyncio.run(email_outbox.notify_password_event(user, mailer.PASSWORD_CHANGED, to_address="old@aicraft.iitkgp.ac.in"))
+    assert [r.toAddress for r in world.db.emailmessage.rows] == ["assignee@aicraft.iitkgp.ac.in", "old@aicraft.iitkgp.ac.in"]
     (row,) = world.db.notification.rows
     assert (row.userId, row.kind, row.link) == ("assignee", mailer.PASSWORD_CHANGED, "/settings")
 
 
 def test_the_access_e_mail_to_an_existing_account_is_in_app_too(world: Any) -> None:
-    assert asyncio.run(email_outbox.notify_access_granted("creator@example.org", name=None))
+    assert asyncio.run(email_outbox.notify_access_granted("creator@aicraft.iitkgp.ac.in", name=None))
     (mail,) = world.db.emailmessage.rows
     (row,) = world.db.notification.rows
     assert mail.recipientId == "creator" and row.userId == "creator" and row.emailMessageId == mail.id
@@ -327,3 +327,48 @@ def test_the_serialized_notice_says_read_in_words() -> None:
     )
     out = notifications.serialize(row)
     assert out["read"] is False and out["readAt"] is None and out["createdAt"].startswith("2026-10-17")
+
+
+# --------------------------------------------------------------------------------------
+# Reserved, non-deliverable addresses (identical in both portals)
+# --------------------------------------------------------------------------------------
+
+
+def _queue_notice(address: str) -> Any:
+    params = {"recipientName": "Seed", "changedAt": datetime.now(UTC).isoformat()}
+    return asyncio.run(
+        email_outbox.enqueue(
+            mailer.PASSWORD_CHANGED, to_address=address, recipient_id="seed", params=params
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "address",
+    ["admin@example.com", "Seed@Mail.EXAMPLE.NET", "x@example.org", "x@field.test", "x@a.invalid"],
+)
+def test_a_reserved_address_is_skipped_not_sent_and_not_logged(
+    world: Any, caplog: pytest.LogCaptureFixture, address: str
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    assert _queue_notice(address) is not None
+    tally = _drain()
+    assert tally["skipped"] == 1 and tally["sent"] == 0 and tally["failed"] == 0
+    assert tally["retrying"] == 0
+    assert world.sent == [], "a reserved address never reaches SES"
+    (row,) = world.db.emailmessage.rows
+    assert row.status == email_outbox.SKIPPED == "SKIPPED"
+    assert row.error == mailer.RESERVED_ADDRESS_REASON == "reserved test address"
+    assert row.sentAt is None and row.lockedAt is None and row.sealed is None
+    messages = [r.getMessage() for r in caplog.records]
+    assert len([m for m in messages if "skipped" in m]) == 1, "one log line"
+    assert all(address not in m and address.lower() not in m for m in messages)
+    assert _drain()["processed"] == 0, "a skipped row is final"
+
+
+@pytest.mark.parametrize("address", ["officer@aicraft.iitkgp.ac.in", "Someone@Gmail.com"])
+def test_a_real_address_is_still_sent(world: Any, address: str) -> None:
+    _queue_notice(address)
+    tally = _drain()
+    assert tally["sent"] == 1 and tally["skipped"] == 0
+    assert [m["to"] for m in world.sent] == [address]

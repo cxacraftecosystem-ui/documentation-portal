@@ -313,7 +313,7 @@ def test_the_outbox_opens_the_seal_to_send_and_then_forgets_it(monkeypatch) -> N
     monkeypatch.setattr(mailer, "send", lambda **kwargs: sent.append(kwargs["text"]) or "ses-1")
     link = f"{APP_URL}/set-password?token=abc"
     expires = (datetime.now(UTC) + timedelta(hours=2)).isoformat()
-    asyncio.run(email_outbox.enqueue(mailer.PASSWORD_LINK, to_address="r@example.org", recipient_id=None, params={"purpose": "RESET", "expiresAt": expires}, secret=link))
+    asyncio.run(email_outbox.enqueue(mailer.PASSWORD_LINK, to_address="r@aicraft.iitkgp.ac.in", recipient_id=None, params={"purpose": "RESET", "expiresAt": expires}, secret=link))
     tally = asyncio.run(email_outbox.process_next_email_jobs(recover=False))
     assert tally["sent"] == 1 and link in sent[0]
     assert fake.emailmessage.rows[0].sealed is None and fake.emailmessage.rows[0].status == "SENT"

@@ -105,3 +105,53 @@ def test_task_notices_name_the_task_escape_it_and_offer_the_opt_out() -> None:
     assert "turn these e-mails off in Settings" in sent_back.text
     assert "waiting for your approval" in mailer.render(mailer.TASK_SUBMITTED, params, settings=_settings()).text
     assert "approved your work" in mailer.render(mailer.TASK_APPROVED, params, settings=_settings()).text
+
+
+# --------------------------------------------------------------------------------------
+# Reserved, non-deliverable addresses (identical in both portals)
+# --------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "admin@example.com",
+        "seed@example.org",
+        "seed@example.net",
+        "someone@mail.example.com",
+        "someone@deep.sub.example.org",
+        "user@field.test",
+        "user@test",
+        "user@site.example",
+        "user@nowhere.invalid",
+        "root@localhost",
+        "root@box.localhost",
+        "Admin@EXAMPLE.COM",
+        "User@Field.TEST",
+        "  admin@example.com.  ",
+    ],
+)
+def test_reserved_addresses_are_recognised(address: str) -> None:
+    assert mailer.is_reserved_email(address) is True
+    assert mailer.reserved_email_domain(address) == address.strip().rsplit("@", 1)[1].rstrip(".").lower()
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "officer@aicraft.iitkgp.ac.in",
+        "someone@gmail.com",
+        "Someone@GMAIL.COM",
+        "someone@example.co.in",
+        "someone@myexample.com",
+        "someone@example.com.au",
+        "someone@testing.org",
+        "someone@contest.in",
+        "",
+        None,
+        "not-an-address",
+    ],
+)
+def test_real_addresses_are_not_reserved(address: str | None) -> None:
+    assert mailer.is_reserved_email(address) is False
+    assert mailer.reserved_email_domain(address) is None

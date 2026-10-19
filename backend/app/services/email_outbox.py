@@ -14,6 +14,8 @@ ONE KIND CARRIES A SECRET: ``PASSWORD_LINK``, a single-use set-password link. It
 ``params``; :func:`enqueue` takes it as ``secret`` and stores it Fernet-sealed in ``EmailMessage.sealed``
 (``managed_secrets.encrypt``), :func:`_send_one` opens it only to render, and the seal is cleared the
 moment the row reaches SENT or FAILED. A link whose expiry passed while it waited is failed, not sent.
+A row addressed to a reserved domain (``example.com``, ``*.test`` …) is never handed to SES: it
+ends SKIPPED with ``mailer.RESERVED_ADDRESS_REASON``.
 No log line carries an address, a body or a link: the row id, the kind and the recipient's ACCOUNT id
 only.
 
@@ -49,6 +51,9 @@ QUEUED = "QUEUED"
 SENDING = "SENDING"
 SENT = "SENT"
 FAILED = "FAILED"
+#: Never handed to SES: the address is on a reserved domain that takes no mail
+#: (``mailer.is_reserved_email``). Final, like FAILED, with ``mailer.RESERVED_ADDRESS_REASON``.
+SKIPPED = "SKIPPED"
 
 STALE_SENDING_AFTER = timedelta(minutes=15)
 MAX_BACKOFF_MINUTES = 60
@@ -181,6 +186,15 @@ def _expired(params: dict[str, Any]) -> bool:
 async def _send_one(row: Any, settings: Settings) -> str:
     attempts = int(row.attempts or 0) + 1
     params = dict(row.params or {}) if isinstance(row.params, dict) else {}
+    domain = mailer.reserved_email_domain(row.toAddress)
+    if domain is not None:
+        # A seeded or test account: SES would bounce it, and bounces cost the sender reputation.
+        await _finish(row.id, SKIPPED, error=mailer.RESERVED_ADDRESS_REASON)
+        logger.info(
+            "mail: skipped %s message %s for account %s (reserved domain %s)",
+            row.kind, row.id, row.recipientId or "-", domain,
+        )
+        return SKIPPED
     secret: str | None = None
     if getattr(row, "sealed", None):
         secret = managed_secrets.decrypt(row.sealed)
@@ -229,7 +243,7 @@ async def process_next_email_jobs(
 ) -> dict[str, int]:
     """Drain one batch of due messages. Does nothing at all when mail is not configured."""
     settings = settings or get_settings()
-    tally = {"processed": 0, "sent": 0, "retrying": 0, "failed": 0}
+    tally = {"processed": 0, "sent": 0, "retrying": 0, "failed": 0, "skipped": 0}
     if not mailer.mail_configured(settings):
         return tally
     if recover:
@@ -249,7 +263,7 @@ async def process_next_email_jobs(
             logger.exception("mail: message %s could not be processed", row.id)
             await _retry_later(row, int(row.attempts or 0) + 1, "Unexpected error while sending.")
             outcome = QUEUED
-        key = {SENT: "sent", FAILED: "failed"}.get(outcome, "retrying")
+        key = {SENT: "sent", FAILED: "failed", SKIPPED: "skipped"}.get(outcome, "retrying")
         tally[key] += 1
     return tally
 
