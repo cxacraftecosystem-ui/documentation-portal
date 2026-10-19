@@ -1,10 +1,11 @@
 "use client";
 
 /**
- * The artisan's agreement that their recordings may be sent for transcription (the consent rule,
- * 18 Oct 2026). Without it a recording is kept and simply not sent. A setting, so a switch, shown
- * ON only once the server says so. Recordings made before 18 Oct 2026 carry consent by the owner's
- * attestation (`source: "owner attestation"`), which the status line names.
+ * The artisan's agreement that their recordings may be sent for transcription. Consent is assumed by
+ * default and can be revoked (owner decision, 19 Oct 2026), so the switch is ON unless a refusal is on
+ * record; switching it off records the refusal and stops every outside send. Recordings made before
+ * 18 Oct 2026 carry consent by the owner's attestation (`source: "owner attestation"`), which the
+ * status line names.
  *
  * ONE CONSENT STORE (19 Oct 2026): this reads and writes the artisan's row in the consent ledger
  * through `/artisans/{id}/consent`, the same record the questionnaire's consent question answers, so
@@ -18,8 +19,11 @@ import { mintKey, questionnaireApi, type ConsentRecord } from "@/lib/questionnai
 
 type ConsentStatus = Pick<ConsentRecord, "state" | "source" | "recordedAt">;
 
+export const RECORDING_CONSENT_DESCRIPTION =
+  "On by default. Switch off if the artisan does not want their recordings sent to a transcription service.";
+
 export function recordingConsentStatus(consent: ConsentStatus): string {
-  if (consent.state !== "GRANTED" && consent.state !== "REFUSED") return "Not asked yet";
+  if (consent.state !== "GRANTED" && consent.state !== "REFUSED") return "On by default";
   const when = consent.recordedAt
     ? new Date(consent.recordedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
     : null;
@@ -76,8 +80,8 @@ export function RecordingConsentToggle({ artisanId }: { artisanId: string }) {
         <>
           <Toggle
             label="Recordings may be transcribed"
-            description="The artisan agrees their recordings may be sent to a transcription service."
-            checked={consent.state === "GRANTED"}
+            description={RECORDING_CONSENT_DESCRIPTION}
+            checked={consent.state !== "REFUSED"}
             busy={busy}
             onChange={(next) => void change(next)}
           />

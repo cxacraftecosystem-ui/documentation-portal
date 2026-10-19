@@ -31,7 +31,7 @@ class TranscriptStatusTest {
 
     @Test
     fun `consent states read calmly`() {
-        assertEquals("Waiting for consent to transcribe", TranscriptStatus.line(rec("AWAITING_CONSENT", "AWAITING"), paused = true)!!.text)
+        assertEquals("Waiting to be sent", TranscriptStatus.line(rec("AWAITING_CONSENT", "AWAITING"), paused = true)!!.text)
         assertEquals("Not sent: consent refused", TranscriptStatus.line(rec("REFUSED_CONSENT", "REFUSED"), paused = true)!!.text)
     }
 

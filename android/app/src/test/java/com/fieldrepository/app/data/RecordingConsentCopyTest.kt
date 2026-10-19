@@ -1,13 +1,17 @@
 package com.fieldrepository.app.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** The consent switch's status line, word for word with the web's `recordingConsentStatus`. */
 class RecordingConsentCopyTest {
     @Test
-    fun notAskedYet() {
-        assertEquals("Not asked yet", RecordingConsentCopy.status(QConsentGet(), null))
+    fun onByDefault() {
+        assertEquals("On by default", RecordingConsentCopy.status(QConsentGet(), null))
+        assertTrue("no answer on record: the switch is on", RecordingConsentCopy.granted(QConsentGet()))
+        assertFalse("a refusal turns it off", RecordingConsentCopy.granted(QConsentGet(state = "REFUSED")))
     }
 
     @Test

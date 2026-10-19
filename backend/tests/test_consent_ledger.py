@@ -29,16 +29,29 @@ def _row(state: str, at: datetime | None = None) -> dict[str, Any]:
 # ── The rule ──────────────────────────────────────────────────────────────────────────────────
 
 
-def test_nothing_recorded_waits_and_a_recording_with_no_subject_waits() -> None:
-    assert ledger.decide(None, []) == ledger.AWAITING
-    assert ledger.decide(None, [None]) == ledger.AWAITING
-    assert ledger.decide(None, [_row("GRANTED"), None]) == ledger.AWAITING
+def test_no_answer_is_consent_assumed_by_default_and_is_sent() -> None:
+    """Owner decision, 19 Oct 2026: "the consent should be assumed by default, people can revoke it
+    if required". Nothing recorded, and a recording with no subject at all, are sent."""
+    assert ledger.decide(None, []) == ledger.ALLOW
+    assert ledger.decide(None, [None]) == ledger.ALLOW
+    assert ledger.decide(None, [_row("GRANTED"), None]) == ledger.ALLOW
+    assert ledger.decide(None, ["NOT_RECORDED", None]) == ledger.ALLOW
 
 
-def test_every_subject_granting_allows_and_any_refusal_refuses() -> None:
+def test_the_rule_never_answers_awaiting() -> None:
+    states = (None, "NOT_RECORDED", "GRANTED", "REFUSED")
+    for own in states:
+        for a in states:
+            for b in states:
+                assert ledger.decide(own, [a, b]) != ledger.AWAITING
+
+
+def test_any_refusal_refuses_and_a_later_grant_allows_again() -> None:
     assert ledger.decide(None, [_row("GRANTED"), "GRANTED"]) == ledger.ALLOW
     assert ledger.decide(None, [_row("GRANTED"), _row("REFUSED")]) == ledger.REFUSED
-    assert ledger.decide(None, ["NOT_RECORDED"]) == ledger.AWAITING
+    assert ledger.decide(None, [None, _row("REFUSED")]) == ledger.REFUSED, "one refusal among the unanswered"
+    # Each subject is read at its newest row: a grant recorded after the refusal replaces it.
+    assert ledger.decide(None, [None, _row("GRANTED", T0 + timedelta(days=1))]) == ledger.ALLOW
 
 
 def test_the_recordings_own_refusal_wins_over_every_grant() -> None:

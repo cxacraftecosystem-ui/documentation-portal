@@ -20,8 +20,8 @@ import kotlinx.coroutines.launch
 
 /**
  * The consent rule — "Recordings may be transcribed" on the artisan edit form. Twin of the web's
- * `RecordingConsentToggle.tsx`. A SETTING, so an [AppToggle], saved when pressed, ON only once the
- * server says so.
+ * `RecordingConsentToggle.tsx`. A SETTING, so an [AppToggle], saved when pressed, ON unless a refusal
+ * is on record (consent is assumed by default; switching off revokes it).
  */
 @Composable
 fun RecordingConsentRow(artisanId: String) {

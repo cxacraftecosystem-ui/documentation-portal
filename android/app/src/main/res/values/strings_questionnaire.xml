@@ -127,9 +127,9 @@
     <string name="q_transcribing">Transcribing</string>
     <string name="q_transcription_paused">Transcription paused</string>
     <string name="q_transcription_paused_reason">Transcription is paused.</string>
-    <string name="q_waiting_for_consent">Waiting for consent to transcribe</string>
+    <string name="q_waiting_for_consent">Waiting to be sent</string>
     <string name="q_consent_refused_status">Not sent: consent refused</string>
-    <string name="q_record_consent">Record consent</string>
+    <string name="q_record_consent">Change consent</string>
     <string name="q_retry">Retry</string>
     <string name="q_transcribe_now">Transcribe now</string>
     <string name="q_present_didnt_answer">Present, didn\'t answer</string>
@@ -147,10 +147,10 @@
     <string name="q_retired_questions">Retired questions</string>
     <string name="q_history">History</string>
     <string name="q_show_removed">Show removed (%1$s)</string>
-    <string name="q_consent_question">May recordings of %1$s be sent to outside services to be written down or translated?</string>
-    <string name="q_consent_not_now">Not now</string>
-    <string name="q_consent_yes">Yes, recorded</string>
-    <string name="q_consent_no">No</string>
+    <string name="q_consent_notice">Recordings of %1$s may be sent to outside services to be written down or translated.</string>
+    <string name="q_consent_refused_notice">Recordings of %1$s are not sent to outside services: consent was refused.</string>
+    <string name="q_consent_switch_off">Switch off</string>
+    <string name="q_consent_switch_on">Switch back on</string>
     <string name="q_record_summary">%1$s of %2$s sections · %3$s sessions · %4$s repeats</string>
     <string name="q_open_sections">Open: %1$s</string>
     <string name="q_continue_with">Continue with %1$s</string>

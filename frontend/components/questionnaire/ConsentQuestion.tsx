@@ -8,22 +8,24 @@ import { mintKey, questionnaireApi, type ConsentRecord } from "@/lib/questionnai
 import { qs } from "@/lib/strings/qs";
 
 /**
- * The consent question (DESIGN §3.11), asked once per artisan: inline under the start sheet's artisan
- * field and on the artisan record. It never blocks recording; missing consent only holds back the
- * outside send (transcription, translation). Every answer is a new row; a refusal can be changed.
+ * The consent notice (DESIGN §3.11), inline under the start sheet's artisan field, on the artisan
+ * record and on a refused take. Consent is assumed by default and can be revoked (owner decision,
+ * 19 Oct 2026): with no answer on record it says recordings may be sent, with Switch off beside OK;
+ * after a refusal it says so, with Switch back on. It never blocks recording. Every answer is a new row.
  */
 export function ConsentQuestion({
   artisanId,
   name,
+  refused = false,
   onRecorded,
   onDismiss
 }: {
   artisanId: string;
   name: string;
+  refused?: boolean;
   onRecorded?: (record: ConsentRecord) => void;
   onDismiss?: () => void;
 }) {
-  const [more, setMore] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -57,28 +59,31 @@ export function ConsentQuestion({
     );
   }
 
+  const first = shortName(name);
   return (
     <div className="rounded-md border border-line-200 bg-surface-50 p-3" data-consent-question={artisanId}>
-      <p className="text-sm text-ink-900">{qs("consentQuestion", { name: shortName(name) })}</p>
+      <p className="text-sm text-ink-900">{qs(refused ? "consentRefusedNotice" : "consentNotice", { name: first })}</p>
       <ButtonRow className="mt-2" size="sm">
-        <button type="button" className="field-button-secondary" disabled={busy} onClick={() => onDismiss?.()}>
-          {qs("consentNotNow")}
-        </button>
-        <button type="button" className="field-button" disabled={busy} onClick={() => void record("GRANTED")}>
-          {qs("consentYes")}
-        </button>
-      </ButtonRow>
-      <div className="mt-1 flex justify-center">
-        {more ? (
-          <button type="button" className="text-sm font-medium text-ink-500 underline" disabled={busy} onClick={() => void record("REFUSED")}>
-            {qs("consentNo")}
-          </button>
+        {refused ? (
+          <>
+            <button type="button" className="field-button-secondary" disabled={busy} onClick={() => onDismiss?.()}>
+              {qs("ok")}
+            </button>
+            <button type="button" className="field-button" disabled={busy} onClick={() => void record("GRANTED")}>
+              {qs("consentSwitchOn")}
+            </button>
+          </>
         ) : (
-          <button type="button" className="text-sm font-medium text-ink-500 underline" aria-expanded={false} onClick={() => setMore(true)}>
-            {qs("consentMore")}
-          </button>
+          <>
+            <button type="button" className="field-button-secondary" disabled={busy} onClick={() => void record("REFUSED")}>
+              {qs("consentSwitchOff")}
+            </button>
+            <button type="button" className="field-button" disabled={busy} onClick={() => onDismiss?.()}>
+              {qs("ok")}
+            </button>
+          </>
         )}
-      </div>
+      </ButtonRow>
       {error ? <p className="mt-2 text-sm text-error-600">{error}</p> : null}
     </div>
   );

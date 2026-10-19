@@ -67,8 +67,9 @@ fun ArtisanQuestionnaireRecord(
     ElevatedCard(colors = CardDefaults.elevatedCardColors(), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (loading) FieldLinearProgressIndicator(Modifier.fillMaxWidth())
-            if (consent == null || consent == "NOT_RECORDED") {
-                ConsentQuestion(artisanName, onAnswer = { state ->
+            // Consent is assumed by default; the record speaks only after a refusal, with Switch back on.
+            if (consent == "REFUSED") {
+                ConsentQuestion(artisanName, refused = true, onAnswer = { state ->
                     if (state == null) consent = "SKIPPED" else { consent = state; scope.launch { v2.recordConsent(artisanId, state) } }
                 })
             }

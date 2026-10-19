@@ -365,6 +365,15 @@ the XLSX export both do, via their `_MEDIA_TAG_SLOTS` / `_OWNER_TAGS` lists.
 > `ARCHITECTURE.md` drew `ProcessStep ||--o{ MediaFile` as an ordinary relation; there is no such
 > relation in the database, and a reader who trusts it will write a join that cannot be written.
 
+**`Consent` is the one consent store** (2026-10-19), the same table, migration and rule as the
+designer portal's: an append-only row per answer (`subjectType` `ARTISAN`, `RECORDING`, `WORKSHOP`
+or `USER`; `state` `GRANTED` or `REFUSED`), the newest per subject in the view `consent_current_v`.
+**Consent is assumed by default and can be revoked** (owner decision, 2026-10-19): before any outside
+send, `services/consent_gate.py` refuses only when the recording or one of its artisans has a refusal
+on record; no answer sends, and a later grant after a refusal allows it again. `transcriptStatus`
+`REFUSED_CONSENT` marks a held recording; `AWAITING_CONSENT` survives only on recordings stored before
+the change, and `backend/scripts/release_awaiting_consent.py` (dry run first) moves them on.
+
 **`TranscriptInsight` is one row per generation run** (2026-10-18). A summary, key quotes and an
 English translation of the transcript, with provider, model and prompt version on the row. A
 regeneration never overwrites: it stamps the previous row's `supersededAt` and adds `version` + 1,

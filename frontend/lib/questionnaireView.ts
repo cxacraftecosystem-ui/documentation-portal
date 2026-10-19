@@ -24,9 +24,10 @@ export function transcriptView(recording: Pick<Recording, "transcript" | "consen
   if (status === "COMPLETED" || status === "DONE")
     return { label: qs("transcribed"), tone: "done", retryEnabled: false, retryReason: null, offerConsent: false };
   if (verdict === "REFUSED" || status === "REFUSED_CONSENT")
-    return { label: qs("consentRefusedStatus"), tone: "neutral", retryEnabled: false, retryReason: null, offerConsent: false };
+    return { label: qs("consentRefusedStatus"), tone: "neutral", retryEnabled: false, retryReason: null, offerConsent: true };
+  // Consent is assumed by default (19 Oct 2026); AWAITING_CONSENT survives only on older takes until released.
   if (verdict === "AWAITING" || status === "AWAITING_CONSENT")
-    return { label: qs("waitingForConsent"), tone: "neutral", retryEnabled: false, retryReason: null, offerConsent: true };
+    return { label: qs("waitingForConsent"), tone: "neutral", retryEnabled: false, retryReason: null, offerConsent: false };
   if (paused || recording.transcript?.paused)
     return { label: qs("transcriptionPaused"), tone: "neutral", retryEnabled: false, retryReason: qs("transcriptionPausedReason"), offerConsent: false };
   if (status === "PROCESSING" || status === "TRANSCRIBING")

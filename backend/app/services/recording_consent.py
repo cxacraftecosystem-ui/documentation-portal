@@ -1,7 +1,9 @@
 """The consent rule for recordings, as the shared transcription package asks it (18 Oct 2026).
 
-Missing consent blocks ONLY sending a recording to an outside service: transcription, AI summaries
-and insights, translation. Recording, upload and storage are never blocked.
+Consent is assumed by default and can be revoked (owner decision, 19 Oct 2026): a recorded refusal
+blocks ONLY sending a recording to an outside service (transcription, AI summaries and insights,
+translation), and no answer on record counts as agreeing. Recording, upload and storage are never
+blocked.
 
 ONE STORE (owner decision, 19 Oct 2026). Every answer lives in the ``Consent`` ledger, decided by
 ``services/consent_gate.py`` with the rule designer-portal uses too (``app/transcription/ledger.py``).
@@ -14,7 +16,8 @@ The older ``RecordingConsent`` table is no longer written. Until
 ``scripts/migrate_recording_consent_to_ledger.py`` has copied it into the ledger, the gate's reads
 fold its rows in (``consent_gate.current_states``).
 
-A failed read refuses, never raises: an unknown consent must not become a send.
+A failed read refuses, never raises: an unreadable store may hold a refusal, so it must not become
+a send.
 """
 
 from __future__ import annotations

@@ -603,7 +603,7 @@ export function SessionWorkspace({ id }: { id: string }) {
 
       {consentFor ? (
         <div className="panel p-4">
-          <ConsentQuestion artisanId={consentFor.artisanId} name={consentFor.name} onRecorded={() => setConsentFor(null)} onDismiss={() => setConsentFor(null)} />
+          <ConsentQuestion artisanId={consentFor.artisanId} name={consentFor.name} refused onRecorded={() => setConsentFor(null)} onDismiss={() => setConsentFor(null)} />
         </div>
       ) : null}
 

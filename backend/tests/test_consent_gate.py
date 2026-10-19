@@ -1,5 +1,6 @@
-"""The consent gate (DESIGN 3.11; test 35c): five rules in order, REFUSED wins over GRANTED, and
-recording, upload, filing and approval never consult it."""
+"""The consent gate (DESIGN 3.11; test 35c): the rules in order, REFUSED wins over GRANTED, consent
+is assumed by default (19 Oct 2026: no answer is sent, a refusal stops it, a later grant allows
+again), and recording, upload, filing and approval never consult it."""
 
 from __future__ import annotations
 
@@ -8,17 +9,19 @@ from pathlib import Path
 
 from qv2_fixtures import connect, needs_db, no_outside_calls, patch_db, record_take, run, seed, session_create, t
 
-from app.services.consent_gate import ALLOW, AWAITING, REFUSED, decide
+from app.services.consent_gate import ALLOW, REFUSED, decide
 
 BACKEND = Path(__file__).resolve().parents[1]
 
 
-def test_the_five_rules_in_order() -> None:
+def test_the_rules_in_order() -> None:
     assert decide("GRANTED", ["REFUSED"]) == ALLOW, "rule 1: the owner's attestation of the recording wins"
     assert decide(None, ["GRANTED", "REFUSED", "GRANTED"]) == REFUSED, "rule 3: any REFUSED subject"
     assert decide(None, ["GRANTED", "GRANTED"]) == ALLOW, "rule 4: every subject GRANTED"
-    assert decide(None, ["GRANTED", None]) == AWAITING, "rule 5: anyone not recorded"
-    assert decide(None, []) == AWAITING, "rule 5: no artisan subject at all"
+    assert decide(None, ["GRANTED", None]) == ALLOW, "rule 4: no answer counts as agreeing"
+    assert decide(None, [None, "NOT_RECORDED"]) == ALLOW, "rule 4: nobody has answered at all"
+    assert decide(None, []) == ALLOW, "rule 4: no artisan subject at all"
+    assert decide(None, [None, "REFUSED"]) == REFUSED, "rule 3: one refusal among the unanswered"
     # The one consent store (19 Oct 2026): a refusal recorded for the recording itself wins, and a
     # subject's refusal recorded AFTER the recording's grant (a withdrawal) wins over that grant.
     assert decide("REFUSED", ["GRANTED"]) == REFUSED
@@ -66,14 +69,14 @@ def test_the_gate_against_the_ledger(monkeypatch) -> None:
         s, _ = await sessions.create_session(session_create(ids, [a, b, c]), ids.lead)
         take = await record_take(client, ids, s["id"], ids.lead, targets=[{"sectionId": ids.sections["B"]}], at=t(0))
         media = take["mediaFileId"]
-        assert take["consent"]["verdict"] == AWAITING
+        assert take["consent"] == {"verdict": ALLOW, "source": None}, "no answer: consent assumed by default"
         status = await client.query_raw('SELECT "transcriptStatus" FROM "MediaFile" WHERE "id" = $1', media)
-        assert status[0]["transcriptStatus"] == "AWAITING_CONSENT", "recorded, uploaded and filed; only the outside send waits"
+        assert status[0]["transcriptStatus"] == "QUEUED", "queued (the pause still holds the send)"
         for artisan in (a, b):
             await consent_gate.record_artisan_consent(artisan, state="GRANTED", basis="VERBAL_RECORDED", actor_id=ids.lead.id, client=client)
-        assert await consent_gate.verdict(media, client=client) == AWAITING
+        assert await consent_gate.verdict(media, client=client) == ALLOW
         await consent_gate.record_artisan_consent(c, state="REFUSED", basis="VERBAL_RECORDED", actor_id=ids.lead.id, client=client)
-        assert await consent_gate.verdict(media, client=client) == REFUSED
+        assert await consent_gate.verdict(media, client=client) == REFUSED, "one artisan switching off stops it"
         await consent_gate.record_artisan_consent(c, state="GRANTED", basis="VERBAL_RECORDED", actor_id=ids.lead.id, client=client)
         assert await consent_gate.verdict(media, client=client) == ALLOW, "a refusal can be changed; the latest row counts"
         await client.disconnect()

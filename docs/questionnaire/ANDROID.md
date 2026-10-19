@@ -24,7 +24,7 @@ The Android half of the questionnaire redesign (design and build plan: `C:/dev/I
 
 - No screen asks for a title. The start sheet previews the generated title, and the server stores the real one.
 - The app never names an uploaded clip. The server mints the name at presign, and downloads use its `downloadName`.
-- Consent is asked inline and never blocks recording. Transcription shows "Transcription paused", and no control can start it.
+- Consent is assumed by default: the start sheet shows a notice with Switch off for an artisan with no answer, and Switch back on after a refusal. It never blocks recording. Transcription shows "Transcription paused", and no control can start it.
 - Every create carries one `Idempotency-Key` for all its retries, and its body is frozen when it is queued.
 - "Answered by" is kept whenever it is confirmed: in the take's draft, in the queued body, or refiled online with `PATCH /recordings/{id}` once the take has landed.
 - A failed clip blocks nothing. A missing file reads "The file for Section D (7 Jul) is missing on this device." and is never ticked.

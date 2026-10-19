@@ -47,7 +47,7 @@ export function ArtisanQuestionnaireRecord({ artisanId, artisanName }: { artisan
   const [record, setRecord] = useState<ArtisanRecord | null>(null);
   const [error, setError] = useState(false);
   const [view, setView] = useState<"timeline" | "question">("timeline");
-  const [askConsent, setAskConsent] = useState(false);
+  const [refusedConsent, setRefusedConsent] = useState(false);
   const [continueFrom, setContinueFrom] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -62,8 +62,8 @@ export function ArtisanQuestionnaireRecord({ artisanId, artisanName }: { artisan
     void load();
     void questionnaireApi
       .getConsent(artisanId)
-      .then((c) => setAskConsent(c.state === "NOT_RECORDED"))
-      .catch(() => setAskConsent(false));
+      .then((c) => setRefusedConsent(c.state === "REFUSED"))
+      .catch(() => setRefusedConsent(false));
   }, [artisanId, load]);
 
   // `/questionnaire/consolidated/[id]` lands on `/artisans/[id]?tab=questionnaire`: bring the record into view.
@@ -74,7 +74,10 @@ export function ArtisanQuestionnaireRecord({ artisanId, artisanName }: { artisan
   }, [record]);
 
   const paused = config?.transcriptionPaused ?? true;
-  const consent = askConsent ? <ConsentQuestion artisanId={artisanId} name={artisanName} onRecorded={() => setAskConsent(false)} onDismiss={() => setAskConsent(false)} /> : null;
+  // Consent is assumed by default; the record speaks only when the artisan refused, with Switch back on.
+  const consent = refusedConsent ? (
+    <ConsentQuestion artisanId={artisanId} name={artisanName} refused onRecorded={() => setRefusedConsent(false)} onDismiss={() => setRefusedConsent(false)} />
+  ) : null;
 
   if (error)
     return (

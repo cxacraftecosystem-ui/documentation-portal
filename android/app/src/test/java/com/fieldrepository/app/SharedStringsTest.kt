@@ -44,7 +44,7 @@ class SharedStringsTest {
     @Test
     fun `the Android-only sentences are the pinned few, and none duplicates a shared one`() {
         assertEquals(
-            setOf("sessions.builder", "sessions.join", "start.artisan", "consent.more", "inbox.nothing", "inbox.error", "join.scan", "join.pick",
+            setOf("sessions.builder", "sessions.join", "start.artisan", "inbox.nothing", "inbox.error", "join.scan", "join.pick",
                 "join.code", "join.notFound", "join.noQr", "join.onlineOnly", "battery.title"),
             QuestionnaireCopy.androidOnly.keys
         )

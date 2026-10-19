@@ -230,8 +230,9 @@ data class TranscriptLine(val text: String, val tone: TranscriptTone, val retryE
 object TranscriptStatus {
     /**
      * Paused is neutral, never an error, and no control can start a transcription while it holds.
-     * A recording without consent reads "Waiting for consent to transcribe". The 18 Oct recordings
-     * carry the owner's attestation (verdict ALLOW) and show no consent line at all.
+     * Consent is assumed by default (19 Oct 2026): only a refusal holds a recording back ("Not sent:
+     * consent refused"); an older take still marked AWAITING_CONSENT reads "Waiting to be sent". The
+     * 18 Oct recordings carry the owner's attestation (verdict ALLOW) and show no consent line at all.
      */
     fun line(recording: QRecording, paused: Boolean): TranscriptLine? {
         val t = recording.transcript
