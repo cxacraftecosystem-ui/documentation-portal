@@ -34,8 +34,6 @@ from typing import Any
 import jwt
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from fastapi.encoders import jsonable_encoder
-from google.auth.transport import requests as google_requests
-from google.oauth2 import id_token as google_id_token
 
 from app.core.config import get_settings
 from app.core.db import db
@@ -198,6 +196,11 @@ def verify_google_token(token: str) -> dict[str, Any]:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Google sign-in isn't available. Use your email and password.",
         )
+    # Imported here, not at the top: google-auth is loaded only by a Google sign-in, so a server
+    # without GOOGLE_CLIENT_ID never pays for it (backend/tests/test_import_footprint.py).
+    from google.auth.transport import requests as google_requests
+    from google.oauth2 import id_token as google_id_token
+
     last_error: ValueError | None = None
     for client_id in settings.google_client_ids:
         try:

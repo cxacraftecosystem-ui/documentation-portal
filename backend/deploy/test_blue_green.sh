@@ -27,7 +27,7 @@ setup() {
   cat > "$APP/venvs/v1/bin/python" <<'PY'
 #!/usr/bin/env bash
 echo "python $*" >> "$STATE/log"
-if [ "${1:-} ${2:-} ${3:-}" = "-m prisma migrate" ]; then
+if [ "${1:-} ${2:-} ${3:-}" = "-m app.prisma_cli migrate" ]; then
   n="$(cat "$STATE/migrate_failures" 2>/dev/null || echo 0)"
   if [ "$n" -gt 0 ]; then echo $((n - 1)) > "$STATE/migrate_failures"; exit 1; fi
 fi
@@ -151,8 +151,9 @@ echo generator
     [ -f "$APP/slots/$p/venv/.complete" ]
     [ "$(head -n1 "$APP/slots/$p/venv/bin/prisma-client-py")" = "#!$APP/slots/$p/venv/bin/python" ]
   done
-  grep -qx 'release 2' "$APP/slots/8001/venv/generated"     # the rollback tree's client, untouched
-  grep -qx 'release 3' "$APP/slots/8000/venv/generated"
+  # Nothing generates on the box any more (2026-10-19: the runner did), so no copy and not the base
+  # is ever rewritten by a release.
+  fails grep -q 'prisma generate' "$STATE/log"
   [ ! -e "$APP/venvs/v1/generated" ] && [ -f "$APP/venvs/v1/.complete" ]   # the base is never written
   [ "$(head -n1 "$APP/venvs/v1/bin/prisma-client-py")" = "#!$APP/venvs/v1/bin/python" ]
   no_gaps
@@ -256,6 +257,41 @@ t_prepare_refuses_when_backend_is_the_idle_tree() {
   setup
   mkdir -p "$APP/slots/8001/backend"; ln -s "$APP/slots/8001/backend" "$APP/backend"
   fails prepare
+}
+
+# The box installs nothing: the venv and its Prisma client come built from the runner (2026-10-19),
+# and the migration runs through app.prisma_cli, which leaves the generated types unloaded.
+t_release_installs_no_packages() {
+  setup; legacy_box
+  cand="$(prepare)"; fill_next 2; release "$cand"
+  fails grep -Eq 'python -m (pip|prisma generate)|prisma generate' "$STATE/log"
+  grep -q 'python -m app.prisma_cli migrate deploy' "$STATE/log"
+  fails grep -q 'python -m prisma migrate' "$STATE/log"
+}
+
+# A venv whose client was generated from another schema is refused before anything stops.
+t_release_refuses_a_venv_built_for_another_schema() {
+  setup; legacy_box
+  cand="$(prepare)"; fill_next 2
+  mkdir -p "$APP/next/prisma"; echo 'model A { id Int @id }' > "$APP/next/prisma/schema.prisma"
+  echo 0000 > "$APP/venvs/v1/.schema-sha256"
+  fails release 8001
+  grep -q 'Prisma client generated from schema 0000' "$STATE/err"
+  [ "$(port_now)" = 8000 ]; is_up fieldrepo; fails is_up fieldrepo-api@8001; is_up fieldrepo-queue
+  fails grep -q 'migrate' "$STATE/log"
+  sha256sum "$APP/next/prisma/schema.prisma" | cut -d' ' -f1 > "$APP/venvs/v1/.schema-sha256"
+  release 8001
+  [ "$(port_now)" = 8001 ]
+  no_gaps
+}
+
+# Both services run with two malloc arenas: the API from its template, the queue from a drop-in.
+t_units_cap_malloc_arenas() {
+  setup; legacy_box
+  prepare >/dev/null
+  grep -qx 'Environment=MALLOC_ARENA_MAX=2' "$UNIT_DIR/fieldrepo-api@.service"
+  grep -qx 'Environment=MALLOC_ARENA_MAX=2' "$UNIT_DIR/fieldrepo-queue.service.d/memory.conf"
+  grep -c 'Environment=MALLOC_ARENA_MAX=2' "$here/../../infra/terraform/user_data.sh" | grep -qx 2
 }
 
 # The template the script installs is the one a new box's user_data writes, byte for byte.

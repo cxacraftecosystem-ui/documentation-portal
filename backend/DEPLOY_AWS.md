@@ -25,7 +25,7 @@ without data loss.
 - **Do NOT** try to `npm run build` the Next.js frontend on 1 GiB — it OOMs. Either deploy the
   frontend to **Vercel**, or use a `t3.small` (2 GiB, *not* free) if everything must live on one box.
 - AMI: **Ubuntu Server 26.04 LTS** (Terraform's filter since 2026-10-09; the box running that day is 24.04, see §9). Storage: **30 GiB gp3** (free-tier max), **encrypted** on any box built since 2026-10-09 (the 24.04 box's is not).
-- Add a **2 GiB swap file** (below) so `pip install` / `prisma generate` don't get OOM-killed.
+- Add a **2 GiB swap file** (below) so a hand `pip install` / `prisma generate` doesn't get OOM-killed (the automated deploy runs neither on the box since 2026-10-19, §14).
 
 > The "Free tier eligible" badge on larger types (m7i-flex.large etc.) refers to the new account
 > credits plan, not the classic 750-hour free tier. For a genuinely free box, choose `t3.micro`.
@@ -323,12 +323,11 @@ gitignored.
 ### 8.2 GitHub Actions secrets (auto-deploy on push)
 
 `.github/workflows/deploy-backend.yml`, on every push to `main` that touches `backend/` (once Checks
-is green on it): installs the pinned CPython under `/opt/cpython` if the box does not have it yet,
-builds the venv from
-`backend/requirements.lock` **beside** the one the API is running on (§9), rsyncs `backend/`, writes
-`.env`, installs the project and generates the Prisma client into the new venv, runs
-`prisma migrate deploy`, points `backend/.venv` at the new venv, and restarts both services. Set
-these repo secrets
+is green on it): builds the venv from `backend/requirements.lock`, with the Prisma client generated
+into it, **on the GitHub runner** (§14), installs the pinned CPython under `/opt/cpython` if the box
+does not have it yet, ships the venv only when the box does not already have it and unpacks it
+**beside** the one the API is running on (§9), rsyncs `backend/`, writes `.env`, runs
+`prisma migrate deploy`, and releases the new tree on the idle port (§13). Set these repo secrets
 (**Settings → Secrets and variables → Actions**):
 
 | Secret | Value |
@@ -471,7 +470,7 @@ but glibc (`ldd`: libc, libm, libpthread, libdl, librt, libutil).
 |---|---|
 | `/opt/cpython/3.14.8+20261009` | The interpreter, owned by root, its standard library's bytecode compiled at install. Never changed in place: a new pin is a new directory beside it. A deploy deletes one only after a healthy restart, and only when no venv under `venvs/` or `slots/<port>/venv` runs on it. |
 | `/home/ubuntu/app/venvs/cpython-3.14.8+20261009-<16 hex>` | One venv per interpreter build and lock: the hex is the start of the lock's SHA-256. `.complete` inside it is written last (`python -VV`, then the interpreter's path); a directory without it is a build that did not finish and is rebuilt. A venv whose `bin/python` does not resolve to the pinned interpreter is refused, never reused. Owned by `ubuntu`, like everything under `/home/ubuntu/app`. |
-| `/home/ubuntu/app/slots/<port>/venv` | That port's own `cp -a` of the `venvs/` venv above, made by each release to that port, with its scripts' paths rewritten to the copy, and its own `.complete`. The project is installed and the Prisma client generated **here**, never in the `venvs/` one, so a release never rewrites the client the live port or the rollback tree runs on (§13). |
+| `/home/ubuntu/app/slots/<port>/venv` | That port's own `cp -a` of the `venvs/` venv above, made by each release to that port, with its scripts' paths rewritten to the copy, and its own `.complete`. Since 2026-10-19 nothing is installed or generated into either: the runner built the `venvs/` one with its Prisma client, and its name carries the schema's hash (§14). |
 | `/home/ubuntu/app/backend/.venv` | A **symlink** to the live port's `slots/<port>/venv` (`/home/ubuntu/app/backend` is itself a link to the live port's tree, §13). The units run `.venv/bin/python`, so they never change when the venv does. |
 | `/home/ubuntu/app/venvs/py3.14-<16 hex>` | 24.04 box only: the venv the apt-based deploy built on the morning of 2026-10-09, on deadsnakes' `/usr/bin/python3.14`. The first deploy on the pinned interpreter switches away from it and names it in `venv-previous`, which keeps it until a later deploy moves on. |
 | `/home/ubuntu/app/venvs/py3.12-legacy` | 24.04 box only: the 3.12 venv every deploy before 2026-10-09 built in place, moved aside by the first 3.14 deploy and kept for rollback. |
@@ -847,7 +846,7 @@ always runs the copy from the commit being deployed.
 | Path | What it is |
 |---|---|
 | `/home/ubuntu/app/slots/8000/backend`, `slots/8001/backend` | One tree per loopback port: code, its own `.env`, and a `.venv` link to the port's own venv. |
-| `/home/ubuntu/app/slots/8000/venv`, `slots/8001/venv` | The port's own copy (`cp -a`) of the venv the build step chose under `venvs/`. `prisma generate` writes the client into the venv it runs from, so with one venv shared by both ports (most deploys, since the lock rarely changes) a release would regenerate the live port's and the rollback tree's client before switching. Each release replaces only the idle port's copy. |
+| `/home/ubuntu/app/slots/8000/venv`, `slots/8001/venv` | The port's own copy (`cp -a`) of the venv the build step chose under `venvs/`. It was made so a release's `prisma generate` could not rewrite the live port's client; since 2026-10-19 the client is generated on the runner and nothing on the box writes into a venv, and the copy still keeps each port's venv fixed under it. Each release replaces only the idle port's copy. |
 | `fieldrepo-api@8000`, `fieldrepo-api@8001` | The API on that port. One runs; it is the one enabled for boot. |
 | `/etc/nginx/sites-available/fieldrepo` | `proxy_pass http://127.0.0.1:<port>;` names the live port. nginx is the truth: whatever it proxies to is live. |
 | `/home/ubuntu/app/backend` | A link to the live port's tree. The queue unit, the one-off scripts and every command in this guide go through it. |
@@ -856,10 +855,11 @@ always runs the copy from the commit being deployed.
 
 **A release, in order.** `prepare` names the idle port, stops anything left running there, copies the
 live `.env` into its tree and points `next` at it. The code is synced into that tree and every `.env`
-step edits it there; the live tree is not touched. `release` then copies the venv the build step
-chose to the idle port's `slots/<port>/venv`, installs the project and generates the Prisma client
-into that copy, pauses the queue, runs `prisma migrate deploy`
-while the live port still serves, starts the idle port, waits up to **ten minutes** by the clock for
+step edits it there; the live tree is not touched. `release` then copies the venv the runner
+built (refusing one whose client was generated from another schema; nothing is installed on the box,
+§14) to the idle port's `slots/<port>/venv`, pauses the queue, runs `prisma migrate deploy` (through
+`python -m app.prisma_cli`) while the live port still serves, starts the idle port, waits up to
+**ten minutes** by the clock for
 its `/health` (a line every twenty seconds), points nginx at it with a reload (connections in flight
 finish on the old port), checks `/health` through nginx, and only then stops the old port, moves
 `/home/ubuntu/app/backend` and starts the queue on the new tree. Anything that fails before the
@@ -877,7 +877,8 @@ takes the API down for the five further attempts (about a minute) before the old
 and the run fails. Read the three attempts in the log to tell the two apart.
 
 **Two APIs share the box for the overlap,** a few minutes at most, with the queue paused. On
-2026-10-19 the box had 1.9 GB of memory and 2 GB of swap, 1.5 GB of it in use.
+2026-10-19 the box had 1.9 GB of memory and 2 GB of swap, 1.5 GB of it in use; §14 is what took
+each API from about 840 MB to about 170 MB, so the overlap now fits in memory.
 
 **On the box** (as `ubuntu`, by SSM):
 
@@ -898,3 +899,65 @@ moved past what that code reads; §12 names the release you must not roll back p
 instead. If you must, first put the old layout back: stop both `fieldrepo-api@` units, replace the
 link with a real copy of the live tree (`cp -a`), restore `fieldrepo.service` from that commit's
 `infra/terraform/user_data.sh`, set nginx back to port 8000, then deploy.
+
+## 14. Memory (2026-10-19)
+
+**What it was.** Measured read-only on the box (SSM, `/proc/<pid>/smaps_rollup`) at 06:54 UTC on
+2026-10-19, idle, with an almost empty database:
+
+| Process | RSS | Swap | Total |
+|---|---|---|---|
+| API (`uvicorn`, one worker) | 53 MB | 811 MB | ~860 MB |
+| Queue (`python -m app.worker`) | 26 MB | 774 MB | ~800 MB |
+| Each Prisma query engine | 19-31 MB | 3-5 MB | ~25-35 MB |
+
+The API had needed 17 minutes after its 05:11 restart to answer `/health`.
+
+**Where it went: one import.** `prisma generate` writes `prisma/types.py` for this schema (74 models,
+`recursive_type_depth = 5`): 28 MB of source, 84,774 `TypedDict` classes, used only by type checkers.
+`import prisma` executed all of it, in every process that imported the client: the API, the queue, the
+one-off scripts and the Prisma CLI itself (`python -m prisma migrate deploy` and `prisma generate`
+during a deploy). In a `python:3.14` container on the lock, that one import took 1.39 GB of RSS and
+over twenty minutes of CPU; in CI it was the three minutes the backend suite spent before collecting.
+
+**What changed.**
+
+1. `app/prisma_lazy_types.py`: `prisma.types` is a module whose body runs on the first read of a name
+   the client does not import at start-up. Nothing at run time reads one (the generated client names
+   them in annotations, which are never evaluated, and in `count(select=...)`, which this application
+   does not call). `app/__init__.py` installs it, so every `app.*` entry point gets it;
+   `python -m app.prisma_cli` is `python -m prisma` with it installed, and the deploy migrates through
+   it. `FIELDREPO_EAGER_PRISMA_TYPES=1` restores the eager import.
+2. The queue no longer imports FastAPI, the tasks router, the request dependencies or boto3 at
+   start-up (`app/core/roles.py`, `app/core/fastapi_lazy.py`, `app/services/task_status.py`, boto3
+   inside `app/services/s3.py`'s client); the API loads reportlab and Pillow (artisan card PDF), segno
+   (two-step QR) and google-auth (Google sign-in) on the request that needs them.
+   `backend/tests/test_import_footprint.py` fails if any of it, or a read of `prisma.types`, comes
+   back.
+3. `MALLOC_ARENA_MAX=2` for both services (the API unit template; a drop-in for the queue).
+4. The release venv and its Prisma client are built on the GitHub runner and shipped (§8.2, §13): the
+   box runs no `pip` and no `prisma generate`, whose processes each held hundreds of megabytes beside
+   the live API.
+
+**What it is now,** measured the same way in the container (python:3.14 on the lock, the API and the
+queue started as their units start them, connected to Postgres, idle after a few requests):
+
+| Process | Before | After |
+|---|---|---|
+| API | 841 MB RSS (813 MB anonymous), `/health` after 12 min 24 s | 167 MB RSS (139 MB anonymous), `/health` in 4 s |
+| Queue | 796 MB RSS (772 MB anonymous), started after 12 min 14 s | 111 MB RSS (88 MB anonymous), started in 8 s |
+| Each query engine | ~25 MB | ~25 MB (one per process, unchanged) |
+| `migrate deploy` | still importing after 10 min, 585 MB and growing | 21 s, 174 MB peak |
+
+**On the box, expected:** the API, the queue and two engines at about 330 MB together, against about
+1.7 GB before, with nothing left for swap to hold. A deploy's peak is the old API, the new API and the
+migration (the queue is paused): about 550 MB, where before it was two 850 MB APIs plus a
+`pip install` and a `prisma generate`. The t3.small (1.9 GB) carries that with room to spare, so the
+box does not need a bigger instance for memory. Remeasure after the first deploy of this change:
+
+```bash
+for p in $(pgrep -f 'uvicorn app.main|app.worker|query-engine'); do
+  echo "$p $(tr '\0' ' ' </proc/$p/cmdline | cut -c1-60)"
+  sudo grep -E '^(Rss|Pss|Swap):' /proc/$p/smaps_rollup | tr '\n' ' '; echo
+done
+```

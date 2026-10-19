@@ -533,7 +533,7 @@ together for a few minutes). Nothing else is affected.
 
 ## 4. Authorisation: the six-tier ladder
 
-Defined in `backend/app/core/deps.py`. Higher ranks inherit everything below them.
+Defined in `backend/app/core/roles.py` (re-exported by `deps.py`). Higher ranks inherit everything below them.
 
 **The full capability matrix, the review state machine and the three layered access systems are
 [PERMISSIONS.md](PERMISSIONS.md).** This section states only the security-relevant properties, so

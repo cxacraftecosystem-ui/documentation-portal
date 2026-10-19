@@ -41,14 +41,14 @@ from typing import Any
 
 from prisma.errors import UniqueViolationError
 
-from app.api.routes.tasks import LIVE_STATUSES, SUBMITTED
 from app.core.config import Settings, get_settings
 from app.core.db import db
-from app.core.deps import get_value, is_admin, role_value
+from app.core.roles import get_value, is_admin, role_value
 from app.services import mailer, review_queue
 from app.services.concurrency import gather_reads
 from app.services.notifications import _app_path, notify, wants_email
 from app.services.records import viewable_where
+from app.services.task_status import LIVE_STATUSES, SUBMITTED
 from prisma import Json
 
 logger = logging.getLogger(__name__)

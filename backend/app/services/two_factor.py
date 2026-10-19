@@ -49,7 +49,6 @@ from typing import Any
 from urllib.parse import quote, urlencode
 
 import jwt
-import segno
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -185,6 +184,8 @@ def qr_matrix(text: str) -> list[list[bool]]:
     """The module matrix INCLUDING the quiet zone; True is dark. Error correction M: a screen
     photographed at an angle with a glare stripe is the ordinary case, and H would push a
     ~150-character URI to a version too dense to focus on."""
+    import segno  # here, not at the top: only enrolment and the artisan card draw a QR
+
     code = segno.make(text, error="m", micro=False, boost_error=False)
     border = QR_QUIET_ZONE_MODULES
     rows = [[bool(cell) for cell in row] for row in code.matrix]

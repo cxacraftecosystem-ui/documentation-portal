@@ -55,17 +55,37 @@ def test_ci_tests_the_version_the_box_runs():
     assert versions and set(versions) == {box}, f"checks.yml tests {versions}, the box runs {box}: move them together"
 
 
+#: The one line in each installer that unpacks the interpreter download onto the box.
+BOX_UNPACK = 'tar -xzf "$stage/cpython.tar.gz"'
+#: Since 2026-10-19 the deploy also unpacks the same build on the GitHub runner, at the same path, to
+#: build the release venv there (deploy-backend.yml, "Build the release venv ...").
+RUNNER_UNPACK = 'tar -xzf "$RUNNER_TEMP/cpython.tar.gz"'
+
+
 def test_both_installers_refuse_a_download_before_unpacking_it():
     # The order is the safety property: hash, compare, and only then `tar -x`. A refactor that moved
     # the unpack above the comparison would still install the right build on every good day.
     for path in (DEPLOY, USER_DATA):
         text = path.read_text(encoding="utf-8")
-        compare = text.find('if [ "$got" != "$pbs_sha256" ]; then')
+        unpack = text.find(BOX_UNPACK)
+        compare = text.rfind('if [ "$got" != "$pbs_sha256" ]; then', 0, max(unpack, 0))
         refuse = text.find("REFUSED", compare)
-        unpack = text.find("tar -xzf")
         where = f"{path.name}: compare at {compare}, refuse at {refuse}, unpack at {unpack}"
         assert 0 <= compare < refuse < unpack, where
-        assert text.count("tar -xzf") == 1, f"{path.name} unpacks in more than one place"
+        assert text.count(BOX_UNPACK) == 1, f"{path.name} unpacks the interpreter in more than one place"
+
+
+def test_the_runner_reads_the_one_pin_and_refuses_a_download_before_unpacking_it():
+    text = DEPLOY.read_text(encoding="utf-8")
+    step = text[text.index("- name: Build the release venv and its Prisma client on the runner") :]
+    step = step[: step.index("\n      - name: ")]
+    # No second copy of the pin: the runner reads the box step's lines (test above holds them once).
+    assert "eval \"$(sed -nE 's/^[[:space:]]*(cpython|pbs_release|pbs_url|pbs_sha256)=" in step
+    compare = step.find('if [ "$got" != "$pbs_sha256" ]; then')
+    refuse = step.find("REFUSED", compare)
+    unpack = step.find(RUNNER_UNPACK)
+    assert 0 <= compare < refuse < unpack, f"runner: compare at {compare}, refuse at {refuse}, unpack at {unpack}"
+    assert text.count(RUNNER_UNPACK) == 1
 
 
 def test_both_installers_compile_the_standard_library_before_the_build_takes_its_name():
@@ -73,11 +93,12 @@ def test_both_installers_compile_the_standard_library_before_the_build_takes_its
     # can never cache any: whatever the installer does not compile, every start compiles again from
     # source. It has to happen after the unpack and before the rename, while the tree is still
     # nobody's but the installer's, and both installers must do it or the two kinds of box differ.
+    stdlib_compile = "-I -m compileall"
     for path in (DEPLOY, USER_DATA):
         text = path.read_text(encoding="utf-8")
-        unpack = text.find("tar -xzf")
-        compile_all = text.find("-m compileall")
+        unpack = text.find(BOX_UNPACK)
+        compile_all = text.find(stdlib_compile)
         rename = text.find('mv -T "$stage/python" "$prefix"')
         where = f"{path.name}: unpack at {unpack}, compile at {compile_all}, rename at {rename}"
         assert 0 <= unpack < compile_all < rename, where
-        assert text.count("-m compileall") == 1, f"{path.name} compiles in more than one place"
+        assert text.count(stdlib_compile) == 1, f"{path.name} compiles the standard library in more than one place"

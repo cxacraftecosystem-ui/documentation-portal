@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import math
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
@@ -27,10 +27,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.core.config import get_settings
 from app.core.db import db
 from app.core.deps import get_current_user, get_value
-from app.services import artisan_card, artisan_card_pdf, cross_portal, naming
+from app.services import artisan_card, cross_portal, naming
 from app.services import artisan_card_store as store
 from app.services.access import record_edit_privilege
 from app.services.records import ALL_MEDIA_URLS, media_url_owners
+
+if TYPE_CHECKING:
+    from app.services import artisan_card_pdf
 
 router = APIRouter(tags=["artisan-cards"])
 
@@ -123,10 +126,19 @@ async def _photo_bytes(media: dict[str, Any]) -> dict[str, bytes]:
     return out
 
 
+def _pdf_module():
+    """app/services/artisan_card_pdf, imported on the first card printed: it loads reportlab, Pillow
+    and segno, about 25 MB the API would otherwise hold from start-up on a server that may never
+    print a card (backend/tests/test_import_footprint.py)."""
+    from app.services import artisan_card_pdf
+
+    return artisan_card_pdf
+
+
 def _face(settings: Any, artisan: Any, card: Any, photo: bytes | None) -> artisan_card_pdf.CardFace:
     codes = store.card_codes(settings, card)
     face = store.face(artisan, None)
-    return artisan_card_pdf.CardFace(
+    return _pdf_module().CardFace(
         name=face["name"] or "",
         local_name=face["localName"],
         craft=face["craft"],
@@ -250,7 +262,7 @@ async def card_pdf(
     image = None
     if photo:
         image = (await _photo_bytes(await _photos([artisan_id], current_user))).get(artisan_id)
-    content = artisan_card_pdf.render(
+    content = _pdf_module().render(
         [_face(settings, artisan, card, image)], size, portal=PORTAL_NAME
     )
     await store.log_event(
@@ -332,7 +344,7 @@ async def sheet_pdf(payload: SheetIn, current_user: Any = Depends(get_current_us
     if payload.photo:
         images = await _photo_bytes(await _photos(ids, current_user))
     faces = [_face(settings, a, cards[a.id], images.get(a.id)) for a in artisans]
-    content = artisan_card_pdf.render(
+    content = _pdf_module().render(
         faces, payload.size, portal=PORTAL_NAME, sheet=True, title="Artisan cards"
     )
     await store.log_event(
@@ -343,7 +355,7 @@ async def sheet_pdf(payload: SheetIn, current_user: Any = Depends(get_current_us
         artisan_id=ids[0] if len(ids) == 1 else None,
         count=len(ids),
     )
-    pages = len(ids) if payload.size == "a6" else math.ceil(len(ids) / artisan_card_pdf.PER_SHEET)
+    pages = len(ids) if payload.size == "a6" else math.ceil(len(ids) / _pdf_module().PER_SHEET)
     response = _pdf(content, _card_file_name(faces))
     response.headers["X-Card-Pages"] = str(pages)
     return response

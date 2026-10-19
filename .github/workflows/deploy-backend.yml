@@ -407,6 +407,82 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # ─── THE RELEASE VENV AND ITS PRISMA CLIENT ARE BUILT HERE, ON THE RUNNER (2026-10-19) ─────────
+      # The box used to build them itself while the old release served: pip installing the lock into a
+      # new venv, then `pip install -e .`, then `prisma generate`, whose CLI and generator processes
+      # each imported the previous generated client, 28 MB of `prisma/types.py` (84,774 TypedDicts),
+      # hundreds of megabytes apiece. On the t3.small (1.9 GB, the API and the queue already deep in
+      # swap) that is what failed deploys. Now the box receives a finished venv and installs nothing:
+      #   * The interpreter is the box's own pinned build, unpacked at the box's own path, read from
+      #     the pin in the box step below so there is one pin; the venv is built at its final path on
+      #     the box (/home/ubuntu/app/venvs/<name>), so every absolute path inside it (the python
+      #     symlink, script shebangs, the query-engine path the generated client records) is already
+      #     right where it lands. Runner and box are both Ubuntu 26.04 on x86_64.
+      #   * The name carries the interpreter build, the lock's hash AND the schema's hash: a release
+      #     that changed neither ships nothing (the box already has it), and a schema change gets a
+      #     venv of its own instead of regenerating the client inside the one the live API runs on.
+      #   * Proved here before it ships: `pip check`, and the application's own imports.
+      - name: Build the release venv and its Prisma client on the runner
+        run: |
+          set -euo pipefail
+          # The interpreter pin, read from where it is written once (the box step below);
+          # backend/tests/test_interpreter_pin.py holds that one copy to user_data.sh and checks.yml.
+          eval "$(sed -nE 's/^[[:space:]]*(cpython|pbs_release|pbs_url|pbs_sha256)=([^[:space:]]+)[[:space:]]*$/\1=\2/p' .github/workflows/deploy-backend.yml)"
+          node_pin="$(sed -n 's/^NODE_PIN=//p' backend/deploy/blue_green.sh)"
+          [ -n "${cpython:-}" ] && [ -n "${pbs_sha256:-}" ] && [ -n "$node_pin" ] || { echo "::error::could not read the interpreter or Node pin"; exit 1; }
+          prefix="/opt/cpython/${cpython}+${pbs_release}"
+          py="$prefix/bin/python${cpython%.*}"
+          curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 5 --retry-all-errors \
+            --connect-timeout 20 --max-time 900 -o "$RUNNER_TEMP/cpython.tar.gz" "$pbs_url"
+          got="$(sha256sum "$RUNNER_TEMP/cpython.tar.gz" | cut -d' ' -f1)"
+          if [ "$got" != "$pbs_sha256" ]; then
+            echo "::error::REFUSED on the runner: ${pbs_url} hashed to ${got}, and the pin says ${pbs_sha256}. Nothing was unpacked and nothing reached the box."
+            exit 1
+          fi
+          sudo mkdir -p "$prefix"
+          sudo tar -xzf "$RUNNER_TEMP/cpython.tar.gz" -C "$prefix" --strip-components=1 --no-same-owner
+          "$py" -VV
+
+          lock=backend/requirements.lock
+          schema=backend/prisma/schema.prisma
+          want="cpython-${cpython}+${pbs_release}-$(sha256sum "$lock" | cut -c1-16)-$(sha256sum "$schema" | cut -c1-12)"
+          target="/home/ubuntu/app/venvs/$want"
+          cache=/home/ubuntu/.cache/prisma-python
+          sudo mkdir -p /home/ubuntu/app/venvs "$cache"
+          sudo chown -R "$(id -u):$(id -g)" /home/ubuntu
+          "$py" -m venv "$target"
+          "$target/bin/python" -m pip install --quiet --disable-pip-version-check --upgrade pip
+          "$target/bin/python" -m pip install --quiet --disable-pip-version-check -r "$lock"
+          "$target/bin/python" -m pip check
+
+          # The client, generated as user ubuntu's home would: prisma-client-py keeps its Node, its CLI
+          # and the query engine under $HOME/.cache/prisma-python, and the generated client records
+          # the engine's absolute path. The engine and CLI ship with the venv; Node does not (the box
+          # keeps its own pinned copy, blue_green.sh).
+          export PRISMA_USE_GLOBAL_NODE=false
+          # Node 26's official binary links libatomic.so.1 (the box step below says the same).
+          if ! ldconfig -p | grep -q 'libatomic\.so\.1'; then sudo apt-get -qq update && sudo apt-get -qq install -y --no-install-recommends libatomic1; fi
+          HOME=/home/ubuntu "$target/bin/python" -m nodeenv --prebuilt --node="$node_pin" "$cache/nodeenv"
+          (cd backend && HOME=/home/ubuntu PATH="$target/bin:$PATH" "$target/bin/python" -m prisma generate)
+          site="$target/lib/python${cpython%.*}/site-packages"
+          engine="$(grep -oE "/home/ubuntu/\.cache/prisma-python/binaries/[^']+/query-engine-[^']+" "$site/prisma/client.py" | head -n1)"
+          [ -x "$engine" ] || { echo "::error::the generated client names a query engine that is not there: '${engine}'"; exit 1; }
+          # Bytecode for the generated client, so the box does not compile it at the first start. Not
+          # for types.py: nothing at run time loads it (app/prisma_lazy_types.py), and its bytecode is
+          # 40 MB.
+          "$target/bin/python" -m compileall -q -x '[/\\]types\.py$' "$site/prisma"
+
+          # What the API and the queue import to start, with this commit's code: the compiled wheels
+          # (uvloop, httptools, pydantic's core, audioop-lts for pydub, bcrypt, cryptography) and the
+          # generated client, through app/__init__.py as the services load it.
+          (cd backend && "$target/bin/python" -c 'import fastapi, uvicorn, uvloop, httptools, pydantic_core, pydantic_settings, jwt, bcrypt, cryptography, boto3, pydub, audioop, anthropic, openpyxl, reportlab, segno; import app; from prisma import Prisma; from app import prisma_lazy_types; assert not prisma_lazy_types.is_loaded(); print("imports ok")')
+
+          sha256sum "$schema" | cut -d' ' -f1 > "$target/.schema-sha256"
+          { "$target/bin/python" -VV; readlink -f "$target/bin/python"; } > "$target/.complete"
+          tar -C /home/ubuntu -czf "$RUNNER_TEMP/release-venv.tar.gz" "app/venvs/$want" .cache/prisma-python/binaries
+          du -sh "$target" "$cache/binaries" "$RUNNER_TEMP/release-venv.tar.gz"
+          echo "VENV_WANTED=$want" >> "$GITHUB_ENV"
+
       # ─── PORT 22 OPENS FOR THIS RUNNER ONLY, AND ONLY FOR THIS DEPLOY (2026-10-17) ──────────────
       # The API box's security group used to keep port 22 open to 0.0.0.0/0. It now has no standing
       # SSH rule at all, as on the designer portal: this step adds a /32 for the address AWS sees
@@ -470,18 +546,19 @@ jobs:
       #      first deploy there finds it in place. The script says what this leaves alone on the live
       #      24.04 box (deadsnakes, python3.12) and why; backend/DEPLOY_AWS.md §9 has the layout.
       #   2. The venv, named after what it is built FROM: venvs/cpython-<version>+<build>-<sha256 of
-      #      requirements.lock>. A different interpreter build or a different lock is a different
-      #      name, so it is built; the same name is reused, so a deploy that changed only code installs
-      #      nothing. The reuse is CHECKED, not inferred from the name: a venv whose python is not the
-      #      pinned interpreter is refused rather than adopted.
-      #   3. BUILT BEFORE THE CODE SYNC, BESIDE THE LIVE VENV. The API serves from the old one the
-      #      whole time, and nothing it can see changes until the last step points `.venv` at the
-      #      new directory, so a failed install fails THIS step and leaves the box as it was: old
-      #      code, old venv, API up. `.complete` is written last, so a build killed half way through
-      #      is rebuilt next time, never adopted.
-      #   4. fieldrepo-queue is stopped for the install and started again afterwards, success or not.
-      #      The box has 911 MB and lives in swap; the queue worker is the one process that can pause
-      #      for a minute unnoticed, and pip installing sixty-odd wheels is the minute to pause it.
+      #      requirements.lock>-<sha256 of prisma/schema.prisma>, and since 2026-10-19 BUILT ON THE
+      #      RUNNER ("Build the release venv ..." above) and shipped here only when the box does not
+      #      already have it. A different interpreter build, lock or schema is a different name; the
+      #      same name is reused, so a deploy that changed only code ships nothing. The reuse is
+      #      CHECKED, not inferred from the name: a venv whose python is not the pinned interpreter is
+      #      refused rather than adopted.
+      #   3. UNPACKED BEFORE THE CODE SYNC, BESIDE THE LIVE VENV. The API serves from the old one the
+      #      whole time, and nothing it can see changes until the release points `.venv` at the new
+      #      directory, so a failed unpack fails THIS step and leaves the box as it was: old code, old
+      #      venv, API up. The venv takes its name in one rename, after its python and its compiled
+      #      wheels have answered on this box, so a half-unpacked one is never adopted.
+      #   4. Nothing is installed here, so nothing is paused: the box runs no pip and no Prisma
+      #      generator any more (that was the deploy's memory peak).
       #
       # WHY A NEW DIRECTORY AND A SYMLINK, NOT A `.venv-new` RENAMED OVER `.venv`. A venv cannot be
       # moved: pip writes its absolute path into the shebang of every script it installs, and
@@ -491,16 +568,23 @@ jobs:
       #
       # The lock travels on its own, over stdin like `.env` below, because the code sync is the NEXT
       # step: the venv is decided before anything the running API can see has changed.
-      - name: Install the pinned CPython, and build the venv from the lock beside the live one
+      - name: Install the pinned CPython, and put the runner-built venv beside the live one
         run: |
           set -euo pipefail
-          ssh ubuntu@${{ secrets.EC2_HOST }} \
-            'umask 022 && mkdir -p /home/ubuntu/app && cat > /home/ubuntu/app/requirements.lock.incoming' \
-            < backend/requirements.lock
-          ssh ubuntu@${{ secrets.EC2_HOST }} 'bash -s' <<'REMOTE'
+          case "$VENV_WANTED" in cpython-*[!A-Za-z0-9.+_-]*|"") echo "::error::unexpected venv name '$VENV_WANTED'"; exit 1 ;; esac
+          # Shipped only when the box does not already have this venv: most releases change neither the
+          # lock nor the schema, and send nothing.
+          if ssh ubuntu@${{ secrets.EC2_HOST }} "test -f '/home/ubuntu/app/venvs/$VENV_WANTED/.complete'"; then
+            echo "the box already has venv $VENV_WANTED"
+          else
+            ssh ubuntu@${{ secrets.EC2_HOST }} \
+              'umask 022 && mkdir -p /home/ubuntu/app && cat > /home/ubuntu/app/.release-venv.tar.gz' \
+              < "$RUNNER_TEMP/release-venv.tar.gz"
+            echo "shipped venv $VENV_WANTED ($(du -h "$RUNNER_TEMP/release-venv.tar.gz" | cut -f1))"
+          fi
+          ssh ubuntu@${{ secrets.EC2_HOST }} "WANT='$VENV_WANTED' bash -s" <<'REMOTE'
           set -euo pipefail
           app=/home/ubuntu/app
-          lock="$app/requirements.lock.incoming"
 
           # 0. A BOX STILL IN ITS FIRST BOOT IS NOT READY FOR A DEPLOY. infra/terraform/user_data.sh
           #    installs nginx, the two units and the interpreter below while cloud-init runs it, and the
@@ -656,14 +740,13 @@ jobs:
             aptget install -y --no-install-recommends libatomic1
           fi
 
-          # 3. The venv this interpreter and this lock call for. The name carries the interpreter build
-          #    as well as the lock, so only a deploy pinned to the same build can ever reuse a venv —
-          #    and the reuse is checked, not inferred: a venv marked complete whose python does not
-          #    resolve to the pinned interpreter is refused, never adopted and never deleted (it may be
-          #    the one the API is running on). On the live box the venv in use when this landed,
-          #    venvs/py3.14-<hash>, runs deadsnakes' /usr/bin/python3.14, which is exactly the venv
-          #    that must not be picked up under a name that promises /opt/cpython.
-          want="cpython-${cpython}+${pbs_release}-$(sha256sum "$lock" | cut -c1-16)"
+          # 3. The venv this interpreter, this lock and this schema call for, BUILT ON THE RUNNER. The
+          #    reuse is checked, not inferred: a venv marked complete whose python does not resolve to
+          #    the pinned interpreter is refused, never adopted and never deleted (it may be the one the
+          #    API is running on). Otherwise the runner's tarball is unpacked beside the live venvs,
+          #    proved on this box, and only then renamed into place. Its Prisma engine and CLI come in
+          #    the same tarball and go to ~/.cache/prisma-python/binaries when that version is new here.
+          want="$WANT"
           target="$app/venvs/$want"
           mkdir -p "$app/venvs"
           if [ -f "$target/.complete" ]; then
@@ -672,27 +755,40 @@ jobs:
               echo "::error::${target} is marked complete, but its python is '${built_on:-missing}', not ${py}. Refusing to reuse it, and leaving it where it is. Nothing was changed; backend/DEPLOY_AWS.md §9 has the layout this deploy expects."
               exit 1
             fi
-            echo "venv $want is already built on $py; reusing it"
+            echo "venv $want is already on the box, on $py; reusing it"
           else
-            queue_was_active=no
-            if systemctl is-active --quiet fieldrepo-queue; then queue_was_active=yes; fi
-            # Started again however this ends, success included: the code it runs has not changed
-            # yet, and the restart at the end of this job is minutes away.
-            trap 'if [ "$queue_was_active" = yes ]; then sudo systemctl start fieldrepo-queue || true; fi' EXIT
-            if [ "$queue_was_active" = yes ]; then sudo systemctl stop fieldrepo-queue; fi
+            [ -s "$app/.release-venv.tar.gz" ] || { echo "::error::$target is not on the box and no venv was shipped"; exit 1; }
+            rm -rf "$app"/venvs/.incoming.*
+            stage="$(mktemp -d "$app/venvs/.incoming.XXXXXX")"
+            trap 'rm -rf "$stage"' EXIT
+            tar -xzf "$app/.release-venv.tar.gz" -C "$stage"
+            rm -f "$app/.release-venv.tar.gz"
+            [ -f "$stage/app/venvs/$want/.complete" ] || { echo "::error::the shipped tarball holds no complete venv $want"; exit 1; }
+            built_on="$(readlink -f "$stage/app/venvs/$want/bin/python" 2>/dev/null || true)"
+            if [ "$built_on" != "$(readlink -f "$py")" ]; then
+              echo "::error::the shipped venv runs '${built_on:-missing}', not ${py}. Nothing was changed."
+              exit 1
+            fi
+            # Its compiled wheels against this box's libraries. Not `import prisma` or the app: the
+            # runner proved those, and the full client import is the cost this layout exists to avoid.
+            "$stage/app/venvs/$want/bin/python" -c 'import uvloop, httptools, pydantic_core, bcrypt, cryptography.hazmat.bindings._rust, audioop, PIL._imaging; print("wheels load on the box")'
+            mkdir -p "$HOME/.cache/prisma-python/binaries"
+            for d in "$stage"/.cache/prisma-python/binaries/*/*; do
+              [ -d "$d" ] || continue
+              rel="${d#"$stage"/.cache/prisma-python/binaries/}"
+              if [ ! -e "$HOME/.cache/prisma-python/binaries/$rel" ]; then
+                mkdir -p "$(dirname "$HOME/.cache/prisma-python/binaries/$rel")"
+                mv -T "$d" "$HOME/.cache/prisma-python/binaries/$rel"
+                echo "installed the Prisma engines $rel"
+              fi
+            done
+            engine="$(grep -oE "/home/ubuntu/\.cache/prisma-python/binaries/[^']+/query-engine-[^']+" "$stage/app/venvs/$want/lib/python${cpython%.*}/site-packages/prisma/client.py" | head -n1)"
+            [ -x "$engine" ] || { echo "::error::the shipped client names a query engine that is not on the box: '${engine}'"; exit 1; }
             rm -rf "$target"
-            "$py" -m venv "$target"
-            "$target/bin/python" -m pip install --quiet --disable-pip-version-check --upgrade pip
-            "$target/bin/python" -m pip install --quiet --disable-pip-version-check -r "$lock"
-            # What the API imports to start, imported before the venv can be adopted. The application
-            # is not on disk yet (the next step syncs it), so this is the dependency half of "will it
-            # start"; the health poll at the end of the job is the other half. The compiled half of
-            # uvicorn[standard] (uvloop, httptools), pydantic's core and audioop (audioop-lts: 3.13
-            # removed the module pydub imports) are named, because each is a wheel built for this
-            # interpreter's ABI.
-            "$target/bin/python" -c 'import fastapi, uvicorn, uvloop, httptools, pydantic_core, pydantic_settings, jwt, bcrypt, cryptography, boto3, prisma, pydub, audioop, anthropic, openpyxl'
-            { "$target/bin/python" -VV; readlink -f "$target/bin/python"; } > "$target/.complete"
-            echo "built venv $want"
+            mv -T "$stage/app/venvs/$want" "$target"
+            rm -rf "$stage"
+            trap - EXIT
+            echo "unpacked venv $want"
           fi
           printf '%s\n' "$want" > "$app/venv-wanted"
           REMOTE
@@ -1219,10 +1315,10 @@ jobs:
           } | ssh ubuntu@$EC2_HOST 'bash -s'
 
       # ─── THE PROJECT, THE PRISMA CLIENT, THE MIGRATION, THE SWITCH ──────────────────────────────
-      # backend/deploy/blue_green.sh `release`, from this commit: the venv the build step chose copied
-      # (`cp -a`) to the idle port's own slots/<port>/venv, the project editable into that copy
-      # (`--no-deps`, then `pip check`), the pinned Node for the Prisma CLI, `prisma generate` into
-      # the copy (so the live port's and the rollback tree's client are never rewritten), then `prisma migrate deploy` with the queue paused and the live port still
+      # backend/deploy/blue_green.sh `release`, from this commit: the venv the runner built (Prisma
+      # client included, and refused if it was generated from another schema) copied (`cp -a`) to the
+      # idle port's own slots/<port>/venv, the pinned Node for the Prisma CLI, then `prisma migrate
+      # deploy` (through `python -m app.prisma_cli`) with the queue paused and the live port still
       # serving, the idle port started, /health waited for (ten minutes by the clock, a line every
       # twenty seconds), nginx reloaded onto it, and only then the old port stopped and the queue
       # started on the new tree. Any failure before the switch leaves nginx on the old port, which

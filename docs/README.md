@@ -121,7 +121,7 @@ It verifies the four things about documentation that *can* be verified:
 | **Generated counts are current** | A migration or a new route that nobody re-ran the generator for |
 | **Every repository path mentioned exists** | A service or component path that a rename left behind. Paths resolve against the repo root and against `backend/`, `frontend/`, `android/`, because a runbook writes commands from the directory it told you to be in |
 | **Line citations land inside their file** | `media.py:198-264` after the file shrank. It also *counts* citations per document and warns, because a citation that still fits is only possibly right — the durable fix is to cite symbol names |
-| **The backend and web role ladders agree** | `ROLE_RANK` drifting between `backend/app/core/deps.py` and `frontend/lib/permissions.ts`. This is the one genuine correctness check in the set |
+| **The backend and web role ladders agree** | `ROLE_RANK` drifting between `backend/app/core/roles.py` and `frontend/lib/permissions.ts`. This is the one genuine correctness check in the set |
 | **Every document has a maintenance section** | A new document shipping with no story for how it stays true |
 | **Mermaid blocks are structurally sane** | An unclosed fence, a block with no diagram type, and the specific bug that broke a diagram here: a **semicolon inside a sequence-diagram message**, which Mermaid reads as a statement separator so everything after it parses as a new statement and the whole diagram renders as a red error box |
 

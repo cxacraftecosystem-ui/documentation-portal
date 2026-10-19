@@ -92,6 +92,8 @@ WorkingDirectory=/home/ubuntu/app/slots/%i/backend
 EnvironmentFile=/home/ubuntu/app/slots/%i/backend/.env
 # After EnvironmentFile so it always wins: the web process must never run the queue.
 Environment=MEDIA_QUEUE_WORKER_ENABLED=false
+# Two malloc arenas, not glibc's eight per core: backend/deploy/blue_green.sh says why.
+Environment=MALLOC_ARENA_MAX=2
 ExecStart=/home/ubuntu/app/slots/%i/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port %i --workers 1
 Restart=always
 RestartSec=10
@@ -115,6 +117,8 @@ After=network.target
 User=ubuntu
 WorkingDirectory=/home/ubuntu/app/backend
 EnvironmentFile=/home/ubuntu/app/backend/.env
+# Two malloc arenas, not glibc's eight per core: backend/deploy/blue_green.sh says why.
+Environment=MALLOC_ARENA_MAX=2
 ExecStart=/home/ubuntu/app/backend/.venv/bin/python -m app.worker
 Restart=always
 RestartSec=10
