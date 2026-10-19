@@ -7,13 +7,14 @@ A change of mind is a NEW row; ``consent_current_v`` is the newest row per subje
 the older rows are the history. The table, the view and every index are created by the migration
 ``20261103090000_one_consent_store``, which is the same file in both repositories.
 
-SUBJECTS. ``ARTISAN`` is the consent of one person, the same record whichever portal asked;
+SUBJECTS. ``ARTISAN`` is the consent of one person, the same record whichever portal asked (both
+portals read and write it through ``/artisans/{id}/consent``);
 ``WORKSHOP`` is designer-portal's per-workshop answer; ``RECORDING`` scopes a consent to one
 recording (the owner's attestation of 18 Oct 2026 is written per recording); ``USER`` is kept for the
 usage-analytics consent.
 
 THE RULE (:func:`decide`), asked before anything leaves the server for an outside service
-(speech-to-text, AI summaries and insights, translation, answer drafting):
+(speech-to-text, AI summaries and insights, translation, answer drafting, search embeddings):
 
 1. a REFUSED row for the recording itself refuses;
 2. a GRANTED row for the recording allows, unless one of its subjects refused LATER than that grant
@@ -22,6 +23,10 @@ THE RULE (:func:`decide`), asked before anything leaves the server for an outsid
 4. otherwise every subject granted allows;
 5. otherwise, including a recording with no subject at all, it waits (``AWAITING``): nothing is sent
    and nothing is lost; once consent is recorded the recording moves on by itself.
+
+designer-portal asks the rule only once a recording has a workshop or any consent row (its own or one
+of its artisans'); a recording with neither, such as a designer's own dictation, is sent as it always
+was (``services/dictation_consent.py`` there says why).
 
 Recording, uploading, storing, playing, typing answers, review and export never ask: none of them
 sends anything anywhere.

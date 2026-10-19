@@ -200,6 +200,21 @@ async def _create_open_job(data: dict[str, Any]) -> Any:
     )
 
 
+async def _fail_for_consent(job: Any, refusal: str | None) -> None:
+    """Close a job consent does not permit: FAILED, no retry, nothing sent, the reason on the job."""
+    await db.mediaprocessingjob.update(
+        where={"id": job.id},
+        data={
+            "status": FAILED,
+            "lockedAt": None,
+            "lockedBy": None,
+            "openKey": None,
+            "completedAt": datetime.now(UTC),
+            "error": str(refusal or "")[:2000],
+        },
+    )
+
+
 async def _record_consent_refusal(media: Any, verdict: Any) -> None:
     """Write why a recording was not sent onto the clip. Never over a transcript that exists."""
     media_id = str(_value(media, "id") or "")
@@ -482,17 +497,7 @@ async def _process_job(job: Any, settings: Settings) -> None:
         verdict = await recording_consent.gate.verdict(media)
         if not verdict.may_send:
             await _record_consent_refusal(media, verdict)
-            await db.mediaprocessingjob.update(
-                where={"id": job.id},
-                data={
-                    "status": FAILED,
-                    "lockedAt": None,
-                    "lockedBy": None,
-                    "openKey": None,
-                    "completedAt": datetime.now(UTC),
-                    "error": str(verdict.refusal or "")[:2000],
-                },
-            )
+            await _fail_for_consent(job, verdict.refusal)
             return
         # Streamed to a temp file, never read whole into the heap (the designer-portal shape).
         source_path = await asyncio.to_thread(download_to_temp, media.objectKey)
@@ -566,7 +571,11 @@ async def _apply_transcription_result(job: Any, result: dict[str, Any]) -> None:
 
 async def _process_insights_job(job: Any, media: Any) -> None:
     """Summary, quotes and translation for one transcript. The requester's own key when a person
-    asked (Regenerate); the deployment's key for automatic runs and the backfill."""
+    asked (Regenerate); the deployment's key for automatic runs and the backfill.
+
+    CONSENT IS RE-READ HERE, AT SEND TIME, as the TRANSCRIPTION branch does: a job queued under a
+    grant does not leave after the consent was withdrawn. A refusal fails the job and sends nothing.
+    """
     requested_by = getattr(job, "requestedById", None)
     if requested_by is None:
         # An automatic run never replaces a researcher's edits, even if they edited after it was
@@ -575,6 +584,10 @@ async def _process_insights_job(job: Any, media: Any) -> None:
         if current is not None and current.editedAt is not None:
             await _complete_job(job.id, {"status": "SKIPPED", "reason": "edited"})
             return
+    refusal = await transcript_insights.consent_refusal(media)
+    if refusal is not None:
+        await _fail_for_consent(job, refusal)
+        return
     try:
         outcome = await transcript_insights.generate(media, user_id=requested_by)
     except transcript_insights.InsightsUnavailable as exc:

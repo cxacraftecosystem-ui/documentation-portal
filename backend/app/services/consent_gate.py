@@ -5,7 +5,9 @@ ledger, and the rule is ``app/transcription/ledger.py``'s ``decide``, the same f
 designer-portal's gate calls. This module adds only what is this portal's: WHO a recording is about.
 
 One question, asked before ANY outside send (speech-to-text, AI summary, insights, translation,
-answer drafting): may this recording leave the server? ``verdict(media)`` answers ALLOW, AWAITING or
+answer drafting, search embeddings): may this recording leave the server? Text about people that is
+no one recording (an answer draft from a pasted transcript) asks :func:`interview_verdict`, the same
+rule over the interview's artisans. ``verdict(media)`` answers ALLOW, AWAITING or
 REFUSED:
 
 1. the recording's own current ``RECORDING`` row: REFUSED -> REFUSED; GRANTED -> ALLOW unless a
@@ -145,6 +147,23 @@ async def _decided(media_id: str, client: Any) -> tuple[Verdict, dict[str, Any] 
     subjects = await _media_subjects(media_id, client)
     states = await current_states(ledger.ARTISAN, subjects, client=client)
     return decide(grant, [states.get(artisan_id) for artisan_id in subjects]), grant
+
+
+async def artisans_verdict(artisan_ids: Iterable[str], *, client: Any = None) -> Verdict:
+    """The rule for text that is about people but is no one recording (rules 3 to 5): every artisan
+    GRANTED allows, one REFUSED refuses, anything else (including no artisan at all) waits."""
+    ids = list(dict.fromkeys(str(i) for i in artisan_ids if i))
+    states = await current_states(ledger.ARTISAN, ids, client=client)
+    return decide(None, [states.get(artisan_id) for artisan_id in ids])
+
+
+async def interview_verdict(interview_id: str, *, client: Any = None) -> Verdict:
+    """:func:`artisans_verdict` over an interview's participants: text pasted into an interview (an
+    answer draft from a pasted transcript) is the interview's artisans' words."""
+    rows = await _db(client).query_raw(
+        'SELECT "artisanId" FROM "QuestionnaireInterviewArtisan" WHERE "interviewId" = $1', interview_id
+    )
+    return await artisans_verdict([str(row["artisanId"]) for row in rows], client=client)
 
 
 async def verdict_detail(media_id: str, *, client: Any = None) -> dict[str, Any]:

@@ -45,7 +45,10 @@ in `Content-Disposition`; `kind=meta` answers the contract's `CorpusMeta`.
 - **Coverage:** the view `questionnaire_take_v` (migration `20261025090000_questionnaire_v2`). Nothing
   is stored: positions, grids and snapshots are read from it.
 - **The consent gate:** `backend/app/services/consent_gate.py`. It is asked before every outside send
-  (transcription, refinement, drafting) and never by recording, upload, filing or review.
+  (transcription, refinement, AI summaries and translation, answer drafting, search embeddings) and
+  never by recording, upload, filing or review. Summaries are asked when queued and again when the
+  job runs; a draft from pasted text asks for the interview's participants; a transcript whose
+  recording may not leave is not embedded, and is asked again whenever new consent is recorded.
 - **Transcription:** `backend/app/transcription/__init__.py`. `enqueue` is the only door; it checks the
   pause, the gate and a verified twin, and calls no provider.
 - **Old builds:** `backend/app/services/questionnaire_v2/shims.py` and the one legacy resolver,

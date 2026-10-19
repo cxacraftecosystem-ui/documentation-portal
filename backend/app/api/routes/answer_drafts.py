@@ -7,6 +7,11 @@ pending draft is unfinished work for the people who may accept it, and the trans
 are the interview's recordings. Anyone else, inside the interview read scope, is told there is
 nothing to show; outside it, the interview does not exist.
 
+Drafting SENDS the transcript to an AI provider, so it asks the one consent store first
+(``services/consent_gate``, the question ``questionnaire_v2/answers.proposals`` asks too): a draft
+from a recording needs that recording's verdict, a draft from pasted text the interview's
+participants' (``consent_gate.interview_verdict``). Anything but ALLOW answers 409 and sends nothing.
+
 Accepting is one transaction, and every question it writes must belong to the section it names and
 that section to the interview's questionnaire.
 """
@@ -21,10 +26,24 @@ from app.core.config import get_settings
 from app.core.db import db
 from app.core.deps import get_current_user, get_value
 from app.services import answer_drafts as ad
+from app.services import consent_gate
 from app.services.access import record_edit_privilege
 from app.services.records import public_encode, require_record, viewable_where
 
 router = APIRouter(prefix="/questionnaire", tags=["questionnaire"])
+
+
+CONSENT_NOT_RECORDED = "Consent not recorded. Record it to draft answers from this transcript."
+CONSENT_REFUSED = "Consent was refused, so this transcript is not sent for drafting."
+
+
+def _require_consent(verdict: str) -> None:
+    if verdict == consent_gate.ALLOW:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=CONSENT_REFUSED if verdict == consent_gate.REFUSED else CONSENT_NOT_RECORDED,
+    )
 
 
 def _enabled_or_404() -> Any:
@@ -139,6 +158,10 @@ async def draft_section(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="There's no transcript to draft from yet.",
         )
+    if source_media_id is not None:
+        _require_consent(await consent_gate.verdict(source_media_id))
+    else:
+        _require_consent(await consent_gate.interview_verdict(interview_id))
 
     questions = await db.questionnairequestion.find_many(
         where={"sectionId": section.id, "isActive": True}, order={"sortOrder": "asc"}

@@ -10,6 +10,11 @@ SWITCHED OFF UNLESS BOTH FLAGS ARE ON. ``enabled()`` needs ``AI_FEATURES_ENABLED
 ``AI_TRANSCRIPT_INSIGHTS_ENABLED`` (app/ai_features). With either off nothing is enqueued, queued
 jobs are not drained, every route answers 404 and the clients draw nothing.
 
+CONSENT IS ASKED TWICE, over the one consent store (``services/recording_consent``): when a job is
+queued (:func:`enqueue`, which the Regenerate route, the run after a transcript lands and the run
+after a transcript edit all go through) and again by the worker at the moment of sending, so a
+consent withdrawn after the job was queued still holds.
+
 ALL GENERATION GOES THROUGH THE QUEUE. Nothing here is called from a request handler except
 ``enqueue``; the backfill script only enqueues too.
 
@@ -40,7 +45,7 @@ from app.ai_features.settings import get_ai_settings
 from app.ai_features.types import Capability
 from app.core.config import get_settings
 from app.core.db import db
-from app.services import anthropic_verbs, user_ai_keys
+from app.services import anthropic_verbs, recording_consent, user_ai_keys
 from app.services.ai_providers import AiProvider, AiTask
 from prisma import Json
 
@@ -500,17 +505,34 @@ async def active_job(media_id: str) -> Any | None:
 # --- Enqueueing -------------------------------------------------------------------------------
 
 
+#: What a person is told when consent does not let a transcript be summarised.
+CONSENT_NOT_RECORDED = "Consent not recorded. Record it to summarise this transcript."
+CONSENT_REFUSED = "Consent was refused, so this transcript is not sent for a summary."
+
+
+async def consent_refusal(media: Any) -> str | None:
+    """None when the one consent store lets this recording's transcript leave the server, else the
+    sentence to show. A failed read refuses (``recording_consent.gate``)."""
+    verdict = await recording_consent.gate.verdict(media)
+    if verdict.may_send:
+        return None
+    return CONSENT_REFUSED if verdict.decision == recording_consent.REFUSED else CONSENT_NOT_RECORDED
+
+
 async def enqueue(
     media_id: str, *, requested_by_id: str | None = None, priority: int = 80
 ) -> Any | None:
     """Queue one insights job. Does nothing (returns None) when the feature is off, the media has
-    no transcript, or an insights job for it is already queued or processing."""
+    no transcript, an insights job for it is already queued or processing, or consent does not let
+    the transcript leave the server."""
     if not enabled():
         return None
     media = await db.mediafile.find_unique(where={"id": media_id})
     if media is None or not select_sources(media)[0]:
         return None
     if await active_job(media_id) is not None:
+        return None
+    if await consent_refusal(media) is not None:
         return None
     data: dict[str, Any] = {
         "jobType": JOB_TYPE,
