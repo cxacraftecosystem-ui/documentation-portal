@@ -77,8 +77,8 @@ fun OfflineOutboxTray(
     onClose: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    var refused by remember { mutableStateOf<List<PendingEntry>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
+    // Null until the first read lands: the spinner is for opening the tray, never for a re-read.
+    var refused by remember { mutableStateOf<List<PendingEntry>?>(null) }
     var busy by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf<String?>(null) }
     var reload by remember { mutableIntStateOf(0) }
@@ -88,11 +88,14 @@ fun OfflineOutboxTray(
     // A refusal the sync worker records while the tray is open joins the list without a reopen.
     val revision by OfflineOutbox.revision.collectAsState()
 
+    // Later re-reads swap the list in place: no spinner, no reset scroll, no card moving under a tap.
     LaunchedEffect(reload, revision) {
-        loading = true
-        refused = runCatching { entries() }.getOrDefault(emptyList()).filter { it.failure != null && !it.isPossibleDuplicate() }
-        loading = false
+        val read = runCatching { entries() }
+        (read.exceptionOrNull() as? CancellationException)?.let { throw it }
+        refused = refusedAfterRead(refused, read)
     }
+    val shown = refused
+    val scroll = rememberScrollState()
 
     fun act(block: suspend () -> String?) {
         if (busy) return
@@ -146,18 +149,18 @@ fun OfflineOutboxTray(
         title = { Text("Saves that need you", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
+                modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp).verticalScroll(scroll),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 when {
-                    loading -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    shown == null -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FieldCircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                         Text("Reading the queue…", color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
                     }
-                    refused.isEmpty() -> Text("Nothing is waiting on you.", color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodyMedium)
+                    shown.isEmpty() -> Text("Nothing is waiting on you.", color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodyMedium)
                     else -> {
                         Text("The server refused these. Nothing was deleted.", color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
-                        refused.forEach { entry ->
+                        shown.forEach { entry ->
                             RefusedEntryCard(
                                 entry = entry,
                                 busy = busy,
@@ -183,6 +186,14 @@ fun OfflineOutboxTray(
         confirmButton = { TextButton(onClick = onClose) { Text("Close", style = MaterialTheme.typography.bodyMedium) } }
     )
 }
+
+/**
+ * The tray's list after one read of the queue. A read that fails keeps what is already on screen
+ * (blank only before the first read): a hiccup mid-session must not empty an open tray.
+ */
+internal fun refusedAfterRead(previous: List<PendingEntry>?, read: Result<List<PendingEntry>>): List<PendingEntry> =
+    read.map { queue -> queue.filter { it.failure != null && !it.isPossibleDuplicate() } }
+        .getOrElse { previous ?: emptyList() }
 
 @Composable
 private fun RefusedEntryCard(
