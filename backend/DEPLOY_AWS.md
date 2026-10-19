@@ -274,10 +274,10 @@ Creates the **S3 bucket** (public-read `media/*` + CORS), an **IAM user** with
 `PutObject/GetObject/DeleteObject` and a fresh **access key**, and an EC2 box (**t3.small** with an
 **encrypted** gp3 root since 2026-10-09; the box running that day is a t3.micro, §10) with an
 **Elastic IP**, a 2 GiB swap file, **nginx** (reverse proxy on 80,
-so port 8000 is never exposed) and **ffmpeg** (needed for Whisper long-audio
+so ports 8000 and 8001 are never exposed) and **ffmpeg** (needed for Whisper long-audio
 chunking), **upstream CPython 3.14.8** (a pinned, checksummed python-build-standalone build under
-`/opt/cpython`, not apt's; §9), plus the `fieldrepo`
-and `fieldrepo-queue` systemd units. The DB stays on Supabase.
+`/opt/cpython`, not apt's; §9), plus the `fieldrepo-api@` template
+and the `fieldrepo-queue` systemd units (§13). The DB stays on Supabase.
 
 > **Changing the AMI filter, the instance type or the root volume's encryption replaces the instance
 > on the next `apply`.** `main.tf` moved from the

@@ -160,6 +160,7 @@ t_migration_falls_back_to_stopping_the_old_one() {
   release 8001
   [ "$(port_now)" = 8001 ]; is_up fieldrepo-api@8001; fails is_up fieldrepo
   grep -q 'stopping it to free its sessions' "$STATE/err"
+  [ -s "$STATE/gaps" ]                                          # the gap detector sees this path's downtime
 }
 
 t_failed_migration_restarts_the_old_one() {
