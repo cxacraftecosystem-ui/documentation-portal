@@ -11,7 +11,9 @@ shared words), decided here against ``RecordingConsent`` rows:
 * otherwise consent is NOT_RECORDED and nothing is sent.
 
 Every recording that existed on 18 Oct 2026 carries a GRANTED row by owner attestation, written by
-``scripts/backfill_consent_owner_attestation.py`` (dry run first). Nothing is flagged.
+``scripts/backfill_recording_consent_owner_attestation.py`` (dry run first). Nothing is flagged.
+Transcription ALSO asks the consent ledger (``services/consent_gate``, written for old recordings
+by ``scripts/backfill_consent_owner_attestation.py``): a send needs both to allow it.
 
 A failed read refuses, never raises: an unknown consent must not become a send.
 """

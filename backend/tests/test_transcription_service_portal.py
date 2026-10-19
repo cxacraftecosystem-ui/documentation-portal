@@ -351,8 +351,8 @@ def _load_backfill():
     import importlib.util
     from pathlib import Path
 
-    path = Path(__file__).resolve().parents[1] / "scripts" / "backfill_consent_owner_attestation.py"
-    spec = importlib.util.spec_from_file_location("backfill_consent_owner_attestation", path)
+    path = Path(__file__).resolve().parents[1] / "scripts" / "backfill_recording_consent_owner_attestation.py"
+    spec = importlib.util.spec_from_file_location("backfill_recording_consent_owner_attestation", path)
     module = importlib.util.module_from_spec(spec)
     import sys
 

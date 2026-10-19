@@ -2964,6 +2964,8 @@ model ArtisanDuplicateCandidate {
   @@index([artisanAId])
   @@index([artisanBId])
   @@index([decidedById])
+}
+
 /// ONE PROVIDER KEY'S THROTTLE STATE (transcription service, 18 Oct 2026). A 429 from one provider
 /// cools down that provider and that key only, so the next provider is tried instead of the whole
 /// queue stopping; persisted so a restart does not forget it and both processes see it.

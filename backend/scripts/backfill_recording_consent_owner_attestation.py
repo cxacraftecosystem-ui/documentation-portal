@@ -17,8 +17,8 @@ IDEMPOTENT: a second run finds nothing to do, because every recording it covered
 USAGE (from backend/; ``DATABASE_URL`` comes from ``backend/.env``. NEVER point this at production
 for a dry run you do not mean: the dry run reads only, the ``--fix`` run writes):
 
-    python scripts/backfill_consent_owner_attestation.py                        # DRY RUN
-    python scripts/backfill_consent_owner_attestation.py --fix --owner-email owner@example.org
+    python scripts/backfill_recording_consent_owner_attestation.py                        # DRY RUN
+    python scripts/backfill_recording_consent_owner_attestation.py --fix --owner-email owner@example.org
 """
 
 from __future__ import annotations

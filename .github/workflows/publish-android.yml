@@ -1921,7 +1921,7 @@ jobs:
           } >> "$body_file"
 
           gh release create "$TAG" \
-            "apk/field-repository-v${VERSION}.apk#field-repository-v${VERSION}.apk (signed release build)" \
+            "apk/FieldRepository_Android-App_Release-Build_v${VERSION}.apk#FieldRepository_Android-App_Release-Build_v${VERSION}.apk (signed release build)" \
             --repo "${GITHUB_REPOSITORY}" \
             --title "Field Repository ${VERSION}" \
             --verify-tag \
