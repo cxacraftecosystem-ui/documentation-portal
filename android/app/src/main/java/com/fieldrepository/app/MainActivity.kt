@@ -564,6 +564,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.fieldrepository.app.data.ProductDetailDto
 import com.fieldrepository.app.data.ProcessCreateRequest
 import com.fieldrepository.app.data.ProcessDetailDto
@@ -7003,7 +7005,7 @@ private fun CraftForm(
     // sits in one sub-category. Management of the taxonomy itself is web only.
     val craftCatalogue by CraftCatalogueCache.catalogue.collectAsState()
     val craftListContext = LocalContext.current.applicationContext
-    LaunchedEffect(Unit) { CraftCatalogueCache.cached(craftListContext) }
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { CraftCatalogueCache.cached(craftListContext) } }
     var subCategoryId by remember(editing) { mutableStateOf(editing?.subCategoryId ?: "") }.drafted(draft, "subCategoryId")
     var categoryId by remember(editing) {
         mutableStateOf(editing?.categoryId ?: craftCatalogue?.subCategoryParent(editing?.subCategoryId) ?: "")

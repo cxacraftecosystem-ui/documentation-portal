@@ -187,12 +187,105 @@ object CraftCatalogueCache {
     }
 
     fun categoryName(catalogue: CraftCatalogue, craft: CatalogueCraft): String {
-        val categoryId = craft.categoryId ?: catalogue.subCategoryParent(craft.subCategoryId)
-        return catalogue.categories.firstOrNull { it.id == categoryId }?.name.orEmpty()
+        val index = index(catalogue)
+        val categoryId = craft.categoryId ?: craft.subCategoryId?.let { index.subCategoryParents[it] }
+        return categoryId?.let { index.categoryNames[it] }.orEmpty()
     }
 
     fun subCategoryName(catalogue: CraftCatalogue, craft: CatalogueCraft): String =
-        catalogue.categories.flatMap { it.subCategories }.firstOrNull { it.id == craft.subCategoryId }?.name.orEmpty()
+        craft.subCategoryId?.let { index(catalogue).subCategoryNames[it] }.orEmpty()
+
+    /**
+     * One craft's searchable text, folded ONCE PER CATALOGUE rather than once per keystroke. A picker
+     * search used to re-run [fold] (a Unicode normalisation and three regexes) on every name, alias,
+     * state and category of ~455 crafts for each letter typed, on the main thread of a field handset.
+     * Each string keeps its words, split once, for [score]'s word-prefix rule.
+     */
+    private class FoldedText(val text: String) {
+        val words: List<String> = text.split(' ').filter { it.isNotEmpty() }
+    }
+
+    private class FoldedCraft(
+        val name: FoldedText,
+        val second: List<FoldedText>,
+        val third: List<FoldedText>,
+        val haystack: String,
+    )
+
+    /** The category tree as maps, and every craft folded, for one catalogue (by identity). */
+    private class SearchIndex(
+        val catalogue: CraftCatalogue,
+        val categoryNames: Map<String, String>,
+        val subCategoryNames: Map<String, String>,
+        val subCategoryParents: Map<String, String>,
+    ) {
+        @Volatile
+        var crafts: List<FoldedCraft>? = null
+    }
+
+    @Volatile
+    private var searchIndex: SearchIndex? = null
+
+    private fun index(catalogue: CraftCatalogue): SearchIndex {
+        searchIndex?.takeIf { it.catalogue === catalogue }?.let { return it }
+        // First match wins, as the list scans these maps replace did.
+        val categoryNames = HashMap<String, String>()
+        val subCategoryNames = HashMap<String, String>()
+        val subCategoryParents = HashMap<String, String>()
+        for (category in catalogue.categories) {
+            categoryNames.putIfAbsent(category.id, category.name)
+            for (sub in category.subCategories) {
+                subCategoryNames.putIfAbsent(sub.id, sub.name)
+                subCategoryParents.putIfAbsent(sub.id, category.id)
+            }
+        }
+        return SearchIndex(catalogue, categoryNames, subCategoryNames, subCategoryParents).also { searchIndex = it }
+    }
+
+    private fun foldCraft(catalogue: CraftCatalogue, craft: CatalogueCraft): FoldedCraft {
+        val sub = subCategoryName(catalogue, craft)
+        val category = categoryName(catalogue, craft)
+        return FoldedCraft(
+            name = FoldedText(fold(craft.name)),
+            second = (listOf(craft.localName, craft.slug) + craft.aliases).map { FoldedText(fold(it)) },
+            third = (craft.stateOfPractice + craft.stateOfOrigin + listOf(sub, category)).map { FoldedText(fold(it)) },
+            haystack = fold(
+                (listOf(craft.name, craft.localName.orEmpty(), craft.slug) + craft.aliases + craft.stateOfPractice + craft.stateOfOrigin +
+                    listOf(sub, category)).joinToString(" ")
+            ),
+        )
+    }
+
+    private fun foldedCrafts(catalogue: CraftCatalogue): List<FoldedCraft> {
+        val index = index(catalogue)
+        index.crafts?.let { return it }
+        return catalogue.crafts.map { foldCraft(catalogue, it) }.also { index.crafts = it }
+    }
+
+    /** [score] on text already folded: the same four rules, with the words split once. */
+    private fun scoreFolded(title: FoldedText, q: String): Int {
+        val t = title.text
+        return when {
+            t == q -> 0
+            t.startsWith(q) -> 1
+            title.words.any { it.startsWith(q) } -> 2
+            t.contains(q) -> 3
+            else -> 4
+        }
+    }
+
+    /** [craftScore] against a folded craft and a folded, non-empty query. */
+    private fun scoreCraft(craft: FoldedCraft, q: String): Int? {
+        val name = scoreFolded(craft.name, q)
+        if (name < 4) return name
+        val second = craft.second.minOfOrNull { scoreFolded(it, q) } ?: 4
+        if (second < 4) return 10 + second
+        val third = craft.third.minOfOrNull { scoreFolded(it, q) } ?: 4
+        if (third < 4) return 20 + third
+        val words = q.split(" ")
+        if (words.size > 1 && words.all { craft.haystack.contains(it) }) return 30
+        return null
+    }
 
     /** "Category › Sub-category" — the heading a craft is listed under. */
     fun path(catalogue: CraftCatalogue, craft: CatalogueCraft): String {
@@ -210,29 +303,19 @@ object CraftCatalogueCache {
     fun craftScore(catalogue: CraftCatalogue, craft: CatalogueCraft, query: String): Int? {
         val q = fold(query)
         if (q.isEmpty()) return 0
-        val name = score(fold(craft.name), q)
-        if (name < 4) return name
-        val second = (listOf(craft.localName, craft.slug) + craft.aliases).minOfOrNull { score(fold(it), q) } ?: 4
-        if (second < 4) return 10 + second
-        val third = (craft.stateOfPractice + craft.stateOfOrigin + listOf(subCategoryName(catalogue, craft), categoryName(catalogue, craft)))
-            .minOfOrNull { score(fold(it), q) } ?: 4
-        if (third < 4) return 20 + third
-        val words = q.split(" ")
-        if (words.size > 1) {
-            val haystack = fold(
-                (listOf(craft.name, craft.localName.orEmpty(), craft.slug) + craft.aliases + craft.stateOfPractice + craft.stateOfOrigin +
-                    listOf(subCategoryName(catalogue, craft), categoryName(catalogue, craft))).joinToString(" ")
-            )
-            if (words.all { haystack.contains(it) }) return 30
-        }
-        return null
+        return scoreCraft(foldCraft(catalogue, craft), q)
     }
 
-    /** The crafts that answer [query], best first; catalogue order breaks ties. Empty query = all. */
+    /**
+     * The crafts that answer [query], best first; catalogue order breaks ties. Empty query = all.
+     * The query is folded once and each craft's text was folded once for this catalogue.
+     */
     fun search(catalogue: CraftCatalogue, query: String): List<CatalogueCraft> {
-        if (fold(query).isEmpty()) return catalogue.crafts
+        val q = fold(query)
+        if (q.isEmpty()) return catalogue.crafts
+        val folded = foldedCrafts(catalogue)
         return catalogue.crafts.withIndex()
-            .mapNotNull { (at, craft) -> craftScore(catalogue, craft, query)?.let { Triple(craft, it, at) } }
+            .mapNotNull { (at, craft) -> scoreCraft(folded[at], q)?.let { Triple(craft, it, at) } }
             .sortedWith(compareBy({ it.second }, { it.third }))
             .map { it.first }
     }
