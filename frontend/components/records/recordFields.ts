@@ -148,7 +148,8 @@ export function recordFieldRows(type: RecordViewType, record: Loose): RecordFiel
         { label: "GI status", value: record.giStatus === "GI" ? "GI" : record.giStatus === "NON_GI" ? "Non GI" : NOT_RECORDED },
         { label: "State of origin", value: list((record.stateOfOrigin as unknown[] | undefined) ?? []) },
         { label: "State of practice", value: list((record.stateOfPractice as unknown[] | undefined) ?? []) },
-        { label: "Place", value: text(record.place) },
+        // The form stopped asking for a place on 2026-10-20; an older record that holds one still shows it.
+        ...(text(record.place) !== NOT_RECORDED ? [{ label: "Place", value: text(record.place) }] : []),
         { label: "Description", value: text(record.description) },
         { label: "Workshop", value: workshopTitle(record) }
       ];

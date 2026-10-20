@@ -148,8 +148,9 @@ function CoverageMapImpl({
   const clusters = useMemo(() => clusterMarkers(markers), [markers]);
   const hoveredShape = hovered !== null ? visible.find((shape) => shape.lgd === hovered) : undefined;
 
+  // On a desktop the whole country fits the sticky panel: capped to the viewport, never scrolled inside it.
   return (
-    <svg viewBox={viewBox} className="block h-auto w-full" aria-hidden data-testid="coverage-map">
+    <svg viewBox={viewBox} className="block h-auto w-full lg:max-h-[calc(100dvh-17rem)]" aria-hidden data-testid="coverage-map">
       <defs>
         <clipPath id={clipId}>
           <path d={outline} clipRule="evenodd" />

@@ -505,7 +505,8 @@ test("every qualifying record-form box has a control, and the skipped ones stay 
       TOOL_FORM,
       ["toolkitName", "localName", "englishName", "artisanName", "place", "processUsedIn", "material"]
     ],
-    ["crafts", CRAFTS_PAGE, ["name", "localName", "place"]],
+    // No Place on the craft form since 2026-10-20, as on the designer portal.
+    ["crafts", CRAFTS_PAGE, ["name", "localName"]],
     ["workshops", WORKSHOPS_PAGE, ["title", "place"]],
     ["media", MEDIA_PAGE, ["mediaTitle"]],
     ["LocationFields", LOCATION_FIELDS, ["village"]]

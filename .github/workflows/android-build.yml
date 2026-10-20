@@ -107,6 +107,32 @@ jobs:
         # by far the most common failure and this surfaces it in ~1 min instead of ~4.
         run: ./gradlew :app:compileDebugKotlin --console=plain --stacktrace
 
+      - name: The other portal, for the shared-file parity tests
+        # THE SHARED FILES ARE HELD IDENTICAL BY CI, NOT BY MEMORY (owner's ruling, 2026-10-20). Every
+        # sibling-parity test in this repository (the craft master, the map files, the nav and scanner
+        # files, the transcription manifest, the cross-portal modules, the artisan form contract) compares
+        # against a checkout of the other portal and skips without one; until this step cloned it on every
+        # run, CI had one repository and every one of them skipped. The comparison is made against the
+        # other repository's `main`, or against the branch of the same name when a cross-repo stream has
+        # pushed one there. Both repositories are public, so no token is needed. The clone lands BESIDE
+        # this checkout, under the other repository's name, because some tests find the sibling by that
+        # relative path rather than by the environment.
+        working-directory: .
+        env:
+          PEER: cxacraftecosystem-ui/designer-portal
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          ref=main
+          if [ "$BRANCH" != "main" ] && git ls-remote --exit-code --heads "https://github.com/$PEER.git" "$BRANCH" >/dev/null; then
+            ref="$BRANCH"
+          fi
+          dest="$(dirname "$GITHUB_WORKSPACE")/${PEER#*/}"
+          rm -rf "$dest"
+          git clone --quiet --depth 1 --branch "$ref" "https://github.com/$PEER.git" "$dest"
+          { echo "CROSS_PORTAL_PEER_REPO=$dest"; echo "SIBLING_REPO=$dest"; echo "DESIGNER_PORTAL_DIR=$dest"; } >> "$GITHUB_ENV"
+          echo "Shared files are compared with $PEER@$ref ($(git -C "$dest" rev-parse --short HEAD))."
+
       - name: Unit tests
         id: tests
         # HONEST STATUS: `app/src/test/` holds real suites (their counts are generated into
