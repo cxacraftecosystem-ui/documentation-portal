@@ -1,11 +1,14 @@
 package com.fieldrepository.app.ui
 
 import android.content.Context
+import android.content.res.Resources
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathFillType
 import com.fieldrepository.app.R
 import java.io.DataInputStream
+import java.io.InputStream
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -387,3 +390,159 @@ private const val MIN_STEP_PX = 0.8f
 
 /** Smallest a territory may render. Below this it is drawn as a dot so it cannot disappear. */
 private const val MIN_ISLAND_PX = 1.6f
+
+// ---------------------------------------------------------------------------------------------
+// District polygons: the coverage map's choropleth
+// ---------------------------------------------------------------------------------------------
+
+/** File header of res/raw/district_shapes.bin: "DSH1". */
+private const val SHAPES_MAGIC = 0x44534831
+
+/**
+ * One district's polygon in the same world space as [IndiaGeometry] (unit-width Web Mercator over the
+ * outline's own bounds), so a fill, the coastline, a border and a marker cannot drift apart.
+ *
+ * PROVENANCE OF res/raw/district_shapes.bin. Written by `scripts/build_boundaries.py --shapes-bin`
+ * from the committed web `frontend/public/boundaries/district-shapes.json`, so the web and both apps
+ * fill exactly the same rings; the file is byte-identical in both repositories. 752 districts: one
+ * without a polygon is ABSENT, and the coverage payload's `polygon: PARENT` draws it inside its parent.
+ *
+ * The [Path] is built once per zoom bucket ([outlineBucketScale]) and kept, with the even-odd rule so
+ * an enclave reads as a hole rather than as its host.
+ */
+class DistrictShape internal constructor(
+    val lgd: Int,
+    val stateLgd: Int,
+    /** The label point in world space (inside the polygon; the build checks it). */
+    val centroid: Offset,
+    /** Interleaved x,y world coordinates, one array per ring. */
+    internal val rings: List<FloatArray>,
+    /** World-space bounds of every ring together. */
+    val bounds: Rect
+) {
+    private var cachedBucket = Float.NaN
+    private var cachedPath: Path? = null
+
+    /** The polygon in pixels at [bucketScale]; rebuilt only when the bucket changes. */
+    fun path(bucketScale: Float): Path {
+        val cached = cachedPath
+        if (cached != null && cachedBucket == bucketScale) return cached
+        val path = Path().apply { fillType = PathFillType.EvenOdd }
+        for (ring in rings) {
+            if (ring.size < 6) continue
+            path.moveTo(ring[0] * bucketScale, ring[1] * bucketScale)
+            var i = 2
+            while (i < ring.size) {
+                path.lineTo(ring[i] * bucketScale, ring[i + 1] * bucketScale)
+                i += 2
+            }
+            path.close()
+        }
+        cachedBucket = bucketScale
+        cachedPath = path
+        return path
+    }
+
+    /** Even-odd point-in-polygon in world space: the tap test the coverage canvas uses. */
+    fun contains(world: Offset): Boolean {
+        if (!bounds.contains(world)) return false
+        var inside = false
+        for (ring in rings) {
+            val n = ring.size / 2
+            var j = n - 1
+            for (i in 0 until n) {
+                val xi = ring[i * 2]
+                val yi = ring[i * 2 + 1]
+                val xj = ring[j * 2]
+                val yj = ring[j * 2 + 1]
+                if ((yi > world.y) != (yj > world.y) &&
+                    world.x < (xj - xi) * (world.y - yi) / (yj - yi) + xi
+                ) {
+                    inside = !inside
+                }
+                j = i
+            }
+        }
+        return inside
+    }
+}
+
+/** Parses res/raw/district_shapes.bin. Call off the main thread: ~70k points of allocation. */
+fun loadDistrictShapes(res: Resources): List<DistrictShape> =
+    res.openRawResource(R.raw.district_shapes).use { parseDistrictShapes(it) }
+
+/**
+ * The DSH1 reader, on a stream so a JVM unit test can read the committed file directly. The grid and
+ * the projection are the IND1 reader's exactly: magic, four float64 bounds, an int32 district count,
+ * then per district a uint32 lgd, uint16 stateLgd, uint16 x/y centroid, uint16 ring count, and per
+ * ring an int32 length and uint16 x/y pairs.
+ */
+fun parseDistrictShapes(stream: InputStream): List<DistrictShape> {
+    DataInputStream(stream.buffered()).use { input ->
+        require(input.readInt() == SHAPES_MAGIC) { "district_shapes.bin: bad magic" }
+        val minLon = input.readDouble()
+        val maxLon = input.readDouble()
+        val minLat = input.readDouble()
+        val maxLat = input.readDouble()
+        val count = input.readInt()
+
+        val lonSpanRad = (maxLon - minLon) * PI / 180.0
+        val topMercator = ln(tan(PI / 4.0 + maxLat.coerceIn(-85.05, 85.05) * PI / 360.0))
+        val lonStep = (maxLon - minLon) / QUANT_MAX
+        val latStep = (maxLat - minLat) / QUANT_MAX
+        fun worldX(qx: Int): Float = (((minLon + qx * lonStep) - minLon) * PI / 180.0 / lonSpanRad).toFloat()
+        fun worldY(qy: Int): Float {
+            val lat = (minLat + qy * latStep).coerceIn(-85.05, 85.05)
+            return ((topMercator - ln(tan(PI / 4.0 + lat * PI / 360.0))) / lonSpanRad).toFloat()
+        }
+
+        val shapes = ArrayList<DistrictShape>(count)
+        repeat(count) {
+            val lgd = (input.readInt().toLong() and 0xFFFFFFFFL).toInt()
+            val stateLgd = input.readUnsignedShort()
+            val centroid = Offset(worldX(input.readUnsignedShort()), worldY(input.readUnsignedShort()))
+            val ringCount = input.readUnsignedShort()
+            val rings = ArrayList<FloatArray>(ringCount)
+            var minX = Float.MAX_VALUE
+            var minY = Float.MAX_VALUE
+            var maxX = -Float.MAX_VALUE
+            var maxY = -Float.MAX_VALUE
+            repeat(ringCount) {
+                val n = input.readInt()
+                val ring = FloatArray(n * 2)
+                for (i in 0 until n) {
+                    val x = worldX(input.readUnsignedShort())
+                    val y = worldY(input.readUnsignedShort())
+                    ring[i * 2] = x
+                    ring[i * 2 + 1] = y
+                    if (x < minX) minX = x
+                    if (x > maxX) maxX = x
+                    if (y < minY) minY = y
+                    if (y > maxY) maxY = y
+                }
+                rings += ring
+            }
+            val bounds = if (rings.isEmpty()) Rect(centroid, centroid) else Rect(minX, minY, maxX, maxY)
+            shapes += DistrictShape(lgd, stateLgd, centroid, rings, bounds)
+        }
+        return shapes
+    }
+}
+
+/** The world-space box around one state's districts, or null when none of them has a polygon. */
+fun stateBounds(shapes: List<DistrictShape>, stateLgd: Int): Rect? {
+    var box: Rect? = null
+    for (shape in shapes) {
+        if (shape.stateLgd != stateLgd) continue
+        box = box?.let {
+            Rect(
+                min(it.left, shape.bounds.left),
+                min(it.top, shape.bounds.top),
+                max(it.right, shape.bounds.right),
+                max(it.bottom, shape.bounds.bottom)
+            )
+        } ?: shape.bounds
+    }
+    return box
+}
+
