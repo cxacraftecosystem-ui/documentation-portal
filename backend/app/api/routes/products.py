@@ -8,6 +8,7 @@ from app.services.artisan_merge import redirect_merged_artisans
 from app.core.deps import require_record_creator, assert_can_delete, get_current_user
 from app.schemas.records import ProductCreate, ProductUpdate
 from app.services.access import guard_record_edit
+from app.services import craft_master
 from app.services.linked_names import fill_product_names
 from app.services.workshop_access import (
     enforce_workshop_submission,
@@ -210,6 +211,8 @@ async def create_product(
     await redirect_merged_artisans(payload)
     data = decimal_to_string(clean_data(payload.model_dump()))
     # The linked artisan and craft name themselves: the typed copies are only for an unlinked product.
+    # The master craft list (2026-10-20): an old client's typed craft is matched onto the list first.
+    data = await craft_master.resolve_record_craft(db, data, keep_name=True)
     data = await fill_product_names(data)
     data = await attach_location(data)
     # Workshop entries: enforce assignment, then flag + pin a late submission for admin approval.
@@ -270,6 +273,7 @@ async def update_product(
     expected_updated_at = take_expected_updated_at(data)
     assert_expected_updated_at(product, expected_updated_at)
     # A link this edit SENDS re-derives the names from the linked records (A12).
+    data = await craft_master.resolve_record_craft(db, data, stored=product, keep_name=True)
     data = await fill_product_names(data, stored=product)
     data = await attach_location(data)
     # Moving a record into (or to a different) workshop is a workshop submission too — re-check

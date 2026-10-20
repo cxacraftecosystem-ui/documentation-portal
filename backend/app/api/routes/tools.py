@@ -17,6 +17,7 @@ from app.schemas.records import (
     ToolCreate,
     ToolUpdate,
 )
+from app.services import craft_master
 from app.services.access import guard_record_edit, record_edit_privilege
 from app.services.concurrency import gather_reads
 from app.services.standard_values import StandardValueError, apply_tool_values, retired_tradition_codes
@@ -774,6 +775,7 @@ async def create_tool(
     # derived from them, so ``merge_field_provenance`` below stamps the values that will actually be
     # stored rather than whatever the body happened to carry beside the lists.
     craft_ids = _pop_link_ids(data, "craftIds")
+    craft_ids = await craft_master.resolve_tool_crafts(db, data, craft_ids)
     artisan_ids = _pop_link_ids(data, "artisanIds")
     # The plan it returns is a PATCH's business — what changed, and whether a populated relation is
     # being replaced. Nothing is stored yet on this path, so both answers are "no" by construction.
@@ -864,6 +866,7 @@ async def update_tool(
     # being added, and the contributor relation guard needs to know whether the list differs from
     # what is stored at all. A row count could answer neither.
     craft_ids = _pop_link_ids(data, "craftIds")
+    craft_ids = await craft_master.resolve_tool_crafts(db, data, craft_ids, tool=tool)
     artisan_ids = _pop_link_ids(data, "artisanIds")
     links = await _resolve_tool_links(data, craft_ids, artisan_ids, current_user, tool=tool)
     data = await attach_location(data)

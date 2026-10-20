@@ -83,6 +83,11 @@ _CENSUS_TABLES: tuple[tuple[str, str], ...] = (
     ("workshops", "workshop"),
 )
 
+#: THE ONE FILTER A HELD COUNT CARRIES (the master craft list, 2026-10-20). A craft is not a record
+#: somebody documented: it is a row of the list, and a LEGACY or MERGED row is one waiting for an
+#: admin or folded into another. "Crafts" on the public ledger is the list as it stands.
+_HELD_WHERE: dict[str, dict] = {"craft": {"where": {"status": "ACTIVE"}}}
+
 # How long a counted census stays authoritative in this process. Five minutes against a corpus that
 # gains a handful of records on a fieldwork day means the published figure is never meaningfully
 # behind, while the database sees at most eight counts every five minutes NO MATTER how hard this
@@ -200,7 +205,10 @@ async def _count_everything() -> dict[str, int]:
         # The held counts carry no `where`: that absence is what makes `recordsHeld` an honest name.
         # The approved ones are their own reads with their own key, never a filter slipped into those.
         totals = await gather_reads(
-            *(delegate.count() for delegate in delegates),
+            *(
+                delegate.count(**_HELD_WHERE.get(attribute, {}))
+                for delegate, (_, attribute) in zip(delegates, _CENSUS_TABLES, strict=True)
+            ),
             *(getattr(db, attribute).count(where={"status": "APPROVED"}) for _, attribute in reviewed),
         )
     held_totals, approved_totals = totals[: len(delegates)], totals[len(delegates) :]

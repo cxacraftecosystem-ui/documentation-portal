@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "about": "Curated decisions for mapping crafts recorded before the master list (docs/CRAFTS.md). Keyed by the old name; normalised before matching. sourceSerial maps onto a master craft; adopt keeps the craft under its own name in that sub-category; legacy leaves it for an admin; sameAs gives a text the decision of another old name.",
+  "crafts": [
+    {"oldName": "Bagru Hand Block Printing", "sourceSerial": 41},
+    {"oldName": "Bamboo Craft", "sourceSerial": 226, "inPlace": true},
+    {"oldName": "Cane and Bamboo", "sourceSerial": 226},
+    {"oldName": "Bareilly Cane and Bamboo Craft", "sourceSerial": 225},
+    {"oldName": "Bishnupur Terracotta Craft", "adopt": "Terracotta-Pottery-Works"},
+    {"oldName": "Dabu Hand Block Printing", "adopt": "Hand-Block-Printing"},
+    {"oldName": "Ghurni Clay Doll Craft", "adopt": "Figurines-And-Toys"},
+    {"oldName": "Jaipur Blue Pottery", "sourceSerial": 255},
+    {"oldName": "Kalamkari Block Printing", "sourceSerial": 67},
+    {"oldName": "Krishnanagar Terracotta", "adopt": "Terracotta-Pottery-Works"},
+    {"oldName": "Kutch Ajrakh (GI)", "sourceSerial": 46},
+    {"oldName": "Kutch Lippan Mud-and-Mirror Work", "sourceSerial": 331},
+    {"oldName": "Nizamabad Black Pottery", "sourceSerial": 259},
+    {"oldName": "Sanganeri Hand Block Printing", "sourceSerial": 40},
+    {"oldName": "Uttarakhand Ringal (GI)", "sourceSerial": 223}
+  ],
+  "freeText": [
+    {"text": "Dabu Hand Block printing Balotra", "sameAs": "Dabu Hand Block Printing"},
+    {"text": "Portrait, Jammu, Jammu & Kashmir", "legacy": true},
+    {"text": "Test", "legacy": true},
+    {"text": "Test Craft", "legacy": true}
+  ]
+}

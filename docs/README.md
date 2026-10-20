@@ -53,6 +53,8 @@ flowchart TD
 | [ARTISAN_DUPLICATES.md](ARTISAN_DUPLICATES.md) | Duplicate artisans — the server-side score and its bands, the hold at save time on web and Android (offline creates are asked on sync), the admin merge screen, the 30-day undo and redirect, and the ids-only match the designer portal calls |
 | [PERMISSIONS.md](PERMISSIONS.md) | The six-tier ladder, the full capability matrix, the review state machine, the late-submission gate, and the three access systems layered on top |
 | [COVERAGE_MAP.md](COVERAGE_MAP.md) | The coverage view of `/map`: what each district is shaded by, the gaps, the Survey of India outline and the shape checks that hold it, LGD codes resolved at read time, unmatched places and their aliases, and the aggregate feed the designer portal reads |
+| [CRAFTS.md](CRAFTS.md) | The craft master list: the categories, sub-categories and crafts both portals share, the catalogue every picker reads, the craft routes, and how crafts recorded before the list are mapped onto it |
+| [RELEASE.md](RELEASE.md) | The data steps a release takes on production after its migrations, such as mapping crafts onto the master list |
 | [MEDIA_PIPELINE.md](MEDIA_PIPELINE.md) | Every tactic both clients use to get a photograph off a phone on a bad network without losing it |
 | [SECURITY.md](SECURITY.md) | Transport, secrets, PII and Aadhaar handling, the authorisation model's security properties, and the open risk register |
 | [SEARCH.md](SEARCH.md) | One search across both portals: the per-portal index and its triggers, full-text, trigram and (behind the AI flag) meaning ranking, the signed peer search with the designer portal, consent, and the rollout order |
