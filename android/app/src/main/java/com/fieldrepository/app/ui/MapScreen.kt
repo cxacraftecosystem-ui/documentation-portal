@@ -939,13 +939,6 @@ private fun uncertaintyKilometres(precision: String): Float = when (precision) {
     else -> 0f
 }
 
-/**
- * The projection the outline and every pin share, resolved to this canvas's pixels.
- *
- * ONE function places the coastline and the pins, which is what stops a pin drifting off the land it
- * belongs to. World space is unit-width with equal scaling on both axes ([IndiaGeometry]), so the
- * whole frame is a scale and a translate.
- */
 /** The states the places sit in, A to Z: each point's state, and at country level its children's. */
 internal fun placesStateNames(points: List<MapPointDto>): List<String> =
     points.flatMap { point ->
@@ -986,6 +979,13 @@ internal fun placesStateBox(
     return Rect(worlds.minOf { it.x }, worlds.minOf { it.y }, worlds.maxOf { it.x }, worlds.maxOf { it.y })
 }
 
+/**
+ * The projection the outline and every pin share, resolved to this canvas's pixels.
+ *
+ * ONE function places the coastline and the pins, which is what stops a pin drifting off the land it
+ * belongs to. World space is unit-width with equal scaling on both axes ([IndiaGeometry]), so the
+ * whole frame is a scale and a translate.
+ */
 private class MapFrame(val geometry: IndiaGeometry, val widthPx: Float, padPx: Float) {
     /** The outline's width in pixels, inset so a coastal pin has somewhere to sit. */
     val contentWidth: Float = max(1f, widthPx - padPx * 2f)
@@ -1274,9 +1274,9 @@ private fun IndiaMapCanvas(
         // residual is applied as a transform. See `outlineBucketScale`.
         val zoom = rememberMapZoomState()
         val reducedMotion = LocalAppPreferences.current.reducedMotion
-        // New places (a reload, another level or scope) start from the whole map, as the coverage map
-        // does; a chosen state is fitted into the box instead.
-        LaunchedEffect(points, fitBox, frame) {
+        // A chosen state is fitted into the box; all of India is the whole map. A reload of the same
+        // places keeps the view the reader zoomed to, as this map always has.
+        LaunchedEffect(fitBox, frame) {
             val box = fitBox
             if (box == null) {
                 zoom.reset()

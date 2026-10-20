@@ -12,29 +12,29 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.fieldrepository.app.data.ApiClient
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.FieldRepositoryApi
+import com.fieldrepository.app.data.QuestionnaireV2
+import com.fieldrepository.app.data.ScanAction
 import com.fieldrepository.app.data.ScanServices
+import com.fieldrepository.app.data.ScanTarget
 import com.fieldrepository.app.data.TokenStore
-import com.fieldrepository.app.ui.fieldScanServices
-import okhttp3.MediaType.Companion.toMediaType
-import retrofit2.Retrofit
-import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.fieldrepository.app.data.dispatchScan
 import com.fieldrepository.app.ui.AppSearchHeader
-import com.fieldrepository.app.data.ScanAction
 import com.fieldrepository.app.ui.FieldRepositoryTheme
 import com.fieldrepository.app.ui.TopBarScanSheet
-import androidx.test.platform.app.InstrumentationRegistry
-import com.fieldrepository.app.data.QuestionnaireV2
-import com.fieldrepository.app.data.ScanTarget
+import com.fieldrepository.app.ui.fieldScanServices
 import com.fieldrepository.app.ui.runFieldScanAction
-import java.util.UUID
 import kotlinx.coroutines.runBlocking
+import okhttp3.MediaType.Companion.toMediaType
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import retrofit2.Retrofit
+import retrofit2.converter.kotlinx.serialization.asConverterFactory
+import java.util.UUID
 
 /**
  * On a device (REQUIREMENTS_2026-10-20 §6.3): the header's scan button opens the top-bar sheet, and a
