@@ -1682,6 +1682,12 @@ data class WorkshopDetailDto(
     val createdAt: String? = null,
     val createdBy: UserDto? = null,
     /**
+     * Whether the signed-in user may record in this workshop (CONTRIBUTE or above), stamped by
+     * `GET /workshops`. Null from an older server, which reads as "may". Kept by the read cache, so
+     * the questionnaire's default workshop holds offline ([mostRecentRecordableWorkshop]).
+     */
+    val canRecord: Boolean? = null,
+    /**
      * WHICH QUESTIONNAIRE IS IN USE AT THIS WORKSHOP, chosen once by an admin. `null` means "not
      * chosen", which resolves to the DEFAULT instrument at read time — it does not mean the workshop
      * has no questionnaire. The capture form reads this to open on the right instrument without

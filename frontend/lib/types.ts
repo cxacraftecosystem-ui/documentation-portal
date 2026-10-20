@@ -333,6 +333,11 @@ export type Workshop = {
   createdBy?: User;
   createdAt: string;
   /**
+   * Whether the signed-in user may record in this workshop (CONTRIBUTE or above), stamped by
+   * `GET /workshops`. Absent from an older server, which reads as "may".
+   */
+  canRecord?: boolean;
+  /**
    * Idempotency key for an offline create. WRITTEN BY THE OUTBOX, NEVER BY A FORM, and absent on
    * every row nobody replayed.
    *

@@ -218,6 +218,11 @@ async def resolve_workshop_access(user: Any, workshop_id: str) -> WorkshopAccess
     them behind their own grant would make a workshop un-administrable.
     """
     rows = await db.workshopassignment.find_many(where={"workshopId": workshop_id})
+    return access_from_rows(user, rows)
+
+
+def access_from_rows(user: Any, rows: Any) -> WorkshopAccess:
+    """:func:`resolve_workshop_access` over assignment rows already loaded for ONE workshop."""
     uid = get_value(user, "id")
     mine = next((r for r in rows if r.userId == uid), None)
     row_status = enum_str(mine.status) if mine is not None else None
@@ -232,6 +237,23 @@ async def resolve_workshop_access(user: Any, workshop_id: str) -> WorkshopAccess
         # Open workshop: the implicit level applies, and an explicit grant can only raise it.
         level = granted if level_rank(granted) > level_rank(OPEN_WORKSHOP_LEVEL) else OPEN_WORKSHOP_LEVEL
     return WorkshopAccess(level, restricted, row_status, row_level)
+
+
+async def recordable_workshop_ids(user: Any, workshop_ids: list[str]) -> set[str]:
+    """Which of ``workshop_ids`` ``user`` may record in (CONTRIBUTE or above), in one query.
+
+    The list endpoint stamps this on each row as ``canRecord`` so a client can pre-fill the most
+    recent workshop a researcher may record in, offline too, from the cached list.
+    """
+    if not workshop_ids:
+        return set()
+    if is_admin(user):
+        return set(workshop_ids)
+    rows = await db.workshopassignment.find_many(where={"workshopId": {"in": list(workshop_ids)}})
+    by_workshop: dict[str, list[Any]] = {wid: [] for wid in workshop_ids}
+    for row in rows:
+        by_workshop.setdefault(row.workshopId, []).append(row)
+    return {wid for wid in workshop_ids if access_from_rows(user, by_workshop.get(wid, [])).at_least("CONTRIBUTE")}
 
 
 async def workshop_assignee_ids(workshop_id: str) -> set[str]:

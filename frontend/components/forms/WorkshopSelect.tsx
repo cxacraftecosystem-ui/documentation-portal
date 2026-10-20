@@ -52,6 +52,26 @@ export function sortWorkshopsByOccurrence(workshops: Workshop[]): Workshop[] {
 }
 
 /**
+ * The questionnaire's default workshop: the most recent one the user may record in, by the day it
+ * ran (then by when it was entered), or null when there is none. A workshop that has not started
+ * yet is skipped — a session recorded today did not happen there. Reads only the list, so it holds
+ * offline. Kotlin twin: `mostRecentRecordableWorkshop` in `android/.../ui/WorkshopOptions.kt`.
+ */
+export function mostRecentRecordableWorkshop(workshops: Workshop[], now: number = Date.now()): Workshop | null {
+  const today = istDayKey(now);
+  const candidates = workshops.filter((w) => {
+    if (w.canRecord === false) return false;
+    const start = workshopDayKey(w.startDate ?? w.date);
+    return !start || start <= today;
+  });
+  candidates.sort((a, b) => {
+    const day = (workshopDayKey(workshopOccurrenceDate(b)) ?? "").localeCompare(workshopDayKey(workshopOccurrenceDate(a)) ?? "");
+    return day !== 0 ? day : (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
+  });
+  return candidates[0] ?? null;
+}
+
+/**
  * Clean human label: title plus the day it ran. Never an id.
  *
  * "·" (middle dot) is the separator Android uses in `workshopOptionLabel` and in every other record
@@ -258,11 +278,17 @@ export type WorkshopSelection = {
 export function useWorkshopSelection({
   initialWorkshopId,
   isEdit = false,
-  resetKey = null
+  resetKey = null,
+  defaultRule = "running"
 }: {
   initialWorkshopId?: string | null;
   isEdit?: boolean;
   resetKey?: string | null;
+  /**
+   * "running" (record forms): only a workshop running today. "mostRecent" (the questionnaire): the
+   * most recent workshop the user may record in, see `mostRecentRecordableWorkshop`.
+   */
+  defaultRule?: "running" | "mostRecent";
 } = {}): WorkshopSelection {
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
   const [loading, setLoading] = useState(true);
@@ -328,6 +354,11 @@ export function useWorkshopSelection({
   // pre-flight answer (offline, or an older server) the workshop's own dates decide.
   useEffect(() => {
     if (isEdit || touchedRef.current || !workshops.length) return;
+    if (defaultRule === "mostRecent") {
+      const pick = mostRecentRecordableWorkshop(workshops);
+      if (pick) setWorkshopIdState(pick.id);
+      return;
+    }
     let cancelled = false;
     (async () => {
       for (const workshop of workshops.slice(0, DEFAULT_PROBE_LIMIT)) {
@@ -345,7 +376,7 @@ export function useWorkshopSelection({
     return () => {
       cancelled = true;
     };
-  }, [workshops, isEdit, fetchCheck]);
+  }, [workshops, isEdit, fetchCheck, defaultRule]);
 
   // Keep the pre-flight answer in step with the selection (cache hits cost no request).
   useEffect(() => {

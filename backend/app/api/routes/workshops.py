@@ -74,6 +74,7 @@ from app.services.workshop_access import (
     access_denied_detail,
     describe_workshop_submission,
     enum_str,
+    recordable_workshop_ids,
     resolve_workshop_access,
     valid_level,
     workshop_is_curated,
@@ -300,6 +301,12 @@ async def list_workshops(
         relations=RELATIONS,
     )
     encoded = await completeness_module.attach("workshop", public_encode(items), client=db)
+    # ``canRecord``: whether this caller may record in the workshop (CONTRIBUTE or above). Both
+    # clients pre-fill the questionnaire's workshop with the most recent row carrying it, and the
+    # Android read cache keeps it, so the default holds offline.
+    recordable = await recordable_workshop_ids(current_user, [row["id"] for row in encoded])
+    for row in encoded:
+        row["canRecord"] = row["id"] in recordable
     return page_payload(encoded, total, page, page_size)
 
 

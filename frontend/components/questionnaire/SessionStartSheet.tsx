@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
+import { mostRecentRecordableWorkshop } from "@/components/forms/WorkshopSelect";
 import { ConsentQuestion } from "@/components/questionnaire/ConsentQuestion";
 import { PromptDialog } from "@/components/questionnaire/Prompts";
 import { enqueueUnit, onSessionLanded } from "@/components/questionnaire/useSessionQueue";
@@ -113,7 +114,13 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
       if (cancelled) return;
       setWorkshops(w.items ?? []);
       setInstruments(q);
-      setForm((f) => (f.questionnaireId ? f : { ...f, questionnaireId: q.find((i) => i.isDefault)?.id ?? q[0]?.id ?? "" }));
+      // The most recent workshop the researcher may record in is the default; a pick already made stands.
+      const recent = mostRecentRecordableWorkshop(w.items ?? []);
+      setForm((f) => ({
+        ...f,
+        workshopId: f.workshopId || recent?.id || "",
+        questionnaireId: f.questionnaireId || q.find((i) => i.isDefault)?.id || q[0]?.id || ""
+      }));
     });
     return () => {
       cancelled = true;

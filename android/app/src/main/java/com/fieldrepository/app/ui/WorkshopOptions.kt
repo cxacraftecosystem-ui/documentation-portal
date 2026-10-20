@@ -121,6 +121,22 @@ fun workshopBoundaryDay(raw: String?): LocalDate? {
         ?: runCatching { LocalDate.parse(trimmed.take(10)) }.getOrNull()
 }
 
+/**
+ * The questionnaire's default workshop: the most recent one the user may record in, by the day it
+ * ran (then by when it was entered), or null when there is none. A workshop that has not started
+ * yet is skipped. Reads only the (cached) list, so it holds offline. Web twin:
+ * `mostRecentRecordableWorkshop` in `frontend/components/forms/WorkshopSelect.tsx`.
+ */
+fun mostRecentRecordableWorkshop(list: List<WorkshopDetailDto>, today: LocalDate = workshopToday()): WorkshopDetailDto? =
+    list.asSequence()
+        .filter { it.canRecord != false }
+        .filter { w -> workshopBoundaryDay(w.startDate ?: w.date)?.let { !it.isAfter(today) } ?: true }
+        .sortedWith(
+            compareByDescending<WorkshopDetailDto> { workshopBoundaryDay(it.startDate ?: it.date ?: it.createdAt) }
+                .thenByDescending { it.createdAt.orEmpty() }
+        )
+        .firstOrNull()
+
 /** The IST calendar day an instant falls on — the "today" a workshop window is judged against. */
 fun workshopToday(now: Instant = Instant.now()): LocalDate = now.atOffset(WORKSHOP_OFFSET).toLocalDate()
 
