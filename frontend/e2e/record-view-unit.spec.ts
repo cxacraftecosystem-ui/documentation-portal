@@ -158,7 +158,18 @@ test.describe("what a view prints", () => {
 
   test("a missing value says so instead of disappearing", () => {
     const rows = recordFieldRows("craft", { name: "Block printing" });
-    expect(rows.map((r) => r.label)).toEqual(["Local name", "Category", "Place", "Description", "Workshop"]);
+    expect(rows.map((r) => r.label)).toEqual([
+      "Local name",
+      "Category",
+      "Sub-category",
+      "Serial",
+      "GI status",
+      "State of origin",
+      "State of practice",
+      "Place",
+      "Description",
+      "Workshop"
+    ]);
     expect(rows.every((r) => r.value === NOT_RECORDED)).toBe(true);
   });
 

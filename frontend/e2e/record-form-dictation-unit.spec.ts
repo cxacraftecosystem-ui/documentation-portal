@@ -493,18 +493,19 @@ test("every qualifying record-form box has a control, and the skipped ones stay 
     to be adjacent is both tighter and true.
   */
   const dictatedInputs: Array<[string, string, string[]]> = [
-    ["ArtisanForm", ARTISAN_FORM, ["name", "localName", "newCraftName", "place"]],
+    // No craft box on any form: a craft is picked from the master list (`CraftSelect`).
+    ["ArtisanForm", ARTISAN_FORM, ["name", "localName", "place"]],
     [
       "ProductForm",
       PRODUCT_FORM,
-      ["productName", "localName", "craftName", "artisanName", "place", "timeTakenToCompleteProduct", "size"]
+      ["productName", "localName", "artisanName", "place", "timeTakenToCompleteProduct", "size"]
     ],
     [
       "ToolForm",
       TOOL_FORM,
-      ["toolkitName", "localName", "englishName", "craftName", "artisanName", "place", "processUsedIn", "material"]
+      ["toolkitName", "localName", "englishName", "artisanName", "place", "processUsedIn", "material"]
     ],
-    ["crafts", CRAFTS_PAGE, ["name", "localName", "category", "place"]],
+    ["crafts", CRAFTS_PAGE, ["name", "localName", "place"]],
     ["workshops", WORKSHOPS_PAGE, ["title", "place"]],
     ["media", MEDIA_PAGE, ["mediaTitle"]],
     ["LocationFields", LOCATION_FIELDS, ["village"]]
@@ -772,8 +773,8 @@ test("the mount components keep the contracts the forms depend on", () => {
   expect(WORKSHOPS_PAGE, "and so does the workshop form — same key, same trap, same fix").toMatch(
     /key=\{`\$\{editing\?\.id \?\? "new"\}-\$\{formKey\}`\}/
   );
-  expect(ARTISAN_FORM, "discardEntry clears the four boxes that live outside the keyed form").toMatch(
-    /function discardEntry\(\)[\s\S]{0,800}?setNewCraftName\(""\)/
+  expect(ARTISAN_FORM, "discardEntry clears the boxes that live outside the keyed form").toMatch(
+    /function discardEntry\(\)[\s\S]{0,800}?setPlace\(initial\?\.place \?\? ""\)/
   );
   // A dictated village must arm the guard: typing bubbled an `input` event into the form's
   // `onInput={markDirty}`, and a state write does not. This box had never called `onDirty` at all.

@@ -7,6 +7,8 @@ import { Images, Upload } from "lucide-react";
 import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { Field } from "@/components/FormControls";
+import { CraftSelect } from "@/components/forms/CraftSelect";
+import { FieldBlock } from "@/components/tasks/TaskPrimitives";
 import { LocationFields } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { Markdown } from "@/components/Markdown";
@@ -233,7 +235,7 @@ function MediaPageBody() {
   const [linkedEntryId, setLinkedEntryId] = useState(initialTarget?.id ?? "");
   const [notice, setNotice] = useState<string | null>(null);
   // A11: one page of the chosen type, searched on the server when that page is not the whole list.
-  const entryList = useServerSearchList<EntryRow>(linkedType ? LINK_ENDPOINT[linkedType] ?? null : null, "entries");
+  const entryList = useServerSearchList<EntryRow>(linkedType && linkedType !== "craft" ? LINK_ENDPOINT[linkedType] ?? null : null, "entries");
   const offPageEntry = useRecordOffPage<EntryRow>(linkedType ? LINK_ENDPOINT[linkedType] ?? "/media" : "/media", linkedEntryId, entryList.items);
   const entryOptions = useMemo(() => {
     const rows = offPageEntry && !entryList.items.some((row) => row.id === offPageEntry.id) ? [offPageEntry, ...entryList.items] : entryList.items;
@@ -429,7 +431,12 @@ function MediaPageBody() {
             />
           </Field>
         </div>
-        {linkedType ? (
+        {linkedType === "craft" ? (
+          // A craft is picked from the master list, like everywhere else.
+          <FieldBlock label="Linked entry (optional)">
+            <CraftSelect name="linkedRecordId" ariaLabel="Linked entry" value={linkedEntryId} onChange={(next) => setLinkedEntryId(next)} />
+          </FieldBlock>
+        ) : linkedType ? (
           <Field label="Linked entry (optional)">
             <ComboBox
               options={entryOptions}

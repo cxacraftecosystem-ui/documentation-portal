@@ -7,9 +7,11 @@
  * field are the same edits a professor can make from a laptop. Change one, change the other.
  *
  * Chosen for this list: the name-like columns and the prose a reviewer is qualified to fix ("a
- * misspelt village or a craft name in the wrong column").
+ * misspelt village").
  *
  * Deliberately NOT here:
+ * - the craft — it is picked from the master list on the record's own edit screen and is never typed
+ *   (REQUIREMENTS_2026-10-20 §2.4), so a review edit has no craft box;
  * - `status` — that moves through Approve / Reject / Send for revision (or this endpoint's own
  *   `approve` flag), never through a field edit;
  * - the workshop, location and linked-record lists — the API refuses all of them with a 422
@@ -49,7 +51,6 @@ const FIELDS: Record<string, ReviewField[]> = {
   product: [
     { key: "productName", label: "Product name", required: true },
     { key: "localName", label: "Local name" },
-    { key: "craftName", label: "Craft name", required: true },
     { key: "artisanName", label: "Artisan name", required: true },
     { key: "place", label: "Place", required: true },
     { key: "rawMaterialsUsed", label: "Raw materials used", multiline: true },
@@ -61,7 +62,6 @@ const FIELDS: Record<string, ReviewField[]> = {
     { key: "toolkitName", label: "Toolkit name", required: true },
     { key: "localName", label: "Local name" },
     { key: "englishName", label: "English name" },
-    { key: "craftName", label: "Craft name", required: true },
     { key: "artisanName", label: "Artisan name", required: true },
     { key: "place", label: "Place", required: true },
     { key: "processUsedIn", label: "Process used in", multiline: true },

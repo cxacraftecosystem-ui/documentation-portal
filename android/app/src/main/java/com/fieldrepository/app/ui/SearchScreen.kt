@@ -44,6 +44,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -58,7 +59,6 @@ import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.data.occurrenceDate
 import com.fieldrepository.app.data.workshopDisplayTitle
 import com.fieldrepository.app.data.ArtisanDto
-import com.fieldrepository.app.data.CraftDto
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.SearchResultsDto
 import com.fieldrepository.app.data.apiErrorMessage
@@ -339,13 +339,12 @@ fun SearchScreen(
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    var crafts by remember { mutableStateOf<List<CraftDto>>(emptyList()) }
     var artisans by remember { mutableStateOf<List<ArtisanDto>>(emptyList()) }
+    val craftListContext = LocalContext.current.applicationContext
 
     // Craft/artisan pickers are a convenience, not a dependency: if either lookup fails the picker
     // simply stays hidden and the text, place, type and date filters still work.
     LaunchedEffect(Unit) {
-        runCatching { repository.crafts() }.onSuccess { crafts = it }
         runCatching { repository.artisans() }.onSuccess { artisans = it }
     }
 
@@ -454,20 +453,13 @@ fun SearchScreen(
                 // loud: the shared filters above them are one implementation, and an addition
                 // declared here cannot quietly become a second copy that drifts.
                 extraFilters = {
-                    if (crafts.isNotEmpty()) {
-                        SearchDropdownField(
-                            label = "Craft",
-                            options = crafts.map { craft ->
-                                craft.id to listOfNotNull(
-                                    craft.name.ifBlank { "Untitled craft" },
-                                    craft.place?.takeIf { it.isNotBlank() }
-                                ).joinToString(" · ")
-                            },
-                            selectedValue = filters.craftId,
-                            placeholder = "Any craft",
-                            onSelect = { filters = filters.copy(craftId = it) }
-                        )
-                    }
+                    // The master list (`ui/CraftPicker.kt`), offline too once it has been fetched.
+                    CraftPickerField(
+                        label = "Craft",
+                        selectedIds = listOfNotNull(filters.craftId.ifBlank { null }),
+                        placeholder = "Any craft",
+                        refresh = { repository.craftCatalogue(craftListContext) },
+                    ) { ids -> filters = filters.copy(craftId = ids.firstOrNull().orEmpty()) }
                     if (artisans.isNotEmpty()) {
                         SearchDropdownField(
                             label = "Artisan",

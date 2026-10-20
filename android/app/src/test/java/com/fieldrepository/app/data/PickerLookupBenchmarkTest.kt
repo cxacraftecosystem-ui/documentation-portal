@@ -94,8 +94,10 @@ class PickerLookupBenchmarkTest {
             val artisans = repo.artisansPage(pageBudget = LOOKUP_PAGE_BUDGET)
             crafts.items.size + artisans.items.size
         }
+        // Crafts no longer come from the list route at all: they are the craft list's device copy
+        // (`craftLookup`, one ETag request). What is left on the list routes is one artisan page.
         val after = measure { repo ->
-            repo.craftsPage().items.size + repo.artisansPage().items.size
+            repo.artisansPage().items.size
         }
         println("DC-A09 start-up lookups, 2,000 crafts + 2,000 artisans:")
         println("  before: ${before.requests} requests, ${before.rows} rows held, median ${"%.1f".format(before.millis)} ms")
@@ -103,8 +105,8 @@ class PickerLookupBenchmarkTest {
 
         assertEquals(40, before.requests)
         assertEquals(4000, before.rows)
-        assertEquals(2, after.requests)
-        assertEquals(200, after.rows)
+        assertEquals(1, after.requests)
+        assertEquals(100, after.rows)
         assertTrue("one page must cost less than twenty", after.millis < before.millis)
     }
 

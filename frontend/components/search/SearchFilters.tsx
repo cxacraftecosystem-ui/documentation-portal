@@ -14,6 +14,7 @@
 import { useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 
+import { CraftSelect } from "@/components/forms/CraftSelect";
 import { CalendarField } from "@/components/ui/CalendarField";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { SearchableMultiSelect } from "@/components/ui/SearchableSelect";
@@ -60,9 +61,11 @@ export type SearchFilters = {
   /** `yyyy-mm-dd` from the two date inputs; only read when `range` is "custom". */
   from: string;
   to: string;
+  /** One craft from the master list (REQUIREMENTS_2026-10-20 §2.4); "" or absent is every craft. */
+  craftId?: string;
 };
 
-export const EMPTY_SEARCH_FILTERS: SearchFilters = { types: [], place: "", range: "any", from: "", to: "" };
+export const EMPTY_SEARCH_FILTERS: SearchFilters = { types: [], place: "", range: "any", from: "", to: "", craftId: "" };
 
 function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -134,6 +137,7 @@ export function resolveRange(filters: SearchFilters, now: Date = new Date()): { 
 export function searchFilterParams(filters: SearchFilters) {
   return {
     place: filters.place.trim() || undefined,
+    craftId: filters.craftId || undefined,
     types: typeList(filters),
     ...resolveRange(filters)
   };
@@ -160,7 +164,7 @@ export function typeVisible(filters: SearchFilters, type: RecordType) {
  * as a second, disagreeing filter.
  */
 export function activeFilterCount(filters: SearchFilters) {
-  return (filters.place.trim() ? 1 : 0) + (filters.range !== "any" ? 1 : 0);
+  return (filters.place.trim() ? 1 : 0) + (filters.range !== "any" ? 1 : 0) + (filters.craftId ? 1 : 0);
 }
 
 /** True when anything at all is narrowing the search — used to decide whether a bare filter searches. */
@@ -193,7 +197,8 @@ export function filtersFromSearchParams(params: URLSearchParams): SearchFilters 
     place: params.get("place") ?? "",
     range,
     from,
-    to
+    to,
+    craftId: params.get("craftId") ?? ""
   };
 }
 
@@ -204,7 +209,8 @@ export function filtersToLinkParams(filters: SearchFilters) {
     place: filters.place.trim() || undefined,
     range: filters.range !== "any" ? filters.range : undefined,
     from: filters.range === "custom" ? filters.from || undefined : undefined,
-    to: filters.range === "custom" ? filters.to || undefined : undefined
+    to: filters.range === "custom" ? filters.to || undefined : undefined,
+    craftId: filters.craftId || undefined
   };
 }
 
@@ -234,13 +240,16 @@ export function SearchFilterBar({
   value,
   onChange,
   className = "mb-4",
-  showPlace = true
+  showPlace = true,
+  showCraft = false
 }: {
   value: SearchFilters;
   onChange: (next: SearchFilters) => void;
   className?: string;
   /** False where the screen already has its own place box, so the field is not asked for twice. */
   showPlace?: boolean;
+  /** The craft picker, on the screens whose search route filters by `craftId`. */
+  showCraft?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const hidden = activeFilterCount(value);
@@ -318,6 +327,13 @@ export function SearchFilterBar({
               />
             </div>
           </div>
+
+          {showCraft ? (
+            <div className="grid gap-1">
+              <span className="field-label">Craft</span>
+              <CraftSelect ariaLabel="Craft" value={value.craftId ?? ""} onChange={(craftId) => onChange({ ...value, craftId })} placeholder="Any craft" />
+            </div>
+          ) : null}
 
           {value.range === "custom" ? (
             // Only reachable once "Custom range" has been chosen, so the presets — which are what

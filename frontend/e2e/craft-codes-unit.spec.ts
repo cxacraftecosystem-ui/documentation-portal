@@ -28,7 +28,10 @@ test("the heading counts what is left", () => {
 
 test("the crafts page draws the panel for administrators in admin view only", () => {
   const page = readFileSync(join(__dirname, "../app/(protected)/crafts/page.tsx"), "utf8");
-  expect(page).toContain("{isAdmin(user) && adminMode ? <UnmappedCraftsPanel /> : null}");
+  // Under the Needs review tab, which only content admins see; the panel itself needs admin view.
+  expect(page).toContain("const contentAdmin = canAdministerCraftList(user);");
+  expect(page).toContain('{tab === "review" && contentAdmin ? (');
+  expect(page).toContain("{adminMode ? <UnmappedCraftsPanel /> : null}");
   const panel = readFileSync(join(__dirname, "../components/crafts/UnmappedCraftsPanel.tsx"), "utf8");
   expect(panel).toContain('"/craft-codes/unmapped"');
   expect(panel).toContain("if (!items || items.length === 0) return null;");

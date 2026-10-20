@@ -1862,7 +1862,35 @@ class FieldRepository(
     suspend fun processesForWorkshopPage(workshopId: String, search: String? = null): PageResponse<ProcessDetailDto> =
         api.processes(pageSize = 100, workshopId = workshopId.ifBlank { null }, search = search?.ifBlank { null })
 
-    suspend fun crafts(): List<CraftDto> = api.crafts(pageSize = 100).items
+    /**
+     * The craft catalogue, revalidated with its ETag (REQUIREMENTS_2026-10-20 §2.3-§2.4). Returns the
+     * newest list on hand — the server's, or the device's when offline — and throws only when there
+     * is no copy at all. Every craft picker reads this.
+     */
+    suspend fun craftCatalogue(context: Context): CraftCatalogue? =
+        CraftCatalogueCache.refresh(context) { etag ->
+            val response = api.craftCatalogue(ifNoneMatch = etag)
+            when {
+                response.code() == 304 -> CraftCatalogueCache.Fetch.NotModified
+                response.isSuccessful -> CraftCatalogueCache.Fetch.Fresh(
+                    body = response.body()?.string().orEmpty(),
+                    etag = response.headers()["ETag"],
+                )
+                else -> throw HttpException(response)
+            }
+        }
+
+    /**
+     * The app-wide craft lookup: every ACTIVE craft on the list, read from [craftCatalogue] (so it
+     * revalidates at sign-in and on app start, and answers offline from the device copy), in the
+     * lookups' page envelope. It is the whole list, so `carryScopeStateFor` can vouch for an absence.
+     * Throws only when the device has no copy and the server could not be reached.
+     */
+    suspend fun craftLookup(context: Context): PageResponse<CraftDto> {
+        val catalogue = craftCatalogue(context) ?: throw IllegalStateException(CraftCatalogueCache.OFFLINE_FIRST_RUN)
+        val items = catalogue.crafts.map { it.asCraftDto(catalogue) }
+        return PageResponse(items = items, total = items.size, page = 1, pageSize = items.size, pages = 1)
+    }
 
     /**
      * EVERY ROW ONE ACCOUNT CREATED, for My Activity — filtered by the SERVER (`createdBy` on every
@@ -1904,20 +1932,17 @@ class FieldRepository(
 
     // The app-wide search panel's three list sources (`ui/AppSearchSources.kt`). Each is the list
     // route's own `search` filter, so a match means what it means on that list's screen.
-    suspend fun searchCrafts(query: String, pageSize: Int = 10): List<CraftDto> =
-        api.crafts(pageSize = pageSize, search = query.trim()).items
+    // Crafts are searched on the device's craft list, ranked as the pickers rank them.
+    suspend fun searchCrafts(query: String, pageSize: Int = 10): List<CraftDto> {
+        val catalogue = CraftCatalogueCache.catalogue.value ?: return emptyList()
+        return CraftCatalogueCache.search(catalogue, query.trim()).take(pageSize).map { it.asCraftDto(catalogue) }
+    }
 
     suspend fun searchProcesses(query: String, pageSize: Int = 10): List<ProcessDetailDto> =
         api.processes(pageSize = pageSize, search = query.trim()).items
 
     suspend fun searchInterviews(query: String, pageSize: Int = 10): List<QuestionnaireInterviewDetailDto> =
         api.interviews(pageSize = pageSize, search = query.trim()).items
-
-    /**
-     * [crafts] with the envelope kept, for the same reason as [artisansPage]. ONE page: the pickers
-     * reach the rest through the server's search (`ui/ServerSearch.kt`).
-     */
-    suspend fun craftsPage(): PageResponse<CraftDto> = api.crafts(page = 1, pageSize = 100)
 
     suspend fun products(): List<ProductDetailDto> = api.products(pageSize = 100).items
 
@@ -4422,3 +4447,19 @@ internal fun replayRefusedFilesSentence(refused: List<String>, unlinked: Boolean
     return if (unlinked) "${countNoun(refused.size, "file")} didn't upload: $reasons"
     else "Saved, but ${countNoun(refused.size, "file")} didn't upload: $reasons Attach them again."
 }
+
+/** A craft-list row in the shape the lookups and the search panel already read. */
+internal fun CatalogueCraft.asCraftDto(catalogue: CraftCatalogue): CraftDto = CraftDto(
+    id = id,
+    name = name,
+    localName = localName,
+    category = CraftCatalogueCache.categoryName(catalogue, this).ifBlank { null },
+    slug = slug.ifBlank { null },
+    categoryId = categoryId ?: catalogue.subCategoryParent(subCategoryId),
+    subCategoryId = subCategoryId,
+    sourceSerial = sourceSerial,
+    stateOfOrigin = stateOfOrigin,
+    stateOfPractice = stateOfPractice,
+    giStatus = giStatus,
+    status = status ?: "ACTIVE",
+)

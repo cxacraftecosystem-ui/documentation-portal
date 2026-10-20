@@ -168,6 +168,7 @@ export default function SearchPage() {
           page: unifiedFocus?.page,
           limit: unifiedFocus ? PAGE_SIZE : undefined,
           place: params.place,
+          craftId: params.craftId,
           dateFrom: params.dateFrom,
           dateTo: params.dateTo,
           workshopIds: scope.queryValue
@@ -322,7 +323,7 @@ export default function SearchPage() {
         the multi-select are carefully avoiding. It is applied with the text, on Search, because it
         is typed — the panel's filters are clicked, so they apply immediately.
       */}
-      <SearchFilterBar value={filters} onChange={changeFilters} showPlace={false} />
+      <SearchFilterBar value={filters} onChange={changeFilters} showPlace={false} showCraft />
 
       {/* The workshop scope applies IMMEDIATELY, like the panel filters and unlike the typed boxes
           above: it is a picker, and a picker that needed a second button press to take effect reads

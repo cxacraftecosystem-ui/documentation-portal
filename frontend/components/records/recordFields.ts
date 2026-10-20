@@ -138,9 +138,16 @@ export function recordFieldRows(type: RecordViewType, record: Loose): RecordFiel
         { label: "Workshop", value: workshopTitle(record) }
       ];
     case "craft":
+      // The master list's attributes (REQUIREMENTS_2026-10-20 §2.6); the server writes `category` as
+      // the category's name and may hydrate `subCategory`.
       return [
         { label: "Local name", value: text(record.localName) },
         { label: "Category", value: text(record.category) },
+        { label: "Sub-category", value: name(record.subCategory) },
+        { label: "Serial", value: text(record.sourceSerial) },
+        { label: "GI status", value: record.giStatus === "GI" ? "GI" : record.giStatus === "NON_GI" ? "Non GI" : NOT_RECORDED },
+        { label: "State of origin", value: list((record.stateOfOrigin as unknown[] | undefined) ?? []) },
+        { label: "State of practice", value: list((record.stateOfPractice as unknown[] | undefined) ?? []) },
         { label: "Place", value: text(record.place) },
         { label: "Description", value: text(record.description) },
         { label: "Workshop", value: workshopTitle(record) }

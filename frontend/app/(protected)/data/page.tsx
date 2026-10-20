@@ -686,7 +686,7 @@ const BROWSE_TYPES: Record<string, BrowseTypeDef> = {
     linkedType: "craft",
     editHref: (id) => `/crafts?edit=${id}`,
     load: async () => ({
-      rows: sortRecent((await listResource<Craft & WithCreator>("/crafts", { pageSize: 100 })).items).map((x) => ({
+      rows: sortRecent((await listResource<Craft & WithCreator>("/crafts", { pageSize: 500 })).items).map((x) => ({
         id: x.id,
         name: x.place ? `${x.name} · ${x.place}` : x.name,
         creator: x.createdBy?.name ?? "-",

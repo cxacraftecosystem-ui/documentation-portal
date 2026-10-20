@@ -451,23 +451,28 @@ class RecordProseTest {
      * think about, and the edit shows up in a diff as an intention rather than as a side effect.
      */
     private val RECORD_FORM_TOTALS: Map<RecordFormKind, Pair<Int, Int>> = mapOf(
-        RecordFormKind.CRAFT to (5 to 1),
+        // 2026-10-20: the craft list. Category left the dictated set and the craft form gained
+        // `subCategoryId`, the two state lists and `giStatus`, all picked: 5 → 4 dictated, 1 → 6.
+        RecordFormKind.CRAFT to (4 to 6),
         // 2026-09-14: 13 → 15. `craftStartDate` and `experienceMonths` reached the wire with the
         // record-parity work; both are excluded, so no dictated total moves anywhere below.
         // 16 since 2026-10-17: `aadhaarNotShared`, the C18 "Not shared by artisan" switch.
-        RecordFormKind.ARTISAN to (6 to 17),
+        // 2026-10-20: `craftName` is derived from the craft picked, never typed: 6 → 5, 17 → 18.
+        RecordFormKind.ARTISAN to (5 to 18),
         // 2026-09-14: 6 → 7 for `workshopType`.
         RecordFormKind.WORKSHOP to (4 to 7),
         // 2026-09-14: 11 → 12 for `measurementMethods`, which the measurement-provenance work put on
         // the wire. Excluded, and not because nobody got round to it: it is not a box on any client
         // and records how the three dimensions beside it were obtained. No dictated total moves.
-        RecordFormKind.PRODUCT to (11 to 12),
+        // 2026-10-20: `craftName` is derived from the craft picked: 11 → 10, 12 → 13.
+        RecordFormKind.PRODUCT to (10 to 13),
         // 2026-09-14: 15 → 16 for `heightInches`, the third of the tool's inch triple, then 16 → 17
         // for `measurementMethods` alongside the product form's.
         // 2026-09-15: 17 → 19 for `craftIds` and `artisanIds`, the two link lists the multi-craft
         // work put on the tool body. Both excluded — they are ticked, never typed, exactly as the
         // workshop form's pair of the same names already is — so no dictated total moves.
-        RecordFormKind.TOOL to (10 to 20),
+        // 2026-10-20: `craftName` is derived from the crafts picked: 10 → 9, 20 → 21.
+        RecordFormKind.TOOL to (9 to 21),
         RecordFormKind.PROCESS to (3 to 8),
         RecordFormKind.MEDIA to (2 to 2),
         RecordFormKind.LOCATION to (1 to 12),
@@ -774,10 +779,8 @@ class RecordProseTest {
         assertTrue(recordDictates(RecordFormKind.WORKSHOP, "title"))
         assertTrue(recordDictates(RecordFormKind.WORKSHOP, "place"))
         assertTrue(recordDictates(RecordFormKind.PRODUCT, "productName"))
-        assertTrue(recordDictates(RecordFormKind.PRODUCT, "craftName"))
         assertTrue(recordDictates(RecordFormKind.PRODUCT, "artisanName"))
         assertTrue(recordDictates(RecordFormKind.TOOL, "toolkitName"))
-        assertTrue(recordDictates(RecordFormKind.TOOL, "craftName"))
         assertTrue(recordDictates(RecordFormKind.PROCESS, "name"))
         assertTrue(recordDictates(RecordFormKind.PROCESS, "stepName"))
 

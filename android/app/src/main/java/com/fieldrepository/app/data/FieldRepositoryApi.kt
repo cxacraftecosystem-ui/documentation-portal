@@ -357,6 +357,16 @@ interface FieldRepositoryApi {
     @GET("records/completeness-rules")
     suspend fun completenessRules(): ResponseBody
 
+    /**
+     * The master craft list every picker reads (REQUIREMENTS_2026-10-20 §2.3), revalidated with
+     * `If-None-Match`: a 304 answers "unchanged" with no body. Raw, because the cache stores the text.
+     */
+    @GET("crafts/catalogue")
+    suspend fun craftCatalogue(
+        @Header("If-None-Match") ifNoneMatch: String? = null,
+        @Query("includeInactive") includeInactive: Boolean? = null,
+    ): Response<ResponseBody>
+
     @GET("crafts")
     suspend fun crafts(
         @Query("page") page: Int = 1,

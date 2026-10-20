@@ -90,17 +90,17 @@ record under the workshop it was made in.
 
 Add the craft being documented so artisans, products and tools have something to hang off.
 
-**What the screen asks for:** Craft name *(required)*, Local name, Category, Place, Description,
-Craft media.
+**What the screen asks for:** Craft name *(required)*, Local name, Category, Sub-category
+*(required)*, State of origin, State of practice, GI status, Place, Description, Craft media.
 
-**Why it exists.** Craft is the shared vocabulary everyone uses: artisans link to a craft,
-products and tools inherit the craft name from it, and the Data Browser groups every workshop's
-contents by craft. Adding it once keeps spellings consistent across everyone's records.
+**Why it exists.** Craft is the shared vocabulary everyone uses: the master list of 455 crafts in 9
+categories and 36 sub-categories, the same in both portals. Artisans, products, tools and workshops
+pick their craft from it, so every record names a craft the same way.
 
 **Watch out for:**
 
-- Check the list first — if the craft already exists, reuse it rather than creating a near-duplicate
-  spelling.
+- Search the list first — it already holds the master list. Add a craft only when it is genuinely
+  missing.
 - The local name matters as much as the English one. Record what the community actually calls it.
 
 ---
@@ -111,8 +111,8 @@ contents by craft. Adding it once keeps spellings consistent across everyone's r
 
 Record the person: who they are, where they work, how to reach them, and what they have learnt.
 
-**What the screen asks for:** Name *(required)*, Local name, Workshop, **Craft** *(required)*, Or new
-craft name, Place *(required)*, Gender, **Date of birth** *(required)*, **Craft start date**
+**What the screen asks for:** Name *(required)*, Local name, Workshop, **Craft** *(required)*, Place
+*(required)*, Gender, **Date of birth** *(required)*, **Craft start date**
 *(required)*, Experience (years), Experience (months), Phone, Email, Address, Notes, **Aadhaar
 number**, **Artisan Pehchan Card available** and its number, **Do's** *(required)*, **Don'ts**
 *(required)*, Artisan media, Location (device fix **and** stated address).
@@ -124,8 +124,7 @@ own hard-won craft knowledge: the part of the archive that cannot be reconstruct
 **Watch out for:**
 
 - Do's and Don'ts are **required**. Press <kbd>Enter</kbd> for each new point — one lesson per line.
-- You must either select an existing craft **or** type a new craft name. The form will not save with
-  neither.
+- Pick the craft from the list. Type a few letters to search by name, state or sub-category.
 - **The Aadhaar number is the deduplication key.** It is checked as you type and again on save; if
   the artisan is already in the archive you are shown the existing record. That is the field working —
   add to that record rather than making a second one. The number is validated (a mistyped digit is
@@ -156,7 +155,7 @@ Record one thing this artisan makes, with its measurements, economics and photog
 
 **What the screen asks for:** Product name *(required)*, Local name, Workshop, Product type, Artisan
 *(required)* — picking one fills the craft, name and place — or, with **Artisan not on record**
-switched on, Linked craft (fills craft name), Craft name *(required)*, Artisan name *(required)* and
+switched on, Craft *(required)*, Artisan name *(required)* and
 Place *(required)*; then Time taken to complete, Size, Length (inches), Breadth
 (inches), Height (inches), Cost of making, Selling price, Market demand, Raw materials used, Main
 tools used, Function or use, Remarks, Product media, Location (GPS fix or map pin).
@@ -166,12 +165,10 @@ making, selling price and market demand are the fields researchers compare acros
 
 **Watch out for:**
 
-- **Pick the linked craft first.** The artisan dropdown stays disabled until a craft is chosen, and
-  then only lists that craft's artisans.
+- **Pick the artisan first.** It fills the craft, name and place.
 - Use **"Document using grid"** to photograph the piece against the measuring grid: it fills length,
   breadth and height for you *and* stores the photo as evidence.
-- Choosing a linked artisan fills the artisan name and place; choosing a linked craft fills the
-  craft name.
+- With an artisan not on record, pick the craft from the list; its name follows.
 
 ---
 
@@ -207,7 +204,7 @@ Record the toolkit the artisan uses: what it is made of, how big it is, who made
 to replace.
 
 **What the screen asks for:** Toolkit name *(required)*, Local name, English name, Workshop, Linked
-crafts (fills craft name), Craft name *(required)*, Linked artisans (fills artisan + place), Artisan
+crafts *(required)*, Linked artisans (fills artisan + place), Artisan
 name *(required)*, Place *(required)*, Process used in, Material, Years in use, Height (cm), Width
 (cm), Length (inches), Breadth (inches), Height (inches), Thickness, Weight, Radius, Maker,
 Tradition type, Replacement cost, Suggestions for improvement, Remarks, Process stages, Tool media,

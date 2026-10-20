@@ -4,10 +4,13 @@ import { Link2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Field } from "@/components/FormControls";
+import { CraftSelect } from "@/components/forms/CraftSelect";
+import { FieldBlock } from "@/components/tasks/TaskPrimitives";
 import { CarryContextBanner, carryScope, useCarryContext, type CarryScopeState } from "@/components/forms/CarryContextBanner";
 import { Dropdown, MultiSelectDropdown } from "@/components/ui/Dropdown";
 import { apiFetch, listResource } from "@/lib/api";
-import type { Artisan, Craft, ToolDocumentation } from "@/lib/types";
+import { useCraftCatalogue } from "@/lib/craftCatalogue";
+import type { Artisan, ToolDocumentation } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { countNoun } from "@/lib/format";
 
@@ -18,7 +21,8 @@ import { countNoun } from "@/lib/format";
  */
 export function ToolAssignmentSection() {
   const [tools, setTools] = useState<ToolDocumentation[]>([]);
-  const [crafts, setCrafts] = useState<Craft[]>([]);
+  const catalogue = useCraftCatalogue();
+  const crafts = useMemo(() => catalogue.catalogue?.crafts ?? [], [catalogue.catalogue]);
   const [artisans, setArtisans] = useState<Artisan[]>([]);
   const [toolId, setToolId] = useState("");
   const [craftIds, setCraftIds] = useState<string[]>([]);
@@ -34,13 +38,11 @@ export function ToolAssignmentSection() {
 
   useEffect(() => {
     (async () => {
-      const [toolPage, craftPage, artisanPage] = await Promise.all([
+      const [toolPage, artisanPage] = await Promise.all([
         listResource<ToolDocumentation>("/tools", { pageSize: 100 }),
-        listResource<Craft>("/crafts", { pageSize: 100 }),
         listResource<Artisan>("/artisans", { pageSize: 100 })
       ]);
       setTools(toolPage.items);
-      setCrafts(craftPage.items);
       setArtisans(artisanPage.items);
       setReferenceState("loaded");
     })().catch((err) => {
@@ -58,7 +60,7 @@ export function ToolAssignmentSection() {
     // list" answers both "can this researcher still reach it" and "could this panel show it".
     scopes: [
       carryScope("artisan", referenceState, artisans),
-      carryScope("craft", referenceState, crafts),
+      carryScope("craft", catalogue.catalogue ? referenceState : catalogue.loading ? "pending" : "unavailable", crafts),
       carryScope("tool", referenceState, tools)
     ],
     // The panel assigns a tool to artisans of a craft; it has no workshop, product or process
@@ -189,14 +191,9 @@ export function ToolAssignmentSection() {
             options={tools.map((tool) => ({ value: tool.id, label: `${tool.toolkitName} — ${tool.craftName} · ${tool.artisanName}` }))}
           />
         </Field>
-        <Field label="Crafts">
-          <MultiSelectDropdown
-            values={craftIds}
-            onChange={setCraftIds}
-            placeholder="Select crafts"
-            options={crafts.map((craft) => ({ value: craft.id, label: craft.name }))}
-          />
-        </Field>
+        <FieldBlock label="Crafts">
+          <CraftSelect multiple ariaLabel="Crafts" value={craftIds} onChange={(next) => setCraftIds(next)} />
+        </FieldBlock>
         <Field label="Artisans of selected crafts">
           <MultiSelectDropdown
             values={artisanIds}

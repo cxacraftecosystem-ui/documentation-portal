@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 
 import { workshopOccurrenceDate } from "@/components/forms/WorkshopSelect";
+import { CraftSelect } from "@/components/forms/CraftSelect";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { listResource } from "@/lib/api";
-import type { Artisan, Craft, Workshop } from "@/lib/types";
+import type { Artisan, Workshop } from "@/lib/types";
 
 /** Workshop rows from the list API include linked artisans and crafts (crafts not yet in the TS type). */
 export type FunnelWorkshop = Workshop & {
@@ -52,11 +53,10 @@ export function FunnelFilters({
   restore?: () => FunnelValue | null;
 }) {
   const [workshops, setWorkshops] = useState<FunnelWorkshop[]>([]);
-  const [crafts, setCrafts] = useState<Craft[]>([]);
   const [artisans, setArtisans] = useState<Artisan[]>([]);
   const initialised = useRef(false);
 
-  // Load workshops + crafts once and default the workshop filter to the workshop that happened last.
+  // Load workshops once and default the workshop filter to the workshop that happened last.
   //
   // This default is deliberate — a researcher standing in a workshop wants that workshop's records —
   // but it has one failure mode worth naming, because it already bit once. `workshopId` is a recent
@@ -70,21 +70,15 @@ export function FunnelFilters({
     initialised.current = true;
     (async () => {
       let workshopRows: FunnelWorkshop[] = [];
-      let craftRows: Craft[] = [];
       try {
-        const [workshopResult, craftResult] = await Promise.all([
-          listResource<FunnelWorkshop>("/workshops", { pageSize: 100 }),
-          listResource<Craft>("/crafts", { pageSize: 100 })
-        ]);
+        const workshopResult = await listResource<FunnelWorkshop>("/workshops", { pageSize: 100 });
         // The API orders workshops by createdAt; the filter wants the most recently HELD workshop
         // first, so re-sort on the occurrence date (startDate ?? date ?? createdAt), newest first.
         workshopRows = [...workshopResult.items].sort((a, b) => occurredAt(b).localeCompare(occurredAt(a)));
-        craftRows = craftResult.items;
       } catch {
         // Filters degrade to "All" — the parent list still loads unfiltered.
       }
       setWorkshops(workshopRows);
-      setCrafts(craftRows);
       const latest = workshopRows[0] ?? null;
       // A remembered workshop that has since gone (deleted, or no longer visible to this account)
       // falls back to the default rather than filtering by an id nothing on screen can name.
@@ -122,7 +116,6 @@ export function FunnelFilters({
       .map((link) => link.craft?.id ?? link.craftId)
       .filter((id): id is string => Boolean(id))
   );
-  const craftOptions = workshopCraftIds.size ? crafts.filter((craft) => workshopCraftIds.has(craft.id)) : crafts;
 
   const workshopArtisanIds = new Set((selectedWorkshop?.artisans ?? []).map((link) => link.artisan.id));
   const artisanOptions = workshopArtisanIds.size ? artisans.filter((artisan) => workshopArtisanIds.has(artisan.id)) : artisans;
@@ -156,12 +149,13 @@ export function FunnelFilters({
           ...workshops.map((workshop) => ({ value: workshop.id, label: workshop.title }))
         ]}
       />
-      <Dropdown
+      <CraftSelect
         ariaLabel="Filter by craft"
         value={value.craftId}
-        onChange={selectCraft}
-        advanceOnSelect={false}
-        options={[{ value: "", label: "All crafts" }, ...craftOptions.map((craft) => ({ value: craft.id, label: craft.name }))]}
+        placeholder="All crafts"
+        // Narrowed to the workshop's own crafts when it has any; every craft on the list otherwise.
+        allowedIds={workshopCraftIds.size ? [...workshopCraftIds] : undefined}
+        onChange={(craftId) => selectCraft(craftId)}
       />
       {showArtisan ? (
         <Dropdown

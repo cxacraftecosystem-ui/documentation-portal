@@ -3,6 +3,7 @@ package com.fieldrepository.app.ui
 import com.fieldrepository.app.data.StandardValues
 import com.fieldrepository.app.data.ArtisanDetailDto
 import com.fieldrepository.app.data.ArtisanDto
+import com.fieldrepository.app.data.CraftCatalogueCache
 import com.fieldrepository.app.data.MediaFileDto
 import com.fieldrepository.app.data.QuestionnaireQuestionDto
 import java.time.LocalDate
@@ -62,7 +63,8 @@ fun artisanFieldValue(field: String, artisan: ArtisanDetailDto, interviewer: Str
     when (field) {
         "name" -> artisan.name
         "localName" -> artisan.localName.orEmpty()
-        "craft" -> artisan.craft?.name.orEmpty()
+        // The master list's name for the craft when this device holds the list.
+        "craft" -> CraftCatalogueCache.catalogue.value?.craft(artisan.craftId)?.name ?: artisan.craft?.name.orEmpty()
         "place" -> artisan.place
         "gender" -> artisan.gender.orEmpty()
         "phone" -> StandardValues.formatPhone(artisan.phoneCountryCode, artisan.phone).orEmpty()

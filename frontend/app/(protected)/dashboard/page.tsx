@@ -35,6 +35,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch } from "@/lib/api";
+import { useCraftCatalogue } from "@/lib/craftCatalogue";
 import { formatDateTime } from "@/lib/format";
 import { recordViewHref } from "@/lib/recordView";
 import {
@@ -117,6 +118,7 @@ export default function DashboardPage() {
 function DashboardView() {
   const { user } = useAuth();
   const { adminMode } = useAdminView();
+  const craftCatalogue = useCraftCatalogue();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -201,6 +203,10 @@ function DashboardView() {
     ? [
         { label: "Artisans", value: stats.totalArtisans, icon: Users, href: "/search?type=artisans" },
         { label: "Workshops", value: stats.totalWorkshops, icon: MapPinned, href: "/search?type=workshops" },
+        // The craft master list's live count: ACTIVE crafts only (REQUIREMENTS_2026-10-20 §2.7).
+        ...(craftCatalogue.catalogue
+          ? [{ label: "Crafts", value: craftCatalogue.catalogue.crafts.length, icon: Brush, href: "/crafts" }]
+          : []),
         { label: "Products", value: stats.totalProductRecords, icon: Boxes, href: "/search?type=products" },
         { label: "Tools", value: stats.totalToolRecords, icon: Hammer, href: "/search?type=tools" },
         { label: "Media files", value: stats.totalMediaFiles, icon: Camera, href: "/search?type=media" },
