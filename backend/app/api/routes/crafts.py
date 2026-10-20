@@ -153,7 +153,7 @@ async def craft_catalogue(
     catalogue = await craft_master.build_catalogue(db, include_inactive=includeInactive)
     etag = f'"{catalogue["version"]}"'
     headers = {"ETag": etag, "Cache-Control": "private, no-cache"}
-    if etag in [tag.strip() for tag in (request.headers.get("if-none-match") or "").split(",")]:
+    if craft_master.etag_matches(request.headers.get("if-none-match"), etag):
         return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
     response.headers.update(headers)
     return catalogue
@@ -165,8 +165,13 @@ async def craft_review_queue(_: Any = Depends(require_content_admin)) -> dict[st
 
     ``crafts``: every LEGACY craft, with its references and what the mapping would do with it (a
     curated or exact target, or a fuzzy ``proposed`` suggestion). ``records``: every record whose
-    typed craft text matched nothing, kept in ``legacyCraftText`` or a free-text ``craftName``. The
-    same report as ``python -m app.scripts.map_crafts --dry-run``; it changes nothing.
+    typed craft text is not linked to a craft, kept in ``legacyCraftText`` or a free-text
+    ``craftName``. The same report as ``python -m app.scripts.map_crafts --dry-run``; it changes
+    nothing.
+
+    A record whose text now matches a craft (``action: "link"``, say after an admin added the craft
+    it names) stays in ``records`` until the link is made: only ``map_crafts --apply`` makes it, so
+    leaving it out would hide an unlinked record from everyone.
     """
     from app.scripts import map_crafts
 
@@ -188,7 +193,7 @@ async def craft_review_queue(_: Any = Depends(require_content_admin)) -> dict[st
 
     return {
         "crafts": [entry(r) for r in rows if r.kind == "craft"],
-        "records": [entry(r) for r in rows if r.kind == "freeText" and r.action != "link"],
+        "records": [entry(r) for r in rows if r.kind == "freeText"],
     }
 
 
@@ -334,12 +339,14 @@ async def _master_list_update(craft: Any, data: dict[str, Any]) -> None:
 @router.delete("/{craft_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_craft(craft_id: str, current_user: Any = Depends(get_current_user)) -> None:
     assert_can_delete(current_user)
-    await require_record(db.craft, craft_id)
+    craft = await require_record(db.craft, craft_id)
     # A referenced craft is never deleted: merging keeps every record's link and the old name.
     references = await craft_master.reference_count(db, craft_id)
     if references:
         raise craft_master.craft_error("CRAFT_IN_USE", status.HTTP_409_CONFLICT, referenceCount=references)
-    await db.craft.delete(where={"id": craft_id})
+    # A master craft leaves a tombstone, so revising the master file never brings it back.
+    async with db.tx() as tx:
+        await craft_master.delete_craft(tx, craft, user_id=current_user.id)
 
 
 @router.post("/{craft_id}/merge")

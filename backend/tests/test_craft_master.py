@@ -34,7 +34,30 @@ SHARED_FILES = (
     "backend/tests/test_craft_master.py",
     "backend/tests/test_craft_master_migration.py",
     "backend/tests/test_map_crafts.py",
+    "backend/tests/test_craft_catalogue_api.py",
+    "docs/CRAFTS.md",
 )
+
+#: THE SHARED FILES, PINNED. CI checks out one repository, so the sibling comparison below skips
+#: there; these digests are what CI can check. Both repositories carry this same table, so a shared
+#: file changed in one repository only fails here until the change is made in both and the digest
+#: is updated in both. sha256 of the file with CRLF read as LF. This file pins everything but itself;
+#: the sibling comparison covers it on any machine with both checkouts.
+SHARED_DIGESTS: dict[str, str] = {
+    "backend/app/data/craft_master_list.json": "3ab7073e644bfcd96e580dc53e4ad00633ef70a81de3475a0fd552c7a80019a2",
+    "backend/app/data/craft_master_aliases.json": "dc0c3ed2132ebd67d70fa688fd6152895585ae3d907ee51e2b88221adc630ba1",
+    "backend/app/services/craft_master.py": "a99fca81c62c6423f60ffb4dff3d08589d8bb5dab9bdcc777c7eb5eba6f27b7f",
+    "backend/app/services/linked_names.py": "c3645205f672aa2a41374c049ea962689b0513925e5fcbbf5cd234b3a4c9f95a",
+    "backend/app/api/routes/craft_categories.py": "19563aa23d85ae31b5d10e448ae9fa6503808dcdbf5a88a3f9956fd5cd4b1b02",
+    "backend/app/scripts/map_crafts.py": "359b9c05aa5110af0838ab5bf45215fb1386261530841b620c052910c3b6217f",
+    "backend/app/scripts/sync_craft_master.py": "4d5a7701faa59b7812cf6770b0821f4606cdae0fbe0d0b3620067693f77f19e1",
+    "backend/scripts/gen_craft_master_sql.py": "40cfa9f474240748d6ab4adc50f6ba9ea8c6ba01e804219b0cd2dd2ff066b669",
+    "backend/prisma/migrations/20261104090000_craft_master_list/migration.sql": "940f7b5190d0cb669748e4f80c09001034f01c05d52901c5f248007da37158a4",
+    "backend/tests/test_craft_master_migration.py": "b05ff4432be56497a7b40f2e9b7b50603b5d54dd9c00d2216574c53c76dd720d",
+    "backend/tests/test_map_crafts.py": "b3d084dfe3e98fa06ec4f5908cbdda6ed5d505b517dd8d482bd3f43c521e63dc",
+    "backend/tests/test_craft_catalogue_api.py": "230d41bc4ad1bfbb548e84bf3f71face0c3f79d1a4a895db82980832005c4ed4",
+    "docs/CRAFTS.md": "faa3c82feaae70495152bc4928287cb50c18c020335c1da2b213979703234193",
+}
 
 
 def test_the_list_holds_455_crafts_in_9_categories_and_36_sub_categories():
@@ -186,6 +209,19 @@ def test_the_master_list_is_the_one_the_requirements_name():
     digest = hashlib.sha256(_normalised(BACKEND / "app" / "data" / "craft_master_list.json")).hexdigest()
     assert digest == "3ab7073e644bfcd96e580dc53e4ad00633ef70a81de3475a0fd552c7a80019a2"
     assert len(json.loads((BACKEND / "app" / "data" / "craft_master_list.json").read_text(encoding="utf-8"))) == 455
+
+
+def test_every_shared_file_but_this_one_is_pinned():
+    assert set(SHARED_DIGESTS) == set(SHARED_FILES) - {"backend/tests/test_craft_master.py"}
+
+
+@pytest.mark.parametrize("rel", sorted(SHARED_DIGESTS))
+def test_the_shared_file_is_the_pinned_one(rel):
+    digest = hashlib.sha256(_normalised(ROOT / rel)).hexdigest()
+    assert digest == SHARED_DIGESTS[rel], (
+        f"{rel} changed. It is shared with the sibling portal: make the same change there, then "
+        f"update its digest here in both repositories to {digest}."
+    )
 
 
 @pytest.mark.parametrize("rel", SHARED_FILES)

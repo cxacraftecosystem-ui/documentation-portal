@@ -34,20 +34,20 @@ The JSON, the aliases file, the service, the taxonomy routes, both scripts, the 
 
 All routes need a signed-in user.
 
-- `GET /crafts/catalogue` is the one list every picker reads: ACTIVE crafts in category, sub-category and serial order, with the categories and their sub-categories. It sends an `ETag`; a matching `If-None-Match` answers 304. `?includeInactive=true` (content admins) adds LEGACY and MERGED rows with `status`, `mergedIntoId` and `referenceCount`.
+- `GET /crafts/catalogue` is the one list every picker reads: ACTIVE crafts in category, sub-category and serial order, with the categories and their sub-categories. It sends an `ETag`; a matching `If-None-Match`, strong or weak (`W/`), answers 304. `?includeInactive=true` (content admins) adds LEGACY and MERGED rows with `status`, `mergedIntoId` and `referenceCount`.
 - `GET /crafts` keeps its old shape for the admin table and old clients, with filters `categoryId`, `subCategoryId`, `giStatus`, `state` and `status` (default `ACTIVE`), pages of up to 500, and each row's `slug`, `categoryId`, `subCategoryId`, `sourceSerial`, states, `giStatus`, `isCatchAll`, `status` and `referenceCount`.
 - `POST /crafts` needs `subCategoryId` and `giStatus`. `PATCH /crafts/{id}` keeps a renamed craft's old name as an alias. Both are for craft managers (Professor and above).
-- `DELETE /crafts/{id}` is `assert_can_delete`, and a craft any record uses is refused with `CRAFT_IN_USE`: merge it instead.
+- `DELETE /crafts/{id}` is `assert_can_delete`, and a craft any record uses is refused with `CRAFT_IN_USE`: merge it instead. Deleting a craft from the master file leaves a tombstone (a `RecordRevision` of type `craftDeleted` whose `recordId` is the slug), so revising the list never brings it back.
 - `POST /crafts/{id}/merge` with `{intoId}` and `POST /crafts/{id}/adopt` with `{subCategoryId}` are for content admins.
-- `GET /crafts/review` (content admins) is the "Needs review" queue: every LEGACY craft with its references and what the mapping would do with it (including a fuzzy suggestion), and every record whose typed craft text matched nothing. It is the mapping script's dry run, and changes nothing.
+- `GET /crafts/review` (content admins) is the "Needs review" queue: every LEGACY craft with its references and what the mapping would do with it (including a fuzzy suggestion), and every record whose typed craft text is not linked to a craft. A record whose text now matches a craft (`action: "link"`) stays listed until `map_crafts --apply` links it. It is the mapping script's dry run, and changes nothing.
 - `GET`, `POST`, `PATCH` and `DELETE` on `/craft-categories` and `/craft-sub-categories` manage the taxonomy. Writes are for content admins, deletes are `assert_can_delete`, and a category or sub-category that still holds anything is refused.
 
 Refusals use the `{detail: {code, message}}` shape: `CRAFT_EXISTS`, `CRAFT_IN_USE`, `CATEGORY_NOT_EMPTY`, `SUB_CATEGORY_NOT_EMPTY` and `CRAFT_NOT_IN_LIST`.
 
 ### Records that name a craft
 
-- A changed `craftId` on an artisan, product, tool or (Designer Repository) design workshop or plan entry must be ACTIVE; otherwise 422 `CRAFT_NOT_IN_LIST`. Sending back the craft a record already has is never refused.
-- A typed `craftName` is accepted only from old clients and offline outboxes. It is matched exactly, then by alias. A match sets `craftId`. No match saves the record with no craft and keeps the text in `extraMetadata.legacyCraftText` for the review queue. Nothing creates a craft from typed text.
+- A changed `craftId` on an artisan, product, tool or (Designer Repository) design workshop, stage 1 `craftRef` or plan entry must be ACTIVE; otherwise 422 `CRAFT_NOT_IN_LIST`. Sending back the craft a record already has is never refused.
+- A typed `craftName` is accepted only from old clients and offline outboxes. It is matched exactly, then by alias. A match sets `craftId`. No match saves the record with no craft and keeps the text in `extraMetadata.legacyCraftText` for the review queue. A tool saved with no craft ticked (`craftIds` absent or empty) and a typed name is treated the same way. Nothing creates a craft from typed text.
 - A product's and a tool's `craftName` are copies derived from the linked crafts.
 
 ## Mapping crafts recorded before the list
@@ -91,7 +91,13 @@ The release order is in [RELEASE.md](RELEASE.md).
 
 ## Revising the list
 
-Edit `backend/app/data/craft_master_list.json` in both repositories, byte for byte, then run `python -m app.scripts.sync_craft_master`. It upserts by slug and never deletes; a seeded craft that left the file becomes LEGACY.
+Edit `backend/app/data/craft_master_list.json` in both repositories, byte for byte, then run `python -m app.scripts.sync_craft_master` (`--dry-run` first). It upserts by slug and never deletes; a seeded craft that left the file becomes LEGACY.
+
+It never undoes an admin's decision:
+
+- An existing craft's status is never changed, so a merged master craft stays merged.
+- A column an admin renamed, moved or edited keeps the admin's value; the report counts it under `kept`. Each seeded craft keeps what the file last said in `extraMetadata.masterSeed`, and a column that no longer matches it was edited. A craft with no snapshot yet (seeded by the migration) is judged by its `fieldProvenance`.
+- A master craft an admin deleted is not created again (`skippedDeleted`).
 
 ## Coverage, counts and search
 
@@ -105,5 +111,5 @@ Edit `backend/app/data/craft_master_list.json` in both repositories, byte for by
 |---|---|
 | The list's counts, slugs, states and GI split; the curated decisions name real rows; the shared files are the same in both repositories | `test_craft_master.py` |
 | The migration is what the generator writes, and seeds every row of the file | `test_craft_master_migration.py` |
-| The catalogue's order and ETag, craft writes and their refusals, merge, adopt, the taxonomy routes, the matcher | `test_craft_catalogue_api.py` |
-| The dry run equals the curated table, and applying it leaves nothing to move | `test_map_crafts.py` |
+| The catalogue's order and ETag, craft writes and their refusals, merge (every kind of reference), adopt, the taxonomy routes, the matcher, the review queue | `test_craft_catalogue_api.py` |
+| The dry run equals the curated table, and applying it leaves nothing to move; the seed loader keeps every admin decision | `test_map_crafts.py` |

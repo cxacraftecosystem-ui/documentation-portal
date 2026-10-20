@@ -13,6 +13,8 @@ The migration `20261104090000_craft_master_list` seeds the master list and marks
 
 The script is idempotent: running it twice changes nothing the second time. It never deletes a craft.
 
+Release note (Designer Repository): stage 1 now requires a craft from the list. A workshop with no linked craft, including the live "Test" and "Test Craft" workshops, shows stage 1 as incomplete until a craft is picked. Saving stage 1 with a craft that is not on the list is refused (`CRAFT_NOT_IN_LIST`).
+
 ## How this document is kept true
 
 | Claim | Kept true by |

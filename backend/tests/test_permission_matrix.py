@@ -302,14 +302,28 @@ def test_admins_create_update_and_delete(api: _Api, role: str, path: str, body: 
     assert all(outcome.reached for outcome in outcomes), outcomes
 
 
-def test_a_typed_craft_name_never_mints_a_craft(api: _Api) -> None:
+def test_a_typed_craft_name_never_mints_a_craft(api: _Api, monkeypatch: pytest.MonkeyPatch) -> None:
     """SINCE THE MASTER CRAFT LIST (2026-10-20) NOTHING CREATES A CRAFT FROM TYPED TEXT, for any role.
 
     ``craftName`` on POST /artisans used to create the craft when nothing matched it, gated on
     ``can_manage_crafts`` like POST /crafts. Now an old client's typed name that matches nothing is
     kept in ``extraMetadata.legacyCraftText`` for the admin review queue, so the grant that no longer
     opens the front door has nothing to open here either: the create goes on, and no craft is made.
+
+    What the route resolved is read off the real resolver, so the body that goes on to be written
+    is pinned too: no ``craftId``, and the typed text in ``legacyCraftText``.
     """
+    from app.services import craft_master
+
+    real_resolve = craft_master.resolve_record_craft
+    resolved: list[dict[str, Any]] = []
+
+    async def _spy(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        data = await real_resolve(*args, **kwargs)
+        resolved.append(dict(data))
+        return data
+
+    monkeypatch.setattr(craft_master, "resolve_record_craft", _spy)
     caller = api.as_(_user("RESEARCHER", canManageCrafts=True))
     minted: list[Any] = []
 
@@ -328,6 +342,10 @@ def test_a_typed_craft_name_never_mints_a_craft(api: _Api) -> None:
 
     assert minted == [], "a typed craft name created a craft"
     assert outcome.reached, outcome
+    assert resolved, "the typed craft name was never resolved"
+    assert not resolved[-1].get("craftId")
+    assert "craftName" not in resolved[-1]
+    assert resolved[-1]["extraMetadata"][craft_master.LEGACY_TEXT_KEY] == "A craft nobody added yet"
 
 
 # --- Creating a record: Researcher and above ------------------------------------------------------

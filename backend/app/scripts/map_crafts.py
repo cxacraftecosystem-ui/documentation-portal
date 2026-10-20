@@ -269,7 +269,15 @@ async def apply(client: Any, rows: list[Row]) -> dict[str, int]:
 
 
 async def _in_place(tx: Any, craft: Any, master: Any) -> None:
-    """Move ``craft`` onto ``master``'s identity, keeping ``craft``'s id, and drop the seeded twin."""
+    """Move ``craft`` onto ``master``'s identity, keeping ``craft``'s id, and drop the seeded twin.
+
+    The master columns now come from the file, so the old craft's provenance for them is dropped and
+    the master's seed snapshot is carried over: a later revision of the file still reaches the row.
+    """
+    meta = cm.without_master_provenance(cm.craft_meta(craft))
+    seed = cm.craft_meta(master).get(cm.MASTER_SEED_KEY)
+    if seed is not None:
+        meta[cm.MASTER_SEED_KEY] = seed
     columns = {
         "name": master.name,
         "slug": master.slug,
@@ -283,7 +291,7 @@ async def _in_place(tx: Any, craft: Any, master: Any) -> None:
         "sourceNotes": list(master.sourceNotes or []),
         "status": cm.ACTIVE,
         "craftCode": getattr(craft, "craftCode", None) or getattr(master, "craftCode", None),
-        "extraMetadata": cm.as_json(cm.with_alias(getattr(craft, "extraMetadata", None), craft.name)),
+        "extraMetadata": cm.as_json(cm.with_alias(meta, craft.name)),
     }
     await tx.craft.delete(where={"id": master.id})
     await tx.craft.update(where={"id": craft.id}, data=columns)

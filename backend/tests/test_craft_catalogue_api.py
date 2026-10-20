@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+import random
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -17,6 +19,7 @@ import pytest
 from app.core.db import db
 from app.core.security import create_access_token, hash_password
 from app.services import craft_master as cm
+from app.services.artisan_identity import verhoeff_ok
 
 _URL = os.environ.get("DATABASE_URL", "")
 _LOCAL = any(host in _URL for host in ("localhost", "127.0.0.1"))
@@ -28,6 +31,54 @@ pytestmark = pytest.mark.skipif(
 EMBROIDERY = cm.master_id("s", "Embroidery")
 HAND_BLOCK = cm.master_id("s", "Hand-Block-Printing")
 THARU = cm.master_id("c", "Tharu-Embroidery")
+LOCATION = {"latitude": 23.25, "longitude": 69.67, "state": "Gujarat", "district": "Kachchh"}
+
+
+def _aadhaar() -> str:
+    """A Verhoeff-valid number no other test holds (the column is unique)."""
+    while True:
+        candidate = "2" + "".join(random.choices("0123456789", k=11))
+        if verhoeff_ok(candidate):
+            return candidate
+
+
+async def _seed_merge_references(stamp: str, admin_id: str) -> dict[str, str]:
+    """A craft that every kind of record points at, for the merge test: artisan, tool (column and
+    ``ToolCraft``), workshop (``WorkshopCraft``) and media file."""
+    craft = await db.craft.create(
+        data={"name": f"Merge Wide {stamp}", "slug": f"Merge-Wide-{stamp}", "subCategoryId": EMBROIDERY, "status": cm.ACTIVE}
+    )
+    artisan = await db.artisan.create(
+        data={"name": f"Merge Artisan {stamp}", "place": "Bhuj", "createdById": admin_id, "craftId": craft.id}
+    )
+    tool = await db.tooldocumentation.create(
+        data={
+            "craftName": craft.name,
+            "place": "Bhuj",
+            "artisanName": "Merge Artisan",
+            "toolkitName": f"Merge Toolkit {stamp}",
+            "createdById": admin_id,
+            "craftId": craft.id,
+        }
+    )
+    await db.toolcraft.create(data={"toolId": tool.id, "craftId": craft.id})
+    workshop = await db.workshop.create(
+        data={"title": f"Merge Workshop {stamp}", "date": datetime.now(UTC), "place": "Bhuj", "createdById": admin_id}
+    )
+    await db.workshopcraft.create(data={"workshopId": workshop.id, "craftId": craft.id})
+    media = await db.mediafile.create(
+        data={
+            "originalFilename": f"merge-{stamp}.jpg",
+            "mediaType": "IMAGE",
+            "mimeType": "image/jpeg",
+            "sizeBytes": 1,
+            "bucket": "test",
+            "objectKey": f"tests/merge-{stamp}.jpg",
+            "uploadedById": admin_id,
+            "craftId": craft.id,
+        }
+    )
+    return {"craft": craft.id, "artisan": artisan.id, "tool": tool.id, "workshop": workshop.id, "media": media.id}
 
 
 async def _seed(stamp: str) -> dict[str, Any]:
@@ -53,7 +104,9 @@ async def _seed(stamp: str) -> dict[str, Any]:
         legacy = await db.craft.create(
             data={"name": f"Old Craft {stamp}", "slug": f"Old-Craft-{stamp}", "status": cm.LEGACY}
         )
+        wide = await _seed_merge_references(stamp, users["ADMIN"].id)
         return {
+            "wide": wide,
             "users": users,
             "known": known,
             "unknown": unknown,
@@ -67,11 +120,21 @@ async def _seed(stamp: str) -> dict[str, Any]:
 
 async def _cleanup(world: dict[str, Any]) -> None:
     stamp = world["stamp"]
+    # Insensitive: the API title-cases names, so the stamp's letters may come back capitalised.
+    has_stamp = {"contains": stamp, "mode": "insensitive"}
     await db.connect()
     try:
-        await db.productdocumentation.delete_many(where={"productName": {"contains": stamp}})
-        await db.craft.update_many(where={"mergedIntoId": {"not": None}, "name": {"contains": stamp}}, data={"mergedIntoId": None})
-        await db.craft.delete_many(where={"name": {"contains": stamp}})
+        wide = world.get("wide") or {}
+        tools = [t.id for t in await db.tooldocumentation.find_many(where={"toolkitName": has_stamp})]
+        await db.mediafile.delete_many(where={"objectKey": {"contains": stamp}})
+        await db.toolcraft.delete_many(where={"toolId": {"in": tools}})
+        await db.workshopcraft.delete_many(where={"workshopId": wide.get("workshop", "")})
+        await db.tooldocumentation.delete_many(where={"id": {"in": tools}})
+        await db.workshop.delete_many(where={"title": has_stamp})
+        await db.artisan.delete_many(where={"name": has_stamp})
+        await db.productdocumentation.delete_many(where={"productName": has_stamp})
+        await db.craft.update_many(where={"mergedIntoId": {"not": None}, "name": has_stamp}, data={"mergedIntoId": None})
+        await db.craft.delete_many(where={"name": has_stamp})
         await db.craft.update(where={"id": THARU}, data={"extraMetadata": cm.as_json({})})
         await db.craftsubcategory.delete_many(where={"name": {"contains": stamp}})
         await db.craftcategory.delete_many(where={"name": {"contains": stamp}})
@@ -139,6 +202,13 @@ def test_the_catalogue_is_the_whole_list_in_order_with_an_etag(world):
     assert etag == f'"{body["version"]}"'
     again = client.get("/api/crafts/catalogue", headers={**_as(world, "RESEARCHER"), "If-None-Match": etag})
     assert again.status_code == 304
+    # A proxy that compresses the body weakens the tag it passes on; the weak comparison still matches.
+    weak = client.get(
+        "/api/crafts/catalogue", headers={**_as(world, "RESEARCHER"), "If-None-Match": f'"other", W/{etag}'}
+    )
+    assert weak.status_code == 304
+    stale = client.get("/api/crafts/catalogue", headers={**_as(world, "RESEARCHER"), "If-None-Match": 'W/"stale"'})
+    assert stale.status_code == 200
 
 
 def test_only_a_content_admin_sees_inactive_crafts(world):
@@ -248,6 +318,110 @@ def test_merge_moves_every_reference_and_keeps_the_source(world):
     )
     assert picked_merged.status_code == 422
     assert picked_merged.json()["detail"]["code"] == "CRAFT_NOT_IN_LIST"
+
+
+def test_merge_repoints_artisans_tools_workshops_and_media(world):
+    """§2.8: merge re-points artisans, products, tools, ToolCraft, WorkshopCraft and media."""
+    client = world["client"]
+    wide = world["wide"]
+    merged = client.post(f"/api/crafts/{wide['craft']}/merge", json={"intoId": THARU}, headers=_as(world, "ADMIN"))
+    assert merged.status_code == 200, merged.text
+    moved = merged.json()["moved"]
+    for delegate in ("artisan", "tooldocumentation", "mediafile", "toolcraft", "workshopcraft"):
+        assert moved[delegate] == 1, (delegate, moved)
+    assert merged.json()["craft"]["status"] == "MERGED"
+
+    catalogue = client.get("/api/crafts/catalogue?includeInactive=true", headers=_as(world, "ADMIN")).json()
+    source = next(c for c in catalogue["crafts"] if c["id"] == wide["craft"])
+    assert source["referenceCount"] == 0, "something still points at the merged craft"
+
+    artisan = client.get(f"/api/artisans/{wide['artisan']}", headers=_as(world, "ADMIN"))
+    assert artisan.status_code == 200, artisan.text
+    assert artisan.json()["craftId"] == THARU
+    tool = client.get(f"/api/tools/{wide['tool']}", headers=_as(world, "ADMIN"))
+    assert tool.status_code == 200, tool.text
+    assert tool.json()["craftId"] == THARU
+    assert tool.json()["craftName"] == "Tharu Embroidery"
+
+
+def test_an_artisan_with_an_unknown_typed_craft_is_kept_for_review(world):
+    """§2.8: an old client's unknown ``craftName`` on POST /artisans is 201, ``craftId`` null and
+    ``legacyCraftText`` kept, and the admin review queue lists the artisan."""
+    client = world["client"]
+    text = f"Unlisted Weave {world['stamp']}"
+    created = client.post(
+        "/api/artisans",
+        json={
+            "name": f"Typed Craft Artisan {world['stamp']}",
+            "place": "Bhuj",
+            "aadhaarNumber": _aadhaar(),
+            "dos": "Greet the artisan first.",
+            "donts": "Do not photograph without asking.",
+            "craftName": text,
+            "location": LOCATION,
+        },
+        headers=_as(world, "ADMIN"),
+    )
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["craftId"] is None
+    assert cm.normalise((body.get("extraMetadata") or {}).get(cm.LEGACY_TEXT_KEY)) == cm.normalise(text)
+
+    queue = client.get("/api/crafts/review", headers=_as(world, "ADMIN")).json()
+    row = next(r for r in queue["records"] if r["id"] == body["id"])
+    assert cm.normalise(row["text"]) == cm.normalise(text) and row["model"] == "artisan"
+
+
+def test_a_tool_with_no_craft_ticked_keeps_its_typed_name_for_review(world):
+    """The current tool form always sends ``craftIds``; with none ticked a typed name is still kept."""
+    client = world["client"]
+    text = f"Unlisted Lacquer {world['stamp']}"
+    created = client.post(
+        "/api/tools",
+        json={
+            "craftIds": [],
+            "craftName": text,
+            "place": "Bhuj",
+            "artisanName": "Test Artisan",
+            "toolkitName": f"Typed Toolkit {world['stamp']}",
+            "location": LOCATION,
+        },
+        headers=_as(world, "ADMIN"),
+    )
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["craftId"] is None and cm.normalise(body["craftName"]) == cm.normalise(text)
+    assert cm.normalise((body.get("extraMetadata") or {}).get(cm.LEGACY_TEXT_KEY)) == cm.normalise(text)
+
+    queue = client.get("/api/crafts/review", headers=_as(world, "ADMIN")).json()
+    row = next(r for r in queue["records"] if r["id"] == body["id"])
+    assert cm.normalise(row["text"]) == cm.normalise(text) and row["model"] == "tooldocumentation"
+
+
+def test_a_record_whose_text_now_matches_stays_in_the_queue_until_linked(world):
+    """A typed name that matched nothing, then a craft of that name is added: the record is unlinked
+    still, so the queue keeps it, with the link the mapping would make."""
+    client = world["client"]
+    text = f"Kantha Revival {world['stamp']}"
+    product = client.post(
+        "/api/products",
+        json={
+            "craftName": text,
+            "place": "Bhuj",
+            "artisanName": "Test Artisan",
+            "productName": f"Runner {world['stamp']}",
+            "location": LOCATION,
+        },
+        headers=_as(world, "ADMIN"),
+    )
+    assert product.status_code == 201, product.text
+    assert product.json()["craftId"] is None
+    craft = _new_craft(world, text, role="ADMIN")
+    assert craft.status_code == 201, craft.text
+
+    queue = client.get("/api/crafts/review", headers=_as(world, "ADMIN")).json()
+    row = next(r for r in queue["records"] if r["id"] == product.json()["id"])
+    assert row["action"] == "link" and row["targetId"] == craft.json()["id"]
 
 
 def test_the_review_queue_lists_legacy_crafts_for_content_admins(world):

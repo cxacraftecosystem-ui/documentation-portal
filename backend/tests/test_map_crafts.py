@@ -1,7 +1,8 @@
 """``python -m app.scripts.map_crafts`` on a fixture built from the Field Repository's 15 live crafts.
 
 The dry run must equal the curated table in docs/CRAFTS.md; applying it must leave nothing to move
-on a second dry run; and the seeded list is restored afterwards. Against a LOCAL database the
+on a second dry run; and the seeded list is restored afterwards. Also the seed loader
+(``sync_master``), which must never undo an admin's decision. Against a LOCAL database the
 migrations have been applied to; skipped otherwise. The same file in both portals.
 """
 
@@ -126,3 +127,78 @@ def test_applying_leaves_nothing_to_move(outcome):
 def test_the_report_has_the_agreed_columns(outcome):
     rows = map_crafts.report(outcome["before"][:1])
     assert list(rows[0]) == ["kind", "id", "oldName", "action", "target", "references"]
+
+
+
+async def _sync_after_admin_decisions() -> dict[str, Any]:
+    """Five master crafts an admin has decided about, then the seed loader run twice.
+
+    A renamed (after the loader stamped its snapshot), B's states edited (before any snapshot, so
+    only ``fieldProvenance`` says so), C merged, D deleted, and E untouched by any admin while the
+    file "changed" under it. Everything is put back afterwards.
+    """
+    masters = cm.load_master()
+    a, b, c, d, e = masters[-5:]
+    tharu_id = cm.master_id("c", "Tharu-Embroidery")
+    await db.connect()
+    tharu_meta = None
+    rows: dict[str, Any] = {}
+    try:
+        await cm.sync_master(db)
+        rows = {m.slug: await db.craft.find_unique(where={"slug": m.slug}) for m in (a, b, c, d, e)}
+        tharu = await db.craft.find_unique(where={"id": tharu_id})
+        tharu_meta = cm.craft_meta(tharu)
+
+        await db.craft.update(where={"id": rows[a.slug].id}, data={"name": f"{a.name} Local"})
+        await db.craft.update(
+            where={"id": rows[b.slug].id},
+            data={
+                "stateOfPractice": ["Delhi"],
+                "extraMetadata": cm.as_json({"fieldProvenance": {"stateOfPractice": {"by": None}}}),
+            },
+        )
+        await cm.merge_craft(db, rows[c.slug], tharu)
+        await cm.delete_craft(db, rows[d.slug], user_id=None)
+        old_seed = {**cm.craft_meta(rows[e.slug])[cm.MASTER_SEED_KEY], "stateOfPractice": ["Delhi"]}
+        await db.craft.update(
+            where={"id": rows[e.slug].id},
+            data={"stateOfPractice": ["Delhi"], "extraMetadata": cm.as_json({cm.MASTER_SEED_KEY: old_seed})},
+        )
+
+        first = await cm.sync_master(db)
+        second = await cm.sync_master(db)
+        after = {m.slug: await db.craft.find_unique(where={"slug": m.slug}) for m in (a, b, c, d, e)}
+        return {"first": first, "second": second, "after": after, "masters": (a, b, c, d, e)}
+    finally:
+        await db.recordrevision.delete_many(where={"recordType": cm.DELETED_MASTER_TYPE, "recordId": d.slug})
+        await db.craftspelling.delete_many(where={"source": "ADMIN", "label": c.name})
+        if c.slug in rows:
+            await db.craft.update(where={"id": rows[c.slug].id}, data={"status": cm.ACTIVE, "mergedIntoId": None})
+        if tharu_meta is not None:
+            await db.craft.update(where={"id": tharu_id}, data={"extraMetadata": cm.as_json(tharu_meta)})
+        for master in (a, b, e):
+            if master.slug in rows:
+                await db.craft.update(
+                    where={"id": rows[master.slug].id},
+                    data={
+                        "name": master.name,
+                        "stateOfPractice": list(master.state_of_practice),
+                        "extraMetadata": cm.as_json({}),
+                    },
+                )
+        await cm.sync_master(db)
+        await db.disconnect()
+
+
+def test_the_seed_loader_never_undoes_an_admin_decision():
+    outcome = asyncio.run(_sync_after_admin_decisions())
+    a, b, c, d, e = outcome["masters"]
+    after = outcome["after"]
+    assert after[a.slug].name == f"{a.name} Local", "an admin rename was reverted"
+    assert after[b.slug].stateOfPractice == ["Delhi"], "an admin edit made before any snapshot was reverted"
+    assert cm.status_of(after[c.slug]) == cm.MERGED, "a merged master craft came back into the pickers"
+    assert after[d.slug] is None, "a master craft an admin deleted was created again"
+    assert after[e.slug].stateOfPractice == list(e.state_of_practice), "a file revision did not reach an unedited craft"
+    assert outcome["first"]["skippedDeleted"] == 1
+    assert outcome["first"]["kept"] >= 2
+    assert outcome["second"]["created"] == 0 and outcome["second"]["updated"] == 0

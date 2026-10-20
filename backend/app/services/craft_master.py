@@ -68,6 +68,12 @@ MESSAGES: dict[str, str] = {
 ALIASES_KEY = "aliases"
 #: The key under a record's ``extraMetadata`` that keeps a typed craft name nothing matched.
 LEGACY_TEXT_KEY = "legacyCraftText"
+#: The key under a seeded craft's ``extraMetadata`` that holds what the master file last said about
+#: it, so :func:`sync_master` can tell a file revision from an admin's edit. See that function.
+MASTER_SEED_KEY = "masterSeed"
+#: ``RecordRevision.recordType`` of the tombstone a deleted master craft leaves (``recordId`` is its
+#: slug), so :func:`sync_master` never puts back a craft an admin deleted.
+DELETED_MASTER_TYPE = "craftDeleted"
 
 #: Every column that points at a craft, as (delegate, column). ``ToolCraft`` and ``WorkshopCraft`` are
 #: join tables and are handled by :func:`merge_craft` on their own.
@@ -88,6 +94,20 @@ def craft_error(code: str, status_code: int, **extra: Any) -> HTTPException:
     """The ``{detail: {code, message}}`` refusal for one of :data:`MESSAGES`."""
     message = MESSAGES[code].format(n=extra.get("referenceCount", 0))
     return HTTPException(status_code=status_code, detail={"code": code, "message": message, **extra})
+
+
+def etag_matches(if_none_match: str | None, etag: str) -> bool:
+    """True when an ``If-None-Match`` header names ``etag``, by the weak comparison RFC 9110 asks of it.
+
+    A ``W/`` prefix is ignored (a proxy that compresses the body weakens the tag it passes on), and
+    ``*`` matches anything.
+    """
+    def bare(tag: str) -> str:
+        tag = tag.strip()
+        return tag[2:] if tag[:2].upper() == "W/" else tag
+
+    tags = [bare(tag) for tag in (if_none_match or "").split(",") if tag.strip()]
+    return "*" in tags or bare(etag) in tags
 
 
 # ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -688,9 +708,14 @@ async def resolve_tool_crafts(
     """The crafts of a tool write. Returns the ``craftIds`` to link (``None`` when the body sent none).
 
     A tool's crafts are its ``ToolCraft`` rows, and ``craftId``/``craftName`` are derived from them.
-    Each id not already linked must be ACTIVE (422 ``CRAFT_NOT_IN_LIST``). An old client that sends
-    only a typed ``craftName`` has it matched onto the list, or kept in ``legacyCraftText``; a create
-    that names no craft at all is refused, because a tool's craft name cannot be empty.
+    Each id not already linked must be ACTIVE (422 ``CRAFT_NOT_IN_LIST``). A typed ``craftName`` with
+    no craft linked is matched onto the list, or kept in ``legacyCraftText`` for the review queue; a
+    create that names no craft at all is refused, because a tool's craft name cannot be empty.
+
+    "No craft linked" is an absent ``craftIds`` (an old client) AND an empty one: the current forms
+    always send the list, so ``craftIds: []`` beside a typed name is the same unresolved text, and
+    leaving it unmatched and unkept would hide it from every admin. Only an absent list may skip a
+    name the tool already holds, since that body says nothing new about the craft.
     """
     if craft_ids:
         await assert_active_crafts(client, craft_ids, tool=tool)
@@ -700,7 +725,9 @@ async def resolve_tool_crafts(
         return craft_ids
     text = data.get("craftName")
     typed = isinstance(text, str) and text.strip()
-    if craft_ids is None and typed and (tool is None or text.strip() != (getattr(tool, "craftName", None) or "")):
+    held = (getattr(tool, "craftName", None) or "") if tool is not None else None
+    unchanged = craft_ids is None and typed and text.strip() == held
+    if typed and not unchanged:
         craft = await match_craft_name(client, text)
         if craft is not None:
             return [craft.id]
@@ -812,6 +839,26 @@ async def remember_spelling(client: Any, craft: Any, spelling: str, *, user_id: 
     )
 
 
+async def delete_craft(client: Any, craft: Any, *, user_id: str | None) -> None:
+    """Hard-delete an unreferenced craft. A master craft leaves a tombstone so the seed never restores it.
+
+    The tombstone is a ``RecordRevision`` of type :data:`DELETED_MASTER_TYPE` whose ``recordId`` is
+    the slug: :func:`sync_master` reads them and creates no craft for those slugs.
+    """
+    if getattr(craft, "sourceSerial", None) is not None:
+        await client.recordrevision.create(
+            data={
+                "recordType": DELETED_MASTER_TYPE,
+                "recordId": craft.slug,
+                "editedById": user_id,
+                "changes": as_json(
+                    {"id": craft.id, "name": craft.name, "sourceSerial": craft.sourceSerial}
+                ),
+            }
+        )
+    await client.craft.delete(where={"id": craft.id})
+
+
 # ──────────────────────────────────────────────────────────────────────────────────────────────
 # Slugs
 # ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -837,9 +884,9 @@ async def unique_slug(delegate: Any, name: str, *, fallback: str = "Craft", excl
 
 
 def _craft_columns(craft: MasterCraft, sub_category_id: str) -> dict[str, Any]:
+    """What the file says about one craft: the columns :func:`sync_master` owns, and nothing else."""
     return {
         "name": craft.name,
-        "slug": craft.slug,
         "subCategoryId": sub_category_id,
         "category": craft.category,
         "sourceSerial": craft.source_serial,
@@ -848,8 +895,83 @@ def _craft_columns(craft: MasterCraft, sub_category_id: str) -> dict[str, Any]:
         "giStatus": craft.gi_status,
         "isCatchAll": craft.is_catch_all,
         "sourceNotes": list(craft.notes),
-        "status": ACTIVE,
     }
+
+
+#: File columns an admin can edit, by the ``fieldProvenance`` keys that say an admin did. A move
+#: writes the sub-category and its derived category together, so either key covers both.
+_ADMIN_KEYS: dict[str, tuple[str, ...]] = {
+    "name": ("name",),
+    "subCategoryId": ("subCategoryId", "category"),
+    "category": ("subCategoryId", "category"),
+    "stateOfOrigin": ("stateOfOrigin",),
+    "stateOfPractice": ("stateOfPractice",),
+    "giStatus": ("giStatus",),
+}
+
+
+def craft_meta(row: Any) -> dict[str, Any]:
+    meta = getattr(row, "extraMetadata", None)
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta)
+        except ValueError:
+            meta = None
+    return dict(meta) if isinstance(meta, dict) else {}
+
+
+def _same(stored: Any, wanted: Any) -> bool:
+    stored = enum_value(stored)
+    if isinstance(wanted, list):
+        return list(stored or []) == wanted
+    return stored == wanted
+
+
+def without_master_provenance(meta: Any) -> dict[str, Any]:
+    """``meta`` with the ``fieldProvenance`` of the file's columns removed.
+
+    For an old craft moved onto a master craft's identity (``map_crafts``): the master columns it
+    now holds came from the file, not from whoever typed the old craft, so a later file revision
+    must still reach them.
+    """
+    base = dict(meta) if isinstance(meta, dict) else {}
+    provenance = base.get("fieldProvenance")
+    if isinstance(provenance, dict):
+        owned = {key for keys in _ADMIN_KEYS.values() for key in keys}
+        kept = {key: value for key, value in provenance.items() if key not in owned}
+        if kept:
+            base["fieldProvenance"] = kept
+        else:
+            base.pop("fieldProvenance")
+    return base
+
+
+def _file_changes(row: Any, wanted: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """The file columns to write onto an existing craft, and how many differences were kept.
+
+    The file only revises what it said before. A column whose stored value is no longer what the
+    file last wrote (``extraMetadata.masterSeed``) was changed by an admin and is kept. A craft
+    seeded by the migration has no snapshot yet; there an admin's edit is known from the
+    ``fieldProvenance`` every craft edit stamps, and a column nobody edited follows the file.
+    """
+    meta = craft_meta(row)
+    seed = meta.get(MASTER_SEED_KEY)
+    provenance = meta.get("fieldProvenance") if isinstance(meta.get("fieldProvenance"), dict) else {}
+    changed: dict[str, Any] = {}
+    kept = 0
+    for key, value in wanted.items():
+        stored = getattr(row, key, None)
+        if _same(stored, value):
+            continue
+        if isinstance(seed, dict) and key in seed:
+            edited = not _same(stored, seed[key])
+        else:
+            edited = any(name in provenance for name in _ADMIN_KEYS.get(key, ()))
+        if edited:
+            kept += 1
+        else:
+            changed[key] = value
+    return changed, kept
 
 
 async def sync_master(client: Any, *, dry_run: bool = False) -> dict[str, int]:
@@ -858,10 +980,27 @@ async def sync_master(client: Any, *, dry_run: bool = False) -> dict[str, int]:
     Upserts by slug: categories, sub-categories, then crafts. Never deletes. A seeded craft (one with
     a ``sourceSerial``) whose slug has left the file becomes LEGACY. A craft with no shared code gets
     one when its name is a known spelling. Returns what it changed (or would, with ``dry_run``).
+
+    IT NEVER UNDOES AN ADMIN'S DECISION, because it is run whenever the file is revised:
+
+    * an existing craft's ``status`` is never touched, so a master craft an admin MERGED stays merged
+      (it would otherwise come back into every picker beside the craft it was folded into);
+    * a column an admin renamed, moved or edited keeps the admin's value (see :func:`_file_changes`),
+      and is counted in ``kept``;
+    * a master craft an admin deleted is not created again (``skippedDeleted``): the delete route
+      leaves a tombstone (:func:`delete_craft`).
     """
     from app.services import cross_portal_codes
 
-    report = {"categoriesCreated": 0, "subCategoriesCreated": 0, "created": 0, "updated": 0, "retired": 0}
+    report = {
+        "categoriesCreated": 0,
+        "subCategoriesCreated": 0,
+        "created": 0,
+        "updated": 0,
+        "kept": 0,
+        "skippedDeleted": 0,
+        "retired": 0,
+    }
     sub_ids: dict[str, str] = {}
     for category in master_categories():
         row = await client.craftcategory.find_unique(where={"slug": category.slug})
@@ -889,33 +1028,46 @@ async def sync_master(client: Any, *, dry_run: bool = False) -> dict[str, int]:
                     )
             sub_ids[sub.slug] = found.id if found is not None else master_id("s", sub.slug)
 
+    deleted = {
+        row.recordId for row in await client.recordrevision.find_many(where={"recordType": DELETED_MASTER_TYPE})
+    }
     in_file: set[str] = set()
     for craft in load_master():
         in_file.add(craft.slug)
         wanted = _craft_columns(craft, sub_ids[craft.sub_category_slug])
         row = await client.craft.find_unique(where={"slug": craft.slug})
         if row is None:
+            if craft.slug in deleted:
+                report["skippedDeleted"] += 1
+                continue
             report["created"] += 1
             if not dry_run:
                 code = await cross_portal_codes.code_for_new_craft(client, craft.name)
-                await client.craft.create(data={"id": master_id("c", craft.slug), **wanted, "craftCode": code})
+                await client.craft.create(
+                    data={
+                        "id": master_id("c", craft.slug),
+                        "slug": craft.slug,
+                        **wanted,
+                        "status": ACTIVE,
+                        "craftCode": code,
+                        "extraMetadata": as_json({MASTER_SEED_KEY: wanted}),
+                    }
+                )
             continue
-        changed = {
-            key: value
-            for key, value in wanted.items()
-            if enum_value(getattr(row, key, None)) != value
-            and not (isinstance(value, list) and list(getattr(row, key, None) or []) == value)
-        }
+        changed, kept = _file_changes(row, wanted)
+        report["kept"] += kept
         if getattr(row, "craftCode", None) is None:
             code = await cross_portal_codes.resolve_craft_code(client, craft.name)
             if code is not None:
                 changed["craftCode"] = code
+        meta = craft_meta(row)
         if changed:
             report["updated"] += 1
-            if not dry_run:
-                if "craftCode" in changed:
-                    await cross_portal_codes.ensure_code_row(client, changed["craftCode"])
-                await client.craft.update(where={"id": row.id}, data=changed)
+        if (changed or meta.get(MASTER_SEED_KEY) != wanted) and not dry_run:
+            if "craftCode" in changed:
+                await cross_portal_codes.ensure_code_row(client, changed["craftCode"])
+            changed["extraMetadata"] = as_json({**meta, MASTER_SEED_KEY: wanted})
+            await client.craft.update(where={"id": row.id}, data=changed)
 
     for row in await client.craft.find_many(where={"status": ACTIVE, "sourceSerial": {"not": None}}):
         if row.slug not in in_file:
