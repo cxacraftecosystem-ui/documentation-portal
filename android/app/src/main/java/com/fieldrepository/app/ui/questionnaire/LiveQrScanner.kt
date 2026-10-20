@@ -48,7 +48,12 @@ fun LiveQrScanner(
     DisposableEffect(lifecycle) {
         val future = ProcessCameraProvider.getInstance(context)
         var provider: ProcessCameraProvider? = null
+        // Set on dispose. A cold CameraX can finish starting AFTER the scanner has gone; binding then
+        // would hold the camera for the rest of the screen's life, and the next scanner (or app)
+        // would find it in use. So a listener that arrives late does nothing.
+        var disposed = false
         future.addListener({
+            if (disposed) return@addListener
             val p = runCatching { future.get() }.getOrNull() ?: return@addListener
             provider = p
             val preview = Preview.Builder().build().also { it.surfaceProvider = previewView.surfaceProvider }
@@ -73,7 +78,8 @@ fun LiveQrScanner(
             }
         }, ContextCompat.getMainExecutor(context))
         onDispose {
-            provider?.unbindAll()
+            disposed = true
+            runCatching { provider?.unbindAll() }
             analysisThread.shutdown()
         }
     }
