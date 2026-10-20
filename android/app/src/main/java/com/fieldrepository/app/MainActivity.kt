@@ -13707,6 +13707,7 @@ private fun ViewDataDetail(
         }
         EntryMode.CRAFT -> {
             var d by remember(recordId) { mutableStateOf<CraftDto?>(null) }
+            val craftList by CraftCatalogueCache.catalogue.collectAsState()
             LaunchedEffect(recordId, loadAttempt) { runCatching { repository.craft(recordId) }.onSuccess { d = it }.onFailure { loadError = it.apiErrorMessage("Couldn't load this craft.") } }
             val v = d ?: return run { LoadingCard(mode, loadError, retryLoad) }
             RecordCard(title = v.name.ifBlank { "Craft" }) {
@@ -13714,7 +13715,7 @@ private fun ViewDataDetail(
                 DetailRow("Local name", v.localName)
                 DetailRow("Category", v.category)
                 // The master list's attributes, with the sub-category named from the stored list.
-                DetailRow("Sub-category", CraftCatalogueCache.catalogue.value?.let { list ->
+                DetailRow("Sub-category", craftList?.let { list ->
                     list.categories.flatMap { it.subCategories }.firstOrNull { it.id == v.subCategoryId }?.name
                 })
                 DetailRow("Serial", v.sourceSerial?.toString())
