@@ -25,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.input.pointer.pointerInput
@@ -36,6 +37,8 @@ import androidx.compose.ui.unit.toSize
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 /*
  * PINCH, PAN AND DOUBLE-TAP FOR THE TWO HAND-DRAWN MAPS (Places and Coverage), in both apps.
@@ -140,6 +143,22 @@ object MapZoomMath {
         val ratio = next / scale
         val moved = focus - (focus - offset) * ratio
         return next to clampOffset(moved, next, frame)
+    }
+
+    /**
+     * The scale and offset that fit [box] (a rectangle in the map's resting frame, in pixels) into
+     * [frame] with [margin] of the box's longer side around it, centred and clamped. A state filter
+     * uses it to bring one state into view, as the coverage map's viewBox does on the web.
+     */
+    fun fitTarget(box: Rect, frame: Size, margin: Float = 0.08f): Pair<Float, Offset> {
+        if (frame.width <= 0f || frame.height <= 0f) return MAP_MIN_ZOOM to Offset.Zero
+        val pad = max(box.width, box.height) * margin
+        val width = max(box.width + pad * 2f, 1e-3f)
+        val height = max(box.height + pad * 2f, 1e-3f)
+        val scale = clampScale(min(frame.width / width, frame.height / height))
+        val centre = box.center
+        val offset = Offset(frame.width / 2f - centre.x * scale, frame.height / 2f - centre.y * scale)
+        return scale to clampOffset(offset, scale, frame)
     }
 
     /** Where a double tap at [focus] goes: twice as close, or back to 1 from the top of the range. */

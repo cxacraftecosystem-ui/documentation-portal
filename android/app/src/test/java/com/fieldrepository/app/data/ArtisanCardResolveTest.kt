@@ -107,4 +107,12 @@ class ArtisanCardResolveTest {
         }
         assertEquals(PendingCardOutcome.Retry, waiting)
     }
+
+    @Test
+    fun `a card already queued on this phone is known offline as waiting to sync`() {
+        val card = (ArtisanCardCode.parse(designer) as ArtisanCardCode.Result.Ok).card
+        val queued = """{"artisanId":"card:$designer","productName":"Indigo saree"}"""
+        assertTrue(cardWaitingToSync(card, listOf("""{"name":"x"}""", queued)))
+        assertTrue(!cardWaitingToSync(card, listOf("""{"artisanId":"a1"}""")))
+    }
 }
