@@ -8,8 +8,9 @@
  *
  * The camera uses `BarcodeDetector` where the browser has it and the bundled decoder
  * (`lib/qrDecode.ts`, the Designer Repository's, byte for byte) where it does not; a camera-less
- * browser still has the photo and typed paths. Nothing scanned is stored, and a long payload (an
- * identity QR) is never written into the typed box.
+ * browser still has the photo and typed paths. Nothing scanned is stored or written into the typed
+ * box: not a join card's secret, not a payment or authenticator link, not an identity QR. The box
+ * holds only what the person typed, and a scan clears it.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -29,14 +30,11 @@ const KEEP_LOOKING = new Set(["NO_SYMBOL", "UNREADABLE", "DATA_UNRECOVERABLE"]);
 
 const POSITIVE = new Set(["OPEN", "REDEEM_JOIN_CARD", "JOIN_SESSION", "ADD_FROM_PEER", "JOIN_WORKSHOP", "POINTER"]);
 
-/** Longer than any code either portal prints: an identity QR is never echoed into the box. */
-const ECHO_LIMIT = 120;
-
 function cameraRefusal(error: unknown): string {
   const name = error instanceof Error ? error.name : "";
-  if (name === "NotAllowedError" || name === "SecurityError") return "Camera blocked. Choose a photo or type the code.";
-  if (name === "NotFoundError" || name === "OverconstrainedError") return "No camera found. Choose a photo or type the code.";
-  return "Couldn't open the camera. Choose a photo or type the code.";
+  if (name === "NotAllowedError" || name === "SecurityError") return `Camera blocked. ${SCAN_COPY.choosePhoto} or type the code.`;
+  if (name === "NotFoundError" || name === "OverconstrainedError") return `No camera found. ${SCAN_COPY.choosePhoto} or type the code.`;
+  return `Couldn't open the camera. ${SCAN_COPY.choosePhoto} or type the code.`;
 }
 
 /** The dispatcher's answer, with its one button. */
@@ -119,11 +117,10 @@ export function ScanPanel({ onDone }: { onDone?: () => void }) {
     }
   }, []);
 
-  /** A scanned payload goes in the box, so a wrong card can be seen — but never a join card or a long one. */
+  /** A scanned payload is answered, never shown: the typed box is cleared, not filled. */
   const fromScanner = useCallback(
     (raw: string) => {
-      const credential = /^DPW\d+:J:/i.test(raw.replace(/\s+/g, ""));
-      setTyped(credential || raw.length > ECHO_LIMIT ? "" : raw);
+      setTyped("");
       void handle(raw);
     },
     [handle]
@@ -134,7 +131,7 @@ export function ScanPanel({ onDone }: { onDone?: () => void }) {
     setOutcome(null);
     handlingRef.current = false;
     if (!navigator.mediaDevices?.getUserMedia) {
-      setProblem("No camera here. Choose a photo or type the code.");
+      setProblem(`No camera here. ${SCAN_COPY.choosePhoto} or type the code.`);
       return;
     }
     let stream: MediaStream;
@@ -248,17 +245,17 @@ export function ScanPanel({ onDone }: { onDone?: () => void }) {
         {scanning ? (
           <button type="button" className="field-button-secondary" onClick={stopCamera}>
             <CameraOff className="h-4 w-4" aria-hidden />
-            Stop camera
+            {SCAN_COPY.stopCamera}
           </button>
         ) : (
           <button type="button" className="field-button" onClick={() => void startCamera()} disabled={busy}>
             <Camera className="h-4 w-4" aria-hidden />
-            Use the camera
+            {SCAN_COPY.useCamera}
           </button>
         )}
         <button type="button" className="field-button-secondary" onClick={() => fileRef.current?.click()} disabled={busy}>
           <ImageUp className="h-4 w-4" aria-hidden />
-          Choose a photo
+          {SCAN_COPY.choosePhoto}
         </button>
       </ButtonRow>
       <input
@@ -285,7 +282,7 @@ export function ScanPanel({ onDone }: { onDone?: () => void }) {
       >
         <label htmlFor="scan-typed" className="field-label flex items-center gap-1.5">
           <Keyboard className="h-3.5 w-3.5" aria-hidden />
-          Type the code
+          {SCAN_COPY.typeCode}
         </label>
         <div className="flex gap-2">
           <input
@@ -303,7 +300,7 @@ export function ScanPanel({ onDone }: { onDone?: () => void }) {
             placeholder="Session code or card"
           />
           <button type="submit" className="field-button" disabled={!typed.trim() || busy}>
-            Look up
+            {SCAN_COPY.lookUp}
           </button>
         </div>
       </form>
@@ -325,7 +322,7 @@ export function ScanSheet({ open, onClose }: { open: boolean; onClose: () => voi
     <FieldDialog
       open={open}
       onClose={onClose}
-      title="Scan a code"
+      title={SCAN_COPY.scanACode}
       icon={<QrCode className="h-5 w-5" aria-hidden />}
       className="max-w-lg"
     >

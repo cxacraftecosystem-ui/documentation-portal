@@ -24,6 +24,12 @@ import com.fieldrepository.app.data.ScanAction
 import com.fieldrepository.app.ui.FieldRepositoryTheme
 import com.fieldrepository.app.ui.TopBarScanSheet
 import com.fieldrepository.app.ui.fieldScanCardKind
+import androidx.test.platform.app.InstrumentationRegistry
+import com.fieldrepository.app.data.QuestionnaireV2
+import com.fieldrepository.app.data.ScanTarget
+import com.fieldrepository.app.ui.runFieldScanAction
+import java.util.UUID
+import kotlinx.coroutines.runBlocking
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -74,6 +80,39 @@ class TopBarScanDeviceTest {
         rule.onNodeWithTag("scan-action").assertTextEquals("Join").performClick()
         rule.waitUntil(5_000) { joined != null }
         org.junit.Assert.assertEquals("AB3K9Z", joined)
+    }
+
+    /**
+     * The real action, not a fake: a typed session QR (the payload a researcher's phone shows) is
+     * answered with Join, and pressing it runs `runFieldScanAction`, which creates the session in this
+     * phone's outbox under the QR's `clientKey` (`outbox.startSession`) and hands back the session to
+     * open. Offline by design, so nothing is signed in or sent for it to work.
+     */
+    @Test
+    fun aScannedSessionQrStartsTheSessionInTheOutbox() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val clientKey = "device-test-${UUID.randomUUID()}"
+        val qr = """{"v":1,"clientKey":"$clientKey","questionnaireId":"cmq0questionnaire01","sessionDate":"2026-10-20","participants":[]}"""
+        var opened: ScanTarget? = null
+        rule.setContent {
+            FieldRepositoryTheme(darkTheme = false) {
+                TopBarScanSheet(
+                    dispatch = { raw -> dispatchScan(raw, services) },
+                    onAction = { action -> runFieldScanAction(context, action, meId = null) { opened = it } },
+                    onDismiss = {},
+                    scanner = { _, _, _ -> },
+                )
+            }
+        }
+        rule.onNodeWithTag("scan-typed").performTextInput(qr)
+        rule.onNodeWithTag("scan-lookup").performClick()
+        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("scan-action") }
+        rule.onNodeWithTag("scan-action").assertTextEquals("Join").performClick()
+        rule.waitUntil(10_000) { opened != null }
+        org.junit.Assert.assertEquals(ScanTarget.Session(clientKey), opened)
+        val unit = runBlocking { QuestionnaireV2.get(context).outbox.unit(clientKey) }
+        org.junit.Assert.assertNotNull("the session is in the outbox", unit)
+        org.junit.Assert.assertEquals("cmq0questionnaire01", unit?.questionnaireId)
     }
 }
 

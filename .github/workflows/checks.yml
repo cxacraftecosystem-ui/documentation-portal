@@ -523,6 +523,28 @@ jobs:
         # violations through this config and fails unless every plugin reports its own.
         run: npm run lint
 
+      - name: The other portal, on this branch
+        # `e2e/scan-parity-unit.spec.ts` holds the top-bar scanner's shared files (REQUIREMENTS_2026-10-20
+        # §6) byte-identical across the two portals, but only when CROSS_PORTAL_PEER_REPO points at the
+        # other repository. Both repositories are public, so no token is needed. A cross-repo stream
+        # pushes the same branch name to both, so the comparison is made against THAT branch; on `main`,
+        # or where the other repository has no such branch, nothing is cloned and the test skips, so
+        # one repository merging first never turns the other red.
+        working-directory: .
+        env:
+          PEER: cxacraftecosystem-ui/designer-portal
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          if [ "$BRANCH" = "main" ]; then echo "On main: the cross-portal comparison is made on feature branches."; exit 0; fi
+          if ! git ls-remote --exit-code --heads "https://github.com/$PEER.git" "$BRANCH" >/dev/null; then
+            echo "$PEER has no branch $BRANCH: the cross-portal comparison is skipped."
+            exit 0
+          fi
+          git clone --quiet --depth 1 --branch "$BRANCH" --filter=blob:none --sparse "https://github.com/$PEER.git" "$RUNNER_TEMP/peer"
+          git -C "$RUNNER_TEMP/peer" sparse-checkout set frontend android/app/src/main/java
+          echo "CROSS_PORTAL_PEER_REPO=$RUNNER_TEMP/peer" >> "$GITHUB_ENV"
+          echo "Comparing the shared scanner files with $PEER@$BRANCH ($(git -C "$RUNNER_TEMP/peer" rev-parse --short HEAD))."
+
       - name: Unit specs
         # ONLY the specs that need no dev server and no database. The rest of frontend/e2e/ signs in
         # against a real API and drives real records — frontend/playwright.config.ts says so in its

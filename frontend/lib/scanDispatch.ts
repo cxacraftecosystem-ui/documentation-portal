@@ -56,7 +56,13 @@ export const SCAN_COPY = {
   unknown: "This code isn't one this app reads.",
   notFound: "No record matches this code.",
   offline: "You're offline. Try again when connected.",
-  empty: "Scan or type a code."
+  empty: "Scan or type a code.",
+  scanACode: "Scan a code",
+  useCamera: "Use the camera",
+  stopCamera: "Stop camera",
+  choosePhoto: "Choose a photo",
+  typeCode: "Type the code",
+  lookUp: "Look up"
 } as const;
 
 export type ScanRecordType =
@@ -314,6 +320,8 @@ export async function dispatchScan(raw: string, services: ScanServices): Promise
   if (answer.status === "offline") return { kind: "OFFLINE", title: SCAN_COPY.offline };
   if (answer.status === "missing") {
     if (step.recordType === "designWorkshop") {
+      // "this workshop", not its title: the server hides a workshop from anyone without access, so
+      // the scan cannot name it (DEFERRED_FOR_LAUNCH.md D34).
       return {
         kind: "JOIN_WORKSHOP",
         title: `${SCAN_COPY.askToJoin} ${SCAN_COPY.thisWorkshop}`,

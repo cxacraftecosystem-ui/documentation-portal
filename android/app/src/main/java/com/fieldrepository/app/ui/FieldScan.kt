@@ -6,18 +6,13 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.ImageDecoder
 import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.compose.CameraXViewfinder
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ExperimentalGetImage
-import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.ImageProxy
-import androidx.camera.core.Preview
-import androidx.camera.core.SurfaceRequest
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.lifecycle.awaitInstance
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -26,7 +21,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
@@ -40,11 +34,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,7 +48,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.fieldrepository.app.data.ArtisanCardCode
 import com.fieldrepository.app.data.ArtisanCardResolution
 import com.fieldrepository.app.data.FieldRepository
@@ -75,24 +67,22 @@ import com.fieldrepository.app.data.ScanPortal
 import com.fieldrepository.app.data.ScanRecordAnswer
 import com.fieldrepository.app.data.ScanServices
 import com.fieldrepository.app.data.ScanTarget
-import com.google.mlkit.vision.barcode.BarcodeScanner
-import com.google.mlkit.vision.barcode.BarcodeScannerOptions
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.common.InputImage
-import java.util.concurrent.Executors
+import com.fieldrepository.app.ui.questionnaire.LiveQrScanner
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import retrofit2.HttpException
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * The field app's camera and picture controls for the top-bar scanner (`ui/TopBarScanSheet.kt`):
- * a live back-camera preview that reads any QR on its own, and "Use a picture". On the device, with
- * ML Kit narrowed to QR codes, exactly as `CardScanner.kt` reads an artisan card; what a code MEANS
- * is `data/ScanDispatch.kt`'s to decide, so every QR read here is handed on as text.
+ * The field app's camera and picture controls for the top-bar scanner (`ui/TopBarScanSheet.kt`).
+ *
+ * NO SECOND CAMERA READER. The live preview is `ui/questionnaire/LiveQrScanner.kt`, the one the
+ * session join already uses (REQUIREMENTS_2026-10-20 §6.2), asked to hand on any QR rather than only
+ * a join QR; a picked photo is read by the same `JoinQr.read` the join screen's picker uses. What a
+ * code MEANS is `data/ScanDispatch.kt`'s to decide, so every QR read here is handed on as text.
  */
 
-private const val SCAN_CAMERA_UNAVAILABLE = "Couldn't open the camera. Use a picture or type the code."
 private const val SCAN_CAMERA_DENIED = "Camera denied. Allow it to scan, or type the code."
 private const val SCAN_CAMERA_BLOCKED = "Camera blocked. Turn it on in this app's settings, or type the code."
 private const val SCAN_PICTURE_EMPTY = "No QR code in that picture."
@@ -115,45 +105,24 @@ private fun Context.openScanAppSettings() {
     }
 }
 
-/** ML Kit, narrowed to QR codes. */
-private class TopBarQrReader : AutoCloseable {
-    val scanner: BarcodeScanner? = runCatching {
-        BarcodeScanning.getClient(BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build())
-    }.getOrNull()
-
-    /** One analysed frame. Always closes [image]. */
-    @androidx.annotation.OptIn(ExperimentalGetImage::class)
-    fun analyse(image: ImageProxy, onText: (String) -> Unit) {
-        val client = scanner
-        val media = image.image
-        if (client == null || media == null) {
-            image.close()
-            return
+/** A picked photo, decoded in software and at most 1600 px on its long side (as `JoinScanner` reads one). */
+private fun Context.scanBitmap(uri: Uri): Bitmap? = runCatching {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        ImageDecoder.decodeBitmap(ImageDecoder.createSource(contentResolver, uri)) { decoder, info, _ ->
+            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            val long = maxOf(info.size.width, info.size.height)
+            if (long > 1600) decoder.setTargetSampleSize(long / 1600)
         }
-        val input = runCatching { InputImage.fromMediaImage(media, image.imageInfo.rotationDegrees) }.getOrNull()
-        if (input == null) {
-            image.close()
-            return
-        }
-        client.process(input)
-            .addOnSuccessListener { codes -> codes.firstNotNullOfOrNull { it.rawValue?.takeIf(String::isNotBlank) }?.let(onText) }
-            .addOnCompleteListener { image.close() }
+    } else {
+        @Suppress("DEPRECATION") MediaStore.Images.Media.getBitmap(contentResolver, uri)
     }
+}.getOrNull()
 
-    fun readPicture(context: Context, uri: Uri, onText: (String) -> Unit, onNone: () -> Unit) {
-        val client = scanner ?: return onNone()
-        val input = runCatching { InputImage.fromFilePath(context, uri) }.getOrNull() ?: return onNone()
-        client.process(input)
-            .addOnSuccessListener { codes ->
-                val text = codes.firstNotNullOfOrNull { it.rawValue?.takeIf(String::isNotBlank) }
-                if (text != null) onText(text) else onNone()
-            }
-            .addOnFailureListener { onNone() }
-    }
-
-    override fun close() {
-        runCatching { scanner?.close() }
-    }
+private fun readScanBitmap(bitmap: Bitmap): String? {
+    val soft = if (bitmap.config == Bitmap.Config.HARDWARE) bitmap.copy(Bitmap.Config.ARGB_8888, false) else bitmap
+    val pixels = IntArray(soft.width * soft.height)
+    soft.getPixels(pixels, 0, soft.width, 0, 0, soft.width, soft.height)
+    return JoinQr.read(pixels, soft.width, soft.height)?.takeIf { it.isNotBlank() }
 }
 
 /**
@@ -163,24 +132,20 @@ private class TopBarQrReader : AutoCloseable {
 @Composable
 fun FieldScanControls(enabled: Boolean, onText: (String) -> Unit, onRefusal: (String) -> Unit) {
     val context = LocalContext.current
-    val reader = remember { TopBarQrReader() }
+    val scope = rememberCoroutineScope()
     val latestEnabled by rememberUpdatedState(enabled)
     val latestOnText by rememberUpdatedState(onText)
     val last = remember { mutableStateOf<String?>(null) }
-    val inFlight = remember { AtomicBoolean(false) }
     var granted by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
     }
     var blocked by remember { mutableStateOf(false) }
+    var reading by remember { mutableStateOf(false) }
 
     fun hand(text: String) {
-        if (!latestEnabled || text == last.value || !inFlight.compareAndSet(false, true)) return
+        if (!latestEnabled || text == last.value) return
         last.value = text
-        try {
-            latestOnText(text)
-        } finally {
-            inFlight.set(false)
-        }
+        latestOnText(text)
     }
 
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
@@ -194,13 +159,17 @@ fun FieldScanControls(enabled: Boolean, onText: (String) -> Unit, onRefusal: (St
     val picture = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             last.value = null
-            reader.readPicture(context, uri, onText = { hand(it) }, onNone = { onRefusal(SCAN_PICTURE_EMPTY) })
+            reading = true
+            scope.launch {
+                val text = withContext(Dispatchers.Default) { context.scanBitmap(uri)?.let(::readScanBitmap) }
+                reading = false
+                if (text != null) hand(text) else onRefusal(SCAN_PICTURE_EMPTY)
+            }
         }
     }
-    // Asked only when the person presses "Allow camera": the typed box must work with no prompt.
-    DisposableEffect(Unit) { onDispose { reader.close() } }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // Asked only when the person presses "Allow camera": the typed box must work with no prompt.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -210,7 +179,7 @@ fun FieldScanControls(enabled: Boolean, onText: (String) -> Unit, onRefusal: (St
             contentAlignment = Alignment.Center,
         ) {
             if (granted) {
-                TopBarCameraPreview(reader = reader, onText = { hand(it) }, onUnavailable = { onRefusal(SCAN_CAMERA_UNAVAILABLE) })
+                LiveQrScanner(onRead = { hand(it) }, accept = { true }, once = false)
                 Box(
                     Modifier
                         .fillMaxWidth(0.62f)
@@ -224,7 +193,7 @@ fun FieldScanControls(enabled: Boolean, onText: (String) -> Unit, onRefusal: (St
                         Button(onClick = { context.openScanAppSettings() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Camera settings") }
                     } else {
                         Button(onClick = { permission.launch(Manifest.permission.CAMERA) }, modifier = Modifier.heightIn(min = 48.dp)) {
-                            Text("Allow camera")
+                            Text(ScanCopy.USE_CAMERA)
                         }
                     }
                 }
@@ -232,61 +201,14 @@ fun FieldScanControls(enabled: Boolean, onText: (String) -> Unit, onRefusal: (St
         }
         OutlinedButton(
             onClick = { picture.launch("image/*") },
-            enabled = enabled,
+            enabled = enabled && !reading,
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
         ) {
             Icon(Icons.Filled.Image, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text("Use a picture")
+            Text(ScanCopy.CHOOSE_PHOTO)
         }
     }
-}
-
-@Composable
-private fun TopBarCameraPreview(reader: TopBarQrReader, onText: (String) -> Unit, onUnavailable: () -> Unit) {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val latestOnText by rememberUpdatedState(onText)
-    var surfaceRequest by remember { mutableStateOf<SurfaceRequest?>(null) }
-    val executor = remember { Executors.newSingleThreadExecutor() }
-    val providerHolder = remember { mutableStateOf<ProcessCameraProvider?>(null) }
-    LaunchedEffect(Unit) {
-        val provider = runCatching { ProcessCameraProvider.awaitInstance(context) }.getOrNull()
-        if (provider == null) {
-            onUnavailable()
-            return@LaunchedEffect
-        }
-        providerHolder.value = provider
-        val hasBack = runCatching { provider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA) }.getOrDefault(false)
-        val hasFront = runCatching { provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) }.getOrDefault(false)
-        if (!hasBack && !hasFront) {
-            onUnavailable()
-            return@LaunchedEffect
-        }
-        val preview = Preview.Builder().build().apply { setSurfaceProvider { request -> surfaceRequest = request } }
-        val main = ContextCompat.getMainExecutor(context)
-        val analysis = ImageAnalysis.Builder()
-            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .build()
-            .apply { setAnalyzer(executor) { image -> reader.analyse(image) { text -> main.execute { latestOnText(text) } } } }
-        val bound = runCatching {
-            provider.unbindAll()
-            provider.bindToLifecycle(
-                lifecycleOwner,
-                if (hasBack) CameraSelector.DEFAULT_BACK_CAMERA else CameraSelector.DEFAULT_FRONT_CAMERA,
-                preview,
-                analysis,
-            )
-        }.isSuccess
-        if (!bound) onUnavailable()
-    }
-    DisposableEffect(Unit) {
-        onDispose {
-            runCatching { providerHolder.value?.unbindAll() }
-            runCatching { executor.shutdown() }
-        }
-    }
-    surfaceRequest?.let { request -> CameraXViewfinder(surfaceRequest = request, modifier = Modifier.fillMaxSize()) }
 }
 
 // ---------------------------------------------------------------------------------------------

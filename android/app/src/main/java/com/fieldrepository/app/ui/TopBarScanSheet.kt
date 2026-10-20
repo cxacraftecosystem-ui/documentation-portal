@@ -58,14 +58,10 @@ import kotlinx.coroutines.launch
  * result card with its button. IDENTICAL in both apps apart from the `package` line.
  *
  * It never navigates on its own: the person presses Open, Redeem, Join, Add or Ask to join, and
- * [onAction] does that act. A join card's secret is never written into the typed box, and neither is
- * anything long enough to be somebody's identity QR.
+ * [onAction] does that act. Nothing scanned is written into the typed box, kept or echoed: not a join
+ * card's secret, not a payment or authenticator link, not an identity QR. The box holds only what
+ * the person typed, and a scan clears it.
  */
-
-/** The longest scanned text echoed into the typed box; an identity QR is far longer. */
-private const val ECHO_LIMIT = 120
-
-private val JOIN_CARD_PREFIX = Regex("^DPW\\d+:J:", RegexOption.IGNORE_CASE)
 
 /** The outcomes drawn as an answer rather than as a refusal. */
 fun scanOutcomeIsPositive(kind: ScanOutcomeKind): Boolean = when (kind) {
@@ -73,10 +69,6 @@ fun scanOutcomeIsPositive(kind: ScanOutcomeKind): Boolean = when (kind) {
     ScanOutcomeKind.ADD_FROM_PEER, ScanOutcomeKind.JOIN_WORKSHOP, ScanOutcomeKind.POINTER -> true
     ScanOutcomeKind.REFUSED, ScanOutcomeKind.NOT_FOUND, ScanOutcomeKind.OFFLINE -> false
 }
-
-/** What a scanned payload may show in the typed box: never a join card, never a long payload. */
-fun scanEchoText(raw: String): String =
-    if (JOIN_CARD_PREFIX.containsMatchIn(raw.filterNot { it.isWhitespace() }) || raw.length > ECHO_LIMIT) "" else raw
 
 /**
  * The scanner's body, for the sheet, a full-screen host or a panel.
@@ -131,7 +123,7 @@ fun TopBarScanContent(
         scanner(
             !busy,
             { text ->
-                typed = scanEchoText(text)
+                typed = ""
                 look(text)
             },
             { message ->
@@ -146,7 +138,7 @@ fun TopBarScanContent(
                 outcome = null
                 problem = null
             },
-            label = { Text("Type the code") },
+            label = { Text(ScanCopy.TYPE_THE_CODE) },
             singleLine = true,
             enabled = !busy,
             leadingIcon = { Icon(Icons.Filled.Keyboard, contentDescription = null, modifier = Modifier.size(18.dp)) },
@@ -159,7 +151,7 @@ fun TopBarScanContent(
                 onClick = { look(typed) },
                 enabled = typed.isNotBlank() && !busy,
                 modifier = Modifier.heightIn(min = 48.dp).weight(1f).testTag("scan-lookup"),
-            ) { Text("Look up") }
+            ) { Text(ScanCopy.LOOK_UP) }
             if (busy) FieldCircularProgressIndicator(modifier = Modifier.size(20.dp))
         }
         problem?.let {

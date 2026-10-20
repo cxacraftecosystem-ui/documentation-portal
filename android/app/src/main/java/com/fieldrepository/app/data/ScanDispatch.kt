@@ -61,6 +61,11 @@ object ScanCopy {
     const val OFFLINE = "You're offline. Try again when connected."
     const val EMPTY = "Scan or type a code."
     const val SCAN_A_CODE = "Scan a code"
+    const val USE_CAMERA = "Use the camera"
+    const val STOP_CAMERA = "Stop camera"
+    const val CHOOSE_PHOTO = "Choose a photo"
+    const val TYPE_THE_CODE = "Type the code"
+    const val LOOK_UP = "Look up"
 }
 
 /** The heading word per record type (wire name), the web's `SCAN_RECORD_LABEL` verbatim. */
@@ -362,6 +367,8 @@ suspend fun dispatchScan(raw: String, services: ScanServices): ScanOutcome {
                 ScanRecordAnswer.Offline -> ScanOutcome(ScanOutcomeKind.OFFLINE, ScanCopy.OFFLINE)
                 ScanRecordAnswer.Missing ->
                     if (step.recordType == "designWorkshop") {
+                        // "this workshop", not its title: the server hides a workshop from anyone
+                        // without access, so the scan cannot name it (DEFERRED_FOR_LAUNCH.md D34).
                         ScanOutcome(
                             ScanOutcomeKind.JOIN_WORKSHOP,
                             "${ScanCopy.ASK_TO_JOIN} ${ScanCopy.THIS_WORKSHOP}",
