@@ -1,0 +1,202 @@
+{
+  "about": "One row per input of REQUIREMENTS_2026-10-20 §6.1. Byte-identical in designer-portal and documentation-portal, on the web (frontend/e2e/fixtures) and on Android (app/src/test/resources). services: what the mocked card resolve / record lookup answers for each portal (found, replaced, peer, refused, offline; found, missing, offline). expect: the outcome per portal, and the exact title where the copy is shared.",
+  "rows": [
+    {
+      "name": "DPW2 join card",
+      "input": "DPW2:J:CMSIK2JG8000EH8XC1LCY661A.9TQ4V0KZ7BXMHR3NDPJ2WY:7AWF",
+      "secret": "9TQ4V0KZ7BXMHR3NDPJ2WY",
+      "expect": {
+        "designer": { "outcome": "REDEEM_JOIN_CARD", "title": "A workshop join card.", "action": "redeem" },
+        "field": { "outcome": "REFUSED", "title": "This card opens a Designer Repository workshop." }
+      }
+    },
+    {
+      "name": "DPW2 join card with a wrong check",
+      "input": "DPW2:J:CMSIK2JG8000EH8XC1LCY661A.9TQ4V0KZ7BXMHR3NDPJ2WY:7AWX",
+      "secret": "9TQ4V0KZ7BXMHR3NDPJ2WY",
+      "expect": {
+        "designer": { "outcome": "REFUSED" },
+        "field": { "outcome": "REFUSED", "title": "This card opens a Designer Repository workshop." }
+      }
+    },
+    {
+      "name": "FR session QR, bare v1 JSON",
+      "input": "{\"v\":1,\"clientKey\":\"sess-4f1c\",\"questionnaireId\":\"cmq0questionnaire01\",\"workshopId\":null,\"sessionDate\":\"2026-10-20\",\"participants\":[\"cmartisan00000001\"]}",
+      "expect": {
+        "designer": { "outcome": "REFUSED", "title": "This is a Field Repository session." },
+        "field": { "outcome": "JOIN_SESSION", "title": "A questionnaire session.", "action": "joinSession", "clientKey": "sess-4f1c" }
+      }
+    },
+    {
+      "name": "FR session QR with the FRS1 prefix",
+      "input": "FRS1:{\"v\":1,\"clientKey\":\"sess-77aa\",\"questionnaireId\":\"cmq0questionnaire01\",\"sessionDate\":\"2026-10-20\",\"participants\":[]}",
+      "expect": {
+        "designer": { "outcome": "REFUSED", "title": "This is a Field Repository session." },
+        "field": { "outcome": "JOIN_SESSION", "title": "A questionnaire session.", "action": "joinSession", "clientKey": "sess-77aa" }
+      }
+    },
+    {
+      "name": "FR session code, typed with a hyphen and lower case",
+      "input": "ab3-k9z",
+      "expect": {
+        "designer": { "outcome": "REFUSED", "title": "This is a Field Repository session." },
+        "field": { "outcome": "JOIN_SESSION", "title": "A questionnaire session.", "action": "joinSession", "joinCode": "AB3K9Z" }
+      }
+    },
+    {
+      "name": "Designer artisan card QR, found",
+      "input": "CXA1:D1:7K3QM9XA2F:ABCDEFGHJKMNPQRS",
+      "services": { "designer": { "card": "found" }, "field": { "card": "found" } },
+      "expect": {
+        "designer": { "outcome": "OPEN", "title": "Artisan: Meena Devi", "action": "open", "href": "/artisans/cmartisan00000001" },
+        "field": { "outcome": "OPEN", "title": "Artisan: Meena Devi", "action": "open", "href": "/artisans/cmartisan00000001" }
+      }
+    },
+    {
+      "name": "Designer short code, not linked in the Field Repository",
+      "input": "D-7K3QM-9XA2F-HQ",
+      "services": { "designer": { "card": "found" }, "field": { "card": "refused" } },
+      "expect": {
+        "designer": { "outcome": "OPEN", "title": "Artisan: Meena Devi", "action": "open" },
+        "field": { "outcome": "REFUSED", "title": "Server refusal." }
+      }
+    },
+    {
+      "name": "Field short code, not linked in the Designer Repository",
+      "input": "F-7K3QM-9XA2F-DN",
+      "services": { "designer": { "card": "peer" }, "field": { "card": "found" } },
+      "expect": {
+        "designer": { "outcome": "ADD_FROM_PEER", "title": "From the Field Repository.", "action": "add", "href": "/artisans/new?card=F-7K3QM-9XA2F-DN" },
+        "field": { "outcome": "OPEN", "title": "Artisan: Meena Devi", "action": "open" }
+      }
+    },
+    {
+      "name": "A replaced card",
+      "input": "D-7K3QM-9XA2F-HQ",
+      "services": { "designer": { "card": "replaced" }, "field": { "card": "replaced" } },
+      "expect": {
+        "designer": { "outcome": "OPEN", "title": "This card was replaced.", "action": "open", "href": "/artisans/cmartisan00000001" },
+        "field": { "outcome": "OPEN", "title": "This card was replaced.", "action": "open", "href": "/artisans/cmartisan00000001" }
+      }
+    },
+    {
+      "name": "A card while offline",
+      "input": "D-7K3QM-9XA2F-HQ",
+      "services": { "designer": { "card": "offline" }, "field": { "card": "offline" } },
+      "expect": {
+        "designer": { "outcome": "OFFLINE", "title": "You're offline. Try again when connected." },
+        "field": { "outcome": "OFFLINE", "title": "You're offline. Try again when connected." }
+      }
+    },
+    {
+      "name": "A mistyped card",
+      "input": "D-7K3QM-9XA2F-HX",
+      "expect": {
+        "designer": { "outcome": "REFUSED", "title": "Check the code. One character is wrong." },
+        "field": { "outcome": "REFUSED", "title": "Check the code. One character is wrong." }
+      }
+    },
+    {
+      "name": "DPW1 artisan code, found",
+      "input": "DPW1:A:CMSIK2JG8000EH8XC1LCY661A:NEWD",
+      "services": { "designer": { "record": "found" } },
+      "expect": {
+        "designer": { "outcome": "OPEN", "title": "Artisan: Meena Devi", "action": "open" },
+        "field": { "outcome": "REFUSED", "title": "This code is from the Designer Repository." }
+      }
+    },
+    {
+      "name": "DPW1 tool code, no match",
+      "input": "DPW1:T:CMSIK2JG8000EH8XC1LCY661A:QBZJ",
+      "services": { "designer": { "record": "missing" } },
+      "expect": {
+        "designer": { "outcome": "NOT_FOUND", "title": "No record matches this code." },
+        "field": { "outcome": "REFUSED", "title": "This code is from the Designer Repository." }
+      }
+    },
+    {
+      "name": "DPW1 tool code, offline",
+      "input": "DPW1:T:CMSIK2JG8000EH8XC1LCY661A:QBZJ",
+      "services": { "designer": { "record": "offline" } },
+      "expect": {
+        "designer": { "outcome": "OFFLINE", "title": "You're offline. Try again when connected." },
+        "field": { "outcome": "REFUSED", "title": "This code is from the Designer Repository." }
+      }
+    },
+    {
+      "name": "DPW1 design workshop code, has access",
+      "input": "DPW1:G:CMSIK2JG8000EH8XC1LCY661A:0PK3",
+      "services": { "designer": { "record": "found" } },
+      "expect": {
+        "designer": { "outcome": "OPEN", "title": "Design workshop: Meena Devi", "action": "open" },
+        "field": { "outcome": "REFUSED", "title": "This code is from the Designer Repository." }
+      }
+    },
+    {
+      "name": "DPW1 design workshop code, no access",
+      "input": "DPW1:G:CMSIK2JG8000EH8XC1LCY661A:0PK3",
+      "services": { "designer": { "record": "missing" } },
+      "expect": {
+        "designer": { "outcome": "JOIN_WORKSHOP", "title": "Ask to join this workshop", "action": "requestAccess" },
+        "field": { "outcome": "REFUSED", "title": "This code is from the Designer Repository." }
+      }
+    },
+    {
+      "name": "DPW1 prototype tag",
+      "input": "DPW1:P:CMSIK2JG8000EH8XC1LCY661A:63DP",
+      "expect": {
+        "designer": { "outcome": "POINTER", "title": "A prototype tag. Open the workshop's Cards & tags.", "action": "open" },
+        "field": { "outcome": "REFUSED", "title": "This code is from the Designer Repository." }
+      }
+    },
+    {
+      "name": "DPW3 file check code",
+      "input": "DPW3:H:8QK4T2WMZ0R:X7PA",
+      "expect": {
+        "designer": { "outcome": "POINTER", "title": "A file check code. Open the received file in Questionnaires to check it.", "action": "open" },
+        "field": { "outcome": "REFUSED", "title": "This code is from the Designer Repository." }
+      }
+    },
+    {
+      "name": "Aadhaar Secure QR (synthetic numeric payload)",
+      "aadhaar": true,
+      "input": "60020666266084006024084268084042484202428804888886288220042020002226826426060062403646884628226600868840216460622664822646024648686408882000462620028084464442020462626428828844484684484880844084626884268448260634624646228224048008888608026228868206288448664868066446644688826440422668206044200402240682626486620666820080048640428440400804400206666248048866260066826046208228440844000466662424666062480206828668260023284246646246684628406008864868288820020608646880402404026766846648084448426246482240802020220688402880202066064088820806424402840048886842026828800608028422408800200026480268884022822442484500228842262406",
+      "expect": {
+        "designer": { "outcome": "REFUSED", "title": "This code isn't one this app reads." },
+        "field": { "outcome": "REFUSED", "title": "This code isn't one this app reads." }
+      }
+    },
+    {
+      "name": "Authenticator link",
+      "input": "otpauth://totp/IIT:someone?secret=JBSWY3DPEHPK3PXP&issuer=IIT",
+      "expect": {
+        "designer": { "outcome": "REFUSED", "title": "This code isn't one this app reads." },
+        "field": { "outcome": "REFUSED", "title": "This code isn't one this app reads." }
+      }
+    },
+    {
+      "name": "Payment QR",
+      "input": "upi://pay?pa=someone@bank&pn=Someone&am=100",
+      "expect": {
+        "designer": { "outcome": "REFUSED", "title": "This code isn't one this app reads." },
+        "field": { "outcome": "REFUSED", "title": "This code isn't one this app reads." }
+      }
+    },
+    {
+      "name": "A web address",
+      "input": "https://example.org/a/b?c=1",
+      "expect": {
+        "designer": { "outcome": "REFUSED", "title": "This code isn't one this app reads." },
+        "field": { "outcome": "REFUSED", "title": "This code isn't one this app reads." }
+      }
+    },
+    {
+      "name": "Free text",
+      "input": "hello there",
+      "expect": {
+        "designer": { "outcome": "REFUSED", "title": "This code isn't one this app reads." },
+        "field": { "outcome": "REFUSED", "title": "This code isn't one this app reads." }
+      }
+    }
+  ]
+}

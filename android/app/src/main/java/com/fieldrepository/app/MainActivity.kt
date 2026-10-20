@@ -590,6 +590,13 @@ import com.fieldrepository.app.ui.FieldCircularProgressIndicator
 import com.fieldrepository.app.data.QuestionnaireV2
 import com.fieldrepository.app.ui.questionnaire.ArtisanQuestionnaireRecord
 import com.fieldrepository.app.ui.questionnaire.QuestionnaireV2Nav
+import com.fieldrepository.app.ui.FieldScanControls
+import com.fieldrepository.app.ui.TopBarScanSheet
+import com.fieldrepository.app.ui.fieldScanServices
+import com.fieldrepository.app.ui.runFieldScanAction
+import com.fieldrepository.app.data.ScanCopy
+import com.fieldrepository.app.data.ScanTarget
+import com.fieldrepository.app.data.dispatchScan
 import com.fieldrepository.app.ui.questionnaire.QuestionnaireV2Screen
 import com.fieldrepository.app.ui.questionnaire.openAppDownloadPage
 
@@ -1657,10 +1664,10 @@ private fun HomeScreen(
     val reducedMotion = preferences.reducedMotion
     // The search panel the page header opens. See AppSearch.kt.
     var searchOpen by remember { mutableStateOf(false) }
-    // Artisan cards: the header's scan icon, drawn only while the server has cards on (ui/CardScanner.kt).
-    var cardsEnabled by remember { mutableStateOf(false) }
-    var cardScanOpen by remember { mutableStateOf(false) }
-    LaunchedEffect(user.id) { cardsEnabled = repository.artisanCardsEnabled() }
+    // The top-bar scanner the header's leading button and Browse → "Scan a code" open
+    // (ui/TopBarScanSheet.kt), for every signed-in user whether or not artisan cards are on.
+    var scanOpen by remember { mutableStateOf(false) }
+    val scanContext = LocalContext.current
     // The designer portal's AppMessageState: `message = "…"` is a success, showMessage an error.
     val appMessage = remember { AppMessageState() }
     // The offline / outbox banners' footprint, measured by the root (ui/BannerClearance.kt).
@@ -2003,6 +2010,8 @@ private fun HomeScreen(
             // The web's /search. [EntryMode.SEARCH] keeps the page's own title so the two entries that
             // both want the words "Browse records" cannot collide in one menu.
             NavDestination.BROWSE_RECORDS -> screen = screenFor(EntryMode.SEARCH)
+            // A full-screen sheet over wherever the user already was, like the walkthrough.
+            NavDestination.SCAN_CODE -> scanOpen = true
             NavDestination.MAP -> screen = screenFor(EntryMode.MAP)
             // The web's /data directory tree, which owns its whole viewport (see [Screen.DataBrowser]).
             NavDestination.VIEW_DATA -> screen = screenFor(EntryMode.DATA_BROWSER)
@@ -2963,25 +2972,29 @@ private fun HomeScreen(
                         logo = { m -> FieldRepoLogo(modifier = m, cornerRadius = 10.dp) },
                         onOpenSearch = { searchOpen = true },
                         elevated = elevated,
-                        onScanCard = if (cardsEnabled) ({ cardScanOpen = true }) else null
+                        onScan = { scanOpen = true }
                     )
                 }
-                if (cardScanOpen) {
-                    ArtisanCardScanDialog(
-                        resolve = { text -> repository.resolveArtisanCard(text) },
-                        onResolved = { result ->
-                            cardScanOpen = false
-                            when (result) {
-                                is ArtisanCardResolution.Found -> openRecordView(EntryMode.ARTISAN, result.artisanId)
-                                is ArtisanCardResolution.Replaced -> {
-                                    showMessage("This card was replaced.", AppMessageTone.SUCCESS)
-                                    openRecordView(EntryMode.ARTISAN, result.artisanId)
+                if (scanOpen) {
+                    val scanServices = remember(repository) { fieldScanServices(repository) }
+                    TopBarScanSheet(
+                        dispatch = { raw -> dispatchScan(raw, scanServices) },
+                        onAction = { action ->
+                            runFieldScanAction(scanContext, action, user.id) { target ->
+                                scanOpen = false
+                                when (target) {
+                                    is ScanTarget.Record -> openRecordView(EntryMode.ARTISAN, target.id)
+                                    is ScanTarget.Session -> {
+                                        QuestionnaireV2Nav.openSession.value = target.id
+                                        screen = screenFor(EntryMode.QUESTIONNAIRE)
+                                    }
+                                    // Designer Repository places; the dispatcher refuses their codes here.
+                                    else -> showMessage(ScanCopy.DESIGNER_CODE)
                                 }
-                                is ArtisanCardResolution.Pending -> showMessage("No signal. This card opens once you're online.")
-                                is ArtisanCardResolution.Refused -> showMessage(result.message)
                             }
                         },
-                        onDismiss = { cardScanOpen = false }
+                        onDismiss = { scanOpen = false },
+                        scanner = { enabled, onText, onRefusal -> FieldScanControls(enabled, onText, onRefusal) }
                     )
                 }
                 // Over the page, under nothing: the page keeps its scroll and any half-filled form.

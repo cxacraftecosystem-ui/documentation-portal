@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.PermMedia
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Quiz
 import androidx.compose.material.icons.filled.RateReview
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -215,6 +216,12 @@ enum class NavDestination {
     TASKS,
     BROWSE_RECORDS,
     /**
+     * The web's `/scan`: the top-bar scanner (`ui/TopBarScanSheet.kt`) opened from the menu, a
+     * full-screen host of the same content the header's scan button opens. Placed where the designer
+     * app has it, so both menus read the same (REQUIREMENTS_2026-10-20 §6.2).
+     */
+    SCAN_CODE,
+    /**
      * The web's `/map` — the repository read as geography. The third way of reading the whole corpus
      * and it sits next to the other two: `/search` reads it as a list, `/data` as a folder tree,
      * `/map` as a place. Ungated, because `GET /map/points` asks for nothing but a login: reading the
@@ -298,6 +305,8 @@ val FIELD_NAV_ITEMS: List<NavEntry> = listOf(
     // Everyone can be a task assignee; the "assign" half is gated inside the screen.
     NavEntry(NavDestination.TASKS, "Tasks", Icons.AutoMirrored.Filled.Assignment, NavGroup.BROWSE, everyone, "get_current_user"),
     NavEntry(NavDestination.BROWSE_RECORDS, "Browse records", Icons.Filled.Search, NavGroup.BROWSE, everyone, "get_current_user"),
+    // Ungated, as on the designer app: every lookup behind it is scoped per viewer by the API.
+    NavEntry(NavDestination.SCAN_CODE, "Scan a code", Icons.Filled.QrCodeScanner, NavGroup.BROWSE, everyone, "get_current_user"),
     // The third way of reading the whole corpus, in the web's own position in this group: /search reads
     // it as a list, /data as a folder tree, /map as a place. Ungated to match /search, because
     // GET /map/points asks for nothing but a login — reading the repository is open to every signed-in

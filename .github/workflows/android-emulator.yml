@@ -189,7 +189,12 @@ jobs:
             -no-snapshot-save -no-snapshot-load -camera-back none -camera-front none
           disable-animations: true
           working-directory: android
-          script: python3 scripts/emulator-smoke.py
+          # The top-bar scanner's device test first (REQUIREMENTS_2026-10-20 §6.3: the header's scan
+          # button opens the sheet and a typed session code starts the session), on a clean display,
+          # then the smoke script. Only that class: the recording tests need a signed-in session.
+          script: |
+            ./gradlew :app:connectedDebugAndroidTest --console=plain -Pandroid.testInstrumentationRunnerArguments.class=com.fieldrepository.app.TopBarScanDeviceTest
+            python3 scripts/emulator-smoke.py
 
       - name: Upload the smoke results
         # `always()`: a red run is exactly when the screenshots and the logcat are worth reading.

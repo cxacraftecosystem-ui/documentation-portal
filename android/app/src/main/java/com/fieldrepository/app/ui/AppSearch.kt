@@ -49,6 +49,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -270,11 +271,15 @@ fun AppSearchHeader(
     appName: String,
     logo: @Composable (Modifier) -> Unit,
     onOpenSearch: () -> Unit,
+    /**
+     * Open the top-bar scanner (`ui/TopBarScanSheet.kt`). Always drawn, as a 48dp button at the
+     * leading edge, for every signed-in user whether or not artisan cards are on
+     * (REQUIREMENTS_2026-10-20 §6.2).
+     */
+    onScan: () -> Unit,
     modifier: Modifier = Modifier,
     /** True while it floats over content mid-page, where a shadow separates it from the page. */
-    elevated: Boolean = false,
-    /** Scan an artisan card. Null (cards off here) draws no icon. */
-    onScanCard: (() -> Unit)? = null
+    elevated: Boolean = false
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -312,13 +317,16 @@ fun AppSearchHeader(
             ) {
                 Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             }
-            if (onScanCard != null) {
-                // Its own target over the header's search tap: 48dp, the opposite end from Search.
-                IconButton(onClick = onScanCard, modifier = Modifier.align(Alignment.CenterStart).size(48.dp)) {
-                    Icon(Icons.Filled.QrCodeScanner, contentDescription = "Scan artisan card", tint = MaterialTheme.colorScheme.primary)
-                }
-            }
+            TopBarScanButton(onClick = onScan, modifier = Modifier.align(Alignment.CenterStart))
         }
+    }
+}
+
+/** The header's leading scan button. Its own target: a press never also opens search. */
+@Composable
+fun TopBarScanButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    IconButton(onClick = onClick, modifier = modifier.size(48.dp).testTag("top-bar-scan")) {
+        Icon(Icons.Filled.QrCodeScanner, contentDescription = "Scan a code", tint = MaterialTheme.colorScheme.primary)
     }
 }
 

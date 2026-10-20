@@ -387,6 +387,9 @@ dependencies {
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test:rules:1.7.0")
     androidTestImplementation("androidx.test.uiautomator:uiautomator:2.4.0")
+    // The top-bar scanner's device test (TopBarScanDeviceTest): Compose's test rule, versions from the BOM.
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     /*
      * THE VENDORED TRACE ENGINE. See the block in settings.gradle.kts for what these four are and
