@@ -682,9 +682,51 @@ model AppRelease {
   @@index([versionCode])
 }
 
+enum GiStatus {
+  GI
+  NON_GI
+}
+
+/// ACTIVE: on the list and pickable. LEGACY: a craft that existed before the master list and did
+/// not map; still referenced, never pickable, waiting for an admin to merge or adopt it.
+/// MERGED: folded into `mergedIntoId`; kept so old links and audit history resolve.
+enum CraftStatus {
+  ACTIVE
+  LEGACY
+  MERGED
+}
+
+model CraftCategory {
+  id            String             @id @default(cuid())
+  slug          String             @unique
+  name          String             @unique
+  sortOrder     Int
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  createdById   String?
+  subCategories CraftSubCategory[]
+}
+
+model CraftSubCategory {
+  id          String        @id @default(cuid())
+  slug        String        @unique
+  name        String
+  categoryId  String
+  sortOrder   Int
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  createdById String?
+  category    CraftCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  crafts      Craft[]
+
+  @@unique([categoryId, name])
+  @@index([categoryId])
+}
+
 model Craft {
   id            String   @id @default(cuid())
-  name          String   @unique
+  /// Not unique on its own since the master list (2026-10-20): unique within a sub-category.
+  name          String
   localName     String?
   category      String?
   description   String?
@@ -706,6 +748,23 @@ model Craft {
   /// "Bandhani" and "Bandhani tie-resist dyeing" are three rows here and one code. Nullable: a
   /// craft nobody has mapped yet keeps working exactly as before, and an admin maps it.
   craftCode     String?
+  /// THE MASTER CRAFT LIST (2026-10-20, docs/CRAFTS.md). ``slug`` is the cross-portal identity of a
+  /// craft: both portals seed the same 455 rows from ``app/data/craft_master_list.json``.
+  /// The routes and the seed always write a naming slug (``naming.field``). The database default only keeps a
+  /// row written some other way (a test fixture, a one-off script) valid.
+  slug            String       @unique @default(dbgenerated("('craft-'::text || md5((random())::text || (clock_timestamp())::text))"))
+  subCategoryId   String?
+  sourceSerial    Int?         @unique
+  stateOfOrigin   String[]     @default([])
+  stateOfPractice String[]     @default([])
+  giStatus        GiStatus?
+  isCatchAll      Boolean      @default(false)
+  sourceNotes     String[]     @default([])
+  status          CraftStatus  @default(ACTIVE)
+  mergedIntoId    String?
+  subCategory     CraftSubCategory? @relation(fields: [subCategoryId], references: [id], onDelete: Restrict)
+  mergedInto      Craft?       @relation("CraftMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom      Craft[]      @relation("CraftMerge")
 
   createdBy User?                  @relation("CraftCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   code      CraftCode?             @relation(fields: [craftCode], references: [code], onDelete: SetNull)
@@ -722,8 +781,9 @@ model Craft {
   media     MediaFile[]
   workshops WorkshopCraft[]
 
-  // `name` needs no index of its own: @unique already builds one, and that is what the alphabetical
-  // craft picker orders by.
+  @@unique([subCategoryId, name])
+  @@index([subCategoryId])
+  @@index([status])
   @@index([workshopId])
   @@index([craftCode])
 }

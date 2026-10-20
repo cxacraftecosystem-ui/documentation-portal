@@ -26,6 +26,7 @@ as the raw state, so an administrator can map a recurring free-text place once.
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -165,8 +166,21 @@ def resolve_fys(raw: list[str] | None) -> list[int]:
     return out
 
 
+#: A master-list slug: Title-Case words joined by "-" (``naming.field``). A shared code is lower case.
+_SLUG_SHAPE = re.compile(r"^[A-Z0-9][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*$")
+
+
 def resolve_craft_codes(raw: list[str] | None) -> list[str]:
-    return [code for code in split_values(raw) if cross_portal_codes.is_known_code(code)]
+    """The craft filter: shared codes (C26) and master-list slugs (2026-10-20, docs/CRAFTS.md).
+
+    A shared code matches every craft carrying it; a slug matches the one craft. A token of neither
+    shape is dropped, as an unknown code always was.
+    """
+    return [
+        code
+        for code in split_values(raw)
+        if cross_portal_codes.is_known_code(code) or _SLUG_SHAPE.match(code)
+    ]
 
 
 def _title(row: Any, bucket: str) -> str:
@@ -228,6 +242,18 @@ class Fold:
     rows: list[Folded] = field(default_factory=list)
     truncated: bool = False
     at: float = 0.0
+    #: THE MASTER CRAFT LIST (2026-10-20): the ACTIVE crafts, as ``{code: slug, name, craftCode}``,
+    #: that the craft filter offers and the "never documented" list is computed against.
+    active_crafts: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _listed_slug(craft: Any) -> str | None:
+    """A craft's slug when it is on the master list (ACTIVE, in a sub-category), else ``None``."""
+    status = getattr(craft, "status", None)
+    status = str(getattr(status, "value", status) or "")
+    if status == "ACTIVE" and getattr(craft, "subCategoryId", None):
+        return getattr(craft, "slug", None)
+    return None
 
 
 def _craft_code_for_name(name: str | None, spellings: dict[str, str]) -> str | None:
@@ -249,16 +275,29 @@ def _craft_of(row: Any, bucket: str, spellings: dict[str, str]) -> tuple[tuple[s
         if token and token not in keys:
             keys.append(token)
 
+    def add_craft(craft: Any, code: str | None) -> None:
+        # A craft on the master list is keyed by its slug, and its shared code still matches too.
+        slug = _listed_slug(craft)
+        if slug:
+            if slug not in codes:
+                codes.insert(0, slug)
+            if slug not in keys:
+                keys.append(slug)
+            if code and code not in codes:
+                codes.append(code)
+            return
+        add(code, f"craft:{craft.id}")
+
     if bucket == "workshops":
         for link in getattr(row, "crafts", None) or []:
             craft = getattr(link, "craft", None)
             if craft is not None:
-                add(getattr(craft, "craftCode", None), f"craft:{craft.id}")
+                add_craft(craft, getattr(craft, "craftCode", None))
         return tuple(codes), tuple(keys)
     craft = getattr(row, "craft", None)
     if craft is not None:
         code = getattr(craft, "craftCode", None) or _craft_code_for_name(craft.name, spellings)
-        add(code, f"craft:{craft.id}")
+        add_craft(craft, code)
     else:
         name = getattr(row, "craftName", None)
         if name and name.strip():
@@ -336,13 +375,29 @@ async def _load(client: Any, wheres: dict[str, dict[str, Any]]) -> tuple[dict[st
         ),
         client.geoalias.find_many(),
         client.craftspelling.find_many(where={"source": cross_portal_codes.SOURCE_ADMIN}),
+        _active_crafts(client),
     )
     rows = dict(zip(BUCKETS, reads[: len(BUCKETS)], strict=True))
     aliases = {
         (r.rawStateKey, r.rawDistrictKey or ""): (r.stateLgd, r.districtLgd) for r in reads[len(BUCKETS)] or []
     }
     spellings = {r.spelling: r.craftCode for r in reads[len(BUCKETS) + 1] or []}
+    rows["__activeCrafts__"] = reads[len(BUCKETS) + 2] or []
     return rows, aliases, spellings
+
+
+async def _active_crafts(client: Any) -> list[dict[str, Any]]:
+    """The ACTIVE master list, by name, as the catalogue and the gap list read it."""
+    delegate = getattr(client, "craft", None)
+    if delegate is None:
+        return []
+    crafts = await delegate.find_many(where={"status": "ACTIVE", "subCategoryId": {"not": None}})
+    listed = [
+        {"code": c.slug, "name": c.name, "craftCode": getattr(c, "craftCode", None)}
+        for c in crafts or []
+        if getattr(c, "slug", None)
+    ]
+    return sorted(listed, key=lambda c: (str(c["name"]).lower(), c["code"]))
 
 
 #: The read the fold goes through. A seam for the tests, which hand it a fake client.
@@ -367,7 +422,7 @@ async def fold_for(wheres: dict[str, dict[str, Any]]) -> Fold:
     if hit is not None and now - hit.at < CACHE_TTL_SECONDS:
         return hit
     rows, aliases, spellings = await reader(lambda client: _load(client, wheres))
-    fold = Fold(at=now)
+    fold = Fold(at=now, active_crafts=list(rows.pop("__activeCrafts__", None) or []))
     for bucket in BUCKETS:
         bucket_rows = rows[bucket] or []
         if len(bucket_rows) > ROW_CAP:
@@ -510,7 +565,7 @@ def aggregate(fold: Fold, filters: Filters) -> dict[str, Any]:
         "units": ordered,
         "markers": markers[:MARKER_CAP],
         "markersTruncated": len(markers) > MARKER_CAP,
-        "gaps": gaps(documented, workshop_districts, workshop_states, filters.state_lgd),
+        "gaps": gaps(documented, workshop_districts, workshop_states, filters.state_lgd, fold.active_crafts),
         "unmatched": {"count": unmatched},
         "truncated": fold.truncated,
         "_rows": rows,
@@ -545,9 +600,21 @@ def gaps(
     workshop_districts: set[int],
     workshop_states: set[int],
     state_lgd: int | None,
+    active_crafts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Shared crafts with no record, and register units with no workshop, under the filters."""
-    crafts = [c for c in cross_portal_codes.catalogue() if c["code"] not in documented]
+    """Crafts with no record, and register units with no workshop, under the filters.
+
+    The crafts are the ACTIVE master list (2026-10-20), keyed by slug; one whose shared code is
+    documented counts as documented too. Without the list, the shared code catalogue as before.
+    """
+    if active_crafts:
+        crafts = [
+            {"code": c["code"], "name": c["name"]}
+            for c in active_crafts
+            if c["code"] not in documented and not (c.get("craftCode") and c["craftCode"] in documented)
+        ]
+    else:
+        crafts = [c for c in cross_portal_codes.catalogue() if c["code"] not in documented]
     by_state: list[dict[str, Any]] = []
     count = 0
     raw = _register_rows()
@@ -590,8 +657,13 @@ def _register_rows() -> tuple[tuple[int, str, list[dict[str, Any]]], ...]:
 
 def catalogue(fold: Fold) -> dict[str, Any]:
     years = sorted({row.fy for row in fold.rows if row.fy is not None}, reverse=True)
+    crafts = (
+        [{"code": c["code"], "name": c["name"]} for c in fold.active_crafts]
+        if fold.active_crafts
+        else cross_portal_codes.catalogue()
+    )
     return {
-        "crafts": cross_portal_codes.catalogue(),
+        "crafts": crafts,
         "schemes": [dict(s) for s in SCHEMES],
         "years": [{"fy": fy, "label": fy_label(fy)} for fy in years],
     }

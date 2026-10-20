@@ -146,7 +146,7 @@ def _drive_artisan(monkeypatch, fields: dict[str, Any], stored: _Row) -> tuple[A
     async def _require_record(_delegate, _record_id):
         return stored
 
-    async def _resolve_craft_id(data, _user):
+    async def _resolve_craft_id(data, _user, **_kwargs):
         return data
 
     async def _attach_location(data):

@@ -162,7 +162,10 @@ def _doc(entity_type: str, entity_id: str, **fields: Any) -> dict[str, Any]:
 
 
 def _codes(*crafts: Any) -> list[str]:
-    return _ids(*(getattr(c, "craftCode", None) for c in crafts if c is not None))
+    """Each craft's shared code (C26), and its slug when it is on the master list (2026-10-20)."""
+    present = [c for c in crafts if c is not None]
+    slugs = (getattr(c, "slug", None) for c in present if getattr(c, "subCategoryId", None))
+    return _ids(*(getattr(c, "craftCode", None) for c in present), *slugs)
 
 
 def _free_text_artisan(row: Any, artisan_ids: list[str]) -> bool:
@@ -208,7 +211,7 @@ async def _craft(entity_id: str) -> dict[str, Any] | None:
         body=_body(row.localName, row.description),
         place=row.place,
         craftIds=[row.id],
-        craftCodes=_ids(row.craftCode),
+        craftCodes=_codes(row),
         workshopIds=_ids(row.workshopId),
         shareable=True,
         recordDate=row.recordedAt or row.createdAt,

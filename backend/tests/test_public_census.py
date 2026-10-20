@@ -138,6 +138,10 @@ def corpus(monkeypatch: pytest.MonkeyPatch):
 # --- What it counts, and what it calls it --------------------------------------------------------
 
 
+#: The craft row counts the ACTIVE master list (2026-10-20), the one filter a held count carries.
+_ACTIVE_CRAFTS = {"where": {"status": "ACTIVE"}}
+
+
 def test_every_record_type_is_counted_exactly_once(corpus) -> None:
     tables = corpus()
 
@@ -145,7 +149,7 @@ def test_every_record_type_is_counted_exactly_once(corpus) -> None:
 
     assert response.status_code == 200
     assert response.json()["recordsHeld"] == _EXPECTED_HELD
-    held = [name for name, kwargs in tables.calls if kwargs == {}]
+    held = [name for name, kwargs in tables.calls if kwargs in ({}, _ACTIVE_CRAFTS)]
     assert sorted(held) == sorted(_TOTALS)
 
 
@@ -163,9 +167,9 @@ def test_the_census_counts_every_row_held_not_only_the_approved_ones(corpus) -> 
     body = asyncio.run(_get()).json()
 
     assert "recordsHeld" in body
-    held = [name for name, kwargs in tables.calls if kwargs == {}]
+    held = [name for name, kwargs in tables.calls if kwargs == {} or (name == "craft" and kwargs == _ACTIVE_CRAFTS)]
     assert sorted(held) == sorted(_TOTALS), "a where clause reached a held count"
-    approved = [(name, kwargs) for name, kwargs in tables.calls if kwargs != {}]
+    approved = [(name, kwargs) for name, kwargs in tables.calls if kwargs not in ({}, _ACTIVE_CRAFTS)]
     assert all(kwargs == {"where": {"status": "APPROVED"}} for _, kwargs in approved)
     assert sorted(name for name, _ in approved) == sorted(n for n in _TOTALS if n != "craft")
 

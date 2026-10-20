@@ -308,9 +308,23 @@ class ArtisanUpdate(APIModel):
         return self
 
 
+#: A craft's GI status on the master list (2026-10-20): ``GiStatus`` in schema.prisma.
+CRAFT_GI_STATUSES = ("GI", "NON_GI")
+
+
 class CraftCreate(APIModel):
+    """A craft added to the master list (docs/CRAFTS.md). ``subCategoryId`` is required.
+
+    The server sets ``slug``, ``category`` (the sub-category's category name), ``status`` and
+    ``craftCode``. ``category`` is still accepted from old clients and ignored.
+    """
+
     name: str = Field(min_length=1, max_length=180)
+    subCategoryId: str = Field(min_length=1)
     localName: str | None = None
+    stateOfOrigin: list[str] = Field(default_factory=list)
+    stateOfPractice: list[str] = Field(default_factory=list)
+    giStatus: str
     category: str | None = None
     description: str | None = None
     place: str | None = None
@@ -319,6 +333,13 @@ class CraftCreate(APIModel):
     recordedAt: datetime | None = None
     recordedTimezone: str = "Asia/Kolkata"
     extraMetadata: dict[str, Any] | None = None
+
+    @field_validator("giStatus")
+    @classmethod
+    def _known_gi_status(cls, value: str) -> str:
+        if value not in CRAFT_GI_STATUSES:
+            raise ValueError("giStatus must be GI or NON_GI.")
+        return value
 
 
 class CraftUpdate(APIModel):
@@ -335,6 +356,10 @@ class CraftUpdate(APIModel):
     # handoff on this change. ``test_record_update_precondition`` pins BOTH halves of this state:
     # that the five wired schemas accept the key, and that this one still refuses it.
     name: str | None = Field(default=None, min_length=1, max_length=180)
+    subCategoryId: str | None = None
+    stateOfOrigin: list[str] | None = None
+    stateOfPractice: list[str] | None = None
+    giStatus: str | None = None
     localName: str | None = None
     category: str | None = None
     description: str | None = None
@@ -343,6 +368,25 @@ class CraftUpdate(APIModel):
     recordedAt: datetime | None = None
     recordedTimezone: str | None = None
     extraMetadata: dict[str, Any] | None = None
+
+    @field_validator("giStatus")
+    @classmethod
+    def _known_gi_status(cls, value: str | None) -> str | None:
+        if value is not None and value not in CRAFT_GI_STATUSES:
+            raise ValueError("giStatus must be GI or NON_GI.")
+        return value
+
+
+class CraftMerge(APIModel):
+    """``POST /crafts/{id}/merge``: fold this craft into ``intoId``."""
+
+    intoId: str = Field(min_length=1)
+
+
+class CraftAdopt(APIModel):
+    """``POST /crafts/{id}/adopt``: a LEGACY craft joins the list in ``subCategoryId``."""
+
+    subCategoryId: str = Field(min_length=1)
 
 
 #: The kinds of workshop the database has. A frozenset rather than a list because it is only ever
@@ -769,7 +813,9 @@ TOOL_CRAFT_NAME_MAX = 2000
 
 class ToolCreate(APIModel):
     # Server-derived whenever ``craftIds`` is sent, so its bound is the JOIN's — see the constant.
-    craftName: str = Field(min_length=1, max_length=TOOL_CRAFT_NAME_MAX)
+    # Optional since the master craft list (2026-10-20): derived from ``craftIds``; old clients may
+    # still send a typed name, which is matched onto the list (``craft_master.resolve_tool_crafts``).
+    craftName: str | None = Field(default=None, min_length=1, max_length=TOOL_CRAFT_NAME_MAX)
     place: str = Field(min_length=1, max_length=180)
     artisanName: str = Field(min_length=1, max_length=180)
     toolkitName: str = Field(min_length=1, max_length=220)

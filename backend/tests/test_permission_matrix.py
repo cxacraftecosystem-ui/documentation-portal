@@ -76,7 +76,8 @@ LOCATION = {
     "state": "West Bengal",
     "district": "Kolkata",
 }
-CRAFT_BODY = {"name": "Test craft"}
+# A craft joins a sub-category of the master list (2026-10-20); `giStatus` is required with it.
+CRAFT_BODY = {"name": "Test craft", "subCategoryId": "sub_1", "giStatus": "NON_GI"}
 WORKSHOP_BODY = {"title": "Test workshop", "date": "2026-10-20", "place": "Kolkata", "location": LOCATION}
 ARTISAN_BODY = {
     "name": "Test artisan",
@@ -301,20 +302,52 @@ def test_admins_create_update_and_delete(api: _Api, role: str, path: str, body: 
     assert all(outcome.reached for outcome in outcomes), outcomes
 
 
-def test_a_new_craft_cannot_be_minted_sideways_through_the_artisan_form(api: _Api) -> None:
-    """``craftName`` on POST /artisans creates the craft when nothing matches it — the same write
-    POST /crafts guards, reached from another route. Both ask ``can_manage_crafts``, so the grant
-    that no longer opens the front door does not open this one either."""
+def test_a_typed_craft_name_never_mints_a_craft(api: _Api, monkeypatch: pytest.MonkeyPatch) -> None:
+    """SINCE THE MASTER CRAFT LIST (2026-10-20) NOTHING CREATES A CRAFT FROM TYPED TEXT, for any role.
+
+    ``craftName`` on POST /artisans used to create the craft when nothing matched it, gated on
+    ``can_manage_crafts`` like POST /crafts. Now an old client's typed name that matches nothing is
+    kept in ``extraMetadata.legacyCraftText`` for the admin review queue, so the grant that no longer
+    opens the front door has nothing to open here either: the create goes on, and no craft is made.
+
+    What the route resolved is read off the real resolver, so the body that goes on to be written
+    is pinned too: no ``craftId``, and the typed text in ``legacyCraftText``.
+    """
+    from app.services import craft_master
+
+    real_resolve = craft_master.resolve_record_craft
+    resolved: list[dict[str, Any]] = []
+
+    async def _spy(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        data = await real_resolve(*args, **kwargs)
+        resolved.append(dict(data))
+        return data
+
+    monkeypatch.setattr(craft_master, "resolve_record_craft", _spy)
     caller = api.as_(_user("RESEARCHER", canManageCrafts=True))
-    # Let the name lookup answer "no such craft", which is the branch that decides.
-    caller.preload("craft", SimpleNamespace(find_unique=_returning(None)))
+    minted: list[Any] = []
+
+    async def _mint(**kwargs: Any) -> None:
+        minted.append(kwargs)
+
+    # The list has no such craft, and no spelling of one.
+    caller.preload(
+        "craft", SimpleNamespace(find_unique=_returning(None), find_many=_returning([]), create=_mint)
+    )
+    caller.preload("craftspelling", SimpleNamespace(find_unique=_returning(None), find_many=_returning([])))
 
     body = {**ARTISAN_BODY, "craftName": "A craft nobody added yet"}
     body.pop("craftId")
     outcome = caller.call("POST", "/artisans", body)
 
-    assert outcome.refused, outcome
-    assert "ask a professor or an admin to add it" in outcome.detail
+    assert minted == [], "a typed craft name created a craft"
+    assert outcome.reached, outcome
+    assert resolved, "the typed craft name was never resolved"
+    assert not resolved[-1].get("craftId")
+    assert "craftName" not in resolved[-1]
+    # Title-cased on the way in, like every typed name.
+    kept = resolved[-1]["extraMetadata"][craft_master.LEGACY_TEXT_KEY]
+    assert craft_master.normalise(kept) == craft_master.normalise("A craft nobody added yet")
 
 
 # --- Creating a record: Researcher and above ------------------------------------------------------

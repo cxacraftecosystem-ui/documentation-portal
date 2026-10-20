@@ -9,12 +9,11 @@ from app.core.db import db
 from app.core.deps import (
     require_record_creator,
     assert_can_delete,
-    can_manage_crafts,
     get_current_user,
     get_value,
 )
 from app.schemas.records import ArtisanCreate, ArtisanUpdate, drop_masked_identity_numbers
-from app.services import cross_portal_codes
+from app.services import craft_master
 from app.services.access import guard_record_edit
 from app.services.artisan_merge import created_merged_record, survivor_of
 from app.services.artisan_form_contract import assert_form_contract, take_form_contract
@@ -351,34 +350,18 @@ def _possible_duplicate(
     )
 
 
-async def resolve_craft_id(data: dict[str, Any], current_user: Any) -> dict[str, Any]:
-    craft_name = data.pop("craftName", None)
-    if data.get("craftId") or not craft_name:
-        return data
-    existing = await db.craft.find_unique(where={"name": craft_name})
-    if existing:
-        data["craftId"] = existing.id
-        return data
-    # A free-text craft name that matches nothing would otherwise mint a Craft through the artisan
-    # form — the same write POST /crafts guards, reached sideways. Same predicate, so the two can
-    # never disagree: Professor and above.
-    if not can_manage_crafts(current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                f"Craft '{craft_name}' does not exist yet. Select an existing craft, or ask a "
-                "professor or an admin to add it."
-            ),
-        )
-    created = await db.craft.create(
-        data={
-            "name": craft_name,
-            "createdById": current_user.id,
-            "craftCode": await cross_portal_codes.code_for_new_craft(db, craft_name),
-        }
-    )
-    data["craftId"] = created.id
-    return data
+async def resolve_craft_id(
+    data: dict[str, Any], current_user: Any, *, stored: Any | None = None
+) -> dict[str, Any]:
+    """Turn an old client's free-text ``craftName`` into a ``craftId`` from the master list.
+
+    Since the master craft list (2026-10-20, docs/CRAFTS.md) this never creates a craft: the name is
+    matched exactly, then by alias, and when nothing matches it is kept in
+    ``extraMetadata.legacyCraftText`` for the admin review queue. A ``craftId`` that changes must be
+    an ACTIVE craft (422 ``CRAFT_NOT_IN_LIST``); ``stored`` is the artisan an edit applies to.
+    """
+    del current_user  # kept in the signature: both portals' callers pass it
+    return await craft_master.resolve_record_craft(db, data, stored=stored)
 
 
 def reconcile_aadhaar_not_shared(data: dict[str, Any], stored: Any | None = None) -> dict[str, Any]:
@@ -682,7 +665,7 @@ async def update_artisan(
     reconcile_aadhaar_not_shared(data, stored=artisan)
     # Before the edit guard, so the ledger and the provenance see the stored columns.
     aadhaar = _seal_aadhaar(data, previous=artisan)
-    data = await resolve_craft_id(data, current_user)
+    data = await resolve_craft_id(data, current_user, stored=artisan)
     data = await attach_location(data)
     # Moving a record into (or between) workshops is a workshop submission too, so the create-time
     # guard can't be bypassed by PATCHing the workshop in afterwards.

@@ -17,6 +17,9 @@ only the answer for an UNLINKED product. In order:
 An id that names no row is left to the route's own handling (Prisma refuses the foreign key); this
 module never invents a value and never blanks one. It reads at most two rows.
 
+The designer portal carries this file byte for byte (the master craft list, 2026-10-20) and uses only
+:func:`fill_craft_name`: its product form still sends the artisan's name and place as typed.
+
 ON AN EDIT ONLY A LINK THAT CHANGES re-derives. The web sends ``artisanId`` and ``craftId`` on every
 PATCH; re-deriving on an unchanged link would rewrite names that drifted from the artisan's current
 record, and an ordinary contributor would then be refused for "changing" populated names they never
@@ -31,7 +34,8 @@ from app.core.db import db
 
 #: What to say when a linked create still has no value for a column, by column.
 _MISSING_NAME = {
-    "craftName": "The linked artisan has no craft on file. Enter the craft name, or pick a craft.",
+    # The master craft list (2026-10-20): a craft is picked from the list, never typed.
+    "craftName": "Pick a craft from the list.",
     "artisanName": "Enter the artisan name.",
     "place": "The linked artisan has no place on file. Enter the place.",
 }
@@ -79,4 +83,20 @@ async def fill_product_names(data: dict[str, Any], *, stored: Any | None = None)
         for column, message in _MISSING_NAME.items():
             if not (data.get(column) or "").strip():
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=message)
+    return data
+
+
+async def fill_craft_name(data: dict[str, Any], *, stored: Any | None = None) -> dict[str, Any]:
+    """Only the craft half of :func:`fill_product_names`: ``craftId`` -> ``craftName``. Mutates and returns.
+
+    A product's craft name is a copy of its craft's, so a link the body sends or changes re-derives
+    it. A create with neither a craft nor a typed name (from an old client) is refused.
+    """
+    craft_id = _sent_link(data, "craftId", stored)
+    if craft_id:
+        craft = await db.craft.find_unique(where={"id": craft_id})
+        if craft is not None and (craft.name or "").strip():
+            data["craftName"] = craft.name
+    if stored is None and not (data.get("craftName") or "").strip():
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=_MISSING_NAME["craftName"])
     return data

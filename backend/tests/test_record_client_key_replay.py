@@ -131,6 +131,18 @@ async def _identity(data):
     return data
 
 
+async def _nothing(*_args, **_kwargs):
+    return None
+
+
+async def _none_of_them(*_args, **_kwargs):
+    return []
+
+
+#: The master craft list as a client with no crafts on it: the typed name matches nothing.
+_NO_CRAFTS = SimpleNamespace(find_unique=_nothing, find_first=_nothing, find_many=_none_of_them)
+
+
 def _product_payload(**overrides) -> _Payload:
     fields = dict(
         craftName="Bandhani",
@@ -165,6 +177,10 @@ def test_an_absent_key_costs_not_even_a_read(monkeypatch):
     delegate = _Delegate()
     tripwire = _Tripwire()
     tripwire.preload("productdocumentation", delegate)
+    # The typed ``craftName`` of an old client is matched onto the master craft list (2026-10-20):
+    # that read is the craft's, not the replay's, and the list here is empty.
+    tripwire.preload("craft", _NO_CRAFTS)
+    tripwire.preload("craftspelling", _NO_CRAFTS)
 
     monkeypatch.setattr(products, "db", tripwire)
     monkeypatch.setattr(products, "attach_location", _identity)
@@ -186,7 +202,7 @@ def test_an_empty_string_is_treated_as_absent(monkeypatch):
     from app.api.routes import products
 
     delegate = _Delegate()
-    monkeypatch.setattr(products, "db", _Client(productdocumentation=delegate))
+    monkeypatch.setattr(products, "db", _Client(productdocumentation=delegate, craft=_NO_CRAFTS, craftspelling=_NO_CRAFTS))
     monkeypatch.setattr(products, "attach_location", _identity)
     monkeypatch.setattr(products, "enforce_workshop_submission", _no_workshop_check)
     monkeypatch.setattr(products, "public_encode", lambda row, *_a, **_kw: row)
@@ -217,7 +233,7 @@ def test_the_product_route_answers_a_replay_without_reaching_a_single_gate(monke
     async def _no_gate(*_args, **_kwargs):
         raise AssertionError("a gate ran on the replay path")
 
-    monkeypatch.setattr(products, "db", _Client(productdocumentation=delegate))
+    monkeypatch.setattr(products, "db", _Client(productdocumentation=delegate, craft=_NO_CRAFTS, craftspelling=_NO_CRAFTS))
     monkeypatch.setattr(products, "attach_location", _no_gate)
     monkeypatch.setattr(products, "enforce_workshop_submission", _no_gate)
     monkeypatch.setattr(products, "public_encode", lambda row, *_a, **_kw: row)
@@ -244,7 +260,7 @@ def test_another_accounts_key_is_a_403_and_never_their_record(monkeypatch):
     stored = _Row(id="prd_1", createdById="somebody_else", productName="Someone else's odhani")
     delegate = _Delegate(existing=stored)
 
-    monkeypatch.setattr(products, "db", _Client(productdocumentation=delegate))
+    monkeypatch.setattr(products, "db", _Client(productdocumentation=delegate, craft=_NO_CRAFTS, craftspelling=_NO_CRAFTS))
     monkeypatch.setattr(products, "attach_location", _identity)
     monkeypatch.setattr(products, "enforce_workshop_submission", _no_workshop_check)
     monkeypatch.setattr(products, "public_encode", lambda row, *_a, **_kw: row)
@@ -274,7 +290,7 @@ def test_a_lost_race_on_the_index_is_answered_from_the_row_that_won(monkeypatch)
             )
 
     delegate = _RacingDelegate()
-    monkeypatch.setattr(products, "db", _Client(productdocumentation=delegate))
+    monkeypatch.setattr(products, "db", _Client(productdocumentation=delegate, craft=_NO_CRAFTS, craftspelling=_NO_CRAFTS))
     monkeypatch.setattr(products, "attach_location", _identity)
     monkeypatch.setattr(products, "enforce_workshop_submission", _no_workshop_check)
     monkeypatch.setattr(products, "public_encode", lambda row, *_a, **_kw: row)
