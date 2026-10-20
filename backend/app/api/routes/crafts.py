@@ -115,15 +115,26 @@ async def list_crafts(
 
 
 async def _with_taxonomy(rows: Any) -> Any:
-    """Add each craft's ``categoryId`` (through its sub-category) and ``referenceCount``."""
+    """Add each craft's ``categoryId`` (through its sub-category); a list also gets ``referenceCount``.
+
+    Reads nothing for a craft with no sub-category, which is every craft recorded before the list.
+    """
     many = isinstance(rows, list)
-    items = rows if many else [rows]
-    subs = {s.id: s.categoryId for s in await db.craftsubcategory.find_many()}
-    counts = await craft_master.reference_counts(db, [row["id"] for row in items])
+    items = [row for row in (rows if many else [rows]) if isinstance(row, dict)]
+    if not items:
+        return rows
+    sub_ids = sorted({row.get("subCategoryId") for row in items if row.get("subCategoryId")})
+    subs = (
+        {s.id: s.categoryId for s in await db.craftsubcategory.find_many(where={"id": {"in": sub_ids}})}
+        if sub_ids
+        else {}
+    )
+    counts = await craft_master.reference_counts(db, [row["id"] for row in items]) if many else {}
     for row in items:
         row["categoryId"] = subs.get(row.get("subCategoryId") or "")
-        row["referenceCount"] = counts.get(row["id"], 0)
-    return items if many else items[0]
+        if many:
+            row["referenceCount"] = counts.get(row["id"], 0)
+    return rows
 
 
 @router.get("/catalogue")
@@ -217,6 +228,14 @@ async def update_craft(
     current_user: Any = Depends(require_craft_manager),
 ) -> dict[str, Any]:
     craft = await require_record(db.craft, craft_id)
+    # A craft on the master list cannot leave its sub-category through an edit (2026-10-20). Asked of
+    # the body as sent, because ``clean_data`` would drop the null before anything else could see it.
+    if "subCategoryId" in payload.model_fields_set and payload.subCategoryId is None and getattr(
+        craft, "subCategoryId", None
+    ):
+        raise HTTPException(
+            status_code=422, detail={"code": "SUB_CATEGORY_REQUIRED", "message": "Pick a sub-category."}
+        )
     data = clean_data(payload.model_dump(exclude_unset=True))
     await _master_list_update(craft, data)
     # Moving a record into (or between) workshops is a workshop submission too, so the create-time
@@ -262,6 +281,10 @@ async def _master_list_update(craft: Any, data: dict[str, Any]) -> None:
         sub = await _sub_category(data["subCategoryId"])
         data["category"] = sub.category.name
     elif "subCategoryId" in data:
+        if getattr(craft, "subCategoryId", None):
+            raise HTTPException(
+                status_code=422, detail={"code": "SUB_CATEGORY_REQUIRED", "message": "Pick a sub-category."}
+            )
         data.pop("subCategoryId")
     if sub_id and ("name" in data or "subCategoryId" in data):
         await _assert_name_free(data.get("name", craft.name), sub_id, except_id=craft.id)

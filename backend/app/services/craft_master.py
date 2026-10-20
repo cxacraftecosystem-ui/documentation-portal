@@ -501,12 +501,18 @@ async def alias_matches(client: Any, text: Any, crafts: list[Any]) -> list[Any]:
     """Step 3: ``text`` is a known spelling of a shared code that exactly one of ``crafts`` carries."""
     from app.services import cross_portal_codes
 
-    code = await cross_portal_codes.resolve_craft_code(client, text)
+    # A client without the spelling table (a narrow test fake) still answers from the shared file.
+    has_table = hasattr(client, "craftspelling")
+    if has_table:
+        code = await cross_portal_codes.resolve_craft_code(client, text)
+    else:
+        code = cross_portal_codes.shared_craft_code(text)
     if code is None:
         return []
     spellings = {cross_portal_codes.normalise(s) for s in _code_spellings(code)}
-    for row in await client.craftspelling.find_many(where={"craftCode": code}):
-        spellings.add(row.spelling)
+    if has_table:
+        for row in await client.craftspelling.find_many(where={"craftCode": code}):
+            spellings.add(row.spelling)
     hits = [
         c
         for c in crafts
@@ -561,12 +567,27 @@ async def assert_active_craft(client: Any, craft_id: str) -> Any:
     return craft
 
 
-async def assert_active_crafts(client: Any, craft_ids: list[str], *, stored: list[str] | None = None) -> None:
-    """Each id not already linked (``stored``) must be an ACTIVE craft."""
+async def assert_active_crafts(
+    client: Any, craft_ids: list[str], *, stored: list[str] | None = None, tool: Any | None = None
+) -> None:
+    """Each listed craft must be ACTIVE, unless the record already links it. One read for the lot.
+
+    An id that names no craft is left to the caller's own refusal (a tool's links answer 404 for
+    it). The stored links of ``tool`` are read only when an inactive craft is actually named.
+    """
+    wanted = [craft_id for craft_id in dict.fromkeys(craft_ids) if craft_id]
+    if not wanted:
+        return
+    rows = await client.craft.find_many(where={"id": {"in": wanted}})
+    inactive = [row.id for row in rows if status_of(row) != ACTIVE]
+    if not inactive:
+        return
     kept = set(stored or ())
-    for craft_id in craft_ids:
-        if craft_id and craft_id not in kept:
-            await assert_active_craft(client, craft_id)
+    if tool is not None:
+        kept.add(getattr(tool, "craftId", None) or "")
+        kept.update(link.craftId for link in await client.toolcraft.find_many(where={"toolId": tool.id}))
+    if any(craft_id not in kept for craft_id in inactive):
+        raise craft_error("CRAFT_NOT_IN_LIST", 422)
 
 
 def _stash_legacy_text(data: dict[str, Any], text: str) -> None:
@@ -604,7 +625,10 @@ async def resolve_record_craft(
         if craft_id != stored_id:
             await assert_active_craft(client, craft_id)
         return data
-    if "craftId" in data or not (isinstance(text, str) and text.strip()):
+    if not (isinstance(text, str) and text.strip()):
+        return data
+    if stored is not None and text.strip() == (getattr(stored, "craftName", None) or "").strip():
+        # An edit sending back the name the record already holds is not a new craft to match.
         return data
     craft = await match_craft_name(client, text)
     if craft is not None:
@@ -668,15 +692,11 @@ async def resolve_tool_crafts(
     only a typed ``craftName`` has it matched onto the list, or kept in ``legacyCraftText``; a create
     that names no craft at all is refused, because a tool's craft name cannot be empty.
     """
-    stored: list[str] = []
-    if tool is not None:
-        stored = [link.craftId for link in await client.toolcraft.find_many(where={"toolId": tool.id})]
-        stored.append(getattr(tool, "craftId", None) or "")
     if craft_ids:
-        await assert_active_crafts(client, craft_ids, stored=stored)
+        await assert_active_crafts(client, craft_ids, tool=tool)
         return craft_ids
     if data.get("craftId"):
-        await assert_active_crafts(client, [data["craftId"]], stored=stored)
+        await assert_active_crafts(client, [data["craftId"]], tool=tool)
         return craft_ids
     text = data.get("craftName")
     typed = isinstance(text, str) and text.strip()

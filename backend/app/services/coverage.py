@@ -166,7 +166,8 @@ def resolve_fys(raw: list[str] | None) -> list[int]:
     return out
 
 
-_SLUG_SHAPE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]*$")
+#: A master-list slug: Title-Case words joined by "-" (``naming.field``). A shared code is lower case.
+_SLUG_SHAPE = re.compile(r"^[A-Z0-9][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*$")
 
 
 def resolve_craft_codes(raw: list[str] | None) -> list[str]:

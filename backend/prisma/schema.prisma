@@ -750,9 +750,9 @@ model Craft {
   craftCode     String?
   /// THE MASTER CRAFT LIST (2026-10-20, docs/CRAFTS.md). ``slug`` is the cross-portal identity of a
   /// craft: both portals seed the same 455 rows from ``app/data/craft_master_list.json``.
-  /// The routes and the seed always write a naming slug (``naming.field``). The default only keeps a
+  /// The routes and the seed always write a naming slug (``naming.field``). The database default only keeps a
   /// row written some other way (a test fixture, a one-off script) valid.
-  slug            String       @unique @default(cuid())
+  slug            String       @unique @default(dbgenerated("('craft-'::text || md5((random())::text || (clock_timestamp())::text))"))
   subCategoryId   String?
   sourceSerial    Int?         @unique
   stateOfOrigin   String[]     @default([])

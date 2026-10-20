@@ -152,6 +152,10 @@ WHERE c."id" = r."id";
 
 ALTER TABLE "Craft" ALTER COLUMN "slug" SET NOT NULL;
 
+-- A row written without a slug (a raw INSERT, a one-off script) still gets a unique one. The routes and
+-- the seed always write a naming slug; this default is the schema's `@default(dbgenerated(...))`.
+ALTER TABLE "Craft" ALTER COLUMN "slug" SET DEFAULT ('craft-'::text || md5((random())::text || (clock_timestamp())::text));
+
 -- A seeded craft whose name is a known spelling takes that shared code (C26), as a new craft would.
 UPDATE "Craft" c
 SET "craftCode" = sp."craftCode"

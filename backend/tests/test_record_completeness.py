@@ -619,7 +619,8 @@ def artisans(monkeypatch: pytest.MonkeyPatch):
         monkeypatch,
         artisan=table,
         mediafile=media,
-        craft=_Table(),
+        # The craft the records link to is on the master list (2026-10-20): ACTIVE, so it may be picked.
+        craft=_Table([{"id": "c1", "name": "Ajrakh", "status": "ACTIVE"}]),
         location=_Table(),
         user=_Table(),
         workshop=_Table(),

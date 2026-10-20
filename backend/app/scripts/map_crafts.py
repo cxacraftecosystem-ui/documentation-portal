@@ -151,10 +151,9 @@ async def plan(client: Any) -> list[Row]:
         table = getattr(client, delegate, None)
         if table is None:
             continue
-        if column is not None:
-            records = await table.find_many(where={"craftId": None, column: {"not": None}})
-        else:
-            records = await table.find_many(where={"craftId": None})
+        # Filtered for text here rather than in the query: ``craftName`` is NOT NULL on products, and
+        # Prisma refuses a ``not: null`` clause on a required column.
+        records = await table.find_many(where={"craftId": None})
         for record in records:
             text = getattr(record, column, None) if column else _legacy_text(record)
             if not (isinstance(text, str) and text.strip()):
