@@ -36,22 +36,20 @@ import { requiredText, textValue } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
 import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, type BatchProgress } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
-import { canManageCrafts, isAdmin } from "@/lib/permissions";
+import { canManageCrafts } from "@/lib/permissions";
 import { UnmappedCraftsPanel } from "@/components/crafts/UnmappedCraftsPanel";
 import { CraftReviewQueue } from "@/components/crafts/CraftReviewQueue";
-import { CraftTaxonomyPanel } from "@/components/crafts/CraftTaxonomyPanel";
+import { CraftCategoriesTab } from "@/components/crafts/CraftCategoriesTab";
 import { Dropdown, MultiSelectDropdown } from "@/components/ui/Dropdown";
 import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
 import { CraftSubCategorySelect } from "@/components/crafts/CraftTaxonomyFields";
-import { CRAFT_STATE_OPTIONS, GI_LABEL } from "@/components/crafts/craftAdmin";
+import { CRAFT_STATE_OPTIONS, GI_LABEL, canAdministerCraftList } from "@/components/crafts/craftAdmin";
 import {
   CRAFT_OFFLINE_FIRST_RUN,
   craftIndex,
   invalidateCraftCatalogue,
-  loadFullCraftCatalogue,
   searchCraftCatalogue,
   useCraftCatalogue,
-  type CraftCatalogue,
   type GiStatus
 } from "@/lib/craftCatalogue";
 import { UploadsProvider, useUploads } from "@/lib/uploads";
@@ -119,7 +117,7 @@ function CraftsPageBody() {
   const { addCompleted } = useUploads();
   const allowManage = canManageCrafts(user);
   /** Content admins: Admin and Master Admin (Ministry Admin where the role exists). */
-  const contentAdmin = isAdmin(user);
+  const contentAdmin = canAdministerCraftList(user);
   const searchParams = useSearchParams();
   const [tab, setTab] = useState<CraftsTab>(() => {
     const asked = searchParams.get("tab");
@@ -178,17 +176,16 @@ function CraftsPageBody() {
   const craftCatalogue = useCraftCatalogue();
   const catalogue = craftCatalogue.catalogue;
   const refreshCatalogue = craftCatalogue.reload;
-  /** Records per craft, for content admins (the catalogue's `includeInactive` view carries them). */
+  /** Records per craft, for everyone: each `GET /crafts` row carries its `referenceCount`. */
   const [counts, setCounts] = useState<Map<string, number> | null>(null);
   const loadCounts = useCallback(async () => {
-    if (!contentAdmin) return;
     try {
-      const full: CraftCatalogue = await loadFullCraftCatalogue();
-      setCounts(new Map(full.crafts.map((craft) => [craft.id, craft.referenceCount ?? 0])));
+      const page = await apiFetch<{ items?: { id: string; referenceCount?: number }[] }>("/crafts?pageSize=500");
+      setCounts(new Map((page.items ?? []).map((craft) => [craft.id, craft.referenceCount ?? 0])));
     } catch {
       setCounts(null);
     }
-  }, [contentAdmin]);
+  }, []);
   useEffect(() => {
     void loadCounts();
   }, [loadCounts]);
@@ -519,10 +516,14 @@ function CraftsPageBody() {
           </button>
         ))}
       </div>
-      {tab === "categories" ? <CraftTaxonomyPanel canManage={contentAdmin} canDelete={contentAdmin && adminMode} onChanged={load} /> : null}
+      {tab === "categories" && catalogue ? (
+        <CraftCategoriesTab catalogue={catalogue} canEdit={contentAdmin} canDelete={contentAdmin && adminMode} onChanged={load} />
+      ) : tab === "categories" ? (
+        <div className="panel p-4 text-sm text-ink-500">Loading…</div>
+      ) : null}
       {tab === "review" && contentAdmin ? (
         <div className="grid gap-5">
-          <CraftReviewQueue onChanged={load} />
+          {catalogue ? <CraftReviewQueue catalogue={catalogue} onChanged={load} /> : null}
           {/* Craft codes: the shared code both portals carry. */}
           {adminMode ? <UnmappedCraftsPanel /> : null}
         </div>

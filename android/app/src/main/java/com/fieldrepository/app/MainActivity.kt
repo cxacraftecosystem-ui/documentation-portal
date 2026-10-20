@@ -1909,10 +1909,16 @@ private fun HomeScreen(
         }
     }
 
+    // The craft list (REQUIREMENTS_2026-10-20 §2.4) is the lookups' craft source: revalidated with its
+    // ETag at sign-in and on app start, read from the device copy offline. A picker that opens online
+    // refreshes it too.
+    val craftListContext = LocalContext.current.applicationContext
+
     suspend fun loadLookups() {
         // The page-returning variants, so the cut can be reported. `.items` still feeds every screen
-        // exactly as before; the only thing that changed is that `total` stops being discarded.
-        val gotCrafts = runCatching { repository.craftsPage() }
+        // exactly as before; the only thing that changed is that `total` stops being discarded. The
+        // crafts are the whole list, so a carried craft that left it is known to be gone.
+        val gotCrafts = runCatching { repository.craftLookup(craftListContext) }
             .onSuccess {
                 crafts = it.items
                 craftSeed = it
@@ -1933,11 +1939,7 @@ private fun HomeScreen(
         scope.launch { loadLookups() }
     }
 
-    // The craft list (REQUIREMENTS_2026-10-20 §2.4): fetched at sign-in when this device has none,
-    // and on app start when the copy is older than a day. A picker that opens online refreshes too.
-    val craftListContext = LocalContext.current.applicationContext
     LaunchedEffect(Unit) {
-        launch { repository.refreshCraftCatalogueIfStale(craftListContext) }
         refresh()
         loadLookups()
         runCatching { repository.questionnaireSections() }
@@ -11744,7 +11746,7 @@ private fun OrphanRecordingsCard(repository: FieldRepository, onError: (String) 
                     "tool" -> repository.tools().map { it.id to "${it.toolkitName} · ${it.artisanName}" }
                     "artisan" -> repository.artisans().map { it.id to it.name }
                     // The master list, so a file is re-linked to a craft on it.
-                    "craft" -> CraftCatalogueCache.catalogue.value?.crafts?.map { it.id to it.name } ?: repository.crafts().map { it.id to it.name }
+                    "craft" -> (CraftCatalogueCache.catalogue.value ?: repository.craftCatalogue(context))?.crafts.orEmpty().map { it.id to it.name }
                     "workshop" -> repository.workshops().map { it.id to workshopDisplayTitle(it.title, date = it.occurrenceDate(), place = it.place) }
                     else -> emptyList()
                 }
@@ -12352,9 +12354,10 @@ private data class ReviewField(val key: String, val label: String, val multiline
 
 /**
  * The fields the review screen offers per record type: the name-like columns and the prose a reviewer
- * is actually qualified to fix ("a misspelt village or a craft name in the wrong column").
+ * is actually qualified to fix ("a misspelt village").
  *
- * Deliberately NOT offered here: status (that moves through approve/reject/revise), the workshop,
+ * Deliberately NOT offered here: the craft (picked from the master list on the record's own edit
+ * screen, never typed: REQUIREMENTS_2026-10-20 §2.4), status (that moves through approve/reject/revise), the workshop,
  * location and linked-record lists (all refused by the API with a 422), the measurement/price decimals
  * and the validated identity fields (Aadhaar, Pehchan, phone, email) — those belong on the record's
  * own edit screen where their formatting and duplicate rules are enforced by the form.
@@ -12378,7 +12381,6 @@ private fun reviewEditableFields(recordType: String): List<ReviewField> = when (
     "product" -> listOf(
         ReviewField("productName", "Product name"),
         ReviewField("localName", "Local name"),
-        ReviewField("craftName", "Craft name"),
         ReviewField("artisanName", "Artisan name"),
         ReviewField("place", "Place"),
         ReviewField("rawMaterialsUsed", "Raw materials used", multiline = true),
@@ -12390,7 +12392,6 @@ private fun reviewEditableFields(recordType: String): List<ReviewField> = when (
         ReviewField("toolkitName", "Toolkit name"),
         ReviewField("localName", "Local name"),
         ReviewField("englishName", "English name"),
-        ReviewField("craftName", "Craft name"),
         ReviewField("artisanName", "Artisan name"),
         ReviewField("place", "Place"),
         ReviewField("processUsedIn", "Process used in", multiline = true),

@@ -34,5 +34,13 @@ class CraftPickerSourceTest {
         assertTrue(Regex("multiple = true").findAll(main).count() >= 3)
         assertTrue(search.contains("CraftPickerField("))
         assertFalse("crafts are no longer paged from the list route", main.contains("repository.craftsSearchPage(term, page)"))
+        assertFalse("the lookups still read a page of crafts", main.contains("repository.craftsPage()"))
+        assertFalse("a re-link still reads the paged craft list", main.contains("repository.crafts()"))
+        assertTrue("the lookups read the craft list", main.contains("repository.craftLookup("))
+    }
+
+    @Test
+    fun `a review edit offers no typed craft`() {
+        assertFalse(main.contains("ReviewField(\"craft"))
     }
 }

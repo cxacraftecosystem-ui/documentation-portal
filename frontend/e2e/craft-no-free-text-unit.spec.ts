@@ -3,6 +3,8 @@ import { join, relative } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
+import { reviewEditableFields } from "@/components/review/reviewEditFields";
+
 /*
   NO FREE-TEXT CRAFT ANYWHERE A USER PICKS ONE (REQUIREMENTS_2026-10-20 §2.4).
 
@@ -35,6 +37,15 @@ test("no form has a free-text craft input", () => {
   expect(read("components/forms/ArtisanForm.tsx")).not.toContain("Or new craft name");
 });
 
+test("a review edit offers no typed craft, on the web or on Android", () => {
+  // A reviewer fixes a record's prose; its craft is picked on the record's own edit screen.
+  for (const type of ["artisan", "workshop", "product", "tool", "process", "questionnaire", "media"]) {
+    expect(reviewEditableFields(type).map((field) => field.key).filter((key) => /craft/i.test(key)), type).toEqual([]);
+  }
+  const android = readFileSync(join(ROOT, "..", "android/app/src/main/java/com/fieldrepository/app/MainActivity.kt"), "utf8");
+  expect(android).not.toMatch(/ReviewField\("craft/);
+});
+
 test("every craft picker is CraftSelect", () => {
   const pickers = [
     "components/forms/ArtisanForm.tsx",
@@ -42,6 +53,8 @@ test("every craft picker is CraftSelect", () => {
     "components/forms/ToolForm.tsx",
     "components/forms/ToolAssignmentSection.tsx",
     "components/FunnelFilters.tsx",
+    // The Search page's craft filter.
+    "components/search/SearchFilters.tsx",
     "app/(protected)/workshops/page.tsx",
     // The media page's "Linked entry" when the record type is Craft.
     "app/(protected)/media/page.tsx"

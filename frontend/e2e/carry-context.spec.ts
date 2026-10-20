@@ -62,8 +62,19 @@ async function chooseInMultiSelect(page: Page, fieldLabel: string, optionLabel: 
   await page.keyboard.press("Escape");
 }
 
-/** The tool form's craft picker, by the label a researcher reads. */
-const TOOL_CRAFTS = "Linked crafts (fills craft name)";
+/** The tool form's craft picker: `CraftSelect`, a combobox named by its label. */
+const TOOL_CRAFTS = "Linked crafts";
+
+/** Tick one craft in a `CraftSelect` by searching the list for its name. */
+async function chooseCraft(page: Page, ariaLabel: string, craftName: string) {
+  const box = page.getByRole("combobox", { name: ariaLabel });
+  await box.click();
+  await box.fill(craftName);
+  const escaped = craftName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  await page.getByRole("option", { name: new RegExp(escaped) }).first().click();
+  await page.keyboard.press("Escape");
+}
+
 /** The tool form's artisan picker. Its rows read "Craft · Name · Place", craft FIRST. */
 const TOOL_ARTISANS = "Linked artisans (fills artisan + place)";
 
@@ -166,7 +177,7 @@ test.describe("Carry-forward artisan context", () => {
     await expect(artisanPicker).not.toContainText("selected");
 
     // 5. Choose somebody else, and confirm THAT is what comes back next time.
-    await chooseInMultiSelect(page, TOOL_CRAFTS, second.craft?.name ?? "");
+    await chooseCraft(page, TOOL_CRAFTS, second.craft?.name ?? "");
     await chooseInMultiSelect(page, TOOL_ARTISANS, toolArtisanRow(second));
     await expect(page.locator('input[name="artisanName"]')).toHaveValue(second.name);
     // An explicit pick is the researcher's own choice, so nothing claims to have prefilled it.
@@ -364,7 +375,7 @@ test.describe("Carry-forward across record types", () => {
     // Choosing somebody else is a contradiction, not an addition: the product belonged to the
     // artisan being replaced, so keeping it would file it under a person who never made it.
     await page.goto("/tools/new");
-    await chooseInMultiSelect(page, TOOL_CRAFTS, other.craft?.name ?? "");
+    await chooseCraft(page, TOOL_CRAFTS, other.craft?.name ?? "");
     await chooseInMultiSelect(page, TOOL_ARTISANS, toolArtisanRow(other));
 
     await page.goto("/dashboard");

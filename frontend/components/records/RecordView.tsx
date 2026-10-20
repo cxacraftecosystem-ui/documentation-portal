@@ -36,6 +36,7 @@ import {
 } from "@/components/records/recordFields";
 import { StatusBadge } from "@/components/StatusBadge";
 import { apiFetch } from "@/lib/api";
+import { craftIndex, loadCraftCatalogue } from "@/lib/craftCatalogue";
 import { formatDateTime } from "@/lib/format";
 import { isCompletenessKind, type CompletenessBlock } from "@/lib/completenessCore";
 import { canCreateRecords, canReview, isAdmin } from "@/lib/permissions";
@@ -73,6 +74,22 @@ type LoadedRecord = Record<string, unknown> & {
  * Comments sit at the foot, as on the handset's View Data detail. The back arrow returns to the list,
  * which puts its search, filter, page and scroll back as they were (`useListReturn`).
  */
+/**
+ * A craft's sub-category path from the master list (REQUIREMENTS_2026-10-20 §2.6). `GET /crafts/{id}`
+ * sends `subCategoryId` and `categoryId` but not their names, so they are read from the catalogue
+ * every picker already holds (offline too). Without the catalogue the record shows as it came.
+ */
+async function withCraftPath(record: LoadedRecord): Promise<LoadedRecord> {
+  const subCategoryId = typeof record.subCategoryId === "string" ? record.subCategoryId : null;
+  if (!subCategoryId || (record.subCategory && typeof record.subCategory === "object")) return record;
+  const catalogue = await loadCraftCatalogue().catch(() => null);
+  const index = catalogue ? craftIndex(catalogue) : null;
+  const sub = index?.subCategoryById.get(subCategoryId);
+  if (!index || !sub) return record;
+  const category = index.categoryById.get(sub.categoryId)?.name;
+  return { ...record, subCategory: { id: sub.id, name: sub.name }, category: record.category || category || null };
+}
+
 export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
   const { user } = useAuth();
   const [record, setRecord] = useState<LoadedRecord | null>(null);
@@ -107,6 +124,7 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
     if (reloads === 0) setRecord(null);
     setError(null);
     apiFetch<LoadedRecord>(`${RECORD_VIEW_ENDPOINT[type]}/${encodeURIComponent(id)}`)
+      .then((loaded) => (type === "craft" ? withCraftPath(loaded) : loaded))
       .then((loaded) => {
         if (!cancelled) setRecord(loaded);
       })
