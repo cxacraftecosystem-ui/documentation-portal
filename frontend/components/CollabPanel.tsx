@@ -167,15 +167,16 @@ export function CollabPanel({ recordType, recordId }: { recordType: string; reco
         </ul>
         <div className="mt-2 flex gap-2">
           <input
-            className="field-input flex-1"
-            placeholder="Add a comment (needs comment access)"
+            className="field-input min-w-0 flex-1"
+            aria-label="Add a comment"
+            placeholder="Add a comment"
             value={body}
             onChange={(e) => setBody(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !busy) postComment();
+              if (e.key === "Enter" && !busy && body.trim()) postComment();
             }}
           />
-          <button className="field-button" disabled={busy} onClick={postComment}>
+          <button type="button" className="field-button" disabled={busy || !body.trim()} onClick={postComment}>
             Post
           </button>
         </div>

@@ -27,13 +27,13 @@ Enums: `UserRole`, `AuthProvider`, `AccessStatus`, `RecordStatus`, `WorkshopType
 
 ## API surface
 
-**294 operations** in the working tree — 132 GET, 100 POST, 26 DELETE,
+**295 operations** in the working tree — 132 GET, 101 POST, 26 DELETE,
 18 PATCH, 18 PUT. 2 of them (`/health`, `/health/ready`) are declared
 on the app rather than on a router; the rest are spread across `backend/app/api/routes/`:
 
 | Route module | Operations |
 |---|---|
-| `questionnaire_v2.py` | 31 |
+| `questionnaire_v2.py` | 32 |
 | `media.py` | 21 |
 | `workshops.py` | 21 |
 | `data_access.py` | 13 |
@@ -119,8 +119,8 @@ no key is skipped wherever it sits.
 
 | Surface | Files | Cases | Runner |
 |---|---|---|---|
-| Backend unit (`backend/tests/`) | 155 | 2082 `def test_` | `python -m pytest -q` from `backend/` |
-| Web end-to-end (`frontend/e2e/`) | 108 | 1164 `test(` | Playwright, `frontend/playwright.config.ts` |
+| Backend unit (`backend/tests/`) | 155 | 2084 `def test_` | `python -m pytest -q` from `backend/` |
+| Web end-to-end (`frontend/e2e/`) | 109 | 1168 `test(` | Playwright, `frontend/playwright.config.ts` |
 | Android unit (`android/app/src/test/`) | 122 | 1132 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
 | Android instrumented | 4 | 11 `@Test` | not run in CI |
 
@@ -132,10 +132,10 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 
 | Area | Tracked files | Tracked lines | Tree files | Tree lines |
 |---|---|---|---|---|
-| `backend/app` | 228 | 77,283 | 228 | 77,283 |
-| `frontend/app` | 78 | 22,930 | 78 | 22,930 |
-| `frontend/components` | 275 | 69,659 | 275 | 69,659 |
-| `frontend/lib` | 129 | 41,223 | 129 | 41,223 |
+| `backend/app` | 228 | 77,380 | 228 | 77,380 |
+| `frontend/app` | 78 | 22,969 | 78 | 22,969 |
+| `frontend/components` | 275 | 69,714 | 275 | 69,714 |
+| `frontend/lib` | 129 | 41,204 | 129 | 41,204 |
 | `android/app/src/main/java` | 204 | 105,055 | 204 | 105,055 |
 
 Two columns because the two numbers get quoted interchangeably and disagree by however much work is

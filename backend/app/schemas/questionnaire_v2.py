@@ -135,6 +135,12 @@ class JoinRequest(Strict):
     joinCode: str = Field(min_length=4, max_length=12)
 
 
+class JoinByKeyRequest(Strict):
+    """A scanned session QR: join the session its clientKey names (never create it)."""
+
+    clientKey: str = Field(min_length=1, max_length=128)
+
+
 class ContinueRequest(Strict):
     fromSessionId: str = Field(min_length=1)
     artisanIds: list[str] = Field(min_length=1)
@@ -653,6 +659,7 @@ CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "SessionList": SessionList,
     "OpenMatch": OpenMatch,
     "JoinRequest": JoinRequest,
+    "JoinByKeyRequest": JoinByKeyRequest,
     "ContinueRequest": ContinueRequest,
     "ParticipantAdd": ParticipantAdd,
     "ParticipantPatch": ParticipantPatch,

@@ -68,6 +68,39 @@ test("a refused join is a sentence, not a navigation", async () => {
   }
 });
 
+test("a scanned session QR joins by its clientKey and never creates the session", async () => {
+  const qr = { v: 1 as const, clientKey: "ck-lead-phone-1", questionnaireId: "q1", workshopId: "w1", sessionDate: "2026-10-20", participants: ["a1"] };
+  const api = stubApi(
+    () => new Response(JSON.stringify({ id: "cmsessionscan0002" }), { status: 200, headers: { "content-type": "application/json" } })
+  );
+  try {
+    const next = await runScanAction({ type: "joinSession", label: SCAN_COPY.joinSession, joinCode: null, qr });
+    expect(api.sent).toHaveLength(1);
+    expect(api.sent[0].method).toBe("POST");
+    expect(api.sent[0].url).toMatch(/\/sessions\/join-by-key$/);
+    expect(JSON.parse(api.sent[0].body)).toEqual({ clientKey: "ck-lead-phone-1" });
+    expect(next).toEqual({ navigate: SCAN_HREF.session("cmsessionscan0002") });
+  } finally {
+    api.restore();
+  }
+  // Not synced yet: the server's sentence, and nothing was created.
+  const notYet = "This session hasn't synced yet. Try again once the lead's phone is online.";
+  const refused = stubApi(
+    () =>
+      new Response(JSON.stringify({ detail: { code: "SESSION_UNKNOWN", message: notYet } }), {
+        status: 404,
+        headers: { "content-type": "application/json" }
+      })
+  );
+  try {
+    const next = await runScanAction({ type: "joinSession", label: SCAN_COPY.joinSession, joinCode: null, qr });
+    expect(refused.sent.every((call) => !/\/sessions$/.test(call.url))).toBe(true);
+    expect(next).toEqual({ outcome: { kind: "REFUSED", title: notYet } });
+  } finally {
+    refused.restore();
+  }
+});
+
 test("with no camera, the photo and the typed code are still offered", () => {
   const router = { push: () => {}, replace: () => {}, refresh: () => {}, back: () => {}, forward: () => {}, prefetch: () => {} };
   const html = renderToStaticMarkup(

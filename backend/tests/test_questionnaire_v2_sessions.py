@@ -182,3 +182,76 @@ def test_a_volunteer_cannot_start_a_session_but_records_into_one_they_are_on(mon
         await client.disconnect()
 
     run(go())
+
+
+def test_a_scanned_qr_never_takes_the_session_from_its_lead(monkeypatch) -> None:
+    """Audit 2026-10-20: a scanner's create (Android's offline join) used to become the session, and
+    the lead's own create then returned it without adding the lead, so every queued edit was a 403."""
+    from app.services.questionnaire_v2 import sessions
+
+    async def go() -> None:
+        client = await connect()
+        patch_db(monkeypatch, client)
+        no_outside_calls(monkeypatch)
+        ids = await seed(client)
+        key = "qr-key-" + ids.tag
+        # The web scanner joins by key and creates nothing while the lead is offline.
+        with pytest.raises(HTTPException) as not_synced:
+            await sessions.join_by_key(key, ids.other)
+        assert _code(not_synced) == "SESSION_UNKNOWN" and "synced" in not_synced.value.detail["message"]
+        # A handset scanner's offline join makes a stand-in with no LEAD.
+        stand_in, created = await sessions.create_session(
+            session_create(ids, ids.artisans[:1], key=key, researchers=[{"userId": ids.other.id, "role": "CONTRIBUTOR"}]), ids.other
+        )
+        assert created and [r["role"] for r in stand_in["researchers"]] == ["CONTRIBUTOR"]
+        # A volunteer's offline join before anything synced is told to wait, not that they can't start one.
+        with pytest.raises(HTTPException) as volunteer:
+            await sessions.create_session(
+                session_create(ids, ids.artisans[:1], key="vol-" + ids.tag, researchers=[{"userId": ids.vol.id, "role": "VOLUNTEER"}]), ids.vol
+            )
+        assert _code(volunteer) == "SESSION_UNKNOWN"
+        # The lead's own create arrives: the lead takes the session over with what they entered.
+        lead, created = await sessions.create_session(
+            session_create(ids, ids.artisans[:2], key=key, place="Bagru, Jaipur", note="Courtyard", purpose="FOLLOW_UP",
+                           researchers=[{"userId": ids.prof.id, "role": "CONTRIBUTOR"}]),
+            ids.lead,
+        )
+        assert not created and lead["id"] == stand_in["id"]
+        assert lead["place"] == "Bagru, Jaipur" and lead["note"] == "Courtyard" and lead["purpose"] == "FOLLOW_UP"
+        roles = {r["userId"]: r["role"] for r in lead["researchers"]}
+        assert roles == {ids.lead.id: "LEAD", ids.other.id: "CONTRIBUTOR", ids.prof.id: "CONTRIBUTOR"}
+        assert lead["participantCount"] == 2
+        row = await sessions.require_session(client, lead["id"])
+        assert str(row["createdById"]) == ids.lead.id and await sessions.can_work_in(client, ids.lead, row)
+        # A replay by the lead changes nothing; a later scanner is added, not promoted.
+        again, _ = await sessions.create_session(session_create(ids, ids.artisans[:1], key=key, place="Elsewhere"), ids.lead)
+        assert again["place"] == "Bagru, Jaipur" and again["participantCount"] == 2
+        joined = await sessions.join_by_key(key, ids.vol)
+        assert {r["userId"]: r["role"] for r in joined["researchers"]}[ids.vol.id] == "VOLUNTEER"
+        await client.disconnect()
+
+    run(go())
+
+
+def test_an_empty_session_with_an_upload_on_its_way_is_not_deleted(monkeypatch) -> None:
+    from app.services.questionnaire_v2 import sessions
+
+    async def go() -> None:
+        client = await connect()
+        patch_db(monkeypatch, client)
+        no_outside_calls(monkeypatch)
+        ids = await seed(client)
+        s, _ = await sessions.create_session(session_create(ids, ids.artisans[:1]), ids.lead)
+        await client.execute_raw(
+            'INSERT INTO "MediaUploadIntent" ("id", "objectKey", "clientClipKey", "sessionId", "uploaderId", "sizeBytes", '
+            '"contentType", "expiresAt") VALUES ($1, $2, $3, $4, $5, 10, \'audio/mp4\', now() + interval \'1 day\')',
+            "intent-" + ids.tag, "key-" + ids.tag, "clip-" + ids.tag, s["id"], ids.lead.id,
+        )
+        with pytest.raises(HTTPException) as pending:
+            await sessions.delete_session(s["id"], ids.admin)
+        assert _code(pending) == "HAS_RECORDINGS" and pending.value.detail["pending"] == 1
+        await client.execute_raw('UPDATE "MediaUploadIntent" SET "closedAt" = now() WHERE "sessionId" = $1', s["id"])
+        await sessions.delete_session(s["id"], ids.admin)
+        await client.disconnect()
+
+    run(go())

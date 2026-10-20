@@ -23,14 +23,14 @@ import { fetchCoverage } from "@/components/map/coverage/coverageApi";
 import { CoverageFilters } from "@/components/map/coverage/CoverageFilters";
 import { CoverageGapsPanel } from "@/components/map/coverage/CoverageGapsPanel";
 import { CoverageLegend } from "@/components/map/coverage/CoverageLegend";
-import { CoverageMap, type PolygonFill } from "@/components/map/coverage/CoverageMap";
+import { CoverageMap } from "@/components/map/coverage/CoverageMap";
 import {
   coverageHref,
   coverageQueryFromParams,
   EMPTY_COVERAGE_QUERY,
   METRICS,
   metricFromParams,
-  metricValue,
+  polygonFills,
   quantileBreaks,
   registerFromCoverage,
   type RegisterState
@@ -153,28 +153,7 @@ export function CoverageView() {
     return map;
   }, [register, units]);
 
-  const fills = useMemo(() => {
-    const map = new Map<number, PolygonFill>();
-    if (level === "STATE") {
-      const byState = new Map(units.map((unit) => [unit.stateLgd, metricValue(unit.counts, metric)]));
-      for (const shape of shapes ?? []) {
-        const value = byState.get(shape.stateLgd);
-        if (value) map.set(shape.lgd, { value, hostsChild: false });
-      }
-      return map;
-    }
-    for (const unit of units) {
-      if (unit.districtLgd === null) continue;
-      const target = unit.polygon === "PARENT" ? unit.parentLgd : unit.polygon === "OWN" ? unit.districtLgd : null;
-      if (target === null) continue;
-      const current = map.get(target) ?? { value: 0, hostsChild: false };
-      map.set(target, {
-        value: current.value + metricValue(unit.counts, metric),
-        hostsChild: current.hostsChild || unit.polygon === "PARENT"
-      });
-    }
-    return map;
-  }, [units, metric, level, shapes]);
+  const fills = useMemo(() => polygonFills(units, level, metric, shapes ?? []), [units, metric, level, shapes]);
 
   const breaks = useMemo(() => quantileBreaks([...fills.values()].map((fill) => fill.value)), [fills]);
 

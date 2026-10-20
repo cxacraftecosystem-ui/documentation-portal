@@ -111,6 +111,12 @@ async def sessions_join(request: Request, user: Any = Depends(get_current_user))
     return await sessions.join(payload.joinCode, user)
 
 
+@router.post("/sessions/join-by-key", dependencies=V2)
+async def sessions_join_by_key(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    payload = await parse(request, S.JoinByKeyRequest)
+    return await sessions.join_by_key(payload.clientKey, user)
+
+
 @router.post("/sessions/continue", dependencies=V2)
 async def sessions_continue(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
     payload = await parse(request, S.ContinueRequest)

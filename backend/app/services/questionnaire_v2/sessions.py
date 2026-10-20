@@ -262,6 +262,74 @@ def _volunteer(user: Any) -> bool:
     return str(enum_text(get(user, "role"))) == "CROWDSOURCE_VOLUNTEER"
 
 
+NOT_SYNCED = "This session hasn't synced yet. Try again once the lead's phone is online."
+
+
+def _is_join_create(payload: Any, user: Any) -> bool:
+    """A create sent by somebody who scanned a session QR (Android's offline join): it names the
+    caller as a non-lead researcher. The lead's own create never does."""
+    return any(r.userId == user.id and r.role != "LEAD" for r in payload.researchers)
+
+
+async def _arrive_on_existing(db: Any, session_id: str, payload: Any, user: Any, joining: bool) -> None:
+    """A create whose clientKey already has a row. A replay by somebody already on the session is a
+    no-op. Anyone else who holds the QR is added, as a join would add them, so their queued edits are
+    not refused. And when the row is a scanner's stand-in (no LEAD) and this is the lead's own create,
+    the lead takes it over: creator, LEAD, and the place, language, note and purpose they entered."""
+    row = await require_session(db, session_id)
+    if str(row.get("createdById")) == str(user.id) or str(user.id) in await researcher_ids(db, session_id):
+        return
+    leads = await db.query_raw(
+        'SELECT 1 FROM "QuestionnaireInterviewResearcher" WHERE "interviewId" = $1 AND "role" = \'LEAD\' LIMIT 1', session_id
+    )
+    if joining or leads or row.get("mergedIntoId") or _volunteer(user) or not can_create_records(user):
+        await add_researcher(db, session_id, user.id, "VOLUNTEER" if _volunteer(user) else "CONTRIBUTOR")
+        await _bump(db, session_id)
+        return
+    language_label = None
+    if payload.languageCode:
+        from app import shared_vocab
+
+        language_label = payload.languageOther if payload.languageCode == "other" else shared_vocab.LANGUAGE_LABELS.get(payload.languageCode)
+    no_workshop = not row.get("workshopId") and not row.get("designWorkshopId")
+    async with db.tx(max_wait=TX_MAX_WAIT, timeout=TX_TIMEOUT) as tx:
+        await tx.execute_raw(
+            'UPDATE "QuestionnaireInterview" SET "createdById" = $2, "purpose" = $3::"SessionPurpose", '
+            '"startedAt" = COALESCE($4::timestamp, "startedAt"), "place" = COALESCE("place", $5), '
+            '"language" = COALESCE("language", $6), "languageCode" = COALESCE("languageCode", $7), '
+            '"languageOther" = COALESCE("languageOther", $8), "note" = COALESCE("note", $9), '
+            '"designWorkshopId" = COALESCE("designWorkshopId", $10), "workshopId" = COALESCE("workshopId", $11), '
+            '"version" = "version" + 1, "updatedAt" = now() WHERE "id" = $1',
+            session_id, user.id, payload.purpose, naive_utc(aware(payload.startedAt)),
+            (payload.place or "").strip() or None, language_label, payload.languageCode,
+            payload.languageOther if payload.languageCode == "other" else None, (payload.note or "").strip() or None,
+            payload.designWorkshopId if no_workshop else None, payload.workshopId if no_workshop else None,
+        )
+        await add_participants(tx, session_id, [p.artisanId for p in payload.participants])
+        await add_researcher(tx, session_id, user.id, "LEAD")
+        for r in payload.researchers:
+            if r.userId != user.id:
+                await add_researcher(tx, session_id, r.userId, r.role)
+        await titles.regenerate_title(tx, session_id)
+
+
+async def join_by_key(client_key: str, user: Any, *, client: Any = None) -> dict[str, Any]:
+    """Join the session a scanned QR names, without creating it: until the lead's phone has synced
+    there is nothing to join, and a stand-in made from the QR would lose what the lead entered."""
+    db = _client(client)
+    rows = await db.query_raw(
+        'SELECT "id", "mergedIntoId", "state"::text AS state FROM "QuestionnaireInterview" WHERE "clientKey" = $1',
+        client_key.strip(),
+    )
+    if not rows:
+        fail("SESSION_UNKNOWN", NOT_SYNCED)
+    if rows[0]["state"] != "OPEN" or rows[0]["mergedIntoId"]:
+        fail("JOIN_CODE_UNKNOWN", "That session has closed.")
+    session_id = str(rows[0]["id"])
+    await add_researcher(db, session_id, user.id, "VOLUNTEER" if _volunteer(user) else "CONTRIBUTOR")
+    return await session_payload(db, session_id)
+
+
 async def create_session(payload: Any, user: Any, *, client: Any = None, origin: str = "NATIVE",
                          legacy_title: str | None = None, estimated_date: bool = False,
                          extra: dict[str, Any] | None = None) -> tuple[dict[str, Any], bool]:
@@ -271,10 +339,14 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
     from app.services.workshop_access import enforce_workshop_submission, pin_pending_if_late, stamp_workshop_submission
 
     db = _client(client)
+    joining = _is_join_create(payload, user)
     existing = await db.query_raw('SELECT "id" FROM "QuestionnaireInterview" WHERE "clientKey" = $1', payload.clientKey)
     if existing:
+        await _arrive_on_existing(db, str(existing[0]["id"]), payload, user, joining)
         return await session_payload(db, str(existing[0]["id"])), False
     if not can_create_records(user) or _volunteer(user):
+        if joining:
+            fail("SESSION_UNKNOWN", NOT_SYNCED)
         fail("FORBIDDEN", "Volunteers record into sessions they are added to; they can't start one.")
     artisan_ids = list(dict.fromkeys(p.artisanId for p in payload.participants))
     await _assert_exists(db, "Questionnaire", [payload.questionnaireId], "questionnaireId")
@@ -326,7 +398,8 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
                 )
                 session_id = created.id
                 await add_participants(tx, session_id, artisan_ids)
-                await add_researcher(tx, session_id, user.id, "LEAD")
+                # A scanner's stand-in row has no LEAD, so the lead's own create can take it over.
+                await add_researcher(tx, session_id, user.id, "CONTRIBUTOR" if joining else "LEAD")
                 for r in payload.researchers:
                     if r.userId != user.id:
                         await add_researcher(tx, session_id, r.userId, r.role)
@@ -335,6 +408,7 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
         except UniqueViolationError as exc:
             again = await db.query_raw('SELECT "id" FROM "QuestionnaireInterview" WHERE "clientKey" = $1', payload.clientKey)
             if again:  # the same clientKey won a race: that row is this create
+                await _arrive_on_existing(db, str(again[0]["id"]), payload, user, joining)
                 return await session_payload(db, str(again[0]["id"])), False
             if "joinCode" not in str(exc):
                 raise
@@ -607,6 +681,16 @@ async def delete_session(session_id: str, user: Any, *, client: Any = None) -> N
     count = int(live[0]["n"]) + int(answers[0]["n"])
     if count:
         fail("HAS_RECORDINGS", f"Move or remove its {count} recordings first.", count=count)
+    # An open, unexpired upload intent is a take on its way here from a device: refuse rather than
+    # delete the session under it (the take would land on SESSION_UNKNOWN and be orphaned).
+    pending = await db.query_raw(
+        'SELECT count(*) AS n FROM "MediaUploadIntent" WHERE "sessionId" = $1 AND "closedAt" IS NULL '
+        "AND \"expiresAt\" > (now() AT TIME ZONE 'UTC')",
+        session_id,
+    )
+    uploading = int(pending[0]["n"]) if pending else 0
+    if uploading:
+        fail("HAS_RECORDINGS", "A recording is still uploading to this session. Try again once it lands.", count=uploading, pending=uploading)
     await db.execute_raw('DELETE FROM "MediaUploadIntent" WHERE "sessionId" = $1 AND "closedAt" IS NULL', session_id)
     await db.questionnaireinterview.delete(where={"id": session_id})
 

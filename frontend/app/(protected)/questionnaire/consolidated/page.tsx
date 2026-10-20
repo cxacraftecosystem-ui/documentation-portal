@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ChevronRight, Layers } from "lucide-react";
 
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
+import { Pagination } from "@/components/Pagination";
 import { SearchInput } from "@/components/SearchInput";
 import { useWorkshopScope, WorkshopScopeSelect } from "@/components/WorkshopScopeSelect";
 import { buildQuery, listResource } from "@/lib/api";
@@ -23,16 +24,34 @@ import type { Artisan } from "@/lib/types";
  * list of artisans while the document beside it still read every interview would be the worst of both:
  * the researcher would believe they were reading one workshop's account while looking at all of them.
  * So the chosen scope rides the link as `?workshopIds=`, and the document honours it.
+ *
+ * The search goes to the server and the list pages: a scope can hold more artisans than one page,
+ * and a box that filtered only the rows in the browser would answer "No match" for the rest.
  */
+const PAGE_SIZE = 60;
+const SEARCH_DEBOUNCE_MS = 300;
+
 export default function ConsolidatedIndexPage() {
   const [artisans, setArtisans] = useState<Artisan[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(0);
+  const [total, setTotal] = useState(0);
 
   // Same control, same default (the most recent workshop) and same wire format as the completion
   // matrix and the map, so a researcher moving between the three is always reading the same records.
   const scope = useWorkshopScope();
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearch(query.trim());
+      setPage(1);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [query]);
 
   useEffect(() => {
     // Hold until the picker has settled, or the first request goes out unscoped and is replaced a
@@ -40,10 +59,12 @@ export default function ConsolidatedIndexPage() {
     if (scope.settling) return;
     let active = true;
     setLoading(true);
-    listResource<Artisan>("/artisans", { pageSize: 100, workshopIds: scope.queryValue })
+    listResource<Artisan>("/artisans", { page, pageSize: PAGE_SIZE, search: search || undefined, workshopIds: scope.queryValue })
       .then((result) => {
         if (active) {
           setArtisans(result.items);
+          setPages(result.pages);
+          setTotal(result.total);
           setError(null);
         }
       })
@@ -56,15 +77,15 @@ export default function ConsolidatedIndexPage() {
     return () => {
       active = false;
     };
-  }, [scope.settling, scope.queryValue]);
+  }, [scope.settling, scope.queryValue, search, page]);
 
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return artisans;
-    return artisans.filter((artisan) =>
-      [artisan.name, artisan.craft?.name, artisan.place].filter(Boolean).join(" ").toLowerCase().includes(needle)
-    );
-  }, [artisans, query]);
+  // A new scope starts again at the first page.
+  const scopeKey = scope.queryValue ?? "";
+  const [seenScope, setSeenScope] = useState(scopeKey);
+  if (seenScope !== scopeKey) {
+    setSeenScope(scopeKey);
+    setPage(1);
+  }
 
   return (
     <div className="pb-16">
@@ -82,7 +103,7 @@ export default function ConsolidatedIndexPage() {
       {error ? <EmptyState title="Could not load artisans" body={error} /> : null}
       {loading ? <div className="panel p-6 text-sm text-ink-500">Loading artisans…</div> : null}
 
-      {!loading && !error && filtered.length === 0 ? (
+      {!loading && !error && artisans.length === 0 ? (
         <EmptyState
           title="No artisans match"
           body={
@@ -94,7 +115,7 @@ export default function ConsolidatedIndexPage() {
       ) : null}
 
       <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {filtered.map((artisan) => (
+        {artisans.map((artisan) => (
           <li key={artisan.id}>
             <Link
               // The scope travels with the link, so the document opens on the same workshops this list
@@ -113,6 +134,11 @@ export default function ConsolidatedIndexPage() {
           </li>
         ))}
       </ul>
+      {!error && pages > 1 ? (
+        <div className="panel mt-4">
+          <Pagination page={page} pages={pages} total={total} onPage={setPage} />
+        </div>
+      ) : null}
     </div>
   );
 }

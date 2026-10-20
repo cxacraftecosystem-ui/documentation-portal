@@ -491,6 +491,7 @@ export const questionnaireApi = {
   addResearcher: (id: string, body: { userId: string; role: string }) =>
     apiFetch<Session>(`${Q}/sessions/${encodeURIComponent(id)}/researchers`, json("POST", body, mintKey("res"))),
   join: (joinCode: string) => apiFetch<Session>(`${Q}/sessions/join`, json("POST", { joinCode })),
+  joinByKey: (clientKey: string) => apiFetch<Session>(`${Q}/sessions/join-by-key`, json("POST", { clientKey })),
   finish: (id: string) => apiFetch<Session>(`${Q}/sessions/${encodeURIComponent(id)}/finish`, json("POST", {})),
   mergeInto: (id: string, targetId: string) =>
     apiFetch<Session>(`${Q}/sessions/${encodeURIComponent(id)}/merge-into/${encodeURIComponent(targetId)}`, json("POST", {})),

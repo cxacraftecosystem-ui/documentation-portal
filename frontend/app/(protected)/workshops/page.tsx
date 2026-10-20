@@ -57,6 +57,8 @@ import { ReviewNoteBanner } from "@/components/review/ReviewNoteBanner";
 // the "Crafts covered" selection when editing.
 type WorkshopWithCrafts = Workshop & { crafts?: Array<{ craftId?: string; craft?: { id: string } }> };
 
+const ARTISAN_PICKER_MAX_PAGES = 50;
+
 /** The artisan ids a workshop is already linked to, for pre-filling the picker on edit. */
 function linkedArtisanIds(workshop: Workshop | null): string[] {
   return workshop?.artisans?.map((item) => item.artisan.id) ?? [];
@@ -271,8 +273,15 @@ function WorkshopsPageBody() {
   useEffect(() => {
     (async () => {
       try {
-        const artisanResult = await listResource<Artisan>("/artisans", { pageSize: 100 });
-        setArtisans(artisanResult.items);
+        // Every artisan, not the API's first 100: a linked artisan past the first page would show
+        // no label and could not be picked. Paged at the API's maximum, to a generous ceiling.
+        const all: Artisan[] = [];
+        for (let page = 1; page <= ARTISAN_PICKER_MAX_PAGES; page += 1) {
+          const result = await listResource<Artisan>("/artisans", { page, pageSize: 100 });
+          all.push(...result.items);
+          if (page >= result.pages) break;
+        }
+        setArtisans(all);
       } catch {
         // The pickers degrade to empty lists; the workshop list still loads.
       }
@@ -514,7 +523,11 @@ function WorkshopsPageBody() {
     }
   }
 
-  const artisanOptions = artisans.map((artisan) => ({ value: artisan.id, label: `${artisan.name} · ${artisan.place}` }));
+  // The workshop's own linked artisans always have a label, even if the list above did not reach them.
+  const artisanOptions = [
+    ...artisans,
+    ...(editing?.artisans ?? []).map((item) => item.artisan).filter((linked) => !artisans.some((a) => a.id === linked.id))
+  ].map((artisan) => ({ value: artisan.id, label: [artisan.name, artisan.place].filter(Boolean).join(" · ") }));
 
   // The API already returns workshops createdAt-descending; re-sorting keeps the guarantee local
   // so the list stays newest-first even if a caller ever changes the server ordering.
