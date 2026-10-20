@@ -39,6 +39,7 @@ All routes need a signed-in user.
 - `POST /crafts` needs `subCategoryId` and `giStatus`. `PATCH /crafts/{id}` keeps a renamed craft's old name as an alias. Both are for craft managers (Professor and above).
 - `DELETE /crafts/{id}` is `assert_can_delete`, and a craft any record uses is refused with `CRAFT_IN_USE`: merge it instead.
 - `POST /crafts/{id}/merge` with `{intoId}` and `POST /crafts/{id}/adopt` with `{subCategoryId}` are for content admins.
+- `GET /crafts/review` (content admins) is the "Needs review" queue: every LEGACY craft with its references and what the mapping would do with it (including a fuzzy suggestion), and every record whose typed craft text matched nothing. It is the mapping script's dry run, and changes nothing.
 - `GET`, `POST`, `PATCH` and `DELETE` on `/craft-categories` and `/craft-sub-categories` manage the taxonomy. Writes are for content admins, deletes are `assert_can_delete`, and a category or sub-category that still holds anything is refused.
 
 Refusals use the `{detail: {code, message}}` shape: `CRAFT_EXISTS`, `CRAFT_IN_USE`, `CATEGORY_NOT_EMPTY`, `SUB_CATEGORY_NOT_EMPTY` and `CRAFT_NOT_IN_LIST`.

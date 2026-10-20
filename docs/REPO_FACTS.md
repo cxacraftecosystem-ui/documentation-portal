@@ -27,7 +27,7 @@ Enums: `UserRole`, `AuthProvider`, `AccessStatus`, `RecordStatus`, `WorkshopType
 
 ## API surface
 
-**292 operations** in the working tree — 131 GET, 100 POST, 26 DELETE,
+**293 operations** in the working tree — 132 GET, 100 POST, 26 DELETE,
 17 PATCH, 18 PUT. 2 of them (`/health`, `/health/ready`) are declared
 on the app rather than on a router; the rest are spread across `backend/app/api/routes/`:
 
@@ -41,8 +41,8 @@ on the app rather than on a router; the rest are spread across `backend/app/api/
 | `auth.py` | 11 |
 | `cross_portal.py` | 11 |
 | `review.py` | 10 |
+| `crafts.py` | 9 |
 | `artisans.py` | 8 |
-| `crafts.py` | 8 |
 | `tools.py` | 8 |
 | `users.py` | 8 |
 | `craft_categories.py` | 7 |
@@ -119,7 +119,7 @@ no key is skipped wherever it sits.
 
 | Surface | Files | Cases | Runner |
 |---|---|---|---|
-| Backend unit (`backend/tests/`) | 153 | 2053 `def test_` | `python -m pytest -q` from `backend/` |
+| Backend unit (`backend/tests/`) | 153 | 2054 `def test_` | `python -m pytest -q` from `backend/` |
 | Web end-to-end (`frontend/e2e/`) | 97 | 1071 `test(` | Playwright, `frontend/playwright.config.ts` |
 | Android unit (`android/app/src/test/`) | 115 | 1100 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
 | Android instrumented | 2 | 5 `@Test` | not run in CI |
@@ -132,7 +132,7 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 
 | Area | Tracked files | Tracked lines | Tree files | Tree lines |
 |---|---|---|---|---|
-| `backend/app` | 228 | 76,959 | 228 | 76,959 |
+| `backend/app` | 228 | 76,992 | 228 | 76,992 |
 | `frontend/app` | 77 | 22,558 | 77 | 22,558 |
 | `frontend/components` | 264 | 66,797 | 264 | 66,797 |
 | `frontend/lib` | 119 | 35,440 | 119 | 35,440 |

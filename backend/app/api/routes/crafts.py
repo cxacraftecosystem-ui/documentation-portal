@@ -159,6 +159,39 @@ async def craft_catalogue(
     return catalogue
 
 
+@router.get("/review")
+async def craft_review_queue(_: Any = Depends(require_content_admin)) -> dict[str, Any]:
+    """The "Needs review" tab on /crafts (content admins): what the master list has not absorbed yet.
+
+    ``crafts``: every LEGACY craft, with its references and what the mapping would do with it (a
+    curated or exact target, or a fuzzy ``proposed`` suggestion). ``records``: every record whose
+    typed craft text matched nothing, kept in ``legacyCraftText`` or a free-text ``craftName``. The
+    same report as ``python -m app.scripts.map_crafts --dry-run``; it changes nothing.
+    """
+    from app.scripts import map_crafts
+
+    rows = await map_crafts.plan(db)
+
+    def entry(row: Any) -> dict[str, Any]:
+        return {
+            "kind": row.kind,
+            "id": row.id,
+            "model": row.delegate,
+            "text": row.oldName,
+            "action": row.action,
+            "target": row.target,
+            "targetId": row.targetId,
+            "subCategoryId": row.subCategoryId,
+            "score": row.score,
+            "references": row.references,
+        }
+
+    return {
+        "crafts": [entry(r) for r in rows if r.kind == "craft"],
+        "records": [entry(r) for r in rows if r.kind == "freeText" and r.action != "link"],
+    }
+
+
 async def _sub_category(sub_category_id: str) -> Any:
     sub = await db.craftsubcategory.find_unique(where={"id": sub_category_id}, include={"category": True})
     if sub is None:

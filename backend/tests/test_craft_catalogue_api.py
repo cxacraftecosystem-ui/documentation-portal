@@ -250,6 +250,15 @@ def test_merge_moves_every_reference_and_keeps_the_source(world):
     assert picked_merged.json()["detail"]["code"] == "CRAFT_NOT_IN_LIST"
 
 
+def test_the_review_queue_lists_legacy_crafts_for_content_admins(world):
+    client = world["client"]
+    assert client.get("/api/crafts/review", headers=_as(world, "PROFESSOR")).status_code == 403
+    queue = client.get("/api/crafts/review", headers=_as(world, "ADMIN"))
+    assert queue.status_code == 200, queue.text
+    legacy = next(c for c in queue.json()["crafts"] if c["id"] == world["legacy"].id)
+    assert legacy["text"] == f"Old Craft {world['stamp']}" and legacy["references"] == 0
+
+
 def test_adopt_puts_a_legacy_craft_on_the_list(world):
     client = world["client"]
     adopted = client.post(
