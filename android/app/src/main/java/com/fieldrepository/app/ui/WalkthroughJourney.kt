@@ -730,9 +730,10 @@ private val WALKTHROUGH_ALL_FIELDS: Map<String, List<String>> =
  *
  * ── AND WHY IT IS THE SEAM RATHER THAN THE DESTINATION ───────────────────────────────────────────
  *
- * When [WalkStep] grows real `summary` and `watch` fields, this function is the one place that has to
- * change and the card above it does not have to change at all. That is the whole reason it exists as
- * a function with a return type rather than as three expressions inlined into the card.
+ * [WalkStep] has since grown optional `why` and `watch` fields (2026-10-20), and this function was the
+ * one place that had to change: it prefers them where a step carries them, and the card above it did
+ * not change at all. That is the whole reason it exists as a function with a return type rather than
+ * as three expressions inlined into the card.
  *
  * ── THE WEB'S `fields[]`: A DECISION THAT WAS MADE HERE AND THEN OVERRULED ───────────────────────
  *
@@ -812,9 +813,12 @@ internal fun walkthroughFacets(step: WalkStep): WalkthroughFacets {
     val cut = walkthroughFirstSentenceEnd(prose)
     return WalkthroughFacets(
         summary = prose.substring(0, cut).trim(),
-        detail = prose.substring(cut).trim(),
+        // The step's own `why` and `watch` win where it carries them (see `WalkthroughSteps.kt`); a
+        // body that still holds its prose and its caution in one string is cut at the seams as before.
+        detail = step.why.trim().ifEmpty { prose.substring(cut).trim() },
         fields = WALKTHROUGH_ALL_FIELDS[step.id].orEmpty(),
-        watch = if (caution.isEmpty()) emptyList() else listOf(caution),
+        watch = step.watch.map { it.trim() }.filter { it.isNotEmpty() }
+            .ifEmpty { if (caution.isEmpty()) emptyList() else listOf(caution) },
     )
 }
 

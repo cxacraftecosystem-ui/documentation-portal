@@ -13,13 +13,14 @@ import org.junit.Test
  * Ported from the designer portal's suite of the same name. [walkthroughFacets] is shared code, byte
  * for byte, so the parser's own guarantees are pinned exactly as they are there: a caution is found
  * by its WORDS and not its punctuation, its introduction is not left at the top of the bullet, and it
- * is not duplicated into the prose. This app's steps are one short line and carry no caution, so those
- * guarantees are asserted against steps built for the purpose rather than against the deck — a parser
- * that silently stopped working would otherwise be invisible here until somebody wrote a caution.
+ * is not duplicated into the prose. This app's bodies are one short line, and their "why" and cautions
+ * are fields of their own, so those guarantees are asserted against steps built for the purpose
+ * rather than against the deck.
  *
  * What IS asserted against every deck is the shape the card is handed: a summary that is the whole
- * line, no hidden panel prose, no caution bullets, no blank chips, and — for a card that opens the
- * same screen in two decks — the same form labels in both.
+ * line, a "Why this step exists" and a "Watch out for" on every numbered step and on neither end, no
+ * blank chips or bullets, and — for a card that opens the same screen in two decks — the same form
+ * labels in both.
  */
 class WalkthroughFacetsTest {
 
@@ -72,26 +73,110 @@ class WalkthroughFacetsTest {
     // ── The shape every deck's cards are handed ──────────────────────────────────────────────────
 
     @Test
-    fun `every numbered step's summary is its whole line, with nothing hidden behind the chevron`() {
+    fun `a step's own why and cautions win over the body's seams`() {
+        val facets = walkthroughFacets(
+            WalkStep(
+                id = "probe",
+                title = "Probe · Test",
+                body = "Record the thing you came for, in the order it happens. Watch out: a body caution.",
+                why = "The dataset needs it.",
+                watch = listOf("First caution.", "  ", "Second caution."),
+            )
+        )
+        assertEquals("Record the thing you came for, in the order it happens.", facets.summary)
+        assertEquals("The dataset needs it.", facets.detail)
+        assertEquals(listOf("First caution.", "Second caution."), facets.watch)
+    }
+
+    @Test
+    fun `every numbered step's summary is its whole line`() {
         // One short line per step: the collapsed card shows all of it. A body the cutter split would
         // mean the line had grown a second sentence — `WalkthroughStepsTest` forbids that, and this
         // asserts the card agrees.
         WALKTHROUGH_DECKS.flatMap { it.journey }.forEach { step ->
-            val facets = walkthroughFacets(step)
-            assertEquals("“${step.id}”'s summary is not its whole line", step.body.trim(), facets.summary)
-            assertTrue("“${step.id}” has prose hidden in its panel: “${facets.detail}”", facets.detail.isBlank())
+            assertEquals(
+                "“${step.id}”'s summary is not its whole line",
+                step.body.trim(),
+                walkthroughFacets(step).summary
+            )
         }
     }
 
     @Test
-    fun `no step draws a caution heading`() {
-        // Concise steps carry no caution; a "Watch out for" heading would mean one crept back in.
-        WALKTHROUGH_DECKS.flatMap { it.steps }.forEach { step ->
-            assertEquals(
-                "“${step.id}” would draw a caution: ${walkthroughFacets(step).watch}",
-                emptyList<String>(),
-                walkthroughFacets(step).watch
+    fun `every numbered step says why it exists and what to watch out for`() {
+        // THE OWNER'S REPORT, 2026-10-20: the handset's cards had neither section, where the designer
+        // portal's do. An empty `why` or `watch` draws no heading, so a step missing one is invisible
+        // on the card — this is the only place it shows.
+        WALKTHROUGH_DECKS.flatMap { it.journey }.forEach { step ->
+            val facets = walkthroughFacets(step)
+            assertTrue("“${step.id}” draws no “Why this step exists”", facets.detail.isNotBlank())
+            assertTrue("“${step.id}” draws no “Watch out for”", facets.watch.isNotEmpty())
+        }
+    }
+
+    @Test
+    fun `the why and the cautions stay concise`() {
+        // Concise, premium copy: a why is at most two short sentences and a caution is one line.
+        WALKTHROUGH_DECKS.flatMap { it.journey }.forEach { step ->
+            val facets = walkthroughFacets(step)
+            assertTrue(
+                "“${step.id}”'s why runs ${facets.detail.length} characters: “${facets.detail}”",
+                facets.detail.length <= 120
             )
+            assertTrue("“${step.id}” has ${facets.watch.size} cautions", facets.watch.size <= 5)
+            facets.watch.forEach { note ->
+                assertTrue("“${step.id}” has a ${note.length}-character caution: “$note”", note.length <= 90)
+                assertTrue("“${step.id}”'s caution must end as a sentence: “$note”", note.last() in ".?")
+                assertFalse(
+                    "“${step.id}”'s caution wears its own heading: “$note”",
+                    note.startsWith("watch out", ignoreCase = true)
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `the two ends of a deck draw no caution`() {
+        // The opening and closing cards are not features; a "Watch out for" over them would be noise.
+        WALKTHROUGH_DECKS.forEach { deck ->
+            listOf(deck.steps.first(), deck.steps.last()).forEach { step ->
+                assertEquals(
+                    "“${step.id}” would draw a caution: ${walkthroughFacets(step).watch}",
+                    emptyList<String>(),
+                    walkthroughFacets(step).watch
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `a card in another deck that reuses a researcher screen's words reuses them exactly`() {
+        // The interview, media, workshop, craft, data, offline and account cards of the other decks
+        // describe the researcher's screen in the researcher's words, by reference.
+        val pairs = mapOf(
+            "contributor-interview" to "questionnaire",
+            "contributor-media" to "media",
+            "contributor-offline" to "offline",
+            "contributor-account" to "account",
+            "admin-workshop" to "workshop",
+            "admin-craft" to "craft",
+            "admin-view-data" to "view-data",
+        )
+        val all = WALKTHROUGH_DECKS.flatMap { it.journey }.associateBy { it.id }
+        pairs.forEach { (id, researcherId) ->
+            val step = all.getValue(id)
+            val source = all.getValue(researcherId)
+            assertEquals("“$id”'s why drifted from “$researcherId”'s", source.why, step.why)
+            assertEquals("“$id”'s cautions drifted from “$researcherId”'s", source.watch, step.watch)
+        }
+    }
+
+    @Test
+    fun `no card would draw an empty bullet`() {
+        WALKTHROUGH_DECKS.flatMap { it.steps }.forEach { step ->
+            walkthroughFacets(step).watch.forEach { note ->
+                assertTrue("“${step.id}” carries a blank caution", note.isNotBlank())
+            }
         }
     }
 
