@@ -345,7 +345,9 @@ def test_a_typed_craft_name_never_mints_a_craft(api: _Api, monkeypatch: pytest.M
     assert resolved, "the typed craft name was never resolved"
     assert not resolved[-1].get("craftId")
     assert "craftName" not in resolved[-1]
-    assert resolved[-1]["extraMetadata"][craft_master.LEGACY_TEXT_KEY] == "A craft nobody added yet"
+    # Title-cased on the way in, like every typed name.
+    kept = resolved[-1]["extraMetadata"][craft_master.LEGACY_TEXT_KEY]
+    assert craft_master.normalise(kept) == craft_master.normalise("A craft nobody added yet")
 
 
 # --- Creating a record: Researcher and above ------------------------------------------------------
