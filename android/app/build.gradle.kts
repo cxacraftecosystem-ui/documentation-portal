@@ -389,6 +389,9 @@ dependencies {
     androidTestImplementation("androidx.test.uiautomator:uiautomator:2.4.0")
     // The top-bar scanner's device test (TopBarScanDeviceTest): Compose's test rule, versions from the BOM.
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    // ui-test-junit4 pulls an Espresso too old for API 37 (it reflects on InputManager.getInstance,
+    // which is gone); 3.7.0 is the newest stable and injects through InputManagerGlobal.
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     /*
