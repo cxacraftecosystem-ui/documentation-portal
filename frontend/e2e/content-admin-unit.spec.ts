@@ -53,3 +53,9 @@ test("files, sessions, takes and questionnaire structure are deleted in admin vi
   expect(page).toContain("onRemove={adminMode ? () => removeQuestion(question) : undefined}");
   expect(page).toContain("editing && isContentAdmin(user) ? await offerMergeOnConflict(err, editing.id) : false");
 });
+
+test("an instrument's Delete retires it, for a content admin in admin view", () => {
+  const page = read("app/(protected)/questionnaire/workbooks/[id]/page.tsx");
+  expect(page).toContain("const mayDelete = permitted && adminMode && isContentAdmin(user);");
+  expect(page).toContain("apiFetch(`/questionnaires/${encodeURIComponent(target.id)}`, { method: \"DELETE\" })");
+});
