@@ -2205,6 +2205,12 @@ data class EntryCommentBody(
     val body: String
 )
 
+/** The author's edit of their own comment (`PATCH /data-access/comments/{id}`). */
+@Serializable
+data class EntryCommentUpdateBody(
+    val body: String
+)
+
 @Serializable
 data class RevisionChange(
     val old: JsonElement? = null,
