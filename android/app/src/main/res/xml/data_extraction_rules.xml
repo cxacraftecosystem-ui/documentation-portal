@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Auto Backup and device-to-device transfer on Android 12+ (android:dataExtractionRules). The same
-  list as backup_rules.xml, which explains each line: the outbox and drafts are kept; the sign-in
-  session, the staged-object journal and WorkManager's bookkeeping are not.
+  list as backup_rules.xml, which explains each line: the outbox (with its media) and drafts are kept;
+  the sign-in session, the staged-object journal and WorkManager's bookkeeping are not. Interview
+  audio stays out of cloud-backup, whose 25 MB cap would skip everything, and goes in
+  device-transfer, which has none.
 -->
 <data-extraction-rules>
     <cloud-backup>
@@ -11,6 +13,7 @@
         <exclude domain="database" path="androidx.work.workdb" />
         <exclude domain="database" path="androidx.work.workdb-shm" />
         <exclude domain="database" path="androidx.work.workdb-wal" />
+        <exclude domain="file" path="questionnaire-recordings/" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="field_repository_auth.xml" />

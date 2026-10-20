@@ -19,7 +19,11 @@ class QuestionnaireV2 private constructor(context: Context) {
     private val app = context.applicationContext
     val appContext: Context get() = app
     val tokenStore = TokenStore(app)
-    val api: QuestionnaireApi = ApiClient.retrofit(tokenStore).create(QuestionnaireApi::class.java)
+    // The activity's read cache (one Cache per directory, so sharing it is safe): offline, the sessions
+    // list, a session's detail and the inbox show their last answer instead of nothing.
+    val api: QuestionnaireApi = ApiClient.retrofit(tokenStore, OutboxSyncWorker.readCacheDir(app)).create(QuestionnaireApi::class.java)
+    // The sync pass reads upload state, which must never come from a stale copy: no read cache here.
+    private val liveApi: QuestionnaireApi = ApiClient.retrofit(tokenStore).create(QuestionnaireApi::class.java)
     private val legacyApi: FieldRepositoryApi = ApiClient.create(tokenStore)
     val outbox = SessionOutbox(FileSessionUnitStore(File(app.filesDir, "questionnaire-outbox")))
     val coverage = CoverageCache(File(app.noBackupFilesDir, "questionnaire-coverage"))
@@ -32,7 +36,7 @@ class QuestionnaireV2 private constructor(context: Context) {
     )
     val config: StateFlow<QConfig?> = _config
 
-    val transport: SessionTransport = QuestionnaireTransport(api) { key, bodyJson ->
+    val transport: SessionTransport = QuestionnaireTransport(liveApi) { key, bodyJson ->
         legacyApi.createArtisan(key, ApiClient.json.decodeFromString(ArtisanCreateRequest.serializer(), bodyJson)).id
     }
 
@@ -126,24 +130,59 @@ class QuestionnaireV2 private constructor(context: Context) {
     /** Consent the app knows of this run, so the start sheet stops asking once it is answered. */
     val knownConsent = java.util.concurrent.ConcurrentHashMap<String, String>()
 
-    suspend fun recordConsent(artisanId: String, state: String) {
+    /**
+     * Records [state] for [artisanId]: queued on the phone first, then sent. A queued answer goes out
+     * with the next sync pass, which is scheduled here so an offline refusal does not wait for some
+     * other upload. Returns false only when the server refused this answer for good; the caller says
+     * so, because the phone no longer shows it as recorded.
+     */
+    suspend fun recordConsent(artisanId: String, state: String): Boolean {
         val body = QConsentPost(state = state, clientKey = SessionOutbox.newKey())
         knownConsent[artisanId] = state
         consentLock.withLockCompat {
             val queue = readConsents() + PendingConsent(artisanId, body)
             writeFileAtomically(consentFile, outboxJson.encodeToString(consentList, queue).toByteArray())
         }
-        flushConsents()
+        val rejected = flushConsents()
+        if (readConsents().any { it.body.clientKey == body.clientKey }) OutboxSyncWorker.schedule(app)
+        return body.clientKey !in rejected
     }
 
-    suspend fun flushConsents() = consentLock.withLockCompat {
-        val left = readConsents().filter { pending ->
-            val sent = runCatching { api.recordConsent(pending.body.clientKey, pending.artisanId, pending.body) }
-            // A refusal no retry can change is dropped; only a missing signal keeps it.
-            sent.isFailure && sent.exceptionOrNull() is java.io.IOException
+    /**
+     * Sends every queued consent. An answer waits on a missing signal and on any answer a retry can
+     * change (408, 429, 5xx), the session outbox's rule; it is dropped only on a refusal no retry can
+     * change, and then this run stops showing it. Returns the client keys the server refused.
+     */
+    suspend fun flushConsents(): Set<String> = consentLock.withLockCompat {
+        val queue = readConsents()
+        val rejected = mutableSetOf<String>()
+        val left = queue.filterIndexed { index, pending ->
+            val failure = try {
+                liveApi.recordConsent(pending.body.clientKey, pending.artisanId, pending.body)
+                null
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                e
+            }
+            when {
+                failure == null -> false
+                consentRetryable(failure) -> true
+                else -> {
+                    rejected += pending.body.clientKey
+                    // Forget it, unless a later answer for the same artisan is still queued.
+                    val later = queue.drop(index + 1).any { it.artisanId == pending.artisanId }
+                    if (!later) knownConsent.remove(pending.artisanId, pending.body.state)
+                    false
+                }
+            }
         }
         writeFileAtomically(consentFile, outboxJson.encodeToString(consentList, left).toByteArray())
+        rejected
     }
+
+    /** Whether an answer for [artisanId] is still queued on this phone, waiting for a signal. */
+    suspend fun consentWaiting(artisanId: String): Boolean = consentLock.withLockCompat { readConsents().any { it.artisanId == artisanId } }
 
     /** The current consent state, from the server when reachable, else what this run recorded. */
     suspend fun consentState(artisanId: String): String? =
@@ -185,6 +224,13 @@ class QuestionnaireV2 private constructor(context: Context) {
             )
         )
     }
+}
+
+/** A consent POST that may succeed later: no signal, or 408, 429 or 5xx (QuestionnaireTransport's rule). */
+internal fun consentRetryable(failure: Throwable): Boolean = when (failure) {
+    is java.io.IOException -> true
+    is retrofit2.HttpException -> failure.code().let { it == 408 || it == 429 || it >= 500 }
+    else -> false
 }
 
 /**

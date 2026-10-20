@@ -143,6 +143,13 @@ fun FieldScanControls(enabled: Boolean, onText: (String) -> Unit, onRefusal: (St
     }
     var blocked by remember { mutableStateOf(false) }
     var reading by remember { mutableStateOf(false) }
+    // Back from the app's settings with the camera allowed: open it here, without closing the sheet.
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+        if (!granted && ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            granted = true
+            blocked = false
+        }
+    }
 
     fun hand(text: String) {
         if (!latestEnabled || text == last.value) return
