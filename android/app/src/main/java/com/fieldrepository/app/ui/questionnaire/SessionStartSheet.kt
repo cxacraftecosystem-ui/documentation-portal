@@ -49,6 +49,7 @@ import com.fieldrepository.app.ui.SearchableSelectField
 import com.fieldrepository.app.ui.SegmentedChoice
 import com.fieldrepository.app.ui.SelectOption
 import com.fieldrepository.app.ui.field
+import com.fieldrepository.app.ui.mostRecentRecordableWorkshop
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
@@ -74,6 +75,13 @@ data class StartForm(
     val note: String = ""
 ) {
     val canStart: Boolean get() = questionnaireId.isNotBlank() && date != null && artisanIds.isNotEmpty()
+
+    /** Pick [w]: its bound instrument, and its place when none is typed yet. */
+    fun withWorkshop(w: WorkshopDetailDto): StartForm = copy(
+        workshopId = w.id,
+        questionnaireId = w.questionnaireId ?: questionnaireId,
+        place = place.ifBlank { w.place }
+    )
 
     fun titlePreview(workshop: WorkshopDetailDto?, artisans: Map<String, ArtisanDto>): String = Naming.sessionTitle(
         Naming.SessionFields(
@@ -126,6 +134,14 @@ fun SessionStartSheet(
     var openMatch by remember { mutableStateOf<QSession?>(null) }
     var starting by remember { mutableStateOf(false) }
     val workshop = workshops.firstOrNull { it.id == form.workshopId }
+    var workshopTouched by remember { mutableStateOf(false) }
+
+    // The most recent workshop the researcher may record in is the default, from the cached list
+    // when offline; it stays changeable, and a pick already made is never replaced.
+    LaunchedEffect(workshops) {
+        if (workshopTouched || form.workshopId.isNotBlank()) return@LaunchedEffect
+        mostRecentRecordableWorkshop(workshops)?.let { form = form.withWorkshop(it) }
+    }
 
     LaunchedEffect(form.artisanIds) {
         form.artisanIds.forEach { id -> if (!consent.containsKey(id)) consent[id] = v2.consentState(id) }
@@ -154,12 +170,9 @@ fun SessionStartSheet(
                 includeNone = false,
                 searchable = true
             ) { id ->
+                workshopTouched = true
                 val w = workshops.firstOrNull { it.id == id }
-                form = form.copy(
-                    workshopId = id,
-                    questionnaireId = w?.questionnaireId ?: form.questionnaireId,
-                    place = if (form.place.isBlank()) w?.place.orEmpty() else form.place
-                )
+                form = if (w != null) form.withWorkshop(w) else form.copy(workshopId = id)
             }
             SearchableSelectField(
                 label = QuestionnaireCopy.s("start.instrument"),

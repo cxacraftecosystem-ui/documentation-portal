@@ -552,9 +552,9 @@ function QuestionnairePageBody() {
   // (mirrors the backend, which silently drops an unauthorized status on create).
   const canPickStatus = hasRank(user, "PROFESSOR");
 
-  // The workshop this interview was taken at. Create-only form, so it always defaults to the most
-  // recent workshop the interviewer may submit to (see components/forms/WorkshopSelect).
-  const workshop = useWorkshopSelection();
+  // The workshop this interview was taken at. Create-only form, so it defaults to the most recent
+  // workshop the interviewer may record in (`mostRecentRecordableWorkshop`), still changeable.
+  const workshop = useWorkshopSelection({ defaultRule: "mostRecent" });
 
   /**
    * THE ARTISANS THIS WORKSHOP'S INTERVIEWS MAY BE WITH, re-fetched whenever the workshop moves.
