@@ -430,7 +430,7 @@ export default function ReviewPage() {
   }
 
   /** The open panel under a row: the field editor, or the note box for a decision. */
-  function actionPanel(item: PendingItem, activeAction: PanelAction) {
+  function actionPanel(item: PendingItem, activeAction: PanelAction, fill = false) {
     if (activeAction === "edit") {
       return (
         <ReviewEditPanel
@@ -509,7 +509,7 @@ export default function ReviewPage() {
         {activeAction === "approve" && alsoApprovesLine(item.pendingMediaCount) ? (
           <p className="mt-1 text-xs text-ink-700">{alsoApprovesLine(item.pendingMediaCount)}</p>
         ) : null}
-        <ButtonRow size="sm" className="mt-2">
+        <ButtonRow size="sm" fill={fill} className="mt-2">
           <button
             className="field-button h-9 min-h-0 px-3 text-xs pointer-coarse:h-11"
             disabled={blocked}
@@ -727,7 +727,8 @@ export default function ReviewPage() {
                     </div>
                     {activeAction ? (
                       <div data-row-ignore className="mt-3 rounded-md bg-surface-50 p-3">
-                        {actionPanel(item, activeAction)}
+                        {/* The phone card: its Confirm and Cancel fill the card. The table row below does not. */}
+                        {actionPanel(item, activeAction, true)}
                       </div>
                     ) : null}
                   </li>

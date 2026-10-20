@@ -1322,6 +1322,14 @@ rendered children (fragments unwrapped, `null` dropped) and lays them out by num
 - The dashboard card's New/Update pair IS a two-button row and shares one line, even in a ~135px
   phone card: keep the labels to one word and drop the icons below `sm` (`max-sm:hidden`) rather
   than stacking them.
+- **`fill` is for a card's footer** (owner ruling 2026-10-20). At every width, one button spans the
+  card's content width (`flex [&>*]:w-full`). Two buttons stay a `grid-cols-2 gap-2`: the left one
+  reaches the left padding edge, the right one the right, with the same 8px division between them.
+  `fill` drops the `sm:flex`/`sm:w-auto` switch and ignores `align`. Three or more ignore it. It
+  widens the click area only, so heights stay what the buttons carry (`h-9 pointer-coarse:h-11`).
+  It is on `DashboardCard`, the `/sent-back` cards, the review phone card's Confirm/Cancel and the
+  inbox legacy-take Confirm. Use it only in a bordered card; a row in a page-wide panel or a table
+  row stays as it is. `e2e/button-row-unit.spec.ts` measures it at 360, 768 and 1280px.
 - Trap: the 2-button case is a `grid` below `sm`. A child with `w-fit`/`inline-flex` sizing still
   fills its cell (`[&>*]:w-full`); do not add `shrink-0` or a fixed width to a button inside it.
 

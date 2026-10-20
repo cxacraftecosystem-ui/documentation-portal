@@ -55,8 +55,9 @@ export function DashboardCard({
       </div>
       <div className="font-display text-base font-bold leading-snug text-ink-900">{label}</div>
       {/* New and Update share one line (owner rule: two buttons, one line). A phone's card is about
-          135px inside, so the icons drop below `sm` and the two words fit side by side. */}
-      <ButtonRow size="sm" className="mt-auto pt-1">
+          135px inside, so the icons drop below `sm` and the two words fit side by side. `fill`
+          stretches them to the card's padding edges at every width (owner ruling 2026-10-20). */}
+      <ButtonRow size="sm" fill className="mt-auto pt-1">
         <Link
           className="field-button h-9 min-h-0 pointer-coarse:h-11 px-2 text-xs sm:px-3 after:absolute after:inset-0 after:rounded-lg after:content-['']"
           href={newHref}
