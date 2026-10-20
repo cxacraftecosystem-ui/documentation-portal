@@ -38,6 +38,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,6 +56,8 @@ import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.data.CatalogueCraft
 import com.fieldrepository.app.data.CraftCatalogue
 import com.fieldrepository.app.data.CraftCatalogueCache
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * The one way to pick a craft on the handset (REQUIREMENTS_2026-10-20 §2.4).
@@ -92,7 +95,8 @@ fun CraftPickerField(
 ) {
     val context = LocalContext.current
     val catalogue by CraftCatalogueCache.catalogue.collectAsState()
-    LaunchedEffect(Unit) { CraftCatalogueCache.cached(context) }
+    // The file is parsed once per process, and never on the main thread.
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { CraftCatalogueCache.cached(context) } }
     var open by remember { mutableStateOf(false) }
 
     val names = selectedIds.map { id -> catalogue?.craft(id)?.name ?: fallbackNames[id] ?: "Craft not on the list" }
@@ -177,12 +181,19 @@ private fun CraftPickerSheet(
         runCatching { refresh() }
         refreshing = false
     }
-    val groups = remember(catalogue, query, allowedIds) {
-        if (catalogue == null) emptyList()
-        else {
-            val found = CraftCatalogueCache.search(catalogue, query)
-                .filter { allowedIds == null || it.id in allowedIds }
-            CraftCatalogueCache.group(catalogue, found)
+    // Searched off the main thread: the first search folds the whole catalogue once, and every
+    // keystroke after it is a pass over text already folded. The last answer stays up meanwhile.
+    // Null until the first answer for this catalogue, so an empty list is never shown as "no match".
+    val groups by produceState<List<CraftCatalogueCache.Group>?>(initialValue = null, catalogue, query, allowedIds) {
+        val list = catalogue
+        value = if (list == null) {
+            null
+        } else {
+            withContext(Dispatchers.Default) {
+                val found = CraftCatalogueCache.search(list, query)
+                    .filter { allowedIds == null || it.id in allowedIds }
+                CraftCatalogueCache.group(list, found)
+            }
         }
     }
 
@@ -211,6 +222,7 @@ private fun CraftPickerSheet(
                     .fillMaxWidth()
                     .semantics { contentDescription = "Search crafts" }
             )
+            val shown = groups
             when {
                 catalogue == null -> Text(
                     if (refreshing) "Loading crafts…" else CraftCatalogueCache.OFFLINE_FIRST_RUN,
@@ -218,14 +230,16 @@ private fun CraftPickerSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 12.dp)
                 )
-                groups.isEmpty() -> Text(
+                // The first search of a catalogue is a moment's work; nothing flashes meanwhile.
+                shown == null -> Unit
+                shown.isEmpty() -> Text(
                     if (query.isBlank()) "No crafts on the list yet." else CraftCatalogueCache.noMatch(query.trim()),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 12.dp)
                 )
                 else -> LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    for (group in groups) {
+                    for (group in shown) {
                         stickyHeader(key = "h-${group.key}") {
                             Text(
                                 group.heading,
