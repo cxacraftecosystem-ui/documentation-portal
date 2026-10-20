@@ -19,6 +19,7 @@ import retrofit2.http.PUT
 import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.QueryMap
 import retrofit2.http.Streaming
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -1256,9 +1257,20 @@ interface FieldRepositoryApi {
         @Query("level") level: String? = null
     ): MapPointRecordsDto
 
-    // --- Coverage: the coverage map's state-level figures, for the read-only card on the map screen.
+    // --- Coverage: the coverage map. `CoverageQuery.params()` builds the query exactly as the web's
+    // `coverageParams` does, so a filter means the same thing on both clients.
     @GET("map/coverage")
-    suspend fun mapCoverage(@Query("level") level: String = "STATE"): CoverageDto
+    suspend fun mapCoverage(@QueryMap params: Map<String, String> = emptyMap()): CoverageResponse
+
+    /** The records behind one unit. `districtLgd` 0 asks for the whole state, as the web sends it. */
+    @GET("map/coverage/units/{stateLgd}/{districtLgd}/records")
+    suspend fun coverageUnitRecords(
+        @Path("stateLgd") stateLgd: Int,
+        @Path("districtLgd") districtLgd: Int,
+        @QueryMap params: Map<String, String> = emptyMap(),
+        @Query("bucket") bucket: String? = null,
+        @Query("cursor") cursor: String? = null
+    ): CoverageUnitRecords
 
     // --- Data browser (needs the dataset-download permission; rows are visibility-filtered) ---
     // ONE level of the virtual tree. path="" is the taxonomy chooser, not a folder listing.

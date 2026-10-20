@@ -80,11 +80,23 @@ phone or address text leaves either route; the tests scan the JSON for those key
 
 ## Android
 
-The map screen ends with a read-only **Coverage** card (`ui/MapScreen.kt`), from
-`GET /map/coverage?level=STATE` (`data/Coverage.kt`, `FieldRepository.mapCoverage`). It names how many
-shared crafts are never documented and lists each state with "N of M districts with a workshop" and its
-record count, best covered first, eight at a time. Tapping a state switches the map above to State
-detail and selects that state. No polygons or shapes file ship on Android.
+The map screen opens on a **Places | Coverage** switch, the web's labels (`ui/MapScreen.kt`). Coverage
+is open to every signed-in account, as the route is. `ui/CoverageScreen.kt` draws, top to bottom: a
+Filters button (a sheet with Crafts, Workshop type, Financial year, State, Detail and Colour by, the
+web's values), the legend, the choropleth, the depiction caption word for word, the gaps, the
+**By state** list ("N of M districts with a workshop", folded per state from the same answer by
+`coverageSummary`; tapping a state focuses the map on it) and every place with a record. Tapping a
+district opens a sheet with its counts and **Show records**
+(`GET /map/coverage/units/{state}/{district}/records`); each row opens the record.
+
+The choropleth is drawn by hand on a Compose canvas (`ui/CoverageMapCanvas.kt`), no map SDK: the
+outline is `res/raw/india_outline.bin` and the districts are `res/raw/district_shapes.bin`, built by
+`scripts/build_boundaries.py` from the same source as `district-shapes.json`. Bins, fills (PARENT and
+STATE rules), the hatch and marker clusters come from `data/CoverageMath.kt`, the web's
+`coverageMath.ts` line for line. Both maps pinch, pan and double-tap (`ui/MapZoom.kt`, up to ×8, with a
+Reset button); one finger at rest still scrolls the page. `MapZoom.kt`, `IndiaOutline.kt`,
+`CoverageMapCanvas.kt`, `CoverageModels.kt`, `CoverageMath.kt`, the blob, the build script and the
+parity fixture are the designer portal's files byte for byte, package line apart.
 
 ## How this document is kept true
 
@@ -95,4 +107,7 @@ detail and selects that state. No polygons or shapes file ship on Android.
 | Resolution order | `backend/tests/test_lgd_resolve.py`. |
 | Counts, filters, gaps, caps, no identity fields | `backend/tests/test_map_coverage.py` and `backend/tests/test_cross_portal_coverage.py`. |
 | No mapping library, the caption, the switch | `frontend/e2e/coverage-unit.spec.ts`; the screen itself in `frontend/e2e/map-coverage.spec.ts`. |
-| The Android card's rows and empty state | `android/app/src/test/java/com/fieldrepository/app/data/CoverageSummaryTest.kt`. |
+| The Android list's rows, empty state and query | `android/app/src/test/java/com/fieldrepository/app/data/CoverageSummaryTest.kt`. |
+| Android bins and fills equal the web's | `CoverageMathTest.kt` reads `android/app/src/test/resources/coverage-parity.json`, the web fixture byte for byte. |
+| Android zoom, polygons and gestures | `MapZoomTest.kt`, `DistrictShapesTest.kt` (752 districts, the manifest's joined count) and `androidTest/.../CoverageMapUiTest.kt`. |
+| The shared map files equal the designer portal's | `backend/tests/test_shared_map_files.py` (set `CROSS_PORTAL_PEER_REPO`). |

@@ -3,8 +3,10 @@ name: Android emulator smoke
 # ─── THE ONE PLACE THE APP RUNS BEFORE A HANDSET DOES ───────────────────────────────────────
 #
 # Adapted from the designer portal's android-emulator.yml, with one difference that decides the
-# shape: that repository has instrumented tests for `connectedDebugAndroidTest` to run, and this one
-# has none — `android/app/src/androidTest/` does not exist. What there IS to ask a device, since
+# shape: that repository runs every instrumented test with `connectedDebugAndroidTest`, and this one
+# runs one class — `ui/CoverageMapUiTest` (the maps' pinch, Reset, page scroll at rest, Places |
+# Coverage and the district sheet), installed beside the smoke APK and run with `am instrument`; the
+# recording device tests stay on scripts/recording-device-tests.sh. What there IS to ask a device, since
 # targetSdk moved to 37 on 2026-10-09, is whether the app survives Android 16's and 17's behaviour
 # changes: edge-to-edge with no opt-out, predictive back, large screens that ignore orientation
 # limits, and the local-network permission. `android/scripts/emulator-smoke.py` asks exactly that of
@@ -100,8 +102,9 @@ jobs:
         # build workflow uploads: production API base, debug-signed.
         run: |
           set -euo pipefail
-          ./gradlew :app:assembleDebug --console=plain --stacktrace
+          ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --console=plain --stacktrace
           cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/app-debug.apk"
+          cp app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk "$RUNNER_TEMP/app-debug-androidTest.apk"
 
       - name: Build the release variant, unsigned, and read what it declares
         # Not installed — the release key never comes near this job, and nothing here signs a
@@ -189,7 +192,14 @@ jobs:
             -no-snapshot-save -no-snapshot-load -camera-back none -camera-front none
           disable-animations: true
           working-directory: android
-          script: python3 scripts/emulator-smoke.py
+          # The smoke script first; then the map UI test against the same debug APK. `am instrument`
+          # exits 0 on a failed test, so the summary line is what decides.
+          script: |
+            python3 scripts/emulator-smoke.py
+            mkdir -p "$SMOKE_OUT"
+            "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" install -r -t "$RUNNER_TEMP/app-debug.apk"
+            "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" install -r -t "$RUNNER_TEMP/app-debug-androidTest.apk"
+            "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e class com.fieldrepository.app.ui.CoverageMapUiTest com.fieldrepository.app.test/androidx.test.runner.AndroidJUnitRunner > "$SMOKE_OUT/map-ui-test.txt" 2>&1; cat "$SMOKE_OUT/map-ui-test.txt"; grep -q "^OK (" "$SMOKE_OUT/map-ui-test.txt"
 
       - name: Upload the smoke results
         # `always()`: a red run is exactly when the screenshots and the logcat are worth reading.
