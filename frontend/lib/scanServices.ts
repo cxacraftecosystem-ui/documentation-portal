@@ -64,32 +64,12 @@ export function scanServices(): ScanServices {
 export type ScanFollowUp = { navigate: string; external?: boolean } | { outcome: ScanOutcome };
 
 /**
- * A scanned session QR: create the same session under its `clientKey` (the server answers with the
- * existing row, exactly as when a phone's outbox syncs), then join it so this account is on it.
+ * A scanned session QR: join the session its `clientKey` names. Never create it — a row made here
+ * from the QR's few fields would stand in for the lead's own and drop their place, language, note
+ * and co-researchers. Until the lead's phone has synced the server answers "not synced yet".
  */
 async function joinFromQr(qr: SessionQr): Promise<Session> {
-  const session = await questionnaireApi.createSession({
-    clientKey: qr.clientKey,
-    questionnaireId: qr.questionnaireId,
-    workshopId: qr.workshopId,
-    designWorkshopId: null,
-    sessionDate: qr.sessionDate,
-    startedAt: new Date().toISOString(),
-    purpose: "FIRST_SITTING",
-    place: null,
-    languageCode: null,
-    languageOther: null,
-    note: null,
-    participants: qr.participants.map((artisanId) => ({ artisanId }))
-  });
-  if (session.joinCode) {
-    try {
-      return await questionnaireApi.join(session.joinCode);
-    } catch {
-      // Already on it, or the session is closed: the session itself is still the answer.
-    }
-  }
-  return session;
+  return questionnaireApi.joinByKey(qr.clientKey);
 }
 
 /** Run the action the person pressed. Never throws: every failure is an outcome with a sentence. */

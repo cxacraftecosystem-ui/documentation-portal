@@ -115,7 +115,10 @@ const FAQS = [
   },
   {
     q: "What about privacy?",
-    a: "Access follows your role, sharing is opt-in and every edit is audited. Media is private. Aadhaar numbers show as XXXX XXXX 9012 on every shared and exported view; only the recording researcher and professors and above see them in full."
+    // Aadhaar: only a keyed fingerprint and the last four digits are stored (4a25ab16), so nobody
+    // can see a full number. Consent (f7edfefd): recordings go to outside transcription and
+    // translation unless a refusal is recorded, and anyone can record one.
+    a: "Access follows your role, sharing is opt-in and every edit is audited. Media is private. Aadhaar is never stored: records keep only the last four digits (XXXX XXXX 9012). Recordings may be sent for transcription and translation unless the artisan declines; anyone can switch that off."
   }
 ];
 

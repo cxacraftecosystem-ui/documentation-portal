@@ -1,14 +1,19 @@
 /**
  * The coverage view's pure half: URL <-> filters, the query string, the quantile bins, the metric
- * reading and the code register. No React, no fetch — `e2e/coverage-unit.spec.ts` calls these
- * directly, the same split as `components/ui/selectFilter.ts`.
+ * reading, the polygon fills and the code register. No React, no fetch — `e2e/coverage-unit.spec.ts`
+ * and `e2e/coverage-parity-unit.spec.ts` call these directly.
+ *
+ * `quantileBreaks`, `binOf` and `polygonFills` must agree with the designer portal and with Android's
+ * `CoverageMath.kt` on `e2e/fixtures/coverage-parity.json`.
  */
 
 import type {
   CoverageCounts,
+  CoverageLevel,
   CoverageMetric,
   CoverageQuery,
-  CoverageResponse
+  CoverageResponse,
+  CoverageUnit
 } from "@/components/map/coverage/coverageTypes";
 
 export const EMPTY_COVERAGE_QUERY: CoverageQuery = {
@@ -119,6 +124,46 @@ export function binLabels(breaks: number[]): string[] {
     const low = index === 0 ? 1 : breaks[index - 1] + 1;
     return low >= bound ? String(bound) : `${low}–${bound}`;
   });
+}
+
+export type PolygonFill = {
+  /** The number the polygon is coloured by (its own unit plus any child drawn inside it). */
+  value: number;
+  /** True when a district without its own polygon is drawn inside this one. */
+  hostsChild: boolean;
+};
+
+/**
+ * Which value each district polygon carries, by LGD. At DISTRICT level a PARENT unit adds to its
+ * parent's polygon and marks it `hostsChild`; a STATE unit has no polygon to fill. At STATE level
+ * every district takes its state's value (zero states are left out).
+ */
+export function polygonFills(
+  units: CoverageUnit[],
+  level: CoverageLevel,
+  metric: CoverageMetric,
+  shapes: Array<{ lgd: number; stateLgd: number }>
+): Map<number, PolygonFill> {
+  const map = new Map<number, PolygonFill>();
+  if (level === "STATE") {
+    const byState = new Map(units.map((unit) => [unit.stateLgd, metricValue(unit.counts, metric)]));
+    for (const shape of shapes) {
+      const value = byState.get(shape.stateLgd);
+      if (value) map.set(shape.lgd, { value, hostsChild: false });
+    }
+    return map;
+  }
+  for (const unit of units) {
+    if (unit.districtLgd === null) continue;
+    const target = unit.polygon === "PARENT" ? unit.parentLgd : unit.polygon === "OWN" ? unit.districtLgd : null;
+    if (target === null) continue;
+    const current = map.get(target) ?? { value: 0, hostsChild: false };
+    map.set(target, {
+      value: current.value + metricValue(unit.counts, metric),
+      hostsChild: current.hostsChild || unit.polygon === "PARENT"
+    });
+  }
+  return map;
 }
 
 export type RegisterState = { lgd: number; name: string; districts: Array<{ lgd: number; name: string }> };

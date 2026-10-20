@@ -62,7 +62,7 @@ export function ScanOutcomeCard({
         {outcome.detail ? <p className="mt-1 text-xs text-ink-muted">{outcome.detail}</p> : null}
       </div>
       {outcome.action ? (
-        <ButtonRow>
+        <ButtonRow fill>
           <button type="button" className="field-button" onClick={() => onPress(outcome)} disabled={busy}>
             {outcome.action.label}
           </button>
@@ -79,15 +79,20 @@ export function ScanPanel({ onDone }: { onDone?: () => void }) {
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handlingRef = useRef(false);
+  /** Bumped by every start and stop: a camera request or a frame loop from an older one gives up. */
+  const generationRef = useRef(0);
+  const startingRef = useRef(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const [scanning, setScanning] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<ScanOutcome | null>(null);
 
   const stopCamera = useCallback(() => {
+    generationRef.current += 1;
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -127,18 +132,32 @@ export function ScanPanel({ onDone }: { onDone?: () => void }) {
   );
 
   const startCamera = useCallback(async () => {
+    // A second tap while the browser is still asking would open a second stream nobody stops.
+    if (startingRef.current) return;
     setProblem(null);
     setOutcome(null);
-    handlingRef.current = false;
     if (!navigator.mediaDevices?.getUserMedia) {
       setProblem(`No camera here. ${SCAN_COPY.choosePhoto} or type the code.`);
       return;
     }
+    stopCamera();
+    handlingRef.current = false;
+    const generation = generationRef.current;
+    startingRef.current = true;
+    setStarting(true);
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
     } catch (error) {
-      setProblem(cameraRefusal(error));
+      if (generation === generationRef.current) setProblem(cameraRefusal(error));
+      return;
+    } finally {
+      startingRef.current = false;
+      setStarting(false);
+    }
+    if (generation !== generationRef.current) {
+      // Stopped, closed or restarted while the browser was asking: this stream is nobody's.
+      stream.getTracks().forEach((track) => track.stop());
       return;
     }
     streamRef.current = stream;
@@ -156,6 +175,7 @@ export function ScanPanel({ onDone }: { onDone?: () => void }) {
     setScanning(true);
 
     const readFrame = async () => {
+      if (generation !== generationRef.current) return;
       timerRef.current = null;
       const element = videoRef.current;
       if (!element || !streamRef.current || handlingRef.current) return;
@@ -165,8 +185,9 @@ export function ScanPanel({ onDone }: { onDone?: () => void }) {
       } catch {
         read = null;
       }
+      if (generation !== generationRef.current) return;
       if (!read || (!read.ok && KEEP_LOOKING.has(read.reason))) {
-        if (streamRef.current) timerRef.current = setTimeout(() => void readFrame(), FRAME_INTERVAL_MS);
+        if (streamRef.current && generation === generationRef.current) timerRef.current = setTimeout(() => void readFrame(), FRAME_INTERVAL_MS);
         return;
       }
       handlingRef.current = true;
@@ -248,7 +269,7 @@ export function ScanPanel({ onDone }: { onDone?: () => void }) {
             {SCAN_COPY.stopCamera}
           </button>
         ) : (
-          <button type="button" className="field-button" onClick={() => void startCamera()} disabled={busy}>
+          <button type="button" className="field-button" onClick={() => void startCamera()} disabled={busy || starting} aria-busy={starting || undefined}>
             <Camera className="h-4 w-4" aria-hidden />
             {SCAN_COPY.useCamera}
           </button>
