@@ -169,8 +169,15 @@ def create_gate(monkeypatch):
         seen.append(dict(data))
         raise _Reached
 
+    async def _none(*args: Any, **kwargs: Any) -> list[Any]:
+        return []
+
     monkeypatch.setattr(artisan_routes, "enforce_workshop_submission", _pass)
     monkeypatch.setattr(artisan_routes, "assert_payload_workshop", _pass, raising=False)
+    # The identity guard and the likely-duplicate score read the register, and on the designer
+    # portal both run before the craft is resolved; neither is what these tests are about.
+    monkeypatch.setattr(artisan_routes, "_guard_identity_conflicts", _pass, raising=False)
+    monkeypatch.setattr(artisan_routes, "_likely_duplicates", _none, raising=False)
     monkeypatch.setattr(artisan_routes, "resolve_craft_id", _gate)
     return seen
 

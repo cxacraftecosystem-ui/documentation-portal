@@ -86,7 +86,11 @@ export default function CraftsPage() {
 /**
  * ── DICTATION ON THE CRAFT FORM: WHICH BOXES HAVE A MICROPHONE, AND WHY THE REST DO NOT ────────
  *
- * DICTATED: Craft name · Local name · Place · Description.
+ * DICTATED: Craft name · Local name · Description.
+ *
+ * PLACE LEFT THE FORM on 2026-10-20, as it had on the designer portal: a craft's whereabouts are its
+ * two state lists. `Craft.place` stays a column (old records hold it, and the view still reads it); the
+ * form simply never sends it, so an edit leaves a stored value as it was.
  *
  * NOT DICTATED: **Workshop** (a record picker behind a themed dropdown — nothing free to speak),
  * **Category / Sub-category**, **States** and **GI status** (closed vocabularies from the master list)
@@ -98,7 +102,7 @@ export default function CraftsPage() {
  * re-runs a query on every keystroke, so a microphone there would fire a debounced fetch per phrase.
  * If searching by voice is wanted it belongs in `SearchInput` once, for every list screen.
  *
- * `titleCased` ON NAME AND PLACE IS NEW HERE. `Craft.name` and `Craft.place` both go through
+ * `titleCased` ON THE NAME IS NEW HERE. `Craft.name` goes through
  * `clean_data` on write (`records.py:341`, `:348`), so a researcher who typed "bagru block printing"
  * saved and watched the record silently become something else — the exact defect `TitleCasedInput`
  * was written for, on the one record form that had never been given it. Description is a
@@ -147,7 +151,6 @@ function CraftsPageBody() {
   const [stateOfOrigin, setStateOfOrigin] = useState<string[]>([]);
   const [stateOfPractice, setStateOfPractice] = useState<string[]>([]);
   const [giStatus, setGiStatus] = useState<GiStatus>("NON_GI");
-  const [place, setPlace] = useState("");
   const [formKey, setFormKey] = useState(0);
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [collabId, setCollabId] = useState<string | null>(null);
@@ -338,7 +341,6 @@ function CraftsPageBody() {
     setStateOfOrigin(next?.stateOfOrigin ?? []);
     setStateOfPractice(next?.stateOfPractice ?? []);
     setGiStatus(next?.giStatus ?? "NON_GI");
-    setPlace(next?.place ?? "");
     setFormOpen(Boolean(next));
     // ── AND THE FORM IS REMOUNTED, WHICH IS A BUG FIX AND NOT A TIDY-UP ─────────────────────
     // The `<form>` was keyed `editing?.id ?? "new"` alone, so creating a craft did not change the key
@@ -399,7 +401,6 @@ function CraftsPageBody() {
         stateOfOrigin,
         stateOfPractice,
         giStatus,
-        place: textValue(form, "place"),
         workshopId: workshop.workshopId || null,
         description
       };
@@ -700,17 +701,6 @@ function CraftsPageBody() {
             }}
           />
         </div>
-        <DictatedTextInput
-          name="place"
-          label="Place"
-          titleCased
-          explainWhenUnavailable={false}
-          value={place}
-          onChange={(next) => {
-            setPlace(next);
-            setDirty(true);
-          }}
-        />
         {/* THE WRAPPER `<div>` STAYS, and it is not decoration. `DictatedTextArea`'s `className` prop
             lands on its `<textarea>`, not on its wrapper, so passing `md:col-span-2 lg:col-span-4`
             to the component compiles, renders, and silently leaves the box one cell wide in a

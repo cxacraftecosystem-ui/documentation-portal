@@ -266,6 +266,32 @@ jobs:
         # download, NOT to a database — no migration runs and nothing connects.
         run: python -m prisma generate --schema prisma/schema.prisma
 
+      - name: The other portal, for the shared-file parity tests
+        # THE SHARED FILES ARE HELD IDENTICAL BY CI, NOT BY MEMORY (owner's ruling, 2026-10-20). Every
+        # sibling-parity test in this repository (the craft master, the map files, the nav and scanner
+        # files, the transcription manifest, the cross-portal modules, the artisan form contract) compares
+        # against a checkout of the other portal and skips without one; until this step cloned it on every
+        # run, CI had one repository and every one of them skipped. The comparison is made against the
+        # other repository's `main`, or against the branch of the same name when a cross-repo stream has
+        # pushed one there. Both repositories are public, so no token is needed. The clone lands BESIDE
+        # this checkout, under the other repository's name, because some tests find the sibling by that
+        # relative path rather than by the environment.
+        working-directory: .
+        env:
+          PEER: cxacraftecosystem-ui/designer-portal
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          ref=main
+          if [ "$BRANCH" != "main" ] && git ls-remote --exit-code --heads "https://github.com/$PEER.git" "$BRANCH" >/dev/null; then
+            ref="$BRANCH"
+          fi
+          dest="$(dirname "$GITHUB_WORKSPACE")/${PEER#*/}"
+          rm -rf "$dest"
+          git clone --quiet --depth 1 --branch "$ref" "https://github.com/$PEER.git" "$dest"
+          { echo "CROSS_PORTAL_PEER_REPO=$dest"; echo "SIBLING_REPO=$dest"; echo "DESIGNER_PORTAL_DIR=$dest"; } >> "$GITHUB_ENV"
+          echo "Shared files are compared with $PEER@$ref ($(git -C "$dest" rev-parse --short HEAD))."
+
       - name: Run the suite
         # THE WHOLE SUITE, not a hand-written selection. A `-k` expression is a list that goes stale
         # the day somebody adds a file, and the guards this workflow exists for are exactly the kind
@@ -523,27 +549,31 @@ jobs:
         # violations through this config and fails unless every plugin reports its own.
         run: npm run lint
 
-      - name: The other portal, on this branch
-        # `e2e/scan-parity-unit.spec.ts` holds the top-bar scanner's shared files (REQUIREMENTS_2026-10-20
-        # §6) byte-identical across the two portals, but only when CROSS_PORTAL_PEER_REPO points at the
-        # other repository. Both repositories are public, so no token is needed. A cross-repo stream
-        # pushes the same branch name to both, so the comparison is made against THAT branch; on `main`,
-        # or where the other repository has no such branch, nothing is cloned and the test skips, so
-        # one repository merging first never turns the other red.
+      - name: The other portal, for the shared-file parity tests
+        # THE SHARED FILES ARE HELD IDENTICAL BY CI, NOT BY MEMORY (owner's ruling, 2026-10-20). Every
+        # sibling-parity test in this repository (the craft master, the map files, the nav and scanner
+        # files, the transcription manifest, the cross-portal modules, the artisan form contract) compares
+        # against a checkout of the other portal and skips without one; until this step cloned it on every
+        # run, CI had one repository and every one of them skipped. The comparison is made against the
+        # other repository's `main`, or against the branch of the same name when a cross-repo stream has
+        # pushed one there. Both repositories are public, so no token is needed. The clone lands BESIDE
+        # this checkout, under the other repository's name, because some tests find the sibling by that
+        # relative path rather than by the environment.
         working-directory: .
         env:
           PEER: cxacraftecosystem-ui/designer-portal
           BRANCH: ${{ github.head_ref || github.ref_name }}
         run: |
-          if [ "$BRANCH" = "main" ]; then echo "On main: the cross-portal comparison is made on feature branches."; exit 0; fi
-          if ! git ls-remote --exit-code --heads "https://github.com/$PEER.git" "$BRANCH" >/dev/null; then
-            echo "$PEER has no branch $BRANCH: the cross-portal comparison is skipped."
-            exit 0
+          set -euo pipefail
+          ref=main
+          if [ "$BRANCH" != "main" ] && git ls-remote --exit-code --heads "https://github.com/$PEER.git" "$BRANCH" >/dev/null; then
+            ref="$BRANCH"
           fi
-          git clone --quiet --depth 1 --branch "$BRANCH" --filter=blob:none --sparse "https://github.com/$PEER.git" "$RUNNER_TEMP/peer"
-          git -C "$RUNNER_TEMP/peer" sparse-checkout set frontend android/app/src/main/java
-          echo "CROSS_PORTAL_PEER_REPO=$RUNNER_TEMP/peer" >> "$GITHUB_ENV"
-          echo "Comparing the shared scanner files with $PEER@$BRANCH ($(git -C "$RUNNER_TEMP/peer" rev-parse --short HEAD))."
+          dest="$(dirname "$GITHUB_WORKSPACE")/${PEER#*/}"
+          rm -rf "$dest"
+          git clone --quiet --depth 1 --branch "$ref" "https://github.com/$PEER.git" "$dest"
+          { echo "CROSS_PORTAL_PEER_REPO=$dest"; echo "SIBLING_REPO=$dest"; echo "DESIGNER_PORTAL_DIR=$dest"; } >> "$GITHUB_ENV"
+          echo "Shared files are compared with $PEER@$ref ($(git -C "$dest" rev-parse --short HEAD))."
 
       - name: Unit specs
         # ONLY the specs that need no dev server and no database. The rest of frontend/e2e/ signs in
@@ -567,6 +597,68 @@ jobs:
         # a symbol a component is supposed to have, no dev server would change the answer, and
         # excluding one would be silencing the check rather than scoping it.
         run: npm run test:unit
+
+  # ═══════════════════════════════════════════════════════════════════════════════════════
+  # The map's coverage view in a real browser
+  # ═══════════════════════════════════════════════════════════════════════════════════════
+  map-coverage:
+    name: Map coverage view in a browser
+    # `e2e/map-coverage.spec.ts` answers every API call from fixtures, so it needs the web app and a
+    # browser and nothing else: no API, no database, no account. It is not a `-unit` spec because it
+    # drives the real page, which is why it runs here, against a production build, rather than in
+    # the unit step above.
+    runs-on: ubuntu-26.04
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: frontend/package.json
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install npm 12
+        run: npm install --global npm@12 && npm --version
+
+      - name: Install
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: npm run build
+
+      - name: Run the spec against the built site
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+          E2E_SHOT_DIR: test-results/map-coverage
+        run: |
+          set -euo pipefail
+          npx next start --port 3000 > next.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -fsS -o /dev/null http://localhost:3000/login; then break; fi
+            sleep 2
+          done
+          curl -fsS -o /dev/null http://localhost:3000/login || { cat next.log; exit 1; }
+          npx playwright test e2e/map-coverage.spec.ts
+
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: map-coverage
+          path: frontend/test-results
+          if-no-files-found: ignore
 
   # ═══════════════════════════════════════════════════════════════════════════════════════
   # 3 · The documentation check

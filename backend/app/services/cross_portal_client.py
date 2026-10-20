@@ -23,6 +23,7 @@ import asyncio
 import json
 import logging
 import secrets
+from collections.abc import Callable
 from typing import Any
 
 import requests
@@ -120,16 +121,20 @@ async def peer_call(
     requested_by: str | None = None,
     timeout: float = TIMEOUT_SECONDS,
     search: bool = False,
+    gate: Callable[[Any], bool] | None = None,
 ) -> tuple[int, Any]:
     """``(status, signed JSON body)`` from the other portal, or :class:`PeerUnavailable`.
 
-    ``search=True`` gates on ``cross_portal.search_active`` instead of the identity switch.
+    ``search=True`` gates on ``cross_portal.search_active`` instead of the identity switch. ``gate``
+    is any other switch a call is behind: the coverage counts pass their own, which needs neither the
+    identity flag nor the Aadhaar key, because no artisan data crosses on that call.
     """
-    ready = (
-        cross_portal.search_active(settings)
-        if search
-        else cross_portal.active(settings, needs_url=True)
-    )
+    if gate is not None:
+        ready = gate(settings)
+    elif search:
+        ready = cross_portal.search_active(settings)
+    else:
+        ready = cross_portal.active(settings, needs_url=True)
     if not ready:
         raise PeerUnavailable(unavailable_sentence(settings))
     return await asyncio.to_thread(

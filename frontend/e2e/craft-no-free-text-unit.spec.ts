@@ -1,4 +1,5 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import { expect, test } from "@playwright/test";
@@ -63,6 +64,8 @@ test("every craft picker is CraftSelect", () => {
   // The craft form's category is Category → Sub-category, never typed.
   expect(read("app/(protected)/crafts/page.tsx")).toContain("<CraftSubCategorySelect");
   expect(read("app/(protected)/crafts/page.tsx")).not.toContain('name="category"');
+  // No Place box on the craft form in either portal (2026-10-20); the column stays for old records.
+  expect(read("app/(protected)/crafts/page.tsx")).not.toMatch(/name="place"/);
 });
 
 test("no picker reads the paged craft list any more", () => {
@@ -93,5 +96,45 @@ test("the two shared craft files carry no portal-specific import", () => {
         `${file}: ${line}`
       ).toBe(true);
     }
+  }
+});
+
+/*
+  PARITY WITH THE DESIGNER PORTAL (§2.8), held two ways — the mirror of the designer portal's own
+  test, with the same digests.
+
+  1. A pinned SHA-256 of each shared file (line endings folded). This half always runs: the designer
+     portal's test pins the same digests, and changing a shared file means changing both copies and
+     both pins in one go.
+  2. A straight comparison with the sibling checkout when it is present: $SIBLING_REPO (CI checks the
+     designer portal's main out there), then `designer-portal` beside this repository, then
+     C:/dev/IIT/designer-portal.
+*/
+const SHARED_DIGESTS: Record<string, string> = {
+  "components/forms/CraftSelect.tsx": "b8c23a80b88c1bdbb33c56a35ef6acd17431ac7bffee38deeaebcb086d04e3f0",
+  "lib/craftCatalogue.ts": "39b7dd6c7214dd6c3d1208a0262c16ebb2a9f06b93b8a87706064038a9812555",
+  "e2e/fixtures/craft-catalogue.json": "33ee1b2655d0fa558f9d8c3a147cc056c434d4d867a81c966a99406be824c572"
+};
+const lf = (text: string) => text.replace(/\r\n/g, "\n");
+
+test("the shared craft files match the pinned digests both portals carry", () => {
+  for (const [file, digest] of Object.entries(SHARED_DIGESTS)) {
+    expect(createHash("sha256").update(lf(read(file)), "utf8").digest("hex"), file).toBe(digest);
+  }
+});
+
+const SIBLING_FRONTEND = [
+  process.env.SIBLING_REPO,
+  join(ROOT, "..", "..", "designer-portal"),
+  "C:/dev/IIT/designer-portal"
+]
+  .filter((dir): dir is string => Boolean(dir))
+  .map((dir) => join(dir, "frontend"))
+  .find((dir) => Object.keys(SHARED_DIGESTS).every((file) => existsSync(join(dir, file))));
+
+test("the shared craft files are byte-identical to the designer portal's checkout", () => {
+  test.skip(!SIBLING_FRONTEND, "no designer-portal checkout carrying the craft files");
+  for (const file of Object.keys(SHARED_DIGESTS)) {
+    expect(lf(readFileSync(join(SIBLING_FRONTEND as string, file), "utf8")), file).toBe(lf(read(file)));
   }
 });

@@ -7013,7 +7013,6 @@ private fun CraftForm(
     var stateOfOrigin by remember(editing) { mutableStateOf(editing?.stateOfOrigin.orEmpty().toSet()) }.drafted(draft, "stateOfOrigin")
     var stateOfPractice by remember(editing) { mutableStateOf(editing?.stateOfPractice.orEmpty().toSet()) }.drafted(draft, "stateOfPractice")
     var giStatus by remember(editing) { mutableStateOf(editing?.giStatus ?: "NON_GI") }.drafted(draft, "giStatus")
-    var place by remember(editing) { mutableStateOf(editing?.place ?: "") }.drafted(draft, "place")
     var description by remember(editing) { mutableStateOf(editing?.description ?: "") }.drafted(draft, "description")
     val workshop = rememberWorkshopPicker(repository, isEdit, editing?.workshopId, editing, runningOnly = true)
     var saving by remember { mutableStateOf(false) }
@@ -7044,7 +7043,9 @@ private fun CraftForm(
                 stateOfOrigin = CraftCatalogueCache.STATE_OPTIONS.filter { it in stateOfOrigin },
                 stateOfPractice = CraftCatalogueCache.STATE_OPTIONS.filter { it in stateOfPractice },
                 giStatus = giStatus,
-                place = place.blankToNull(),
+                // No Place box since 2026-10-20 (the designer portal's form has none); an edit sends
+                // back what the record already holds, so an older craft keeps its place.
+                place = editing?.place,
                 description = description.blankToNull(),
                 workshopId = workshop.value(),
                 recordedAt = if (isEdit) null else Instant.now().toString()
@@ -7076,9 +7077,9 @@ private fun CraftForm(
             saving = false
         }
     }
-    val initialSig = remember(editing) { listOf(name, localName, subCategoryId, stateOfOrigin.sorted().joinToString(","), stateOfPractice.sorted().joinToString(","), giStatus, place, description).joinToString("") }
+    val initialSig = remember(editing) { listOf(name, localName, subCategoryId, stateOfOrigin.sorted().joinToString(","), stateOfPractice.sorted().joinToString(","), giStatus, description).joinToString("") }
     val dirty = !saving && (
-        listOf(name, localName, subCategoryId, stateOfOrigin.sorted().joinToString(","), stateOfPractice.sorted().joinToString(","), giStatus, place, description).joinToString("") != initialSig ||
+        listOf(name, localName, subCategoryId, stateOfOrigin.sorted().joinToString(","), stateOfPractice.sorted().joinToString(","), giStatus, description).joinToString("") != initialSig ||
             workshop.isDirty() || media.uris.isNotEmpty() || media.measurementUri != null
     )
 
@@ -7139,7 +7140,6 @@ private fun CraftForm(
             options = listOf(SelectOption("GI", "GI"), SelectOption("NON_GI", "Non GI")),
             selectedValue = giStatus
         ) { giStatus = it }
-        TextInput("Place", place, titleCased = true, dictate = dictates("place")) { place = it }
         // `Craft.description` is the craft's narrative — the paragraph a reader of the repository
         // actually reads — so it takes both controls. The four boxes above now take the microphone
         // too (2026-09-13) and still take no editor: that is the formatting half of the user's

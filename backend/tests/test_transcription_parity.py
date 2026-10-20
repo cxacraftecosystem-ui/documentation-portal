@@ -9,7 +9,10 @@ here, in that portal's CI. Digests are over LF-normalised text (Windows checkout
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
+
+import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 MANIFEST = REPO / "shared" / "transcription.sha256"
@@ -56,3 +59,30 @@ def test_the_package_imports_no_portal_code() -> None:
             "app.api",
         ):
             assert forbidden not in text, f"{path.name} reaches outside the package: {forbidden}"
+
+
+def _sibling() -> Path | None:
+    """The other portal's checkout: $CROSS_PORTAL_PEER_REPO or $SIBLING_REPO (CI clones the other
+    repository's main there), else the checkout beside this one."""
+    here_is_designer = (REPO / "android" / "app" / "src" / "main" / "java" / "com" / "designprototype").is_dir()
+    other = "documentation-portal" if here_is_designer else "designer-portal"
+    for candidate in (
+        os.environ.get("CROSS_PORTAL_PEER_REPO", "").strip(),
+        os.environ.get("SIBLING_REPO", "").strip(),
+        str(REPO.parent / other),
+    ):
+        if candidate and (Path(candidate) / "shared" / "transcription.sha256").is_file():
+            return Path(candidate)
+    return None
+
+
+def test_the_manifest_is_the_other_portals() -> None:
+    """The two manifests are one file, so a shared change copied to one portal only fails here."""
+    sibling = _sibling()
+    if sibling is None:
+        pytest.skip("no checkout of the other portal beside this one")
+    theirs = (sibling / "shared" / "transcription.sha256").read_bytes().replace(b"\r\n", b"\n")
+    assert MANIFEST.read_bytes().replace(b"\r\n", b"\n") == theirs, (
+        "shared/transcription.sha256 differs between the portals; run "
+        "`python scripts/sync_transcription.py --to ../documentation-portal` from designer-portal."
+    )
