@@ -51,11 +51,20 @@ test("the admin-view control is back to its pill, still a switch, with the bell 
   const bell = NAV.indexOf("<NotificationBell active={isActivePath(\"/notifications\")} />");
   const menu = NAV.indexOf('aria-label="Toggle navigation menu"');
   expect(pill).toBeGreaterThan(0);
-  expect(NAV.slice(pill, bell)).toContain("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-medium");
-  expect(NAV.slice(pill, bell)).toContain("<EyeOff");
-  expect(NAV.slice(pill, bell)).toContain('role="switch"');
-  expect(NAV.slice(pill, bell)).toContain("aria-checked={adminMode}");
-  expect(NAV.slice(pill, bell)).toContain("Admin view");
+  const slice = NAV.slice(pill, bell);
+  expect(slice).toContain("rounded-full border px-2.5 py-1.5 text-xs font-medium");
+  expect(slice).toContain("<EyeOff");
+  // The shared switch (components/ui/Toggle — `role="switch"`, `aria-checked`), never a hand-made
+  // button: the same control the designer portal draws there, its track at three quarters.
+  expect(slice).toContain("<Toggle");
+  expect(slice).toContain("hideLabel");
+  expect(slice).toContain('label="Admin view"');
+  expect(slice).toContain("checked={adminMode}");
+  expect(slice).toContain("scale-75");
+  expect(slice).not.toContain('role="switch"');
+  // The pill is the switch's label, so the whole pill is the target.
+  expect(slice).toContain("htmlFor={adminSwitchId}");
+  expect(slice).toContain("id={adminSwitchId}");
   expect(bell).toBeGreaterThan(pill);
   expect(menu).toBeGreaterThan(bell);
   // Offered to every account the provider says has the control (perms adds `available`).
@@ -91,6 +100,10 @@ test("the search header carries the scan button, the name and the search glyph",
   expect(HEADER).toContain("min-h-[60px]");
   expect(HEADER).toContain("inert={!shown}");
   expect(HEADER).toContain("quickReturnStep(");
+  // The delta is read when the scroll is, never inside the state updater (which React may run
+  // after `last` has moved on, so an upward scroll would read 0 and the header stay hidden).
+  expect(HEADER).toContain("const delta = now - last;");
+  expect(HEADER).toContain("setStep((state) => quickReturnStep(state, delta, now, height, pinned));");
   expect(NAV).toContain('const APP_NAME = "Field Repository";');
 });
 
@@ -99,9 +112,15 @@ test("Browse carries Scan a code, as in the designer portal's menu", () => {
   expect(NAV.indexOf('href: "/scan"')).toBeGreaterThan(NAV.indexOf('href: "/search"'));
 });
 
-test("the menu sheet ends above the bottom island", () => {
+test("the menu sheet ends above the bottom island and below the search header", () => {
   expect(CSS).toContain("html.has-bottom-nav .nav-sheet {");
   expect(CSS).toContain("max-height: calc(100dvh - var(--nav-sheet-top) - var(--bottom-nav-h) - 0.5rem);");
+  // Landscape phones: the header's foot is 72px down, so the sheet starts at 76px rather than 68px.
+  expect(CSS).toMatch(/@media \(max-height: 560px\) \{\s*html\.has-bottom-nav \.nav-sheet \{\s*--nav-sheet-top: 4\.75rem;/);
+});
+
+test("opening search from the header closes the menu sheet first", () => {
+  expect(NAV).toMatch(/onOpenSearch=\{\(\) => \{\s*setSheetOpen\(false\);\s*setSearchOpen\(true\);/);
 });
 
 test("the scan button keeps the frozen signature", () => {
@@ -124,9 +143,9 @@ test("the page clears the header and the bar below lg, and the island from lg up
 });
 
 test("the upload tray and the toasts sit above the bar", () => {
-  expect(CSS).toMatch(/@media \(width < 64rem\) \{\s*html\.has-bottom-nav \{\s*--bottom-nav-h: calc\(60px \+ 0\.75rem \+ env\(safe-area-inset-bottom, 0px\)\);/);
+  expect(CSS).toMatch(/@media \(width < 64rem\) \{\s*html\.has-bottom-nav \{\s*(?:\/\*[^*]*\*\/\s*)?--bottom-nav-h: calc\(62px \+ 0\.75rem \+ env\(safe-area-inset-bottom, 0px\)\);/);
   expect(read("components", "media", "UploadTray.tsx")).toContain('bottom: "var(--bottom-nav-h, 0px)"');
-  expect(read("components", "ui", "Toast.tsx")).toContain('bottom: "calc(var(--bottom-nav-h, 0px) + 1rem)"');
+  expect(read("components", "ui", "Toast.tsx")).toContain('bottom: "calc(var(--bottom-nav-h, 0px) + 0.75rem)"');
   expect(BAR).toContain('root.classList.add("has-bottom-nav")');
 });
 

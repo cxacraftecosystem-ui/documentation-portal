@@ -51,8 +51,12 @@ export function AppSearchHeader({
       frame = requestAnimationFrame(() => {
         frame = 0;
         const now = window.scrollY;
+        // Read the delta and the pin NOW: React may run the updater below at render time, after
+        // `last` has moved on, and a delta read there is 0 — the header then never comes back up.
+        const delta = now - last;
+        const pinned = pinnedRef.current;
         const height = (headerRef.current?.offsetHeight ?? 60) + 12;
-        setStep((state) => quickReturnStep(state, now - last, now, height, pinnedRef.current));
+        setStep((state) => quickReturnStep(state, delta, now, height, pinned));
         setFloating(now > 0);
         last = now;
       });

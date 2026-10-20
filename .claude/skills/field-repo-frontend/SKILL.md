@@ -492,7 +492,7 @@ forever (a stalled page on every admin route).
 **One breakpoint decides the navigation, and CSS decides it:** `lg` (1024 CSS px). From `lg` up the
 island above is drawn at its original expanded size (pill `px-4 py-2`, logo `h-8 w-8`, name
 `text-base`, strip `lg:flex gap-5`) with the admin-view pill (`px-2.5 py-1.5 text-xs`, an eye and
-"Admin view", a `role="switch"` button) and the bell. Below `lg` the island frame is `max-lg:hidden`
+"Admin view", with the shared `Toggle hideLabel` switch inside at 75%, the pill its `<label>`) and the bell. Below `lg` the island frame is `max-lg:hidden`
 and `DynamicIslandNav` draws three ports of the handset instead, each `lg:hidden`. **No component
 reads the window width to pick a mode** (the one `innerWidth` read is the sheet's scrollbar gutter),
 so the server and first client render agree and nothing flashes.
@@ -517,6 +517,10 @@ so the server and first client render agree and nothing flashes.
 - **`--bottom-nav-h`** is set by CSS on `html.has-bottom-nav` below `lg` only (the bar adds the
   class while mounted). `UploadTray` and the toast viewport add it to their bottom offset, and the
   menu sheet's `max-height` subtracts it so its foot (admin view, Logout) ends above the bar.
+  The bar is 62px (48px slots, 6px padding, 1px border, each side). On a landscape phone
+  (`max-height: 560px`) the sheet starts at 4.75rem so it clears the 72px header.
+- **The header and the bar stay above the sheet's `z-40` scrim**, as the island does, so the
+  bar's menu button can close the sheet. Opening search from the header closes the sheet first.
 - **The admin-view switch and Logout live in the sheet** at every width; the bar's menu button
   opens it, and closing it returns focus to whichever menu button opened it.
 - **Browse carries "Scan a code" (`/scan`)**, as in the designer portal, so a desktop reaches the

@@ -508,13 +508,24 @@
    */
   @media (width < 64rem) {
     html.has-bottom-nav {
-      --bottom-nav-h: calc(60px + 0.75rem + env(safe-area-inset-bottom, 0px));
+      /* The bar: 48px slots + 6px padding each side + its 1px border each side = 62px. */
+      --bottom-nav-h: calc(62px + 0.75rem + env(safe-area-inset-bottom, 0px));
     }
 
     /* The menu sheet opens from the bar's menu button; its foot (admin view, Logout) ends above it. */
     html.has-bottom-nav .nav-sheet {
       max-height: calc(100vh - var(--nav-sheet-top) - var(--bottom-nav-h) - 0.5rem);
       max-height: calc(100dvh - var(--nav-sheet-top) - var(--bottom-nav-h) - 0.5rem);
+    }
+
+    /*
+     * The search header stays above the sheet's scrim like the bar (60px tall, 12px down: 72px). On
+     * a landscape phone the sheet's 4.25rem (68px) top would slide under it, so it clears 76px here.
+     */
+    @media (max-height: 560px) {
+      html.has-bottom-nav .nav-sheet {
+        --nav-sheet-top: 4.75rem;
+      }
     }
   }
 

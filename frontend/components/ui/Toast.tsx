@@ -112,7 +112,7 @@ function ToastViewport({ toasts, onDismiss }: { toasts: ToastRecord[]; onDismiss
       // container itself is click-through; only the cards take pointer events.
       className="pointer-events-none fixed bottom-4 right-4 z-110 flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2"
       // Above the bottom island where one is drawn (`--bottom-nav-h`, below `lg` only).
-      style={{ bottom: "calc(var(--bottom-nav-h, 0px) + 1rem)" }}
+      style={{ bottom: "calc(var(--bottom-nav-h, 0px) + 0.75rem)" }}
     >
       <AnimatePresence initial={false}>
         {toasts.map((item) => (

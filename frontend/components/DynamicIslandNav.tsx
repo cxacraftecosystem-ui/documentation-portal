@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useMotionValueEvent, useScroll } from "framer-motion";
 import {
   Activity,
@@ -260,6 +260,8 @@ export function DynamicIslandNav() {
    * today's `isAdmin(user)`.
    */
   const adminAvailable = (adminView as { available?: boolean }).available ?? canAdmin;
+  /** The island's admin-view switch, which its pill labels (so the whole pill is the target). */
+  const adminSwitchId = useId();
   /**
    * The access roster's pending count. THE NOTIFICATION: there is no email and no push in this
    * codebase, so "admins should be notified to approve or reject" is a number on the surfaces they
@@ -519,24 +521,31 @@ export function DynamicIslandNav() {
           <div className="ml-1 flex items-center gap-1.5">
             {/* Offered to admins only — and it can merely hide admin chrome, never unlock it. */}
             {adminAvailable && !compact ? (
-              // The pill's original footprint (px-2.5 py-1.5), a switch for assistive technology: the
-              // eye and the purple wash say on or off, and `aria-checked` says it in words.
-              <button
+              // The pill footprint it had before it became a switch (`px-2.5 py-1.5 text-xs`, an eye
+              // and "Admin view"), restored 2026-10-20 — still the shared switch inside (`Toggle`, this
+              // portal's `ToggleSwitch`): its position and `aria-checked` say on or off, never an
+              // "ON"/"OFF" word. The track is drawn at three quarters so the pill keeps its old height,
+              // as in the designer portal's island. The pill is the switch's <label>, so a click
+              // anywhere on it flips the switch.
+              <label
                 data-testid="island-admin-view"
-                type="button"
-                role="switch"
-                aria-checked={adminMode}
-                onClick={() => toggleAdminView()}
+                htmlFor={adminSwitchId}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-medium transition",
-                  adminMode
-                    ? "border-purple-300 bg-purple-50 text-purple-700"
-                    : "border-line-200 bg-card text-ink-500 hover:bg-surface-50"
+                  "inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-medium transition",
+                  adminMode ? "border-purple-300 bg-purple-50 text-purple-700" : "border-line-200 bg-card text-ink-500"
                 )}
               >
                 {adminMode ? <Eye className="h-3.5 w-3.5" aria-hidden /> : <EyeOff className="h-3.5 w-3.5" aria-hidden />}
-                Admin view
-              </button>
+                <span aria-hidden>Admin view</span>
+                <Toggle
+                  id={adminSwitchId}
+                  hideLabel
+                  label="Admin view"
+                  checked={adminMode}
+                  onChange={() => toggleAdminView()}
+                  className="h-7! w-12! -mx-1.5 -my-[3.5px] scale-75"
+                />
+              </label>
             ) : null}
             <NotificationBell active={isActivePath("/notifications")} />
             <button
@@ -634,7 +643,13 @@ export function DynamicIslandNav() {
       <AppSearchHeader
         appName={APP_NAME}
         logo={(className) => <FieldRepoLogo className={className} />}
-        onOpenSearch={() => setSearchOpen(true)}
+        // Search opens over a clean page: the menu sheet's scrim sits under the header (`z-40`, so
+        // the bar's menu button stays lit, as the island's does), so a tap on the header while the
+        // sheet is open closes the sheet first rather than stacking the panel on top of it.
+        onOpenSearch={() => {
+          setSheetOpen(false);
+          setSearchOpen(true);
+        }}
         searchOpen={searchOpen}
       />
       <AppSearchPanel
