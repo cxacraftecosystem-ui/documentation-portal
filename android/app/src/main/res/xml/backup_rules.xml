@@ -3,17 +3,20 @@
   Auto Backup on Android 11 and older (android:fullBackupContent). Android 12+ reads
   data_extraction_rules.xml instead; the two lists must say the same thing.
 
-  BACKED UP, ON PURPOSE: the offline outbox's queue (files/outbox/queue.json), the questionnaire
-  session queue and consent queue, unsaved form drafts (files/drafts), and the small device
+  BACKED UP, ON PURPOSE: the offline outbox (files/outbox: queue.json and the photo and audio copies
+  its entries point to), the questionnaire session queue and consent queue, unsaved form drafts
+  (files/drafts) with their media (files/drafts-media, files/field-captures), and the small device
   settings. They are the researcher's work and must survive a lost or replaced phone. A restored
   queued create still carries its Idempotency-Key, so one the old phone sent within the last 30
-  days is answered from the server's record instead of being filed twice.
+  days is answered from the server's record instead of being filed twice. The outbox's media stays
+  with its queue: a restored entry whose file is missing would upload without it.
 
-  MEDIA IS NOT IN THE CLOUD BACKUP: the outbox's media copies (files/outbox/media), draft media
-  (files/drafts-media, files/field-captures) and interview audio (files/questionnaire-recordings).
-  Cloud Auto Backup allows 25 MB per app and skips the WHOLE backup above it, so one long interview
-  would cost the small queues above their backup. Android 12+ still moves the media in a
-  device-to-device transfer, which has no such cap (data_extraction_rules.xml).
+  INTERVIEW AUDIO IS NOT IN THE CLOUD BACKUP (files/questionnaire-recordings). Cloud Auto Backup
+  allows 25 MB per app and skips the WHOLE backup above it, so one long interview would cost
+  everything above its backup. A restored session whose clip is missing marks that step failed and
+  says the recording is missing on this device (SessionOutbox), so nothing is lost silently.
+  Android 12+ still moves the audio in a device-to-device transfer, which has no such cap
+  (data_extraction_rules.xml).
 
   NEVER BACKED UP: the sign-in session (field_repository_auth.xml holds the bearer token and the
   cached profile), so a restored phone signs in again and two-step verification is asked again;
@@ -26,8 +29,5 @@
     <exclude domain="database" path="androidx.work.workdb" />
     <exclude domain="database" path="androidx.work.workdb-shm" />
     <exclude domain="database" path="androidx.work.workdb-wal" />
-    <exclude domain="file" path="outbox/media/" />
-    <exclude domain="file" path="drafts-media/" />
-    <exclude domain="file" path="field-captures/" />
     <exclude domain="file" path="questionnaire-recordings/" />
 </full-backup-content>

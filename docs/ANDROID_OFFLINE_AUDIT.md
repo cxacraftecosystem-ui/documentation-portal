@@ -121,10 +121,13 @@ made. At the next reconnect or sign-in it is sent if it is later than the server
 and otherwise the server row is applied.
 
 **Backups.** `res/xml/backup_rules.xml` (Android 11 and older) and
-`res/xml/data_extraction_rules.xml` (Android 12 and newer) back up the outbox, drafts, captures and
-settings, so a lost or replaced phone keeps unsent work. They exclude the sign-in session
-(`field_repository_auth.xml`, which holds the bearer token and cached profile), the staged-object
-journal and WorkManager's own database. A restored phone therefore signs in again and is asked for
+`res/xml/data_extraction_rules.xml` (Android 12 and newer) back up the outbox with its media,
+drafts with their media, captures and settings, so a lost or replaced phone keeps unsent work. They
+exclude the sign-in session (`field_repository_auth.xml`, which holds the bearer token and cached
+profile), the staged-object journal and WorkManager's own database. Interview audio
+(`questionnaire-recordings/`) stays out of cloud backup, whose 25 MB cap would skip the whole
+backup, and goes in a device-to-device transfer, which has no cap. A restored session whose clip is
+missing marks that step failed and says so, rather than finishing without it. A restored phone therefore signs in again and is asked for
 its two-step code again. Two-step state and secrets are never stored on the device.
 
 **Reads come from a device cache when offline.** `OfflineReadCache` puts an OkHttp disk cache, one
