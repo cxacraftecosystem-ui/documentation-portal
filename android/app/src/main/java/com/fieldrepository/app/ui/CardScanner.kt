@@ -85,6 +85,7 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -359,6 +360,19 @@ fun ArtisanCardScanDialog(
     }
 }
 
+/**
+ * One camera call, where any failure is "no camera" EXCEPT a cancellation, which is rethrown.
+ * `runCatching` around a suspend call swallows `CancellationException`, so a preview dismissed while
+ * a cold CameraX was still starting reported the camera as unavailable after it had gone.
+ */
+suspend fun <T> cameraStep(block: suspend () -> T): T? = try {
+    block()
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (_: Throwable) {
+    null
+}
+
 @Composable
 private fun CardCameraPreview(reader: CardQrReader, onText: (String) -> Unit, onUnavailable: () -> Unit) {
     val context = LocalContext.current
@@ -367,7 +381,7 @@ private fun CardCameraPreview(reader: CardQrReader, onText: (String) -> Unit, on
     val executor = remember { Executors.newSingleThreadExecutor() }
     val providerHolder = remember { mutableStateOf<ProcessCameraProvider?>(null) }
     LaunchedEffect(Unit) {
-        val provider = runCatching { ProcessCameraProvider.awaitInstance(context) }.getOrNull()
+        val provider = cameraStep { ProcessCameraProvider.awaitInstance(context) }
         if (provider == null) {
             onUnavailable()
             return@LaunchedEffect
