@@ -51,6 +51,16 @@ import com.fieldrepository.app.data.UserDto
  * `WalkthroughStepsTest` holds every body to one sentence and a ceiling of characters, so a step
  * cannot grow back into a paragraph quietly.
  *
+ * ── WHY AND WATCH, THE OPEN CARD'S OTHER TWO SECTIONS ────────────────────────────────────────────
+ *
+ * The open card also says why the step exists and what to watch out for, as the designer portal's
+ * card and the web's `GuideStepCard` do (owner, 2026-10-20: the handset's cards were missing both).
+ * They are fields of their own, [WalkStep.why] and [WalkStep.watch], rather than more sentences in
+ * the body, so the collapsed line stays one line. Where the web teaches the step they are the web's
+ * `why` and `watch[]` from `steps.ts`, verbatim — `WalkthroughStepsTest` reads that file and holds
+ * them equal. A card in another deck that opens a researcher screen carries that screen's words by
+ * reference ([researcherStep]). Every numbered step has both; the two ends of a deck have neither.
+ *
  * ── PARITY IS THE JOURNEY, NOT THE SENTENCES ─────────────────────────────────────────────────────
  *
  * The researcher's deck teaches every subject `frontend/components/guide/steps.ts` teaches, in the
@@ -66,7 +76,7 @@ import com.fieldrepository.app.data.UserDto
 /**
  * One step of the walkthrough.
  *
- * Five fields, and every one of them is load-bearing — see each property for what breaks without it.
+ * Seven fields, and every one of them is load-bearing — see each property for what breaks without it.
  */
 internal data class WalkStep(
     /**
@@ -113,7 +123,23 @@ internal data class WalkStep(
      * were on; a screen it launches is a real departure from a possibly half-filled form.
      */
     val destination: NavDestination? = null,
+    /**
+     * "Why this step exists": one or two short sentences on why the dataset needs it. Blank only on
+     * the two ends of a deck, where the card draws no heading.
+     */
+    val why: String = "",
+    /**
+     * "Watch out for": the cautions, one bullet each, in the order a reader meets them. Empty only on
+     * the two ends of a deck.
+     */
+    val watch: List<String> = emptyList(),
 )
+
+/**
+ * The researcher's step with [id], for a card in another deck that opens the same screen and must
+ * describe it the same way. Fails at class load, loudly, if the id stops existing.
+ */
+private fun researcherStep(id: String): WalkStep = walkthroughJourney.first { it.id == id }
 
 // ---------------------------------------------------------------------------------------------
 // The researcher's deck — the documentation journey, in the order the work happens in
@@ -134,6 +160,11 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.Groups,
         destination = NavDestination.RECORD_WORKSHOP,
         body = "Open or create the workshop first.",
+        why = "Every record belongs to a workshop, and new forms preselect your latest one.",
+        watch = listOf(
+            "Create it before you leave for the field.",
+            "Records outside its dates need approval.",
+        ),
     ),
     WalkStep(
         id = "craft",
@@ -141,6 +172,11 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.Brush,
         destination = NavDestination.ADD_CRAFT,
         body = "Add the craft being documented.",
+        why = "Artisans, products and tools link to it, keeping spellings consistent.",
+        watch = listOf(
+            "Reuse an existing craft rather than adding a near-duplicate.",
+            "Record the local name the community uses.",
+        ),
     ),
     WalkStep(
         id = "artisan",
@@ -148,6 +184,13 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.Person,
         destination = NavDestination.RECORD_ARTISAN,
         body = "Who they are, where they work and what they’ve learnt.",
+        why = "Everything links back to the artisan. Their Do’s and Don’ts can’t be recovered later.",
+        watch = listOf(
+            "Do’s and Don’ts are required — one point per line.",
+            "Pick the craft from the list.",
+            "Photo details are added to the notes automatically.",
+            "The ring on each record shows what’s still missing; tap a field to fill it in.",
+        ),
     ),
     WalkStep(
         id = "product",
@@ -155,6 +198,12 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.Inventory2,
         destination = NavDestination.RECORD_PRODUCT,
         body = "One thing they make — size, cost and photos.",
+        why = "Dimensions, cost and price are what researchers compare across regions.",
+        watch = listOf(
+            "Pick the artisan first; it fills the craft, name and place.",
+            "\"Document using grid\" measures the piece from a photo.",
+            "Artisan not on record? Switch it on and type the names.",
+        ),
     ),
     WalkStep(
         id = "process",
@@ -162,6 +211,12 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.AccountTree,
         destination = NavDestination.DOCUMENT_PROCESS,
         body = "How the product is made, step by step, on video.",
+        why = "The steps on video capture knowledge a photo or description loses.",
+        watch = listOf(
+            "Use Sequential for ordered steps, Group for parallel ones.",
+            "Film the action, not the result.",
+            "Link it to the product you recorded.",
+        ),
     ),
     WalkStep(
         id = "tool",
@@ -169,6 +224,14 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.Build,
         destination = NavDestination.RECORD_TOOL,
         body = "Material, size, maker and replacement cost.",
+        why = "Tool makers often vanish before the craft does — record who makes them.",
+        watch = listOf(
+            "Fill only the dimensions that apply.",
+            "cm and inch boxes fill each other.",
+            "Link several crafts and artisans at once.",
+            "Shoot process stages in order.",
+            "Assign tools to artisans later from \"Assign tools to artisans\".",
+        ),
     ),
     WalkStep(
         id = "questionnaire",
@@ -176,6 +239,13 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.Quiz,
         destination = NavDestination.TAKE_INTERVIEW,
         body = "Work through the sections, recording each answer.",
+        why = "Audio is transcribed, so you keep their voice and searchable text.",
+        watch = listOf(
+            "One interview per set of artisans; saving adds to an existing one.",
+            "Answer only what was asked.",
+            "Others’ answers can only be changed by them or an admin.",
+            "\"Check completion\" shows the gaps.",
+        ),
     ),
     WalkStep(
         id = "media",
@@ -183,6 +253,12 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.PermMedia,
         destination = NavDestination.UPLOAD_MEDIA,
         body = "Files that don’t belong to one record.",
+        why = "Keeps field context with your records, not on a phone.",
+        watch = listOf(
+            "Pick a record type first, or \"Miscellaneous Media\".",
+            "Audio is transcribed.",
+            "You can link it to a record later.",
+        ),
     ),
     WalkStep(
         id = "review",
@@ -190,6 +266,12 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.Visibility,
         destination = NavDestination.REVIEW,
         body = "Submissions come back Approved, Rejected or Sent for revision.",
+        why = "A reviewer above you checks every record before it counts.",
+        watch = listOf(
+            "Below Professor, everything is submitted as Pending.",
+            "Fix what the comments say; saving resubmits it.",
+            "Reviewers see work from those below them.",
+        ),
     ),
     WalkStep(
         id = "view-data",
@@ -197,6 +279,12 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.Storage,
         destination = NavDestination.VIEW_DATA,
         body = "Browse records as folders and export any of them.",
+        why = "The same records, filed three ways, ready to preview and download.",
+        watch = listOf(
+            "Use the breadcrumb to go back up.",
+            "Transcripts preview as formatted text.",
+            "Without dataset access, use Search instead.",
+        ),
     ),
     WalkStep(
         id = "browse-records",
@@ -204,12 +292,22 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.Search,
         destination = NavDestination.BROWSE_RECORDS,
         body = "Search every record, then narrow by type, craft or place.",
+        why = "Search first, so nobody records the same artisan or product twice.",
+        watch = listOf(
+            "A near-duplicate splits one artisan’s work across two records.",
+            "Open a result to see the whole record and its files.",
+        ),
     ),
     WalkStep(
         id = "offline",
         title = "No signal · What still works",
         icon = Icons.Filled.CloudOff,
         body = "Entries saved offline wait on this phone and upload when you reconnect.",
+        why = "Villages often have no signal; your work waits safely on this phone.",
+        watch = listOf(
+            "Signing out keeps queued entries; they send when you sign back in.",
+            "A save the server refuses waits in the tray to fix and send again.",
+        ),
     ),
     WalkStep(
         id = "account",
@@ -217,6 +315,11 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.Settings,
         destination = NavDestination.SETTINGS,
         body = "Turn on two-step verification, and set the theme and text size.",
+        why = "Two-step verification keeps the dataset safe if this phone is lost.",
+        watch = listOf(
+            "Save your recovery codes before you finish setting it up.",
+            "Larger text, high contrast and reduced motion are on the same screen.",
+        ),
     ),
 )
 
@@ -329,6 +432,8 @@ internal val walkthroughContributorJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.Quiz,
         destination = NavDestination.TAKE_INTERVIEW,
         body = "Record each answer as audio; one interview holds each set of artisans.",
+        why = researcherStep("questionnaire").why,
+        watch = researcherStep("questionnaire").watch,
     ),
     WalkStep(
         id = "contributor-media",
@@ -336,6 +441,8 @@ internal val walkthroughContributorJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.PermMedia,
         destination = NavDestination.UPLOAD_MEDIA,
         body = "Photos, video and audio from the field, linked to a record where one fits.",
+        why = researcherStep("media").why,
+        watch = researcherStep("media").watch,
     ),
     WalkStep(
         id = "contributor-review",
@@ -343,6 +450,11 @@ internal val walkthroughContributorJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.Visibility,
         destination = NavDestination.REVIEW,
         body = "Field Contributors approve or send back what volunteers submit.",
+        why = "A second reader checks volunteers’ work before it counts.",
+        watch = listOf(
+            "A fixable reason sends the record back instead of rejecting it.",
+            "Approving a record also approves its files.",
+        ),
     ),
     WalkStep(
         id = "contributor-browse",
@@ -350,12 +462,19 @@ internal val walkthroughContributorJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.Search,
         destination = NavDestination.BROWSE_RECORDS,
         body = "Read what the team recorded, narrowed by type, craft or place.",
+        why = "See what the team already has before you record more.",
+        watch = listOf(
+            "A near-duplicate splits one artisan’s work across two records.",
+            "Open a result to see the whole record and its files.",
+        ),
     ),
     WalkStep(
         id = "contributor-offline",
         title = "No signal · What still works",
         icon = Icons.Filled.CloudOff,
         body = "Entries saved offline wait on this phone and upload when you reconnect.",
+        why = researcherStep("offline").why,
+        watch = researcherStep("offline").watch,
     ),
     WalkStep(
         id = "contributor-account",
@@ -363,6 +482,8 @@ internal val walkthroughContributorJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.Settings,
         destination = NavDestination.SETTINGS,
         body = "Turn on two-step verification, and set the theme and text size.",
+        why = researcherStep("account").why,
+        watch = researcherStep("account").watch,
     ),
 )
 
@@ -412,6 +533,11 @@ internal val walkthroughAdminJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.HowToReg,
         destination = NavDestination.ACCESS_ROSTER,
         body = "Approve or refuse sign-in requests, and add people before they ask.",
+        why = "Only people on the roster can sign in, so access stays deliberate.",
+        watch = listOf(
+            "Search by email or name before adding someone twice.",
+            "Workshop access is separate; grant it from the Settings hub.",
+        ),
     ),
     WalkStep(
         id = "admin-manage-users",
@@ -419,6 +545,11 @@ internal val walkthroughAdminJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.ManageAccounts,
         destination = NavDestination.MANAGE_USERS,
         body = "Set each person's role; it decides what their menu offers.",
+        why = "A role decides what each person can record and review.",
+        watch = listOf(
+            "Recording artisans, products, processes and tools needs Researcher.",
+            "Adding a craft or a workshop needs Professor.",
+        ),
     ),
     WalkStep(
         id = "admin-workshop",
@@ -426,6 +557,8 @@ internal val walkthroughAdminJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.Groups,
         destination = NavDestination.RECORD_WORKSHOP,
         body = "Create the workshop before the team leaves; every record files under one.",
+        why = researcherStep("workshop").why,
+        watch = researcherStep("workshop").watch,
     ),
     WalkStep(
         id = "admin-craft",
@@ -433,6 +566,8 @@ internal val walkthroughAdminJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.Brush,
         destination = NavDestination.ADD_CRAFT,
         body = "Search before adding a craft, so one spelling holds every record.",
+        why = researcherStep("craft").why,
+        watch = researcherStep("craft").watch,
     ),
     WalkStep(
         id = "admin-review",
@@ -440,6 +575,12 @@ internal val walkthroughAdminJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.Visibility,
         destination = NavDestination.REVIEW,
         body = "Approve, reject, or send back with a comment saying what to fix.",
+        why = "Only approved records count in the dataset.",
+        watch = listOf(
+            "A fixable reason sends the record back instead of rejecting it.",
+            "Approving a record also approves its files.",
+            "Offline, your decision waits on this phone until it can send.",
+        ),
     ),
     WalkStep(
         id = "admin-view-data",
@@ -447,6 +588,8 @@ internal val walkthroughAdminJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.Storage,
         destination = NavDestination.VIEW_DATA,
         body = "Every record as folders; download any folder as a spreadsheet.",
+        why = researcherStep("view-data").why,
+        watch = researcherStep("view-data").watch,
     ),
     WalkStep(
         id = "admin-settings-hub",
@@ -454,6 +597,11 @@ internal val walkthroughAdminJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.Tune,
         destination = NavDestination.SETTINGS_HUB,
         body = "Workshop assignments, access requests, tasks and recovered recordings.",
+        why = "The admin jobs that span workshops and people, in one place.",
+        watch = listOf(
+            "Workshop assignments decide who may submit entries to each workshop.",
+            "Re-link recovered recordings, or their audio stays unfiled.",
+        ),
     ),
 )
 

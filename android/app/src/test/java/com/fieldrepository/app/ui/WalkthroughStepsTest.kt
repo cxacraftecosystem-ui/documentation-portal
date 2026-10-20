@@ -26,6 +26,8 @@ import org.junit.Test
  *    and one short line. Pinned by `every step is one short title and one short line`.
  * 6. THE FORM LABELS DRIFTING FROM THE WEB'S. Pinned by `every step the web teaches asks for exactly
  *    the fields the web lists`.
+ * 7. THE WHY AND THE CAUTIONS DRIFTING FROM THE WEB'S. Pinned by `every step the web teaches says why
+ *    and what to watch out for in the web's words`.
  *
  * ── THE PARITY HALF IS THE RESEARCHER'S DECK, THE RULES HALF IS EVERY DECK ───────────────────────
  *
@@ -66,6 +68,10 @@ class WalkthroughStepsTest {
         assertTrue(
             "the parser read no fields at all, so the fields assertion below compares nothing",
             WEB_GUIDE_STEPS.any { it.fields.isNotEmpty() }
+        )
+        assertTrue(
+            "the parser read no why or cautions, so the parity assertion below compares nothing",
+            WEB_GUIDE_STEPS.all { it.why.isNotBlank() && it.watch.isNotEmpty() }
         )
     }
 
@@ -108,6 +114,17 @@ class WalkthroughStepsTest {
                 handsetFieldsFor(web.id, web.fields),
                 walkthroughFacets(step).fields,
             )
+        }
+    }
+
+    @Test
+    fun `every step the web teaches says why and what to watch out for in the web's words`() {
+        // "Why this step exists" and "Watch out for" are the web's `why` and `watch[]`, verbatim, so a
+        // researcher who read the guide on a laptop meets the same card on the phone.
+        for (web in WEB_GUIDE_STEPS) {
+            val step = walkthroughJourney.first { it.id == web.id }
+            assertEquals("Step '${web.id}' says why in different words from the web's.", web.why, step.why)
+            assertEquals("Step '${web.id}' lists different cautions from the web's.", web.watch, step.watch)
         }
     }
 
@@ -335,8 +352,13 @@ class WalkthroughStepsTest {
 /** The one place this path is written. Named in failure messages so a move reports itself. */
 private const val WEB_GUIDE_PATH = "frontend/components/guide/steps.ts"
 
-/** One `GuideStep` as the web declares it, with the two fields this suite compares. */
-private data class WebGuideStep(val id: String, val fields: List<String>)
+/** One `GuideStep` as the web declares it, with the fields this suite compares. */
+private data class WebGuideStep(
+    val id: String,
+    val fields: List<String>,
+    val why: String,
+    val watch: List<String>,
+)
 
 /** The `GuideStep`s `steps.ts` declares, in its own order. See `WEB_GUIDE_STEPS` above. */
 private fun readWebGuideSteps(): List<WebGuideStep> {
@@ -349,7 +371,12 @@ private fun readWebGuideSteps(): List<WebGuideStep> {
     return anchors.mapIndexed { index, match ->
         val to = anchors.getOrNull(index + 1)?.range?.first ?: body.length
         val block = body.substring(match.range.first, to)
-        WebGuideStep(id = match.groupValues[1], fields = tsArray(block, "fields"))
+        WebGuideStep(
+            id = match.groupValues[1],
+            fields = tsArray(block, "fields"),
+            why = tsString(block, "why"),
+            watch = tsArray(block, "watch"),
+        )
     }
 }
 
@@ -379,6 +406,13 @@ private fun tsArray(block: String, key: String): List<String> {
     }
     check(depth == 0) { "'$key' has no closing bracket in $WEB_GUIDE_PATH" }
     return tsStrings(block.substring(start, index - 1))
+}
+
+/** The single string literal `key` is assigned in `block`, unescaped. */
+private fun tsString(block: String, key: String): String {
+    val at = block.indexOf("$key:")
+    check(at >= 0) { "'$key' is missing from a step in $WEB_GUIDE_PATH" }
+    return tsStrings(block.substring(at + key.length + 1)).first()
 }
 
 /** Every double-quoted literal in `source`, with its backslash escapes resolved. */
