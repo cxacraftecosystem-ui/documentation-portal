@@ -15,7 +15,7 @@ from typing import Any
 
 from prisma.errors import UniqueViolationError
 
-from app.core.roles import can_create_records, has_rank, is_admin
+from app.core.roles import CONTENT_DELETE_REFUSAL, can_create_records, has_rank, is_admin, is_content_admin
 from app.services import consent_gate
 from app.services.questionnaire_v2 import titles
 from app.services.questionnaire_v2.common import (
@@ -546,13 +546,13 @@ async def merge_into(source_id: str, target_id: str, user: Any, *, client: Any =
     from app.core.db import db as default_db
 
     db = _client(client)
+    # A merge removes its source: content admins only (roles.CONTENT_ADMIN_ROLES, 2026-10-20).
+    if not is_content_admin(user):
+        fail("FORBIDDEN", CONTENT_DELETE_REFUSAL)
     if source_id == target_id:
         fail("VALIDATION_FAILED", "A session can't be merged into itself.")
     source = await require_session(db, source_id)
     target = await require_session(db, target_id)
-    if not is_admin(user):
-        if not (await can_work_in(db, user, source) and await can_work_in(db, user, target)):
-            fail("FORBIDDEN", "Only researchers of both sessions, or an admin, can merge them.")
     if str(source["questionnaireId"]) != str(target["questionnaireId"]):
         fail("MERGE_INSTRUMENT_MISMATCH")
     owner = db if client is not None else default_db
@@ -596,9 +596,10 @@ async def merge_into(source_id: str, target_id: str, user: Any, *, client: Any =
 
 async def delete_session(session_id: str, user: Any, *, client: Any = None) -> None:
     db = _client(client)
-    row = await require_session(db, session_id)
-    if not (is_admin(user) or str(row.get("createdById")) == str(user.id)):
-        fail("FORBIDDEN", "Only the creator or an admin can delete a session.")
+    # Content admins only since 2026-10-20; the session's creator no longer deletes it.
+    if not is_content_admin(user):
+        fail("FORBIDDEN", CONTENT_DELETE_REFUSAL)
+    await require_session(db, session_id)
     live = await db.query_raw(
         'SELECT count(*) AS n FROM "MediaFile" WHERE "questionnaireInterviewId" = $1 AND "removedAt" IS NULL', session_id
     )

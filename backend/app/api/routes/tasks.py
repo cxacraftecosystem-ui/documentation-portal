@@ -74,12 +74,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.core.db import db
 from app.core.deps import (
     ROLE_LABELS,
+    assert_can_delete,
     get_current_user,
     get_value,
     is_admin,
+    is_content_admin,
     is_empty_value,
     is_master_admin,
-    require_admin,
+    require_content_admin,
     role_rank,
     role_value,
 )
@@ -200,7 +202,7 @@ async def assert_assignable(assigner: Any, assignee_id: str) -> Any:
         # bought one honest error message. That is the whole of what it ever bought.
         #
         # WHY LIFTING IT FOR ADMIN AND MASTER_ADMIN IS SAFE, AND WHY IT IS NOT A WIDENING. Both
-        # creation routes are Depends(require_admin) — create_task (:766) and create_task_batch
+        # creation routes are Depends(require_content_admin) — create_task (:766) and create_task_batch
         # (:790) — so the ONLY accounts that can reach this clause while creating a task are
         # already ADMIN or MASTER_ADMIN. The clause therefore never protected a lower tier from
         # anything; it only stopped an administrator recording their own workload on the same board
@@ -1092,7 +1094,7 @@ def batch_summary(tasks: list[Any], serialized: list[dict[str, Any]]) -> dict[st
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def create_task(payload: TaskCreate, current_user: Any = Depends(require_admin)) -> dict[str, Any]:
+async def create_task(payload: TaskCreate, current_user: Any = Depends(require_content_admin)) -> dict[str, Any]:
     """Single-assignee create. The scope fields are optional here — a bare "title + assignee" task
     is still valid for ad-hoc work — but anything supplied is validated exactly like a batch."""
     await assert_assignable(current_user, payload.assigneeId)
@@ -1117,7 +1119,7 @@ async def create_task(payload: TaskCreate, current_user: Any = Depends(require_a
 
 @router.post("/batch", status_code=status.HTTP_201_CREATED)
 async def create_task_batch(
-    payload: TaskBatchCreate, current_user: Any = Depends(require_admin)
+    payload: TaskBatchCreate, current_user: Any = Depends(require_content_admin)
 ) -> dict[str, Any]:
     """Assign one scope to several people at once — THE assignment endpoint.
 
@@ -1215,7 +1217,7 @@ async def list_tasks(
         # Hard-pinned to the caller: "my tasks" can never be pointed at somebody else's list.
         where["assigneeId"] = current_user.id
     else:
-        if not is_admin(current_user):
+        if not is_content_admin(current_user):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
         if view == "created":
             where["createdById"] = current_user.id
@@ -1253,7 +1255,7 @@ async def list_tasks(
 
 @router.get("/batches")
 async def list_task_batches(
-    current_user: Any = Depends(require_admin),
+    current_user: Any = Depends(require_content_admin),
     view: str = Query("all"),
     workshopId: str | None = Query(None),
     batchId: str | None = Query(None),
@@ -1323,7 +1325,7 @@ async def list_task_batches(
 
 @router.get("/progress")
 async def task_progress(
-    _: Any = Depends(require_admin),
+    _: Any = Depends(require_content_admin),
     workshopId: str | None = Query(None),
     assigneeId: str | None = Query(None),
     includeFinished: bool = Query(True),
@@ -1420,7 +1422,7 @@ async def task_progress(
 
 @router.get("/options")
 async def task_options(
-    current_user: Any = Depends(require_admin),
+    current_user: Any = Depends(require_content_admin),
     workshopId: str | None = Query(None),
 ) -> dict[str, Any]:
     """Everything the assignment dialog needs, in one call: the record-type catalogue, the users
@@ -1602,7 +1604,7 @@ async def get_task(task_id: str, current_user: Any = Depends(get_current_user)) 
     if (
         task.assigneeId != current_user.id
         and task.createdById != current_user.id
-        and not is_admin(current_user)
+        and not is_content_admin(current_user)
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -1638,7 +1640,7 @@ async def task_pending_records(task_id: str, current_user: Any = Depends(get_cur
     if (
         task.assigneeId != current_user.id
         and task.createdById != current_user.id
-        and not is_admin(current_user)
+        and not is_content_admin(current_user)
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -1841,28 +1843,18 @@ async def update_task(
 
 
 @router.delete("/batch/{batch_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_task_batch(batch_id: str, current_user: Any = Depends(require_admin)) -> None:
-    """Withdraw a whole assignment in one action. Only the admin who sent it (or the master admin)
-    may unsend it — otherwise one admin could quietly delete another's assignments."""
+async def delete_task_batch(batch_id: str, current_user: Any = Depends(require_content_admin)) -> None:
+    """Withdraw a whole assignment in one action. Any content admin (``roles.CONTENT_ADMIN_ROLES``)
+    may, whoever sent it (owner's ruling, 2026-10-20)."""
     tasks = await db.assignedtask.find_many(where={"batchId": batch_id})
     if not tasks:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Batch not found")
-    if not is_master_admin(current_user) and any(
-        task.createdById != current_user.id for task in tasks
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the admin who created this batch (or the master admin) can delete it",
-        )
     await db.assignedtask.delete_many(where={"batchId": batch_id})
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_task(task_id: str, current_user: Any = Depends(get_current_user)) -> None:
+    """Content admins only, any task (owner's ruling, 2026-10-20)."""
+    assert_can_delete(current_user)
     task = await require_task(task_id)
-    if task.createdById != current_user.id and not is_admin(current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the task creator or an admin can delete a task",
-        )
-    await db.assignedtask.delete(where={"id": task_id})
+    await db.assignedtask.delete(where={"id": task.id})

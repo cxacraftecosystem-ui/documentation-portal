@@ -104,8 +104,8 @@ import java.time.format.DateTimeFormatter
  * the two are always drawn together and never merged into one "progress" number, because a task
  * marked done with nothing behind it is exactly the failure this board is meant to catch.
  *
- * Every route behind this screen is `require_admin` server-side — the caller is expected to show it
- * only to admins and the master admin, exactly as the web hides the route behind `isAdmin`.
+ * Every route behind this screen is `require_content_admin` server-side (2026-10-20), and any content
+ * admin withdraws any task, whoever sent it. The caller shows it only to admins.
  */
 
 // =================================================================================================

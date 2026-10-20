@@ -12,11 +12,12 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { FileSpreadsheet, FileUp } from "lucide-react";
 
 import { useAdminView, adminChromeVisible } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
+import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
 import { QuestionHelpText, RequiredByInstrument } from "@/components/questionnaires/QuestionHelpText";
@@ -30,7 +31,7 @@ import {
 } from "@/components/questionnaires/workbookApi";
 import { useToast } from "@/components/ui/Toast";
 import { apiFetch } from "@/lib/api";
-import { canManageQuestionnaire, isAdmin } from "@/lib/permissions";
+import { canManageQuestionnaire, isAdmin, isContentAdmin } from "@/lib/permissions";
 import type { Questionnaire, QuestionnaireSection } from "@/lib/types";
 
 type Instrument = Questionnaire & { version?: number; sourceFilename?: string | null; sections: QuestionnaireSection[] };
@@ -42,7 +43,11 @@ export default function QuestionnaireInstrumentPage() {
   const { adminMode } = useAdminView();
   const permitted = isAdmin(user) && adminChromeVisible(user, adminMode);
   const mayUpdate = permitted && canManageQuestionnaire(user);
+  // Deleting an instrument retires it (soft); content admins in admin view (2026-10-20).
+  const mayDelete = permitted && adminMode && isContentAdmin(user);
   const { toast } = useToast();
+  const confirm = useConfirm();
+  const router = useRouter();
 
   const [instrument, setInstrument] = useState<Instrument | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -79,6 +84,21 @@ export default function QuestionnaireInstrumentPage() {
         title: "The download did not start",
         description: err instanceof Error ? err.message : "The request failed."
       });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function remove(target: Instrument) {
+    const ok = await confirm(deleteConfirm(`Delete “${target.title}”?`, undefined, "Its sessions and answers are kept."));
+    if (!ok) return;
+    setBusy("delete");
+    try {
+      await apiFetch(`/questionnaires/${encodeURIComponent(target.id)}`, { method: "DELETE" });
+      toast({ tone: "success", title: "Questionnaire deleted" });
+      router.push("/questionnaire/workbooks");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete this questionnaire.");
     } finally {
       setBusy(null);
     }
@@ -126,6 +146,17 @@ export default function QuestionnaireInstrumentPage() {
                 <button type="button" className="field-button" onClick={() => setUploading(true)}>
                   <FileUp className="h-4 w-4" aria-hidden />
                   Update
+                </button>
+              ) : null}
+              {mayDelete && instrument.isActive !== false ? (
+                <button
+                  type="button"
+                  data-danger
+                  className="field-button-secondary field-danger"
+                  disabled={busy === "delete"}
+                  onClick={() => void remove(instrument)}
+                >
+                  Delete
                 </button>
               ) : null}
             </>

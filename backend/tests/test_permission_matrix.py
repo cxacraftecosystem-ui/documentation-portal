@@ -750,3 +750,111 @@ def test_the_craft_and_workshop_predicates_read_rank_alone() -> None:
         expected = deps.has_rank(granted, "PROFESSOR")
         assert deps.can_manage_crafts(granted) is expected, role
         assert deps.can_manage_workshops(granted) is expected, role
+
+
+# --- Content admins delete; every other role never does (owner's ruling, 2026-10-20) --------------
+#
+# ``roles.CONTENT_ADMIN_ROLES`` — ADMIN, MASTER_ADMIN and (by name, for the day the ladders merge)
+# MINISTRY_ADMIN — add, edit and delete every record, media file and other managed content type.
+# Every other tier adds and edits and is refused every delete with a 403 BEFORE a row is read.
+
+CONTENT_ADMINS = ("ADMIN", "MASTER_ADMIN")
+NOT_CONTENT_ADMINS = tuple(role for role in ALL_ROLES if role not in CONTENT_ADMINS)
+
+CONTENT_DELETES = [
+    ("DELETE", "/artisans/x1"),
+    ("DELETE", "/products/x1"),
+    ("DELETE", "/tools/x1"),
+    ("DELETE", "/processes/x1"),
+    ("DELETE", "/crafts/x1"),
+    ("DELETE", "/workshops/x1"),
+    ("DELETE", "/media/x1"),
+    ("DELETE", "/data-access/comments/x1"),
+    ("DELETE", "/questionnaire/sections/x1"),
+    ("DELETE", "/questionnaire/questions/x1"),
+    ("DELETE", "/questionnaire/interviews/x1"),
+    ("POST", "/questionnaire/interviews/x1/merge-into/x2"),
+    ("DELETE", "/questionnaires/x1"),
+    ("DELETE", "/tasks/x1"),
+    ("DELETE", "/tasks/batch/b1"),
+    ("DELETE", "/map/coverage/aliases/x1"),
+]
+
+
+def test_the_content_admin_set_names_the_three_admin_tiers() -> None:
+    assert frozenset({"ADMIN", "MASTER_ADMIN", "MINISTRY_ADMIN"}) == deps.CONTENT_ADMIN_ROLES
+    # ``is_admin`` is NOT widened: accounts, rosters and settings keep their two-member set.
+    assert not deps.is_admin(_user("MINISTRY_ADMIN"))
+    assert deps.is_content_admin(_user("MINISTRY_ADMIN"))
+    for role in ALL_ROLES:
+        assert deps.is_content_admin(_user(role)) is (role in CONTENT_ADMINS), role
+
+
+@pytest.mark.parametrize("role", NOT_CONTENT_ADMINS)
+@pytest.mark.parametrize("method,path", CONTENT_DELETES)
+def test_no_role_below_the_content_admins_deletes(api: _Api, method: str, path: str, role: str) -> None:
+    outcome = api.as_(_user(role)).call(method, path)
+
+    assert outcome.refused, outcome
+    assert api.tripwire.touched is False, "the delete was refused before reading a row"
+
+
+@pytest.mark.parametrize("role", CONTENT_ADMINS)
+@pytest.mark.parametrize("method,path", CONTENT_DELETES)
+def test_every_content_admin_deletes(api: _Api, method: str, path: str, role: str) -> None:
+    outcome = api.as_(_user(role)).call(method, path)
+
+    assert outcome.reached, outcome
+
+
+@pytest.mark.parametrize("call", ["delete_session", "merge_into", "remove"])
+@pytest.mark.parametrize("role", NOT_CONTENT_ADMINS)
+def test_no_role_below_the_content_admins_deletes_a_session_or_a_take(call: str, role: str) -> None:
+    """The session delete (its creator included), the session merge and the recording remove."""
+    from fastapi import HTTPException
+
+    from app.services.questionnaire_v2 import recordings, sessions
+
+    work = {
+        "delete_session": lambda user: sessions.delete_session("s1", user, client=_Tripwire()),
+        "merge_into": lambda user: sessions.merge_into("s1", "s2", user, client=_Tripwire()),
+        "remove": lambda user: recordings.remove("r1", user, client=_Tripwire()),
+    }[call]
+    with pytest.raises(HTTPException) as refusal:
+        asyncio.run(work(_user(role)))
+    assert refusal.value.status_code == 403
+
+
+class _Comments:
+    """``db.entrycomment`` with one comment by ``u1``; the update is the handler doing its work."""
+
+    def __init__(self) -> None:
+        self.find_unique = _returning(SimpleNamespace(id="c1", authorId="u1"))
+
+    async def update(self, *_args: Any, **_kwargs: Any) -> Any:
+        raise _DatabaseTouched("entrycomment.update")
+
+
+def test_the_author_edits_their_own_comment(api: _Api) -> None:
+    outcome = api.preload("entrycomment", _Comments()).as_(_user("RESEARCHER", "u1")).call(
+        "PATCH", "/data-access/comments/c1", {"body": "Corrected."}
+    )
+
+    assert outcome.reached, outcome
+
+
+@pytest.mark.parametrize("role", ["RESEARCHER", "ADMIN", "MASTER_ADMIN"])
+def test_nobody_else_edits_a_comment(api: _Api, role: str) -> None:
+    outcome = api.preload("entrycomment", _Comments()).as_(_user(role, "u2")).call(
+        "PATCH", "/data-access/comments/c1", {"body": "Rewritten."}
+    )
+
+    assert outcome.refused, outcome
+
+
+def test_an_author_no_longer_deletes_their_own_comment(api: _Api) -> None:
+    outcome = api.preload("entrycomment", _Comments()).as_(_user("RESEARCHER", "u1")).call(
+        "DELETE", "/data-access/comments/c1"
+    )
+
+    assert outcome.refused, outcome

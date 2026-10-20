@@ -366,7 +366,8 @@ test("f. the merge route is called only after the researcher confirms, and only 
   // The PATCH is not retried — the refusal stands; the fold is a separate, deliberate call.
   expect(offer).not.toContain("saveOrQueue");
   // Only an edit has a stored source row to move; a create for a taken set is folded server-side.
-  expect(CODE).toMatch(/const handled = editing \? await offerMergeOnConflict\(err, editing\.id\) : false;/);
+  // And a merge removes its source, so it is offered to content admins only (2026-10-20).
+  expect(CODE).toMatch(/const handled = editing && isContentAdmin\(user\) \? await offerMergeOnConflict\(err, editing\.id\) : false;/);
   // The dialog states the one cost that is easy to leave out: the refused PATCH never reached the
   // server, so anything typed since the form opened is not what moves.
   expect(offer).toMatch(/saved<\/span> work moves — unsaved changes here will be lost\./);

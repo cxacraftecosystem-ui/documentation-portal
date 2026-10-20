@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.db import db
-from app.core.deps import get_current_user, is_admin, require_admin
+from app.core.deps import get_current_user, is_admin, require_content_admin
 from app.services import coverage, lgd
 from app.services.access import record_revision
 
@@ -84,7 +84,7 @@ async def coverage_unit_records(
 
 
 @router.get("/coverage/unmatched")
-async def coverage_unmatched(current_user: Any = Depends(require_admin)) -> dict[str, Any]:
+async def coverage_unmatched(current_user: Any = Depends(require_content_admin)) -> dict[str, Any]:
     fold = await coverage.fold_for(await coverage.scope_wheres(current_user))
     items = coverage.unmatched_items(fold.rows)
     return {"items": items, "total": len(items)}
@@ -113,7 +113,7 @@ def _alias_out(row: Any) -> dict[str, Any]:
 
 
 @router.post("/coverage/aliases", status_code=status.HTTP_201_CREATED)
-async def create_alias(payload: AliasIn, current_user: Any = Depends(require_admin)) -> dict[str, Any]:
+async def create_alias(payload: AliasIn, current_user: Any = Depends(require_content_admin)) -> dict[str, Any]:
     if lgd.state_name(payload.stateLgd) is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Unknown state code."
@@ -160,7 +160,7 @@ async def create_alias(payload: AliasIn, current_user: Any = Depends(require_adm
 
 
 @router.delete("/coverage/aliases/{alias_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_alias(alias_id: str, current_user: Any = Depends(require_admin)) -> Response:
+async def delete_alias(alias_id: str, current_user: Any = Depends(require_content_admin)) -> Response:
     row = await db.geoalias.find_unique(where={"id": alias_id})
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alias not found.")
@@ -176,6 +176,6 @@ async def delete_alias(alias_id: str, current_user: Any = Depends(require_admin)
 
 
 @router.get("/coverage/aliases")
-async def list_aliases(_: Any = Depends(require_admin)) -> dict[str, Any]:
+async def list_aliases(_: Any = Depends(require_content_admin)) -> dict[str, Any]:
     rows = await db.geoalias.find_many(order={"createdAt": "desc"})
     return {"items": [_alias_out(row) for row in rows], "total": len(rows)}

@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Pencil, Trash2 } from "lucide-react";
 
+import { useAdminView } from "@/components/AdminViewProvider";
+import { useAuth } from "@/components/AuthProvider";
+import { deleteConfirm, useConfirm } from "@/components/dialogs";
+import { ButtonRow } from "@/components/ui/ButtonRow";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import type { EntryComment, RecordRevision } from "@/lib/types";
@@ -17,6 +22,15 @@ export function CollabPanel({ recordType, recordId }: { recordType: string; reco
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** The comment being edited by its author, and the draft in the box. */
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const { user } = useAuth();
+  // Deleting is the content admins' alone, in admin view (owner's ruling, 2026-10-20).
+  const { adminMode } = useAdminView();
+  const confirm = useConfirm();
 
   const load = useCallback(async () => {
     try {
@@ -53,6 +67,42 @@ export function CollabPanel({ recordType, recordId }: { recordType: string; reco
     }
   }
 
+  /** The author's edit — `PATCH /data-access/comments/{id}`, which 403s for anybody else. */
+  async function saveEdit(comment: EntryComment) {
+    const next = draft.trim();
+    if (!next || next === comment.body) {
+      setEditingId(null);
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await apiFetch(`/data-access/comments/${comment.id}`, { method: "PATCH", body: JSON.stringify({ body: next }) });
+      setEditingId(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save comment");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /** `DELETE /data-access/comments/{id}` — content admins only, so drawn only in admin view. */
+  async function removeComment(comment: EntryComment) {
+    const ok = await confirm(deleteConfirm("Delete this comment?", comment.body, "This cannot be undone."));
+    if (!ok) return;
+    setRemovingId(comment.id);
+    setError(null);
+    try {
+      await apiFetch(`/data-access/comments/${comment.id}`, { method: "DELETE" });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete comment");
+    } finally {
+      setRemovingId(null);
+    }
+  }
+
   return (
     <div className="grid gap-4">
       {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
@@ -63,9 +113,54 @@ export function CollabPanel({ recordType, recordId }: { recordType: string; reco
           {comments.length === 0 ? <li className="text-sm text-ink-muted">No comments yet.</li> : null}
           {comments.map((c) => (
             <li key={c.id} className="rounded-md border border-line-200 bg-field-50 p-2 text-sm">
-              <div className="text-ink">{c.body}</div>
-              <div className="mt-1 text-xs text-ink-muted">
-                {c.author?.name ?? "Someone"} · {formatDateTime(c.createdAt)}
+              {editingId === c.id ? (
+                <div className="grid gap-2">
+                  <textarea
+                    className="field-input min-h-20"
+                    aria-label="Edit comment"
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                  />
+                  <ButtonRow align="end" size="sm">
+                    <button type="button" className="field-button-secondary" disabled={saving} onClick={() => setEditingId(null)}>
+                      Cancel
+                    </button>
+                    <button type="button" className="field-button" disabled={saving || !draft.trim()} onClick={() => saveEdit(c)}>
+                      {saving ? "Saving…" : "Save"}
+                    </button>
+                  </ButtonRow>
+                </div>
+              ) : (
+                <div className="text-ink">{c.body}</div>
+              )}
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+                <span>
+                  {c.author?.name ?? "Someone"} · {formatDateTime(c.createdAt)}
+                </span>
+                {user && c.authorId === user.id && editingId !== c.id ? (
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 text-purple-700 underline underline-offset-2"
+                    onClick={() => {
+                      setEditingId(c.id);
+                      setDraft(c.body);
+                    }}
+                  >
+                    <Pencil className="h-3 w-3" aria-hidden />
+                    Edit
+                  </button>
+                ) : null}
+                {user && adminMode ? (
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 text-error-600 underline underline-offset-2 disabled:no-underline disabled:opacity-60"
+                    disabled={removingId === c.id}
+                    onClick={() => removeComment(c)}
+                  >
+                    <Trash2 className="h-3 w-3" aria-hidden />
+                    {removingId === c.id ? "Deleting…" : "Delete"}
+                  </button>
+                ) : null}
               </div>
             </li>
           ))}

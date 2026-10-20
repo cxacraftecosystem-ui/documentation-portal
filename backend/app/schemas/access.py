@@ -57,6 +57,12 @@ class CommentIn(BaseModel):
     body: str = Field(min_length=1, max_length=5000)
 
 
+class CommentUpdate(BaseModel):
+    """The author's edit of their own comment (``PATCH /data-access/comments/{id}``)."""
+
+    body: str = Field(min_length=1, max_length=5000)
+
+
 # --------------------------------------------------------------------- workshop access
 # Levels/statuses are validated against app.services.workshop_access, which owns the ladder and the
 # rank comparisons; keeping the strings out of the schema stops the two definitions drifting apart.

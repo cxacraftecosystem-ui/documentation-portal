@@ -64,7 +64,8 @@ export function canManageUsers(user: User | null | undefined) {
 
 /** Only admins and the master admin may assign tasks to other users. */
 export function canAssignTasks(user: User | null | undefined) {
-  return hasRank(user, "ADMIN");
+  // The content admins since 2026-10-20 (`deps.require_content_admin` on the task routes).
+  return isContentAdmin(user);
 }
 
 export function isAdmin(user: User | null | undefined) {
@@ -73,6 +74,21 @@ export function isAdmin(user: User | null | undefined) {
 
 export function isMasterAdmin(user: User | null | undefined) {
   return user?.role === "MASTER_ADMIN";
+}
+
+/**
+ * The CONTENT admins (owner's ruling, 2026-10-20): they add, edit and delete every record, media
+ * file and other managed content type. Every other role adds and edits and never deletes.
+ *
+ * A SET, and deliberately not {@link isAdmin}. This portal has no MINISTRY_ADMIN tier yet; the name
+ * is listed so the rule holds the day the ladders merge. `backend/app/core/roles.py::
+ * CONTENT_ADMIN_ROLES` is the twin (the designer-portal spells it identically), and
+ * `backend/tests/test_content_admin_parity.py` holds them together.
+ */
+export const CONTENT_ADMIN_ROLES: readonly string[] = ["MINISTRY_ADMIN", "ADMIN", "MASTER_ADMIN"];
+
+export function isContentAdmin(user: User | null | undefined) {
+  return !!user && CONTENT_ADMIN_ROLES.includes(user.role);
 }
 
 export function canManageQuestionnaire(user: User | null | undefined) {
@@ -129,7 +145,8 @@ export function canCreateRecords(user: User | null | undefined) {
 }
 
 export function canEditOwnOrAdmin(user: User | null | undefined, ownerId?: string | null) {
-  return isAdmin(user) || (!!user?.id && !!ownerId && user.id === ownerId);
+  // Content admins edit every record, whoever made it (2026-10-20).
+  return isContentAdmin(user) || (!!user?.id && !!ownerId && user.id === ownerId);
 }
 
 /**

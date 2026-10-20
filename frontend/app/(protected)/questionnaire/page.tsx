@@ -65,7 +65,7 @@ import {
 } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
 import { recordUpdateHref, recordViewHref } from "@/lib/recordView";
-import { canManageQuestionnaire, hasRank, isAdmin } from "@/lib/permissions";
+import { canManageQuestionnaire, hasRank, isContentAdmin } from "@/lib/permissions";
 import { UploadsProvider, useEagerStaging, useUploads } from "@/lib/uploads";
 import type { MediaFile, PageResult, Questionnaire, QuestionnaireInterview, QuestionnaireQuestion, QuestionnaireSection } from "@/lib/types";
 import { Toggle } from "@/components/ui/Toggle";
@@ -1722,7 +1722,8 @@ function QuestionnairePageBody() {
       // `saveOrQueue` rethrows a 4xx rather than banking it (`lib/offline.ts`: "Only a request that
       // never reached the server may be queued"), so a collision arrives here as a real ApiError with
       // the server's structured body on it. `editing` is the only case with a source row to move.
-      const handled = editing ? await offerMergeOnConflict(err, editing.id) : false;
+      // A merge removes its source, so it is offered to content admins only (2026-10-20).
+      const handled = editing && isContentAdmin(user) ? await offerMergeOnConflict(err, editing.id) : false;
       if (!handled) setError(err instanceof Error ? err.message : "Unable to save interview");
     } finally {
       setSaving(false);
@@ -1976,7 +1977,7 @@ function QuestionnairePageBody() {
       ) : null}
 
       {/* 1) Completion matrix — top of the page, collapsed by default. */}
-      <CompletionMatrixPanel canOverride={adminMode && isAdmin(user)} questionnaireId={questionnaireId} />
+      <CompletionMatrixPanel canOverride={adminMode && isContentAdmin(user)} questionnaireId={questionnaireId} />
 
       {/*
         KEYED ON THE RECORD, so arriving at `?edit=<id>` REMOUNTS the form rather than re-rendering
@@ -3405,6 +3406,8 @@ function QuestionnaireAdminEditor({
   onChanged: () => Promise<void>;
 }) {
   const confirm = useConfirm();
+  // Removing a section or a question is a delete: content admins in admin view only (2026-10-20).
+  const { adminMode } = useAdminView();
   const [localSections, setLocalSections] = useState<QuestionnaireSection[]>(sections);
   const [newCode, setNewCode] = useState("");
   const [newTitle, setNewTitle] = useState("");
@@ -3750,10 +3753,12 @@ function QuestionnaireAdminEditor({
                 <ButtonRow
                   className="items-end"
                   destructive={
-                    <button type="button" className="field-danger" onClick={() => removeSection(section)}>
-                      <Trash2 className="h-4 w-4" aria-hidden />
-                      Remove
-                    </button>
+                    adminMode ? (
+                      <button type="button" className="field-danger" onClick={() => removeSection(section)}>
+                        <Trash2 className="h-4 w-4" aria-hidden />
+                        Remove
+                      </button>
+                    ) : null
                   }
                 >
                   <button className="field-button-secondary" type="submit">
@@ -3801,7 +3806,7 @@ function QuestionnaireAdminEditor({
                       onMoveDown={() => keyboardMove(section, question, 1)}
                       onMoveToSection={(toSectionId) => moveQuestionToSection(question, section.id, toSectionId)}
                       onSave={(prompt, isActive, artisanField) => saveQuestion(question, prompt, isActive, artisanField)}
-                      onRemove={() => removeQuestion(question)}
+                      onRemove={adminMode ? () => removeQuestion(question) : undefined}
                     />
                   </div>
                 ))}
@@ -3915,7 +3920,8 @@ function QuestionTile({
   onMoveDown: () => void;
   onMoveToSection: (toSectionId: string) => void;
   onSave: (prompt: string, isActive: boolean, artisanField: string) => Promise<boolean>;
-  onRemove: () => void;
+  /** Absent for anybody but a content admin in admin view — the server refuses them the delete. */
+  onRemove?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [prompt, setPrompt] = useState(question.prompt);
@@ -4067,9 +4073,11 @@ function QuestionTile({
                   </span>
                 </label>
               ) : null}
-              <button type="button" className="text-sm font-semibold text-red-700" onClick={onRemove} disabled={disabled}>
-                Remove
-              </button>
+              {onRemove ? (
+                <button type="button" className="text-sm font-semibold text-red-700" onClick={onRemove} disabled={disabled}>
+                  Remove
+                </button>
+              ) : null}
             </>
           )}
         </div>

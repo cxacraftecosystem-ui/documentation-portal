@@ -90,7 +90,7 @@ def test_remove_then_restore_leaves_the_view_identical_and_removed_media_is_invi
         s, _ = await sessions.create_session(session_create(ids, ids.artisans[:1]), ids.lead)
         take = await record_take(client, ids, s["id"], ids.lead, targets=[{"sectionId": ids.sections["B"]}], at=t(0))
         before = await coverage.take_rows(client, ids.q)
-        await recordings.remove(take["id"], ids.lead, client=client)
+        await recordings.remove(take["id"], ids.admin, client=client)
         assert await coverage.take_rows(client, ids.q) == []
         assert await client.mediafile.count(where=live_media_where({"id": take["mediaFileId"]}, always=True)) == 0
         await recordings.restore(take["id"], ids.lead, client=client)
@@ -173,7 +173,7 @@ def test_the_snapshot_carries_edits_and_removals_since_a_sequence(monkeypatch) -
         assert {x["recordingId"] for x in base["takes"]} == {one["id"], two["id"]}
         seq = int(base["asOfSeq"])
         await recordings.patch(one["id"], RecordingPatch(version=one["version"], targets=[{"sectionId": ids.sections["F"]}]), ids.lead, client=client)
-        await recordings.remove(two["id"], ids.lead, client=client)
+        await recordings.remove(two["id"], ids.admin, client=client)
         delta = await coverage.snapshot(ids.q, ids.workshop, seq)
         assert {x["recordingId"] for x in delta["takes"]} == {one["id"]}
         assert {x["targetKey"] for x in delta["takes"]} == {f"S:{ids.sections['F']}"}

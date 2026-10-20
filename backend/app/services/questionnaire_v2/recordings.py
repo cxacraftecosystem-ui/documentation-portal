@@ -25,7 +25,7 @@ from uuid import uuid4
 
 from app import shared_vocab
 from app.services import transcription_enqueue as transcription
-from app.core.deps import can_review, has_rank, is_admin
+from app.core.deps import CONTENT_DELETE_REFUSAL, can_review, has_rank, is_admin, is_content_admin
 from app.services import consent_gate, naming
 from app.services.questionnaire_v2 import coverage, sessions, titles
 from app.services.questionnaire_v2.common import (
@@ -691,9 +691,11 @@ async def make_primary(recording_id: str, payload: Any, user: Any, *, client: An
 
 
 async def remove(recording_id: str, user: Any, *, client: Any = None) -> dict[str, Any]:
+    # Removing a take is a delete: content admins only (roles.CONTENT_ADMIN_ROLES, 2026-10-20).
+    if not is_content_admin(user):
+        fail("FORBIDDEN", CONTENT_DELETE_REFUSAL)
     db = _db(client)
-    row = await require_recording(db, recording_id)
-    await _assert_can_change(db, user, row)
+    await require_recording(db, recording_id)
     await soft_remove(db, recording_id, user.id)
     return await recording_payload(db, recording_id, user)
 

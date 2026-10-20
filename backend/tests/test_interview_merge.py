@@ -202,7 +202,9 @@ def db(monkeypatch: pytest.MonkeyPatch):
         ],
     )
     install(monkeypatch, fake)
-    _CURRENT["user"] = _user(OWNER)
+    # A merge removes its source, so it is a content admin's act since 2026-10-20: the default caller
+    # is the interview's author holding ADMIN, which keeps every ledger assertion about OWNER true.
+    _CURRENT["user"] = _user(OWNER, role="ADMIN")
     yield fake
     _CURRENT["user"] = None
 
@@ -449,43 +451,28 @@ def test_an_unknown_interview_on_either_side_is_a_404(db: _Db) -> None:
 # --- 5. THE GATE ----------------------------------------------------------------------------------
 
 
-def test_the_merge_is_gated_exactly_as_an_edit_of_the_source_is(db: _Db) -> None:
-    """NO NEW PRIVILEGE. The route reuses `record_edit_privilege` + `assert_can_contribute_relation`
-    — the same pair, in the same order, that `update_interview` applies to `artisanIds`.
-
-    Asserted as PARITY rather than as a bare 403: the same stranger is refused by the merge and by
-    an ordinary edit of the same interview's populated relation, with the same message. A merge that
-    had invented its own gate could still answer 403 here and be wrong about who it lets through.
-    """
+def test_a_stranger_may_not_merge_and_is_refused_before_any_write(db: _Db) -> None:
+    """A merge removes its source, so since 2026-10-20 it is a content admin's act
+    (``roles.CONTENT_ADMIN_ROLES``) and is refused with the delete sentence before anything moves."""
     _CURRENT["user"] = _user(STRANGER)
 
     merge = _call("POST", "/questionnaire/interviews/iv-f/merge-into/iv-d")
-    edit = _call("PATCH", "/questionnaire/interviews/iv-f", {"artisanIds": ["a1"]})
 
     assert merge.status_code == 403, merge.text
-    assert edit.status_code == 403, edit.text
-    # ONE HELPER PRODUCED BOTH SENTENCES, which is the parity. They differ in exactly the relation
-    # each names — the merge is about the answers it would move, the edit was about the artisan
-    # links it would rewrite — and in nothing else, because both come from
-    # `deps.assert_can_contribute_relation` rather than from a refusal this route wrote for itself.
-    prefix = "Only the original contributor or an admin can change populated relation: "
-    assert merge.json()["detail"] == prefix + "responses"
-    assert edit.json()["detail"] == prefix + "artisanIds"
-    # Refused above the first write, as every refusal on this route is.
+    assert merge.json()["detail"] == "Only an admin can delete this."
     assert _ids(db.questionnaireinterview.rows) == ["iv-d", "iv-f"]
     assert db.recordrevision.rows == []
 
 
-def test_the_source_interviews_own_author_may_fold_it(db: _Db) -> None:
-    """The other half of "no new privilege": the gate did not become stricter either. The owner is
-    an ordinary RESEARCHER — not an admin, not a professor — and folding their own sitting is
-    exactly the edit they may already make."""
+def test_the_source_interviews_own_author_may_no_longer_fold_it(db: _Db) -> None:
+    """The owner is an ordinary RESEARCHER. Folding their sitting removes it, and every role below the
+    content admins adds and edits and never deletes (owner's ruling, 2026-10-20)."""
     _CURRENT["user"] = _user(OWNER)
 
     response = _call("POST", "/questionnaire/interviews/iv-f/merge-into/iv-d")
 
-    assert response.status_code == 200, response.text
-    assert _ids(db.questionnaireinterview.rows) == ["iv-d"]
+    assert response.status_code == 403, response.text
+    assert _ids(db.questionnaireinterview.rows) == ["iv-d", "iv-f"]
 
 
 def test_the_fold_leaves_a_ledger_entry_naming_where_the_interview_went(db: _Db) -> None:
