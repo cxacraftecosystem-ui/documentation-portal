@@ -138,7 +138,7 @@ async def plan(client: Any) -> list[Row]:
                     if proposed is not None:
                         row.action, row.target, row.targetId, row.source = "proposed", _label(proposed), proposed.id, "fuzzy"
         if target is not None:
-            row.target, row.targetId = _label(target), target.id
+            row.target, row.targetId, row.targetSlug = _label(target), target.id, target.slug
             if target.id not in claimed and _is_seeded(target) and await cm.reference_count(client, target.id) == 0:
                 row.action = "inPlace"
             else:
@@ -234,7 +234,9 @@ async def apply(client: Any, rows: list[Row]) -> dict[str, int]:
                     data={"status": cm.ACTIVE, "subCategoryId": sub.id, "category": sub.category.name},
                 )
             else:
-                target = await tx.craft.find_unique(where={"id": row.targetId})
+                # By slug: an earlier row of this run may have moved an old craft onto the target's
+                # identity in place, which removes the seeded row whose id the plan recorded.
+                target = await tx.craft.find_unique(where={"slug": row.targetSlug}) if row.targetSlug else None
                 if target is None:
                     continue
                 if row.action == "inPlace" and _is_seeded(target) and await cm.reference_count(tx, target.id) == 0:
