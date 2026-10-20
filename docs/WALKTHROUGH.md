@@ -203,8 +203,8 @@ the judgement calls that a text description always loses.
 Record the toolkit the artisan uses: what it is made of, how big it is, who made it, what it costs
 to replace.
 
-**What the screen asks for:** Toolkit name *(required)*, Local name, English name, Workshop, Crafts
-*(required)*, Linked artisans (fills artisan + place), Artisan
+**What the screen asks for:** Toolkit name *(required)*, Local name, English name, Workshop, Linked
+crafts *(required)*, Linked artisans (fills artisan + place), Artisan
 name *(required)*, Place *(required)*, Process used in, Material, Years in use, Height (cm), Width
 (cm), Length (inches), Breadth (inches), Height (inches), Thickness, Weight, Radius, Maker,
 Tradition type, Replacement cost, Suggestions for improvement, Remarks, Process stages, Tool media,

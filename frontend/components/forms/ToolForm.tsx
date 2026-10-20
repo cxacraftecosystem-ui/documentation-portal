@@ -1460,11 +1460,11 @@ function ToolFormBody({
             them. `CraftSelect` appends on tick and removes in place, so order is preserved.
           */}
           <div className="min-w-0 md:col-span-2" data-field="craft">
-            <FieldBlock label="Crafts" required>
+            <FieldBlock label="Linked crafts" required>
               <CraftSelect
                 multiple
                 name="craftIds"
-                ariaLabel="Crafts"
+                ariaLabel="Linked crafts"
                 required
                 value={craftIds}
                 canAddCraft={canManageCrafts(user)}

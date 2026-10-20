@@ -1865,6 +1865,29 @@ class FieldRepository(
     suspend fun crafts(): List<CraftDto> = api.crafts(pageSize = 100).items
 
     /**
+     * The craft catalogue, revalidated with its ETag (REQUIREMENTS_2026-10-20 §2.3-§2.4). Returns the
+     * newest list on hand — the server's, or the device's when offline — and throws only when there
+     * is no copy at all. Every craft picker reads this.
+     */
+    suspend fun craftCatalogue(context: Context): CraftCatalogue? =
+        CraftCatalogueCache.refresh(context) { etag ->
+            val response = api.craftCatalogue(ifNoneMatch = etag)
+            when {
+                response.code() == 304 -> CraftCatalogueCache.Fetch.NotModified
+                response.isSuccessful -> CraftCatalogueCache.Fetch.Fresh(
+                    body = response.body()?.string().orEmpty(),
+                    etag = response.headers()["ETag"],
+                )
+                else -> throw HttpException(response)
+            }
+        }
+
+    /** At sign-in and app start: refresh only a copy older than a day (or none). Never throws. */
+    suspend fun refreshCraftCatalogueIfStale(context: Context) {
+        if (CraftCatalogueCache.isStale(context)) runCatching { craftCatalogue(context) }
+    }
+
+    /**
      * EVERY ROW ONE ACCOUNT CREATED, for My Activity — filtered by the SERVER (`createdBy` on every
      * list route) and walked page by page.
      *

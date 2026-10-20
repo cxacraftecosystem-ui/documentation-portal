@@ -215,7 +215,7 @@ export const GUIDE_STEPS: GuideStep[] = [
       "Local name",
       "English name",
       "Workshop",
-      "Crafts (required)",
+      "Linked crafts (required)",
       "Linked artisans (fills artisan + place)",
       "Artisan name (required)",
       "Place (required)",

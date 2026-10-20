@@ -65,16 +65,16 @@ enum class RecordFormKind { CRAFT, ARTISAN, WORKSHOP, PRODUCT, TOOL, PROCESS, ME
  * other. Both are meant to reach zero; neither is a place to park a disagreement.
  */
 val RECORD_DICTATED: Map<RecordFormKind, Set<String>> = mapOf(
-    RecordFormKind.CRAFT to setOf("name", "localName", "category", "place", "description"),
-    RecordFormKind.ARTISAN to setOf("name", "localName", "craftName", "place", "address", "notes"),
+    RecordFormKind.CRAFT to setOf("name", "localName", "place", "description"),
+    RecordFormKind.ARTISAN to setOf("name", "localName", "place", "address", "notes"),
     RecordFormKind.WORKSHOP to setOf("title", "place", "description", "notes"),
     RecordFormKind.PRODUCT to setOf(
-        "productName", "localName", "craftName", "artisanName", "place",
+        "productName", "localName", "artisanName", "place",
         "timeTakenToCompleteProduct", "size",
         "rawMaterialsUsed", "mainToolsUsed", "productFunctionUse", "remarks",
     ),
     RecordFormKind.TOOL to setOf(
-        "toolkitName", "localName", "englishName", "craftName", "artisanName", "place",
+        "toolkitName", "localName", "englishName", "artisanName", "place",
         "processUsedIn", "material",
         "suggestionsForToolImprovement", "remarks",
     ),
@@ -135,11 +135,14 @@ val RECORD_DICTATED: Map<RecordFormKind, Set<String>> = mapOf(
  */
 val RECORD_NOT_DICTATED: Map<RecordFormKind, Map<String, String>> = mapOf(
     RecordFormKind.CRAFT to mapOf(
+        "category" to "Never sent since the master list (2026-10-20): the server writes the category's name from the sub-category picked.",
+        "subCategoryId" to "A closed vocabulary from the master list behind a dropdown; the answer is picked, never typed.",
         "workshopId" to "A closed vocabulary behind a picker; the answer is chosen from workshops the server already knows, and there is no free text to speak.",
     ),
     RecordFormKind.ARTISAN to mapOf(
         "workshopId" to "A closed vocabulary behind a picker; nothing is typed here, so a microphone would have nowhere to put a word.",
-        "craftId" to "A closed vocabulary behind a dropdown. The free-text escape hatch beside it is `craftName`, and that one is dictated.",
+        "craftId" to "A craft from the master list, picked in the craft sheet; nothing is typed, so a microphone would have nowhere to put a word.",
+        "craftName" to "Never typed since the master list (2026-10-20): the server derives the name from the craft picked, so there is no box to speak into.",
         "gender" to "Four fixed options behind a dropdown; picking is already faster than a spoken sentence and a recogniser can only mis-hear one of four.",
         "dateOfBirth" to "A calendar field. A recogniser returns \"the fourth of March nineteen seventy one\", and the two readings of an ambiguous date are both valid dates, so a mis-transcribed birthday is a defect nothing anywhere reports.",
         // Added 2026-09-14: the record-parity work put this column on the wire and the coverage test
@@ -173,7 +176,8 @@ val RECORD_NOT_DICTATED: Map<RecordFormKind, Map<String, String>> = mapOf(
     RecordFormKind.PRODUCT to mapOf(
         "workshopId" to "A closed vocabulary behind a picker; nothing is typed here, so a microphone would have nowhere to put a word.",
         "productType" to "Six fixed options behind a dropdown; there is no free text for a spoken answer to land in.",
-        "craftId" to "A closed vocabulary behind a dropdown whose free-text escape hatch, `craftName`, is dictated instead.",
+        "craftId" to "A craft from the master list, picked in the craft sheet; nothing is typed, so a microphone would have nowhere to put a word.",
+        "craftName" to "Never typed since the master list (2026-10-20): the server derives the name from the craft picked, so there is no box to speak into.",
         "artisanId" to "A closed vocabulary behind a dropdown whose free-text escape hatch, `artisanName`, is dictated instead.",
         "lengthInches" to "A decimal measurement. Recognisers spell digits out in words and this box's numeric keyboard and parse discard that silently, so a spoken answer reads as no answer.",
         "breadthInches" to "A decimal measurement, and a measurement is the one thing on this form a machine also writes — a dictated word here would sit beside a grid-measured number claiming equal authority.",
@@ -187,11 +191,12 @@ val RECORD_NOT_DICTATED: Map<RecordFormKind, Map<String, String>> = mapOf(
     ),
     RecordFormKind.TOOL to mapOf(
         "workshopId" to "A closed vocabulary behind a picker; nothing is typed here, so a microphone would have nowhere to put a word.",
-        "craftId" to "A closed vocabulary behind a dropdown whose free-text escape hatch, `craftName`, is dictated instead.",
+        "craftId" to "A craft from the master list, picked in the craft sheet; nothing is typed, so a microphone would have nowhere to put a word.",
+        "craftName" to "Never typed since the master list (2026-10-20): the server derives the name from the craft picked, so there is no box to speak into.",
         "artisanId" to "A closed vocabulary behind a dropdown whose free-text escape hatch, `artisanName`, is dictated instead.",
         // Added 2026-09-15 with the multi-craft work, which put both lists on the wire.
         "craftIds" to "A multi-select over crafts the server already knows; the answer is ticked, never typed, exactly as the workshop form's own `craftIds` entry says one field above.",
-        "artisanIds" to "A multi-select over people the server already knows; the answer is ticked, never typed, and the free-text fallbacks beside it — `craftName` and `artisanName` — are the boxes that do dictate.",
+        "artisanIds" to "A multi-select over people the server already knows; the answer is ticked, never typed, and the free-text fallback beside it, `artisanName`, is the box that does dictate.",
         "yearsInUse" to "A whole number behind a numeric keyboard; spoken digits arrive as words and are discarded without a word to the researcher.",
         // 2026-09-15: `height` and `width` are the CENTIMETRE boxes now, paired with `heightInches`
         // and `breadthInches`. The dictation answer does not change — a decimal is a decimal — but the

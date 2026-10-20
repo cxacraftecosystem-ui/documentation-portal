@@ -137,7 +137,7 @@ class WalkthroughStepsTest {
         "product" to listOf(
             FieldSwap(web = "Artisan (required)", handset = null),
             FieldSwap(web = "Artisan not on record", handset = null),
-            FieldSwap(web = null, handset = "Linked artisan (fills artisan + place)", after = "Craft name (required)"),
+            FieldSwap(web = null, handset = "Linked artisan (fills artisan + place)", after = "Craft (required)"),
         ),
         "process" to listOf(FieldSwap(web = "Per step: Name of the step", handset = "Per step: Name of the step (required)")),
     )

@@ -224,6 +224,15 @@ data class CraftDto(
     val name: String,
     val localName: String? = null,
     val category: String? = null,
+    // The master list (REQUIREMENTS_2026-10-20 §2.3). Optional: an older API sends none of them.
+    val slug: String? = null,
+    val categoryId: String? = null,
+    val subCategoryId: String? = null,
+    val sourceSerial: Int? = null,
+    val stateOfOrigin: List<String> = emptyList(),
+    val stateOfPractice: List<String> = emptyList(),
+    val giStatus: String? = null,
+    val status: String? = null,
     val place: String? = null,
     val description: String? = null,
     // The workshop this craft was documented at. Persisted since the workshop-linkage migration
@@ -708,7 +717,14 @@ data class ReviewEditRequest(
 data class CraftCreateRequest(
     val name: String,
     val localName: String? = null,
+    /** Never sent any more: the server writes the category's name from [subCategoryId]. */
     val category: String? = null,
+    /** The master list's sub-category this craft sits in (REQUIREMENTS_2026-10-20 §2.3). */
+    val subCategoryId: String? = null,
+    val stateOfOrigin: List<String>? = null,
+    val stateOfPractice: List<String>? = null,
+    /** "GI" or "NON_GI". */
+    val giStatus: String? = null,
     val description: String? = null,
     val place: String? = null,
     // The workshop this craft was documented at. Every record form now opens with the workshop
