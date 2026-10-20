@@ -9,7 +9,6 @@ import { expect, test, type Page, type Route } from "@playwright/test";
  * gaps panel and the unmatched flow — at a phone and a laptop width, in light and dark.
  */
 
-const API = process.env.E2E_API_BASE ?? "http://localhost:8000";
 const SHOTS = process.env.SHOT_DIR ?? "shots/coverage";
 
 const UNIT = {
@@ -123,7 +122,9 @@ async function mockApi(page: Page) {
       route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(SHAPES) })
     );
   }
-  await page.route(`${API}/**`, async (route: Route) => {
+  // Every call goes to `/api/...` on the page's own origin (`lib/api.ts`), so that is what is answered;
+  // the API's own address is never reached from the browser.
+  await page.route((url) => url.pathname.startsWith("/api/"), async (route: Route) => {
     const url = new URL(route.request().url());
     const path = url.pathname.replace(/^\/api/, "");
     const json = (body: unknown, status = 200) =>

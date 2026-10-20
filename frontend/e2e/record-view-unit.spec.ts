@@ -166,11 +166,15 @@ test.describe("what a view prints", () => {
       "GI status",
       "State of origin",
       "State of practice",
-      "Place",
       "Description",
       "Workshop"
     ]);
     expect(rows.every((r) => r.value === NOT_RECORDED)).toBe(true);
+  });
+
+  test("a craft's place, which the form no longer asks for, shows only on a record that holds one", () => {
+    const rows = recordFieldRows("craft", { name: "Block printing", place: "Bagru" });
+    expect(rows.find((r) => r.label === "Place")?.value).toBe("Bagru");
   });
 
   test("a Decimal that arrives as a string prints as a number", () => {
