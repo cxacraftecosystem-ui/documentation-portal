@@ -31,12 +31,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.fieldrepository.app.data.CoverageFill
 import com.fieldrepository.app.data.CoverageMarker
 import com.fieldrepository.app.data.binOf
@@ -143,6 +141,9 @@ fun CoverageMapCanvas(
     val inkOnDesign = if (dark) FieldPalette.Purple950 else Color.White
     val inkOnOther = if (dark) FieldPalette.Purple200 else FieldPalette.Purple800
     val reducedMotion = LocalAppPreferences.current.reducedMotion
+    // The count on a folded marker: the type scale's smallest label role, read here because a draw
+    // lambda cannot read the theme.
+    val countStyle = MaterialTheme.typography.labelSmall
 
     // A new state focus re-fits the box, so any zoom from before is meaningless: back to 1.
     LaunchedEffect(focusStateLgd) { zoom.reset() }
@@ -272,8 +273,7 @@ fun CoverageMapCanvas(
                     if (many) {
                         val text = measurer.measure(
                             cluster.markers.size.toString(),
-                            style = TextStyle(
-                                fontSize = 10.sp,
+                            style = countStyle.copy(
                                 fontWeight = FontWeight.SemiBold,
                                 color = if (design) inkOnDesign else inkOnOther
                             )

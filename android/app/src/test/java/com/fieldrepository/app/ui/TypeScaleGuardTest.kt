@@ -15,7 +15,6 @@ import java.io.File
  * drawn ON TOP of the thing it labels, where a scale step would cover it:
  *  - ui/Theme.kt defines the scale, so its sizes ARE the literals.
  *  - ui/MapScreen.kt — the pin label and the scale-bar "km" it paints onto the map canvas.
- *  - ui/CoverageMapCanvas.kt — the count it paints inside a folded marker on the coverage map.
  *  - ui/RecordMeasureField.kt — the letter inside a 20dp measuring mark on the photo.
  *  - ui/trace/TraceCompare.kt — the picture's name over the corner of the compare slider.
  */
@@ -24,7 +23,6 @@ class TypeScaleGuardTest {
     private val allowList = setOf(
         "com/fieldrepository/app/ui/Theme.kt",
         "com/fieldrepository/app/ui/MapScreen.kt",
-        "com/fieldrepository/app/ui/CoverageMapCanvas.kt",
         "com/fieldrepository/app/ui/RecordMeasureField.kt",
         "com/fieldrepository/app/ui/trace/TraceCompare.kt",
     )
