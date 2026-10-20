@@ -94,6 +94,18 @@ test("the More sheet is a modal bottom sheet titled More", () => {
   expect(SHEET).toContain('event.key === "Escape"');
 });
 
+test("Back closes the More sheet without leaving a step behind", () => {
+  // Opening stands the sheet on its own history entry, carrying the router's state with it.
+  expect(SHEET).toContain("window.history.pushState({ ...(window.history.state ?? {}), [ISLAND_MORE_HISTORY_KEY]: true }, \"\")");
+  // Back (popstate) closes it; a pop onto another sheet entry does not.
+  expect(SHEET).toContain("window.addEventListener(\"popstate\", onPopState)");
+  expect(SHEET).toMatch(/if \(\(event\.state as Record<string, unknown> \| null\)\?\.\[ISLAND_MORE_HISTORY_KEY\]\) return;\s*popped = true;\s*closeRef\.current\(\);/);
+  // Escape or the scrim take the entry off again; a row replaces it with the page it opens.
+  expect(SHEET).toContain("if (!popped && !leavingByLink.current && onSheetEntry) window.history.back();");
+  expect(SHEET).toMatch(/href=\{href\}\s*replace\s*onClick=\{onNavigate\}/);
+  expect(SHEET.match(/onNavigate=\{navigateFromSheet\}/g)?.length).toBe(2);
+});
+
 test("the search header carries the scan button, the name and the search glyph", () => {
   expect(HEADER).toContain("<TopBarScanButton />");
   expect(HEADER).toContain("aria-label={`${appName}. Search`}");
@@ -143,7 +155,7 @@ test("the page clears the header and the bar below lg, and the island from lg up
 });
 
 test("the upload tray and the toasts sit above the bar", () => {
-  expect(CSS).toMatch(/@media \(width < 64rem\) \{\s*html\.has-bottom-nav \{\s*(?:\/\*[^*]*\*\/\s*)?--bottom-nav-h: calc\(62px \+ 0\.75rem \+ env\(safe-area-inset-bottom, 0px\)\);/);
+  expect(CSS).toMatch(/@media \(width < 64rem\) \{\s*html\.has-bottom-nav \{\s*--bottom-nav-h: calc\(62px \+ 0\.75rem \+ env\(safe-area-inset-bottom, 0px\)\);/);
   expect(read("components", "media", "UploadTray.tsx")).toContain('bottom: "var(--bottom-nav-h, 0px)"');
   expect(read("components", "ui", "Toast.tsx")).toContain('bottom: "calc(var(--bottom-nav-h, 0px) + 0.75rem)"');
   expect(BAR).toContain('root.classList.add("has-bottom-nav")');

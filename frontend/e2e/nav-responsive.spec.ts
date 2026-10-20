@@ -85,6 +85,12 @@ for (const size of [
       await page.keyboard.press("Escape");
       await expect(sheet).toBeHidden();
       await expect(more).toBeFocused();
+      // Back closes it too, and leaves the reader on the same page.
+      await more.click();
+      await expect(sheet).toBeVisible();
+      await page.goBack();
+      await expect(sheet).toBeHidden();
+      await expect(page).toHaveURL(/\/guide$/);
     });
 
     test("a researcher sees five slots and no More", async ({ page }) => {

@@ -501,8 +501,8 @@ so the server and first client render agree and nothing flashes.
 |---|---|---|
 | `lib/islandNav.ts` | `IslandBottomNav.kt` (pure half), `quickReturnStep` | `ISLAND_MAX_VISIBLE` 5, `ISLAND_MORE_LABEL`, `ISLAND_SHORT_LABELS` (Dashboard→Home, Walkthrough→Tour), `islandSlots`, `splitIsland`, `isIslandSlotActive`, `isIslandMoreActive`, `islandLabelRoom`/`islandLabelSize`, badge and keyboard helpers |
 | `components/nav/BottomIslandNav.tsx` | `FieldIslandNav` | the bottom pill: ≤ 5 slots (the fifth "More" past five), a divider, the menu button that opens `.nav-sheet` |
-| `components/nav/IslandMoreSheet.tsx` | `IslandMoreSheet` | the "More" bottom sheet: 0.32 scrim, 28px top corners, 80dvh, grab handle, a heading per group, 48px rows, focus trapped |
-| `components/nav/AppSearchHeader.tsx` | `AppSearchHeader` + `QuickReturnHeader` | logo + name centred, `<TopBarScanButton />` leading, search glyph trailing; quick return (hide after 24px down past its height, back on any move up) |
+| `components/nav/IslandMoreSheet.tsx` | `IslandMoreSheet` | the "More" bottom sheet: 0.32 scrim, 28px top corners, 80dvh, grab handle, a heading per group, 48px rows, focus trapped; Escape, the scrim or Back closes it (opening pushes one history entry carrying Next's state; a row replaces it) |
+| `components/nav/AppSearchHeader.tsx` | `AppSearchHeader` + `QuickReturnHeader` | logo + name centred, `<TopBarScanButton />` leading, search glyph trailing; quick return (hide after 24px down past its height, back on any move up; the scroll delta is read at the scroll, never inside the state updater) |
 | `components/nav/AppSearchPanel.tsx` | `AppSearchPanel` | full-screen search: screens from 1 character, records (`fetchUnified`) from 2 after 300ms, 5 per group, 8 recents, Enter opens `/search?q=` |
 
 - **The bar is fed from `visibleItems`**, the list the sheet draws, so it can offer nothing the

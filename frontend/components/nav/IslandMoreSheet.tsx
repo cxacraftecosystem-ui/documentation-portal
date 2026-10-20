@@ -12,11 +12,19 @@ import { cn } from "@/lib/utils";
 const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
+ * The history entry the open sheet stands on, so the browser's Back closes it — Android's
+ * `BackHandler`. Next's own state is copied in beside it, so the router reads the entry as the same page.
+ */
+export const ISLAND_MORE_HISTORY_KEY = "islandMoreSheet";
+
+/**
  * The destinations that did not fit on the bar, in the bar's order — Android's `IslandMoreSheet`.
  *
  * A loose destination is one row; a group is its heading and then one row per entry, so nothing
  * hidden is more than one tap away. The row for the screen the reader is on is lit. A modal sheet:
- * focus moves in and is trapped, Escape or the scrim closes it, and focus returns to "More".
+ * focus moves in and is trapped, Escape, Back or the scrim closes it, and focus returns to "More".
+ * Opening pushes one history entry; closing other than by Back takes it off again, and a row replaces
+ * it with the page it opens, so the sheet never leaves an extra step behind.
  *
  * Shared byte-identical by the designer portal and the documentation portal.
  */
@@ -41,6 +49,32 @@ export function IslandMoreSheet({
   useEffect(() => {
     closeRef.current = onClose;
   });
+  // Set by a row just before the sheet closes: that row's link replaces the sheet's history entry.
+  const leavingByLink = useRef(false);
+
+  useEffect(() => {
+    if (!open) return;
+    leavingByLink.current = false;
+    let popped = false;
+    window.history.pushState({ ...(window.history.state ?? {}), [ISLAND_MORE_HISTORY_KEY]: true }, "");
+    const onPopState = (event: PopStateEvent) => {
+      // A pop that lands on a sheet entry (a re-run effect's) is not a Back out of this one.
+      if ((event.state as Record<string, unknown> | null)?.[ISLAND_MORE_HISTORY_KEY]) return;
+      popped = true;
+      closeRef.current();
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+      const onSheetEntry = Boolean((window.history.state as Record<string, unknown> | null)?.[ISLAND_MORE_HISTORY_KEY]);
+      if (!popped && !leavingByLink.current && onSheetEntry) window.history.back();
+    };
+  }, [open]);
+
+  const navigateFromSheet = () => {
+    leavingByLink.current = true;
+    onClose();
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -112,7 +146,7 @@ export function IslandMoreSheet({
                   icon={slot.entry.icon}
                   badge={slot.entry.badge ?? 0}
                   selected={slot.label === currentLabel}
-                  onNavigate={onClose}
+                  onNavigate={navigateFromSheet}
                 />
               ) : (
                 <section key={slot.label} aria-labelledby={`island-more-${slot.label}`}>
@@ -134,7 +168,7 @@ export function IslandMoreSheet({
                       icon={entry.icon}
                       badge={entry.badge ?? 0}
                       selected={entry.label === currentLabel}
-                      onNavigate={onClose}
+                      onNavigate={navigateFromSheet}
                     />
                   ))}
                 </section>
@@ -167,6 +201,7 @@ function SheetRow({
     <div className="px-3">
       <Link
         href={href}
+        replace
         onClick={onNavigate}
         aria-current={selected ? "page" : undefined}
         aria-label={islandSlotName(label, badge)}

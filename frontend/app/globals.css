@@ -508,7 +508,6 @@
    */
   @media (width < 64rem) {
     html.has-bottom-nav {
-      /* The bar: 48px slots + 6px padding each side + its 1px border each side = 62px. */
       --bottom-nav-h: calc(62px + 0.75rem + env(safe-area-inset-bottom, 0px));
     }
 
