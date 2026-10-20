@@ -493,9 +493,29 @@
     padding-right: var(--nav-scroll-gutter, 0px);
   }
 
-  .nav-island-frame {
+  .nav-island-frame,
+  .bottom-island-frame,
+  .app-search-header-frame {
     padding-left: 0.75rem;
     padding-right: calc(0.75rem + var(--nav-scroll-gutter, 0px));
+  }
+
+  /*
+   * Below `lg` (64rem = 1024px, the one breakpoint that decides the navigation mode) the bottom
+   * island floats over the foot of every signed-in page. `--bottom-nav-h` is its height plus its
+   * offset, so the upload tray and the toasts sit above it. `BottomIslandNav` puts the class on
+   * <html> while it is mounted; at `lg` and up nothing reads a value and both sit at the bottom.
+   */
+  @media (width < 64rem) {
+    html.has-bottom-nav {
+      --bottom-nav-h: calc(60px + 0.75rem + env(safe-area-inset-bottom, 0px));
+    }
+
+    /* The menu sheet opens from the bar's menu button; its foot (admin view, Logout) ends above it. */
+    html.has-bottom-nav .nav-sheet {
+      max-height: calc(100vh - var(--nav-sheet-top) - var(--bottom-nav-h) - 0.5rem);
+      max-height: calc(100dvh - var(--nav-sheet-top) - var(--bottom-nav-h) - 0.5rem);
+    }
   }
 
   /* Themed file-upload trigger (label/button wrapping a hidden <input type="file">). */

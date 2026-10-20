@@ -27,7 +27,8 @@ async function signIn(page: Page) {
   await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 60_000 });
 }
 
-const hamburger = (page: Page) => page.getByRole("button", { name: "Toggle navigation menu" });
+// The island's menu button from `lg` up; the bottom island's below it (only one is ever drawn).
+const hamburger = (page: Page) => page.getByRole("button", { name: /^(Toggle navigation menu|Open menu)$/ });
 const sheet = (page: Page) => page.getByRole("dialog", { name: "Navigation" });
 
 /**

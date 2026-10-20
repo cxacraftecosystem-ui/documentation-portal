@@ -279,11 +279,13 @@ form — they are siblings. Signed-in-only dialogs live in the protected layout,
 <motion.main id="main-content" tabIndex={-1} key={pathname}
   initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
   transition={{ duration: 0.22, ease: "easeOut" }}
-  className="mx-auto max-w-7xl px-4 pb-12 pt-24">
+  className="relative z-10 mx-auto max-w-7xl px-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))]
+             pt-[calc(60px+1.25rem)] lg:pb-12 lg:pt-24">
 ```
 
-**`pt-24` (96px) IS the island clearance contract.** Never reduce it and never add your own top
-padding for the nav. `key={pathname}` is what replays the 6px-rise fade on every navigation.
+**`lg:pt-24` (96px) IS the island clearance contract**, and below `lg` the two `calc()`s clear the
+search header (60px + its 12px offset + 8px) and the bottom island (§7.11). Never reduce them and
+never add your own top or bottom padding for the nav. `key={pathname}` is what replays the 6px-rise fade on every navigation.
 
 Four mutually exclusive branches, in order: route-locked → admin-view settling → admin-chrome hidden →
 `children`. Do not write per-page lock panels; the shell renders both.
@@ -297,7 +299,7 @@ Root `mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between`; tit
 `display-title text-3xl md:text-4xl`; description `mt-2 max-w-3xl text-sm leading-6 text-ink-muted`;
 icon chip `mt-1 grid h-10 w-10 place-items-center rounded-xl bg-field-200 text-field-600`; actions
 `flex flex-wrap gap-2`. `back` defaults **true**; only a true root screen passes `back={false}`.
-`PageHeader`'s `mb-6` + the shell's `pt-24` is the whole top-of-page spec.
+`PageHeader`'s `mb-6` + the shell's `lg:pt-24` (below `lg`, its `calc()`) is the whole top-of-page spec.
 
 `BackButton` calls `interceptLeave()` **before both** navigation branches, so an explicit `href` cannot
 skip the unsaved-changes prompt. In a form call `useLeaveGuard(dirty, () => setShowUnsavedDialog(true))`
@@ -484,6 +486,44 @@ forever (a stalled page on every admin route).
   user always gets the honest permission copy.
 - `AdminViewHidden` deliberately does **not** reuse the padlock / "access required" / "an admin can
   raise your access" copy — telling an admin they lack access they hold is the worse error.
+
+### 7.11 Mobile and tablet — Android's bottom island and search header (2026-10-20)
+
+**One breakpoint decides the navigation, and CSS decides it:** `lg` (1024 CSS px). From `lg` up the
+island above is drawn at its original expanded size (pill `px-4 py-2`, logo `h-8 w-8`, name
+`text-base`, strip `lg:flex gap-5`) with the admin-view pill (`px-2.5 py-1.5 text-xs`, an eye and
+"Admin view", a `role="switch"` button) and the bell. Below `lg` the island frame is `max-lg:hidden`
+and `DynamicIslandNav` draws three ports of the handset instead, each `lg:hidden`. **No component
+reads the window width to pick a mode** (the one `innerWidth` read is the sheet's scrollbar gutter),
+so the server and first client render agree and nothing flashes.
+
+| File (byte-identical in both web apps) | Android original | What it is |
+|---|---|---|
+| `lib/islandNav.ts` | `IslandBottomNav.kt` (pure half), `quickReturnStep` | `ISLAND_MAX_VISIBLE` 5, `ISLAND_MORE_LABEL`, `ISLAND_SHORT_LABELS` (Dashboard→Home, Walkthrough→Tour), `islandSlots`, `splitIsland`, `isIslandSlotActive`, `isIslandMoreActive`, `islandLabelRoom`/`islandLabelSize`, badge and keyboard helpers |
+| `components/nav/BottomIslandNav.tsx` | `FieldIslandNav` | the bottom pill: ≤ 5 slots (the fifth "More" past five), a divider, the menu button that opens `.nav-sheet` |
+| `components/nav/IslandMoreSheet.tsx` | `IslandMoreSheet` | the "More" bottom sheet: 0.32 scrim, 28px top corners, 80dvh, grab handle, a heading per group, 48px rows, focus trapped |
+| `components/nav/AppSearchHeader.tsx` | `AppSearchHeader` + `QuickReturnHeader` | logo + name centred, `<TopBarScanButton />` leading, search glyph trailing; quick return (hide after 24px down past its height, back on any move up) |
+| `components/nav/AppSearchPanel.tsx` | `AppSearchPanel` | full-screen search: screens from 1 character, records (`fetchUnified`) from 2 after 300ms, 5 per group, 8 recents, Enter opens `/search?q=` |
+
+- **The bar is fed from `visibleItems`**, the list the sheet draws, so it can offer nothing the
+  sheet would not. Groups are `NAV_GROUPS`, an empty group is dropped before the count, and the
+  current slot is the one holding the longest-base active entry's label.
+- **`e2e/island-nav-unit.spec.ts` mirrors `IslandBottomNavTest.kt` case for case.** A rule changed
+  in one changes in the other, in the same release.
+- **The bar hides for the on-screen keyboard (`visualViewport` 150px short) and while search is
+  open — never on scroll.** The header hides on scroll and is `inert` while hidden.
+- **The unread count rides on the slot holding Notifications** (the Account group, or More) and on
+  its row; the bell stays desktop-only, as on Android. One store with the bell.
+- **`--bottom-nav-h`** is set by CSS on `html.has-bottom-nav` below `lg` only (the bar adds the
+  class while mounted). `UploadTray` and the toast viewport add it to their bottom offset, and the
+  menu sheet's `max-height` subtracts it so its foot (admin view, Logout) ends above the bar.
+- **The admin-view switch and Logout live in the sheet** at every width; the bar's menu button
+  opens it, and closing it returns focus to whichever menu button opened it.
+- **Browse carries "Scan a code" (`/scan`)**, as in the designer portal, so a desktop reaches the
+  scanner from the menu; below `lg` the header's scan button opens it.
+- `TopBarScanButton` (`components/scan/`) is the QR stream's; its signature is frozen
+  (`({ className }: { className?: string }): JSX.Element`).
+- The header prints Android's `APP_SEARCH_NAME`, "Field Repository".
 
 ---
 
@@ -1851,9 +1891,9 @@ Each of these looks wrong and is deliberate. Most were a shipped bug.
 - Active route is **longest-base-wins**, never `startsWith(href)`.
 - `isNavItemVisible` checks `can` **before** the toggle.
 - `adminChromeVisible` returns true for non-admins — always AND it with the role check.
-- Below `lg` the entire dropdown bar is hidden; below `sm` the pill's admin toggle is too, so the
-  sheet-footer toggle is a phone user's only way to flip admin view.
-- Never reduce `AppShell`'s `pt-24`.
+- Below `lg` the island is not drawn at all (`max-lg:hidden`); the bottom island and the search
+  header are (§7.11), so the sheet-footer toggle is a phone user's only way to flip admin view.
+- Never reduce `AppShell`'s `lg:pt-24`, or the below-`lg` `calc()` paddings that clear the header and bar.
 
 **Motion**
 - No `MotionConfig reducedMotion="user"` — framer animations must branch in JS themselves.

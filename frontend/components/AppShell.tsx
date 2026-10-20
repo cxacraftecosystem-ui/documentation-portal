@@ -103,7 +103,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.22, ease: "easeOut" }}
-        className="relative z-10 mx-auto max-w-7xl px-4 pb-12 pt-24"
+        className="relative z-10 mx-auto max-w-7xl px-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))] pt-[calc(60px+1.25rem)] lg:pb-12 lg:pt-24"
       >
         {blocked && guard ? (
           <RouteLocked title={guard.title} message={guard.message} role={roleLabel(user.role)} />

@@ -24,6 +24,7 @@ import {
   LogOut,
   MapPinned,
   Menu as MenuIcon,
+  QrCode,
   MessageSquare,
   Search,
   Settings as SettingsIcon,
@@ -38,12 +39,17 @@ import {
 } from "lucide-react";
 
 import { useAdminView } from "@/components/AdminViewProvider";
+import { AppSearchHeader } from "@/components/nav/AppSearchHeader";
+import { AppSearchPanel } from "@/components/nav/AppSearchPanel";
+import { BottomIslandNav } from "@/components/nav/BottomIslandNav";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { useAuth } from "@/components/AuthProvider";
 import { usePendingAccessCount } from "@/components/hooks/usePendingAccessCount";
+import { useUnreadNotificationCount } from "@/components/hooks/useUnreadNotifications";
 import { useInboxCount } from "@/components/questionnaire/useInboxCount";
 import { HoveredLink, MenuItem } from "@/components/ui/navbar-menu";
 import { FieldRepoLogo } from "@/components/FieldRepoLogo";
+import { NOTIFICATIONS_HREF } from "@/lib/inAppNotifications";
 import {
   canCreateRecords,
   canDownloadDataset,
@@ -64,10 +70,10 @@ import type { User } from "@/lib/types";
  * (Dashboard and the Walkthrough, the two places a newcomer starts). "Account" sits last because it
  * holds what belongs to the person rather than to the repository — their own settings and feedback.
  */
-const NAV_GROUPS = ["Record", "Browse", "Admin", "Account"] as const;
-type NavGroup = (typeof NAV_GROUPS)[number];
+export const NAV_GROUPS = ["Record", "Browse", "Admin", "Account"] as const;
+export type NavGroup = (typeof NAV_GROUPS)[number];
 
-type NavItem = {
+export type NavItem = {
   href: string;
   label: string;
   icon: LucideIcon;
@@ -124,6 +130,10 @@ export const NAV_ITEMS: NavItem[] = [
   // Everyone can be a task assignee; the "assign" half of the page is gated inside it.
   { href: "/tasks", label: "Tasks", icon: ClipboardCheck, group: "Browse", can: everyone, gate: "get_current_user" },
   { href: "/search", label: "Search", icon: Search, group: "Browse", can: everyone, gate: "get_current_user" },
+  // The scanner's desktop route, as in the designer portal's menu. Ungated like /search: every code
+  // it reads resolves through endpoints that scope the answer per viewer on the server. Below 1024px
+  // the search header's scan button opens the same reader.
+  { href: "/scan", label: "Scan a code", icon: QrCode, group: "Browse", can: everyone, gate: "get_current_user" },
   // The third way of reading the whole corpus, and it sits next to the other two on purpose:
   // /search reads it as a list, /data as a folder tree, /map as a place. Ungated to match /search,
   // because GET /map/points takes any signed-in caller and has already filtered every pin through
@@ -242,7 +252,14 @@ function NavBadge({ count }: { count: number | null }) {
 
 export function DynamicIslandNav() {
   const { user, logout } = useAuth();
-  const { adminMode, canAdmin, toggleAdminView } = useAdminView();
+  const adminView = useAdminView();
+  const { adminMode, canAdmin, toggleAdminView } = adminView;
+  /**
+   * Whether this account has the admin-view control at all. The permissions stream adds `available`
+   * (content admins) to the provider; until it lands the control follows `canAdmin`, which is
+   * today's `isAdmin(user)`.
+   */
+  const adminAvailable = (adminView as { available?: boolean }).available ?? canAdmin;
   /**
    * The access roster's pending count. THE NOTIFICATION: there is no email and no push in this
    * codebase, so "admins should be notified to approve or reject" is a number on the surfaces they
@@ -256,10 +273,16 @@ export function DynamicIslandNav() {
   const pathname = usePathname();
   const [active, setActive] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [compact, setCompact] = useState(false);
   const { scrollY } = useScroll();
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+  /**
+   * The button that opened the sheet — the island's menu button on a desktop, the bottom bar's on a
+   * phone or tablet — so dismissal hands focus back to the control the reader actually pressed.
+   */
+  const sheetOpenerRef = useRef<HTMLButtonElement | null>(null);
 
   // Compact while travelling downward, expand at the top or on any upward scroll —
   // so the full menu is always one flick away without returning to the top.
@@ -272,6 +295,7 @@ export function DynamicIslandNav() {
 
   useEffect(() => {
     setSheetOpen(false);
+    setSearchOpen(false);
     setActive(null);
   }, [pathname]);
 
@@ -280,7 +304,12 @@ export function DynamicIslandNav() {
   // they were.
   const closeSheet = useCallback(() => {
     setSheetOpen(false);
-    menuButtonRef.current?.focus();
+    (sheetOpenerRef.current ?? menuButtonRef.current)?.focus();
+  }, []);
+
+  const toggleSheetFrom = useCallback((button: HTMLButtonElement) => {
+    sheetOpenerRef.current = button;
+    setSheetOpen((value) => !value);
   }, []);
 
   /**
@@ -361,6 +390,13 @@ export function DynamicIslandNav() {
     items: visibleItems.filter((item) => item.group === label)
   })).filter((group) => group.items.length > 0);
 
+  /**
+   * The unread count the bottom bar carries on the slot holding "Notifications" (and on its row in
+   * a menu or the "More" sheet). One store with the desktop bell, so the two never disagree; the
+   * bell itself stays desktop-only, as on Android.
+   */
+  const unreadNotifications = useUnreadNotificationCount(Boolean(user));
+
   if (!user) return null;
 
   async function handleLogout() {
@@ -399,9 +435,20 @@ export function DynamicIslandNav() {
     return null;
   };
 
+  // The bottom bar's model: the same `visibleItems`, so it can offer nothing the sheet would not.
+  const islandEntry = (item: NavItem) => ({
+    label: item.label,
+    href: item.href,
+    icon: item.icon,
+    badge: item.href === NOTIFICATIONS_HREF ? unreadNotifications : 0
+  });
+  const islandRoots = rootItems.map(islandEntry);
+  const islandGroups = visibleGroups.map((group) => ({ label: group.label, entries: group.items.map(islandEntry) }));
+  const currentLabel = visibleItems.find((item) => isActivePath(item.href))?.label ?? null;
+
   return (
     <>
-      <div className="nav-island-frame pointer-events-none fixed inset-x-0 top-3 z-50 flex justify-center">
+      <div className="nav-island-frame pointer-events-none fixed inset-x-0 top-3 z-50 flex justify-center max-lg:hidden">
         <motion.header
           layout
           transition={spring}
@@ -471,24 +518,31 @@ export function DynamicIslandNav() {
 
           <div className="ml-1 flex items-center gap-1.5">
             {/* Offered to admins only — and it can merely hide admin chrome, never unlock it. */}
-            {canAdmin && !compact ? (
-              // The shared switch (components/ui/Toggle), never "ON"/"OFF" words: the track says it.
-              <span
+            {adminAvailable && !compact ? (
+              // The pill's original footprint (px-2.5 py-1.5), a switch for assistive technology: the
+              // eye and the purple wash say on or off, and `aria-checked` says it in words.
+              <button
+                data-testid="island-admin-view"
+                type="button"
+                role="switch"
+                aria-checked={adminMode}
+                onClick={() => toggleAdminView()}
                 className={cn(
-                  "hidden items-center gap-1 rounded-full border py-0.5 pl-2.5 pr-0.5 text-xs font-medium transition sm:inline-flex",
-                  adminMode ? "border-purple-300 bg-purple-50 text-purple-700" : "border-line-200 bg-card text-ink-500"
+                  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-medium transition",
+                  adminMode
+                    ? "border-purple-300 bg-purple-50 text-purple-700"
+                    : "border-line-200 bg-card text-ink-500 hover:bg-surface-50"
                 )}
               >
                 {adminMode ? <Eye className="h-3.5 w-3.5" aria-hidden /> : <EyeOff className="h-3.5 w-3.5" aria-hidden />}
-                <span aria-hidden>Admin view</span>
-                <Toggle hideLabel label="Admin view" checked={adminMode} onChange={() => toggleAdminView()} />
-              </span>
+                Admin view
+              </button>
             ) : null}
             <NotificationBell active={isActivePath("/notifications")} />
             <button
               ref={menuButtonRef}
               type="button"
-              onClick={() => setSheetOpen((value) => !value)}
+              onClick={(event) => toggleSheetFrom(event.currentTarget)}
               aria-label="Toggle navigation menu"
               aria-expanded={sheetOpen}
               className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-line-200 bg-card text-ink-900 transition hover:bg-surface-50 pointer-coarse:h-11 pointer-coarse:w-11"
@@ -548,7 +602,7 @@ export function DynamicIslandNav() {
                 ))}
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line-200 pt-4">
-                {canAdmin ? (
+                {adminAvailable ? (
                   <div className="min-w-56">
                     <Toggle
                       label="Admin view"
@@ -571,6 +625,35 @@ export function DynamicIslandNav() {
           </motion.div>
         ) : null}
       </AnimatePresence>
+
+      {/* MOBILE AND TABLET (< 1024 CSS px): Android's search header and bottom island, in place of
+          the island above (REQUIREMENTS_2026-10-20 §4). CSS alone decides which set is drawn —
+          `max-lg:hidden` on the island frame, `lg:hidden` on these — so nothing reads the window
+          width and nothing flashes on hydration. The bar's menu button opens the sheet above, so
+          the admin-view switch and Logout have one home at every width. */}
+      <AppSearchHeader
+        appName={APP_NAME}
+        logo={(className) => <FieldRepoLogo className={className} />}
+        onOpenSearch={() => setSearchOpen(true)}
+        searchOpen={searchOpen}
+      />
+      <AppSearchPanel
+        open={searchOpen}
+        appName={APP_NAME}
+        screens={visibleItems.map((item) => ({ label: item.label, href: item.href, icon: item.icon }))}
+        onClose={() => setSearchOpen(false)}
+      />
+      <BottomIslandNav
+        roots={islandRoots}
+        groups={islandGroups}
+        currentLabel={currentLabel}
+        onOpenMenu={toggleSheetFrom}
+        menuOpen={sheetOpen}
+        hidden={searchOpen}
+      />
     </>
   );
 }
+
+/** The name the search header prints — Android's `APP_SEARCH_NAME`, word for word. */
+const APP_NAME = "Field Repository";
