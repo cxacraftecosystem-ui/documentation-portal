@@ -93,7 +93,7 @@ export default function SentBackPage() {
                 ) : null}
                 <p className="text-xs text-ink-500">{returnedNextStep(item.status)}</p>
                 {update ? (
-                  <ButtonRow size="sm" align="start">
+                  <ButtonRow size="sm" fill>
                     <Link className="field-button h-9 min-h-0 px-3 text-xs pointer-coarse:h-11" href={update}>
                       <Pencil className="h-3.5 w-3.5" aria-hidden />
                       Update

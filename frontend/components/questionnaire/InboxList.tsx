@@ -262,7 +262,7 @@ function LegacyPick({ row, busy, onConfirm }: { row: InboxLegacy; busy: boolean;
           </button>
         ))}
       </div>
-      <ButtonRow size="sm">
+      <ButtonRow size="sm" fill>
         <button type="button" className="field-button" disabled={!pick || busy} onClick={() => onConfirm(pick)}>
           {qs("confirm")}
         </button>

@@ -15,6 +15,11 @@ import { Children, Fragment, isValidElement, type ReactElement, type ReactNode }
  * a single button is always centred, whatever `align` says, because a lone button off to one side
  * reads as something missing beside it.
  * `size="sm"` is the compact density of a list row's actions; the default is the form height.
+ *
+ * `fill` is for a card's footer (owner ruling 2026-10-20): at every width ONE button spans the
+ * card's content width and TWO split it in half around the same `gap-2`, the left one reaching the
+ * left padding edge and the right one the right. Only the width grows: the height stays whatever the
+ * buttons carry. Three or more ignore it.
  */
 
 type Align = "center" | "end" | "start";
@@ -48,7 +53,8 @@ export function ButtonRow({
   align = "center",
   size = "md",
   className,
-  label
+  label,
+  fill = false
 }: {
   children?: ReactNode;
   /** Delete / remove / reject — always last, and set apart on wide screens. */
@@ -58,6 +64,8 @@ export function ButtonRow({
   className?: string;
   /** Names the group for assistive technology when the buttons need context. */
   label?: string;
+  /** A card footer: one or two buttons stretch to the card's content edges at every width. */
+  fill?: boolean;
 }) {
   const items = flatten(children);
   const danger = flatten(destructive);
@@ -67,9 +75,32 @@ export function ButtonRow({
   const extra = className ? ` ${className}` : "";
   const group = label ? { role: "group" as const, "aria-label": label } : {};
 
+  if (count === 1 && fill) {
+    return (
+      <div data-button-row="1" data-fill="" className={`flex [&>*]:w-full${extra}`} {...group}>
+        {items}
+        {danger}
+      </div>
+    );
+  }
+
   if (count === 1) {
     return (
       <div data-button-row="1" className={`flex justify-center${extra}`} {...group}>
+        {items}
+        {danger}
+      </div>
+    );
+  }
+
+  if (count === 2 && fill) {
+    return (
+      <div
+        data-button-row="2"
+        data-fill=""
+        className={`grid grid-cols-2 gap-2 ${height} [&>*]:w-full [&>*]:min-w-0 max-sm:[&>*]:whitespace-normal max-sm:[&>*]:text-center${extra}`}
+        {...group}
+      >
         {items}
         {danger}
       </div>
