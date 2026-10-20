@@ -1,0 +1,168 @@
+name: Live end-to-end specs
+
+# The signed-in Playwright specs (every `frontend/e2e/*.spec.ts` that is not `-unit`) need a real API
+# and a real web build. checks.yml runs only the `-unit` specs, so these never ran in CI. This
+# workflow stands up a throwaway stack on one runner, seeds one admin into it, and runs the specs
+# named in `specs` (default: the top-bar scanner's session join, REQUIREMENTS_2026-10-20 §6.3).
+#
+# Manual only, and not a gate: a stack is minutes of setup before the first assertion.
+#
+#     gh workflow run e2e-live.yml --ref <branch>
+#     gh workflow run e2e-live.yml --ref <branch> -f specs="e2e/scan-session-join.spec.ts e2e/other.spec.ts"
+#
+# Nothing here reaches production: the database is a service container deleted with the job, the
+# password is a throwaway written below in the open, and no repository secret is read.
+
+on:
+  workflow_dispatch:
+    inputs:
+      specs:
+        description: "Specs to run, space-separated (empty: the session-join spec)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-live
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    name: Browser specs against a live stack
+    runs-on: ubuntu-26.04
+    timeout-minutes: 40
+
+    services:
+      postgres:
+        # checks.yml's backend-db image, for its reason: migration 20261025090000_search_document
+        # installs `vector` where the extension exists.
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: field_repository
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PYTHONUTF8: "1"
+      DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"
+      # Long enough for verify_jwt_configuration; it signs tokens for a database deleted with the job.
+      JWT_SECRET: "e2e-live-not-a-secret-0123456789abcdefgh"
+      AWS_ACCESS_KEY_ID: "ci-placeholder"
+      AWS_SECRET_ACCESS_KEY: "ci-placeholder"
+      AWS_S3_BUCKET: "ci-placeholder"
+      MASTER_ADMIN_EMAIL: "ci-master@example.org"
+      BACKEND_CORS_ORIGINS: "http://localhost:3000"
+      MEDIA_QUEUE_WORKER_ENABLED: "false"
+      # The seeded admin the specs sign in as. A throwaway password for a throwaway database, in the
+      # open on purpose: a secret would imply it protects something.
+      ADMIN_EMAIL: "e2e-admin@example.org"
+      ADMIN_NAME: "E2E Admin"
+      ADMIN_PASSWORD: "E2eLive-Throwaway-2026!"
+      E2E_EMAIL: "e2e-admin@example.org"
+      E2E_PASSWORD: "E2eLive-Throwaway-2026!"
+      E2E_BASE_URL: "http://localhost:3000"
+      NEXT_PUBLIC_API_URL: "http://localhost:8000"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14.8"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.lock
+            backend/pyproject.toml
+
+      - name: Install the backend
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock
+          pip install --no-deps -e .
+          python -m prisma py fetch
+          python -m prisma generate --schema prisma/schema.prisma
+
+      - name: Apply the migrations and seed the admin
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          python -m prisma migrate deploy --schema prisma/schema.prisma
+          python -u scripts/seed_admin.py
+
+      - name: Start the API
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          nohup python -u -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > "$RUNNER_TEMP/api.log" 2>&1 &
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:8000/health > /dev/null 2>&1; then echo "API up after ${i} polls"; break; fi
+            if [ "$i" = "90" ]; then echo "::error::the API never answered /health"; tail -100 "$RUNNER_TEMP/api.log"; exit 1; fi
+            sleep 4
+          done
+          curl -fsS http://127.0.0.1:8000/health/ready
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: frontend/package.json
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install npm 12
+        run: npm install --global npm@12 && npm --version
+
+      - name: Build and start the web app
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          npm ci
+          # A production build, then `next start`: a dev server compiles each route on first visit
+          # and races the specs. NEXT_PUBLIC_API_URL is inlined at build time.
+          npx next build
+          nohup npx next start -p 3000 > "$RUNNER_TEMP/web.log" 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS -o /dev/null http://localhost:3000/login; then echo "web up after ${i} polls"; break; fi
+            if [ "$i" = "60" ]; then echo "::error::the web app never served /login"; tail -100 "$RUNNER_TEMP/web.log"; exit 1; fi
+            sleep 3
+          done
+
+      - name: Install the browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the specs
+        working-directory: frontend
+        env:
+          SPECS: ${{ inputs.specs }}
+        # Unquoted on purpose: a space-separated list is several arguments.
+        run: npx playwright test ${SPECS:-e2e/scan-session-join.spec.ts} --reporter=list,html
+
+      - name: Upload the Playwright report and traces
+        if: ${{ failure() || cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Diagnostics
+        if: ${{ failure() || cancelled() }}
+        run: |
+          echo "=== api log (tail) ==="; tail -120 "$RUNNER_TEMP/api.log" || true
+          echo "=== web log (tail) ==="; tail -60 "$RUNNER_TEMP/web.log" || true

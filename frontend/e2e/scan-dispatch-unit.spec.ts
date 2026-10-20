@@ -69,6 +69,8 @@ function servicesFor(portal: ScanPortal, row: Row): ScanServices {
         return { status: "found", label: NAME, href: "/somewhere" };
       case "missing":
         return { status: "missing" };
+      case "missingTitled":
+        return { status: "missing", title: "Bagru block printing week" };
       case "offline":
         return { status: "offline" };
       default:

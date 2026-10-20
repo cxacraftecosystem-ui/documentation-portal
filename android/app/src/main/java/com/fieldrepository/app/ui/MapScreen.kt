@@ -63,6 +63,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
@@ -108,6 +109,7 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -463,6 +465,18 @@ private fun PlacesMapSection(
     // --- The detail level. A view setting: it re-groups the same records and never changes a total.
     var level by remember { mutableStateOf(DEFAULT_ADMIN_LEVEL) }
 
+    // --- The state filter: one state's places, with the map fitted to that state, as the coverage
+    // map's State filter does. Empty is all of India. The district shapes it fits by are read the
+    // first time a state is chosen.
+    var stateFilter by rememberSaveable { mutableStateOf("") }
+    var districtShapes by remember { mutableStateOf<List<DistrictShape>?>(null) }
+    LaunchedEffect(stateFilter) {
+        if (stateFilter.isEmpty() || districtShapes != null) return@LaunchedEffect
+        runCatching { withContext(Dispatchers.IO) { loadDistrictShapes(context.resources) } }
+            .onSuccess { districtShapes = it }
+            .onFailure { failure -> if (failure is CancellationException) throw failure }
+    }
+
     // --- The focus, and the way out of it. Clearing drops the parameters and re-requests, which is
     // what the web's "Clear" link does by navigating to a bare /map.
     var focusCleared by remember { mutableStateOf(false) }
@@ -610,7 +624,17 @@ private fun PlacesMapSection(
     }
 
     val current = data
-    val points = current?.points ?: emptyList()
+    val allPoints = current?.points ?: emptyList()
+    val stateOptions = remember(allPoints) { placesStateNames(allPoints) }
+    // A state that is no longer among the places (another scope) is let go rather than kept as a
+    // filter that hides everything.
+    LaunchedEffect(stateOptions, current) {
+        if (current != null && stateFilter.isNotEmpty() && stateFilter !in stateOptions) stateFilter = ""
+    }
+    val points = remember(allPoints, stateFilter) { placesInState(allPoints, stateFilter) }
+    val fitBox = remember(geometry, districtShapes, allPoints, stateFilter) {
+        geometry?.let { placesStateBox(it, districtShapes, allPoints, stateFilter) }
+    }
     val drawnLevel = current?.level?.ifBlank { level } ?: level
     // Pulled out as its own val rather than read through `current?.focus` at each use: a nullable
     // property read twice is two reads the compiler will not smart-cast between.
@@ -643,6 +667,21 @@ private fun PlacesMapSection(
             )
 
             WorkshopScopeSelect(scope = workshopScope, label = "Workshops on this map")
+
+            if (stateOptions.isNotEmpty()) {
+                SearchableSelectField(
+                    label = "State",
+                    options = stateOptions.map { SelectOption(it, it) },
+                    selectedValue = stateFilter,
+                    placeholder = "All of India",
+                    searchable = true,
+                    onSelect = { value ->
+                        stateFilter = value
+                        selectedKey = null
+                    },
+                    modifier = Modifier.testTag("places-state-filter")
+                )
+            }
 
             HorizontalDivider(color = MaterialTheme.field.hairline)
 
@@ -709,6 +748,7 @@ private fun PlacesMapSection(
                             points = points,
                             focusKeys = focusKeys,
                             selectedKey = selectedKey,
+                            fitBox = fitBox,
                             onSelect = { key -> onSelectPoint(key) }
                         )
                     }
@@ -906,6 +946,46 @@ private fun uncertaintyKilometres(precision: String): Float = when (precision) {
  * belongs to. World space is unit-width with equal scaling on both axes ([IndiaGeometry]), so the
  * whole frame is a scale and a translate.
  */
+/** The states the places sit in, A to Z: each point's state, and at country level its children's. */
+internal fun placesStateNames(points: List<MapPointDto>): List<String> =
+    points.flatMap { point ->
+        listOf(point.state) + point.children.map { child -> child.state ?: child.label.takeIf { child.level == "STATE" } }
+    }
+        .mapNotNull { name -> name?.trim()?.takeIf { it.isNotEmpty() } }
+        .distinct()
+        .sortedBy { it.lowercase(Locale.ROOT) }
+
+/** The places in [state]; every place when it is empty. A point with no state (the country) stays. */
+internal fun placesInState(points: List<MapPointDto>, state: String): List<MapPointDto> =
+    if (state.isEmpty()) points else points.filter { it.state.isNullOrBlank() || it.state == state }
+
+/**
+ * The world rectangle to fit for [state]: the bounds of every state shape that holds one of its
+ * places, or, without the shapes, the places' own spread. Null for all of India.
+ */
+internal fun placesStateBox(
+    geometry: IndiaGeometry,
+    shapes: List<DistrictShape>?,
+    points: List<MapPointDto>,
+    state: String,
+): Rect? {
+    if (state.isEmpty()) return null
+    val worlds = points.flatMap { point ->
+        val own = if (point.state == state) listOf(geometry.world(point.latitude, point.longitude)) else emptyList()
+        own + point.children
+            .filter { it.state == state || (it.level == "STATE" && it.label == state) }
+            .map { geometry.world(it.latitude, it.longitude) }
+    }
+    if (worlds.isEmpty()) return null
+    val all = shapes.orEmpty()
+    val stateLgds = worlds.mapNotNull { w -> all.firstOrNull { it.contains(w) }?.stateLgd }.toSet()
+    val boxes = stateLgds.mapNotNull { lgd -> stateBounds(all, lgd) }
+    if (boxes.isNotEmpty()) {
+        return boxes.reduce { a, b -> Rect(min(a.left, b.left), min(a.top, b.top), max(a.right, b.right), max(a.bottom, b.bottom)) }
+    }
+    return Rect(worlds.minOf { it.x }, worlds.minOf { it.y }, worlds.maxOf { it.x }, worlds.maxOf { it.y })
+}
+
 private class MapFrame(val geometry: IndiaGeometry, val widthPx: Float, padPx: Float) {
     /** The outline's width in pixels, inset so a coastal pin has somewhere to sit. */
     val contentWidth: Float = max(1f, widthPx - padPx * 2f)
@@ -1146,6 +1226,7 @@ private fun IndiaMapCanvas(
     points: List<MapPointDto>,
     focusKeys: List<String>,
     selectedKey: String?,
+    fitBox: Rect? = null,
     onSelect: (String) -> Unit
 ) {
     val density = LocalDensity.current
@@ -1193,6 +1274,24 @@ private fun IndiaMapCanvas(
         // residual is applied as a transform. See `outlineBucketScale`.
         val zoom = rememberMapZoomState()
         val reducedMotion = LocalAppPreferences.current.reducedMotion
+        // New places (a reload, another level or scope) start from the whole map, as the coverage map
+        // does; a chosen state is fitted into the box instead.
+        LaunchedEffect(points, fitBox, frame) {
+            val box = fitBox
+            if (box == null) {
+                zoom.reset()
+            } else {
+                val canvas = Size(frame.widthPx, frame.heightPx)
+                val inFrame = Rect(
+                    frame.offsetX + box.left * frame.contentWidth,
+                    frame.offsetY + box.top * frame.contentWidth,
+                    frame.offsetX + box.right * frame.contentWidth,
+                    frame.offsetY + box.bottom * frame.contentWidth
+                )
+                val (scale, offset) = MapZoomMath.fitTarget(inFrame, canvas)
+                zoom.animateTo(scale, offset, canvas, instant = reducedMotion)
+            }
+        }
         val bucketScale by remember(frame.contentWidth) {
             derivedStateOf { outlineBucketScale(frame.contentWidth * zoom.scale) }
         }

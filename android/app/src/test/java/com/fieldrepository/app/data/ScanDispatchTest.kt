@@ -46,9 +46,10 @@ class ScanDispatchTest {
                 "offline" -> ScanCardAnswer.Offline
                 else -> throw AssertionError("${row.str("name")}: no card answer mocked for ${forPortal.wire}")
             }
-            override suspend fun lookUpRecord(recordType: String, id: String): ScanRecordAnswer = when (mock?.str("record")) {
+            override suspend fun lookUpRecord(recordType: String, id: String, code: String): ScanRecordAnswer = when (mock?.str("record")) {
                 "found" -> ScanRecordAnswer.Found("Meena Devi")
-                "missing" -> ScanRecordAnswer.Missing
+                "missing" -> ScanRecordAnswer.Missing()
+                "missingTitled" -> ScanRecordAnswer.Missing("Bagru block printing week")
                 "offline" -> ScanRecordAnswer.Offline
                 else -> throw AssertionError("${row.str("name")}: no record answer mocked for ${forPortal.wire}")
             }
@@ -119,7 +120,7 @@ class ScanDispatchTest {
             override val codecs: ScanCodecs? = null
             override fun cardKind(raw: String) = this@ScanDispatchTest.cardKind(raw)
             override suspend fun resolveCard(raw: String): ScanCardAnswer = throw java.io.IOException("no signal")
-            override suspend fun lookUpRecord(recordType: String, id: String): ScanRecordAnswer = ScanRecordAnswer.Missing
+            override suspend fun lookUpRecord(recordType: String, id: String, code: String): ScanRecordAnswer = ScanRecordAnswer.Missing()
         }
         assertEquals(ScanOutcomeKind.OFFLINE, dispatchScan("D-7K3QM-9XA2F-HQ", failing).kind)
     }

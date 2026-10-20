@@ -2988,7 +2988,7 @@ private fun HomeScreen(
                     )
                 }
                 if (scanOpen) {
-                    val scanServices = remember(repository) { fieldScanServices(repository) }
+                    val scanServices = remember(repository) { fieldScanServices(repository, scanContext) }
                     TopBarScanSheet(
                         dispatch = { raw -> dispatchScan(raw, scanServices) },
                         onAction = { action ->

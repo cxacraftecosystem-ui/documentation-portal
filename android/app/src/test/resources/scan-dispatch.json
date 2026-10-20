@@ -1,5 +1,5 @@
 {
-  "about": "One row per input of REQUIREMENTS_2026-10-20 §6.1. Byte-identical in designer-portal and documentation-portal, on the web (frontend/e2e/fixtures) and on Android (app/src/test/resources). services: what the mocked card resolve / record lookup answers for each portal (found, replaced, peer, refused, offline; found, missing, offline). expect: the outcome per portal, and the exact title where the copy is shared.",
+  "about": "One row per input of REQUIREMENTS_2026-10-20 §6.1. Byte-identical in designer-portal and documentation-portal, on the web (frontend/e2e/fixtures) and on Android (app/src/test/resources). services: what the mocked card resolve / record lookup answers for each portal (found, replaced, peer, refused, offline; found, missing, missingTitled, offline). expect: the outcome per portal, and the exact title where the copy is shared.",
   "rows": [
     {
       "name": "DPW2 join card",
@@ -41,6 +41,22 @@
       "expect": {
         "designer": { "outcome": "REFUSED", "title": "This is a Field Repository session." },
         "field": { "outcome": "JOIN_SESSION", "title": "A questionnaire session.", "action": "joinSession", "joinCode": "AB3K9Z" }
+      }
+    },
+    {
+      "name": "A six-letter word is not a session code",
+      "input": "motifs",
+      "expect": {
+        "designer": { "outcome": "REFUSED", "title": "This code isn't one this app reads." },
+        "field": { "outcome": "REFUSED", "title": "This code isn't one this app reads." }
+      }
+    },
+    {
+      "name": "Six digits are a session code",
+      "input": "482 913",
+      "expect": {
+        "designer": { "outcome": "REFUSED", "title": "This is a Field Repository session." },
+        "field": { "outcome": "JOIN_SESSION", "title": "A questionnaire session.", "action": "joinSession", "joinCode": "482913" }
       }
     },
     {
@@ -138,6 +154,15 @@
       "services": { "designer": { "record": "missing" } },
       "expect": {
         "designer": { "outcome": "JOIN_WORKSHOP", "title": "Ask to join this workshop", "action": "requestAccess" },
+        "field": { "outcome": "REFUSED", "title": "This code is from the Designer Repository." }
+      }
+    },
+    {
+      "name": "DPW1 design workshop code, no access, title known",
+      "input": "DPW1:G:CMSIK2JG8000EH8XC1LCY661A:0PK3",
+      "services": { "designer": { "record": "missingTitled" } },
+      "expect": {
+        "designer": { "outcome": "JOIN_WORKSHOP", "title": "Ask to join Bagru block printing week", "action": "requestAccess" },
         "field": { "outcome": "REFUSED", "title": "This code is from the Designer Repository." }
       }
     },

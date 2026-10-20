@@ -185,7 +185,8 @@ sealed interface ScanCardAnswer {
 
 sealed interface ScanRecordAnswer {
     data class Found(val label: String, val detail: String? = null) : ScanRecordAnswer
-    data object Missing : ScanRecordAnswer
+    /** [title]: a design workshop the reader cannot open yet, named for "Ask to join {title}" (D34). */
+    data class Missing(val title: String? = null) : ScanRecordAnswer
     data object Offline : ScanRecordAnswer
 }
 
@@ -194,7 +195,8 @@ interface ScanServices {
     val codecs: ScanCodecs?
     fun cardKind(raw: String): ScanCardKind
     suspend fun resolveCard(raw: String): ScanCardAnswer
-    suspend fun lookUpRecord(recordType: String, id: String): ScanRecordAnswer
+    /** [code] is the canonical scanned code, which the design-workshop title lookup needs. */
+    suspend fun lookUpRecord(recordType: String, id: String, code: String): ScanRecordAnswer
 }
 
 /** What the pure half decided: a final outcome, or the one lookup still owed. */
@@ -209,10 +211,11 @@ private fun refused(title: String): ScanStep = ScanStep.Final(ScanOutcome(ScanOu
 private val DPW = Regex("^DPW\\d*:")
 private val JOIN_CARD = Regex("^DPW\\d+:J:")
 private val FILE_CHECK = Regex("^DPW3:H:")
-private val SESSION_CODE = Regex("^[A-Z0-9]{6}$")
+/** Six letters or digits with at least one digit, so a six-letter word is never read as a session. */
+private val SESSION_CODE = Regex("^(?=[A-Z]*[0-9])[A-Z0-9]{6}$")
 private val lenientJson = Json { ignoreUnknownKeys = true; isLenient = false }
 
-/** A typed 6-character session code, normalised (upper case, no spaces or hyphens), or null. */
+/** A typed 6-character session code (at least one digit), normalised (upper case, no spaces or hyphens), or null. */
 fun normaliseSessionCode(raw: String): String? =
     raw.uppercase().filter { !it.isWhitespace() && it != '-' }.takeIf { SESSION_CODE.matches(it) }
 
@@ -260,7 +263,7 @@ fun classifyScan(raw: String, portal: ScanPortal, codecs: ScanCodecs?, cardKind:
         }
     }
 
-    // 2. Field Repository session: the QR (bare or FRS1:) or a typed 6-character code.
+    // 2. Field Repository session: the QR (bare or FRS1:) or a typed 6-character code with a digit.
     val qr = decodeSessionQr(text)
     val joinCode = if (qr == null) normaliseSessionCode(text) else null
     if (qr != null || joinCode != null) {
@@ -357,7 +360,7 @@ suspend fun dispatchScan(raw: String, services: ScanServices): ScanOutcome {
         }
         is ScanStep.Record -> {
             val answer = try {
-                services.lookUpRecord(step.recordType, step.id)
+                services.lookUpRecord(step.recordType, step.id, step.code)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -365,13 +368,14 @@ suspend fun dispatchScan(raw: String, services: ScanServices): ScanOutcome {
             }
             return when (answer) {
                 ScanRecordAnswer.Offline -> ScanOutcome(ScanOutcomeKind.OFFLINE, ScanCopy.OFFLINE)
-                ScanRecordAnswer.Missing ->
+                is ScanRecordAnswer.Missing ->
                     if (step.recordType == "designWorkshop") {
-                        // "this workshop", not its title: the server hides a workshop from anyone
-                        // without access, so the scan cannot name it (DEFERRED_FOR_LAUNCH.md D34).
+                        // The workshop's title when the server names it for this code (owner
+                        // decision, D34); "this workshop" when it cannot (offline, deleted, older server).
+                        val name = answer.title?.trim().orEmpty()
                         ScanOutcome(
                             ScanOutcomeKind.JOIN_WORKSHOP,
-                            "${ScanCopy.ASK_TO_JOIN} ${ScanCopy.THIS_WORKSHOP}",
+                            "${ScanCopy.ASK_TO_JOIN} ${name.ifEmpty { ScanCopy.THIS_WORKSHOP }}",
                             action = ScanAction.RequestAccess(ScanCopy.ASK_TO_JOIN, step.id, step.code),
                         )
                     } else {

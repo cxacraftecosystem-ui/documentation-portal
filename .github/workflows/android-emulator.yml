@@ -198,7 +198,7 @@ jobs:
           # the recording tests need a signed-in session. `am instrument` exits 0 on a failed test, so
           # the map test's summary line is what decides.
           script: |
-            ./gradlew :app:connectedDebugAndroidTest --console=plain -Pandroid.testInstrumentationRunnerArguments.class=com.fieldrepository.app.TopBarScanDeviceTest
+            ./gradlew :app:connectedDebugAndroidTest --console=plain -Pandroid.testInstrumentationRunnerArguments.class=com.fieldrepository.app.TopBarScanDeviceTest,com.fieldrepository.app.TopBarScanRealLookupDeviceTest
             python3 scripts/emulator-smoke.py
             mkdir -p "$SMOKE_OUT"
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" install -r -t "$RUNNER_TEMP/app-debug.apk"

@@ -22,6 +22,14 @@ sealed interface ArtisanCardResolution {
 }
 
 /**
+ * Whether [card] is already held, waiting to sync, in one of [payloads] (queued entry bodies and
+ * their steps). The top-bar scanner says so offline instead of a bare "You're offline": the card is
+ * known on this phone and links on the next sync.
+ */
+fun cardWaitingToSync(card: ArtisanCardCode.Parsed, payloads: List<String>): Boolean =
+    payloads.any { card.shortCode in ArtisanCardCode.pendingIn(it) }
+
+/**
  * The card rule, pure apart from its two lookups so `ArtisanCardResolveTest` can drive it:
  *
  * 1. parse (a bad check never leaves the phone);

@@ -52,6 +52,8 @@ import com.fieldrepository.app.data.ArtisanCardCode
 import com.fieldrepository.app.data.ArtisanCardResolution
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.JoinQr
+import com.fieldrepository.app.data.OfflineOutbox
+import com.fieldrepository.app.data.cardWaitingToSync
 import com.fieldrepository.app.data.OutboxSyncWorker
 import com.fieldrepository.app.data.QJoinRequest
 import com.fieldrepository.app.data.QuestionnaireCopy
@@ -222,8 +224,18 @@ fun fieldScanCardKind(raw: String): ScanCardKind = when (val parsed = ArtisanCar
         if (ArtisanCardCode.failureMessage(raw, parsed.reason) == ArtisanCardCode.CHECK_MESSAGE) ScanCardKind.MISTYPED else ScanCardKind.NONE
 }
 
+/** Every queued outbox body (and step body) on this phone; empty when the queue cannot be read. */
+private suspend fun queuedPayloads(context: Context): List<String> =
+    try {
+        OfflineOutbox.all(context).flatMap { entry -> listOf(entry.payloadJson) + entry.steps.map { it.payloadJson } }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        emptyList()
+    }
+
 /** The field app's answers to the dispatcher: the cached register first, then the server. */
-fun fieldScanServices(repository: FieldRepository): ScanServices = object : ScanServices {
+fun fieldScanServices(repository: FieldRepository, context: Context? = null): ScanServices = object : ScanServices {
     override val portal = ScanPortal.FIELD
     override val codecs: ScanCodecs? = null
 
@@ -232,14 +244,20 @@ fun fieldScanServices(repository: FieldRepository): ScanServices = object : Scan
     override suspend fun resolveCard(raw: String): ScanCardAnswer = when (val answer = repository.resolveArtisanCard(raw)) {
         is ArtisanCardResolution.Found -> ScanCardAnswer.Found(answer.artisanId, answer.name, answer.place)
         is ArtisanCardResolution.Replaced -> ScanCardAnswer.Replaced(answer.artisanId)
-        // No signal and no cached row: nothing to open until it resolves.
-        is ArtisanCardResolution.Pending -> ScanCardAnswer.Offline
+        // No signal and no cached row. A card already queued on this phone (`card:<shortCode>` in an
+        // outbox entry) is named as waiting to sync; any other is offline.
+        is ArtisanCardResolution.Pending ->
+            if (context != null && cardWaitingToSync(answer.card, queuedPayloads(context))) {
+                ScanCardAnswer.Refused(ArtisanCardCode.pendingChip(answer.value))
+            } else {
+                ScanCardAnswer.Offline
+            }
         // An unlinked Designer Repository card is refused by the server in its own words.
         is ArtisanCardResolution.Refused -> ScanCardAnswer.Refused(answer.message)
     }
 
     /** The Field Repository reads no DPW record codes; the dispatcher refuses them before this. */
-    override suspend fun lookUpRecord(recordType: String, id: String): ScanRecordAnswer = ScanRecordAnswer.Missing
+    override suspend fun lookUpRecord(recordType: String, id: String, code: String): ScanRecordAnswer = ScanRecordAnswer.Missing()
 }
 
 /**

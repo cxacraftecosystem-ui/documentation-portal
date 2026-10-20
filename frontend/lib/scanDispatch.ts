@@ -140,14 +140,16 @@ export type CardAnswer =
 
 export type RecordAnswer =
   | { status: "found"; label: string; detail?: string; href: string; external?: boolean }
-  | { status: "missing" }
+  /** `title`: a design workshop the reader cannot open yet, named for "Ask to join {title}" (D34). */
+  | { status: "missing"; title?: string }
   | { status: "offline" };
 
 export type ScanServices = {
   portal: ScanPortal;
   codecs?: ScanCodecs;
   resolveCard: (raw: string) => Promise<CardAnswer>;
-  lookUpRecord: (recordType: ScanRecordType, id: string) => Promise<RecordAnswer>;
+  /** `code` is the canonical scanned code, which the design-workshop title lookup needs. */
+  lookUpRecord: (recordType: ScanRecordType, id: string, code: string) => Promise<RecordAnswer>;
 };
 
 /** What the pure half decided: a final outcome, or the one lookup still owed. */
@@ -161,9 +163,10 @@ const refused = (title: string): ScanStep => ({ step: "outcome", outcome: { kind
 const DPW = /^DPW\d*:/;
 const JOIN_CARD = /^DPW\d+:J:/;
 const FILE_CHECK = /^DPW3:H:/;
-const SESSION_CODE = /^[A-Z0-9]{6}$/;
+/** Six letters or digits with at least one digit, so a six-letter word is never read as a session. */
+const SESSION_CODE = /^(?=[A-Z]*[0-9])[A-Z0-9]{6}$/;
 
-/** A typed 6-character session code, normalised (upper case, no spaces or hyphens), or null. */
+/** A typed 6-character session code (at least one digit), normalised (upper case, no spaces or hyphens), or null. */
 export function normaliseSessionCode(raw: string): string | null {
   const code = raw.toUpperCase().replace(/[\s-]/g, "");
   return SESSION_CODE.test(code) ? code : null;
@@ -217,7 +220,7 @@ export function classifyScan(raw: string, portal: ScanPortal, codecs?: ScanCodec
     };
   }
 
-  // 2. Field Repository session: the QR (bare or FRS1:) or a typed 6-character code.
+  // 2. Field Repository session: the QR (bare or FRS1:) or a typed 6-character code with a digit.
   const qr = decodeSessionQr(text);
   const joinCode = qr ? null : normaliseSessionCode(text);
   if (qr || joinCode) {
@@ -313,18 +316,19 @@ export async function dispatchScan(raw: string, services: ScanServices): Promise
 
   let answer: RecordAnswer;
   try {
-    answer = await services.lookUpRecord(step.recordType, step.id);
+    answer = await services.lookUpRecord(step.recordType, step.id, step.code);
   } catch {
     answer = { status: "offline" };
   }
   if (answer.status === "offline") return { kind: "OFFLINE", title: SCAN_COPY.offline };
   if (answer.status === "missing") {
     if (step.recordType === "designWorkshop") {
-      // "this workshop", not its title: the server hides a workshop from anyone without access, so
-      // the scan cannot name it (DEFERRED_FOR_LAUNCH.md D34).
+      // The workshop's title when the server names it for this code (owner decision, D34);
+      // "this workshop" when it cannot (offline, deleted, or an older server).
+      const name = answer.title?.trim();
       return {
         kind: "JOIN_WORKSHOP",
-        title: `${SCAN_COPY.askToJoin} ${SCAN_COPY.thisWorkshop}`,
+        title: `${SCAN_COPY.askToJoin} ${name || SCAN_COPY.thisWorkshop}`,
         action: { type: "requestAccess", label: SCAN_COPY.askToJoin, workshopId: step.id, scannedCode: step.code }
       };
     }

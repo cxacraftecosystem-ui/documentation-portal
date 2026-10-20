@@ -103,7 +103,15 @@ def get(row: Any, key: str, default: Any = None) -> Any:
 
 
 def new_join_code() -> str:
-    return "".join(secrets.choice(JOIN_ALPHABET) for _ in range(JOIN_CODE_LENGTH))
+    """A six-character join code with at least one digit.
+
+    The top-bar scanner reads a typed six-character word as a session code only when it holds a
+    digit (owner, 2026-10-20), so an all-letter word such as a name is never mistaken for one.
+    """
+    while True:
+        code = "".join(secrets.choice(JOIN_ALPHABET) for _ in range(JOIN_CODE_LENGTH))
+        if any(character.isdigit() for character in code):
+            return code
 
 
 def jsonable(value: Any) -> Any:

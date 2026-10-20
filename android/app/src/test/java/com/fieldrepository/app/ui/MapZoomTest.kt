@@ -1,11 +1,13 @@
 package com.fieldrepository.app.ui
 
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.min
 
 /**
  * The map zoom's arithmetic (`MapZoom.kt`, shared with the Field Repository): pinch about a point,
@@ -81,5 +83,26 @@ class MapZoomTest {
         assertEquals(1f, state.scale, eps)
         assertEquals(Offset.Zero, state.offset)
         assertFalse(state.isZoomed)
+    }
+
+    @Test
+    fun fittingAStateCentresItAndKeepsTheMapCovered() {
+        // A box a quarter of the frame wide, in the middle: fitted with the 8% margin it fills the frame.
+        val box = Rect(150f, 112.5f, 250f, 187.5f)
+        val (scale, offset) = MapZoomMath.fitTarget(box, frame)
+        assertEquals(min(400f / 116f, 300f / 91f), scale, eps)
+        val centre = Offset(offset.x + 200f * scale, offset.y + 150f * scale)
+        assertEquals(200f, centre.x, 0.5f)
+        assertEquals(150f, centre.y, 0.5f)
+
+        // A box in a corner is clamped so no empty space shows past the map's edge.
+        val (cornerScale, cornerOffset) = MapZoomMath.fitTarget(Rect(0f, 0f, 40f, 30f), frame)
+        assertEquals(8f, cornerScale, eps)
+        assertEquals(Offset.Zero, cornerOffset)
+
+        // A single point zooms as far as the clamp allows rather than dividing by zero.
+        assertEquals(8f, MapZoomMath.fitTarget(Rect(200f, 150f, 200f, 150f), frame).first, eps)
+        // The whole frame fits at rest.
+        assertEquals(1f, MapZoomMath.fitTarget(Rect(0f, 0f, 400f, 300f), frame).first, eps)
     }
 }

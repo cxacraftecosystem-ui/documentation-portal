@@ -12,18 +12,20 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.fieldrepository.app.data.ScanCardAnswer
-import com.fieldrepository.app.data.ScanCardKind
-import com.fieldrepository.app.data.ScanCodecs
-import com.fieldrepository.app.data.ScanPortal
-import com.fieldrepository.app.data.ScanRecordAnswer
+import com.fieldrepository.app.data.ApiClient
+import com.fieldrepository.app.data.FieldRepository
+import com.fieldrepository.app.data.FieldRepositoryApi
 import com.fieldrepository.app.data.ScanServices
+import com.fieldrepository.app.data.TokenStore
+import com.fieldrepository.app.ui.fieldScanServices
+import okhttp3.MediaType.Companion.toMediaType
+import retrofit2.Retrofit
+import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.fieldrepository.app.data.dispatchScan
 import com.fieldrepository.app.ui.AppSearchHeader
 import com.fieldrepository.app.data.ScanAction
 import com.fieldrepository.app.ui.FieldRepositoryTheme
 import com.fieldrepository.app.ui.TopBarScanSheet
-import com.fieldrepository.app.ui.fieldScanCardKind
 import androidx.test.platform.app.InstrumentationRegistry
 import com.fieldrepository.app.data.QuestionnaireV2
 import com.fieldrepository.app.data.ScanTarget
@@ -36,21 +38,30 @@ import org.junit.runner.RunWith
 
 /**
  * On a device (REQUIREMENTS_2026-10-20 §6.3): the header's scan button opens the top-bar sheet, and a
- * typed session code is answered with Join, and pressing it starts the session (the join is faked,
- * so nothing is signed in or sent).
+ * typed session code is answered with Join, and pressing it starts the session. The services are
+ * the app's own; the API is a closed loopback port, so nothing is signed in or sent.
  */
 @RunWith(AndroidJUnit4::class)
 class TopBarScanDeviceTest {
     @get:Rule
     val rule = createComposeRule()
 
-    private val services = object : ScanServices {
-        override val portal = ScanPortal.FIELD
-        override val codecs: ScanCodecs? = null
-        override fun cardKind(raw: String): ScanCardKind = fieldScanCardKind(raw)
-        override suspend fun resolveCard(raw: String): ScanCardAnswer = ScanCardAnswer.Offline
-        override suspend fun lookUpRecord(recordType: String, id: String): ScanRecordAnswer = ScanRecordAnswer.Found("Meena Devi")
-    }
+    /**
+     * The app's own services (`fieldScanServices`), not a fake: the session code and the session QR
+     * are classified by the real dispatcher with the real card rule. Their repository is pointed at a
+     * closed loopback port, so a lookup that reaches for the network fails as "no signal".
+     */
+    private val services: ScanServices = fieldScanServices(
+        FieldRepository(
+            Retrofit.Builder()
+                .baseUrl("http://127.0.0.1:9/")
+                .addConverterFactory(ApiClient.json.asConverterFactory("application/json".toMediaType()))
+                .build()
+                .create(FieldRepositoryApi::class.java),
+            TokenStore(InstrumentationRegistry.getInstrumentation().targetContext),
+        ),
+        InstrumentationRegistry.getInstrumentation().targetContext,
+    )
 
     @Test
     fun theHeaderScanButtonOpensTheSheetAndATypedSessionCodeStartsTheSession() {
