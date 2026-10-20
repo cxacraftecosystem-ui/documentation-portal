@@ -192,9 +192,13 @@ jobs:
             -no-snapshot-save -no-snapshot-load -camera-back none -camera-front none
           disable-animations: true
           working-directory: android
-          # The smoke script first; then the map UI test against the same debug APK. `am instrument`
-          # exits 0 on a failed test, so the summary line is what decides.
+          # The top-bar scanner's device test first (REQUIREMENTS_2026-10-20 §6.3: the header's scan
+          # button opens the sheet and a typed session code starts the session), on a clean display,
+          # then the smoke script, then the map UI test against the same debug APK. Only those classes:
+          # the recording tests need a signed-in session. `am instrument` exits 0 on a failed test, so
+          # the map test's summary line is what decides.
           script: |
+            ./gradlew :app:connectedDebugAndroidTest --console=plain -Pandroid.testInstrumentationRunnerArguments.class=com.fieldrepository.app.TopBarScanDeviceTest
             python3 scripts/emulator-smoke.py
             mkdir -p "$SMOKE_OUT"
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" install -r -t "$RUNNER_TEMP/app-debug.apk"

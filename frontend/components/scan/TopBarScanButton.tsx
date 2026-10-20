@@ -1,27 +1,38 @@
 "use client";
 
-import Link from "next/link";
-import type { JSX } from "react";
-import { ScanQrCode } from "lucide-react";
-
 /**
- * The search header's scan button — PLACEHOLDER owned by the nav stream until the QR stream lands
- * its own file (REQUIREMENTS_2026-10-20 §8.2, item 3). It carries the frozen signature exactly and
- * opens the `/scan` page; the QR stream's version opens `ScanSheet` in place and replaces this file
- * whole at integration.
+ * The scan button at the leading edge of the mobile/tablet header (REQUIREMENTS_2026-10-20 §6.2).
+ * Shown for every signed-in user, whether or not artisan cards are on. Frozen signature: the nav
+ * streams render `<TopBarScanButton />` and nothing else about it.
  */
-export function TopBarScanButton({ className }: { className?: string }): JSX.Element {
+
+import { useState } from "react";
+import { ScanLine } from "lucide-react";
+
+import { ScanSheet } from "@/components/scan/ScanSheet";
+
+export function TopBarScanButton({ className }: { className?: string }) {
+  const [open, setOpen] = useState(false);
   return (
-    <Link
-      href="/scan"
-      aria-label="Scan a code"
-      title="Scan a code"
-      className={
-        "inline-flex h-12 w-12 items-center justify-center rounded-full text-purple-700 transition hover:bg-purple-50 " +
-        (className ?? "")
-      }
-    >
-      <ScanQrCode className="h-5 w-5" aria-hidden />
-    </Link>
+    <>
+      <button
+        type="button"
+        aria-label="Scan a code"
+        title="Scan a code"
+        data-testid="top-bar-scan"
+        onClick={(event) => {
+          // The header pill opens search on any press; the scan button is its own target.
+          event.stopPropagation();
+          setOpen(true);
+        }}
+        className={
+          "grid h-12 w-12 place-items-center rounded-full text-purple-700 transition hover:bg-purple-50" +
+          (className ? ` ${className}` : "")
+        }
+      >
+        <ScanLine className="h-5 w-5" aria-hidden />
+      </button>
+      <ScanSheet open={open} onClose={() => setOpen(false)} />
+    </>
   );
 }

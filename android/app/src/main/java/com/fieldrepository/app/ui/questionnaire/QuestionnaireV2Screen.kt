@@ -164,6 +164,14 @@ fun QuestionnaireV2Screen(
         route = QRoute.Workspace(clientKey)
     }
 
+    // A session the top-bar scanner joined: opened once, then forgotten.
+    val scannedSession by QuestionnaireV2Nav.openSession.collectAsState()
+    LaunchedEffect(scannedSession) {
+        val key = scannedSession ?: return@LaunchedEffect
+        QuestionnaireV2Nav.openSession.value = null
+        openUnit(key)
+    }
+
     Box(Modifier.fillMaxSize()) {
         when (val r = route) {
             QRoute.List -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -305,6 +313,9 @@ private fun requestBatteryExemption(context: Context) {
 /** "Continue with…" from an artisan's record: the artisan to prefill in a new session. */
 object QuestionnaireV2Nav {
     val pending = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+
+    /** A session to open on arrival: the top-bar scanner joined it (its `clientKey`). */
+    val openSession = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 }
 
 /** P14's Update: the web app's page that serves the current APK. */

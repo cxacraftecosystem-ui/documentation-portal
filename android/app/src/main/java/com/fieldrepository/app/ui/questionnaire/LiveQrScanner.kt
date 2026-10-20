@@ -9,7 +9,9 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -23,14 +25,25 @@ import java.util.concurrent.atomic.AtomicBoolean
  * A live camera preview that reads the join QR as soon as it is in frame (DESIGN §3.7). Works with no
  * signal: the payload carries the session itself. [onRead] fires once, with the decoded text; the
  * camera is released when the composable leaves. The caller holds the camera permission.
+ *
+ * The app's one live QR reader. The top-bar scanner (`ui/FieldScan.kt`) uses it too, with [accept]
+ * taking any QR (what a code means is `data/ScanDispatch.kt`'s to decide) and [once] off, so the
+ * camera keeps reading; the caller then ignores a code it has already been handed.
  */
 @Composable
-fun LiveQrScanner(onRead: (String) -> Unit, modifier: Modifier = Modifier) {
+fun LiveQrScanner(
+    onRead: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    accept: (String) -> Boolean = { JoinQr.decode(it) != null },
+    once: Boolean = true,
+) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current
     val analysisThread = remember { Executors.newSingleThreadExecutor() }
     val done = remember { AtomicBoolean(false) }
     val previewView = remember { PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER } }
+    val latestOnRead by rememberUpdatedState(onRead)
+    val latestAccept by rememberUpdatedState(accept)
 
     DisposableEffect(lifecycle) {
         val future = ProcessCameraProvider.getInstance(context)
@@ -49,8 +62,8 @@ fun LiveQrScanner(onRead: (String) -> Unit, modifier: Modifier = Modifier) {
                     val buffer = plane.buffer
                     val bytes = ByteArray(buffer.remaining()).also(buffer::get)
                     val text = JoinQr.readLuminance(bytes, plane.rowStride, it.width, it.height)
-                    if (text != null && JoinQr.decode(text) != null && done.compareAndSet(false, true)) {
-                        ContextCompat.getMainExecutor(context).execute { onRead(text) }
+                    if (text != null && text.isNotBlank() && latestAccept(text) && (!once || done.compareAndSet(false, true))) {
+                        ContextCompat.getMainExecutor(context).execute { latestOnRead(text) }
                     }
                 }
             }
