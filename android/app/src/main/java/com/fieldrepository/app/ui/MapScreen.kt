@@ -55,6 +55,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -1224,6 +1225,17 @@ private fun IndiaMapCanvas(
         val slopPx = with(density) { PIN_TAP_SLOP.toPx() }
         val hairlinePx = with(density) { 1.dp.toPx() }
 
+        // `tap` arrives already back in the resting frame. Nearest hit wins, and small pins are tested
+        // too — a 1-record dot beside a 300-record disc must still be reachable. A pin keeps its
+        // on-screen size, so its reach shrinks in frame units as the map zooms. Read through a holder
+        // because the gesture detector outlives a recomposition and would otherwise test old pins.
+        val onTap = rememberUpdatedState { tap: Offset ->
+            pins
+                .filter { hypot(it.x - tap.x, it.y - tap.y) * zoom.scale <= it.radius + slopPx }
+                .minByOrNull { hypot(it.x - tap.x, it.y - tap.y) }
+                ?.let { onSelect(it.point.key) }
+        }
+
         Box {
         Canvas(
             modifier = Modifier
@@ -1238,15 +1250,7 @@ private fun IndiaMapCanvas(
                         ". Places are listed below."
                 }
                 .testTag("places-map")
-                .mapZoomGestures(zoom, Size(frame.widthPx, frame.heightPx), reducedMotion) { tap ->
-                    // `tap` is already back in the resting frame. Nearest hit wins, and small pins are
-                    // tested too — a 1-record dot beside a 300-record disc must still be reachable. A
-                    // pin keeps its on-screen size, so its reach shrinks in frame units as the map zooms.
-                    pins
-                        .filter { hypot(it.x - tap.x, it.y - tap.y) * zoom.scale <= it.radius + slopPx }
-                        .minByOrNull { hypot(it.x - tap.x, it.y - tap.y) }
-                        ?.let { onSelect(it.point.key) }
-                }
+                .mapZoomGestures(zoom, Size(frame.widthPx, frame.heightPx), reducedMotion) { tap -> onTap.value(tap) }
         ) {
             val zoomScale = zoom.scale
             val residual = frame.contentWidth * zoomScale / bucketScale

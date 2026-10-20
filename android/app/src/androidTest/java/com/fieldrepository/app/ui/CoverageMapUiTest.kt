@@ -17,6 +17,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -166,7 +167,10 @@ class CoverageMapUiTest {
             val frame = CoverageFrame(Size(width, width * aspect), Rect(0f, 0f, 1f, aspect), pad)
             click(frame.toFrame(target.centroid))
         }
-        compose.waitForIdle()
+        // A single tap is only known to be single once the double-tap window has passed, in real time.
+        compose.waitUntil(timeoutMillis = 10_000) {
+            compose.onAllNodesWithText("Show records").fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithText("Show records").assertExists()
     }
 }

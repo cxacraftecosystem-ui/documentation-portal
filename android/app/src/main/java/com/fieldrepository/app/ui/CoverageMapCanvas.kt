@@ -10,6 +10,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -167,6 +168,19 @@ fun CoverageMapCanvas(
         val markerLarge = with(density) { 10.dp.toPx() }
         val hatchGap = with(density) { 6.dp.toPx() }
 
+        // The gesture detector outlives a recomposition, so it calls through this holder and always
+        // hits the markers, districts and callback of the latest frame, not the first one.
+        val onTap = rememberUpdatedState { content: Offset ->
+            // Markers first, at their on-screen size; then the district under the finger.
+            val hitMarker = markers.firstOrNull { marker ->
+                val at = frame.toFrame(outline.world(marker.lat, marker.lon))
+                hypot(at.x - content.x, at.y - content.y) * zoom.scale <= markerLarge + tapSlop
+            }
+            val district = hitMarker?.districtLgd
+                ?: visible.firstOrNull { it.contains(frame.toWorld(content)) }?.lgd
+            if (district != null) onSelectDistrict(district)
+        }
+
         Box {
             Canvas(
                 modifier = Modifier
@@ -176,16 +190,7 @@ fun CoverageMapCanvas(
                     .semantics {
                         contentDescription = "Coverage map of India. Every place is listed below."
                     }
-                    .mapZoomGestures(zoom, size, reducedMotion) { content ->
-                        // Markers first, at their on-screen size; then the district under the finger.
-                        val hitMarker = markers.firstOrNull { marker ->
-                            val at = frame.toFrame(outline.world(marker.lat, marker.lon))
-                            hypot(at.x - content.x, at.y - content.y) * zoom.scale <= markerLarge + tapSlop
-                        }
-                        val district = hitMarker?.districtLgd
-                            ?: visible.firstOrNull { it.contains(frame.toWorld(content)) }?.lgd
-                        if (district != null) onSelectDistrict(district)
-                    }
+                    .mapZoomGestures(zoom, size, reducedMotion) { content -> onTap.value(content) }
             ) {
                 val pxPerWorld = frame.scale * zoom.scale
                 val bucket = outlineBucketScale(pxPerWorld)
