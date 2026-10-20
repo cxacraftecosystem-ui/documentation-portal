@@ -730,10 +730,10 @@ private val WALKTHROUGH_ALL_FIELDS: Map<String, List<String>> =
  *
  * ── AND WHY IT IS THE SEAM RATHER THAN THE DESTINATION ───────────────────────────────────────────
  *
- * [WalkStep] has since grown real `why` and `watch` fields (2026-10-20), and this function was the one
- * place that had to change: it prefers them, and the card above it did not change at all. That is
- * the whole reason it exists as a function with a return type rather than as three expressions
- * inlined into the card.
+ * [WalkStep] has since grown optional `why` and `watch` fields (2026-10-20), and this function was the
+ * one place that had to change: it prefers them where a step carries them, and the card above it did
+ * not change at all. That is the whole reason it exists as a function with a return type rather than
+ * as three expressions inlined into the card.
  *
  * ── THE WEB'S `fields[]`: A DECISION THAT WAS MADE HERE AND THEN OVERRULED ───────────────────────
  *
