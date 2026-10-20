@@ -56,6 +56,7 @@ fun ArtisanQuestionnaireRecord(
     var view by remember { mutableStateOf("T") }
     var playing by remember { mutableStateOf<Uri?>(null) }
     var consent by remember { mutableStateOf<String?>("…") }
+    var consentFailed by remember { mutableStateOf(false) }
 
     LaunchedEffect(artisanId, attempt) {
         loading = true; failed = false
@@ -70,9 +71,16 @@ fun ArtisanQuestionnaireRecord(
             // Consent is assumed by default; the record speaks only after a refusal, with Switch back on.
             if (consent == "REFUSED") {
                 ConsentQuestion(artisanName, refused = true, onAnswer = { state ->
-                    if (state == null) consent = "SKIPPED" else { consent = state; scope.launch { v2.recordConsent(artisanId, state) } }
+                    if (state == null) consent = "SKIPPED" else {
+                        consent = state; consentFailed = false
+                        scope.launch {
+                            // Refused for good by the server: show what it holds, and say it was not saved.
+                            if (!v2.recordConsent(artisanId, state)) { consentFailed = true; consent = v2.consentState(artisanId) }
+                        }
+                    }
                 })
             }
+            if (consentFailed) Text(com.fieldrepository.app.data.RecordingConsentCopy.SAVE_FAILED, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             when {
                 failed -> {
                     Text(QuestionnaireCopy.s("record.error"), style = MaterialTheme.typography.bodyMedium)

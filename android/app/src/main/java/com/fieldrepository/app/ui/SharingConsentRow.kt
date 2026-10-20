@@ -59,7 +59,7 @@ fun SharingConsentRow(artisanId: String) {
             },
         )
         Text(
-            SharingConsentCopy.status(current, current.recordedAt?.take(10)),
+            SharingConsentCopy.status(current, com.fieldrepository.app.data.consentDay(current.recordedAt)),
             color = Muted,
             style = MaterialTheme.typography.bodySmall,
         )

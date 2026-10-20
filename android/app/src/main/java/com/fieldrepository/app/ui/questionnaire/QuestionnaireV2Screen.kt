@@ -124,6 +124,8 @@ fun QuestionnaireV2Screen(
     var starting by remember { mutableStateOf(prefillArtisanIds.isNotEmpty()) }
     var questionnaires by remember { mutableStateOf<List<QuestionnaireDto>>(emptyList()) }
     var workshops by remember { mutableStateOf<List<WorkshopDetailDto>>(emptyList()) }
+    // The start sheet reads its defaults (instrument, workshop) once, when it opens; it waits for both lists.
+    var listsLoaded by remember { mutableStateOf(false) }
     var rows by remember { mutableStateOf<List<SessionListRow>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var inboxCount by remember { mutableIntStateOf(0) }
@@ -138,6 +140,7 @@ fun QuestionnaireV2Screen(
     LaunchedEffect(Unit) {
         runCatching { repository.questionnaires() }.onSuccess { questionnaires = it }
         runCatching { repository.workshops() }.onSuccess { workshops = it }
+        listsLoaded = true
         // P13: a take cut short by a kill comes back first.
         val active = (RecordingService.state.value as? RecordingService.State.Recording)?.draft?.clientClipKey
         val drafts = RecordingDrafts.all(v2.filesDir)
@@ -190,7 +193,7 @@ fun QuestionnaireV2Screen(
                 }
                 val minVersion = config?.minAppVersionForCreate
                 if (minVersion != null && versionBelow(BuildConfig.VERSION_NAME, minVersion)) UpdateBanner(onUpdateApp)
-                if (loading) FieldLinearProgressIndicator(Modifier.fillMaxWidth())
+                if (loading || (starting && !listsLoaded)) FieldLinearProgressIndicator(Modifier.fillMaxWidth())
                 if (!loading && rows.isEmpty()) Text(QuestionnaireCopy.s("sessions.empty"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted)
                 rows.forEach { row ->
                     Column(Modifier.fillMaxWidth().clickable {
@@ -237,7 +240,7 @@ fun QuestionnaireV2Screen(
         }
     }
 
-    if (starting) SessionStartSheet(
+    if (starting && listsLoaded) SessionStartSheet(
         v2 = v2, workshops = workshops, questionnaires = questionnaires, artisans = artisans, meId = meId,
         prefillArtisanIds = prefillArtisanIds,
         onDismiss = { starting = false },

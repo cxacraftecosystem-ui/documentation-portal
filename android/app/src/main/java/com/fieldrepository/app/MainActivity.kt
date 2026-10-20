@@ -2994,9 +2994,10 @@ private fun HomeScreen(
                         onAction = { action ->
                             runFieldScanAction(scanContext, action, user.id) { target ->
                                 scanOpen = false
+                                // Leaving the page asks first, as search and Back do: a half-filled form is not lost.
                                 when (target) {
-                                    is ScanTarget.Record -> openRecordView(EntryMode.ARTISAN, target.id)
-                                    is ScanTarget.Session -> {
+                                    is ScanTarget.Record -> attemptExit { openRecordView(EntryMode.ARTISAN, target.id) }
+                                    is ScanTarget.Session -> attemptExit {
                                         QuestionnaireV2Nav.openSession.value = target.id
                                         screen = screenFor(EntryMode.QUESTIONNAIRE)
                                     }

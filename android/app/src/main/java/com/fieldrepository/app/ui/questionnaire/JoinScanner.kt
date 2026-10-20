@@ -115,9 +115,15 @@ fun JoinScanner(v2: QuestionnaireV2, meId: String?, onJoined: (clientKey: String
                         val unit = v2.outbox.adoptSession(session, qid, meId)
                         onJoined(unit.clientKey)
                     }
-                    .onFailure { onError(QuestionnaireCopy.s("join.notFound")) }
+                    // Only the server's own refusal means no such session; no signal or a server fault
+                    // does not, and the QR still joins offline.
+                    .onFailure { e -> onError(QuestionnaireCopy.s(if (joinCodeUnknown(e)) "join.notFound" else "join.onlineOnly")) }
                 busy = false
             }
         }))
     }
 }
+
+/** A typed code the server refused (4xx other than 408/429): the code is wrong, not the signal. */
+internal fun joinCodeUnknown(failure: Throwable): Boolean =
+    (failure as? retrofit2.HttpException)?.code()?.let { it in 400..499 && it != 408 && it != 429 } == true
