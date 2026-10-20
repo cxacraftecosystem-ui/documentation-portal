@@ -137,6 +137,9 @@ val RECORD_NOT_DICTATED: Map<RecordFormKind, Map<String, String>> = mapOf(
     RecordFormKind.CRAFT to mapOf(
         "category" to "Never sent since the master list (2026-10-20): the server writes the category's name from the sub-category picked.",
         "subCategoryId" to "A closed vocabulary from the master list behind a dropdown; the answer is picked, never typed.",
+        "stateOfOrigin" to "A multi-select over the 36 states and union territories and All India; picked, never typed.",
+        "stateOfPractice" to "The same state list as the state of origin, and the same answer: picked, never typed.",
+        "giStatus" to "Two fixed options, GI or Non GI, behind a segmented control; there is nothing to speak.",
         "workshopId" to "A closed vocabulary behind a picker; the answer is chosen from workshops the server already knows, and there is no free text to speak.",
     ),
     RecordFormKind.ARTISAN to mapOf(

@@ -87,7 +87,6 @@
     ],
     "mediaHint": "Or drag files here. Uploads start right away.",
     "retired": [
-      "Or new craft name",
       "Practising since",
       "Not recorded",
       "positive prompt",
@@ -125,7 +124,6 @@
       "What the artisan avoids. One point per line."
     ],
     "retired": [
-      "Or new craft name",
       "Practising since",
       "Do's (positive prompt)",
       "Don'ts (negative prompt)",
