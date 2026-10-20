@@ -136,7 +136,9 @@ test("opening search from the header closes the menu sheet first", () => {
 });
 
 test("the scan button keeps the frozen signature", () => {
-  expect(SCAN).toContain("export function TopBarScanButton({ className }: { className?: string }): JSX.Element");
+  expect(SCAN).toContain("export function TopBarScanButton({ className }: { className?: string })");
+  // The qr stream's button opens the scanner in place rather than linking to a page.
+  expect(SCAN).toContain("<ScanSheet");
   expect(SCAN).toContain('aria-label="Scan a code"');
 });
 
