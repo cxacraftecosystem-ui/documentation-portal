@@ -14,7 +14,7 @@ import com.fieldrepository.app.data.UserDto
 
 /**
  * Whether this account, in this view, is offered every delete: a content admin
- * ([FieldPermissions.isContentAdmin] — ADMIN, MASTER_ADMIN, MINISTRY_ADMIN) with admin view on. The
+ * ([FieldPermissions.isContentAdmin], this portal's content-admin roles) with admin view on. The
  * handset's `adminMode`, and the value [LocalContentAdminChrome] carries (owner's ruling, 2026-10-20).
  */
 fun contentAdminChrome(user: UserDto?, adminView: Boolean): Boolean =

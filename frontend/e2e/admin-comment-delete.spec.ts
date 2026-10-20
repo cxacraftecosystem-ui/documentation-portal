@@ -7,8 +7,8 @@ import { expect, test, type Page } from "@playwright/test";
  *
  * The control is the comment's Delete on a record page (`CollabPanel`, `user && adminMode`). The
  * spec posts a comment on the first artisan through the API, opens that artisan, and checks the
- * Delete is there with admin view on and gone with it off. With E2E_RESEARCHER_EMAIL set it also
- * checks a researcher sees none.
+ * Delete is there with admin view on and gone with it off, then deletes the comment again. With
+ * E2E_RESEARCHER_EMAIL set it also checks a researcher sees none.
  *
  *   E2E_EMAIL=… E2E_PASSWORD=… npx playwright test e2e/admin-comment-delete.spec.ts
  */
@@ -39,14 +39,21 @@ async function signIn(page: Page, email: string, adminView: boolean) {
   }).toPass({ timeout: 30_000 });
   await page.getByRole("button", { name: /sign in/i }).click();
   await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 60_000 });
-  await page.evaluate((on) => {
-    const stored = window.localStorage.getItem("field_repo_token") ?? "";
-    const sub = String(JSON.parse(atob(stored.split(".")[1] ?? "")).sub ?? "");
-    window.localStorage.setItem(`field_repo_admin_view:${sub}`, on ? "on" : "off");
-  }, adminView);
+  await setAdminView(page, adminView);
 }
 
-async function commentedArtisan(page: Page, stamp: number): Promise<{ id: string; body: string }> {
+/** Flips admin view the way the toggle does, without signing in again (the login page sends a signed-in user on). */
+async function setAdminView(page: Page, on: boolean) {
+  await page.evaluate((value) => {
+    const stored = window.localStorage.getItem("field_repo_token") ?? "";
+    const sub = String(JSON.parse(atob(stored.split(".")[1] ?? "")).sub ?? "");
+    window.localStorage.setItem(`field_repo_admin_view:${sub}`, value ? "on" : "off");
+  }, on);
+}
+
+type Posted = { id: string; body: string; commentId: string };
+
+async function commentedArtisan(page: Page, stamp: number): Promise<Posted> {
   const auth = { Authorization: `Bearer ${await token(page, EMAIL)}` };
   const list = await page.request.get(`${API}/api/artisans?pageSize=1`, { headers: auth });
   expect(list.ok()).toBeTruthy();
@@ -58,7 +65,14 @@ async function commentedArtisan(page: Page, stamp: number): Promise<{ id: string
     data: { recordType: "artisan", recordId: artisan!.id, body }
   });
   expect(posted.status(), await posted.text()).toBe(201);
-  return { id: artisan!.id, body };
+  return { id: artisan!.id, body, commentId: (await posted.json()).id as string };
+}
+
+/** Removes the spec's comment, so a run leaves nothing on a real record. Idempotent: a 204 either way. */
+async function removeComment(page: Page, posted: Posted | undefined) {
+  if (!posted) return;
+  const auth = { Authorization: `Bearer ${await token(page, EMAIL)}` };
+  await page.request.delete(`${API}/api/data-access/comments/${posted.commentId}`, { headers: auth });
 }
 
 function commentRow(page: Page, body: string) {
@@ -66,23 +80,35 @@ function commentRow(page: Page, body: string) {
 }
 
 test("an admin in admin view sees Delete on a comment, and not with admin view off", async ({ page }) => {
-  const { id, body } = await commentedArtisan(page, Date.now());
+  let posted: Posted | undefined;
+  try {
+    posted = await commentedArtisan(page, Date.now());
+    const { id, body } = posted;
 
-  await signIn(page, EMAIL, true);
-  await page.goto(`/artisans/${id}`);
-  await expect(commentRow(page, body).getByRole("button", { name: "Delete" })).toBeVisible();
+    await signIn(page, EMAIL, true);
+    await page.goto(`/artisans/${id}`);
+    await expect(commentRow(page, body).getByRole("button", { name: "Delete" })).toBeVisible();
 
-  await signIn(page, EMAIL, false);
-  await page.goto(`/artisans/${id}`);
-  await expect(commentRow(page, body)).toBeVisible();
-  await expect(commentRow(page, body).getByRole("button", { name: "Delete" })).toHaveCount(0);
+    await setAdminView(page, false);
+    await page.goto(`/artisans/${id}`);
+    await expect(commentRow(page, body)).toBeVisible();
+    await expect(commentRow(page, body).getByRole("button", { name: "Delete" })).toHaveCount(0);
+  } finally {
+    await removeComment(page, posted);
+  }
 });
 
 test("a researcher sees no Delete on the same comment", async ({ page }) => {
   test.skip(!RESEARCHER_EMAIL, "Set E2E_RESEARCHER_EMAIL to check a researcher.");
-  const { id, body } = await commentedArtisan(page, Date.now());
-  await signIn(page, RESEARCHER_EMAIL, true);
-  await page.goto(`/artisans/${id}`);
-  await expect(commentRow(page, body)).toBeVisible();
-  await expect(commentRow(page, body).getByRole("button", { name: "Delete" })).toHaveCount(0);
+  let posted: Posted | undefined;
+  try {
+    posted = await commentedArtisan(page, Date.now());
+    const { id, body } = posted;
+    await signIn(page, RESEARCHER_EMAIL, true);
+    await page.goto(`/artisans/${id}`);
+    await expect(commentRow(page, body)).toBeVisible();
+    await expect(commentRow(page, body).getByRole("button", { name: "Delete" })).toHaveCount(0);
+  } finally {
+    await removeComment(page, posted);
+  }
 });
