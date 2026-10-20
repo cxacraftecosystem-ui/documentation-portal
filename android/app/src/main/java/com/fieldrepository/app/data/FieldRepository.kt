@@ -884,6 +884,11 @@ class FieldRepository(
         api.entryComments(recordType, recordId)
     suspend fun addEntryComment(recordType: String, recordId: String, body: String): EntryCommentDto =
         api.addEntryComment(null, EntryCommentBody(recordType = recordType, recordId = recordId, body = body))
+    /** Delete a comment: a content admin's act. The screen offers it only in admin view. */
+    suspend fun deleteEntryComment(commentId: String) = api.deleteEntryComment(commentId)
+    /** The author's edit of their own comment; the server refuses anybody else with 403. */
+    suspend fun updateEntryComment(commentId: String, body: String): EntryCommentDto =
+        api.updateEntryComment(commentId, EntryCommentUpdateBody(body = body))
     suspend fun recordRevisions(recordType: String, recordId: String): List<RecordRevisionDto> =
         api.recordRevisions(recordType, recordId)
 

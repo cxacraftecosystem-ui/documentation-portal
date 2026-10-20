@@ -1737,7 +1737,7 @@ private fun HomeScreen(
     val adminChrome = !isAdmin || adminView
     // Deletes are the content admins' alone (FieldPermissions.isContentAdmin; owner's ruling
     // 2026-10-20), and only with admin view on, exactly as the web's `adminMode`. Set, never rank.
-    val canDelete = com.fieldrepository.app.ui.FieldPermissions.isContentAdmin(user) && adminView
+    val canDelete = com.fieldrepository.app.ui.contentAdminChrome(user, adminView)
 
     /**
      * How many people are waiting on an administrator to let them in — THE NOTIFICATION.
@@ -13847,6 +13847,11 @@ private fun RecordCollabSection(
     var revisions by remember(recordId) { mutableStateOf<List<RecordRevisionDto>?>(null) }
     var draft by remember(recordId) { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    // The signed-in account, read once. `EntryCommentRow` offers Edit to the author and Remove to a
+    // content admin in admin view (2026-10-20) — the two rules `data_access` enforces, as on the web.
+    val me = remember { repository.cachedUser() }
+    var editingId by remember(recordId) { mutableStateOf<String?>(null) }
+    var editDraft by remember(recordId) { mutableStateOf("") }
 
     fun reload() {
         scope.launch {
@@ -13863,10 +13868,47 @@ private fun RecordCollabSection(
         Text("Comments", display = true, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
         if (comments.isEmpty()) Text("No comments yet.", color = Muted, style = MaterialTheme.typography.bodySmall)
         comments.forEach { c ->
-            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Text(c.body, color = Body, style = MaterialTheme.typography.bodyMedium)
-                Text("${c.author?.name ?: "Someone"} · ${c.createdAt.take(10)}", color = Muted, style = MaterialTheme.typography.bodySmall)
+            if (editingId == c.id) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TextInput("Edit comment", editDraft, minLines = 2) { editDraft = it }
+                    ActionRow {
+                        OutlinedButton(enabled = !busy, onClick = { editingId = null }) { Text("Cancel") }
+                        Button(
+                            enabled = !busy && editDraft.isNotBlank(),
+                            onClick = {
+                                val next = editDraft.trim()
+                                if (next == c.body) {
+                                    editingId = null
+                                    return@Button
+                                }
+                                scope.launch {
+                                    busy = true
+                                    runCatching { repository.updateEntryComment(c.id, next) }
+                                        .onSuccess { editingId = null; reload() }
+                                        .onFailure { onError(it.apiErrorMessage("Unable to save comment")) }
+                                    busy = false
+                                }
+                            }
+                        ) { Text(if (busy) "Saving…" else "Save") }
+                    }
+                }
+                return@forEach
             }
+            com.fieldrepository.app.ui.EntryCommentRow(
+                comment = c,
+                viewerId = me?.id,
+                busy = busy,
+                onEdit = { editingId = c.id; editDraft = c.body },
+                onRemove = {
+                    scope.launch {
+                        busy = true
+                        runCatching { repository.deleteEntryComment(c.id) }
+                            .onSuccess { reload() }
+                            .onFailure { onError(it.apiErrorMessage("Unable to remove the comment")) }
+                        busy = false
+                    }
+                }
+            )
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(modifier = Modifier.weight(1f)) { TextInput("Add a comment (needs comment access)", draft) { draft = it } }
