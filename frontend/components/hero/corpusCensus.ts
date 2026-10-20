@@ -34,6 +34,8 @@
 export type CorpusCounts = {
   artisans: number;
   crafts: number;
+  /** The master list's categories. Optional: the live census does not send it yet. */
+  craftCategories?: number;
   products: number;
   processes: number;
   tools: number;
@@ -59,7 +61,9 @@ export const CORPUS_CENSUS: CorpusCensus = {
   basis: "held",
   counts: {
     artisans: 16,
-    crafts: 9,
+    // The master list (REQUIREMENTS_2026-10-20 §2.7): 455 crafts in 9 categories.
+    crafts: 455,
+    craftCategories: 9,
     products: 18,
     processes: 4,
     tools: 74,

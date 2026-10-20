@@ -85,7 +85,18 @@ export const GUIDE_STEPS: GuideStep[] = [
     summary: "Add the craft being documented.",
     why:
       "Artisans, products and tools link to it, keeping spellings consistent.",
-    fields: ["Craft name (required)", "Local name", "Category", "Place", "Description", "Craft media"],
+    fields: [
+      "Craft name (required)",
+      "Local name",
+      "Category",
+      "Sub-category (required)",
+      "State of origin",
+      "State of practice",
+      "GI status",
+      "Place",
+      "Description",
+      "Craft media"
+    ],
     watch: [
       "Reuse an existing craft rather than adding a near-duplicate.",
       "Record the local name the community uses."
@@ -105,7 +116,6 @@ export const GUIDE_STEPS: GuideStep[] = [
       "Local name",
       "Workshop",
       "Craft (required)",
-      "Or new craft name",
       "Place (required)",
       "Gender",
       "Date of birth (required)",
@@ -123,7 +133,7 @@ export const GUIDE_STEPS: GuideStep[] = [
     ],
     watch: [
       "Do’s and Don’ts are required — one point per line.",
-      "Choose a craft or type a new one.",
+      "Pick the craft from the list.",
       "Photo details are added to the notes automatically.",
       "The ring on each record shows what’s still missing; tap a field to fill it in."
     ]
@@ -144,8 +154,7 @@ export const GUIDE_STEPS: GuideStep[] = [
       "Product type",
       "Artisan (required)",
       "Artisan not on record",
-      "Linked craft (fills craft name)",
-      "Craft name (required)",
+      "Craft (required)",
       "Artisan name (required)",
       "Place (required)",
       "Time taken to complete",
@@ -206,8 +215,7 @@ export const GUIDE_STEPS: GuideStep[] = [
       "Local name",
       "English name",
       "Workshop",
-      "Linked crafts (fills craft name)",
-      "Craft name (required)",
+      "Crafts (required)",
       "Linked artisans (fills artisan + place)",
       "Artisan name (required)",
       "Place (required)",

@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { Landmark } from "lucide-react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Landmark, Plus } from "lucide-react";
 
 import { CollabDialog } from "@/components/CollabDialog";
 import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
@@ -30,16 +30,32 @@ import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
-import { apiFetch, listResource } from "@/lib/api";
-import { countNoun, formatDate } from "@/lib/format";
+import { apiFetch } from "@/lib/api";
+import { countNoun } from "@/lib/format";
 import { requiredText, textValue } from "@/lib/forms";
 import { handleFormEnter } from "@/lib/formNav";
 import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, type BatchProgress } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
 import { canManageCrafts, isAdmin } from "@/lib/permissions";
 import { UnmappedCraftsPanel } from "@/components/crafts/UnmappedCraftsPanel";
+import { CraftReviewQueue } from "@/components/crafts/CraftReviewQueue";
+import { CraftTaxonomyPanel } from "@/components/crafts/CraftTaxonomyPanel";
+import { Dropdown, MultiSelectDropdown } from "@/components/ui/Dropdown";
+import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
+import { CraftSubCategorySelect } from "@/components/crafts/CraftTaxonomyFields";
+import { CRAFT_STATE_OPTIONS, GI_LABEL } from "@/components/crafts/craftAdmin";
+import {
+  CRAFT_OFFLINE_FIRST_RUN,
+  craftIndex,
+  invalidateCraftCatalogue,
+  loadFullCraftCatalogue,
+  searchCraftCatalogue,
+  useCraftCatalogue,
+  type CraftCatalogue,
+  type GiStatus
+} from "@/lib/craftCatalogue";
 import { UploadsProvider, useUploads } from "@/lib/uploads";
-import type { Craft, PageResult } from "@/lib/types";
+import type { Craft } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import Link from "next/link";
 import { UserPlus } from "lucide-react";
@@ -48,6 +64,14 @@ import { carryContextToParams } from "@/lib/carryContext";
 /** Section id the craft media batch publishes under, so the page-level tray can aggregate it. */
 const MEDIA_SECTION = "craft-media";
 const MEDIA_SECTION_LABEL = "Craft media";
+
+type CraftsTab = "crafts" | "categories" | "review";
+const CRAFTS_TABS: { id: CraftsTab; label: string }[] = [
+  { id: "crafts", label: "Crafts" },
+  { id: "categories", label: "Categories" },
+  { id: "review", label: "Needs review" }
+];
+const CRAFTS_PAGE_SIZE = 50;
 
 export default function CraftsPage() {
   return (
@@ -64,16 +88,13 @@ export default function CraftsPage() {
 /**
  * ── DICTATION ON THE CRAFT FORM: WHICH BOXES HAVE A MICROPHONE, AND WHY THE REST DO NOT ────────
  *
- * DICTATED: Craft name · Local name · Category · Place · Description.
+ * DICTATED: Craft name · Local name · Place · Description.
  *
- * NOT DICTATED: **Workshop** (a record picker behind a themed dropdown — nothing free to speak) and
- * **Craft media** (a file picker).
+ * NOT DICTATED: **Workshop** (a record picker behind a themed dropdown — nothing free to speak),
+ * **Category / Sub-category**, **States** and **GI status** (closed vocabularies from the master list)
+ * and **Craft media** (a file picker).
  *
- * CATEGORY IS THE JUDGEMENT CALL ON THIS FORM, and it is dictated only because of what it is TODAY:
- * free prose with no vocabulary endpoint behind it and nothing validating it. It is not title-cased,
- * because it is absent from the API's title-cased set (`backend/app/services/records.py:339-354`) and
- * a hint would promise a normalisation that never happens. The day this becomes a dropdown it leaves
- * this list, like every other closed vocabulary.
+ * CATEGORY LEFT THIS LIST on 2026-10-20: it is Category → Sub-category from the master list now.
  *
  * THE SEARCH BOX IS NOT PART OF THIS FORM AND GETS NOTHING. It is not an answer being stored; it
  * re-runs a query on every keystroke, so a microphone there would fire a debounced fetch per phrase.
@@ -97,7 +118,18 @@ function CraftsPageBody() {
   const { adminMode } = useAdminView();
   const { addCompleted } = useUploads();
   const allowManage = canManageCrafts(user);
-  const [data, setData] = useState<PageResult<Craft> | null>(null);
+  /** Content admins: Admin and Master Admin (Ministry Admin where the role exists). */
+  const contentAdmin = isAdmin(user);
+  const searchParams = useSearchParams();
+  const [tab, setTab] = useState<CraftsTab>(() => {
+    const asked = searchParams.get("tab");
+    return asked === "categories" || (asked === "review" && contentAdmin) ? asked : "crafts";
+  });
+  const [formOpen, setFormOpen] = useState(false);
+  const [filterCategory, setFilterCategory] = useState("");
+  const [filterSub, setFilterSub] = useState("");
+  const [filterGi, setFilterGi] = useState("");
+  const [filterState, setFilterState] = useState("");
   const [query, setQuery] = useState("");
   const [applied, setApplied] = useState("");
   const [page, setPage] = useState(1);
@@ -113,7 +145,10 @@ function CraftsPageBody() {
   */
   const [name, setName] = useState("");
   const [localName, setLocalName] = useState("");
-  const [category, setCategory] = useState("");
+  const [subCategoryId, setSubCategoryId] = useState("");
+  const [stateOfOrigin, setStateOfOrigin] = useState<string[]>([]);
+  const [stateOfPractice, setStateOfPractice] = useState<string[]>([]);
+  const [giStatus, setGiStatus] = useState<GiStatus>("NON_GI");
   const [place, setPlace] = useState("");
   const [formKey, setFormKey] = useState(0);
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
@@ -139,19 +174,31 @@ function CraftsPageBody() {
     resetKey: editing?.id ?? null
   });
 
-  async function load() {
+  /** The master list: the table, its filters and every picker read the same catalogue. */
+  const craftCatalogue = useCraftCatalogue();
+  const catalogue = craftCatalogue.catalogue;
+  const refreshCatalogue = craftCatalogue.reload;
+  /** Records per craft, for content admins (the catalogue's `includeInactive` view carries them). */
+  const [counts, setCounts] = useState<Map<string, number> | null>(null);
+  const loadCounts = useCallback(async () => {
+    if (!contentAdmin) return;
     try {
-      setData(await listResource<Craft>("/crafts", { search: applied || undefined, page, pageSize: 20 }));
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load crafts");
+      const full: CraftCatalogue = await loadFullCraftCatalogue();
+      setCounts(new Map(full.crafts.map((craft) => [craft.id, craft.referenceCount ?? 0])));
+    } catch {
+      setCounts(null);
     }
-  }
-
+  }, [contentAdmin]);
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, applied]);
+    void loadCounts();
+  }, [loadCounts]);
+
+  /** After any write the catalogue's version moved, so every picker re-reads it. */
+  function load() {
+    invalidateCraftCatalogue();
+    refreshCatalogue();
+    void loadCounts();
+  }
 
   // Live search: debounce typing by 350ms; Enter applies immediately via onSubmit.
   useEffect(() => {
@@ -165,6 +212,76 @@ function CraftsPageBody() {
     }, 350);
     return () => clearTimeout(timer);
   }, [query]);
+
+  const categoryOptions = useMemo(
+    () => (catalogue?.categories ?? []).map((category) => ({ value: category.id, label: category.name })),
+    [catalogue]
+  );
+  const subOptionsFor = useCallback(
+    (category: string) =>
+      (catalogue?.categories ?? [])
+        .filter((row) => !category || row.id === category)
+        .flatMap((row) => row.subCategories.map((sub) => ({ value: sub.id, label: category ? sub.name : `${row.name} › ${sub.name}` }))),
+    [catalogue]
+  );
+  const stateOptions = useMemo(() => CRAFT_STATE_OPTIONS.map((state) => ({ value: state, label: state })), []);
+  /** "Category" and "Sub-category" of a catalogue row, for the table. */
+  const pathOf = useCallback(
+    (subCategoryId: string | null) => {
+      if (!catalogue || !subCategoryId) return null;
+      const index = craftIndex(catalogue);
+      const sub = index.subCategoryById.get(subCategoryId);
+      return sub ? { sub: sub.name, category: index.categoryById.get(sub.categoryId)?.name ?? "" } : null;
+    },
+    [catalogue]
+  );
+
+  /** The Crafts tab's rows: the catalogue, searched and filtered here, in list order. */
+  const filtered = useMemo(() => {
+    const subIds = filterCategory
+      ? new Set((catalogue?.categories.find((row) => row.id === filterCategory)?.subCategories ?? []).map((sub) => sub.id))
+      : null;
+    return (catalogue ? searchCraftCatalogue(catalogue, applied) : [])
+      .filter(
+        (craft) =>
+          (!subIds || subIds.has(craft.subCategoryId ?? "")) &&
+          (!filterSub || craft.subCategoryId === filterSub) &&
+          (!filterGi || craft.giStatus === filterGi) &&
+          (!filterState || craft.stateOfOrigin.includes(filterState) || craft.stateOfPractice.includes(filterState))
+      );
+  }, [catalogue, applied, filterCategory, filterSub, filterGi, filterState]);
+  const pages = Math.max(1, Math.ceil(filtered.length / CRAFTS_PAGE_SIZE));
+  const shownPage = Math.min(page, pages);
+  const rows = filtered.slice((shownPage - 1) * CRAFTS_PAGE_SIZE, shownPage * CRAFTS_PAGE_SIZE);
+
+  /** `/crafts?new=<name>`: "Add it to the list" from a craft picker opens the form with that name. */
+  const askedName = searchParams.get("new");
+  useEffect(() => {
+    if (!askedName || askedName === "1" || !allowManage) return;
+    setTab("crafts");
+    guard(() => {
+      resetForm(null);
+      setName(askedName);
+      setFormOpen(true);
+      requestAnimationFrame(() => formRef.current?.scrollIntoView({ block: "start" }));
+    });
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("new");
+    const rest = next.toString();
+    router.replace(rest ? `/crafts?${rest}` : "/crafts", { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [askedName, allowManage]);
+
+  /** Update from a row: the catalogue row is the list's; the form needs the whole record. */
+  async function openForEdit(id: string) {
+    try {
+      const record = await apiFetch<Craft>(`/crafts/${id}`);
+      guard(() => resetForm(record));
+      requestAnimationFrame(() => formRef.current?.scrollIntoView({ block: "start" }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load that craft");
+    }
+  }
 
   /*
    * BACK FROM A CRAFT'S VIEW PUTS THE LIST BACK AS IT WAS — search, page and scroll. A row click
@@ -182,7 +299,7 @@ function CraftsPageBody() {
     setPage(note.page);
   }, [listReturn.restored]);
   const restoreListScroll = listReturn.restoreScroll;
-  useEffect(() => restoreListScroll(Boolean(data)), [data, restoreListScroll]);
+  useEffect(() => restoreListScroll(Boolean(catalogue)), [catalogue, restoreListScroll]);
   const rememberPlace = () => listReturn.remember({ query: applied, page });
 
   // Warn on hard navigation (close tab / reload) while the craft form has unsaved edits.
@@ -220,8 +337,12 @@ function CraftsPageBody() {
     // the remount below would re-read. `next` is the record being loaded, or null for a blank form.
     setName(next?.name ?? "");
     setLocalName(next?.localName ?? "");
-    setCategory(next?.category ?? "");
+    setSubCategoryId(next?.subCategoryId ?? "");
+    setStateOfOrigin(next?.stateOfOrigin ?? []);
+    setStateOfPractice(next?.stateOfPractice ?? []);
+    setGiStatus(next?.giStatus ?? "NON_GI");
     setPlace(next?.place ?? "");
+    setFormOpen(Boolean(next));
     // ── AND THE FORM IS REMOUNTED, WHICH IS A BUG FIX AND NOT A TIDY-UP ─────────────────────
     // The `<form>` was keyed `editing?.id ?? "new"` alone, so creating a craft did not change the key
     // and the form was NOT rebuilt: `formElement.reset()` on the saved branch of `submit` was the
@@ -247,7 +368,11 @@ function CraftsPageBody() {
     // `dirty` — so seeding directly would throw away anything typed in those seconds with nothing
     // asked and nothing said. Dirty means the unsaved-changes dialog decides, as everywhere else.
     onEdit: (record) => guard(() => resetForm(record)),
-    onNew: () => guard(() => resetForm(null)),
+    onNew: () =>
+      guard(() => {
+        resetForm(null);
+        setFormOpen(true);
+      }),
     onError: setError,
     allowed: allowManage,
     errorMessage: "Unable to load that craft"
@@ -273,7 +398,10 @@ function CraftsPageBody() {
       const payload: Record<string, unknown> = {
         name: requiredText(form, "name"),
         localName: textValue(form, "localName"),
-        category: textValue(form, "category"),
+        subCategoryId: subCategoryId || null,
+        stateOfOrigin,
+        stateOfPractice,
+        giStatus,
         place: textValue(form, "place"),
         workshopId: workshop.workshopId || null,
         description
@@ -343,30 +471,62 @@ function CraftsPageBody() {
   }
 
   async function remove(id: string) {
-    const ok = await confirm(
-      deleteConfirm(
-        "Delete this craft?",
-        "This can’t be undone. Linked records keep the craft name.",
-        undefined
-      )
-    );
+    const ok = await confirm(deleteConfirm("Delete this craft?", "This can’t be undone.", undefined));
     if (!ok) return;
     try {
       await apiFetch(`/crafts/${id}`, { method: "DELETE" });
-      await load();
+      load();
     } catch (err) {
+      // 409 CRAFT_IN_USE: "Used by {n} records. Merge it into another craft instead."
       setError(err instanceof Error ? err.message : "Unable to delete craft");
     }
   }
 
-  // Most recent first, regardless of the API's name ordering.
-  const rows = data ? [...data.items].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")) : [];
-
   return (
     <>
-      <PageHeader title="Crafts" description="The list of crafts." icon={<Landmark className="h-5 w-5" aria-hidden />} />
-      {/* C26: an administrator maps crafts to the shared code both portals carry. */}
-      {isAdmin(user) && adminMode ? <UnmappedCraftsPanel /> : null}
+      <PageHeader
+        title="Crafts"
+        description={
+          catalogue
+            ? `${countNoun(catalogue.crafts.length, "craft")} in ${countNoun(catalogue.categories.length, "category", "categories")}.`
+            : "The master list of crafts."
+        }
+        icon={<Landmark className="h-5 w-5" aria-hidden />}
+        actions={
+          allowManage && tab === "crafts" && !formOpen && !editing ? (
+            <button type="button" className="field-button" onClick={() => guard(() => setFormOpen(true))}>
+              <Plus className="h-4 w-4" aria-hidden />
+              Add craft
+            </button>
+          ) : null
+        }
+      />
+      <div role="tablist" aria-label="Crafts views" className="mb-5 flex flex-wrap gap-2">
+        {CRAFTS_TABS.filter((entry) => entry.id !== "review" || contentAdmin).map((entry) => (
+          <button
+            key={entry.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === entry.id}
+            className={
+              tab === entry.id
+                ? "rounded-full bg-purple-700 px-4 py-1.5 text-sm font-medium text-white pointer-coarse:min-h-11"
+                : "rounded-full border border-line-200 bg-card px-4 py-1.5 text-sm font-medium text-ink-700 hover:border-purple-300 pointer-coarse:min-h-11"
+            }
+            onClick={() => guard(() => setTab(entry.id))}
+          >
+            {entry.label}
+          </button>
+        ))}
+      </div>
+      {tab === "categories" ? <CraftTaxonomyPanel canManage={contentAdmin} canDelete={contentAdmin && adminMode} onChanged={load} /> : null}
+      {tab === "review" && contentAdmin ? (
+        <div className="grid gap-5">
+          <CraftReviewQueue onChanged={load} />
+          {/* Craft codes: the shared code both portals carry. */}
+          {adminMode ? <UnmappedCraftsPanel /> : null}
+        </div>
+      ) : null}
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       {savedCraft ? (
         <div className="panel mb-5 flex flex-wrap items-center justify-between gap-3 p-4">
@@ -422,7 +582,7 @@ function CraftsPageBody() {
           onNavigate={(href) => guard(() => router.push(href))}
         />
       ) : null}
-      {allowManage ? (
+      {tab !== "crafts" ? null : allowManage && (formOpen || editing) ? (
       <form
         ref={formRef}
         key={`${editing?.id ?? "new"}-${formKey}`}
@@ -480,18 +640,65 @@ function CraftsPageBody() {
             setDirty(true);
           }}
         />
-        {/* Dictated ONLY because it is free prose today — no vocabulary endpoint, nothing validating
-            it. Not title-cased: absent from `records.py:339-354`. See the register above. */}
-        <DictatedTextInput
-          name="category"
-          label="Category"
-          explainWhenUnavailable={false}
-          value={category}
-          onChange={(next) => {
-            setCategory(next);
-            setDirty(true);
-          }}
-        />
+        <div className="contents" data-field="subCategory">
+          {catalogue ? (
+            <CraftSubCategorySelect
+              catalogue={catalogue}
+              name="subCategoryId"
+              required
+              value={subCategoryId}
+              onChange={(next) => {
+                setSubCategoryId(next);
+                setDirty(true);
+              }}
+            />
+          ) : (
+            <p className="text-sm text-ink-500">{craftCatalogue.loading ? "Loading…" : CRAFT_OFFLINE_FIRST_RUN}</p>
+          )}
+        </div>
+        <div className="grid min-w-0 gap-1">
+          <span className="field-label">State of origin</span>
+          <MultiSelectDropdown
+            ariaLabel="State of origin"
+            values={stateOfOrigin}
+            searchable
+            placeholder="Choose states"
+            options={stateOptions}
+            onChange={(next) => {
+              setStateOfOrigin(next);
+              setDirty(true);
+            }}
+          />
+        </div>
+        <div className="grid min-w-0 gap-1">
+          <span className="field-label">State of practice</span>
+          <MultiSelectDropdown
+            ariaLabel="State of practice"
+            values={stateOfPractice}
+            searchable
+            placeholder="Choose states"
+            options={stateOptions}
+            onChange={(next) => {
+              setStateOfPractice(next);
+              setDirty(true);
+            }}
+          />
+        </div>
+        <div className="grid min-w-0 content-start gap-1">
+          <span className="field-label">GI status</span>
+          <SegmentedChoice
+            label="GI status"
+            value={giStatus}
+            options={[
+              { value: "GI", label: GI_LABEL.GI },
+              { value: "NON_GI", label: GI_LABEL.NON_GI }
+            ]}
+            onChange={(next) => {
+              setGiStatus(next as GiStatus);
+              setDirty(true);
+            }}
+          />
+        </div>
         <DictatedTextInput
           name="place"
           label="Place"
@@ -544,18 +751,16 @@ function CraftsPageBody() {
           <button className="field-button" disabled={saving}>
             {saving ? "Saving..." : editing ? "Update craft" : "Create craft"}
           </button>
-          {editing ? (
-            <button type="button" className="field-button-secondary" onClick={() => guard(() => resetForm(null))}>
-              Cancel edit
-            </button>
-          ) : null}
+          <button type="button" className="field-button-secondary" onClick={() => guard(() => resetForm(null))}>
+            {editing ? "Cancel edit" : "Cancel"}
+          </button>
         </ButtonRow>
       </form>
-      ) : (
+      ) : tab === "crafts" && !allowManage ? (
         <div className="panel mb-5 p-4 text-sm text-ink-muted">
           Ask an admin for access to add crafts.
         </div>
-      )}
+      ) : null}
       {/* Same provenance block the artisan/product/tool/workshop edit surfaces carry, for the craft
           being edited. empty:hidden — FieldProvenance renders nothing without provenance access. */}
       {editing ? (
@@ -563,76 +768,141 @@ function CraftsPageBody() {
           <FieldProvenance extraMetadata={editing.extraMetadata} title="Craft field contributions" />
         </div>
       ) : null}
-      <div className="mb-4">
-        <SearchInput
-          value={query}
-          onChange={setQuery}
-          onSubmit={() => {
-            setApplied(query);
-            setPage(1);
-          }}
-          placeholder="Search crafts, categories or descriptions"
-        />
-      </div>
-      <section className="panel overflow-hidden">
-        {!data ? (
-          <div className="p-4 text-sm text-ink-700">Loading...</div>
-        ) : rows.length === 0 ? (
-          <div className="p-4">
-            <EmptyState title="No crafts found" />
+      {tab === "crafts" ? (
+        <>
+          <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="sm:col-span-2 lg:col-span-1">
+              <SearchInput
+                value={query}
+                onChange={setQuery}
+                onSubmit={() => {
+                  setApplied(query);
+                  setPage(1);
+                }}
+                placeholder="Search crafts"
+              />
+            </div>
+            <Dropdown
+              ariaLabel="Filter by category"
+              value={filterCategory}
+              advanceOnSelect={false}
+              onChange={(next) => {
+                setFilterCategory(next);
+                setFilterSub("");
+                setPage(1);
+              }}
+              options={[{ value: "", label: "All categories" }, ...categoryOptions]}
+            />
+            <Dropdown
+              ariaLabel="Filter by sub-category"
+              value={filterSub}
+              advanceOnSelect={false}
+              searchable
+              onChange={(next) => {
+                setFilterSub(next);
+                setPage(1);
+              }}
+              options={[{ value: "", label: "All sub-categories" }, ...subOptionsFor(filterCategory)]}
+            />
+            <Dropdown
+              ariaLabel="Filter by GI status"
+              value={filterGi}
+              advanceOnSelect={false}
+              onChange={(next) => {
+                setFilterGi(next);
+                setPage(1);
+              }}
+              options={[
+                { value: "", label: "GI and Non GI" },
+                { value: "GI", label: GI_LABEL.GI },
+                { value: "NON_GI", label: GI_LABEL.NON_GI }
+              ]}
+            />
+            <Dropdown
+              ariaLabel="Filter by state"
+              value={filterState}
+              advanceOnSelect={false}
+              searchable
+              onChange={(next) => {
+                setFilterState(next);
+                setPage(1);
+              }}
+              options={[{ value: "", label: "All states" }, ...stateOptions]}
+            />
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1000px] text-left text-sm">
-              <thead className="bg-surface-50 text-xs uppercase text-ink-500">
-                <tr>
-                  <ResizableTh>Name</ResizableTh>
-                  <ResizableTh>Local name</ResizableTh>
-                  <ResizableTh>Category</ResizableTh>
-                  <ResizableTh>Place</ResizableTh>
-                  <ResizableTh>Description</ResizableTh>
-                  <ResizableTh>Created</ResizableTh>
-                  <ResizableTh className="text-right">Actions</ResizableTh>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line-200">
-                {rows.map((craft) => (
-                  <OpenableRow key={craft.id} href={recordViewHref("craft", craft.id)!} onOpen={rememberPlace} navigate={openThroughGuard}>
-                    <td className="px-4 py-3">
-                      <RecordTitleLink href={recordViewHref("craft", craft.id)!} onOpen={rememberPlace} navigate={openThroughGuard}>
-                        {craft.name}
-                      </RecordTitleLink>
-                    </td>
-                    <td className="px-4 py-3 text-ink-700">{craft.localName ?? "-"}</td>
-                    <td className="px-4 py-3 text-ink-700">{craft.category ?? "-"}</td>
-                    <td className="px-4 py-3 text-ink-700">{craft.place ?? "-"}</td>
-                    <td className="max-w-md px-4 py-3 text-ink-700">{craft.description ?? "-"}</td>
-                    <td className="px-4 py-3 text-ink-700">{craft.createdAt ? formatDate(craft.createdAt) : "-"}</td>
-                    <td className="px-4 py-3 text-right">
-                      <RowActions>
-                        {allowManage ? (
-                          <button className={rowAction("edit")} onClick={() => guard(() => resetForm(craft))}>
-                            Update
-                          </button>
-                        ) : null}
-                        <button className={rowAction("neutral")} onClick={() => setCollabId(craft.id)}>
-                          Discuss
-                        </button>
-                        {adminMode ? (
-                          <button className={rowAction("danger")} onClick={() => remove(craft.id)}>
-                            Delete
-                          </button>
-                        ) : null}
-                      </RowActions>
-                    </td>
-                  </OpenableRow>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {data ? <Pagination page={data.page} pages={data.pages} total={data.total} onPage={setPage} /> : null}
-      </section>
+          <section className="panel overflow-hidden">
+            {!catalogue ? (
+              <div className="p-4 text-sm text-ink-700">
+                {craftCatalogue.loading ? "Loading..." : CRAFT_OFFLINE_FIRST_RUN}
+              </div>
+            ) : rows.length === 0 ? (
+              <div className="p-4">
+                <EmptyState title="No crafts found" />
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[1100px] text-left text-sm">
+                  <thead className="bg-surface-50 text-xs uppercase text-ink-500">
+                    <tr>
+                      <ResizableTh>Serial</ResizableTh>
+                      <ResizableTh>Craft</ResizableTh>
+                      <ResizableTh>Sub-category</ResizableTh>
+                      <ResizableTh>Category</ResizableTh>
+                      <ResizableTh>GI</ResizableTh>
+                      <ResizableTh>State of origin</ResizableTh>
+                      <ResizableTh>State of practice</ResizableTh>
+                      {counts ? <ResizableTh>Records</ResizableTh> : null}
+                      <ResizableTh className="text-right">Actions</ResizableTh>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line-200">
+                    {rows.map((craft) => {
+                      const path = pathOf(craft.subCategoryId);
+                      return (
+                        <OpenableRow key={craft.id} href={recordViewHref("craft", craft.id)!} onOpen={rememberPlace} navigate={openThroughGuard}>
+                          <td className="px-4 py-3 tabular-nums text-ink-700">{craft.sourceSerial ?? "–"}</td>
+                          <td className="px-4 py-3">
+                            <RecordTitleLink href={recordViewHref("craft", craft.id)!} onOpen={rememberPlace} navigate={openThroughGuard}>
+                              {craft.name}
+                            </RecordTitleLink>
+                          </td>
+                          <td className="px-4 py-3 text-ink-700">{path?.sub || "–"}</td>
+                          <td className="px-4 py-3 text-ink-700">{path?.category || "–"}</td>
+                          <td className="px-4 py-3 text-ink-700">{craft.giStatus ? GI_LABEL[craft.giStatus] : "–"}</td>
+                          <td className="max-w-xs px-4 py-3 text-ink-700">{craft.stateOfOrigin.join(", ") || "–"}</td>
+                          <td className="max-w-xs px-4 py-3 text-ink-700">{craft.stateOfPractice.join(", ") || "–"}</td>
+                          {counts ? <td className="px-4 py-3 tabular-nums text-ink-700">{counts.get(craft.id) ?? 0}</td> : null}
+                          <td className="px-4 py-3 text-right">
+                            <RowActions
+                              destructive={
+                                contentAdmin && adminMode ? (
+                                  <button className={rowAction("danger")} data-danger onClick={() => remove(craft.id)}>
+                                    Delete
+                                  </button>
+                                ) : undefined
+                              }
+                            >
+                              {allowManage ? (
+                                <button className={rowAction("edit")} onClick={() => void openForEdit(craft.id)}>
+                                  Update
+                                </button>
+                              ) : null}
+                              <button className={rowAction("neutral")} onClick={() => setCollabId(craft.id)}>
+                                Discuss
+                              </button>
+                            </RowActions>
+                          </td>
+                        </OpenableRow>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {catalogue ? <Pagination page={shownPage} pages={pages} total={filtered.length} onPage={setPage} /> : null}
+          </section>
+        </>
+      ) : null}
       {/* The hand-rolled overlay this replaces was pre-FieldDialog legacy: no focus trap, no Escape,
           no focus restoration and no scroll lock. /workshops already used the shared component. */}
       <CollabDialog recordType="craft" recordId={collabId} onClose={() => setCollabId(null)} />

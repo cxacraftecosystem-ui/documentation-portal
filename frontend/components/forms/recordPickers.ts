@@ -61,7 +61,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { LIST_PAGE_CEILING, listCut, mergeById, type ListCut } from "@/components/data/cappedList";
 import type { CarryScopeState } from "@/components/forms/CarryContextBanner";
 import { apiFetch, listResource } from "@/lib/api";
+import { useCraftCatalogue } from "@/lib/craftCatalogue";
 import type { Artisan, Craft } from "@/lib/types";
+
+/** What a picker needs of a craft: the master list's id and name. */
+export type CraftRef = Pick<Craft, "id" | "name">;
 
 /**
  * THE RECORD THIS FORM IS ALREADY POINTING AT, fetched by id when no loaded page holds it.
@@ -181,7 +185,8 @@ export function useRecordsOffPage<T extends { id: string }>(
 export type CraftAndArtisanOptions = {
   /** Every artisan this form has learned about, from all three requests. Never narrowed. */
   artisans: Artisan[];
-  crafts: Craft[];
+  /** The master list (`GET /crafts/catalogue`): every pickable craft, never a page of them. */
+  crafts: CraftRef[];
   /**
    * "Have the reference lists arrived?" — handed straight to `carryScope`, which treats "not
    * visible to me" and "no signal" differently. Only the MOUNT load moves it: the craft-scoped
@@ -189,7 +194,7 @@ export type CraftAndArtisanOptions = {
    * would prune a carried record because one follow-up request failed.
    */
   referenceState: CarryScopeState;
-  /** The crafts dropdown's cut, or null when it holds every craft. */
+  /** Always null: the catalogue is the whole list. Kept so callers need not special-case it. */
   craftCut: ListCut | null;
   /** The chosen crafts' artisan roster's cut, or null when it holds every one of them. */
   craftArtisanCut: ListCut | null;
@@ -231,9 +236,17 @@ export function useCraftAndArtisanOptions({
   artisanIds: readonly string[];
 }): CraftAndArtisanOptions {
   const [artisans, setArtisans] = useState<Artisan[]>([]);
-  const [crafts, setCrafts] = useState<Craft[]>([]);
-  const [referenceState, setReferenceState] = useState<CarryScopeState>("pending");
-  const [craftCut, setCraftCut] = useState<ListCut | null>(null);
+  const catalogue = useCraftCatalogue();
+  const crafts = useMemo<CraftRef[]>(() => catalogue.catalogue?.crafts ?? [], [catalogue.catalogue]);
+  const [artisanState, setArtisanState] = useState<CarryScopeState>("pending");
+  const craftState: CarryScopeState =
+    catalogue.catalogue ? "loaded" : catalogue.loading ? "pending" : "unavailable";
+  const referenceState: CarryScopeState =
+    artisanState === "unavailable" || craftState === "unavailable"
+      ? "unavailable"
+      : artisanState === "loaded" && craftState === "loaded"
+        ? "loaded"
+        : "pending";
   const [craftArtisanCut, setCraftArtisanCut] = useState<ListCut | null>(null);
   const [artisansLoadedForCrafts, setArtisansLoadedForCrafts] = useState<string | null>(null);
   // The craft selection reaches the effect below as ONE string, never as the array itself: a caller
@@ -242,23 +255,17 @@ export function useCraftAndArtisanOptions({
   // same for the artisan ids, inside itself.
   const craftKey = craftsKey(craftIds);
 
-  // (1) The repository-wide reference load. Unchanged in shape from what both forms did, because
-  // `carryScope` depends on this array meaning "everything this form can see".
+  // (1) The repository-wide artisan load; the crafts are the catalogue above, whole.
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      listResource<Artisan>("/artisans", { pageSize: LIST_PAGE_CEILING }),
-      listResource<Craft>("/crafts", { pageSize: LIST_PAGE_CEILING })
-    ])
-      .then(([artisanResult, craftResult]) => {
+    listResource<Artisan>("/artisans", { pageSize: LIST_PAGE_CEILING })
+      .then((artisanResult) => {
         if (cancelled) return;
         setArtisans((previous) => mergeById(previous, artisanResult.items));
-        setCrafts(craftResult.items);
-        setCraftCut(listCut(craftResult, "crafts"));
-        setReferenceState("loaded");
+        setArtisanState("loaded");
       })
       .catch(() => {
-        if (!cancelled) setReferenceState("unavailable");
+        if (!cancelled) setArtisanState("unavailable");
       });
     return () => {
       cancelled = true;
@@ -319,7 +326,7 @@ export function useCraftAndArtisanOptions({
     [artisans, offPageArtisans]
   );
 
-  return { artisans: allArtisans, crafts, referenceState, craftCut, craftArtisanCut, artisansLoadedForCrafts };
+  return { artisans: allArtisans, crafts, referenceState, craftCut: null, craftArtisanCut, artisansLoadedForCrafts };
 }
 
 /**
@@ -451,7 +458,7 @@ export function craftsChangeClearsArtisans({
  * already holds, then nothing. "Nothing" is a real answer and is rendered as such — an artisan whose
  * craft this client cannot name is not quietly filed under the first craft in the list.
  */
-export function craftNameFor(artisan: Artisan, selectedCrafts: readonly Craft[]): string {
+export function craftNameFor(artisan: Artisan, selectedCrafts: readonly CraftRef[]): string {
   const hydrated = artisan.craft?.name?.trim();
   if (hydrated) return hydrated;
   const selected = selectedCrafts.find((craft) => craft.id === artisan.craftId)?.name?.trim();
@@ -511,7 +518,7 @@ function compareUtf16(a: string, b: string): number {
  * {@link orderFold} and {@link compareUtf16} for why the collation is spelled out rather than
  * delegated to either platform's locale machinery.
  */
-export function sortArtisansByCraft(artisans: readonly Artisan[], selectedCrafts: readonly Craft[]): Artisan[] {
+export function sortArtisansByCraft(artisans: readonly Artisan[], selectedCrafts: readonly CraftRef[]): Artisan[] {
   const keyed = artisans.map((artisan) => {
     const craftKey = orderFold(craftNameFor(artisan, selectedCrafts));
     return { artisan, unknown: craftKey === "" ? 1 : 0, craftKey, nameKey: orderFold(artisan.name) };

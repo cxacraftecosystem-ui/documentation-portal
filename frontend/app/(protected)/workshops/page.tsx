@@ -9,6 +9,8 @@ import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { FieldProvenance } from "@/components/FieldProvenance";
 import { Field, MultiNoteField, Select } from "@/components/FormControls";
+import { CraftSelect } from "@/components/forms/CraftSelect";
+import { FieldBlock } from "@/components/tasks/TaskPrimitives";
 import { DateRangeField } from "@/components/forms/DateRangeField";
 import { LocationFields, type LocationInitialValues } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
@@ -47,7 +49,7 @@ import { uploadMediaBatch, type BatchProgress } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
 import { canManageWorkshops, hasRank, isAdmin } from "@/lib/permissions";
 import { UploadsProvider, useUploads } from "@/lib/uploads";
-import type { Artisan, Craft, PageResult, RecordStatus, User, Workshop, WorkshopAssignment } from "@/lib/types";
+import type { Artisan, PageResult, RecordStatus, User, Workshop, WorkshopAssignment } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { ReviewNoteBanner } from "@/components/review/ReviewNoteBanner";
 
@@ -171,7 +173,6 @@ function WorkshopsPageBody() {
   const canSetStatus = hasRank(user, "PROFESSOR");
   const [data, setData] = useState<PageResult<Workshop> | null>(null);
   const [artisans, setArtisans] = useState<Artisan[]>([]);
-  const [crafts, setCrafts] = useState<Craft[]>([]);
   const [query, setQuery] = useState("");
   const [applied, setApplied] = useState("");
   const [page, setPage] = useState(1);
@@ -270,12 +271,8 @@ function WorkshopsPageBody() {
   useEffect(() => {
     (async () => {
       try {
-        const [artisanResult, craftResult] = await Promise.all([
-          listResource<Artisan>("/artisans", { pageSize: 100 }),
-          listResource<Craft>("/crafts", { pageSize: 100 })
-        ]);
+        const artisanResult = await listResource<Artisan>("/artisans", { pageSize: 100 });
         setArtisans(artisanResult.items);
-        setCrafts(craftResult.items);
       } catch {
         // The pickers degrade to empty lists; the workshop list still loads.
       }
@@ -518,10 +515,6 @@ function WorkshopsPageBody() {
   }
 
   const artisanOptions = artisans.map((artisan) => ({ value: artisan.id, label: `${artisan.name} · ${artisan.place}` }));
-  const craftOptions = crafts.map((craft) => ({
-    value: craft.id,
-    label: craft.place ? `${craft.name} · ${craft.place}` : craft.name
-  }));
 
   // The API already returns workshops createdAt-descending; re-sorting keeps the guarantee local
   // so the list stays newest-first even if a caller ever changes the server ordering.
@@ -687,25 +680,20 @@ function WorkshopsPageBody() {
               confirmLabel="Link artisans"
             />
           </Field>
-          <Field label="Crafts covered" fieldKey="crafts">
-            {crafts.length === 0 ? (
-              <p className="rounded-md border border-line-200 bg-field-50 px-3 py-2 text-sm text-ink-muted">
-                No crafts available yet. Create a craft first.
-              </p>
-            ) : (
-              <MultiSelectDropdown
-                values={craftIds}
+          <div data-field="crafts" className="min-w-0">
+            <FieldBlock label="Crafts covered">
+              <CraftSelect
+                multiple
+                ariaLabel="Crafts covered"
+                value={craftIds}
+                placeholder="Pick the crafts this workshop covered"
                 onChange={(next) => {
                   setCraftIds(next);
                   setDirty(true);
                 }}
-                options={craftOptions}
-                placeholder="Pick the crafts this workshop covered"
-                emptyLabel="No crafts available yet"
-                confirmLabel="Add crafts"
               />
-            )}
-          </Field>
+            </FieldBlock>
+          </div>
         </div>
         <div data-field="photo">
           <MediaCaptureField

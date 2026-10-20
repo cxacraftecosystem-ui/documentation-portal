@@ -174,6 +174,18 @@ export type Craft = {
   workshop?: Workshop | null;
   extraMetadata?: ExtraMetadata | null;
   createdAt?: string;
+  // The master list (REQUIREMENTS_2026-10-20 §2.3). Optional: an older API sends none of them.
+  slug?: string | null;
+  categoryId?: string | null;
+  subCategoryId?: string | null;
+  sourceSerial?: number | null;
+  stateOfOrigin?: string[];
+  stateOfPractice?: string[];
+  giStatus?: "GI" | "NON_GI" | null;
+  isCatchAll?: boolean;
+  status?: "ACTIVE" | "LEGACY" | "MERGED";
+  mergedIntoId?: string | null;
+  craftCode?: string | null;
 };
 
 export type Artisan = {

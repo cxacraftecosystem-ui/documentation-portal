@@ -4,8 +4,9 @@ import { useId, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/components/AuthProvider";
-import { mergeById } from "@/components/data/cappedList";
 import { CappedListNotice } from "@/components/data/CappedListNotice";
+import { CraftSelect } from "@/components/forms/CraftSelect";
+import { FieldBlock } from "@/components/tasks/TaskPrimitives";
 import { Field, Select, TextInput } from "@/components/FormControls";
 import { CarryContextBanner, carryScope, useCarryContext } from "@/components/forms/CarryContextBanner";
 import { DraftOfferCard, useFormDraft } from "@/components/forms/FormDraft";
@@ -26,8 +27,7 @@ import {
   craftsChangeClearsArtisans,
   craftsKey,
   sortArtisansByCraft,
-  useCraftAndArtisanOptions,
-  useRecordsOffPage
+  useCraftAndArtisanOptions
 } from "@/components/forms/recordPickers";
 import { useWorkshopSelection, WorkshopSelect } from "@/components/forms/WorkshopSelect";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
@@ -58,8 +58,8 @@ import {
 import { handleFormEnter } from "@/lib/formNav";
 import { collectExifMetadata, exifMetadataToRemark, uploadMediaBatch, uploadMediaFile, type BatchProgress } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
-import { hasRank } from "@/lib/permissions";
-import type { Artisan, Craft, RecordStatus, ToolDocumentation } from "@/lib/types";
+import { canManageCrafts, hasRank } from "@/lib/permissions";
+import type { Artisan, RecordStatus, ToolDocumentation } from "@/lib/types";
 import { MATERIAL_FAMILY_OPTIONS, TRADITION_OPTIONS, traditionChoice } from "@/lib/standardValues";
 import { makerOptions } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
@@ -647,7 +647,6 @@ function ToolFormBody({
     artisans,
     crafts,
     referenceState,
-    craftCut,
     craftArtisanCut,
     artisansLoadedForCrafts
   } = useCraftAndArtisanOptions({ craftIds, artisanIds });
@@ -666,11 +665,8 @@ function ToolFormBody({
    * id, not one in total, so rescuing only `craftIds[0]` would leave a tool linked to three crafts
    * drawing two blank chips. `useRecordsOffPage` asks once per id with no loaded row.
    */
-  const offPageCrafts = useRecordsOffPage<Craft>("/crafts", craftIds, crafts);
-  const craftOptions = useMemo(
-    () => (offPageCrafts.length ? mergeById(crafts, offPageCrafts) : crafts),
-    [crafts, offPageCrafts]
-  );
+  // The master list, whole: every linked craft is in it unless it has left the list.
+  const craftOptions = crafts;
   const { dirty, markDirty, resetDirty } = useUnsavedChanges();
   const [backPromptOpen, setBackPromptOpen] = useState(false);
   // Hands the prompt to the round back control in the page header, which is now the only back
@@ -1051,7 +1047,6 @@ function ToolFormBody({
       const craftLinksChanged = !initial || !sameIdSet(craftIds, storedCraftIds(initial));
       const artisanLinksChanged = !initial || !sameIdSet(artisanIds, storedArtisanIds(initial));
       const payload = {
-        craftName: requiredText(form, "craftName"),
         place: requiredText(form, "place"),
         artisanName: requiredText(form, "artisanName"),
         toolkitName: requiredText(form, "toolkitName"),
@@ -1259,7 +1254,7 @@ function ToolFormBody({
         artisanName: payload.artisanName,
         place: payload.place,
         craftId,
-        craftName: craftOptions.find((craft) => craft.id === craftId)?.name ?? payload.craftName,
+        craftName: craftOptions.find((craft) => craft.id === craftId)?.name ?? craftName,
         workshopId: workshop.workshopId,
         workshopName: workshop.workshops.find((w) => w.id === workshop.workshopId)?.title ?? null
       };
@@ -1459,54 +1454,24 @@ function ToolFormBody({
             }}
           />
           {/*
-            A MULTI-SELECT, BECAUSE ONE DOCUMENTED TOOL GENUINELY COVERS SEVERAL CRAFTS.
-            `tool.craftId` keeps the FIRST of them and `tool.craftName` every name joined ", " in
-            this order; the `ToolCraft` join table holds all of them. Nothing that reads `craftId`
-            today reads anything different after this change.
-
-            STILL INSIDE `Field`, which is a `<label>`. `ToolAssignmentSection` on this repository's
-            own tools page already mounts its two multi-selects this way and a `<button>` is a
-            labelable element, so the label activates the trigger; there is no second wrapper in this
-            codebase to be consistent with instead.
-
-            `searchable` IS PASSED EXPLICITLY. `SearchableSelect` grows its filter box at eight
-            options, and this list is one craft long on a fresh deployment and 178 on the sibling's —
-            a control whose searchability depends on how much data has been entered is a control two
-            researchers describe differently.
-
-            TWO PROPERTIES OF `SearchableMultiSelect` THIS FORM DEPENDS ON, both of which are true of
-            it today and neither of which is obvious from the call:
-             1. TICK ORDER IS PRESERVED. Its `toggle` appends to `values` and removes in place, so
-                the array this receives is the order the researcher picked in — which is the order
-                the server stores and the order `craftName` is joined in.
-             2. A TICKED ID WITH NO OPTION IS NEVER SILENTLY DROPPED. `toggle` filters `values`, not
-                the option list, so a craft this page could not load — an off-page row whose by-id
-                rescue was refused — survives every interaction and is still saved. It is invisible
-                in the summary, which is a display cost; it is not a data one.
+            A MULTI-SELECT, BECAUSE ONE DOCUMENTED TOOL GENUINELY COVERS SEVERAL CRAFTS, from the
+            master list only. `tool.craftId` keeps the FIRST of them and the server derives
+            `tool.craftName` from all of them, in tick order; the `ToolCraft` join table holds all of
+            them. `CraftSelect` appends on tick and removes in place, so order is preserved.
           */}
-          <Field label="Linked crafts (fills craft name)">
-            <MultiSelectDropdown
-              values={craftIds}
-              onChange={onCraftsChanged}
-              searchable
-              placeholder="Select crafts"
-              emptyLabel="No crafts are available to link"
-              options={craftOptions.map((craft) => ({ value: craft.id, label: craft.name }))}
-            />
-            <CappedListNotice cuts={[craftCut]} />
-          </Field>
-          <DictatedTextInput
-            name="craftName"
-            label="Craft name"
-            required
-            titleCased
-            explainWhenUnavailable={false}
-            value={craftName}
-            onChange={(next) => {
-              setCraftName(next);
-              markDirty();
-            }}
-          />
+          <div className="min-w-0 md:col-span-2" data-field="craft">
+            <FieldBlock label="Crafts" required>
+              <CraftSelect
+                multiple
+                name="craftIds"
+                ariaLabel="Crafts"
+                required
+                value={craftIds}
+                canAddCraft={canManageCrafts(user)}
+                onChange={(next) => onCraftsChanged(next)}
+              />
+            </FieldBlock>
+          </div>
           {/*
             A MULTI-SELECT TOO, OVER THE ARTISANS OF EVERY TICKED CRAFT.
             `tool.artisanId`, `tool.artisanName` and `tool.place` keep the FIRST of them — the last

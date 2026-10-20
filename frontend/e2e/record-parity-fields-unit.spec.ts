@@ -339,9 +339,7 @@ test("the tool form links SEVERAL crafts and artisans, and still fills the first
     form that sent only the lists would leave those columns holding whatever they held before, which
     is a record whose links and whose own columns disagree — and nothing on any screen would say so.
   */
-  expect(TOOL_FORM, "crafts are a multi-select").toMatch(
-    /<Field label="Linked crafts \(fills craft name\)">[\s\S]{0,400}?<MultiSelectDropdown/
-  );
+  expect(TOOL_FORM, "crafts are a multi-select, from the master list").toMatch(/<CraftSelect\s+multiple\s+name="craftIds"/);
   expect(TOOL_FORM, "and so are artisans").toMatch(
     /<Field label="Linked artisans \(fills artisan \+ place\)">[\s\S]{0,400}?<MultiSelectDropdown/
   );

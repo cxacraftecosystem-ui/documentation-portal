@@ -5,6 +5,7 @@
  * The keys are the server's `ARTISAN_FIELD_KEYS` (`backend/app/schemas/questionnaire.py`), spelled
  * as the Artisan columns; `e2e/web-capture-unit.spec.ts` holds the two lists to each other.
  */
+import { craftIndex, peekCraftCatalogue } from "@/lib/craftCatalogue";
 import type { Artisan } from "@/lib/types";
 import { phoneOf } from "@/lib/standardValues";
 
@@ -27,6 +28,12 @@ export function artisanFieldLabel(value: string | null | undefined): string | nu
   return ARTISAN_FIELD_OPTIONS.find((option) => option.value === value)?.label ?? null;
 }
 
+/** The master list's name for a craft id, when this browser holds the list. */
+function craftNameFromList(craftId: string | null | undefined): string | null {
+  const catalogue = craftId ? peekCraftCatalogue() : null;
+  return (catalogue && craftId && craftIndex(catalogue).byId.get(craftId)?.name) || null;
+}
+
 type Interviewer = { name?: string | null; email?: string | null } | null | undefined;
 
 /** What one mapped field reads for this artisan, or "" when the record holds nothing for it. */
@@ -37,7 +44,8 @@ export function artisanFieldValue(field: string, artisan: Artisan, interviewer: 
     case "localName":
       return artisan.localName ?? "";
     case "craft":
-      return artisan.craft?.name ?? "";
+      // The master list's name for the craft, when this device holds the list.
+      return craftNameFromList(artisan.craftId) ?? artisan.craft?.name ?? "";
     case "place":
       return artisan.place ?? "";
     case "gender":
