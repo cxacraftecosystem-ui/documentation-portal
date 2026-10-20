@@ -63,6 +63,28 @@ def is_master_admin(user: Any) -> bool:
     return role_value(user) == "MASTER_ADMIN"
 
 
+#: The CONTENT admins (owner's ruling, 2026-10-20): they add, edit and delete every record type, every
+#: media file and every other managed content type, wherever it is managed. Every other role adds and
+#: edits within its existing privileges and never deletes.
+#:
+#: A SET AND NOT A FLOOR, and deliberately NOT ``is_admin``, which keeps its two members for accounts
+#: and governance. This portal has no MINISTRY_ADMIN tier; the set lists it by name so the rule holds
+#: the day the two ladders merge. The designer-portal spells this constant and
+#: :func:`is_content_admin` identically in ``app/core/deps.py``; ``frontend/lib/permissions.ts`` and
+#: the handset's ``FieldPermissions.isContentAdmin`` carry the same three names, and
+#: ``tests/test_content_admin_parity.py`` holds them together.
+CONTENT_ADMIN_ROLES = frozenset({"ADMIN", "MASTER_ADMIN", "MINISTRY_ADMIN"})
+
+
+def is_content_admin(user: Any) -> bool:
+    """May this account delete records and media, and edit every record whoever made it?"""
+    return role_value(user) in CONTENT_ADMIN_ROLES
+
+
+#: The one refusal every delete gives a role outside :data:`CONTENT_ADMIN_ROLES`.
+CONTENT_DELETE_REFUSAL = "Only an admin can delete this."
+
+
 def can_manage_questionnaire(user: Any) -> bool:
     """Edit the questionnaire structure: Professor and above, or an explicit grant."""
     return has_rank(user, "PROFESSOR") or bool(get_value(user, "canManageQuestionnaire"))

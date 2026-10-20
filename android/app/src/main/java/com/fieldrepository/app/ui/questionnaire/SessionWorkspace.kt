@@ -385,11 +385,12 @@ fun SessionWorkspace(
     }
     p5?.let { body -> AlreadyUploadedPrompt(body) { p5 = null } }
     takeSheet?.let { (sid, artisanId) ->
+        val mayRemoveTakes = com.fieldrepository.app.ui.LocalContentAdminChrome.current
         val section = instrument?.section(sid)
         val keys = setOf("S:$sid") + section?.questions?.map { "Q:${it.lineageId}" }.orEmpty()
         val rows = known.filter { it.targetKey in keys && (artisanId == null || it.artisanId == artisanId) && it.role == SubjectRole.ANSWERED.wire }
             .distinctBy { it.recordingId }.sortedBy { it.capturedAt ?: "" }
-            .map { t -> takeRow(t, detail, paused, meId) } + overlay.filter { it.targetKey in keys && (artisanId == null || it.artisanId == artisanId) }
+            .map { t -> takeRow(t, detail, paused, mayRemoveTakes) } + overlay.filter { it.targetKey in keys && (artisanId == null || it.artisanId == artisanId) }
             .distinctBy { it.clientClipKey }.map { o ->
                 TakeRow("local:${o.clientClipKey}", 0, QuestionnaireCopy.minutes(o.durationMs),
                     if (o.uploading) QuestionnaireCopy.uploading(50) else QuestionnaireCopy.s("upload.onDevice"), null, local = true, removable = false)
@@ -518,7 +519,7 @@ internal fun answerForOptions(roster: List<HeaderParticipant>): List<SelectOptio
 internal fun answerForIds(roster: List<HeaderParticipant>, choice: String): Set<String> =
     if (choice == ALL_ARTISANS || roster.none { it.artisanId == choice }) roster.map { it.artisanId }.toSet() else setOf(choice)
 
-private fun takeRow(t: QSnapshotTake, detail: QSessionDetail?, paused: Boolean, meId: String?): TakeRow {
+private fun takeRow(t: QSnapshotTake, detail: QSessionDetail?, paused: Boolean, mayRemove: Boolean): TakeRow {
     val rec = detail?.recordings?.firstOrNull { it.id == t.recordingId }
     val at = t.capturedAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
     val first = listOfNotNull(
@@ -532,7 +533,8 @@ private fun takeRow(t: QSnapshotTake, detail: QSessionDetail?, paused: Boolean, 
     return TakeRow(
         t.recordingId, t.position, first, second,
         rec?.let { TranscriptStatus.line(it, paused) }, local = false,
-        removable = (rec?.recordedBy ?: t.recordedBy)?.id == meId
+        // Removing a take is a delete: content admins in admin view only (owner's ruling, 2026-10-20).
+        removable = mayRemove
     )
 }
 

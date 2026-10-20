@@ -137,10 +137,10 @@ identically (`shared/signin-role-contract.json`, `tests/test_signin_role_contrac
 | **Create** or **delete** a user account | `require_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
 | Turn **your own** two-step verification on or off | `get_current_user` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Turn off **somebody else's** two-step verification (below your tier) | `require_admin` + `assert_can_manage_target` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
-| **Delete** any record | `assert_can_delete` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
+| **Delete** any record, media file or other managed content (§2.0) | `assert_can_delete` = `is_content_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
 | Ask whether an artisan is **already recorded** (`POST /api/artisan-duplicates/check`, 30 a minute) | `require_record_creator` | ⬜ | ⬜ | ✅ | ✅ | ✅ | ✅ |
-| Review **duplicate pairs**: list, open one, dismiss, reopen (`/api/artisan-duplicates`); a pair is merged and undone on the artisan merge (`/api/artisans/merge`) | `require_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
-| Delete **media you uploaded** | route-local | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Review **duplicate pairs**: list, open one, dismiss, reopen (`/api/artisan-duplicates`); a pair is merged and undone on the artisan merge (`/api/artisans/merge`) | `require_content_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
+| Delete **media you uploaded** — refused since 2026-10-20; content admins delete any media | `assert_can_delete` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
 | Grant / decide **workshop access** | `require_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
 | Assign **tasks** to users below your tier | `require_admin` + `assert_assignable` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
 | Assign a **task to yourself** | `assert_assignable` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
@@ -159,8 +159,8 @@ else. "grant" = refused by rank, allowed if the matching `can*` column is set.
 ² "own" = the assignee may move their OWN task between OPEN, IN_PROGRESS and `SUBMITTED` and report
 `progressCount`. They may **not** write `DONE` — a request for it is rewritten to `SUBMITTED` — and
 once a task IS `DONE` they may not move its status at all, because by then it carries somebody
-else's decision. CANCELLED is excluded from all of it: withdrawing an assignment is the creator's or
-the master admin's (`delete_task_batch`), never the assignee's.
+else's decision. CANCELLED is excluded from all of it: withdrawing an assignment is any content admin's
+(`delete_task`, `delete_task_batch`, §2.0), never the assignee's.
 
 ³ "creator" = whoever created the task passes `update_task`'s manager test (`createdById == me OR
 is_admin(me)`) whatever their rank, so a demoted admin keeps approving and reopening the rows they
@@ -232,6 +232,37 @@ Several asymmetries in that table are deliberate and easy to misread:
   workshop binding decides which questions every researcher at that event is shown. The narrowing is
   applied to exactly those two routes and `tests/test_permission_matrix.py` asserts it did not leak
   onto `POST /questionnaire/sections`.
+
+### 2.0 Content admins (owner's ruling, 2026-10-20)
+
+**Content admins** — `CONTENT_ADMIN_ROLES` = `{ADMIN, MASTER_ADMIN, MINISTRY_ADMIN}`,
+`roles.is_content_admin` — add, edit and delete every record type, every media file type and every
+other managed content type, wherever it is managed. **Every other role adds and edits within its
+existing privileges and never deletes.** This portal has no `MINISTRY_ADMIN` tier; the set names it so
+the rule holds the day the ladders merge, and the designer-portal spells the constant identically.
+`is_admin` is not widened and keeps governing accounts and settings. The web's
+`lib/permissions.ts::CONTENT_ADMIN_ROLES` / `isContentAdmin` and the handset's
+`FieldPermissions.isContentAdmin` carry the same set; `tests/test_content_admin_parity.py` holds them.
+
+What counts as a delete: hard and soft deletes of records, media, comments, questionnaire sections and
+questions, interviews and sessions, recordings, and merges that remove a source. Unlinking a relation,
+removing a session participant and removing a row inside a draft are edits; revoking a data-access
+grant and cancelling one's own staged upload are neither, and are unchanged.
+
+| Content | Add / edit | Delete |
+|---|---|---|
+| Artisan, product, tool, process, craft, workshop, interview | existing privileges; content admins are privileged editors of every record | content admins |
+| Media file (every type), transcripts, relink, transcribe-now, job retry | uploader and record editors; content admins on any media | content admins (uploaders no longer delete their own) |
+| Comments | the author (`PATCH /data-access/comments/{id}`) | content admins |
+| Questionnaire sections and questions | questionnaire managers, plus content admins | content admins |
+| Questionnaire instrument | as before | content admins (`DELETE /questionnaires/{id}`, a soft delete: retired) |
+| Interview and session merge (source removed); session delete; take removal | – | content admins (a session's creator no longer deletes it) |
+| Craft codes mapping, unmapped records, duplicates and merges, completion override, place-name aliases | content admins | content admins |
+| Tasks | content admins create; the creator edits | content admins, any task |
+
+Clients: Delete controls read admin view (`adminMode` on the web, the handset's
+`LocalContentAdminChrome`), which only a content admin can turn on.
+`tests/test_permission_matrix.py` drives every content delete over every tier.
 
 ### 2.1 Create, edit, delete — as a decision tree
 

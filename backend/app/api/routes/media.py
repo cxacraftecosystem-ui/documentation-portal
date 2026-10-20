@@ -24,7 +24,7 @@ from app.core.db import db
 from app.services.artisan_merge import redirect_merged_artisans
 from app.services import recording_consent, transcription_jobs
 from app.services.app_settings import load_transcription_paused
-from app.core.deps import get_current_user, is_admin, require_admin
+from app.core.deps import assert_can_delete, get_current_user, is_content_admin, require_admin, require_content_admin
 from app.schemas.media import (
     MediaCompleteRequest,
     MediaRelinkRequest,
@@ -743,7 +743,7 @@ def _relink_delegate(record_type: str) -> Any:
 
 
 @router.get("/orphans")
-async def list_orphan_media(current_user: Any = Depends(require_admin)) -> list[dict[str, Any]]:
+async def list_orphan_media(current_user: Any = Depends(require_content_admin)) -> list[dict[str, Any]]:
     """Admin-only recovery list: media still tagged to a record type/id whose parent no longer exists
     (the typed FK was nulled when the parent was deleted). The file is intact in object storage; this
     lets an admin see it again — and re-link it to a live record via ``/media/{id}/relink``.
@@ -768,7 +768,7 @@ async def list_orphan_media(current_user: Any = Depends(require_admin)) -> list[
 async def relink_media(
     media_id: str,
     payload: MediaRelinkRequest,
-    current_user: Any = Depends(require_admin),
+    current_user: Any = Depends(require_content_admin),
 ) -> dict[str, Any]:
     """Re-attach an orphaned (or mis-linked) media file to an existing record. Validates the target
     record exists, then sets both the string tag columns and the typed foreign key so it reappears
@@ -815,7 +815,7 @@ async def refine_media_transcript(
     matched as this route, not swallowed by the single-segment id route.
     """
     media = await require_record(db.mediafile, media_id)
-    if not is_admin(current_user) and getattr(media, "uploadedById", None) != current_user.id:
+    if not is_content_admin(current_user) and getattr(media, "uploadedById", None) != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only refine the transcript of media you uploaded",
@@ -836,7 +836,7 @@ async def refine_media_transcript(
 @router.post("/{media_id}/transcribe-now")
 async def transcribe_media_now_route(
     media_id: str,
-    current_user: Any = Depends(require_admin),
+    current_user: Any = Depends(require_content_admin),
 ) -> dict[str, Any]:
     """Admin/master-admin: transcribe this audio file right now, applying the transcription mode set on
     the settings page, and store the result — bypassing the queue and the off-peak window. Returns the
@@ -898,7 +898,7 @@ async def set_media_transcript(
     do not say. A reader must render three states, which is why the flag travels as
     ``transcriptEditedAt ? true : undefined`` and never as ``!!media.transcriptEditedAt``."""
     media = await require_record(db.mediafile, media_id)
-    if not is_admin(current_user) and getattr(media, "uploadedById", None) != current_user.id:
+    if not is_content_admin(current_user) and getattr(media, "uploadedById", None) != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only edit the transcript of media you uploaded",
@@ -933,7 +933,7 @@ async def list_media_processing_jobs(
     pageSize: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
     page, page_size, skip = normalize_pagination(page, pageSize)
-    where: dict[str, Any] = {} if is_admin(current_user) else {"requestedById": current_user.id}
+    where: dict[str, Any] = {} if is_content_admin(current_user) else {"requestedById": current_user.id}
     if statusFilter:
         where["status"] = statusFilter
     total = await db.mediaprocessingjob.count(where=where)
@@ -950,7 +950,7 @@ async def list_media_processing_jobs(
 @router.post("/jobs/process")
 async def process_media_processing_jobs(
     limit: int | None = Query(default=None, ge=1, le=25),
-    _: Any = Depends(require_admin),
+    _: Any = Depends(require_content_admin),
 ) -> dict[str, int]:
     return await process_next_media_jobs(limit=limit, worker_id="manual-api")
 
@@ -958,7 +958,7 @@ async def process_media_processing_jobs(
 @router.post("/jobs/{job_id}/retry")
 async def retry_media_processing_job(
     job_id: str,
-    _: Any = Depends(require_admin),
+    _: Any = Depends(require_content_admin),
 ) -> dict[str, Any]:
     job = await require_record(db.mediaprocessingjob, job_id)
     updated = await db.mediaprocessingjob.update(
@@ -1005,16 +1005,11 @@ async def get_media(media_id: str, current_user: Any = Depends(get_current_user)
 async def delete_media(media_id: str, current_user: Any = Depends(get_current_user)) -> None:
     """Remove a saved media file and (best-effort) its S3 object.
 
-    Admins may delete any media; everyone else may delete only media they uploaded — so a
-    contributor can prune attachments on their own records straight from the edit screen without
-    holding full delete rights on the parent record.
+    Content admins (``roles.CONTENT_ADMIN_ROLES``) only, since 2026-10-20: every other role adds and
+    edits and never deletes, so an uploader no longer removes their own file.
     """
+    assert_can_delete(current_user)
     media = await require_record(db.mediafile, media_id)
-    if not is_admin(current_user) and getattr(media, "uploadedById", None) != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only delete media you uploaded",
-        )
     # A QUESTIONNAIRE TAKE IS NEVER HARD-DELETED FROM HERE (DESIGN 3.8): it is soft-removed through the
     # recording service, restorable, and only a verified duplicate is ever purged.
     take = await db.questionnairerecording.find_unique(where={"mediaFileId": media_id})

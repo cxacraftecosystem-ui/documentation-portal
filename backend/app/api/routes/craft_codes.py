@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.db import db
-from app.core.deps import get_current_user, require_admin
+from app.core.deps import get_current_user, require_content_admin
 from app.services import cross_portal_codes
 from app.services.access import record_revision
 
@@ -47,7 +47,7 @@ async def list_craft_codes(_: Any = Depends(get_current_user)) -> dict[str, Any]
 
 
 @router.get("/unmapped")
-async def list_unmapped_crafts(_: Any = Depends(require_admin)) -> dict[str, Any]:
+async def list_unmapped_crafts(_: Any = Depends(require_content_admin)) -> dict[str, Any]:
     """This portal's crafts that carry no code yet, oldest first, for an administrator to map."""
     rows = await db.craft.find_many(where={"craftCode": None}, order={"createdAt": "asc"})
     return {"items": [{"id": row.id, "name": row.name} for row in rows], "total": len(rows)}
@@ -75,7 +75,7 @@ async def list_question_codes(_: Any = Depends(get_current_user)) -> dict[str, A
 async def assign_craft_code(
     craft_id: str,
     payload: CraftCodeAssign,
-    current_user: Any = Depends(require_admin),
+    current_user: Any = Depends(require_content_admin),
 ) -> dict[str, Any]:
     """Map one craft to a shared code (or clear it), optionally remembering its spelling."""
     craft = await db.craft.find_unique(where={"id": craft_id})

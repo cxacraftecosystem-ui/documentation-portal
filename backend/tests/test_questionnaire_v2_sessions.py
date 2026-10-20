@@ -134,17 +134,25 @@ def test_join_code_merge_continue_and_the_delete_and_participant_refusals(monkey
         assert _code(unknown) == "JOIN_CODE_UNKNOWN"
         await record_take(client, ids, b["id"], ids.other, targets=[{"sectionId": ids.sections["D"]}], at=t(1))
         with pytest.raises(HTTPException) as has:
-            await sessions.delete_session(b["id"], ids.other)
+            await sessions.delete_session(b["id"], ids.admin)
         assert _code(has) == "HAS_RECORDINGS" and has.value.detail["count"] == 1
         with pytest.raises(HTTPException) as takes:
             await sessions.remove_participant(b["id"], ids.artisans[1], False, ids.other)
         assert _code(takes) == "PARTICIPANT_HAS_TAKES" and takes.value.detail["count"] == 1
-        merged = await sessions.merge_into(b["id"], a["id"], ids.other)
+        # Merging and deleting are content admins' acts since 2026-10-20; the session's own
+        # researcher is refused both.
+        with pytest.raises(HTTPException) as refused:
+            await sessions.merge_into(b["id"], a["id"], ids.other)
+        assert refused.value.status_code == 403
+        merged = await sessions.merge_into(b["id"], a["id"], ids.admin)
         assert merged["participantCount"] == 2 and merged["counts"]["takes"] == 1
         detached = await sessions.remove_participant(a["id"], ids.artisans[1], True, ids.lead)
         assert detached["participantCount"] == 1
         empty, _ = await sessions.create_session(session_create(ids, ids.artisans[2:3]), ids.lead)
-        await sessions.delete_session(empty["id"], ids.lead)
+        with pytest.raises(HTTPException) as creator:
+            await sessions.delete_session(empty["id"], ids.lead)
+        assert creator.value.status_code == 403
+        await sessions.delete_session(empty["id"], ids.admin)
         cont = await sessions.continue_sessions(
             ContinueRequest(fromSessionId=a["id"], artisanIds=ids.artisans[:2], split="EACH", sessionDate="2026-06-22"), ids.lead
         )

@@ -64,9 +64,9 @@ async def effective_tier_for_record(
     GRANTED grant from the owner to the user that covers this record (all-data, or the subset list).
     Returns None when the user has no access beyond plain viewing.
     """
-    from app.core.roles import get_value, is_admin
+    from app.core.roles import get_value, is_content_admin
 
-    if is_admin(user):
+    if is_content_admin(user):
         return "EDIT"
     uid = get_value(user, "id")
     if owner_id and uid == owner_id:
@@ -175,11 +175,12 @@ async def record_edit_privilege(record: Any, user: Any, record_type: str) -> boo
     holder of an EDIT-tier grant over it. Everyone else is an ordinary contributor, who may FILL what
     nobody has answered yet and may not change or clear what somebody has.
     """
-    from app.core.deps import get_value, is_admin, may_edit_lower_ranked_record
+    from app.core.deps import get_value, is_content_admin, may_edit_lower_ranked_record
 
     owner_id = get_value(record, "createdById")
     uid = get_value(user, "id")
-    if is_admin(user) or (owner_id is not None and uid == owner_id):
+    # Content admins are privileged editors of every record (owner's ruling, 2026-10-20).
+    if is_content_admin(user) or (owner_id is not None and uid == owner_id):
         return True
     # "A professor may edit the data of anyone ranked below them" — checked before the grant
     # lookup because it costs nothing for the ranks it does not apply to, so nobody below

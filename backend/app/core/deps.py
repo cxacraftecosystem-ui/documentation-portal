@@ -11,6 +11,8 @@ from app.core.config import get_settings
 from app.core.db import db
 from app.core.security import CREDENTIAL_CLAIM, decode_access_token
 from app.core.roles import (  # noqa: F401 - re-exported: the routes import them from deps
+    CONTENT_ADMIN_ROLES,
+    CONTENT_DELETE_REFUSAL,
     ROLE_LABELS,
     ROLE_RANK,
     can_access_review,
@@ -26,6 +28,7 @@ from app.core.roles import (  # noqa: F401 - re-exported: the routes import them
     get_value,
     has_rank,
     is_admin,
+    is_content_admin,
     is_empty_value,
     is_master_admin,
     role_rank,
@@ -524,7 +527,7 @@ async def require_workshop_manager(current_user: Any = Depends(get_current_user)
 
 
 def assert_can_contribute_fields(record: Any, user: Any, data: dict[str, Any], owner_field: str = "createdById") -> None:
-    if is_admin(user) or get_value(record, owner_field) == get_value(user, "id"):
+    if is_content_admin(user) or get_value(record, owner_field) == get_value(user, "id"):
         return
 
     # A populated field is locked to non-privileged editors whether they try to CHANGE it or CLEAR it.
@@ -543,7 +546,7 @@ def assert_can_contribute_fields(record: Any, user: Any, data: dict[str, Any], o
 
 
 def assert_can_contribute_relation(record: Any, user: Any, populated: bool, field_name: str, owner_field: str = "createdById") -> None:
-    if is_admin(user) or get_value(record, owner_field) == get_value(user, "id"):
+    if is_content_admin(user) or get_value(record, owner_field) == get_value(user, "id"):
         return
     if populated:
         raise HTTPException(
@@ -553,7 +556,7 @@ def assert_can_contribute_relation(record: Any, user: Any, populated: bool, fiel
 
 
 def assert_owner_or_admin(record: Any, user: Any, owner_field: str = "createdById") -> None:
-    if is_admin(user):
+    if is_content_admin(user):
         return
     if get_value(record, owner_field) != get_value(user, "id"):
         raise HTTPException(
@@ -567,5 +570,13 @@ def assert_admin_or_owner(record: Any, user: Any, owner_field: str = "createdByI
 
 
 def assert_can_delete(user: Any) -> None:
-    if not is_admin(user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required to delete records")
+    """Every delete of a record, media file or other managed content: content admins only."""
+    if not is_content_admin(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=CONTENT_DELETE_REFUSAL)
+
+
+async def require_content_admin(current_user: Any = Depends(get_current_user)) -> Any:
+    """``Depends`` form of the content-admin gate, for routes that manage content outright."""
+    if not is_content_admin(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    return current_user

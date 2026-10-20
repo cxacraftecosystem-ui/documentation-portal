@@ -9,6 +9,7 @@ import { ApiError, apiFetch, listResource } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import type { MediaFile } from "@/lib/types";
 import { useConfirm } from "@/components/dialogs";
+import { useAdminView } from "@/components/AdminViewProvider";
 
 // Transcript statuses that mean a job is still running (shared vocabulary with the backend).
 const IN_FLIGHT_TRANSCRIPT = new Set(["QUEUED", "PROCESSING", "PENDING", "RUNNING"]);
@@ -35,6 +36,10 @@ export function ExistingMedia({
   readOnly?: boolean;
 }) {
   const [items, setItems] = useState<MediaFile[] | null>(null);
+  // Removing a file is a delete, and deletes are the content admins' alone, in admin view (owner's
+  // ruling, 2026-10-20). Everybody else attaches and edits; the ✕ is not drawn for them.
+  const { adminMode } = useAdminView();
+  const mayRemove = !readOnly && adminMode;
   const [active, setActive] = useState<PreviewMedia | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -100,7 +105,7 @@ export function ExistingMedia({
         <h3 className="font-display font-bold text-lg text-ink">{title}</h3>
         <p className="mt-1 text-sm text-ink-muted">
           {items.length} file{items.length === 1 ? "" : "s"} attached. Audio transcripts appear once processing finishes.
-          {readOnly ? " Open a file to see it full size or download it." : " Use the ✕ on a file to remove it."}
+          {mayRemove ? " Use the ✕ on a file to remove it." : " Open a file to see it full size or download it."}
         </p>
         {error ? <p className="mt-1 text-sm text-red-700">{error}</p> : null}
       </div>
@@ -124,7 +129,7 @@ export function ExistingMedia({
               <MediaPreviewTile
                 item={preview}
                 onOpen={() => setActive(preview)}
-                onRemove={readOnly || removingId === media.id ? undefined : () => removeMedia(media)}
+                onRemove={!mayRemove || removingId === media.id ? undefined : () => removeMedia(media)}
                 removeLabel="Remove"
               />
               <div className="min-w-0">

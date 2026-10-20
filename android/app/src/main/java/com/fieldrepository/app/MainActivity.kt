@@ -1691,7 +1691,7 @@ private fun HomeScreen(
      * they can see, while flipping it would quietly subtract from screens (`adminChrome` below) that
      * their role, not the toggle, is what entitles them to.
      */
-    val canToggleAdminView = isAdmin
+    val canToggleAdminView = isAdmin || com.fieldrepository.app.ui.FieldPermissions.isContentAdmin(user)
 
     // Master admin lands in admin view; other admins opt in from the menu.
     //
@@ -1726,6 +1726,9 @@ private fun HomeScreen(
      * Search — an ordinary user reaches all of those, so "browse as an ordinary user" leaves them be.
      */
     val adminChrome = !isAdmin || adminView
+    // Deletes are the content admins' alone (FieldPermissions.isContentAdmin; owner's ruling
+    // 2026-10-20), and only with admin view on, exactly as the web's `adminMode`. Set, never rank.
+    val canDelete = com.fieldrepository.app.ui.FieldPermissions.isContentAdmin(user) && adminView
 
     /**
      * How many people are waiting on an administrator to let them in — THE NOTIFICATION.
@@ -2272,6 +2275,7 @@ private fun HomeScreen(
             CompositionLocalProvider(
                 LocalLayoutDirection provides LayoutDirection.Ltr,
                 LocalUnsavedGuard provides unsavedGuard,
+                com.fieldrepository.app.ui.LocalContentAdminChrome provides canDelete,
                 com.fieldrepository.app.ui.richtext.LocalRichMediaUrl provides richMediaUrl
             ) {
             // The page gets back the 16dp the drawer bleeds through, and leaves the accessibility
@@ -2840,7 +2844,7 @@ private fun HomeScreen(
                     adminView = adminView,
                     // Every record Delete on the web is `{adminMode ? … : null}` — the role is what
                     // grants it, the toggle is what puts it away while an admin browses as a user.
-                    canDelete = isAdmin && adminChrome,
+                    canDelete = canDelete,
                     onRefreshSections = { instrumentId ->
                         runCatching { repository.questionnaireSections(instrumentId) }
                             .onSuccess { sections = it }
@@ -2859,7 +2863,7 @@ private fun HomeScreen(
                 artisanSeed = artisanSeed,
                 adminView = adminView,
                 // Same rule as the interview loader above: `adminMode` gates Delete on every web list.
-                canDelete = isAdmin && adminChrome,
+                canDelete = canDelete,
                 onDone = { message = "${s.mode.label} updated"; refresh(); refreshLookups(); goDashboard() },
                 onError = { showMessage(it) },
                 // The SAME destination the Browse picker and My Activity already produce. Reassigning
@@ -14449,6 +14453,8 @@ private fun AndroidSavedMediaPreview(
     media: com.fieldrepository.app.data.MediaFileDto,
     onDelete: (() -> Unit)? = null
 ) {
+    // Removing a saved file is a delete: content admins in admin view only (2026-10-20).
+    val onDelete: (() -> Unit)? = onDelete.takeIf { com.fieldrepository.app.ui.LocalContentAdminChrome.current }
     val uri = remember(media.url) { media.url?.let(Uri::parse) }
     var showViewer by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -16581,7 +16587,7 @@ private fun QuestionnaireBuilder(
                                 }
                             ) { Text("Down") }
                         }
-                        OutlinedButton(
+                        if (com.fieldrepository.app.ui.LocalContentAdminChrome.current) OutlinedButton(
                             onClick = {
                                 scope.launch {
                                     runCatching {
@@ -16673,7 +16679,7 @@ private fun QuestionnaireBuilder(
                                         },
                                     ) { Text("Next section") }
                                 }
-                                OutlinedButton(
+                                if (com.fieldrepository.app.ui.LocalContentAdminChrome.current) OutlinedButton(
                                     onClick = {
                                         scope.launch {
                                             runCatching {

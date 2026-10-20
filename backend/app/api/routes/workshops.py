@@ -27,6 +27,7 @@ from app.core.deps import (
     get_current_user,
     get_value,
     require_admin,
+    require_content_admin,
     require_workshop_manager,
 )
 from app.schemas.access import (
@@ -378,7 +379,7 @@ async def create_workshop(
 
 
 @router.get("/unmapped")
-async def unmapped_records(_: Any = Depends(require_admin)) -> dict[str, Any]:
+async def unmapped_records(_: Any = Depends(require_content_admin)) -> dict[str, Any]:
     """Which records carry no workshop at all, and which workshop each one's own evidence points at.
 
     A READ. Nothing is written, so this is safe to render, safe to re-render and safe to poll — it is
@@ -410,7 +411,7 @@ class AutoMapSetting(BaseModel):
 
 @router.put("/unmapped/auto")
 async def set_unmapped_auto(
-    payload: AutoMapSetting, current_user: Any = Depends(require_admin)
+    payload: AutoMapSetting, current_user: Any = Depends(require_content_admin)
 ) -> dict[str, Any]:
     """Switch the nightly filing of clear-cut records on or off. Admin only."""
     row = await set_auto_map_enabled(payload.enabled, getattr(current_user, "id", None))
@@ -418,7 +419,7 @@ async def set_unmapped_auto(
 
 
 @router.post("/unmapped/map")
-async def map_unmapped_records(_: Any = Depends(require_admin)) -> dict[str, Any]:
+async def map_unmapped_records(_: Any = Depends(require_content_admin)) -> dict[str, Any]:
     """Stamp every unassigned record whose own evidence names exactly one workshop.
 
     Takes NO body. The plan is re-derived server-side rather than accepted from the caller: a

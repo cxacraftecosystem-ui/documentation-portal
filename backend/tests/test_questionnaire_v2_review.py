@@ -40,7 +40,7 @@ def test_approval_is_refused_for_no_people_no_content_or_an_undecided_take_and_c
         assert undecided.value.detail["message"] == "Decide on 1 take first."
         await recordings.decide(two["id"], DecideRequest(action="KEEP_BOTH", otherRecordingId=one["id"]), ids.admin, client=client)
         removed = await record_take(client, ids, s["id"], ids.lead, targets=[{"sectionId": ids.sections["B"]}], at=t(1))
-        await recordings.remove(removed["id"], ids.lead, client=client)
+        await recordings.remove(removed["id"], ids.admin, client=client)
         await answers.put_answers(AnswersPut.model_validate({"items": [
             {"artisanId": ids.artisans[0], "questionLineageId": ids.questions["B1"], "text": "Teak", "sessionId": s["id"]}]}), ids.lead)
         await review.set_review_status("questionnaire", s["id"], "APPROVED", ReviewAction(notes=None), ids.admin, notify=False)

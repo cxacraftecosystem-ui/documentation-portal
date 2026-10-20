@@ -37,8 +37,10 @@ from app.core.deps import (
     get_current_user,
     get_value,
     is_admin,
+    is_content_admin,
     is_empty_value,
     require_admin,
+    require_content_admin,
     require_questionnaire_manager,
 )
 from app.services.access import (
@@ -509,7 +511,7 @@ async def upsert_responses(
         if (
             existing.answerText
             and existing.answeredById != current_user.id
-            and not is_admin(current_user)
+            and not is_content_admin(current_user)
         ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -686,7 +688,7 @@ async def update_section(
 @questionnaire_router.delete("/sections/{section_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_section(
     section_id: str,
-    _: Any = Depends(require_questionnaire_manager),
+    _: Any = Depends(require_content_admin),
 ) -> None:
     await require_section(section_id)
     await db.questionnairesection.update(where={"id": section_id}, data={"isActive": False})
@@ -847,7 +849,7 @@ async def update_question(
 @questionnaire_router.delete("/questions/{question_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_question(
     question_id: str,
-    _: Any = Depends(require_questionnaire_manager),
+    _: Any = Depends(require_content_admin),
 ) -> None:
     await require_record(db.questionnairequestion, question_id)
     await db.questionnairequestion.update(where={"id": question_id}, data={"isActive": False})
@@ -1544,9 +1546,9 @@ async def completion_matrix(
 @questionnaire_router.put("/completion")
 async def set_completion_cell(
     payload: CompletionCellUpdate,
-    current_user: Any = Depends(require_admin),
+    current_user: Any = Depends(require_content_admin),
 ) -> dict[str, Any]:
-    """Admin/master-admin only: set or clear the manual status for one (artisan, section) cell.
+    """Content admins only: set or clear the manual status for one (artisan, section) cell.
 
     PER-INSTRUMENT BY CONSTRUCTION since 2026-09-13, with no column added and none needed: the cell
     is keyed on a ``sectionId``, and a section now belongs to exactly one instrument, so a verdict
@@ -1837,7 +1839,11 @@ async def merge_interview_into(
 
     Answers with the SURVIVING interview, hydrated and encoded for this viewer, so the client can
     redraw the whole screen from the response rather than guessing what the move produced.
+
+    Content admins only since 2026-10-20 (``roles.CONTENT_ADMIN_ROLES``): a merge removes its source,
+    and the owner's ruling counts that as a delete. The edit gate below still applies on top.
     """
+    assert_can_delete(current_user)
     if interview_id == target_id:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -3545,6 +3551,19 @@ async def update_questionnaire(
             detail="A questionnaire with that title already exists.",
         ) from exc
     return _instrument_payload(updated, {})
+
+
+@instruments_router.delete("/{questionnaire_id}")
+async def delete_questionnaire(
+    questionnaire_id: str,
+    _: Any = Depends(require_content_admin),
+) -> dict[str, Any]:
+    """Delete an instrument — a SOFT delete (``isActive = false``). Content admins only (2026-10-20).
+
+    Its sessions and answers stay. The same two refusals as retiring through the PATCH above: the
+    default instrument (422) and one a workshop is bound to (409).
+    """
+    return await update_questionnaire(questionnaire_id, QuestionnaireUpdate(isActive=False))
 
 
 @instruments_router.put("/{questionnaire_id}/default")

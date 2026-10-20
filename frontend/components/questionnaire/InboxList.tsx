@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { useAdminView } from "@/components/AdminViewProvider";
 import { EmptyState } from "@/components/EmptyState";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { CalendarField } from "@/components/ui/CalendarField";
@@ -186,6 +187,8 @@ function RowActions({
 }) {
   const secondary = "field-button-secondary";
   const primary = "field-button";
+  // Deleting a session is a content admin's act, in admin view (owner's ruling, 2026-10-20).
+  const { adminMode } = useAdminView();
   switch (section) {
     case "toFile": {
       const r = row as unknown as InboxToFile;
@@ -224,9 +227,11 @@ function RowActions({
           <button type="button" className={secondary} disabled={busy} onClick={() => dismiss(rowKey)}>
             {qs("keep")}
           </button>
-          <button type="button" className={`${secondary} field-danger`} disabled={busy} onClick={() => void run(rowKey, () => questionnaireApi.deleteSession(r.sessionId))}>
-            {qs("delete")}
-          </button>
+          {adminMode ? (
+            <button type="button" className={`${secondary} field-danger`} disabled={busy} onClick={() => void run(rowKey, () => questionnaireApi.deleteSession(r.sessionId))}>
+              {qs("delete")}
+            </button>
+          ) : null}
         </ButtonRow>
       );
     }

@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { AlreadyRecordedDialog, type P2Choice } from "@/components/questionnaire/AlreadyRecordedDialog";
 import { AnswerBox } from "@/components/questionnaire/AnswerBox";
@@ -91,6 +92,8 @@ function gridFromSections(sections: QuestionnaireSection[], byId: Record<string,
 export function SessionWorkspace({ id }: { id: string }) {
   const router = useRouter();
   const { user } = useAuth();
+  // Removing a take is a delete: content admins in admin view only (owner's ruling, 2026-10-20).
+  const { adminMode } = useAdminView();
   const config = useQuestionnaireConfig();
   const paused = config?.transcriptionPaused ?? true;
   const [detail, setDetail] = useState<SessionDetail | null>(null);
@@ -593,7 +596,7 @@ export function SessionWorkspace({ id }: { id: string }) {
             setSheet(null);
             void begin({ targets: [{ sectionId: sheetSection.id }], label: `Section ${sheetSection.code}`, code: sheetSection.code, file });
           }}
-          onRemove={(r) => setRemoveTake(r)}
+          onRemove={adminMode ? (r) => setRemoveTake(r) : undefined}
           onRecordConsent={(r) => {
             const subject = r.subjects.find((s) => s.role === "ANSWERED");
             if (subject) setConsentFor({ artisanId: subject.artisanId, name: names[subject.artisanId] ?? "" });

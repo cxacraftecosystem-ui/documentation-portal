@@ -21,7 +21,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.db import db
-from app.core.deps import get_value, require_admin, require_record_creator
+from app.core.deps import get_value, require_content_admin, require_record_creator
 from app.scale.rate_limit import _TokenBuckets
 from app.schemas.duplicates import DismissIn, DuplicateCheckIn
 from app.services import aadhaar_fingerprint, artisan_duplicates
@@ -195,7 +195,7 @@ _ARTISAN_INCLUDE = {"include": {"craft": True, "location": True}}
 
 @router.get("")
 async def list_pairs(
-    _: Any = Depends(require_admin),
+    _: Any = Depends(require_content_admin),
     status_filter: str | None = Query("OPEN", alias="status"),
     kind: str | None = None,
     band: str | None = None,
@@ -269,7 +269,7 @@ async def _load_pair(pair_id: str) -> Any:
 
 
 @router.get("/{pair_id}")
-async def get_pair(pair_id: str, _: Any = Depends(require_admin)) -> dict[str, Any]:
+async def get_pair(pair_id: str, _: Any = Depends(require_content_admin)) -> dict[str, Any]:
     pair = await db.artisanduplicatecandidate.find_unique(
         where={"id": pair_id}, include={"artisanA": _ARTISAN_INCLUDE, "artisanB": _ARTISAN_INCLUDE}
     )
@@ -297,11 +297,11 @@ async def _decide(pair_id: str, status_value: str, user: Any, note: str | None) 
 
 @router.post("/{pair_id}/dismiss")
 async def dismiss_pair(
-    pair_id: str, payload: DismissIn, current_user: Any = Depends(require_admin)
+    pair_id: str, payload: DismissIn, current_user: Any = Depends(require_content_admin)
 ) -> dict[str, Any]:
     return await _decide(pair_id, "NOT_DUPLICATE", current_user, payload.note)
 
 
 @router.post("/{pair_id}/reopen")
-async def reopen_pair(pair_id: str, current_user: Any = Depends(require_admin)) -> dict[str, Any]:
+async def reopen_pair(pair_id: str, current_user: Any = Depends(require_content_admin)) -> dict[str, Any]:
     return await _decide(pair_id, "OPEN", current_user, None)
