@@ -8,12 +8,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -43,19 +43,27 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.PathFillType
@@ -66,9 +74,9 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -83,11 +91,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.fieldrepository.app.data.CoverageCopy
-import com.fieldrepository.app.data.CoverageStateRow
-import com.fieldrepository.app.data.CoverageSummary
 import com.fieldrepository.app.data.FieldRepository
-import com.fieldrepository.app.data.coverageSummary
 import com.fieldrepository.app.data.MapCountsDto
 import com.fieldrepository.app.data.MapPointChildDto
 import com.fieldrepository.app.data.MapPointDto
@@ -360,6 +364,62 @@ fun MapScreen(
     focusId: String? = null,
     onOpenRecord: ((recordType: String, recordId: String) -> Unit)? = null
 ) {
+    // Places | Coverage, the web's two views of /map. Reading coverage is open to every signed-in
+    // account on this portal (the same rule as `GET /map/coverage`), so the switch is always drawn.
+    var view by rememberSaveable { mutableStateOf(MAP_VIEW_PLACES) }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+        MapViewSwitch(view = view, onChange = { view = it })
+        if (view == MAP_VIEW_COVERAGE) {
+            CoverageScreen(
+                fetchCoverage = { query -> repository.coverage(query) },
+                fetchUnitRecords = { query, state, district, bucket, cursor ->
+                    repository.coverageUnitRecords(state, district, query, bucket, cursor)
+                },
+                errorMessage = { failure, fallback -> failure.apiErrorMessage(fallback) },
+                onError = onError,
+                onOpenRecord = onOpenRecord
+            )
+        } else {
+            PlacesMapSection(
+                repository = repository,
+                onError = onError,
+                focusType = focusType,
+                focusId = focusId,
+                onOpenRecord = onOpenRecord
+            )
+        }
+    }
+}
+
+internal const val MAP_VIEW_PLACES = "places"
+internal const val MAP_VIEW_COVERAGE = "coverage"
+
+/** Places | Coverage: the web's view switch, as a two-segment control with the same labels. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun MapViewSwitch(view: String, onChange: (String) -> Unit) {
+    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+        listOf(MAP_VIEW_PLACES to "Places", MAP_VIEW_COVERAGE to "Coverage").forEachIndexed { index, (value, label) ->
+            SegmentedButton(
+                selected = view == value,
+                onClick = { onChange(value) },
+                shape = SegmentedButtonDefaults.itemShape(index = index, count = 2),
+                modifier = Modifier.heightIn(min = 48.dp).testTag("map-view-$value")
+            ) {
+                Text(label)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlacesMapSection(
+    repository: FieldRepository,
+    onError: (String) -> Unit,
+    focusType: String?,
+    focusId: String?,
+    onOpenRecord: ((recordType: String, recordId: String) -> Unit)?
+) {
     val context = LocalContext.current
 
     // --- The national outline. Loaded once, off the main thread: ~12k points of allocation. ---
@@ -450,27 +510,6 @@ fun MapScreen(
      */
     var drillTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
 
-    /**
-     * A state chosen on the Coverage card: the map switches to STATE detail and lands on that state's
-     * pin once the response for that level arrives — the same parking as [drillTarget].
-     */
-    var stateTarget by remember { mutableStateOf<String?>(null) }
-
-    // --- Coverage at state level, read once for the card at the foot of the screen. Independent of
-    // the workshop scope and the detail level above: it is the whole corpus the reader may see.
-    var coverage by remember { mutableStateOf<CoverageSummary?>(null) }
-    var coverageFailed by remember { mutableStateOf(false) }
-    var coverageAttempt by remember { mutableIntStateOf(0) }
-    LaunchedEffect(coverageAttempt) {
-        coverageFailed = false
-        runCatching { coverageSummary(repository.mapCoverage()) }
-            .onSuccess { coverage = it }
-            .onFailure { failure ->
-                if (failure is CancellationException) throw failure
-                coverageFailed = true
-            }
-    }
-
     /** The place list's own scroller. See [MapPlaceListCard] for why the list is bounded and scrolls. */
     val listScroll = rememberScrollState()
 
@@ -546,12 +585,9 @@ fun MapScreen(
                 val drill = drillTarget?.takeIf { it.second == (result.level.ifBlank { level }) }
                 if (drill != null || drillTarget?.second != level) drillTarget = null
                 val landed = drill?.first?.takeIf { key -> result.points.any { it.key == key } }
-                val atState = result.level.ifBlank { level } == "STATE"
-                val stateLanded = stateTarget?.takeIf { atState }?.let { name -> statePointKey(result.points, name) }
-                if (atState || level != "STATE") stateTarget = null
-                selectedKey = landed ?: stateLanded ?: result.focus?.pointKeys?.firstOrNull()
+                selectedKey = landed ?: result.focus?.pointKeys?.firstOrNull()
                 expandedKeys = emptySet()
-                (landed ?: stateLanded)?.let { reveal(it) }
+                landed?.let { reveal(it) }
                 error = null
                 loading = false
             }
@@ -742,116 +778,6 @@ fun MapScreen(
 
         if (loading && current != null) {
             Text("Placing the records…", color = MaterialTheme.field.muted, style = MaterialTheme.typography.bodySmall)
-        }
-
-        CoverageCard(
-            summary = coverage,
-            failed = coverageFailed,
-            onRetry = { coverageAttempt += 1 },
-            onOpenState = { name ->
-                val here = if (drawnLevel == "STATE") statePointKey(points, name) else null
-                if (here != null) {
-                    selectedKey = here
-                    reveal(here)
-                } else if (level != "STATE") {
-                    stateTarget = name
-                    level = "STATE"
-                }
-            }
-        )
-    }
-}
-
-/** The STATE-level pin for [state], the origin layer's first: the server's own resolved names. */
-private fun statePointKey(points: List<MapPointDto>, state: String): String? {
-    val matches = points.filter { it.state == state }
-    return (matches.firstOrNull { it.layer == "ORIGIN" } ?: matches.firstOrNull())?.key
-}
-
-/** How many states the Coverage card lists before "Show all". */
-private const val COVERAGE_ROWS = 8
-
-/**
- * COVERAGE, READ-ONLY. The web's coverage map colours every district; the phone lists the same
- * figures per state — how many of its districts have a workshop, and how many records it holds — and
- * the shared crafts nobody has documented. Tapping a state moves the map above to STATE detail on that
- * state. No polygons ship on the phone.
- */
-@Composable
-private fun CoverageCard(
-    summary: CoverageSummary?,
-    failed: Boolean,
-    onRetry: () -> Unit,
-    onOpenState: (String) -> Unit
-) {
-    var showAll by remember { mutableStateOf(false) }
-    MapCard(title = "Coverage") {
-        when {
-            failed -> {
-                Text("Coverage could not be loaded.", color = MaterialTheme.field.body, fontSize = 13.sp)
-                Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
-                    TextButton(onClick = onRetry) { Text("Try again") }
-                }
-            }
-
-            summary == null -> Text("Loading coverage…", color = MaterialTheme.field.muted, fontSize = 12.sp)
-
-            summary.isEmpty -> {
-                Text("No records placed in a district yet.", color = MaterialTheme.field.muted, fontSize = 13.sp)
-                Text(CoverageCopy.crafts(summary.craftsNeverDocumented), color = MaterialTheme.field.muted, fontSize = 12.sp)
-            }
-
-            else -> {
-                Text(
-                    CoverageCopy.crafts(summary.craftsNeverDocumented),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                val rows = if (showAll) summary.states else summary.states.take(COVERAGE_ROWS)
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    rows.forEach { row -> CoverageStateRowItem(row = row, onClick = { onOpenState(row.name) }) }
-                }
-                if (summary.states.size > COVERAGE_ROWS) {
-                    Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
-                        TextButton(onClick = { showAll = !showAll }) {
-                            Text(if (showAll) "Show fewer" else "Show all ${summary.states.size} states")
-                        }
-                    }
-                }
-                if (summary.truncated) {
-                    Text("Some counts are capped.", color = MaterialTheme.field.muted, fontSize = 11.sp)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CoverageStateRowItem(row: CoverageStateRow, onClick: () -> Unit) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.small)
-            .background(MaterialTheme.field.surface50)
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp)
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
-            Text(
-                row.name,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(CoverageCopy.districts(row), color = MaterialTheme.field.muted, fontSize = 12.sp)
-        }
-        if (row.records > 0) {
-            Spacer(Modifier.width(8.dp))
-            MapPill(CoverageCopy.records(row.records))
         }
     }
 }
@@ -1197,9 +1123,10 @@ private fun stableHash(text: String): Int {
  * says, as text, with the same selection. The description names the list so a TalkBack user is told
  * where the real interface is rather than left with an unexplained image.
  *
- * NO MAP SDK, NO TILES, NO ZOOM AND NO PAN. The boundary is the shipped official depiction (see
- * [IndiaOutline.kt]); a tile source would draw its own line for Jammu & Kashmir, need a key and a
- * network, and this app is used in villages with no signal.
+ * NO MAP SDK AND NO TILES. The boundary is the shipped official depiction (see [IndiaOutline.kt]); a
+ * tile source would draw its own line for Jammu & Kashmir, need a key and a network, and this app is
+ * used in villages with no signal. Pinch, pan and double tap come from [mapZoomGestures]: the same
+ * picture under one transform, with pins kept at their on-screen size.
  *
  * THE THREE LINE WEIGHTS ARE A HIERARCHY, AND THEY ARE ALL NEUTRAL. Frontier heaviest, state medium,
  * district lightest — because at district detail this canvas carries over a thousand polylines and a
@@ -1264,7 +1191,11 @@ private fun IndiaMapCanvas(
         // Built once per BUCKET rather than per frame: a Path with ~12k points is expensive to build
         // and cheap for Skia to transform, so the geometry is baked at the bucket scale and the
         // residual is applied as a transform. See `outlineBucketScale`.
-        val bucketScale = remember(frame.contentWidth) { outlineBucketScale(frame.contentWidth) }
+        val zoom = rememberMapZoomState()
+        val reducedMotion = LocalAppPreferences.current.reducedMotion
+        val bucketScale by remember(frame.contentWidth) {
+            derivedStateOf { outlineBucketScale(frame.contentWidth * zoom.scale) }
+        }
         val outline = remember(geometry, bucketScale) {
             buildOutlinePath(geometry, bucketScale).apply {
                 // EvenOdd, because the geometry carries a hole. With the default winding rule the
@@ -1272,7 +1203,6 @@ private fun IndiaMapCanvas(
                 fillType = PathFillType.EvenOdd
             }
         }
-        val residual = frame.contentWidth / bucketScale
 
         // WHICH INTERIOR LAYERS THIS LEVEL EARNS. State borders from the state level down, because a
         // state-level pin is read inside a state; district borders only at district detail, where they
@@ -1295,6 +1225,18 @@ private fun IndiaMapCanvas(
         val slopPx = with(density) { PIN_TAP_SLOP.toPx() }
         val hairlinePx = with(density) { 1.dp.toPx() }
 
+        // `tap` arrives already back in the resting frame. Nearest hit wins, and small pins are tested
+        // too — a 1-record dot beside a 300-record disc must still be reachable. A pin keeps its
+        // on-screen size, so its reach shrinks in frame units as the map zooms. Read through a holder
+        // because the gesture detector outlives a recomposition and would otherwise test old pins.
+        val onTap = rememberUpdatedState { tap: Offset ->
+            pins
+                .filter { hypot(it.x - tap.x, it.y - tap.y) * zoom.scale <= it.radius + slopPx }
+                .minByOrNull { hypot(it.x - tap.x, it.y - tap.y) }
+                ?.let { onSelect(it.point.key) }
+        }
+
+        Box {
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1307,18 +1249,16 @@ private fun IndiaMapCanvas(
                     contentDescription = "Map of India with ${points.size} " + (if (points.size == 1) "point" else "points") +
                         ". Places are listed below."
                 }
-                .pointerInput(pins, slopPx) {
-                    detectTapGestures { tap ->
-                        // Nearest hit wins, and small pins are tested too — a 1-record dot beside a
-                        // 300-record disc must still be reachable.
-                        pins
-                            .filter { hypot(it.x - tap.x, it.y - tap.y) <= it.radius + slopPx }
-                            .minByOrNull { hypot(it.x - tap.x, it.y - tap.y) }
-                            ?.let { onSelect(it.point.key) }
-                    }
-                }
+                .testTag("places-map")
+                .mapZoomGestures(zoom, Size(frame.widthPx, frame.heightPx), reducedMotion) { tap -> onTap.value(tap) }
         ) {
-            translate(left = frame.offsetX, top = frame.offsetY) {
+            val zoomScale = zoom.scale
+            val residual = frame.contentWidth * zoomScale / bucketScale
+            val screenPins = pins.map { it.through(zoom) }
+            translate(
+                left = zoom.offset.x + frame.offsetX * zoomScale,
+                top = zoom.offset.y + frame.offsetY * zoomScale
+            ) {
                 scale(scaleX = residual, scaleY = residual, pivot = Offset.Zero) {
                     drawPath(outline, color = land, style = Fill)
                     // The stroke width is divided back out of the residual scale so it stays a
@@ -1364,7 +1304,7 @@ private fun IndiaMapCanvas(
 
             // Uncertainty first, under everything: a halo is context for its pin, not a mark of its
             // own.
-            pins.filter { it.uncertainty > 3f }.forEach { pin ->
+            screenPins.filter { it.uncertainty > 3f }.forEach { pin ->
                 drawCircle(
                     color = haloFill,
                     radius = pin.uncertainty,
@@ -1382,7 +1322,7 @@ private fun IndiaMapCanvas(
             }
 
             // Leader lines tie a displaced pin back to where the place really is.
-            pins.filter { it.displaced }.forEach { pin ->
+            screenPins.filter { it.displaced }.forEach { pin ->
                 drawLine(
                     color = leader,
                     start = Offset(pin.anchorX, pin.anchorY),
@@ -1396,7 +1336,7 @@ private fun IndiaMapCanvas(
                 )
             }
 
-            pins.forEach { pin ->
+            screenPins.forEach { pin ->
                 drawPin(
                     pin = pin,
                     primary = primary,
@@ -1408,7 +1348,7 @@ private fun IndiaMapCanvas(
             }
 
             // The selected pin's number and name, over every mark. See [drawPinLabel].
-            pins.firstOrNull { it.point.key == selectedKey }?.let { pin ->
+            screenPins.firstOrNull { it.point.key == selectedKey }?.let { pin ->
                 val ordinal = points.indexOfFirst { it.key == pin.point.key } + 1
                 if (ordinal > 0) {
                     drawPinLabel(
@@ -1422,9 +1362,32 @@ private fun IndiaMapCanvas(
                 }
             }
 
-            drawScaleBar(frame = frame, measurer = measurer, density = density, ink = scaleInk)
+            drawScaleBar(frame = frame, measurer = measurer, density = density, ink = scaleInk, zoomScale = zoomScale)
+        }
+        MapZoomResetButton(zoom, Modifier.align(Alignment.TopEnd).padding(4.dp))
         }
     }
+}
+
+/**
+ * The pin as drawn under the zoom: its mark and its true point moved through the transform, its
+ * radius unchanged (a pin is a mark, not an area) and its uncertainty halo scaled (a halo IS an area).
+ */
+private fun PlacedPin.through(zoom: MapZoomState): PlacedPin {
+    if (!zoom.isZoomed && zoom.offset == Offset.Zero) return this
+    val at = zoom.toScreen(Offset(x, y))
+    val anchor = zoom.toScreen(Offset(anchorX, anchorY))
+    return PlacedPin(
+        point = point,
+        x = at.x,
+        y = at.y,
+        anchorX = anchor.x,
+        anchorY = anchor.y,
+        radius = radius,
+        displaced = displaced,
+        uncertainty = uncertainty * zoom.scale,
+        count = count
+    )
 }
 
 /**
@@ -1541,11 +1504,15 @@ private fun DrawScope.drawScaleBar(
     frame: MapFrame,
     measurer: TextMeasurer,
     density: Density,
-    ink: Color
+    ink: Color,
+    zoomScale: Float = 1f
 ) {
-    val kilometres = 500
-    val length = kilometres * frame.pxPerKilometre
-    if (length <= 0f || length > frame.contentWidth * 0.6f) return
+    // The longest round distance that still fits: 500 km at rest, shorter as the map zooms in.
+    val perKilometre = frame.pxPerKilometre * zoomScale
+    val kilometres = listOf(500, 200, 100, 50, 20, 10).firstOrNull { it * perKilometre <= frame.contentWidth * 0.6f }
+        ?: return
+    val length = kilometres * perKilometre
+    if (length <= 0f) return
 
     val hairline = with(density) { 1.dp.toPx() }
     val x = frame.offsetX + with(density) { 4.dp.toPx() }

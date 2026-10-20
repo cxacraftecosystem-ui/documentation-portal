@@ -3,10 +3,11 @@ package com.fieldrepository.app.data
 import kotlinx.serialization.Serializable
 
 /**
- * `GET /map/coverage?level=STATE` — the coverage map's state-level answer, read by the Coverage card
- * on the map screen (`ui/MapScreen.kt`). The web draws the district choropleth; the handset shows the
- * same figures as a list. Only the fields that list needs are typed; the rest of the payload is
- * ignored by the shared `Json` (`ignoreUnknownKeys`).
+ * The Coverage list's rows: per state, how many districts have a workshop and how many records it
+ * holds. Drawn under the coverage map (`ui/CoverageScreen.kt`) from the map's own `GET /map/coverage`
+ * answer (`CoverageModels.kt`), folded per state by [coverageSummary]. [CoverageDto] is the state-level
+ * shape the fold produces; only the fields the list needs are typed, and unknown keys are ignored by
+ * the shared `Json` (`ignoreUnknownKeys`).
  *
  * Every field defaults, so a server that adds or drops a block cannot turn the card into a parse
  * error. See `docs/COVERAGE_MAP.md`.
@@ -131,5 +132,48 @@ fun coverageSummary(dto: CoverageDto): CoverageSummary {
         craftsNeverDocumented = dto.gaps.craftsNeverDocumented.size,
         districtsWithoutWorkshop = dto.gaps.districtsWithoutWorkshop.count,
         truncated = dto.truncated,
+    )
+}
+
+/**
+ * The same rows from the coverage map's own answer, at either level: district units are folded into
+ * their state on the client, so the map and the list under it read one fetch and cannot disagree.
+ */
+fun coverageSummary(response: CoverageResponse): CoverageSummary {
+    val states = response.units.groupBy { it.stateLgd }.map { (stateLgd, units) ->
+        CoverageUnitDto(
+            stateLgd = stateLgd,
+            state = units.firstNotNullOfOrNull { it.state.takeIf(String::isNotBlank) },
+            counts = CoverageCountsDto(
+                workshops = units.sumOf { it.counts.workshops },
+                artisans = units.sumOf { it.counts.artisans },
+                crafts = units.sumOf { it.counts.crafts },
+                products = units.sumOf { it.counts.products },
+                tools = units.sumOf { it.counts.tools },
+                media = units.sumOf { it.counts.media },
+            ),
+        )
+    }
+    val gaps = response.gaps
+    return coverageSummary(
+        CoverageDto(
+            units = states,
+            gaps = CoverageGapsDto(
+                craftsNeverDocumented = gaps.craftsNeverDocumented.map { CoverageCraftDto(it.code, it.name) },
+                districtsWithoutWorkshop = CoverageDistrictGapsDto(
+                    count = gaps.districtsWithoutWorkshop.count,
+                    byState = gaps.districtsWithoutWorkshop.byState.map { row ->
+                        CoverageStateGapDto(
+                            stateLgd = row.stateLgd,
+                            state = row.state,
+                            total = row.total,
+                            without = row.without.map { CoverageNamedUnitDto(it.lgd, it.name) },
+                        )
+                    },
+                ),
+                statesWithoutWorkshop = gaps.statesWithoutWorkshop.map { CoverageNamedUnitDto(it.lgd, it.name) },
+            ),
+            truncated = response.truncated,
+        )
     )
 }

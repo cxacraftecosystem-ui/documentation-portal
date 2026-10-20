@@ -387,6 +387,12 @@ dependencies {
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test:rules:1.7.0")
     androidTestImplementation("androidx.test.uiautomator:uiautomator:2.4.0")
+    // Compose UI tests (the map's pinch, reset and coverage sheet), versioned by the BOM above.
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    // ui-test-junit4 idles through Espresso; the version it pulls in by itself still calls
+    // InputManager.getInstance, which API 37 removed, so every Compose test failed before it ran.
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     /*
      * THE VENDORED TRACE ENGINE. See the block in settings.gradle.kts for what these four are and

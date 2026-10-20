@@ -73,6 +73,13 @@ ENCODINGS — both already have decoders in the repo; do not invent a third
   android  the ``IND1`` binary ``IndiaOutline.loadIndiaGeometry`` reads: magic, four float64 bounds,
            an int32 count, then per polyline an int32 length and uint16 x/y on a grid spanning the
            bounds.
+  shapes   ``--shapes-bin`` (and every ``--shapes`` run) also writes ``res/raw/district_shapes.bin``,
+           the Android coverage map's district POLYGONS, decoded from the committed
+           ``district-shapes.json`` so the web and both apps fill exactly the same rings. Same uint16
+           grid and the outline's bounds; header ``DSH1``, four float64 bounds, an int32 district
+           count, then per district: uint32 lgd, uint16 stateLgd, uint16 x/y centroid, uint16 ring
+           count, and per ring an int32 length and uint16 x/y pairs. Districts with no polygon are
+           absent (the coverage payload's ``polygon: PARENT`` draws them inside their parent).
 """
 
 from __future__ import annotations
@@ -747,6 +754,56 @@ def verify_shapes(shapes: list[dict]) -> list[str]:
     return problems
 
 
+
+SHAPES_MAGIC = 0x44534831  # "DSH1"
+SHAPES_ANDROID = ROOT / "android" / "app" / "src" / "main" / "res" / "raw" / "district_shapes.bin"
+
+
+def encode_district_shapes(districts: list[dict], bounds: tuple[float, float, float, float]) -> bytes:
+    """``district-shapes.json``'s districts as the ``DSH1`` binary ``IndiaOutline.loadDistrictShapes`` reads.
+
+    Deterministic: the rows are written in lgd order and every coordinate goes through the same
+    rounding, so the same JSON content always gives the same bytes in both repositories.
+    """
+    min_lon, max_lon, min_lat, max_lat = bounds
+    lon_step = (max_lon - min_lon) / QUANT_MAX
+    lat_step = (max_lat - min_lat) / QUANT_MAX
+
+    def grid(lon: float, lat: float) -> tuple[int, int]:
+        qx = min(QUANT_MAX, max(0, round((lon - min_lon) / lon_step)))
+        qy = min(QUANT_MAX, max(0, round((lat - min_lat) / lat_step)))
+        return qx, qy
+
+    rows = sorted(districts, key=lambda row: row["lgd"])
+    buf = io.BytesIO()
+    buf.write(struct.pack(">i", SHAPES_MAGIC))
+    buf.write(struct.pack(">dddd", min_lon, max_lon, min_lat, max_lat))
+    buf.write(struct.pack(">i", len(rows)))
+    for row in rows:
+        rings = []
+        for encoded in row["rings"]:
+            records = _decode_stream(encoded, hole_flag=False)
+            points = records[0][1] if records else []
+            if len(points) >= 3:
+                rings.append(points)
+        cx, cy = grid(float(row["centroid"][0]), float(row["centroid"][1]))
+        buf.write(struct.pack(">IHHHH", int(row["lgd"]), int(row["stateLgd"]), cx, cy, len(rings)))
+        for points in rings:
+            buf.write(struct.pack(">i", len(points)))
+            for lon, lat in points:
+                buf.write(struct.pack(">HH", *grid(lon, lat)))
+    return buf.getvalue()
+
+
+def write_shapes_bin() -> int:
+    """Re-emit ``district_shapes.bin`` from the committed web shapes. No network, no attribution."""
+    document = json.loads(SHAPES_WEB.read_text(encoding="utf-8"))
+    blob = encode_district_shapes(document["districts"], android_outline_bounds())
+    SHAPES_ANDROID.write_bytes(blob)
+    print(f"  wrote {SHAPES_ANDROID.name}: {len(document['districts'])} districts, {len(blob):,} B")
+    return 0
+
+
 def write_shapes(resolved: dict, source_sha256: str, tolerance: float) -> int:
     import hashlib
 
@@ -778,7 +835,7 @@ def write_shapes(resolved: dict, source_sha256: str, tolerance: float) -> int:
     manifest.update(extra)
     manifest_path.write_text(json.dumps(manifest, indent=1), encoding="utf-8")
     print(f"  wrote {len(shapes)} district shapes, {len(raw) / 1024:.1f} KiB, version {version}")
-    return 0
+    return write_shapes_bin()
 
 
 # ---------------------------------------------------------------------------------------------
@@ -799,7 +856,15 @@ def main() -> int:
         help="write ONLY the coverage map's district polygons and centroids (borders untouched)",
     )
     parser.add_argument("--shapes-tolerance", type=float, default=SHAPES_TOLERANCE)
+    parser.add_argument(
+        "--shapes-bin",
+        action="store_true",
+        help="write ONLY android res/raw/district_shapes.bin, from the committed district-shapes.json",
+    )
     args = parser.parse_args()
+
+    if args.shapes_bin:
+        return write_shapes_bin()
 
     print("sources")
     districts, states, country = fetch(pathlib.Path(args.cache), args.fetch)

@@ -16,7 +16,7 @@ import org.junit.Test
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 
-/** The map screen's Coverage card: the wire shape, the rows it draws, and the empty state. */
+/** The Coverage list under the coverage map: the wire shape, the rows it draws, the empty state and the query. */
 class CoverageSummaryTest {
     /** A trimmed `GET /map/coverage?level=STATE` answer, with blocks the card does not read. */
     private val body = """
@@ -90,8 +90,33 @@ class CoverageSummaryTest {
     }
 
     @Test
-    fun theRepositoryAsksForTheStateLevel() = runBlocking {
-        val sent = mutableListOf<HttpUrl>()
+    fun theDistrictLevelAnswerFoldsIntoTheSameStateRows() {
+        val districts = """
+            {"filters":{"level":"DISTRICT"},
+             "units":[
+              {"stateLgd":8,"districtLgd":99,"state":"Rajasthan","district":"Barmer","polygon":"OWN",
+               "counts":{"workshops":1,"artisans":4,"crafts":1,"products":2,"tools":0,"media":10}},
+              {"stateLgd":8,"districtLgd":101,"state":"Rajasthan","district":"Balotra","polygon":"PARENT","parentLgd":99,
+               "counts":{"workshops":1,"artisans":10,"crafts":2,"products":3,"tools":3,"media":30}},
+              {"stateLgd":32,"districtLgd":null,"state":"Goa","district":null,"polygon":"STATE",
+               "counts":{"workshops":1,"artisans":1,"crafts":1,"products":0,"tools":0,"media":0}}
+             ],
+             "gaps":{"craftsNeverDocumented":[{"code":"bidri","name":"Bidri"}],
+              "districtsWithoutWorkshop":{"count":31,"byState":[
+               {"stateLgd":8,"state":"Rajasthan","total":33,"without":[{"lgd":1,"name":"Ajmer"}]}]},
+              "statesWithoutWorkshop":[]}}
+        """.trimIndent()
+        val summary = coverageSummary(ApiClient.json.decodeFromString(CoverageResponse.serializer(), districts))
+
+        assertEquals(listOf("Goa", "Rajasthan"), summary.states.map { it.name })
+        val rajasthan = summary.states.single { it.name == "Rajasthan" }
+        assertEquals(64, rajasthan.records)
+        assertEquals("32 of 33 districts with a workshop", CoverageCopy.districts(rajasthan))
+        assertEquals(1, summary.craftsNeverDocumented)
+        assertEquals(31, summary.districtsWithoutWorkshop)
+    }
+
+    private fun recordingApi(sent: MutableList<HttpUrl>, reply: String): FieldRepositoryApi {
         val client = OkHttpClient.Builder()
             .addInterceptor(Interceptor { chain ->
                 sent += chain.request().url
@@ -100,21 +125,62 @@ class CoverageSummaryTest {
                     .protocol(Protocol.HTTP_1_1)
                     .code(200)
                     .message("OK")
-                    .body(body.toResponseBody("application/json".toMediaType()))
+                    .body(reply.toResponseBody("application/json".toMediaType()))
                     .build()
             })
             .build()
-        val api = Retrofit.Builder()
+        return Retrofit.Builder()
             .baseUrl("https://field-repository.invalid/api/")
             .client(client)
             .addConverterFactory(ApiClient.json.asConverterFactory("application/json".toMediaType()))
             .build()
             .create(FieldRepositoryApi::class.java)
+    }
 
-        val dto = FieldRepository(api, unopenedTokenStore()).mapCoverage()
+    @Test
+    fun theRepositorySendsTheWebQuery() = runBlocking {
+        val sent = mutableListOf<HttpUrl>()
+        val repository = FieldRepository(recordingApi(sent, body), unopenedTokenStore())
 
-        assertEquals("/api/map/coverage", sent.single().encodedPath)
-        assertEquals("STATE", sent.single().queryParameter("level"))
-        assertEquals(2, dto.units.size)
+        // The default view is the district map with no filters: no parameters at all, as on the web.
+        val all = repository.coverage()
+        assertEquals("/api/map/coverage", sent.last().encodedPath)
+        assertNull(sent.last().query)
+        assertEquals(2, all.units.size)
+
+        repository.coverage(
+            CoverageQuery(level = CoverageLevel.STATE, craftCode = listOf("ajrakh", "bidri"), fy = listOf(2025), stateLgd = 8)
+        )
+        val url = sent.last()
+        assertEquals("STATE", url.queryParameter("level"))
+        assertEquals("ajrakh,bidri", url.queryParameter("craftCode"))
+        assertEquals("2025", url.queryParameter("fy"))
+        assertEquals("8", url.queryParameter("stateLgd"))
+    }
+
+    @Test
+    fun aUnitsRecordsAreAskedForUnderTheMapsFilters() = runBlocking {
+        val sent = mutableListOf<HttpUrl>()
+        val repository = FieldRepository(recordingApi(sent, """{"buckets":{"artisans":{"total":1,"items":[{"id":"a1","title":"Asha","href":"/artisans/a1"}]}}}"""), unopenedTokenStore())
+
+        val page = repository.coverageUnitRecords(
+            stateLgd = 8,
+            districtLgd = 99,
+            query = CoverageQuery(craftCode = listOf("ajrakh"), stateLgd = 8),
+            bucket = "artisans",
+            cursor = "c1"
+        )
+        val url = sent.last()
+        assertEquals("/api/map/coverage/units/8/99/records", url.encodedPath)
+        assertEquals("ajrakh", url.queryParameter("craftCode"))
+        // The route takes no state scope; the unit names the state.
+        assertNull(url.queryParameter("stateLgd"))
+        assertEquals("artisans", url.queryParameter("bucket"))
+        assertEquals("c1", url.queryParameter("cursor"))
+        assertEquals("Asha", page.buckets.getValue("artisans").items.single().title)
+
+        // A state-level view reads the whole state: district 0.
+        repository.coverageUnitRecords(8, 99, CoverageQuery(level = CoverageLevel.STATE))
+        assertEquals("/api/map/coverage/units/8/0/records", sent.last().encodedPath)
     }
 }

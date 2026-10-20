@@ -1326,11 +1326,31 @@ class FieldRepository(
         )
 
     /**
-     * The coverage map at state level (`GET /map/coverage?level=STATE`): per state, its records and how
-     * many districts have a workshop, and the shared crafts nobody has documented. Read-only; the
-     * district map is the web's. See [coverageSummary] for the rows the card draws.
+     * The coverage map (`GET /map/coverage`) under [query]: every unit with its counts, the markers,
+     * the gaps and the filter vocabulary. One answer draws the choropleth and, folded per state by
+     * [coverageSummary], the Coverage list under it.
      */
-    suspend fun mapCoverage(): CoverageDto = api.mapCoverage(level = "STATE")
+    suspend fun coverage(query: CoverageQuery = CoverageQuery()): CoverageResponse =
+        api.mapCoverage(query.params())
+
+    /**
+     * The records behind one unit, under the same filters the map was drawn with. A null
+     * [districtLgd] (or a STATE-level query) reads the state as a whole. [bucket] and [cursor] page
+     * one bucket further.
+     */
+    suspend fun coverageUnitRecords(
+        stateLgd: Int,
+        districtLgd: Int?,
+        query: CoverageQuery,
+        bucket: String? = null,
+        cursor: String? = null
+    ): CoverageUnitRecords = api.coverageUnitRecords(
+        stateLgd = stateLgd,
+        districtLgd = if (query.level == CoverageLevel.STATE) 0 else districtLgd ?: 0,
+        params = query.params(forUnit = true),
+        bucket = bucket,
+        cursor = cursor
+    )
 
     // --- Data browser ---
 
