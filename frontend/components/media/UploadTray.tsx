@@ -56,7 +56,8 @@ export function UploadTray() {
       <div
         ref={dockRef}
         className="pointer-events-none fixed inset-x-0 bottom-0 z-40 px-4 pt-3"
-        style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0.75rem)" }}
+        // Lifted clear of the bottom island where one is drawn (`--bottom-nav-h`, below `lg` only).
+        style={{ bottom: "var(--bottom-nav-h, 0px)", paddingBottom: "max(env(safe-area-inset-bottom), 0.75rem)" }}
       >
         <div
           className="pointer-events-auto mx-auto grid max-w-7xl gap-3 rounded-lg border border-line-200 bg-card p-3 shadow-lg sm:p-4"
