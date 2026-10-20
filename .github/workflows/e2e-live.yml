@@ -5,7 +5,8 @@ name: Live end-to-end specs
 # workflow stands up a throwaway stack on one runner, seeds one admin into it, and runs the specs
 # named in `specs` (default: the top-bar scanner's session join, REQUIREMENTS_2026-10-20 §6.3).
 #
-# Manual only, and not a gate: a stack is minutes of setup before the first assertion.
+# Not a gate: a stack is minutes of setup before the first assertion. It runs by hand, and on a
+# push that changes this file or the session-join spec.
 #
 #     gh workflow run e2e-live.yml --ref <branch>
 #     gh workflow run e2e-live.yml --ref <branch> -f specs="e2e/scan-session-join.spec.ts e2e/other.spec.ts"
@@ -14,6 +15,13 @@ name: Live end-to-end specs
 # password is a throwaway written below in the open, and no repository secret is read.
 
 on:
+  # Also on a push that changes this file or the session-join spec, so the spec runs where it
+  # changed. (A workflow that only has `workflow_dispatch` cannot be dispatched before it reaches
+  # the default branch.)
+  push:
+    paths:
+      - ".github/workflows/e2e-live.yml"
+      - "frontend/e2e/scan-session-join.spec.ts"
   workflow_dispatch:
     inputs:
       specs:
