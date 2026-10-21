@@ -1093,6 +1093,38 @@ async def file_media(media_id: str, payload: Any, user: Any, *, client: Any = No
     return await recording_payload(db, recording_id, user)
 
 
+async def not_needed(media_id: str, user: Any, *, client: Any = None) -> dict[str, Any]:
+    """``POST /questionnaire/media/{id}/not-needed``: "Not needed" on an inbox "To file" clip, kept on
+    the server so every device agrees (audit M22, H14). It hides the clip from "To file" and from
+    the backfill's catch-up; it deletes nothing (deleting stays an admin's act) and "File it" still
+    works on it. The same people as "File it": the uploader, the session's researchers, an admin.
+    Idempotent: the first mark's who and when are kept."""
+    db = _db(client)
+    media = await db.mediafile.find_unique(where={"id": media_id})
+    if media is None or getattr(media, "removedAt", None):
+        fail("NOT_FOUND", "No such file.")
+    allowed = is_admin(user) or str(getattr(media, "uploadedById", "")) == str(user.id)
+    session_id = getattr(media, "questionnaireInterviewId", None)
+    if not allowed and session_id:
+        session = await sessions.load_session_row(db, str(session_id))
+        allowed = bool(session) and await sessions.can_work_in(db, user, session)
+    if not allowed:
+        fail("FORBIDDEN", "Only the uploader, the session's researchers or an admin can set this aside.")
+    await db.execute_raw(
+        'UPDATE "MediaFile" SET "extraMetadata" = jsonb_set(COALESCE("extraMetadata", \'{}\'::jsonb), \'{questionnaireV2}\', '
+        'COALESCE("extraMetadata"->\'questionnaireV2\', \'{}\'::jsonb) || $2::jsonb) '
+        'WHERE "id" = $1 AND "extraMetadata"->\'questionnaireV2\'->\'notNeeded\' IS NULL',
+        media_id, json.dumps({"notNeeded": {"byId": str(user.id), "at": iso(now())}}),
+    )
+    rows = await db.query_raw(
+        'SELECT "extraMetadata"->\'questionnaireV2\'->\'notNeeded\' AS mark FROM "MediaFile" WHERE "id" = $1', media_id
+    )
+    mark = rows[0].get("mark") if rows else None
+    if isinstance(mark, str):
+        mark = json.loads(mark)
+    return {"mediaId": media_id, "notNeeded": True, "by": (mark or {}).get("byId"), "at": (mark or {}).get("at")}
+
+
 async def make_primary(recording_id: str, payload: Any, user: Any, *, client: Any = None) -> dict[str, Any]:
     db = _db(client)
     if not has_rank(user, "PROFESSOR"):

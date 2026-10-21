@@ -295,6 +295,12 @@ async def media_file(media_id: str, request: Request, user: Any = Depends(get_cu
     return await recordings.file_media(media_id, payload, user)
 
 
+@router.post("/media/{media_id}/not-needed", dependencies=V2)
+async def media_not_needed(media_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """"Not needed" on an inbox "To file" clip, kept on the server (audit M22, H14)."""
+    return await recordings.not_needed(media_id, user)
+
+
 @router.post("/recordings/{recording_id}/make-primary", dependencies=V2)
 async def recordings_make_primary(recording_id: str, request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
     payload = await parse(request, S.MakePrimaryRequest)

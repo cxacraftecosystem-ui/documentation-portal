@@ -1113,3 +1113,48 @@ def test_low_an_approved_report_is_computed_as_of_a_fixed_day() -> None:
         qv2_guard.as_of(argparse.Namespace(as_of=None, apply=True))
     text = questionnaire_purge.report([], [], "2026-11-18")
     assert "as of,2026-11-18" in text and text == questionnaire_purge.report([], [], "2026-11-18")
+
+
+# ── The web's inbox actions (coordinator, 21 Oct): Not needed, and File it with named subjects ─
+@needs_db
+def test_not_needed_sets_a_clip_aside_on_the_server_once_and_file_it_takes_named_subjects(monkeypatch) -> None:
+    from app.api.routes import questionnaire_v2 as routes
+    from app.schemas.questionnaire_v2 import FileMediaRequest
+    from app.services.questionnaire_v2 import inbox, recordings, sessions
+
+    async def clip(client: Any, ids: Any, name: str) -> str:
+        media_id = f"{name}{ids.tag}"
+        await client.execute_raw(
+            'INSERT INTO "MediaFile" ("id", "originalFilename", "mediaType", "mimeType", "sizeBytes", "bucket", "objectKey", '
+            '"linkedRecordType", "uploadedById", "updatedAt") VALUES ($1, \'clip.m4a\', \'AUDIO\', \'audio/mp4\', 5, \'b\', $2, '
+            "'questionnaire', $3, now())",
+            media_id, f"media/{ids.lead.id}/{uuid.uuid4().hex}/clip.m4a", ids.lead.id,
+        )
+        return media_id
+
+    async def go() -> None:
+        client = await connect()
+        patch_db(monkeypatch, client)
+        no_outside_calls(monkeypatch)
+        ids = await seed(client)
+        s, _ = await sessions.create_session(session_create(ids, ids.artisans[:1]), ids.lead)
+        aside = await clip(client, ids, "aside")
+        with pytest.raises(HTTPException) as stranger:
+            await recordings.not_needed(aside, ids.other, client=client)
+        assert stranger.value.status_code == 403
+        first = await routes.media_not_needed(aside, ids.lead)
+        again = await recordings.not_needed(aside, ids.admin, client=client)
+        assert first["notNeeded"] is True and again["by"] == ids.lead.id and again["at"] == first["at"], "idempotent: the first mark stands"
+        assert aside not in [m["mediaId"] for m in (await inbox.inbox(ids.lead, client=client))["toFile"]]
+        live = await client.query_raw('SELECT "removedAt" FROM "MediaFile" WHERE "id" = $1', aside)
+        assert live[0]["removedAt"] is None, "set aside, never deleted"
+        named = await clip(client, ids, "named")
+        rec = await recordings.file_media(named, FileMediaRequest.model_validate({
+            "sessionId": s["id"], "targets": [{"sectionId": ids.sections["D"]}],
+            "subjects": [{"artisanId": ids.artisans[1], "role": "ANSWERED"}],
+        }), ids.lead, client=client)
+        assert [x["artisanId"] for x in rec["subjects"]] == [ids.artisans[1]]
+        assert ids.artisans[1] in await sessions.participant_ids(client, s["id"]), "a named subject joins the session"
+        await client.disconnect()
+
+    run(go())

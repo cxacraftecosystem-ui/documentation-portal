@@ -631,7 +631,8 @@ CATCH_UP_SQL = (
     'm."createdAt", m."uploadedById", m."transcriptText", m."transcriptStatus", m."status"::text AS status, '
     'i."origin"::text AS origin, i."questionnaireId" FROM "MediaFile" m JOIN "QuestionnaireInterview" i ON i."id" = m."questionnaireInterviewId" '
     "WHERE m.\"mediaType\" IN ('AUDIO', 'VIDEO') AND m.\"removedAt\" IS NULL AND i.\"mergedIntoId\" IS NULL "
-    'AND NOT EXISTS (SELECT 1 FROM "QuestionnaireRecording" r WHERE r."mediaFileId" = m."id") ORDER BY m."createdAt", m."id"'
+    'AND NOT EXISTS (SELECT 1 FROM "QuestionnaireRecording" r WHERE r."mediaFileId" = m."id") '
+    "AND m.\"extraMetadata\"->'questionnaireV2'->'notNeeded' IS NULL ORDER BY m.\"createdAt\", m.\"id\""
 )
 
 

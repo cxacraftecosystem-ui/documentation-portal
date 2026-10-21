@@ -938,9 +938,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.lock
           pip install --no-deps -e .
-          # tests/test_s3_checksum.py's S3 half (DESIGN test 31; audit Low of 21 Oct 2026) runs here
-          # against moto's in-process S3 instead of skipping. A test-only tool: never in the lock.
-          pip install "moto[s3]>=5,<6"
 
       - name: Fetch the Prisma engines and generate the client
         # The fetch is explicit so a missing engine is reported here, not by the first test that

@@ -53,6 +53,7 @@ async def inbox(user: Any, *, client: Any = None) -> dict[str, Any]:
         'AND (lower(m."linkedRecordType") = ANY($2::text[]) OR m."questionnaireInterviewId" IS NOT NULL '
         "     OR m.\"extraMetadata\"->'questionnaireV2'->>'toFile' = 'true') "
         'AND NOT EXISTS (SELECT 1 FROM "QuestionnaireRecording" r WHERE r."mediaFileId" = m."id") '
+        "AND m.\"extraMetadata\"->'questionnaireV2'->'notNeeded' IS NULL "
         'ORDER BY m."createdAt" LIMIT 200',
         uid, list(LEGACY_TYPES),
     )
