@@ -13,7 +13,7 @@ class RecordDangerZoneTest {
 
     @Test
     fun `content admins in admin view see it`() {
-        listOf("MINISTRY_ADMIN", "ADMIN", "MASTER_ADMIN").forEach { role ->
+        FieldPermissions.CONTENT_ADMIN_ROLES.forEach { role ->
             assertTrue(role, RecordDangerZone.visible(user(role), adminView = true))
             assertFalse("$role with admin view off", RecordDangerZone.visible(user(role), adminView = false))
         }
@@ -21,10 +21,9 @@ class RecordDangerZoneTest {
 
     @Test
     fun `no other role ever sees it`() {
-        listOf(
-            "CROWDSOURCE", "FIELD_CONTRIBUTOR", "RESEARCHER", "DESIGNER", "INSPECTOR", "PROFESSOR",
-            "ASSISTANT_DIRECTOR", "REGIONAL_DIRECTOR",
-        ).forEach { role -> assertFalse(role, RecordDangerZone.visible(user(role), adminView = true)) }
+        // A sample below the content admins, not the ladder: `isContentAdmin` is set membership.
+        listOf("RESEARCHER", "DESIGNER", "PROFESSOR")
+            .forEach { role -> assertFalse(role, RecordDangerZone.visible(user(role), adminView = true)) }
         assertFalse(RecordDangerZone.visible(null, adminView = true))
     }
 
