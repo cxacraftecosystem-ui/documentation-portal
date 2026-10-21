@@ -136,8 +136,8 @@ async def _owner_id() -> str | None:
 
     ``Questionnaire.createdById`` is NULLABLE (see its comment in schema.prisma), so "nobody" is a
     legitimate answer on a database that has not been seeded with an admin yet, and this function
-    does not raise. Ownership here is provenance, not authority — ``require_questionnaire_manager``
-    governs who may reword an instrument, not who created it.
+    does not raise. Ownership is also authority since 22 Oct 2026: the author (or a content admin)
+    edits and deletes the form (``assert_may_edit_form``); a form with no author is a content admin's.
     """
     owner = await db.user.find_first(where={"role": "MASTER_ADMIN"}, order={"createdAt": "asc"})
     if owner is None:

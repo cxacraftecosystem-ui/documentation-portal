@@ -15456,7 +15456,7 @@ private fun QuestionnaireForm(
             // on the revised questionnaire would watch the original's sections appear underneath.
             QuestionnaireBuilder(
                 repository, sections, { onRefreshSections(questionnaireId) }, onError, questionnaireId,
-                canEdit = com.fieldrepository.app.ui.canEditQuestionnaire(repository.cachedUser(), instruments.firstOrNull { it.id == questionnaireId })
+                canEdit = com.fieldrepository.app.ui.mayEditQuestionnaire(repository.cachedUser(), instruments.firstOrNull { it.id == questionnaireId }?.createdById)
             )
         }
     }
@@ -16696,7 +16696,7 @@ private fun QuestionnaireV2Builder(repository: FieldRepository, user: UserDto?, 
             repository, sections,
             { runCatching { repository.questionnaireSections(chosen) }.onSuccess { sections = it } },
             onError, chosen,
-            canEdit = com.fieldrepository.app.ui.canEditQuestionnaire(user, instruments.firstOrNull { it.id == chosen })
+            canEdit = com.fieldrepository.app.ui.mayEditQuestionnaire(user, instruments.firstOrNull { it.id == chosen }?.createdById)
         )
     }
 }
@@ -16711,9 +16711,11 @@ private fun QuestionnaireBuilder(
     questionnaireId: String? = null,
     /**
      * Whether this viewer may edit and delete the form and everything in it: its author or a content
-     * admin (owner, 22 Oct 2026; [canEditQuestionnaire]). Anyone else reads it.
+     * admin (owner, 22 Oct 2026, applied strictly; [com.fieldrepository.app.ui.mayEditQuestionnaire]).
+     * Every other questionnaire manager reads it. No default: a caller that forgot to ask must not
+     * hand out an editor the server will refuse.
      */
-    canEdit: Boolean = true
+    canEdit: Boolean
 ) {
     val scope = rememberCoroutineScope()
     var newCode by remember { mutableStateOf("") }
@@ -16725,7 +16727,11 @@ private fun QuestionnaireBuilder(
     var updatingSections by remember { mutableStateOf(setOf<String>()) }
 
     RecordCard(title = "Questionnaire builder") {
-        Text("Tap a section to edit it.", color = Muted, style = MaterialTheme.typography.bodySmall)
+        Text(
+            if (canEdit) "Tap a section to edit it." else com.fieldrepository.app.ui.QUESTIONNAIRE_READ_ONLY_NOTE,
+            color = Muted,
+            style = MaterialTheme.typography.bodySmall
+        )
         // A SECTION CODE IS NOT PROSE. It is one to three letters that a regex in
         // `backend/app/services/media_naming.py` matches (`_CAPTION_SECTION` at :148 and
         // `_FILE_SECTION` at :156, both `[A-Za-z]{1,3}`) and that every media filename is built
@@ -16771,7 +16777,8 @@ private fun QuestionnaireBuilder(
                         }
                         Text(if (expanded) "Hide ▲" else "Show ▼", color = Body, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     }
-                    val updating = section.id in updatingSections
+                    // `&& canEdit`: a viewer who may not edit the form never reaches its editors, even from stale state.
+                    val updating = section.id in updatingSections && canEdit
                     if (expanded && !updating) {
                         if (section.questions.isEmpty()) {
                             Text("No questions in this section yet.", color = Muted, style = MaterialTheme.typography.bodySmall)
@@ -16794,7 +16801,8 @@ private fun QuestionnaireBuilder(
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                         ) { Text("Done") }
                     }
-                    // Heavy editors + per-question rows compose only for the section being updated.
+                    // Heavy editors + per-question rows compose only for the section being updated,
+                    // and only for the form's author or a content admin (the server 403s anyone else).
                     if (expanded && updating) {
                         var code by remember(section.id, section.code) { mutableStateOf(section.code) }
                         var sectionTitle by remember(section.id, section.title) { mutableStateOf(section.title) }

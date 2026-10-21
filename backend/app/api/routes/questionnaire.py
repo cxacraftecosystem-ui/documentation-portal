@@ -355,6 +355,8 @@ async def require_section(section_id: str) -> Any:
 
 #: The 403 for a delete from a form by somebody who is neither its author nor a content admin.
 FORM_DELETE_REFUSAL = "Only the questionnaire's author or an admin can delete from it."
+#: The 403 for an edit of a form by somebody who is neither its author nor a content admin.
+FORM_EDIT_REFUSAL = "Only the questionnaire's author or an admin can edit it."
 
 
 def is_form_author(form: Any, user: Any) -> bool:
@@ -379,11 +381,34 @@ async def assert_may_delete_from_form(questionnaire_id: str | None, user: Any) -
 
     A content admin is answered from memory, so their delete pays no extra query.
     """
-    if is_content_admin(user):
-        return
-    form = await db.questionnaire.find_unique(where={"id": questionnaire_id}) if questionnaire_id else None
-    if form is None or not is_form_author(form, user):
+    if not await may_change_form(questionnaire_id, user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=FORM_DELETE_REFUSAL)
+
+
+async def may_change_form(questionnaire_id: str | None, user: Any) -> bool:
+    """The one rule behind editing and deleting a form: its author or a content admin."""
+    if is_content_admin(user):
+        return True
+    form = await db.questionnaire.find_unique(where={"id": questionnaire_id}) if questionnaire_id else None
+    return form is not None and is_form_author(form, user)
+
+
+async def assert_may_edit_form(questionnaire_id: str | None, user: Any) -> None:
+    """THE FORM'S EDIT RULE (owner, 22 Oct 2026, applied strictly): editing a questionnaire (its
+    title and description, adding, editing and reordering its sections and questions, re-uploading
+    its workbook) is its author's (``Questionnaire.createdById``) or a content admin's (Admin, Master
+    Admin, Ministry Admin). Every other questionnaire manager is refused 403. A form with no recorded
+    author is a content admin's alone. Creating a NEW form is unchanged (a questionnaire manager, or
+    an admin from a workbook), and whoever creates it becomes its author."""
+    if not await may_change_form(questionnaire_id, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=FORM_EDIT_REFUSAL)
+
+
+async def require_form_editor(questionnaire_id: str, current_user: Any = Depends(get_current_user)) -> Any:
+    """``Depends`` form of :func:`assert_may_edit_form` for routes with the form's id in the path, so
+    the refusal comes before the body (a workbook) is read."""
+    await assert_may_edit_form(questionnaire_id, current_user)
+    return current_user
 
 
 def section_question_data(section: Any) -> dict[str, str]:
@@ -654,17 +679,13 @@ async def list_sections(
 @questionnaire_router.post("/sections", status_code=status.HTTP_201_CREATED)
 async def create_section(
     payload: QuestionnaireSectionCreate,
-    _: Any = Depends(require_questionnaire_manager),
+    user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Add a section to ONE instrument.
-
-    STILL `require_questionnaire_manager`, deliberately. Choosing the default instrument and binding
-    one to a workshop were narrowed to `require_admin` in this change; building a form was NOT, and
-    a Professor who can build the form must not lose the ability to build it.
-    """
+    """Add a section to ONE instrument: its author or a content admin (owner, 22 Oct 2026)."""
     # `payload.questionnaireId` is optional (see the schema): an un-updated builder sends nothing
     # and lands on the default, exactly as it did before this change existed.
     questionnaire_id = await resolve_questionnaire_id(payload.questionnaireId)
+    await assert_may_edit_form(questionnaire_id, user)
     sort_order = payload.sortOrder or await next_section_sort_order(questionnaire_id)
     try:
         created = await db.questionnairesection.create(
@@ -695,13 +716,15 @@ async def create_section(
 async def update_section(
     section_id: str,
     payload: QuestionnaireSectionUpdate,
-    user: Any = Depends(require_questionnaire_manager),
+    user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     section = await require_section(section_id)
     data = clean_data(payload.model_dump(exclude_unset=True))
     if data.get("isActive") is False and section.isActive:
         # Switching a section off is taking it out of the form: the delete rule, not the edit rule.
         await assert_may_delete_from_form(section.questionnaireId, user)
+    else:
+        await assert_may_edit_form(section.questionnaireId, user)
     if "code" in data:
         data["code"] = data["code"].strip()
     if "title" in data:
@@ -769,7 +792,7 @@ async def delete_section(
 @questionnaire_router.post("/sections/reorder")
 async def reorder_sections(
     payload: QuestionnaireSectionReorder,
-    _: Any = Depends(require_questionnaire_manager),
+    user: Any = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
     """Renumber one instrument's sections 1..n, in the order given.
 
@@ -793,6 +816,7 @@ async def reorder_sections(
             ),
         )
     questionnaire_id = next(iter(instrument_ids))
+    await assert_may_edit_form(questionnaire_id, user)
     # The negative-then-positive two-pass, unchanged: @@unique([questionnaireId, sortOrder]) would
     # otherwise collide mid-loop with a row that has not been renumbered yet.
     for index, section_id in enumerate(payload.sectionIds):
@@ -805,9 +829,10 @@ async def reorder_sections(
 @questionnaire_router.post("/questions", status_code=status.HTTP_201_CREATED)
 async def create_question(
     payload: QuestionnaireQuestionCreate,
-    _: Any = Depends(require_questionnaire_manager),
+    user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     section = await require_section(payload.sectionId)
+    await assert_may_edit_form(section.questionnaireId, user)
     sort_order = payload.sortOrder or await next_question_sort_order(section.id)
     created = await db.questionnairequestion.create(
         data={
@@ -839,13 +864,15 @@ async def create_question(
 async def update_question(
     question_id: str,
     payload: QuestionnaireQuestionUpdate,
-    _: Any = Depends(require_questionnaire_manager),
+    _: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     question = await require_record(db.questionnairequestion, question_id)
     data = clean_data(payload.model_dump(exclude_unset=True))
     if data.get("isActive") is False and question.isActive:
         # Switching a question off is removing it: the delete rule, not the edit rule (22 Oct 2026).
         await assert_may_delete_from_form(question.questionnaireId, _)
+    else:
+        await assert_may_edit_form(question.questionnaireId, _)
     if "prompt" in data:
         data["prompt"] = data["prompt"].strip()
     # CLEARING HELP TEXT, PUT BACK BY HAND AFTER `clean_data` DROPPED IT.
@@ -984,7 +1011,7 @@ async def delete_question(
 @questionnaire_router.post("/questions/reorder")
 async def reorder_questions(
     payload: QuestionnaireQuestionReorder,
-    _: Any = Depends(require_questionnaire_manager),
+    user: Any = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
     """Renumber questions 1..n inside one section — AND re-parent them onto it.
 
@@ -1001,6 +1028,7 @@ async def reorder_questions(
     because the check has to see all of them before anything moves.
     """
     section = await require_section(payload.sectionId)
+    await assert_may_edit_form(section.questionnaireId, user)
     questions = await db.questionnairequestion.find_many(where={"id": {"in": payload.questionIds}})
     by_id = {question.id: question for question in questions}
     if len(by_id) != len(set(payload.questionIds)):
@@ -2465,16 +2493,16 @@ async def list_questionnaires(
 # THE WORKBOOK: DOWNLOADING THE INSTRUMENT AS A SPREADSHEET, AND UPLOADING ONE BACK
 # ==================================================================================================
 #
-# WHY THIS DOOR IS ADMIN-ONLY WHEN THE QUESTION EDITOR IN THE SAME FILE IS PROFESSOR-AND-ABOVE
+# WHO MAY PRESS IT (owner, 22 Oct 2026)
 # --------------------------------------------------------------------------------------------
 #
-# `require_questionnaire_manager` (app/core/deps.py:454) opens the question editor to professors and
-# to anybody holding `canManageQuestionnaire`, and every structure route on `/questionnaire` above
-# stands on it. That is right for what it guards: adding one question, renaming one section,
-# switching one question off. Each of those is a single, visible, reversible act against a row the
-# person is looking at.
+# A NEW form from a workbook (the pro-forma, the question set, `POST /questionnaires/upload`) is
+# `require_admin`. An EXISTING form's own workbook (`GET /{id}/xlsx`, `POST /{id}/upload`) is
+# `require_form_editor`: its author or a content admin, Ministry Admin included — the same people who
+# edit it one question at a time (`assert_may_edit_form`). The history below is why a NEW form from a
+# file is not opened to every questionnaire manager.
 #
-# AN UPLOAD IS NOT THAT ACT. One spreadsheet re-states the WHOLE instrument, and everything the
+# AN UPLOAD IS NOT A ONE-QUESTION ACT. One spreadsheet re-states the WHOLE instrument, and everything the
 # workbook does not mention is removed by rule — so a professor who downloads the questionnaire,
 # deletes the rows they are not interested in, and uploads the file has retired every question they
 # deleted, across twenty-two sections, against interviews already recorded by forty researchers. The
@@ -2482,16 +2510,8 @@ async def list_questionnaires(
 # blast radius of one press is the difference, and `require_admin` (deps.py:396) is where this
 # repository puts acts with that radius — the same place `set_default_questionnaire` already sits.
 #
-# THE SPLIT MUST NOT BE HARMONISED IN EITHER DIRECTION. Widening these routes to
-# `require_questionnaire_manager` hands the whole-instrument press to every grant-holder. Narrowing
-# the editor above to `require_admin` takes the section editor away from the professors who use it
-# today, which nobody asked for and which no migration would announce.
-#
-# AND THE TWO GATES ARE DIFFERENT KINDS OF PREDICATE. `is_admin` (deps.py:59-60) is SET MEMBERSHIP
-# over {"MASTER_ADMIN", "ADMIN"}; `can_manage_questionnaire` (deps.py:67-69) is a RANK FLOOR at
-# PROFESSOR. A rank inserted between 40 and 50 therefore gains the editor automatically and is
-# refused the workbook automatically. That is deliberate, it is written down in docs/PERMISSIONS.md
-# §1.1, and tests/test_permission_matrix.py asserts it in both directions.
+# Widening the NEW-form routes to `require_questionnaire_manager` would hand the whole-instrument
+# press to every grant-holder; tests/test_permission_matrix.py asserts both halves.
 #
 # NO ANSWER CROSSES THIS BOUNDARY, IN EITHER DIRECTION
 # --------------------------------------------------------------------------------------------
@@ -3643,9 +3663,10 @@ async def download_pro_forma(_: Any = Depends(require_admin)) -> Response:
 
 @instruments_router.get("/{questionnaire_id}/xlsx")
 async def download_questionnaire_workbook(
-    questionnaire_id: str, _: Any = Depends(require_admin)
+    questionnaire_id: str, _: Any = Depends(require_form_editor)
 ) -> Response:
-    """This questionnaire as the same workbook, with its Question IDs filled in.
+    """This questionnaire as the same workbook, with its Question IDs filled in. Whoever may
+    re-upload it may download it: its author or a content admin (owner, 22 Oct 2026).
 
     THE IDS ARE THE POINT. They are what make re-uploading this file an EDIT of these questions
     rather than a second copy of them, which is why the Question ID column is greyed on the sheet and
@@ -3734,9 +3755,10 @@ async def reupload_questionnaire(
     request: Request,
     file: UploadFile = File(...),
     title: str | None = Form(default=None),
-    _: Any = Depends(require_admin),
+    _: Any = Depends(require_form_editor),
 ) -> dict[str, Any]:
-    """Re-upload an edited workbook over an existing questionnaire.
+    """Re-upload an edited workbook over an existing questionnaire: its author or a content admin,
+    Ministry Admin included (owner, 22 Oct 2026). Creating a new one from a workbook stays an admin's.
 
     Runs the edit-after-answers rule. ``report.details`` names every question that was superseded or
     retired and says why in a sentence meant to be shown verbatim — an admin whose six reworded
@@ -3796,8 +3818,8 @@ async def create_questionnaire(
     payload: QuestionnaireCreate,
     current_user: Any = Depends(require_questionnaire_manager),
 ) -> dict[str, Any]:
-    """Create an empty instrument. `require_questionnaire_manager`, the SAME tier as creating a
-    section: an empty container is the same class of act as the first thing you put in it."""
+    """Create an empty instrument: `require_questionnaire_manager`. Whoever creates it is its author
+    (``createdById``), and from then on edits it alongside the content admins (owner, 22 Oct 2026)."""
     sort_order = payload.sortOrder
     if sort_order is None:
         rows = await db.questionnaire.find_many(order={"sortOrder": "desc"}, take=1)
@@ -3826,9 +3848,10 @@ async def create_questionnaire(
 async def update_questionnaire(
     questionnaire_id: str,
     payload: QuestionnaireUpdate,
-    user: Any = Depends(require_questionnaire_manager),
+    user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Rename, re-describe, reorder or RETIRE an instrument.
+    """Rename, re-describe, reorder or RETIRE an instrument: its author or a content admin (owner,
+    22 Oct 2026); every other questionnaire manager is refused 403.
 
     Retiring is the two-check route. An instrument that is the DEFAULT cannot be retired, because
     the default is where every client that names no instrument lands and retiring it would drop
@@ -3838,6 +3861,8 @@ async def update_questionnaire(
     """
     row = await require_questionnaire(questionnaire_id)
     data = clean_data(payload.model_dump(exclude_unset=True))
+    if data.get("isActive") is not False and not (is_content_admin(user) or is_form_author(row, user)):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=FORM_EDIT_REFUSAL)
     if "title" in data:
         data["title"] = data["title"].strip()
     if data.get("isActive") is False:
@@ -3901,9 +3926,8 @@ async def set_default_questionnaire(
 ) -> dict[str, Any]:
     """Admin/master-admin only: which instrument an unqualified request belongs to.
 
-    NARROWER THAN THE BUILDER ON PURPOSE, AND THE BUILDER MUST NOT FOLLOW IT DOWN. Every structure
-    route on /questionnaire stays at `require_questionnaire_manager` — Professor and above, or the
-    `canManageQuestionnaire` grant. This one is `require_admin` because it is not an edit to a form,
+    NOT AN EDIT TO A FORM, SO NOT THE FORM'S AUTHOR'S. Editing a form is its author's or a content
+    admin's (`assert_may_edit_form`, owner 22 Oct 2026). This one is `require_admin` because it is not an edit to a form,
     it is a decision about where EVERY client that names no instrument lands, including Android
     builds that predate the field and will keep sending nothing for months, and including offline
     payloads queued before those builds that replay at whatever time the handset next finds a

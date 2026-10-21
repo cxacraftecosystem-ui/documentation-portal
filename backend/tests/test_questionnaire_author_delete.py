@@ -1,10 +1,11 @@
-"""A questionnaire's author deletes from it, as a content admin does (owner, 22 Oct 2026).
+"""A questionnaire's author edits and deletes from it, as a content admin does (owner, 22 Oct 2026).
 
-"The author should be able to edit/delete the questionnaire apart from the admins." Against a real,
-migrated Postgres (``QV2_TEST_DATABASE_URL``, the Backend database tests job): the form's author
-(``Questionnaire.createdById``) and a content admin delete and switch off sections and questions and
-retire, delete and restore the form; another questionnaire manager is refused 403 on every one of
-those paths; and deleting a session stays a content admin's, the form's author included.
+"The author should be able to edit/delete the questionnaire apart from the admins", applied strictly.
+Against a real, migrated Postgres (``QV2_TEST_DATABASE_URL``, the Backend database tests job): the
+form's author (``Questionnaire.createdById``) and a content admin rename the form, add, edit and
+reorder its sections and questions, delete and switch off sections and questions, and retire, delete
+and restore the form; another questionnaire manager is refused 403 on every one of those paths; and
+deleting a session stays a content admin's, the form's author included.
 """
 
 from __future__ import annotations
@@ -60,8 +61,8 @@ def test_the_author_or_an_admin_deletes_questions_and_sections_and_nobody_else(m
             await _refused(lambda: questionnaire.update_question(ids.questions["D2"], QuestionnaireQuestionUpdate(isActive=False), other))
             assert await _active(client, "QuestionnaireQuestion", ids.questions["D1"])
             assert await _active(client, "QuestionnaireSection", ids.sections["B"])
-            # The other manager may still EDIT the form: the amendment widens deletes, it narrows no edit.
-            await questionnaire.update_section(ids.sections["F"], QuestionnaireSectionUpdate(title="Renamed by a manager"), other)
+            # Nor may the other manager EDIT it: editing is the author's or a content admin's too.
+            await _refused(lambda: questionnaire.update_section(ids.sections["F"], QuestionnaireSectionUpdate(title="Renamed by a manager"), other))
 
             # The author: a question deleted, one switched off through its PATCH, a section taken out.
             await questionnaire.delete_question(ids.questions["D1"], ids.prof)
@@ -109,6 +110,95 @@ def test_the_author_or_an_admin_deletes_and_restores_the_form_and_nobody_else(mo
             assert not await _active(client, "Questionnaire", ids.q)
             await questionnaire.update_questionnaire(ids.q, QuestionnaireUpdate(isActive=True), ids.admin)
             assert await _active(client, "Questionnaire", ids.q)
+        finally:
+            await client.disconnect()
+
+    run(go())
+
+
+@needs_db
+def test_the_author_or_an_admin_edits_the_form_and_another_manager_is_refused(monkeypatch) -> None:
+    from app.api.routes import questionnaire
+    from app.schemas.questionnaire import (
+        QuestionnaireQuestionCreate,
+        QuestionnaireQuestionReorder,
+        QuestionnaireQuestionUpdate,
+        QuestionnaireSectionCreate,
+        QuestionnaireSectionReorder,
+        QuestionnaireSectionUpdate,
+        QuestionnaireUpdate,
+    )
+
+    async def go() -> None:
+        client, ids, other = await _setup(monkeypatch)
+
+        async def title(table: str, row_id: str, column: str) -> str:
+            rows = await client.query_raw(f'SELECT "{column}" AS v FROM "{table}" WHERE "id" = $1', row_id)
+            return str(rows[0]["v"])
+
+        try:
+            section_order = [r["id"] for r in await client.query_raw(
+                'SELECT "id" FROM "QuestionnaireSection" WHERE "questionnaireId" = $1 ORDER BY "sortOrder"', ids.q
+            )]
+            d_questions = [r["id"] for r in await client.query_raw(
+                'SELECT "id" FROM "QuestionnaireQuestion" WHERE "sectionId" = $1 AND "isActive" ORDER BY "sortOrder"',
+                ids.sections["D"],
+            )]
+
+            # Another questionnaire manager: refused on every edit path, and nothing changes.
+            await _refused(lambda: questionnaire.update_questionnaire(ids.q, QuestionnaireUpdate(title="Taken over"), other))
+            await _refused(lambda: questionnaire.create_section(
+                QuestionnaireSectionCreate(questionnaireId=ids.q, code="Z", title="Not theirs"), other))
+            await _refused(lambda: questionnaire.update_section(ids.sections["B"], QuestionnaireSectionUpdate(title="Not theirs"), other))
+            await _refused(lambda: questionnaire.reorder_sections(QuestionnaireSectionReorder(sectionIds=list(reversed(section_order))), other))
+            await _refused(lambda: questionnaire.create_question(
+                QuestionnaireQuestionCreate(sectionId=ids.sections["D"], prompt="Not theirs?"), other))
+            await _refused(lambda: questionnaire.update_question(ids.questions["D3"], QuestionnaireQuestionUpdate(helpText="Not theirs"), other))
+            await _refused(lambda: questionnaire.reorder_questions(
+                QuestionnaireQuestionReorder(sectionId=ids.sections["D"], questionIds=list(reversed(d_questions))), other))
+            assert await title("Questionnaire", ids.q, "title") != "Taken over"
+            assert await client.query_raw(
+                'SELECT 1 FROM "QuestionnaireSection" WHERE "questionnaireId" = $1 AND "code" = $2', ids.q, "Z"
+            ) == []
+
+            # The author: renames the form, adds a section and a question, edits and reorders them.
+            await questionnaire.update_questionnaire(ids.q, QuestionnaireUpdate(title=f"Renamed by its author {ids.tag}"), ids.prof)
+            assert await title("Questionnaire", ids.q, "title") == f"Renamed by its author {ids.tag}"
+            made = await questionnaire.create_section(QuestionnaireSectionCreate(questionnaireId=ids.q, code="Z", title="Added"), ids.prof)
+            await questionnaire.update_section(made["id"], QuestionnaireSectionUpdate(title="Added and renamed"), ids.prof)
+            assert await title("QuestionnaireSection", made["id"], "title") == "Added and renamed"
+            asked = await questionnaire.create_question(QuestionnaireQuestionCreate(sectionId=made["id"], prompt="Who taught you?"), ids.prof)
+            await questionnaire.update_question(asked["id"], QuestionnaireQuestionUpdate(helpText="Name and village."), ids.prof)
+            assert await title("QuestionnaireQuestion", asked["id"], "helpText") == "Name and village."
+            await questionnaire.reorder_questions(
+                QuestionnaireQuestionReorder(sectionId=ids.sections["D"], questionIds=list(reversed(d_questions))), ids.prof)
+            await questionnaire.reorder_sections(QuestionnaireSectionReorder(sectionIds=list(reversed(section_order))), ids.prof)
+
+            # A content admin, on somebody else's form.
+            await questionnaire.update_section(made["id"], QuestionnaireSectionUpdate(title="Renamed by an admin"), ids.admin)
+            assert await title("QuestionnaireSection", made["id"], "title") == "Renamed by an admin"
+            await questionnaire.update_question(asked["id"], QuestionnaireQuestionUpdate(helpText="Edited by an admin."), ids.admin)
+            await questionnaire.reorder_sections(QuestionnaireSectionReorder(sectionIds=section_order + [made["id"]]), ids.admin)
+        finally:
+            await client.disconnect()
+
+    run(go())
+
+
+@needs_db
+def test_a_form_with_no_recorded_author_is_edited_by_a_content_admin_alone(monkeypatch) -> None:
+    from app.api.routes import questionnaire
+    from app.schemas.questionnaire import QuestionnaireSectionUpdate, QuestionnaireUpdate
+
+    async def go() -> None:
+        client, ids, _other = await _setup(monkeypatch)
+        try:
+            await client.execute_raw('UPDATE "Questionnaire" SET "createdById" = NULL WHERE "id" = $1', ids.q)
+            await _refused(lambda: questionnaire.update_section(ids.sections["B"], QuestionnaireSectionUpdate(title="By the professor"), ids.prof))
+            await _refused(lambda: questionnaire.update_questionnaire(ids.q, QuestionnaireUpdate(title="By the professor"), ids.prof))
+            await questionnaire.update_section(ids.sections["B"], QuestionnaireSectionUpdate(title="By an admin"), ids.admin)
+            rows = await client.query_raw('SELECT "title" FROM "QuestionnaireSection" WHERE "id" = $1', ids.sections["B"])
+            assert rows[0]["title"] == "By an admin"
         finally:
             await client.disconnect()
 

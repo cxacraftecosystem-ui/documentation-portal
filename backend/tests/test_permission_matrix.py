@@ -468,23 +468,19 @@ def test_a_volunteer_still_comments_on_an_existing_record(
     assert outcome.reached, outcome
 
 
-# --- The questionnaire CONTAINER: two tiers, and the line between them ----------------------------
+# --- The questionnaire CONTAINER: three tiers, and the lines between them ---------------------------
 #
-# Building a FORM stays where it has always been (`require_questionnaire_manager` — Professor and
-# above, or the `canManageQuestionnaire` grant). Two acts were narrowed to `require_admin` in the
-# questionnaire-container change, and neither is an edit to a form:
+# CREATING a new, empty form stays `require_questionnaire_manager` (Professor and above, or the
+# `canManageQuestionnaire` grant), and whoever creates it becomes its author. EDITING an existing form
+# is its author's or a content admin's (owner, 22 Oct 2026): see `AUTHOR_OR_ADMIN_EDITS` below. Two
+# acts are `require_admin`, and neither is an edit to a form:
 #
 #   * which instrument is the DEFAULT — where every client that names no instrument lands, including
 #     Android builds that predate the field and offline payloads queued before them;
 #   * which instrument a WORKSHOP uses — which questions every researcher at that event is shown.
-#
-# The row that matters most is the LAST one: it asserts the narrowing did not leak onto the builder.
 
 QUESTIONNAIRE_MANAGER_ROUTES = [
     ("POST", "/questionnaires", {"title": "A third instrument"}),
-    ("PATCH", "/questionnaires/q1", {"title": "Renamed"}),
-    # The builder. Deliberately in the SAME list, because its tier did not change.
-    ("POST", "/questionnaire/sections", {"code": "Z", "title": "A new section"}),
 ]
 
 ADMIN_ONLY_ROUTES = [
@@ -535,18 +531,21 @@ def test_an_admin_chooses_the_default_and_binds_a_workshop(
     assert api.as_(_user(role)).call(method, path, body).reached
 
 
-def test_the_narrowing_did_not_leak_onto_the_section_builder(api: _Api) -> None:
+def test_the_admin_narrowing_did_not_leak_onto_the_authors_section_builder(api: _Api) -> None:
     """Stated twice, on purpose. `critic-1-coverage.json` gap #9 names this exact accident: a
     narrowing applied to a neighbouring route by copy-paste, taking the form away from the people
-    whose job is to build it. POST /questionnaire/sections is still Professor's."""
-    outcome = api.as_(_user("PROFESSOR")).call(
-        "POST", "/questionnaire/sections", {"code": "Z", "title": "A new section"}
+    whose job is to build it. A Professor who wrote the form still adds a section to it."""
+    outcome = _authored_by_u1(api).as_(_user("PROFESSOR", "u1")).call(
+        "POST", "/questionnaire/sections", {"questionnaireId": "f1", "code": "Z", "title": "A new section"}
     )
 
     assert outcome.reached, outcome
 
 
-# --- The questionnaire WORKBOOK: admin only, and the builder beside it is NOT ---------------------
+# --- The questionnaire WORKBOOK: a NEW form from a workbook is admin only -------------------------
+#
+# (Re-uploading over an EXISTING form, and downloading that form's own workbook to edit it, are the
+# form's author's or a content admin's since 22 Oct 2026: `AUTHOR_OR_ADMIN_EDITS` below.)
 #
 # Two tiers on one subject, which is new in this codebase and is the thing most likely to be
 # "harmonised" by a later change. Both directions are asserted: widening the workbook routes hands
@@ -562,10 +561,8 @@ def test_the_narrowing_did_not_leak_onto_the_section_builder(api: _Api) -> None:
 
 WORKBOOK_ROUTES = [
     ("GET", "/questionnaires/pro-forma"),
-    ("GET", "/questionnaires/q1/xlsx"),
     ("GET", "/questionnaires/q1/question-set.xlsx"),
     ("POST", "/questionnaires/upload"),
-    ("POST", "/questionnaires/q1/upload"),
 ]
 
 # The four ladder roles below ADMIN, plus the three the role workstream inserts between PROFESSOR and
@@ -634,57 +631,21 @@ def test_the_pro_forma_path_is_not_swallowed_by_an_id_route(api: _Api) -> None:
     assert api.tripwire.touched is False
 
 
-# ONE BODY PER ROUTE, NOT ONE BODY FOR ALL FOUR. Every questionnaire schema inherits APIModel, which
-# is extra="forbid" (app/schemas/common.py:13). A single {"code","title","sectionId","prompt"} body
-# is rejected by all four with a 422 from body validation — `reached` is then False and the failure
-# reads exactly like a permission regression, which is the one thing this file must never lie about.
-EDITOR_ROUTES = [
-    ("POST", "/questionnaire/sections", {"code": "A", "title": "T"}),
-    ("PATCH", "/questionnaire/sections/s1", {"title": "T"}),
-    ("POST", "/questionnaire/questions", {"sectionId": "s1", "prompt": "P"}),
-    ("PATCH", "/questionnaire/questions/q1", {"prompt": "P"}),
-]
-
-
-@pytest.mark.parametrize("method,path,body", EDITOR_ROUTES)
-def test_the_section_and_question_editor_is_still_professor_tier(
-    api: _Api, method: str, path: str, body: dict
-) -> None:
-    """THE OTHER HALF OF THE SPLIT. A change that made the whole questionnaire admin-only would pass
-    every test above and would silently remove the editor from every professor in the repository."""
-    outcome = api.as_(_user("PROFESSOR")).call(method, path, body)
-
-    assert outcome.reached, outcome
-
-
-@pytest.mark.parametrize("method,path,body", EDITOR_ROUTES)
-def test_the_questionnaire_grant_still_opens_the_editor(
-    api: _Api, method: str, path: str, body: dict
-) -> None:
-    outcome = api.as_(_user("RESEARCHER", canManageQuestionnaire=True)).call(method, path, body)
-
-    assert outcome.reached, outcome
-
-
-def test_a_ministry_admin_is_refused_the_workbook_but_still_reaches_the_section_editor(
+def test_a_ministry_admin_is_refused_a_new_workbook_but_edits_and_reuploads_any_form(
     api: _Api,
 ) -> None:
     """THE ASYMMETRY, WRITTEN DOWN AS A TEST because it is the one a reader will meet as a bug.
 
-    `is_admin` is set membership over {"MASTER_ADMIN", "ADMIN"} (deps.py:59-60) and
-    `can_manage_questionnaire` is a rank floor at PROFESSOR (deps.py:67-70). MINISTRY_ADMIN ranks 48
-    in the role workstream's ladder — above the floor, outside the set — so it edits questions and
-    cannot upload a workbook. If that is ever wrong, it is wrong deliberately: widen the set literal
-    and change this test in the same commit.
-
-    Written so it passes BEFORE the ladder lands too: an unknown role ranks 0 (deps.py:52), so the
-    editor half is skipped rather than asserted false, and the refusal half holds either way."""
+    `is_admin` is set membership over {"MASTER_ADMIN", "ADMIN"}, so a Ministry Admin cannot create a
+    NEW form from a workbook. A Ministry Admin is a content admin (``CONTENT_ADMIN_ROLES``), so since
+    22 Oct 2026 they edit every form and re-upload its workbook, whoever wrote it."""
     assert api.as_(_user("MINISTRY_ADMIN")).call("POST", "/questionnaires/upload").refused
 
-    if deps.ROLE_RANK.get("MINISTRY_ADMIN", 0) >= deps.ROLE_RANK["PROFESSOR"]:
-        api.tripwire.reset()
-        method, path, body = EDITOR_ROUTES[0]
-        assert api.as_(_user("MINISTRY_ADMIN")).call(method, path, body).reached
+    api.tripwire.reset()
+    ministry = _authored_by_u1(api).as_(_user("MINISTRY_ADMIN", "u2"))
+    assert ministry.call("POST", "/questionnaire/sections", {"questionnaireId": "f1", "code": "Z", "title": "T"}).reached
+    # A multipart route with no file: the gate passed, so FastAPI's body validation answers 422.
+    assert ministry.call("POST", "/questionnaires/f1/upload").status_code == 422
 
 
 # --- "Below them", decided once ------------------------------------------------------------------
@@ -841,12 +802,13 @@ AUTHOR_OR_ADMIN_DELETES = [
 
 
 class _Row:
-    """One delegate whose ``find_unique`` answers ``row``; reading anything else off it is the
-    handler at work."""
+    """One delegate whose ``find_unique`` (and ``find_many``) answer ``row``; reading anything else
+    off it is the handler at work."""
 
     def __init__(self, name: str, row: Any) -> None:
         object.__setattr__(self, "_name", name)
         object.__setattr__(self, "find_unique", _returning(row))
+        object.__setattr__(self, "find_many", _returning([row]))
 
     def __getattr__(self, attr: str) -> Any:
         raise _DatabaseTouched(f"{object.__getattribute__(self, '_name')}.{attr}")
@@ -855,9 +817,15 @@ class _Row:
 def _authored_by_u1(api: _Api) -> _Api:
     return (
         api.preload("questionnaire", _Row("questionnaire", SimpleNamespace(id="f1", createdById="u1", isDefault=False, isActive=True)))
-        .preload("questionnairesection", _Row("questionnairesection", SimpleNamespace(id="x1", questionnaireId="f1", isActive=True)))
-        .preload("questionnairequestion", _Row("questionnairequestion", SimpleNamespace(id="x1", questionnaireId="f1", isActive=True)))
+        .preload("questionnairesection", _Row("questionnairesection", _SECTION))
+        .preload("questionnairequestion", _Row("questionnairequestion", _QUESTION))
     )
+
+
+_SECTION = SimpleNamespace(id="x1", questionnaireId="f1", isActive=True, code="A", title="About the craft")
+_QUESTION = SimpleNamespace(
+    id="x1", questionnaireId="f1", isActive=True, sectionId="x1", sectionCode="A", prompt="How long?", sortOrder=1
+)
 
 
 @pytest.mark.parametrize("method,path", AUTHOR_OR_ADMIN_DELETES)
@@ -881,6 +849,76 @@ def test_nobody_else_deletes_from_a_form(api: _Api, method: str, path: str, role
     outcome = _authored_by_u1(api).as_(_user(role, "u2", canManageQuestionnaire=True)).call(method, path)
 
     assert outcome.refused, outcome
+
+
+# --- A questionnaire form: its author OR a content admin EDITS it (owner, 22 Oct 2026) --------------
+#
+# "The author should be able to edit/delete the questionnaire apart from the admins", applied
+# strictly: renaming the form, adding, editing and reordering its sections and questions, and
+# downloading and re-uploading its workbook are the author's or a content admin's. Every other role,
+# a Professor or a holder of the ``canManageQuestionnaire`` grant included, is refused 403. ONE BODY
+# PER ROUTE: every questionnaire schema is extra="forbid", and a 422 from the body must never read as
+# a permission answer.
+
+AUTHOR_OR_ADMIN_EDITS = [
+    ("PATCH", "/questionnaires/f1", {"title": "Renamed"}),
+    ("POST", "/questionnaire/sections", {"questionnaireId": "f1", "code": "Z", "title": "A new section"}),
+    ("PATCH", "/questionnaire/sections/x1", {"title": "Renamed"}),
+    ("POST", "/questionnaire/sections/reorder", {"sectionIds": ["x1"]}),
+    ("POST", "/questionnaire/questions", {"sectionId": "x1", "prompt": "A new question"}),
+    ("PATCH", "/questionnaire/questions/x1", {"prompt": "Reworded"}),
+    ("POST", "/questionnaire/questions/reorder", {"sectionId": "x1", "questionIds": ["x1"]}),
+    ("GET", "/questionnaires/f1/xlsx", None),
+]
+
+
+@pytest.mark.parametrize("method,path,body", AUTHOR_OR_ADMIN_EDITS)
+def test_the_forms_author_edits_it(api: _Api, method: str, path: str, body: Any) -> None:
+    outcome = _authored_by_u1(api).as_(_user("PROFESSOR", "u1")).call(method, path, body)
+
+    assert outcome.reached, outcome
+
+
+@pytest.mark.parametrize("role", CONTENT_ADMINS + ("MINISTRY_ADMIN",))
+@pytest.mark.parametrize("method,path,body", AUTHOR_OR_ADMIN_EDITS)
+def test_a_content_admin_edits_somebody_elses_form(api: _Api, method: str, path: str, body: Any, role: str) -> None:
+    outcome = _authored_by_u1(api).as_(_user(role, "u2")).call(method, path, body)
+
+    assert outcome.reached, outcome
+
+
+@pytest.mark.parametrize("role", NOT_CONTENT_ADMINS)
+@pytest.mark.parametrize("method,path,body", AUTHOR_OR_ADMIN_EDITS)
+def test_another_questionnaire_manager_is_refused_the_edit(api: _Api, method: str, path: str, body: Any, role: str) -> None:
+    """THE NARROWING ITSELF: a Professor, and a holder of the questionnaire grant, used to edit every
+    form. They now edit only their own."""
+    outcome = _authored_by_u1(api).as_(_user(role, "u2", canManageQuestionnaire=True)).call(method, path, body)
+
+    assert outcome.refused, outcome
+    assert "author or an admin" in outcome.detail
+
+
+@pytest.mark.parametrize("method,path,body", AUTHOR_OR_ADMIN_EDITS)
+def test_a_form_with_no_recorded_author_is_edited_by_a_content_admin_alone(
+    api: _Api, method: str, path: str, body: Any
+) -> None:
+    api.preload("questionnaire", _Row("questionnaire", SimpleNamespace(id="f1", createdById=None, isDefault=False, isActive=True)))
+    api.preload("questionnairesection", _Row("questionnairesection", _SECTION))
+    api.preload("questionnairequestion", _Row("questionnairequestion", _QUESTION))
+    assert api.as_(_user("PROFESSOR", "u1", canManageQuestionnaire=True)).call(method, path, body).refused
+    assert api.as_(_user("ADMIN", "u2")).call(method, path, body).reached
+
+
+def test_the_author_and_a_content_admin_reupload_the_workbook_and_nobody_else(api: _Api) -> None:
+    """A multipart route with no file: past the gate, FastAPI's body validation answers 422."""
+    _authored_by_u1(api)
+    assert api.as_(_user("PROFESSOR", "u1")).call("POST", "/questionnaires/f1/upload").status_code == 422
+    for role in CONTENT_ADMINS + ("MINISTRY_ADMIN",):
+        assert api.as_(_user(role, "u2")).call("POST", "/questionnaires/f1/upload").status_code == 422, role
+    for role in NOT_CONTENT_ADMINS:
+        outcome = api.as_(_user(role, "u2", canManageQuestionnaire=True)).call("POST", "/questionnaires/f1/upload")
+        assert outcome.refused, (role, outcome)
+    assert api.tripwire.touched is False
 
 
 class _Comments:

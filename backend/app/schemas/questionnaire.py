@@ -27,7 +27,7 @@ class QuestionnaireUpdate(APIModel):
     isActive: bool | None = None
     # `isDefault` is DELIBERATELY ABSENT. Choosing the default instrument is an admin act with a
     # route of its own (PUT /questionnaires/{id}/default, require_admin), while renaming an
-    # instrument is a questionnaire manager's (require_questionnaire_manager). Accepting the flag
+    # instrument is its author's or a content admin's (assert_may_edit_form). Accepting the flag
     # here would hand the narrower power to the wider tier, silently, through a field. APIModel is
     # extra="forbid", so a client that sends it gets a 422 rather than being quietly ignored.
 

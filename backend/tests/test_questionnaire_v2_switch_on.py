@@ -728,6 +728,8 @@ def test_m16_sessions_start_only_on_live_instruments_and_the_builder_keeps_cover
         patch_db(monkeypatch, client)
         no_outside_calls(monkeypatch)
         ids = await seed(client)
+        # The professor edits the form as its author (owner, 22 Oct 2026: author or content admin).
+        await client.execute_raw('UPDATE "Questionnaire" SET "createdById" = $1 WHERE "id" = $2', ids.prof.id, ids.q)
         s, _ = await sessions.create_session(session_create(ids, ids.artisans[:1]), ids.lead)
         await record_take(client, ids, s["id"], ids.lead, targets=[{"questionLineageId": ids.questions["D1"]}], at=t(0))
         # A reword of a question with takes supersedes it: same lineage and code, a new row.

@@ -171,6 +171,11 @@ class _Db:
             ) from exc
 
 
+#: The builder's caller: a content admin, who edits every form (the author-or-admin rule's other half
+#: is `test_permission_matrix.py`'s).
+_EDITOR = SimpleNamespace(id="admin-1", role="ADMIN")
+
+
 @pytest.fixture
 def world(monkeypatch: pytest.MonkeyPatch):
     """A questionnaire with two sections and three questions, and a journal of every write.
@@ -984,7 +989,7 @@ def test_a_created_question_keeps_its_help_text_and_required_flag(world):
         helpText="Ask about the vat, not the colour.",
         isRequired=True,
     )
-    _run(workbook.create_question(payload))
+    _run(workbook.create_question(payload, _EDITOR))
 
     data = _calls(world, "questionnairequestion", "create")[0]["data"]
     assert data["helpText"] == "Ask about the vat, not the colour."
@@ -1001,7 +1006,7 @@ def test_clearing_help_text_through_the_editor_actually_clears_it(world):
     three possible answers, because the person watching has no reason to look again."""
     world.questions[0].helpText = "Something that should go away."
     payload = workbook.QuestionnaireQuestionUpdate(helpText=None)
-    _run(workbook.update_question("q-1", payload))
+    _run(workbook.update_question("q-1", payload, _EDITOR))
 
     data = _calls(world, "questionnairequestion", "update")[-1]["data"]
     assert "helpText" in data, data
@@ -1014,7 +1019,7 @@ def test_omitting_help_text_from_a_patch_leaves_it_alone(world):
     and conflating them would wipe the help text off every question a builder renames."""
     world.questions[0].helpText = "Keep me."
     payload = workbook.QuestionnaireQuestionUpdate(prompt="A reworded question")
-    _run(workbook.update_question("q-1", payload))
+    _run(workbook.update_question("q-1", payload, _EDITOR))
 
     data = _calls(world, "questionnairequestion", "update")[-1]["data"]
     assert "helpText" not in data, data
