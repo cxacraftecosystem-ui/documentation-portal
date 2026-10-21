@@ -269,6 +269,9 @@ async def _peer_match(monkeypatch: Any, matches: int) -> int:
         with counting(client) as seen:
             out = await routes.peer_match(routes.PeerMatch(items=items), request, SimpleNamespace())
         assert len(out["matches"]) == matches
+        # The candidates are walked in id order, so the answer (and the MATCH rows one create_many
+        # writes with a shared createdAt) come out the same way every time.
+        assert [m["artisanId"] for m in out["matches"]] == sorted(ids.artisans[:matches])
         logged = await client.query_raw('SELECT count(*)::int AS n FROM "CrossPortalAccessLog"')
         assert logged[0]["n"] == matches + 1
         return seen.count
@@ -396,6 +399,50 @@ def test_a_task_batch_checks_and_writes_its_assignees_in_one_go(monkeypatch) -> 
     # The assignees' accounts, the insert and the read-back are three round trips however many people
     # there are; what remains per person is their own derived-progress COUNT (run concurrently).
     assert (small - 1, large - 5) == (3, 3), (small, large)
+
+
+async def _task_batch_pages(monkeypatch: Any, people: int, page_size: int) -> tuple[list[str], list[str], list[str]]:
+    from app.api.routes import tasks
+    from app.schemas.tasks import TaskBatchCreate
+
+    client, ids = await _world(monkeypatch, artisans=1)
+    try:
+        assignees = []
+        for n in range(people):
+            uid = f"pg{n}{ids.tag}"
+            await client.execute_raw(
+                'INSERT INTO "User" ("id", "email", "name", "role", "updatedAt") VALUES ($1, $2, $3, 'RESEARCHER', now())',
+                uid, f"{uid}@example.test", f"Researcher {n}",
+            )
+            assignees.append(uid)
+        payload = TaskBatchCreate.model_validate(
+            {"title": "Tool survey", "assigneeIds": assignees, "recordTypes": ["tool"], "targetCount": 3}
+        )
+        out = await tasks.create_task_batch(payload, current_user=ids.admin)
+        made = [task["id"] for task in out["tasks"]]
+        total = await client.query_raw(
+            'SELECT "id" FROM "AssignedTask" WHERE "batchId" = $1 ORDER BY "createdAt" DESC, "id" ASC', out["batchId"]
+        )
+        seen: list[str] = []
+        for page in range(1, people // page_size + 2):
+            listed = await tasks.list_tasks(
+                current_user=ids.admin, view="all", statusFilter=None, outstanding=False, workshopId=None,
+                assigneeId=None, batchId=out["batchId"], withDerived=False, page=page, pageSize=page_size,
+            )
+            seen.extend(item["id"] for item in listed["items"])
+        return made, seen, [row["id"] for row in total]
+    finally:
+        await client.disconnect()
+
+
+def test_a_task_batch_pages_every_member_exactly_once(monkeypatch) -> None:
+    """One create_many writes the whole batch, so its rows can share a createdAt (and have no dueAt):
+    the list's order must still be total, or a page boundary repeats one member and drops another."""
+    made, seen, total_order = run(_task_batch_pages(monkeypatch, 7, 2))
+    assert sorted(seen) == sorted(made), (seen, made)
+    assert len(seen) == len(set(seen)) == 7
+    # No dueAt, then newest first, then id: the total order the database itself gives.
+    assert seen == total_order, (seen, total_order)
 
 
 # ── the batched consent verdict says what the one-at-a-time verdict says ──────────────────────

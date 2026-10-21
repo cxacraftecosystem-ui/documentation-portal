@@ -1169,10 +1169,12 @@ async def create_task_batch(
 
     # Every row in one insert, then read back once with the relations the answer carries, in the
     # order the assignees were given (one create per assignee used to be one round trip each).
+    # Rows written by one create_many share their createdAt, so every list of tasks below orders
+    # by id after createdAt: without it, a page boundary could repeat or drop a member of a batch.
     await db.assignedtask.create_many(data=[{**base, "assigneeId": assignee_id} for assignee_id in assignee_ids])
     position = {assignee_id: index for index, assignee_id in enumerate(assignee_ids)}
     created = sorted(
-        await db.assignedtask.find_many(where={"batchId": batch_id}, include=INCLUDE),
+        await db.assignedtask.find_many(where={"batchId": batch_id}, include=INCLUDE, order={"id": "asc"}),
         key=lambda task: position.get(task.assigneeId, len(position)),
     )
     tasks = await serialize_tasks(created)
@@ -1257,7 +1259,7 @@ async def list_tasks(
         skip=skip,
         take=page_size,
         include=INCLUDE,
-        order=[{"dueAt": "asc"}, {"createdAt": "desc"}],
+        order=[{"dueAt": "asc"}, {"createdAt": "desc"}, {"id": "asc"}],
     )
     items = await serialize_tasks(tasks, with_derived=withDerived)
     return page_payload(items, total, page, page_size)
@@ -1303,7 +1305,7 @@ async def list_task_batches(
         if statusFilter:
             member_where["status"] = statusFilter
         matches = await db.assignedtask.find_many(
-            where=member_where, take=ROLLUP_SCAN_LIMIT, order={"createdAt": "desc"}
+            where=member_where, take=ROLLUP_SCAN_LIMIT, order=[{"createdAt": "desc"}, {"id": "asc"}]
         )
         batch_ids = sorted({task.batchId for task in matches if task.batchId})
         loose_ids = sorted({task.id for task in matches if not task.batchId})
@@ -1312,7 +1314,7 @@ async def list_task_batches(
         where = {"OR": [{"batchId": {"in": batch_ids}}, {"id": {"in": loose_ids}}]}
 
     rows = await db.assignedtask.find_many(
-        where=where, include=INCLUDE, take=ROLLUP_SCAN_LIMIT, order={"createdAt": "desc"}
+        where=where, include=INCLUDE, take=ROLLUP_SCAN_LIMIT, order=[{"createdAt": "desc"}, {"id": "asc"}]
     )
     grouped: dict[str, list[Any]] = {}
     for task in rows:
@@ -1363,7 +1365,7 @@ async def task_progress(
         where["status"] = {"in": sorted(OUTSTANDING_STATUSES)}
 
     rows = await db.assignedtask.find_many(
-        where=where, include=INCLUDE, take=ROLLUP_SCAN_LIMIT, order={"createdAt": "desc"}
+        where=where, include=INCLUDE, take=ROLLUP_SCAN_LIMIT, order=[{"createdAt": "desc"}, {"id": "asc"}]
     )
     serialized = {item["id"]: item for item in await serialize_tasks(rows)}
 
@@ -1528,7 +1530,7 @@ async def my_task_summary(
     if workshopId:
         where["workshopId"] = workshopId
     rows = await db.assignedtask.find_many(
-        where=where, take=ROLLUP_SCAN_LIMIT, order=[{"dueAt": "asc"}, {"createdAt": "desc"}]
+        where=where, take=ROLLUP_SCAN_LIMIT, order=[{"dueAt": "asc"}, {"createdAt": "desc"}, {"id": "asc"}]
     )
     derived = await derive_progress(rows)
 

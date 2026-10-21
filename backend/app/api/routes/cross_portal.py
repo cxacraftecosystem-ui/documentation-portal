@@ -330,7 +330,7 @@ async def peer_match(
     matches: list[dict[str, Any]] = []
     logged: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
-    for row in candidates.values():
+    for row in sorted(candidates.values(), key=lambda candidate: candidate.id):
         if row.id not in consenting or getattr(row, "status", None) == "REJECTED":
             continue
         hits: list[tuple[str, str]] = []
@@ -355,6 +355,8 @@ async def peer_match(
                 )
             )
     # Every MATCH row in one insert rather than one round trip each, then the summary row last.
+    # The rows of one create_many share their createdAt, so their order (and the answer's) comes
+    # from walking the candidates in id order above; a reader of the log orders by createdAt, then id.
     if logged:
         await db.crossportalaccesslog.create_many(data=logged)
     await _log_access(request, ACTION_SCAN, "SUMMARY")
