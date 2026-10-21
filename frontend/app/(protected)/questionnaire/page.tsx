@@ -68,6 +68,7 @@ import { recordUpdateHref, recordViewHref } from "@/lib/recordView";
 import { canManageQuestionnaire, hasRank, isContentAdmin } from "@/lib/permissions";
 import { UploadsProvider, useEagerStaging, useUploads } from "@/lib/uploads";
 import type { MediaFile, PageResult, Questionnaire, QuestionnaireInterview, QuestionnaireQuestion, QuestionnaireSection } from "@/lib/types";
+import { settleBatch, unsentMessage } from "@/lib/questionnaireUploads";
 import { Toggle } from "@/components/ui/Toggle";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { ReviewNoteBanner } from "@/components/review/ReviewNoteBanner";
@@ -1656,8 +1657,9 @@ function QuestionnairePageBody() {
         return;
       }
       const saved = outcome.saved;
-      if (mediaFiles.length) {
-        const { uploaded } = await uploadMediaBatch({
+      // H21: every batch is settled, never assumed. What did not land is kept, by file.
+      const interviewBatch = await settleBatch(mediaFiles, () =>
+        uploadMediaBatch({
           files: mediaFiles,
           linkedRecordType: "questionnaire",
           linkedRecordId: saved.id,
@@ -1667,31 +1669,49 @@ function QuestionnairePageBody() {
           recordedTimezone,
           transcribeAudio: true,
           onProgress: setInterviewProgress
-        });
-        setInterviewProgress(null);
-        // Uploaded clips surface twice: as chips under this section and in the page-level tray.
-        addCompleted(INTERVIEW_SECTION, INTERVIEW_SECTION_LABEL, uploaded);
-      }
+        })
+      );
+      setInterviewProgress(null);
+      // Uploaded clips surface twice: as chips under this section and in the page-level tray.
+      if (interviewBatch.uploaded.length) addCompleted(INTERVIEW_SECTION, INTERVIEW_SECTION_LABEL, interviewBatch.uploaded);
+      const clipsLeft: Record<string, File[]> = {};
       for (const [key, files] of Object.entries(questionAudioFiles)) {
         const batch = clipBatch(key);
         if (!batch || files.length === 0) continue;
-        const { uploaded } = await uploadMediaBatch({
-          files,
-          linkedRecordType: "questionnaire",
-          linkedRecordId: saved.id,
-          caption: batch.caption,
-          location,
-          recordedAt,
-          recordedTimezone,
-          transcribeAudio: true,
-          extraMetadata: batch.extraMetadata,
-          onProgress: (progress) => setQuestionProgress((current) => ({ ...current, [key]: progress }))
-        });
-        addCompleted(clipTraySectionId(key), batch.trayLabel, uploaded);
+        const clipBatchOutcome = await settleBatch(files, () =>
+          uploadMediaBatch({
+            files,
+            linkedRecordType: "questionnaire",
+            linkedRecordId: saved.id,
+            caption: batch.caption,
+            location,
+            recordedAt,
+            recordedTimezone,
+            transcribeAudio: true,
+            extraMetadata: batch.extraMetadata,
+            onProgress: (progress) => setQuestionProgress((current) => ({ ...current, [key]: progress }))
+          })
+        );
+        if (clipBatchOutcome.uploaded.length) addCompleted(clipTraySectionId(key), batch.trayLabel, clipBatchOutcome.uploaded);
+        if (clipBatchOutcome.left.length) clipsLeft[key] = clipBatchOutcome.left;
       }
       // Cleared only once every question has been pushed, so the tray's page-level total counts the
       // whole run rather than shrinking back to whichever question is uploading right now.
       setQuestionProgress({});
+      const unsent = [...interviewBatch.left, ...Object.values(clipsLeft).flat()];
+      if (unsent.length) {
+        /*
+          H21: SOME RECORDINGS DID NOT LAND. The interview exists now, so the form becomes an edit of
+          it (a second Save is a PATCH, never a second interview) and holds ONLY the files that
+          failed (a second Save never re-uploads the ones that landed).
+        */
+        seedFromInterview(saved);
+        setMediaFiles(interviewBatch.left);
+        setQuestionAudioFiles(clipsLeft);
+        setError(unsentMessage(unsent.map((file) => file.name)));
+        await loadInterviews();
+        return;
+      }
       if (editingId) {
         /*
           AN EDIT BANKS NOTHING AND CARRIES NOTHING FORWARD.
