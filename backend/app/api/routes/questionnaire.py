@@ -72,6 +72,9 @@ from app.services.questionnaire_instruments import (
 from app.services import answer_drafts, cross_portal_codes
 from app.services import completeness as completeness_module
 from app.services.questionnaire_v2 import shims as v2_shims
+from app.services.questionnaire_v2 import sessions as v2_sessions
+from app.services.questionnaire_v2.common import fail as v2_fail
+from app.services.questionnaire_v2.locks import lock_key
 from app.services.concurrency import gather_reads
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.record_filters import (
@@ -259,7 +262,7 @@ async def duplicate_set_conflict(interview_id: str, set_key: str | None) -> HTTP
         questionnaire_id = get_value(interview, "questionnaireId") if interview else None
         if questionnaire_id:
             row = await db.questionnaireinterview.find_first(
-                where={"questionnaireId": questionnaire_id, "artisanSetKey": set_key}
+                where={"questionnaireId": questionnaire_id, "artisanSetKey": set_key, "mergedIntoId": None}
             )
             if row is not None and get_value(row, "id") != interview_id:
                 holder = {"id": get_value(row, "id"), "title": get_value(row, "title")}
@@ -421,7 +424,7 @@ async def replace_interview_artisans(interview_id: str, artisan_ids: list[str]) 
             # already holding the set refuses the edit.
             row = await db.questionnaireinterview.find_unique(where={"id": interview_id})
             holders = await db.questionnaireinterview.find_many(
-                where={"questionnaireId": row.questionnaireId if row else None, "artisanSetKey": set_key}
+                where={"questionnaireId": row.questionnaireId if row else None, "artisanSetKey": set_key, "mergedIntoId": None}
             )
             if any(h.id != interview_id for h in holders):
                 raise _SetHeld()
@@ -1009,6 +1012,9 @@ async def list_interviews(
     # this route is a plain key for exactly these two reasons.
     if questionnaireId:
         where["questionnaireId"] = questionnaireId
+    # A session merged into another (H6 routes a merge with v2 data to sessions.merge_into, which
+    # keeps the source so old links resolve) is not listed; its content is on the survivor.
+    where["mergedIntoId"] = None
     if statusFilter:
         where["status"] = statusFilter
     if createdBy:
@@ -1197,7 +1203,7 @@ async def create_interview(
         # the end — so the common "fold into the existing entry" path stops paying for six relation
         # statements it was about to discard.
         existing = await db.questionnaireinterview.find_first(
-            where={"questionnaireId": questionnaire_id, "artisanSetKey": set_key}
+            where={"questionnaireId": questionnaire_id, "artisanSetKey": set_key, "mergedIntoId": None}
         )
         if existing is not None:
             return await merge_into_interview(existing, payload, current_user, check)
@@ -1295,7 +1301,7 @@ async def interview_for_artisan_set(
     # was already written down; only the argument was missing.
     qid = await resolve_questionnaire_id(questionnaireId, workshopId)
     interview = await db.questionnaireinterview.find_first(
-        where={"questionnaireId": qid, "artisanSetKey": set_key}
+        where={"questionnaireId": qid, "artisanSetKey": set_key, "mergedIntoId": None}
     )
     if not interview:
         return None
@@ -2033,6 +2039,17 @@ async def merge_interview_into(
     for row_id, fill in fills:
         await db.questionnaireresponse.update(where={"id": row_id}, data=fill)
 
+    # A SESSION WITH V2 DATA MERGES THE V2 WAY (audit H6), whatever the flag says. Recordings,
+    # participants, researchers, answer revisions and upload intents move in ONE transaction, and the
+    # source is kept with ``mergedIntoId`` so a queued clip or an old link still resolves. The legacy
+    # path below moves only media and then deletes the row, which RESTRICTs on answer revisions (a
+    # 500) and drops participants and researchers.
+    if await _has_v2_data(interview_id):
+        await v2_sessions.merge_into(interview_id, target_id, current_user)
+        survivor = await db.questionnaireinterview.find_unique(where={"id": target_id})
+        await hydrate_relations([survivor], RELATIONS)
+        return public_encode(survivor, current_user)
+
     # THE RECORDINGS MOVE TOO, and on this instrument they are most of what an interview IS: the
     # app's questionnaire clips carry their section in the filename and are the completion signal
     # for a sitting whose answers were spoken rather than typed (`_derived_completed_sections`
@@ -2168,9 +2185,47 @@ async def consolidated_questionnaire_csv(
 
 @questionnaire_router.delete("/interviews/{interview_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_interview(interview_id: str, current_user: Any = Depends(get_current_user)) -> None:
+    """Delete an interview that holds nothing. Content admins only.
+
+    409 ``HAS_RECORDINGS`` WHATEVER ``QUESTIONNAIRE_V2`` SAYS (audit H6). ``MediaFile`` points at the
+    interview with ``onDelete: SetNull``, so deleting a sitting with clips detached every one of them
+    (and its recording) from any session, and the coverage view dropped them. Answer revisions are
+    RESTRICT, so a sitting with one failed with a 500. Same rule and body as the v2 session delete.
+    """
     assert_can_delete(current_user)
     await require_record(db.questionnaireinterview, interview_id)
+    live, revisions, pending = await gather_reads(
+        db.mediafile.count(where={"questionnaireInterviewId": interview_id, "removedAt": None}),
+        db.questionnaireanswerrevision.count(where={"sessionId": interview_id}),
+        db.mediauploadintent.count(
+            where={"sessionId": interview_id, "closedAt": None, "expiresAt": {"gt": datetime.now(UTC)}}
+        ),
+    )
+    held = int(live or 0) + int(revisions or 0)
+    if held:
+        v2_fail("HAS_RECORDINGS", f"Move or remove its {held} recordings first.", count=held)
+    if pending:
+        v2_fail(
+            "HAS_RECORDINGS",
+            "A recording is still uploading to this interview. Try again once it lands.",
+            count=int(pending),
+            pending=int(pending),
+        )
     await db.questionnaireinterview.delete(where={"id": interview_id})
+
+
+async def _has_v2_data(interview_id: str) -> bool:
+    """Whether this sitting carries anything only the v2 merge moves: a recording on one of its
+    clips, an answer revision, a researcher row or an upload intent."""
+    media = await db.mediafile.find_many(where={"questionnaireInterviewId": interview_id})
+    media_ids = [str(get_value(m, "id")) for m in media]
+    recordings, revisions, researchers, intents = await gather_reads(
+        db.questionnairerecording.count(where={"mediaFileId": {"in": media_ids}}) if media_ids else _zero(),
+        db.questionnaireanswerrevision.count(where={"sessionId": interview_id}),
+        db.questionnaireinterviewresearcher.count(where={"interviewId": interview_id}),
+        db.mediauploadintent.count(where={"sessionId": interview_id}),
+    )
+    return bool(recordings or revisions or researchers or intents)
 
 
 # --- /questionnaires (PLURAL) — the instruments themselves ----------------------------------------
