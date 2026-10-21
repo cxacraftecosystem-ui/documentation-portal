@@ -28,7 +28,7 @@ import csv
 import io
 import json
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -76,7 +76,7 @@ def orphan_candidates(path: str | None, *, now: datetime, known: set[str]) -> li
     return out
 
 
-def report(dupes: list[dict[str, Any]], orphans: list[dict[str, Any]]) -> str:
+def report(dupes: list[dict[str, Any]], orphans: list[dict[str, Any]], as_of_day: str | None = None) -> str:
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\n")
     writer.writerow(["kind", "mediaFileId", "objectKey", "sizeBytes", "contentSha256", "keptMediaFileId", "since"])
@@ -86,6 +86,8 @@ def report(dupes: list[dict[str, Any]], orphans: list[dict[str, Any]]) -> str:
         writer.writerow(["UNCLAIMED_ORPHAN", "", o["objectKey"], o.get("sizeBytes") or "", "", "", str(o["reportedAt"])[:10]])
     writer.writerow(["TOTAL", len(dupes) + len(orphans), "", "", "", "", ""])
     writer.writerow(["never purged", "distinct takes", "", "", "", "", ""])
+    if as_of_day:
+        writer.writerow(["as of", as_of_day, "", "", "", "", ""])
     return buffer.getvalue()
 
 
@@ -123,14 +125,16 @@ async def run(args: argparse.Namespace) -> int:
     url = qv2_guard.database_url(args)
     qv2_guard.check_host(url, args.allow_host)
     client = await qv2_guard.connect(url)
-    now = datetime.now(UTC)
+    # The report is computed AS OF a fixed day, not "now", so the owner's approval does not go stale
+    # overnight (audit Low); --apply repeats the dry run's --as-of.
+    now = qv2_guard.as_of(args)
     try:
         async with client.tx() as tx:
             await qv2_guard.assert_read_only(tx)
             dupes = await duplicate_candidates(tx, now=now)
             keys = {str(r["objectKey"]) for r in await tx.query_raw('SELECT "objectKey" FROM "MediaFile"')}
         orphans = orphan_candidates(args.orphans_csv, now=now, known=keys)
-        text = report(dupes, orphans)
+        text = report(dupes, orphans, now.astimezone(timezone(timedelta(hours=5, minutes=30))).date().isoformat())
         name = naming.export_filename(entity="Dataset", what="Purge-Dry-Run-Report", ext="csv")
         if not args.apply:
             qv2_guard.write_report(args.out, name, text)
@@ -152,6 +156,7 @@ async def run(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     qv2_guard.add_common_arguments(parser)
+    qv2_guard.add_as_of(parser)
     parser.add_argument("--orphans-csv", default=None, help="the orphan report (objectKey,sizeBytes,reportedAt)")
     return asyncio.run(run(parser.parse_args(argv)))
 

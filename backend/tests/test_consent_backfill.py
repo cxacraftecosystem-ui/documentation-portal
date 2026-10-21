@@ -20,8 +20,12 @@ pytestmark = needs_db
 def _args(tmp: Path, **kw) -> argparse.Namespace:
     from urllib.parse import urlsplit
 
+    from datetime import datetime, timedelta, timezone
+
+    # The report is computed AS OF a day, so its approval does not go stale overnight (audit Low).
+    today = datetime.now(timezone(timedelta(hours=5, minutes=30))).date().isoformat()
     base = {"database_url": URL, "allow_host": [urlsplit(URL).hostname], "apply": False, "approved_report": None,
-            "out": str(tmp), "owner_email": None}
+            "out": str(tmp), "owner_email": None, "as_of": today}
     return argparse.Namespace(**{**base, **kw})
 
 

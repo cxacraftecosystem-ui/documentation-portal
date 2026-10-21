@@ -58,7 +58,7 @@ MISSING_SQL = (
 )
 
 
-async def plan(client: Any) -> dict[str, Any]:
+async def plan(client: Any, as_of: Any = None) -> dict[str, Any]:
     rows = await client.query_raw(
         'SELECT m."mediaType"::text AS type, COALESCE(m."transcriptStatus", \'(none)\') AS status, count(*) AS n, '
         "count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM \"Consent\" c WHERE c.\"subjectType\" = 'RECORDING' "
@@ -68,11 +68,15 @@ async def plan(client: Any) -> dict[str, Any]:
         + SCOPE_SQL + " GROUP BY 1, 2 ORDER BY 1, 2",
         CUTOFF, SOURCE, RECORDED_AT,
     )
+    # Bounded by the report's --as-of day (audit Low): a count that grows with every new upload made
+    # the approved report stale by the next morning.
+    bound = (as_of.astimezone(UTC).replace(tzinfo=None).isoformat(timespec="milliseconds") if as_of else None)
     later = await client.query_raw(
-        'SELECT count(*) AS n FROM "MediaFile" m WHERE m."mediaType" IN (\'AUDIO\', \'VIDEO\') AND m."createdAt" > $1::timestamp',
-        CUTOFF,
+        'SELECT count(*) AS n FROM "MediaFile" m WHERE m."mediaType" IN (\'AUDIO\', \'VIDEO\') AND m."createdAt" > $1::timestamp '
+        'AND ($2::timestamp IS NULL OR m."createdAt" <= $2::timestamp)',
+        CUTOFF, bound,
     )
-    return {"rows": rows, "later": int(later[0]["n"]) if later else 0}
+    return {"rows": rows, "later": int(later[0]["n"]) if later else 0, "asOf": as_of}
 
 
 def report(p: dict[str, Any]) -> str:
@@ -89,6 +93,10 @@ def report(p: dict[str, Any]) -> str:
     writer.writerow(["created after the cutoff (no row; per-artisan consent needed)", "", p["later"], 0, 0])
     writer.writerow(["source", SOURCE, "recordedAt", "2026-10-18T00:00+05:30", ""])
     writer.writerow(["jobs, statuses and transcripts changed", "none", "", "", ""])
+    if p.get("asOf") is not None:
+        from datetime import timedelta, timezone
+
+        writer.writerow(["as of", p["asOf"].astimezone(timezone(timedelta(hours=5, minutes=30))).date().isoformat(), "", "", ""])
     return buffer.getvalue()
 
 
@@ -115,7 +123,7 @@ async def run(args: argparse.Namespace) -> int:
     try:
         async with client.tx() as tx:
             await qv2_guard.assert_read_only(tx)
-            text = report(await plan(tx))
+            text = report(await plan(tx, qv2_guard.as_of(args)))
         name = naming.export_filename(entity="Artisan", what="Consent-Backfill-Dry-Run-Report", ext="csv")
         if not args.apply:
             qv2_guard.write_report(args.out, name, text)
@@ -138,6 +146,7 @@ async def run(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     qv2_guard.add_common_arguments(parser)
+    qv2_guard.add_as_of(parser)
     parser.add_argument("--owner-email", default=None, help="the owner's account (defaults to the Approved-by email)")
     args = parser.parse_args(argv)
     return asyncio.run(run(args))

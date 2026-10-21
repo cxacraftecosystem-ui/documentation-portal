@@ -65,9 +65,13 @@ def _interview(iv_id: str, questionnaire_id: str, artisan_ids: list[str], *, day
 
 
 class _InterviewDelegate:
-    def __init__(self, rows: list, log: list) -> None:
+    def __init__(self, rows: list, log: list, *, reconstructed: int = 0) -> None:
         self._rows = rows
         self._log = log
+        self._reconstructed = reconstructed
+
+    async def count(self, where=None):
+        return self._reconstructed
 
     async def find_many(self, **_kwargs):
         return list(self._rows)
@@ -120,12 +124,24 @@ class _ResponseDelegate:
         return None
 
 
+class _Counted:
+    """``count()`` for the v2 check (audit H11): how many rows the script would find."""
+
+    def __init__(self, n: int) -> None:
+        self.n = n
+
+    async def count(self, where=None):
+        return self.n
+
+
 class _Db:
-    def __init__(self, interviews: list, *, media_counts=None, responses=None) -> None:
+    def __init__(self, interviews: list, *, media_counts=None, responses=None, recordings: int = 0,
+                 reconstructed: int = 0) -> None:
         self.log: list = []
-        self.questionnaireinterview = _InterviewDelegate(interviews, self.log)
+        self.questionnaireinterview = _InterviewDelegate(interviews, self.log, reconstructed=reconstructed)
         self.mediafile = _MediaDelegate(media_counts or {}, self.log)
         self.questionnaireresponse = _ResponseDelegate(responses or [], self.log)
+        self.questionnairerecording = _Counted(recordings)
 
 
 def _run(monkeypatch, interviews: list, *, execute: bool, **db_kwargs) -> _Db:
@@ -313,3 +329,20 @@ def test_a_missing_instrument_raises_rather_than_folding_every_row_into_one_slot
     )
     with pytest.raises(AttributeError):
         reconcile.group_by_slot([row])
+
+
+# --------------------------------------------------------------------------------------
+# 5. Questionnaire v2: --execute is retired (audit H11, 21 Oct 2026)
+# --------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("v2_rows", [{"recordings": 1}, {"reconstructed": 1}])
+def test_execute_refuses_once_questionnaire_v2_rows_exist(monkeypatch, capsys, v2_rows):
+    """Under v2 two sessions sharing their artisans is normal (design D1), and this script would
+    merge them moving only the media: recordings, participants, researchers and answers would be
+    left on deleted rows. So --execute writes NOTHING once any v2 row exists."""
+    keeper = _interview("iv-keep", W3, ["a1"], day=1)
+    loser = _interview("iv-drop", W3, ["a1"], day=2)
+    fake = _run(monkeypatch, [keeper, loser], execute=True, media_counts={"iv-keep": 2}, **v2_rows)
+    assert fake.log == []
+    assert "REFUSED" in capsys.readouterr().out

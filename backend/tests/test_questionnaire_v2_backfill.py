@@ -193,3 +193,138 @@ def test_the_purge_takes_only_verified_copies_older_than_30_days(tmp_path: Path)
     assert [o["objectKey"] for o in found] == ["media/x/old.m4a"]
     assert run(purge.run(argparse.Namespace(database_url=URL, allow_host=[urlsplit(URL).hostname], apply=False, approved_report=None,
                                             out=str(tmp_path), orphans_csv=None))) == 0
+
+
+# ── 21 Oct audit: C6 (catch-up), M1 (undecided takes stay PENDING), M25 (undo restores) ──────
+async def _clip(client, mid: str, iid: str, caption: str, sha: str, *, status: str = "PENDING") -> None:
+    await client.execute_raw(
+        "INSERT INTO \"MediaFile\" (\"id\", \"originalFilename\", \"mediaType\", \"mimeType\", \"sizeBytes\", \"bucket\", \"objectKey\", \"caption\", "
+        "\"linkedRecordType\", \"linkedRecordId\", \"questionnaireInterviewId\", \"uploadedById\", \"contentSha256\", \"shaVerifiedAt\", \"recordedAt\", "
+        "\"createdAt\", \"status\", \"updatedAt\") VALUES ($1, $2, 'AUDIO', 'audio/mp4', 10, 'b', $3, $4, 'questionnaire', $5, $5, 'u1', $6, now(), "
+        "'2026-06-21T05:00:00'::timestamp, '2026-06-21T05:00:00'::timestamp, $7::\"RecordStatus\", now())",
+        mid, f"{mid}.m4a", f"media/u1/{mid}/{mid}.m4a", caption, iid, sha, status,
+    )
+
+
+def test_undecided_takes_stay_pending_catch_up_files_late_clips_and_undo_restores_only_what_it_changed(tmp_path: Path) -> None:
+    from scripts import questionnaire_needs_decision_pending as fixup
+    from scripts import questionnaire_v2_backfill as backfill
+
+    async def setup():
+        client = await _connect()
+        await seed_legacy(client)
+        # Two different clips of one section in one sitting, already APPROVED: both wait for a decision.
+        await client.execute_raw(
+            "INSERT INTO \"QuestionnaireInterview\" (\"id\", \"title\", \"questionnaireId\", \"workshopId\", \"createdById\", \"status\", \"createdAt\", \"updatedAt\") "
+            "VALUES ('i40', 'two takes', 'q', 'w2', 'u1', 'APPROVED', '2026-06-21', now())"
+        )
+        await client.execute_raw("INSERT INTO \"QuestionnaireInterviewArtisan\" (\"interviewId\", \"artisanId\", \"sortOrder\") VALUES ('i40', 'a30', 0)")
+        await _clip(client, "m400", "i40", "Section audio: A", "40" * 32, status="APPROVED")
+        await _clip(client, "m401", "i40", "Section audio: A", "41" * 32, status="APPROVED")
+        plan = await backfill.dry_plan(client)
+        await backfill.apply_plan(client, plan, "r9")
+        status = await client.query_raw('SELECT "id", "status"::text AS s FROM "MediaFile" WHERE "id" IN (\'m400\', \'m401\') ORDER BY "id"')
+        # Clips that arrive into reconstructed sessions after the backfill (audit C6).
+        await _clip(client, "m900", "i00", "Section audio: F", "90" * 32)
+        await _clip(client, "m901", "i01", "an unplaceable clip", "91" * 32, status="APPROVED")
+        await client.disconnect()
+        return status
+
+    status = run(setup())
+    assert [r["s"] for r in status] == ["PENDING", "PENDING"], "a take waiting for a decision is never approved with its session (M1)"
+
+    assert run(backfill.run(_args(tmp_path, catch_up=True))) == 0
+    report = next(tmp_path.glob("FieldRepository_Questionnaire_*_Catch-Up-Dry-Run-Report.md"))
+    assert "| clips | 2 |" in report.read_text(encoding="utf-8")
+
+    async def missing() -> int:
+        client = await _connect()
+        rows = await client.query_raw(
+            "SELECT count(*) AS n FROM \"MediaFile\" m WHERE m.\"mediaType\" IN ('AUDIO', 'VIDEO') AND m.\"removedAt\" IS NULL "
+            'AND m."questionnaireInterviewId" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "QuestionnaireRecording" r WHERE r."mediaFileId" = m."id")'
+        )
+        await client.disconnect()
+        return int(rows[0]["n"])
+
+    assert run(missing()) == 2, "the catch-up dry run wrote nothing"
+    with pytest.raises(SystemExit):
+        run(backfill.run(_args(tmp_path, catch_up=True, apply=True, run_id="c1", approved_report=str(report))))
+    report.write_text(report.read_text(encoding="utf-8") + "Approved-by: owner@x.test 2026-10-25\n", encoding="utf-8")
+    assert run(backfill.run(_args(tmp_path, catch_up=True, apply=True, run_id="c1", approved_report=str(report)))) == 0
+    assert run(missing()) == 0, "the check before the flip: no live clip without a recording"
+
+    async def caught() -> list:
+        client = await _connect()
+        rows = await client.query_raw(
+            'SELECT m."id", r."filing"::text AS filing, m."status"::text AS s FROM "QuestionnaireRecording" r JOIN "MediaFile" m ON m."id" = r."mediaFileId" '
+            "WHERE m.\"id\" IN ('m900', 'm901') ORDER BY m.\"id\""
+        )
+        await client.disconnect()
+        return [(r["id"], r["filing"], r["s"]) for r in rows]
+
+    assert run(caught()) == [("m900", "FILED", "PENDING"), ("m901", "NEEDS_DECISION", "PENDING")]
+    assert run(backfill.run(_args(tmp_path, undo=True, run_id="c1"))) == 0
+    assert run(missing()) == 2, "the catch-up undoes on its own run id"
+
+    # The fix-up for the live rows (M1): dry run, approval, apply, undo.
+    async def approve_one() -> None:
+        client = await _connect()
+        await client.execute_raw('UPDATE "MediaFile" SET "status" = \'APPROVED\' WHERE "id" = \'m400\'')
+        await client.disconnect()
+
+    run(approve_one())
+    fix_args = dict(database_url=URL, allow_host=[urlsplit(URL).hostname], apply=False, approved_report=None, out=str(tmp_path),
+                    run_id=None, undo=False)
+    assert run(fixup.run(argparse.Namespace(**fix_args))) == 0
+    fix_report = next(tmp_path.glob("FieldRepository_Questionnaire_*_Needs-Decision-Pending-Dry-Run-Report.csv"))
+    assert "m400" in fix_report.read_text(encoding="utf-8")
+    fix_report.write_text(fix_report.read_text(encoding="utf-8") + "Approved-by: owner@x.test 2026-10-25\n", encoding="utf-8")
+    assert run(fixup.run(argparse.Namespace(**{**fix_args, "apply": True, "run_id": "f1", "approved_report": str(fix_report)}))) == 0
+
+    async def m400() -> str:
+        client = await _connect()
+        rows = await client.query_raw('SELECT "status"::text AS s FROM "MediaFile" WHERE "id" = \'m400\'')
+        await client.disconnect()
+        return rows[0]["s"]
+
+    assert run(m400()) == "PENDING"
+    assert run(fixup.run(argparse.Namespace(**{**fix_args, "undo": True, "run_id": "f1"}))) == 0
+    assert run(m400()) == "APPROVED"
+
+    # Undo of the backfill (M25): refused while a reconstructed session holds native content...
+    async def native(add: bool) -> None:
+        client = await _connect()
+        if add:
+            await _clip(client, "m950", "i02", "native", "95" * 32)
+            await client.execute_raw(
+                'INSERT INTO "QuestionnaireRecording" ("id", "mediaFileId", "clientClipKey", "capturedAt", "capturedAtSource", "rosterCount", '
+                "\"recordedById\", \"provenance\", \"updatedAt\") VALUES ('r950', 'm950', 'native-950', now(), 'DEVICE', 1, 'u2', 'NATIVE', now())"
+            )
+        else:
+            await client.execute_raw("DELETE FROM \"QuestionnaireRecording\" WHERE \"id\" = 'r950'")
+            await client.execute_raw("DELETE FROM \"MediaFile\" WHERE \"id\" = 'm950'")
+            # ...and somebody joined i02 after the backfill.
+            await client.execute_raw(
+                "INSERT INTO \"QuestionnaireInterviewResearcher\" (\"interviewId\", \"userId\", \"role\") VALUES ('i02', 'u2', 'CONTRIBUTOR') "
+                "ON CONFLICT DO NOTHING"
+            )
+        await client.disconnect()
+
+    run(native(True))
+    with pytest.raises(SystemExit):
+        run(backfill.run(_args(tmp_path, undo=True, run_id="r9")))
+    run(native(False))
+    assert run(backfill.run(_args(tmp_path, undo=True, run_id="r9"))) == 0
+
+    async def restored() -> tuple:
+        client = await _connect()
+        row = await client.query_raw('SELECT "origin"::text AS o, "legacyTitle", "state"::text AS st, "title" FROM "QuestionnaireInterview" WHERE "id" = \'i02\'')
+        people = await client.query_raw('SELECT "userId" FROM "QuestionnaireInterviewResearcher" WHERE "interviewId" = \'i02\'')
+        status = await client.query_raw('SELECT "status"::text AS s FROM "MediaFile" WHERE "id" = \'m401\'')
+        await client.disconnect()
+        return row[0], sorted(p["userId"] for p in people), status[0]["s"]
+
+    row, people, m401 = run(restored())
+    assert row["o"] == "NATIVE" and row["legacyTitle"] is None and row["st"] == "OPEN" and row["title"] == "section F"
+    assert people == ["u2"], "only the researchers the run added are taken away; one who joined later stays"
+    assert m401 == "APPROVED", "an undecided take's status is put back by the undo"
