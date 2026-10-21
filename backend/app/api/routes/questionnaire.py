@@ -208,7 +208,8 @@ RELATIONS = (
         many=True,
         include={"question": True, "answeredBy": True},
     ),
-    Relation("media", "mediafile", "questionnaireInterviewId", many=True),
+    # Live files only (audit M19): a soft-removed copy is not one of the sitting's recordings.
+    Relation("media", "mediafile", "questionnaireInterviewId", many=True, where={"removedAt": None}),
 )
 
 
@@ -1366,8 +1367,9 @@ async def _derived_completed_sections(
         db.questionnairequestion.find_many(where={"questionnaireId": questionnaire_id}),
         db.questionnairesection.find_many(where={"questionnaireId": questionnaire_id}),
         db.questionnaireinterview.find_many(
-            where=interview_where,
-            include={"artisans": True, "responses": True, "media": True},
+            where={"AND": [interview_where, {"mergedIntoId": None}]},
+            # Live files only (audit M19): a removed copy is not evidence a section was recorded.
+            include={"artisans": True, "responses": True, "media": {"where": {"removedAt": None}}},
         ),
     )
     section_by_question = {q.id: q.sectionId for q in questions if q.sectionId}

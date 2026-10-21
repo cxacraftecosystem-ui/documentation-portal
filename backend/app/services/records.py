@@ -782,6 +782,8 @@ class Relation(NamedTuple):
     key: str
     many: bool = False
     include: dict[str, Any] | None = None
+    #: Extra filter on a to-many relation's children (an interview's media: live files only, M19).
+    where: dict[str, Any] | None = None
 
 
 def include_of(relations: Sequence[Relation]) -> dict[str, Any]:
@@ -793,9 +795,16 @@ def include_of(relations: Sequence[Relation]) -> dict[str, Any]:
     like on the wire" from drifting apart — a relation added for the list would otherwise quietly go
     missing from the response to the PATCH that created it.
     """
-    return {
-        rel.field: ({"include": rel.include} if rel.include else True) for rel in relations
-    }
+    return {rel.field: _include_arg(rel) for rel in relations}
+
+
+def _include_arg(rel: Relation) -> Any:
+    arg: dict[str, Any] = {}
+    if rel.include:
+        arg["include"] = rel.include
+    if rel.where and rel.many:
+        arg["where"] = rel.where
+    return arg or True
 
 
 async def hydrate_relations(rows: Sequence[Any], relations: Sequence[Relation]) -> None:
@@ -821,6 +830,8 @@ async def hydrate_relations(rows: Sequence[Any], relations: Sequence[Relation]) 
                 setattr(row, rel.field, [] if rel.many else None)
             continue
         args: dict[str, Any] = {"where": {(rel.key if rel.many else "id"): {"in": sorted(ids)}}}
+        if rel.many and rel.where:
+            args["where"] = {"AND": [args["where"], rel.where]}
         if rel.include:
             args["include"] = rel.include
         planned.append((rel, getattr(db, rel.model).find_many(**args)))

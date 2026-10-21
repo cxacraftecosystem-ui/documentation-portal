@@ -5,10 +5,11 @@ browser and dataset exports, the consolidated questionnaire, the review cascade 
 ``/media/orphans``, and stays restorable. Readers compose ``live_media_where()`` into their Prisma
 ``where``; raw SQL uses ``LIVE_MEDIA_SQL``.
 
-IT FOLLOWS ``QUESTIONNAIRE_V2``. Only v2 removes anything, and the one bulk removal that runs while
-the flag is still off is the legacy backfill (DESIGN 7.3: duplicate copies), whose removals are meant
-to take effect with the flip. So while the flag is off every reader sees exactly what it saw before
-(and the in-memory test doubles of those readers keep working); ``always=True`` is for v2's own code.
+IT APPLIES WHATEVER ``QUESTIONNAIRE_V2`` SAYS (audit M19, 21 Oct 2026). It used to follow the flag,
+on the theory that only v2 removes anything. The backfill's 245 duplicate copies were removed while
+the flag was off, so a flag-gated filter left them in the legacy readers, in "use transcripts as
+answers" and, worst, in the approve cascade, which approved removed copies alongside their record.
+``always`` is kept so v2 call sites need not change; it no longer alters the result.
 """
 
 from __future__ import annotations
@@ -18,17 +19,10 @@ from typing import Any
 LIVE_MEDIA_SQL = '"removedAt" IS NULL'
 
 
-def _enabled() -> bool:
-    from app.core.config import get_settings
-
-    return bool(getattr(get_settings(), "questionnaire_v2", False))
-
-
-def live_media_where(where: dict[str, Any] | None = None, *, always: bool = False) -> dict[str, Any]:
+def live_media_where(where: dict[str, Any] | None = None, *, always: bool = True) -> dict[str, Any]:
     """``where`` narrowed to live media. Composes under AND, so it can never be overwritten by a
     caller's own ``OR``."""
-    if not (always or _enabled()):
-        return where if where is not None else {}
+    del always  # kept for the call sites; the filter is unconditional
     clause = {"removedAt": None}
     if not where:
         return clause
