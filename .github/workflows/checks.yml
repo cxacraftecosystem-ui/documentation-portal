@@ -1023,6 +1023,8 @@ jobs:
       AWS_S3_ENDPOINT: "http://127.0.0.1:9000"
       AWS_S3_PUBLIC_BASE_URL: "http://127.0.0.1:9000/field-repository"
       AWS_REGION: "us-east-1"
+      # MinIO speaks S3 but not KMS and refuses the SSE header; empty is the documented local value.
+      AWS_S3_SSE_ALGORITHM: ""
       QUESTIONNAIRE_V2: "true"
 
     steps:
