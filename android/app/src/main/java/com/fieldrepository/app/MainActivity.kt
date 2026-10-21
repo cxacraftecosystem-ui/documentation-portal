@@ -5935,6 +5935,26 @@ private fun AudioClipRecorder(
  * Reusable capture surface embedded inside every record form. Mirrors the web MediaCaptureField:
  * pick files, take photo/video, record audio, tag GPS, and (optionally) attach a measurement grid.
  */
+/**
+ * Start a take of [file] held up by the microphone foreground service (the legacy recorder's
+ * [com.fieldrepository.app.recording.LegacyTake]): a locked screen, an app switch or the system
+ * reclaiming memory no longer kills it or leaves an unplayable file. Returns the recorder for the
+ * level meter only; Pause, Stop and every exit go through [stopHeldTake].
+ */
+private fun startHeldTake(context: Context, file: File): MediaRecorder {
+    val started = createAudioRecorder(context, file).also { it.start() }
+    com.fieldrepository.app.recording.LegacyTake.begin(com.fieldrepository.app.recording.LegacyTake.Media(started), file)
+    com.fieldrepository.app.recording.LegacyRecordingService.start(context)
+    return started
+}
+
+/** Stop the held take and release the service: the file to attach, or null when it held no audio. */
+private fun stopHeldTake(context: Context): File? {
+    val file = com.fieldrepository.app.recording.LegacyTake.finalise()
+    com.fieldrepository.app.recording.LegacyRecordingService.stop(context)
+    return file
+}
+
 /** A small red square used as the universal "stop recording" affordance. */
 @Composable
 private fun StopSquareLabel(text: String = "Stop") {
@@ -5984,6 +6004,17 @@ private fun MediaCaptureSection(
         media.uris.forEach { uri ->
             if (!media.stagedDeferred.containsKey(uri)) {
                 startEagerUpload(repository, context, media, uri, scope)
+            }
+        }
+    }
+    // Leaving with a take running keeps it: it is finalised and attached, never dropped (it records
+    // under the microphone foreground service, so the OS cannot kill it either).
+    DisposableEffect(Unit) {
+        onDispose {
+            if (recording) {
+                runCatching { stopHeldTake(context)?.let { file -> media.uris = media.uris + uriForFile(context, file) } }
+                recorder = null
+                recording = false
             }
         }
     }
@@ -6085,16 +6116,14 @@ private fun MediaCaptureSection(
                     } else if (!recording) {
                         runCatching {
                             val file = createAppFile(context, "field-audio-", ".m4a")
-                            recorder = createAudioRecorder(context, file).also { it.start() }
+                            recorder = startHeldTake(context, file)
                             recordingFile = file
                             recording = true
                             onMessage("Recording audio...")
                         }.onFailure { onError(it.apiErrorMessage("Unable to start audio recording")) }
                     } else {
                         runCatching {
-                            recorder?.stop()
-                            recorder?.release()
-                            recordingFile?.let { file -> media.uris = media.uris + uriForFile(context, file) }
+                            stopHeldTake(context)?.let { file -> media.uris = media.uris + uriForFile(context, file) }
                         }.onFailure { onError(it.apiErrorMessage("Unable to stop audio recording")) }
                         recorder = null
                         recordingFile = null
@@ -9813,15 +9842,14 @@ private fun ToolStagesSection(
                     } else if (!recording) {
                         runCatching {
                             val file = createAppFile(context, "stage-audio-", ".m4a")
-                            recorder = createAudioRecorder(context, file).also { it.start() }
+                            recorder = startHeldTake(context, file)
                             recordingFile = file
                             recording = true
                             onMessage("Recording stage audio…")
                         }.onFailure { onError(it.apiErrorMessage("Unable to start stage audio")) }
                     } else {
                         runCatching {
-                            recorder?.stop(); recorder?.release()
-                            recordingFile?.let { file -> stages.uris = stages.uris + uriForFile(context, file) }
+                            stopHeldTake(context)?.let { file -> stages.uris = stages.uris + uriForFile(context, file) }
                         }.onFailure { onError(it.apiErrorMessage("Unable to stop stage audio")) }
                         recorder = null; recordingFile = null; recording = false
                         onMessage("Stage audio step added")
@@ -14146,7 +14174,7 @@ private fun AndroidMediaForm(
                 } else if (!recording) {
                     runCatching {
                         val file = createAppFile(context, "field-audio-", ".m4a")
-                        recorder = createAudioRecorder(context, file).also { it.start() }
+                        recorder = startHeldTake(context, file)
                         recordingFile = file
                         recording = true
                         localMessage = "Recording audio..."
@@ -14155,9 +14183,7 @@ private fun AndroidMediaForm(
                     }
                 } else {
                     runCatching {
-                        recorder?.stop()
-                        recorder?.release()
-                        recordingFile?.let { file -> selectedUris = selectedUris + uriForFile(context, file) }
+                        stopHeldTake(context)?.let { file -> selectedUris = selectedUris + uriForFile(context, file) }
                     }.onFailure { error ->
                         onError(error.apiErrorMessage("Unable to stop audio recording"))
                     }
@@ -15283,7 +15309,7 @@ private fun QuestionnaireForm(
     var questionAudio by remember { mutableStateOf<Map<String, List<Uri>>>(emptyMap()) }
     // H21: the interview an earlier, partly failed save of this form already created. Every later
     // save updates it instead of creating a duplicate (data/LegacyQuestionnaireSave.kt).
-    var createdId by remember(editing?.id) { mutableStateOf<String?>(null) }
+    var createdId by remember(editing?.id) { mutableStateOf<String?>(null) }.drafted(draft, "createdId")
     fun sectionIdForKey(key: String): String? =
         if (key.startsWith("section:")) key.removePrefix("section:")
         else sections.firstOrNull { sec -> sec.questions.any { it.id == key } }?.id
