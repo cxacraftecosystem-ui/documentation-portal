@@ -1005,9 +1005,20 @@ async def _shares_target(client: Any, a: str, b: str) -> bool:
     return bool(rows)
 
 
-async def _assert_other_take(client: Any, user: Any, row: dict[str, Any], other: str) -> dict[str, Any]:
+async def _same_session_day(client: Any, a: Any, b: Any) -> bool:
+    rows = await client.query_raw(
+        'SELECT count(*) AS n, count(DISTINCT "sessionDate") AS days FROM "QuestionnaireInterview" '
+        'WHERE "id" = ANY($1::text[]) AND "sessionDate" IS NOT NULL',
+        [str(a), str(b)],
+    )
+    return bool(rows) and int(rows[0]["n"]) == 2 and int(rows[0]["days"]) == 1
+
+
+async def _assert_other_take(client: Any, user: Any, row: dict[str, Any], other: str, action: str | None = None) -> dict[str, Any]:
     """The take a decision names (audit H2): not this take, live, and in the same session sharing a
-    target, or the verified twin of a "same file on two sessions" take. The caller may change it."""
+    target, or the verified twin of a "same file on two sessions" take, or (Keep both / Keep one) the
+    take a CONCURRENT one met in another session of the same day on a shared target (DESIGN 3.3
+    rule 3). Part 2 stays within one session. The caller may change it."""
     if other == str(row["id"]):
         fail("VALIDATION_FAILED", "A take can't be decided against itself.")
     rows = await recording_rows(client, recording_ids=[other])
@@ -1017,7 +1028,12 @@ async def _assert_other_take(client: Any, user: Any, row: dict[str, Any], other:
     same_file = (row.get("decisionKind") == "SAME_FILE_OTHER_SESSION" and row.get("contentSha256")
                  and row.get("contentSha256") == orow.get("contentSha256") and orow.get("shaVerifiedAt"))
     same_session = str(orow.get("sessionId")) == str(row.get("sessionId")) and await _shares_target(client, str(row["id"]), other)
-    if not (same_file or same_session):
+    same_day_twin = (
+        not same_session and action != "CONTINUATION" and row.get("decisionKind") == "CONCURRENT"
+        and await _same_session_day(client, row.get("sessionId"), orow.get("sessionId"))
+        and await _shares_target(client, str(row["id"]), other)
+    )
+    if not (same_file or same_session or same_day_twin):
         fail("VALIDATION_FAILED", "The other take must be in this session and on the same question or section.")
     await _assert_can_change(client, user, orow, reviewers=True)
     return orow
@@ -1031,7 +1047,7 @@ async def decide(recording_id: str, payload: Any, user: Any, *, client: Any = No
     if payload.action in ("KEEP_THIS", "CONTINUATION") and not other:
         fail("VALIDATION_FAILED", "Name the other take.")
     if other:
-        await _assert_other_take(db, user, row, other)
+        await _assert_other_take(db, user, row, other, payload.action)
     if payload.action == "KEEP_THIS" and not is_content_admin(user):
         # "Keep one" removes the other take, and removing a take is for content admins only.
         fail("FORBIDDEN", CONTENT_DELETE_REFUSAL)
