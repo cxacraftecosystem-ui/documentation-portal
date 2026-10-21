@@ -47,6 +47,7 @@ import { locationFromForm, requiredText, sameIdSet, textValue, useFocusField } f
 import { handleFormEnter } from "@/lib/formNav";
 import { uploadMediaBatch, type BatchProgress } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
+import { invalidateWorkshopList } from "@/lib/workshopList";
 import { canManageWorkshops, hasRank, isAdmin } from "@/lib/permissions";
 import { UploadsProvider, useUploads } from "@/lib/uploads";
 import type { Artisan, PageResult, RecordStatus, User, Workshop, WorkshopAssignment } from "@/lib/types";
@@ -469,6 +470,7 @@ function WorkshopsPageBody() {
         return;
       }
       const saved = outcome.saved;
+      invalidateWorkshopList();
       if (mediaFiles.length) {
         const { uploaded, failed } = await uploadMediaBatch({
           files: mediaFiles,
@@ -517,6 +519,7 @@ function WorkshopsPageBody() {
     if (!ok) return;
     try {
       await apiFetch(`/workshops/${id}`, { method: "DELETE" });
+      invalidateWorkshopList();
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to delete workshop");
