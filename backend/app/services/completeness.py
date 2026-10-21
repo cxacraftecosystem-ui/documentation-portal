@@ -79,8 +79,9 @@ STRING_COLUMNS: frozenset[tuple[str, str]] = frozenset(
     }
 )
 
-_LIVE_IMAGE = {"mediaType": "IMAGE", "status": {"not": "REJECTED"}}
-_LIVE_RECORDING = {"mediaType": {"in": ["AUDIO", "VIDEO"]}, "status": {"not": "REJECTED"}}
+# ``removedAt``: a soft-removed copy is not a photo or a recording the record has (audit M19).
+_LIVE_IMAGE = {"mediaType": "IMAGE", "status": {"not": "REJECTED"}, "removedAt": None}
+_LIVE_RECORDING = {"mediaType": {"in": ["AUDIO", "VIDEO"]}, "status": {"not": "REJECTED"}, "removedAt": None}
 
 #: The ``count`` rules as relation clauses: each matches a record whose count is BELOW ``min`` (1).
 COUNT_CLAUSES: dict[tuple[str, str], dict[str, Any]] = {
@@ -110,7 +111,7 @@ class CountSource:
 
 def _media_filter(kind_types: tuple[str, ...]):
     def keep(row: dict[str, Any]) -> bool:
-        return row.get("mediaType") in kind_types and row.get("status") != "REJECTED"
+        return row.get("mediaType") in kind_types and row.get("status") != "REJECTED" and row.get("removedAt") is None
 
     return keep
 

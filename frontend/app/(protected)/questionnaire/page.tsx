@@ -68,6 +68,7 @@ import { recordUpdateHref, recordViewHref } from "@/lib/recordView";
 import { canManageQuestionnaire, hasRank, isContentAdmin } from "@/lib/permissions";
 import { UploadsProvider, useEagerStaging, useUploads } from "@/lib/uploads";
 import type { MediaFile, PageResult, Questionnaire, QuestionnaireInterview, QuestionnaireQuestion, QuestionnaireSection } from "@/lib/types";
+import { settleBatch, unsentMessage } from "@/lib/questionnaireUploads";
 import { Toggle } from "@/components/ui/Toggle";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { ReviewNoteBanner } from "@/components/review/ReviewNoteBanner";
@@ -181,6 +182,27 @@ function captionAnswersQuestion(
   // `rest === stem` for a caption with no prompt on it; the two separators otherwise. Anchoring on
   // the separator is what stops question 3 claiming question 30's clips.
   return rest === stem || rest.startsWith(`${stem} `) || rest.startsWith(`${stem}-`);
+}
+
+/**
+ * M20 (audit 21 Oct 2026): the clip whose TRANSCRIPT may answer this question, by its link and never
+ * by its number. `extraMetadata.questionId` first (the web writes it); else the prompt the caption
+ * carries, word for word, within the caption's section (the handset writes the prompt, not the id).
+ * The "D3" in a caption is the question's position on the day it was recorded, so after a reorder it
+ * names another question. The backend's `clip_question_id` is the same rule.
+ */
+function clipAnswersQuestion(
+  media: { caption?: string | null; extraMetadata?: unknown },
+  question: { id: string; sectionCode: string; prompt: string }
+): boolean {
+  const extra = media.extraMetadata && typeof media.extraMetadata === "object" ? (media.extraMetadata as Record<string, unknown>) : null;
+  if (typeof extra?.questionId === "string") return extra.questionId === question.id;
+  const rest = captionBody(media.caption, QUESTION_CAPTION_PREFIX);
+  if (rest === null) return false;
+  const found = /^([A-Za-z]+?)\s*(\d+)\b\s*-?\s*([\s\S]*)$/.exec(rest);
+  if (!found || found[1].toUpperCase() !== question.sectionCode.toUpperCase()) return false;
+  const words = (text: string) => text.trim().split(/\s+/).join(" ").toLowerCase();
+  return Boolean(found[3].trim()) && words(found[3]) === words(question.prompt);
 }
 
 /** Any clip belonging to this section: its whole-section take, or any of its questions' takes. */
@@ -744,7 +766,7 @@ function QuestionnairePageBody() {
     const out: Record<string, string> = {};
     const media = [...(editing?.media ?? [])].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
     for (const question of questions) {
-      const clip = media.find((item) => captionAnswersQuestion(item.caption, question) && transcriptAnswerText(item.transcriptText));
+      const clip = media.find((item) => clipAnswersQuestion(item, question) && transcriptAnswerText(item.transcriptText));
       if (clip) out[question.id] = transcriptAnswerText(clip.transcriptText);
     }
     return out;
@@ -1520,7 +1542,8 @@ function QuestionnairePageBody() {
           place: textValue(form, "place"),
           language: textValue(form, "language"),
           notes: textValue(form, "notes"),
-          status: canPickStatus ? textValue(form, "status") || "APPROVED" : "PENDING",
+          // Nothing picked is PENDING, never APPROVED: a sitting is approved by somebody choosing to.
+          status: canPickStatus ? textValue(form, "status") || "PENDING" : "PENDING",
           workshopId: workshop.workshopId || null,
           artisanIds,
           responses
@@ -1634,8 +1657,9 @@ function QuestionnairePageBody() {
         return;
       }
       const saved = outcome.saved;
-      if (mediaFiles.length) {
-        const { uploaded } = await uploadMediaBatch({
+      // H21: every batch is settled, never assumed. What did not land is kept, by file.
+      const interviewBatch = await settleBatch(mediaFiles, () =>
+        uploadMediaBatch({
           files: mediaFiles,
           linkedRecordType: "questionnaire",
           linkedRecordId: saved.id,
@@ -1645,31 +1669,49 @@ function QuestionnairePageBody() {
           recordedTimezone,
           transcribeAudio: true,
           onProgress: setInterviewProgress
-        });
-        setInterviewProgress(null);
-        // Uploaded clips surface twice: as chips under this section and in the page-level tray.
-        addCompleted(INTERVIEW_SECTION, INTERVIEW_SECTION_LABEL, uploaded);
-      }
+        })
+      );
+      setInterviewProgress(null);
+      // Uploaded clips surface twice: as chips under this section and in the page-level tray.
+      if (interviewBatch.uploaded.length) addCompleted(INTERVIEW_SECTION, INTERVIEW_SECTION_LABEL, interviewBatch.uploaded);
+      const clipsLeft: Record<string, File[]> = {};
       for (const [key, files] of Object.entries(questionAudioFiles)) {
         const batch = clipBatch(key);
         if (!batch || files.length === 0) continue;
-        const { uploaded } = await uploadMediaBatch({
-          files,
-          linkedRecordType: "questionnaire",
-          linkedRecordId: saved.id,
-          caption: batch.caption,
-          location,
-          recordedAt,
-          recordedTimezone,
-          transcribeAudio: true,
-          extraMetadata: batch.extraMetadata,
-          onProgress: (progress) => setQuestionProgress((current) => ({ ...current, [key]: progress }))
-        });
-        addCompleted(clipTraySectionId(key), batch.trayLabel, uploaded);
+        const clipBatchOutcome = await settleBatch(files, () =>
+          uploadMediaBatch({
+            files,
+            linkedRecordType: "questionnaire",
+            linkedRecordId: saved.id,
+            caption: batch.caption,
+            location,
+            recordedAt,
+            recordedTimezone,
+            transcribeAudio: true,
+            extraMetadata: batch.extraMetadata,
+            onProgress: (progress) => setQuestionProgress((current) => ({ ...current, [key]: progress }))
+          })
+        );
+        if (clipBatchOutcome.uploaded.length) addCompleted(clipTraySectionId(key), batch.trayLabel, clipBatchOutcome.uploaded);
+        if (clipBatchOutcome.left.length) clipsLeft[key] = clipBatchOutcome.left;
       }
       // Cleared only once every question has been pushed, so the tray's page-level total counts the
       // whole run rather than shrinking back to whichever question is uploading right now.
       setQuestionProgress({});
+      const unsent = [...interviewBatch.left, ...Object.values(clipsLeft).flat()];
+      if (unsent.length) {
+        /*
+          H21: SOME RECORDINGS DID NOT LAND. The interview exists now, so the form becomes an edit of
+          it (a second Save is a PATCH, never a second interview) and holds ONLY the files that
+          failed (a second Save never re-uploads the ones that landed).
+        */
+        seedFromInterview(saved);
+        setMediaFiles(interviewBatch.left);
+        setQuestionAudioFiles(clipsLeft);
+        setError(unsentMessage(unsent.map((file) => file.name)));
+        await loadInterviews();
+        return;
+      }
       if (editingId) {
         /*
           AN EDIT BANKS NOTHING AND CARRIES NOTHING FORWARD.
@@ -2149,7 +2191,7 @@ function QuestionnairePageBody() {
             {canPickStatus ? (
               /* An edit opens on the status the record already carries, not on the create default —
                  re-approving a REJECTED sitting has to be something somebody chose on screen. */
-              <Select name="status" defaultValue={editing?.status ?? "APPROVED"}>
+              <Select name="status" defaultValue={editing?.status ?? "PENDING"}>
                 {["DRAFT", "PENDING", "APPROVED", "REJECTED"].map((status) => (
                   <option key={status} value={status}>{statusLabel(status)}</option>
                 ))}

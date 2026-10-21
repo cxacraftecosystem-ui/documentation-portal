@@ -20,7 +20,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.services import transcription_enqueue as transcription
 from app.core.config import get_settings
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_dataset_downloader
 from app.schemas import questionnaire_v2 as S
 from app.services import consent_gate
 from app.services.questionnaire_v2 import answers, corpus, coverage, inbox, record, recordings, sessions
@@ -265,7 +265,27 @@ async def recordings_transcribe(recording_id: str, user: Any = Depends(get_curre
 
 @router.get("/recordings/{recording_id}/download", dependencies=V2)
 async def recordings_download(recording_id: str, user: Any = Depends(get_current_user)) -> RedirectResponse:
+    await assert_may_download_recording(recording_id, user)
     return RedirectResponse(await recordings.download_url(recording_id, user), status_code=status.HTTP_302_FOUND)
+
+
+async def assert_may_download_recording(recording_id: str, user: Any) -> None:
+    """The media-owner gate every other file download keeps (audit H3): the uploader, Professor and
+    above, a dataset downloader, or a holder of the uploader's data-access grant. Any signed-in user,
+    volunteers included, could download any recording."""
+    from app.core.db import db
+    from app.services.records import media_url_owners
+
+    rows = await db.query_raw(
+        'SELECT m."uploadedById" AS uploader FROM "QuestionnaireRecording" r JOIN "MediaFile" m ON m."id" = r."mediaFileId" '
+        'WHERE r."id" = $1',
+        recording_id,
+    )
+    if not rows:
+        return  # download_url answers the 404
+    owners = await media_url_owners(user)
+    if owners is not None and str(rows[0]["uploader"]) not in owners:
+        fail("FORBIDDEN", "You need download access to this researcher's recordings. Request it from them.")
 
 
 # ── answers, inbox, corpus ─────────────────────────────────────────────────────────────────────
@@ -298,15 +318,16 @@ async def _corpus(questionnaire_id: str, status_filter: str | None, kind: str, f
 @router.get("/corpus.jsonl", dependencies=V2)
 async def corpus_jsonl(
     questionnaireId: str, status_filter: str | None = Query("APPROVED", alias="status"),
-    kind: str = Query("answers", pattern="^(answers|recordings|meta)$"), _: Any = Depends(get_current_user),
+    kind: str = Query("answers", pattern="^(answers|recordings|meta)$"), _: Any = Depends(require_dataset_downloader),
 ) -> Response:
+    # A whole-instrument dump: the dataset-download gate /export/*.csv keeps (audit H3).
     return await _corpus(questionnaireId, status_filter, kind, "jsonl")
 
 
 @router.get("/corpus.csv", dependencies=V2)
 async def corpus_csv(
     questionnaireId: str, status_filter: str | None = Query("APPROVED", alias="status"),
-    kind: str = Query("answers", pattern="^(answers|recordings|meta)$"), _: Any = Depends(get_current_user),
+    kind: str = Query("answers", pattern="^(answers|recordings|meta)$"), _: Any = Depends(require_dataset_downloader),
 ) -> Response:
     return await _corpus(questionnaireId, status_filter, kind, "csv")
 
@@ -342,9 +363,16 @@ async def artisan_consent_post(artisan_id: str, request: Request, user: Any = De
     held recordings (still subject to the pause, and to anyone else's refusal)."""
     from app.core.db import db
 
+    from app.services.access import record_edit_privilege
+
     payload = await parse(request, S.ConsentPost)
-    if not await db.artisan.find_unique(where={"id": artisan_id}):
+    artisan = await db.artisan.find_unique(where={"id": artisan_id})
+    if not artisan:
         fail("NOT_FOUND", "No such artisan.")
+    # The edit privilege the older /recording-consent route asks (audit H12): any signed-in user
+    # could change any artisan's consent here.
+    if not await record_edit_privilege(artisan, user, "artisan"):
+        fail("FORBIDDEN", "Only someone who may edit this artisan can record their consent.")
     await consent_gate.record_artisan_consent(
         artisan_id, state=payload.state, basis=payload.basis, actor_id=user.id, purpose=payload.purpose,
         note=payload.note, evidence_media_id=payload.evidenceMediaId, client=db,
@@ -368,7 +396,17 @@ async def artisan_record_get(artisan_id: str, questionnaireId: str | None = None
 
 @artisans_router.get("/{artisan_id}/record.csv", dependencies=V2)
 async def artisan_record_csv(artisan_id: str, questionnaireId: str | None = None, user: Any = Depends(get_current_user)) -> Response:
+    from app.core.db import db
+    from app.services.access import owner_download_scope
     from app.services.naming import content_disposition
 
+    # The gate the legacy consolidated CSV keeps (audit H3): download access to the artisan's owner,
+    # and a subset grant has to name this artisan.
+    artisan = await db.artisan.find_unique(where={"id": artisan_id})
+    if not artisan:
+        fail("NOT_FOUND", "No such artisan.")
+    scope = await owner_download_scope(user, getattr(artisan, "createdById", None))
+    if scope is not None and artisan_id not in scope.get("artisans", set()):
+        fail("FORBIDDEN", "Your download access to this researcher's data does not cover this artisan.")
     filename, text = await record.artisan_record_csv(artisan_id, user, questionnaire_id=questionnaireId)
     return Response(text, media_type="text/csv; charset=utf-8", headers={"Content-Disposition": content_disposition(filename)})

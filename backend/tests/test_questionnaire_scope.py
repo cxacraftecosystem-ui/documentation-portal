@@ -21,7 +21,7 @@ import httpx
 import pytest
 from fastapi import FastAPI, HTTPException
 
-from access_roster_fakes import FakeTable, install
+from access_roster_fakes import FakeTable, PassThroughTx, install
 from app.api.router import api_router
 from app.api.routes import questionnaire, workshops
 from app.core import deps
@@ -89,7 +89,7 @@ class _Logged(FakeTable):
         return await super().count(where, **kwargs)
 
 
-class _Db:
+class _Db(PassThroughTx):
     """`db`, auto-vivifying an empty logged table for anything asked of it.
 
     DELIBERATELY the opposite of `access_roster_fakes.FakeDb`'s strict rule, and the reason is what
@@ -281,6 +281,8 @@ def creatable(db: _Db, monkeypatch: pytest.MonkeyPatch) -> _Db:
 
     monkeypatch.setattr(questionnaire, "hydrate_relations", noop)
     monkeypatch.setattr(questionnaire, "replace_interview_artisans", noop)
+    # The create writes its artisan links itself, in its transaction (M21), and checks they exist.
+    asyncio.run(db.artisan.create(data={"id": "a1"}))
     return db
 
 

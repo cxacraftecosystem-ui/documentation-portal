@@ -108,11 +108,15 @@ class _Delegate:
         self._record("find_many", where=where, **kwargs)
         rows = list(self.rows)
         where = where or {}
-        for key, clause in where.items():
+        def hit(row: Any, key: str, clause: Any) -> bool:
+            if key == "OR":
+                return any(all(hit(row, k, c) for k, c in branch.items()) for branch in clause)
             if isinstance(clause, dict) and "in" in clause:
-                rows = [r for r in rows if getattr(r, key, None) in clause["in"]]
-            else:
-                rows = [r for r in rows if getattr(r, key, None) == clause]
+                return getattr(row, key, None) in clause["in"]
+            return getattr(row, key, None) == clause
+
+        for key, clause in where.items():
+            rows = [r for r in rows if hit(r, key, clause)]
         take = kwargs.get("take")
         if kwargs.get("order") and rows:
             order = kwargs["order"]
@@ -122,11 +126,35 @@ class _Delegate:
         return rows[:take] if take else rows
 
 
+EVIDENCE_TABLES = (
+    "questionnairerecordingtarget",
+    "questionnaireanswer",
+    "questionnaireanswerrevision",
+    "questionnairetakedraft",
+    "questionnaireanswerdraft",
+)
+
+
 class _Db:
     """``db`` for the duration of one test. Any delegate not named here is a mistake, loudly."""
 
     def __init__(self, **delegates: _Delegate) -> None:
         self._delegates = delegates
+        self.transactions = 0
+
+    def tx(self, **_: Any) -> Any:
+        """The re-upload's one transaction (H7): counted, and written through these same delegates."""
+        fake = self
+
+        class _Block:
+            async def __aenter__(self) -> Any:
+                fake.transactions += 1
+                return fake
+
+            async def __aexit__(self, *_exc: Any) -> bool:
+                return False
+
+        return _Block()
 
     def __getattr__(self, name: str) -> Any:
         try:
@@ -252,6 +280,8 @@ def world(monkeypatch: pytest.MonkeyPatch):
         "questionnaireresponse": _Delegate("questionnaireresponse", journal, []),
         "questionnairesectionstatus": _Delegate("questionnairesectionstatus", journal, []),
         "assignedtask": _Delegate("assignedtask", journal, []),
+        # H7: recordings, v2 answers and both kinds of draft are evidence too.
+        **{name: _Delegate(name, journal, []) for name in EVIDENCE_TABLES},
     }
     db = _Db(**delegates)
     monkeypatch.setattr(workbook, "db", db)
@@ -1070,3 +1100,70 @@ def test_a_pro_forma_filled_in_uploaded_downloaded_and_uploaded_again_is_stable(
     assert _calls(world, "questionnairequestion", "create") == []
     assert _calls(world, "questionnairequestion", "delete") == []
     assert _calls(world, "questionnairesection", "delete") == []
+
+
+# =================================================================================================
+# H7 (audit 21 Oct 2026): recordings, v2 answers and drafts are evidence; one transaction
+# =================================================================================================
+
+
+def _recorded(world, question_id: str, *, by_lineage: bool = False) -> None:
+    """A take filed to this question, as the v2 recording target writes it (no typed answer)."""
+    world.questionnairerecordingtarget.rows.append(
+        SimpleNamespace(
+            recordingId=f"rec-{question_id}",
+            targetKey=f"Q:{question_id}",
+            askedQuestionId=None if by_lineage else question_id,
+            questionLineageId=question_id,
+        )
+    )
+
+
+def test_h7_a_question_with_only_a_recording_is_superseded_not_reworded_in_place(world):
+    _recorded(world, "q-1")
+    parsed = _parsed(
+        _section(
+            "A",
+            "About",
+            _question("How many years have you worked this craft?", 2, questionId="q-1"),
+            _question("Who taught you?", 3, questionId="q-2"),
+        ),
+        _section("B", "Materials", _question("Where do you buy your yarn?", 4, questionId="q-3")),
+    )
+    report = _run(workbook.apply_parsed_edit("qnr-1", parsed))
+
+    assert report["superseded"] == 1
+    in_place = [
+        c for c in _calls(world, "questionnairequestion", "update")
+        if c["where"]["id"] == "q-1" and "prompt" in c["data"]
+    ]
+    assert in_place == []
+
+
+def test_h7_a_recorded_question_missing_from_the_sheet_is_retired_never_deleted(world):
+    _recorded(world, "q-2", by_lineage=True)
+    world.questionnaireanswerdraft.rows.append(SimpleNamespace(id="d-1", questionId="q-3"))
+    parsed = _parsed(
+        _section("A", "About", _question("How long have you practised this craft?", 2, questionId="q-1")),
+    )
+    report = _run(workbook.apply_parsed_edit("qnr-1", parsed))
+
+    assert _calls(world, "questionnairequestion", "delete") == []
+    assert report["retired"] == 2
+
+
+def test_h7_v2_answers_and_take_drafts_count_by_lineage(world):
+    world.questionnaireanswer.rows.append(SimpleNamespace(id="ans-1", questionLineageId="q-2"))
+    world.questionnairetakedraft.rows.append(SimpleNamespace(id="td-1", questionLineageId="q-3"))
+    answered, _rows = _run(workbook._answer_evidence(world.questions, world.db))
+    assert answered == {"q-2", "q-3"}
+
+
+def test_h7_the_re_upload_runs_in_one_transaction(world):
+    parsed = _parsed(
+        _section("A", "About", _question("How long have you practised this craft?", 2, questionId="q-1")),
+        _section("B", "Materials", _question("Where do you buy your yarn?", 3, questionId="q-3")),
+    )
+    _run(workbook.apply_parsed_edit("qnr-1", parsed))
+    assert world.db.transactions == 1
+

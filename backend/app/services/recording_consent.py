@@ -12,9 +12,7 @@ This module is the adapter the queue, "Transcribe now" and the insights job call
 writes, kept so installed apps that still call those routes keep working; both apps now record the
 answer through ``/artisans/{id}/consent``, and every route writes the same ledger row.
 
-The older ``RecordingConsent`` table is no longer written. Until
-``scripts/migrate_recording_consent_to_ledger.py`` has copied it into the ledger, the gate's reads
-fold its rows in (``consent_gate.current_states``).
+The older ``RecordingConsent`` table is neither written nor read (it held 0 rows; audit M8).
 
 A failed read refuses, never raises: an unreadable store may hold a refusal, so it must not become
 a send.

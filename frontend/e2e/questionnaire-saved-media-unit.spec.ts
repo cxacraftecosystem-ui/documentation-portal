@@ -176,7 +176,8 @@ test("a. saved media is READ-ONLY and never reaches the upload tray", () => {
   // clear — or, since B6, the restore of an UNSAVED draft, whose files are this visit's own new
   // clips kept in the browser and never the record's stored ones.
   (CODE.match(/setMediaFiles\([^)]*\)/g) ?? []).forEach((call) =>
-    expect(["setMediaFiles([])", "setMediaFiles(fields.mediaFiles as File[])"]).toContain(call)
+    // H21 (21 Oct 2026): or the files of THIS save that did not upload, kept to be resent.
+    expect(["setMediaFiles([])", "setMediaFiles(fields.mediaFiles as File[])", "setMediaFiles(interviewBatch.left)"]).toContain(call)
   );
   // And neither map is ever handed the record's stored files, under any spelling.
   expect(CODE).not.toMatch(/set(MediaFiles|QuestionAudioFiles)\([^;]*savedMedia/);

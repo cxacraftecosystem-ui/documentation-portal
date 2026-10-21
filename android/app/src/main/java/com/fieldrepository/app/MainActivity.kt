@@ -4718,6 +4718,10 @@ private suspend fun uploadAttachments(
     ) return
     if (failures.isNotEmpty()) {
         val allFailed = failures.size == media.uris.size
+        // H21: the files that did reach the record leave the batch, so Save again sends only the failures.
+        val failed = failedUris.map { it.second }.toSet()
+        media.uris.filterNot { it in failed }.forEach { media.forget(it) }
+        media.uris = media.uris.filter { it in failed }
         val prefix = if (allFailed) "All ${countNoun(failures.size, "media file")} failed to upload" else "${countNoun(failures.size, "media file")} failed to upload"
         throw IllegalStateException(
             "$prefix (${failures.joinToString(", ")}). The record was saved — re-attach from \"Update existing\"."
@@ -5780,28 +5784,41 @@ private fun AudioClipRecorder(
         uris.forEach { onAddClip(it) }
     }
 
+    // The take lives in [LegacyTake], held up by a microphone foreground service, so a locked screen,
+    // an app switch or a collapsed section never drops it (H21).
+    val addClip by rememberUpdatedState(onAddClip)
+
     fun startNew() {
         runCatching {
             val file = createAppFile(context, "question-audio-", ".m4a")
-            recorder = createAudioRecorder(context, file).also { it.start() }
+            val started = createAudioRecorder(context, file).also { it.start() }
+            com.fieldrepository.app.recording.LegacyTake.begin(com.fieldrepository.app.recording.LegacyTake.Media(started), file)
+            com.fieldrepository.app.recording.LegacyRecordingService.start(context)
+            recorder = started
             recordingFile = file
             phase = RecPhase.RECORDING
         }.onFailure { onError(it.apiErrorMessage("Unable to start recording")); phase = RecPhase.IDLE }
     }
 
-    fun stopAndSave() {
-        runCatching {
-            recorder?.stop()
-            recorder?.release()
-            recordingFile?.let { onAddClip(uriForFile(context, it)) }
-        }.onFailure { onError(it.apiErrorMessage("Unable to stop recording")) }
+    /** Stop the take and attach it. Also the dispose path: a collapse or Back keeps the take. */
+    fun finaliseTake(): Boolean {
+        if (recorder == null) return false
+        val file = com.fieldrepository.app.recording.LegacyTake.finalise()
+        com.fieldrepository.app.recording.LegacyRecordingService.stop(context)
         recorder = null
         recordingFile = null
+        if (file != null) addClip(uriForFile(context, file))
+        return file != null
+    }
+
+    fun stopAndSave() {
+        runCatching { if (!finaliseTake()) onError("Recording too short to keep") }
+            .onFailure { onError(it.apiErrorMessage("Unable to stop recording")) }
         phase = RecPhase.RECORDED
     }
 
     DisposableEffect(Unit) {
-        onDispose { runCatching { recorder?.stop(); recorder?.release() }; recorder = null }
+        onDispose { runCatching { finaliseTake() } }
     }
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -5815,7 +5832,7 @@ private fun AudioClipRecorder(
             RecPhase.RECORDING -> {
                 ActionRow {
                     OutlinedButton(
-                        onClick = { runCatching { recorder?.pause(); phase = RecPhase.PAUSED }.onFailure { onError(it.apiErrorMessage("Unable to pause")) } },
+                        onClick = { runCatching { com.fieldrepository.app.recording.LegacyTake.pause(); phase = RecPhase.PAUSED }.onFailure { onError(it.apiErrorMessage("Unable to pause")) } },
                         contentPadding = pad
                     ) {
                         Icon(Icons.Filled.Pause, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -5831,7 +5848,7 @@ private fun AudioClipRecorder(
             RecPhase.PAUSED -> {
                 ActionRow {
                     OutlinedButton(
-                        onClick = { runCatching { recorder?.resume(); phase = RecPhase.RECORDING }.onFailure { onError(it.apiErrorMessage("Unable to resume")) } },
+                        onClick = { runCatching { com.fieldrepository.app.recording.LegacyTake.resume(); phase = RecPhase.RECORDING }.onFailure { onError(it.apiErrorMessage("Unable to resume")) } },
                         contentPadding = pad
                     ) { Text("Resume ●", maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelLarge) }
                     OutlinedButton(onClick = { stopAndSave() }, contentPadding = pad) {
@@ -15257,6 +15274,9 @@ private fun QuestionnaireForm(
     }
     // Clips keyed by target: a question id (individual mode) or "section:<id>" (whole-section mode).
     var questionAudio by remember { mutableStateOf<Map<String, List<Uri>>>(emptyMap()) }
+    // H21: the interview an earlier, partly failed save of this form already created. Every later
+    // save updates it instead of creating a duplicate (data/LegacyQuestionnaireSave.kt).
+    var createdId by remember(editing?.id) { mutableStateOf<String?>(null) }
     fun sectionIdForKey(key: String): String? =
         if (key.startsWith("section:")) key.removePrefix("section:")
         else sections.firstOrNull { sec -> sec.questions.any { it.id == key } }?.id
@@ -16250,15 +16270,30 @@ private fun QuestionnaireForm(
                             location = locationForBody(true, capturedLocation, original.location)
                         )
                     }
+                    /** The PATCH for whichever interview this save updates: the one being edited, or the one created by an earlier try. */
+                    fun updateRequestFor(): QuestionnaireInterviewUpdateRequest =
+                        if (editing != null) interviewUpdateRequest() else QuestionnaireInterviewUpdateRequest(
+                            title = effectiveTitle(),
+                            place = place.blankToNull(),
+                            language = language.blankToNull(),
+                            notes = notes.blankToNull(),
+                            status = status,
+                            artisanIds = selectedArtisans.toList(),
+                            responses = responsesToSend.ifEmpty { null },
+                            workshopId = workshop.value(),
+                            location = capturedLocation
+                        )
+                    val saveTarget = com.fieldrepository.app.data.LegacyQuestionnaireSave.target(editing?.id, createdId)
+                    val updateId = (saveTarget as? com.fieldrepository.app.data.LegacyQuestionnaireSave.Target.Update)?.interviewId
                     // Offline: a new interview queues as a create; an EDIT queues as one ordered unit
                     // (the PATCH, then its clips and attachments), replayed in order when the
                     // connection returns and stopped at the first step the server refuses.
                     if (!repository.isOnline(context)) {
                         val ok = runCatching {
-                            if (isEdit) {
+                            if (updateId != null) {
                                 repository.queueSequence(
-                                    context, "questionnaire", editing!!.id, effectiveTitle(),
-                                    listOf(OutboxStep("questionnaire.update", editing.id, offlineFormJson.encodeToString(interviewUpdateRequest()))),
+                                    context, "questionnaire", updateId, effectiveTitle(),
+                                    listOf(OutboxStep("questionnaire.update", updateId, offlineFormJson.encodeToString(updateRequestFor()))),
                                     questionnaireOfflineItems()
                                 )
                                 return@runCatching
@@ -16288,8 +16323,8 @@ private fun QuestionnaireForm(
                             repository.queueOfflineEntry(context, "questionnaire", offlineFormJson.encodeToString(request),
                                 effectiveTitle(), items)
                         }.isSuccess
-                        if (ok && isEdit) {
-                            media.reset(); qMedia.reset(); questionAudio = emptyMap()
+                        if (ok && updateId != null) {
+                            media.reset(); qMedia.reset(); questionAudio = emptyMap(); createdId = null
                             draft.clear()
                             saveState = SaveState.SAVED
                             onError("Saved offline. Uploads when you're online.")
@@ -16334,6 +16369,10 @@ private fun QuestionnaireForm(
                                 interviewUpdateRequest()
                             )
                             original.id
+                        } else if (updateId != null) {
+                            // An earlier save created this interview and then lost a clip: update it.
+                            repository.updateQuestionnaireInterview(updateId, updateRequestFor())
+                            updateId
                         } else {
                             val request = QuestionnaireInterviewCreateRequest(
                                     title = effectiveTitle(),
@@ -16355,7 +16394,7 @@ private fun QuestionnaireForm(
                             createOrKeep(
                                 repository, context, "questionnaire", offlineFormJson.encodeToString(request),
                                 effectiveTitle(), { questionnaireOfflineItems() }
-                            ) { key -> onSubmit(request, key) }
+                            ) { key -> onSubmit(request, key) }.also { createdId = it }
                         }
                         // Upload all recorded clips, whether keyed by question id or by section.
                         val questionsById = questions.associateBy { it.id }
@@ -16419,6 +16458,10 @@ private fun QuestionnaireForm(
                                         overrideBaseName = baseName
                                     )
                                 }
+                                // Linked: a retry after a later clip fails must not send this one again.
+                                questionAudio = com.fieldrepository.app.data.LegacyQuestionnaireSave.withoutClip(questionAudio, key, uri)
+                                qMedia.forget(uri)
+                                qMedia.uris = qMedia.uris.filterNot { it == uri }
                             }
                         }
                         // General attach-media batch (photos/videos/files/extra audio) — eager-uploaded
@@ -16514,6 +16557,7 @@ private fun QuestionnaireForm(
                         )
                     }
                     if (!isEdit) {
+                        createdId = null
                         title = ""
                         selectedArtisans = emptySet()
                         place = ""
@@ -16558,7 +16602,7 @@ private fun QuestionnaireForm(
         FormDraftAutosave(draft, dirty, label = title)
         SaveButton(
             state = saveState,
-            idleLabel = if (isEdit) "Update interview" else "Save questionnaire"
+            idleLabel = if (isEdit || createdId != null) "Update interview" else "Save questionnaire"
         ) { submit() }
         Text("Media uploads as you go.", color = Muted, style = MaterialTheme.typography.bodySmall)
     }

@@ -60,34 +60,59 @@ def test_transcript_answer_text_runs_the_shared_vectors():
 
 
 def _clip(**kwargs: Any) -> SimpleNamespace:
-    base = {"extraMetadata": None, "caption": None, "transcriptText": None, "createdAt": datetime(2026, 10, 1)}
+    base = {"id": None, "extraMetadata": None, "caption": None, "transcriptText": None, "createdAt": datetime(2026, 10, 1)}
     base.update(kwargs)
     return SimpleNamespace(**base)
 
 
-STEMS = {"D3": "q-d3", "D30": "q-d30", "A1": "q-a1", "RESP1": "q-resp1"}
+def _q(qid: str, code: str, order: int, prompt: str, lineage: str | None = None) -> SimpleNamespace:
+    return SimpleNamespace(id=qid, sectionCode=code, sortOrder=order, prompt=prompt, lineageId=lineage or qid)
+
+
+QUESTIONS = [
+    _q("q-d3", "D", 3, "How is the clay prepared?"),
+    _q("q-d30", "D", 30, "Who sells it?"),
+    _q("q-a1", "A", 1, "What is your name?"),
+    _q("q-resp1", "RESP", 1, "Who answered?"),
+]
 
 
 def test_a_clip_finds_its_question_by_metadata_then_by_either_clients_caption():
-    assert q_routes.clip_question_id(_clip(extraMetadata={"questionId": "q-a1"}), STEMS) == "q-a1"
-    assert q_routes.clip_question_id(_clip(caption="Question audio: D3 - How is the clay prepared?"), STEMS) == "q-d3"
-    assert q_routes.clip_question_id(_clip(caption="Question audio: D3 How is the clay prepared?"), STEMS) == "q-d3"
-    assert q_routes.clip_question_id(_clip(caption="Question audio: D30 - Who sells it?"), STEMS) == "q-d30"
+    assert q_routes.clip_question_id(_clip(extraMetadata={"questionId": "q-a1"}), QUESTIONS) == "q-a1"
+    assert q_routes.clip_question_id(_clip(caption="Question audio: D3 - How is the clay prepared?"), QUESTIONS) == "q-d3"
+    assert q_routes.clip_question_id(_clip(caption="Question audio: D3 How is the clay prepared?"), QUESTIONS) == "q-d3"
+    assert q_routes.clip_question_id(_clip(caption="Question audio: D30 - Who sells it?"), QUESTIONS) == "q-d30"
 
 
 def test_a_section_take_or_a_foreign_question_answers_nothing():
-    assert q_routes.clip_question_id(_clip(caption="Section audio: D RAW MATERIALS"), STEMS) is None
-    assert q_routes.clip_question_id(_clip(extraMetadata={"questionId": "other-instrument"}), STEMS) is None
-    assert q_routes.clip_question_id(_clip(caption="Field media"), STEMS) is None
+    assert q_routes.clip_question_id(_clip(caption="Section audio: D RAW MATERIALS"), QUESTIONS) is None
+    assert q_routes.clip_question_id(_clip(extraMetadata={"questionId": "other-instrument"}), QUESTIONS) is None
+    assert q_routes.clip_question_id(_clip(caption="Field media"), QUESTIONS) is None
+
+
+def test_m20_a_clip_is_placed_by_its_link_never_by_its_position():
+    """Audit M20: after a reorder "D3" is another question. The caption's number must not place it."""
+    reordered = [_q("q-clay", "D", 7, "How is the clay prepared?"), _q("q-kiln", "D", 3, "Who built the kiln?")]
+    # The caption still says D3 (its position on the day), but its prompt names the clay question.
+    assert q_routes.clip_question_id(_clip(caption="Question audio: D3 How is the clay prepared?"), reordered) == "q-clay"
+    # A caption with no prompt, or a prompt that no longer exists, is not placed by its number.
+    assert q_routes.clip_question_id(_clip(caption="Question audio: D3"), reordered) is None
+    assert q_routes.clip_question_id(_clip(caption="Question audio: D3 - A question since deleted"), reordered) is None
+    # The recording's target wins over the caption, by exact wording or by lineage.
+    linked = [{"askedQuestionId": None, "questionLineageId": "q-kiln"}]
+    assert q_routes.clip_question_id(_clip(caption="Question audio: D3 How is the clay prepared?"), reordered, linked) == "q-kiln"
+    rows = [_clip(id="m-1", caption="Question audio: D3", transcriptText="The kiln was built by my father.")]
+    assert q_routes.question_clip_transcripts(rows, reordered, {"m-1": linked}) == {"q-kiln": "The kiln was built by my father."}
+    assert q_routes.question_clip_transcripts(rows, reordered) == {}
 
 
 def test_the_newest_transcribed_clip_wins_and_empty_transcripts_are_skipped():
     rows = [
-        _clip(caption="Question audio: D3 - x", transcriptText="older", createdAt=datetime(2026, 10, 1)),
-        _clip(caption="Question audio: D3 - x", transcriptText="**S:** newer", createdAt=datetime(2026, 10, 2)),
-        _clip(caption="Question audio: A1 - y", transcriptText="   "),
+        _clip(caption="Question audio: D3 - How is the clay prepared?", transcriptText="older", createdAt=datetime(2026, 10, 1)),
+        _clip(caption="Question audio: D3 - How is the clay prepared?", transcriptText="**S:** newer", createdAt=datetime(2026, 10, 2)),
+        _clip(caption="Question audio: A1 - What is your name?", transcriptText="   "),
     ]
-    assert q_routes.question_clip_transcripts(rows, STEMS) == {"q-d3": "S: newer"}
+    assert q_routes.question_clip_transcripts(rows, QUESTIONS) == {"q-d3": "S: newer"}
 
 
 def test_a_response_may_say_it_came_from_the_transcript_and_nothing_else():
@@ -145,15 +170,12 @@ async def test_upsert_stamps_the_source_on_a_new_answer_and_clears_it_on_a_typed
 async def test_apply_transcripts_fills_only_the_empty_answers(monkeypatch):
     interview = SimpleNamespace(id="i-1", questionnaireId="inst")
     media = [
-        _clip(caption="Question audio: D3 - x", transcriptText="**Speaker 1:** Clay from the river."),
-        _clip(caption="Question audio: A1 - y", transcriptText="Typed already, do not touch"),
+        _clip(caption="Question audio: D3 - How is the clay prepared?", transcriptText="**Speaker 1:** Clay from the river."),
+        _clip(caption="Question audio: A1 - What is your name?", transcriptText="Typed already, do not touch"),
         _clip(caption="Section audio: D RAW", transcriptText="a whole section"),
     ]
     answered = [SimpleNamespace(questionId="q-a1", answerText="Ramesh")]
-    questions = [
-        SimpleNamespace(id="q-d3", sectionCode="D", sortOrder=3),
-        SimpleNamespace(id="q-a1", sectionCode="A", sortOrder=1),
-    ]
+    questions = [QUESTIONS[0], QUESTIONS[2]]
     captured: dict[str, Any] = {}
 
     async def fake_require(model, record_id):
@@ -173,7 +195,7 @@ async def test_apply_transcripts_fills_only_the_empty_answers(monkeypatch):
             return interview
 
     class _Any:
-        def find_many(self, where):
+        def find_many(self, where, **_):
             async def _rows():
                 return []
 
@@ -200,6 +222,7 @@ async def test_apply_transcripts_fills_only_the_empty_answers(monkeypatch):
             mediafile=_Any(),
             questionnaireresponse=_Any(),
             questionnairequestion=_Any(),
+            questionnairerecording=_Any(),
         ),
     )
     result = await q_routes.apply_interview_transcripts("i-1", current_user=SimpleNamespace(id="u-9", role="ADMIN"))
@@ -403,8 +426,8 @@ def test_the_migration_is_additive_and_matches_the_schema():
 def _drive_apply(monkeypatch, interview: Any) -> dict[str, Any]:
     """Wire ``apply_interview_transcripts`` to fakes: one D3 clip, no answers. Returns what it wrote."""
     captured: dict[str, Any] = {"updates": []}
-    media = [_clip(caption="Question audio: D3 - x", transcriptText="Clay from the river.")]
-    questions = [SimpleNamespace(id="q-d3", sectionCode="D", sortOrder=3)]
+    media = [_clip(caption="Question audio: D3 - How is the clay prepared?", transcriptText="Clay from the river.")]
+    questions = [QUESTIONS[0]]
 
     async def fake_require(model, record_id):
         return interview
@@ -429,7 +452,7 @@ def _drive_apply(monkeypatch, interview: Any) -> dict[str, Any]:
             captured["updates"].append(data)
 
     class _Any:
-        def find_many(self, where):
+        def find_many(self, where, **_):
             async def _rows():
                 return []
 
@@ -452,6 +475,7 @@ def _drive_apply(monkeypatch, interview: Any) -> dict[str, Any]:
             mediafile=_Any(),
             questionnaireresponse=_Any(),
             questionnairequestion=_Any(),
+            questionnairerecording=_Any(),
         ),
     )
     return captured
@@ -513,8 +537,8 @@ async def test_the_edit_gate_lets_a_contributor_fill_and_writes_the_revision(mon
 
 
 def test_a_resp_clip_finds_its_question_by_caption():
-    assert q_routes.clip_question_id(_clip(caption="Question audio: RESP1 - Who answered?"), STEMS) == "q-resp1"
-    assert q_routes.clip_question_id(_clip(caption="Question audio: RESP 1 Who answered?"), STEMS) == "q-resp1"
+    assert q_routes.clip_question_id(_clip(caption="Question audio: RESP1 - Who answered?"), QUESTIONS) == "q-resp1"
+    assert q_routes.clip_question_id(_clip(caption="Question audio: RESP 1 Who answered?"), QUESTIONS) == "q-resp1"
 
 
 async def test_a_notes_only_change_keeps_the_transcript_mark(monkeypatch):

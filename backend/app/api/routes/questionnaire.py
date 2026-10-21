@@ -1,6 +1,6 @@
 import csv
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from io import StringIO
 from typing import Any
 
@@ -72,6 +72,9 @@ from app.services.questionnaire_instruments import (
 from app.services import answer_drafts, cross_portal_codes
 from app.services import completeness as completeness_module
 from app.services.questionnaire_v2 import shims as v2_shims
+from app.services.questionnaire_v2 import sessions as v2_sessions
+from app.services.questionnaire_v2.common import fail as v2_fail
+from app.services.questionnaire_v2.locks import lock_key
 from app.services.concurrency import gather_reads
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.record_filters import (
@@ -208,7 +211,8 @@ RELATIONS = (
         many=True,
         include={"question": True, "answeredBy": True},
     ),
-    Relation("media", "mediafile", "questionnaireInterviewId", many=True),
+    # Live files only (audit M19): a soft-removed copy is not one of the sitting's recordings.
+    Relation("media", "mediafile", "questionnaireInterviewId", many=True, where={"removedAt": None}),
 )
 
 
@@ -258,7 +262,7 @@ async def duplicate_set_conflict(interview_id: str, set_key: str | None) -> HTTP
         questionnaire_id = get_value(interview, "questionnaireId") if interview else None
         if questionnaire_id:
             row = await db.questionnaireinterview.find_first(
-                where={"questionnaireId": questionnaire_id, "artisanSetKey": set_key}
+                where={"questionnaireId": questionnaire_id, "artisanSetKey": set_key, "mergedIntoId": None}
             )
             if row is not None and get_value(row, "id") != interview_id:
                 holder = {"id": get_value(row, "id"), "title": get_value(row, "title")}
@@ -420,7 +424,7 @@ async def replace_interview_artisans(interview_id: str, artisan_ids: list[str]) 
             # already holding the set refuses the edit.
             row = await db.questionnaireinterview.find_unique(where={"id": interview_id})
             holders = await db.questionnaireinterview.find_many(
-                where={"questionnaireId": row.questionnaireId if row else None, "artisanSetKey": set_key}
+                where={"questionnaireId": row.questionnaireId if row else None, "artisanSetKey": set_key, "mergedIntoId": None}
             )
             if any(h.id != interview_id for h in holders):
                 raise _SetHeld()
@@ -1008,6 +1012,9 @@ async def list_interviews(
     # this route is a plain key for exactly these two reasons.
     if questionnaireId:
         where["questionnaireId"] = questionnaireId
+    # A session merged into another (H6 routes a merge with v2 data to sessions.merge_into, which
+    # keeps the source so old links resolve) is not listed; its content is on the survivor.
+    where["mergedIntoId"] = None
     if statusFilter:
         where["status"] = statusFilter
     if createdBy:
@@ -1130,6 +1137,44 @@ async def automatic_interview_title(
     return interview_title_from(name, get_value(instrument, "title") if instrument else None, when)
 
 
+# The create's transaction: a lock, a lookup, a row and its links. The slow box needs the headroom.
+CREATE_TX_MAX_WAIT = timedelta(seconds=15)
+CREATE_TX_TIMEOUT = timedelta(seconds=30)
+
+
+async def create_interview_atomically(
+    data: dict[str, Any], questionnaire_id: str, set_key: str | None, artisan_ids: list[str]
+) -> tuple[Any | None, Any | None]:
+    """``(created, None)``, or ``(None, winner)`` when this artisan set already has a sitting.
+
+    ONE TRANSACTION, UNDER A LOCK ON THE SET (audit M21). The old path created the row, then looked
+    for racers, then wrote the artisan links outside any transaction: two racing creates could each
+    see the other's bare row, the one that won hit the set-held guard while writing its links and
+    was left with none. Now the lookup, the row and its links happen together while holding
+    ``pg_advisory_xact_lock`` on (instrument, set), so the second racer waits, finds the first one's
+    finished row and folds into it.
+    """
+    unique_ids = sorted({aid for aid in artisan_ids if aid})
+    if unique_ids:
+        found = await db.artisan.find_many(where={"id": {"in": unique_ids}})
+        if len(found) != len(unique_ids):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
+    async with db.tx(max_wait=CREATE_TX_MAX_WAIT, timeout=CREATE_TX_TIMEOUT) as tx:
+        if set_key:
+            await lock_key(tx, f"legacy-set:{questionnaire_id}:{set_key}")
+            winner = await tx.questionnaireinterview.find_first(
+                where={"questionnaireId": questionnaire_id, "artisanSetKey": set_key, "mergedIntoId": None}
+            )
+            if winner is not None:
+                return None, winner
+        created = await tx.questionnaireinterview.create(data=data)
+        if unique_ids:
+            await tx.questionnaireinterviewartisan.create_many(
+                data=[{"interviewId": created.id, "artisanId": aid} for aid in unique_ids]
+            )
+    return created, None
+
+
 @questionnaire_router.post("/interviews", status_code=status.HTTP_201_CREATED)
 async def create_interview(
     payload: QuestionnaireInterviewCreate,
@@ -1196,7 +1241,7 @@ async def create_interview(
         # the end — so the common "fold into the existing entry" path stops paying for six relation
         # statements it was about to discard.
         existing = await db.questionnaireinterview.find_first(
-            where={"questionnaireId": questionnaire_id, "artisanSetKey": set_key}
+            where={"questionnaireId": questionnaire_id, "artisanSetKey": set_key, "mergedIntoId": None}
         )
         if existing is not None:
             return await merge_into_interview(existing, payload, current_user, check)
@@ -1230,31 +1275,17 @@ async def create_interview(
     # After the status policy, so a late submission outranks the submitter's own approval rights.
     pin_pending_if_late(data, current_user, check=check)
     try:
-        created = await db.questionnaireinterview.create(data=data)
-        if set_key:
-            # M1 dropped the (questionnaireId, artisanSetKey) unique, so a race that passed the
-            # look-ahead above is no longer refused by the database. Settle it here instead: every
-            # racer reads the same rows and agrees the earliest (createdAt, id) is canonical; a later
-            # racer deletes its bare row (no links or answers written yet) and folds into the winner.
-            same_set = await db.questionnaireinterview.find_many(
-                where={"questionnaireId": questionnaire_id, "artisanSetKey": set_key}
-            )
-            winner = min(same_set, key=lambda r: (str(getattr(r, "createdAt", "") or ""), str(r.id)), default=created)
-            if winner.id != created.id:
-                await db.questionnaireinterview.delete(where={"id": created.id})
-                return await merge_into_interview(winner, payload, current_user, check)
+        created, winner = await create_interview_atomically(data, questionnaire_id, set_key, payload.artisanIds)
     except UniqueViolationError:
-        # Race: a concurrent request won the create for this set ON THIS INSTRUMENT. Fold into the
-        # canonical row. Scoped the same way the look-ahead above is, or the recovery would find the
-        # other instrument's sitting and fold a 3rd-workshop submission into a 2nd-workshop one.
-        existing = await db.questionnaireinterview.find_first(
-            where={"questionnaireId": questionnaire_id, "artisanSetKey": set_key}
+        # A database that still carries the old (questionnaireId, artisanSetKey) unique refuses the
+        # loser of a race outright; fold it into the row that won, as before.
+        created, winner = None, await db.questionnaireinterview.find_first(
+            where={"questionnaireId": questionnaire_id, "artisanSetKey": set_key, "mergedIntoId": None}
         )
-        if existing is not None:
-            return await merge_into_interview(existing, payload, current_user, check)
-        raise
-    if payload.artisanIds:
-        await replace_interview_artisans(created.id, payload.artisanIds)
+        if winner is None:
+            raise
+    if winner is not None:
+        return await merge_into_interview(winner, payload, current_user, check)
     if payload.responses:
         await upsert_responses(created.id, payload.responses, current_user, questionnaire_id)
     # The row we just inserted IS the response; only its links and answers were written afterwards,
@@ -1294,7 +1325,7 @@ async def interview_for_artisan_set(
     # was already written down; only the argument was missing.
     qid = await resolve_questionnaire_id(questionnaireId, workshopId)
     interview = await db.questionnaireinterview.find_first(
-        where={"questionnaireId": qid, "artisanSetKey": set_key}
+        where={"questionnaireId": qid, "artisanSetKey": set_key, "mergedIntoId": None}
     )
     if not interview:
         return None
@@ -1366,8 +1397,9 @@ async def _derived_completed_sections(
         db.questionnairequestion.find_many(where={"questionnaireId": questionnaire_id}),
         db.questionnairesection.find_many(where={"questionnaireId": questionnaire_id}),
         db.questionnaireinterview.find_many(
-            where=interview_where,
-            include={"artisans": True, "responses": True, "media": True},
+            where={"AND": [interview_where, {"mergedIntoId": None}]},
+            # Live files only (audit M19): a removed copy is not evidence a section was recorded.
+            include={"artisans": True, "responses": True, "media": {"where": {"removedAt": None}}},
         ),
     )
     section_by_question = {q.id: q.sectionId for q in questions if q.sectionId}
@@ -1659,33 +1691,68 @@ def transcript_answer_text(transcript: str | None) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
-# The section code is letters of any length (``D``, ``RESP``); the digits after it are the number.
-_CLIP_QUESTION_CAPTION = re.compile(r"^question\s+audio:\s*([A-Za-z]+?)\s*(\d+)\b", re.IGNORECASE)
+# "Question audio: D3 - <prompt>" (web) or "Question audio: D3 <prompt>" (handset). The code and
+# number are read only to narrow the search to a section; the PROMPT is what places the clip.
+_CLIP_QUESTION_CAPTION = re.compile(r"^question\s+audio:\s*([A-Za-z]+?)\s*(\d+)\b\s*-?\s*(.*)$", re.IGNORECASE | re.DOTALL)
 
 
-def clip_question_id(media: Any, question_by_stem: dict[str, str]) -> str | None:
+def _same_words(a: str | None, b: str | None) -> bool:
+    return bool(a) and bool(b) and " ".join(str(a).split()).casefold() == " ".join(str(b).split()).casefold()
+
+
+def clip_question_id(
+    media: Any, questions: list[Any], links: list[dict[str, Any]] | None = None
+) -> str | None:
     """The ONE question a clip was recorded against, or None for a section take or an unfiled clip.
 
-    ``extraMetadata.questionId`` first — both clients write it when a clip is recorded against a
-    question. Then the caption both clients write ("Question audio: D3 - …" on the web, "Question
-    audio: D3 …" on the handset), resolved against THIS instrument's questions by section code and
-    number. A whole-section take answers no single question and is never matched.
+    BY THE CLIP'S LINK TO ITS QUESTION, NEVER BY POSITION (audit M20). The caption's "D3" is the
+    question's sortOrder on the day it was recorded; after a reorder or a deletion "D3" is a different
+    question, and its transcript filled the wrong answer. In order:
+
+    1. ``extraMetadata.questionId`` — the web writes it on every question clip;
+    2. the clip's recording target (``links``: ``askedQuestionId`` / ``questionLineageId``), which
+       the v2 backfill and the old-build shim resolve by content;
+    3. the prompt text in the caption, matched word for word within the caption's section (the
+       handset writes the prompt but not the id). A caption with no prompt is not placed.
+
+    ``questions`` are this instrument's ACTIVE questions. A whole-section take answers no single
+    question and is never matched.
     """
+    by_id = {str(get_value(q, "id")): q for q in questions}
     extra = get_value(media, "extraMetadata")
     question_id = extra.get("questionId") if isinstance(extra, dict) else None
-    if isinstance(question_id, str) and question_id in question_by_stem.values():
+    if isinstance(question_id, str) and question_id in by_id:
         return question_id
+    for link in links or []:
+        asked = link.get("askedQuestionId")
+        if asked and str(asked) in by_id:
+            return str(asked)
+        lineage = link.get("questionLineageId")
+        if lineage:
+            for q in questions:
+                if str(get_value(q, "lineageId") or get_value(q, "id")) == str(lineage):
+                    return str(get_value(q, "id"))
     found = _CLIP_QUESTION_CAPTION.match((get_value(media, "caption") or "").strip())
     if found:
-        return question_by_stem.get(f"{found.group(1).upper()}{int(found.group(2))}")
+        code, prompt = found.group(1).upper(), found.group(3).strip()
+        if isinstance(extra, dict) and extra.get("questionPrompt"):
+            prompt = str(extra["questionPrompt"])
+        matches = [
+            q for q in questions
+            if (get_value(q, "sectionCode") or "").upper() == code and _same_words(get_value(q, "prompt"), prompt)
+        ]
+        if len(matches) == 1:
+            return str(get_value(matches[0], "id"))
     return None
 
 
-def question_clip_transcripts(media_rows: list[Any], question_by_stem: dict[str, str]) -> dict[str, str]:
+def question_clip_transcripts(
+    media_rows: list[Any], questions: list[Any], links_by_media: dict[str, list[dict[str, Any]]] | None = None
+) -> dict[str, str]:
     """question id → the transcript of its NEWEST transcribed clip, for clips filed to one question."""
     newest: dict[str, tuple[Any, str]] = {}
     for media in media_rows:
-        question_id = clip_question_id(media, question_by_stem)
+        question_id = clip_question_id(media, questions, (links_by_media or {}).get(str(get_value(media, "id"))))
         text = transcript_answer_text(get_value(media, "transcriptText"))
         if not question_id or not text:
             continue
@@ -1694,6 +1761,24 @@ def question_clip_transcripts(media_rows: list[Any], question_by_stem: dict[str,
         if held is None or (stamp is not None and (held[0] is None or stamp > held[0])):
             newest[question_id] = (stamp, text)
     return {question_id: text for question_id, (_, text) in newest.items()}
+
+
+async def _clip_question_links(media_rows: list[Any]) -> dict[str, list[dict[str, Any]]]:
+    """media id → its live recording's question targets (``askedQuestionId``, ``questionLineageId``)."""
+    ids = [str(get_value(m, "id")) for m in media_rows if get_value(m, "id")]
+    if not ids:
+        return {}
+    recordings = await db.questionnairerecording.find_many(
+        where={"mediaFileId": {"in": ids}, "removedAt": None}, include={"targets": True}
+    )
+    links: dict[str, list[dict[str, Any]]] = {}
+    for recording in recordings:
+        links[str(get_value(recording, "mediaFileId"))] = [
+            {"askedQuestionId": get_value(t, "askedQuestionId"), "questionLineageId": get_value(t, "questionLineageId")}
+            for t in (get_value(recording, "targets") or [])
+            if get_value(t, "askedQuestionId") or get_value(t, "questionLineageId")
+        ]
+    return links
 
 
 @questionnaire_router.post("/interviews/{interview_id}/apply-transcripts")
@@ -1717,14 +1802,12 @@ async def apply_interview_transcripts(
     interview = await require_record(db.questionnaireinterview, interview_id)
     questionnaire_id = get_value(interview, "questionnaireId")
     media_rows, responses, questions = await gather_reads(
-        db.mediafile.find_many(where={"questionnaireInterviewId": interview_id}),
+        # Live files only (audit M19): a removed copy's transcript is not an answer.
+        db.mediafile.find_many(where={"questionnaireInterviewId": interview_id, "removedAt": None}),
         db.questionnaireresponse.find_many(where={"interviewId": interview_id}),
         db.questionnairequestion.find_many(where={"questionnaireId": questionnaire_id, "isActive": True}),
     )
-    question_by_stem = {
-        f"{(q.sectionCode or '').upper()}{q.sortOrder}": q.id for q in questions if q.sectionCode
-    }
-    transcripts = question_clip_transcripts(media_rows, question_by_stem)
+    transcripts = question_clip_transcripts(media_rows, questions, await _clip_question_links(media_rows))
     answered = {r.questionId for r in responses if (r.answerText or "").strip()}
     fills = [
         QuestionnaireResponseInput(questionId=qid, answerText=text, answerSource="TRANSCRIPT")
@@ -1980,6 +2063,17 @@ async def merge_interview_into(
     for row_id, fill in fills:
         await db.questionnaireresponse.update(where={"id": row_id}, data=fill)
 
+    # A SESSION WITH V2 DATA MERGES THE V2 WAY (audit H6), whatever the flag says. Recordings,
+    # participants, researchers, answer revisions and upload intents move in ONE transaction, and the
+    # source is kept with ``mergedIntoId`` so a queued clip or an old link still resolves. The legacy
+    # path below moves only media and then deletes the row, which RESTRICTs on answer revisions (a
+    # 500) and drops participants and researchers.
+    if await _has_v2_data(interview_id):
+        await v2_sessions.merge_into(interview_id, target_id, current_user)
+        survivor = await db.questionnaireinterview.find_unique(where={"id": target_id})
+        await hydrate_relations([survivor], RELATIONS)
+        return public_encode(survivor, current_user)
+
     # THE RECORDINGS MOVE TOO, and on this instrument they are most of what an interview IS: the
     # app's questionnaire clips carry their section in the filename and are the completion signal
     # for a sitting whose answers were spoken rather than typed (`_derived_completed_sections`
@@ -2115,9 +2209,47 @@ async def consolidated_questionnaire_csv(
 
 @questionnaire_router.delete("/interviews/{interview_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_interview(interview_id: str, current_user: Any = Depends(get_current_user)) -> None:
+    """Delete an interview that holds nothing. Content admins only.
+
+    409 ``HAS_RECORDINGS`` WHATEVER ``QUESTIONNAIRE_V2`` SAYS (audit H6). ``MediaFile`` points at the
+    interview with ``onDelete: SetNull``, so deleting a sitting with clips detached every one of them
+    (and its recording) from any session, and the coverage view dropped them. Answer revisions are
+    RESTRICT, so a sitting with one failed with a 500. Same rule and body as the v2 session delete.
+    """
     assert_can_delete(current_user)
     await require_record(db.questionnaireinterview, interview_id)
+    live, revisions, pending = await gather_reads(
+        db.mediafile.count(where={"questionnaireInterviewId": interview_id, "removedAt": None}),
+        db.questionnaireanswerrevision.count(where={"sessionId": interview_id}),
+        db.mediauploadintent.count(
+            where={"sessionId": interview_id, "closedAt": None, "expiresAt": {"gt": datetime.now(UTC)}}
+        ),
+    )
+    held = int(live or 0) + int(revisions or 0)
+    if held:
+        v2_fail("HAS_RECORDINGS", f"Move or remove its {held} recordings first.", count=held)
+    if pending:
+        v2_fail(
+            "HAS_RECORDINGS",
+            "A recording is still uploading to this interview. Try again once it lands.",
+            count=int(pending),
+            pending=int(pending),
+        )
     await db.questionnaireinterview.delete(where={"id": interview_id})
+
+
+async def _has_v2_data(interview_id: str) -> bool:
+    """Whether this sitting carries anything only the v2 merge moves: a recording on one of its
+    clips, an answer revision, a researcher row or an upload intent."""
+    media = await db.mediafile.find_many(where={"questionnaireInterviewId": interview_id})
+    media_ids = [str(get_value(m, "id")) for m in media]
+    recordings, revisions, researchers, intents = await gather_reads(
+        db.questionnairerecording.count(where={"mediaFileId": {"in": media_ids}}) if media_ids else _zero(),
+        db.questionnaireanswerrevision.count(where={"sessionId": interview_id}),
+        db.questionnaireinterviewresearcher.count(where={"interviewId": interview_id}),
+        db.mediauploadintent.count(where={"sessionId": interview_id}),
+    )
+    return bool(recordings or revisions or researchers or intents)
 
 
 # --- /questionnaires (PLURAL) — the instruments themselves ----------------------------------------
@@ -2372,7 +2504,7 @@ def _clip_help(
     return text[: MAX_HELP_CHARS - 1] + "…"
 
 
-async def _answer_evidence(question_ids: list[str]) -> tuple[set[str], set[str]]:
+async def _answer_evidence(questions: list[Any], client: Any = None) -> tuple[set[str], set[str]]:
     """``(answered, has_any_response_row)`` for these questions — TWO SETS, AND THEY ARE NOT THE SAME.
 
     ``answered`` is what the edit-after-answers rule turns on: a question with real recorded content
@@ -2396,14 +2528,34 @@ async def _answer_evidence(question_ids: list[str]) -> tuple[set[str], set[str]]
     admin to know what state their instrument is in. A question in this set and not in ``answered``
     is deactivated instead of deleted, and the report says so.
     """
+    client = client or db
+    question_ids = [str(get_value(q, "id")) for q in questions]
     if not question_ids:
         return set(), set()
-    rows = await db.questionnaireresponse.find_many(where={"questionId": {"in": question_ids}})
+    lineage_of = {str(get_value(q, "id")): str(get_value(q, "lineageId") or get_value(q, "id")) for q in questions}
+    lineages = sorted(set(lineage_of.values()))
+    # NOT ONLY TYPED ANSWERS (audit H7). A recording filed to a question, a v2 answer or revision, and
+    # a draft are evidence too: a question with only takes counted as unanswered, so it was reworded
+    # in place under them, and if it was missing from the sheet it was hard-deleted until a RESTRICT
+    # key stopped the loop half way. Removed takes count: they stay restorable.
+    # One after another, not gathered: ``client`` is the re-upload's transaction.
+    rows = await client.questionnaireresponse.find_many(where={"questionId": {"in": question_ids}})
+    targets = await client.questionnairerecordingtarget.find_many(
+        where={"OR": [{"askedQuestionId": {"in": question_ids}}, {"questionLineageId": {"in": lineages}}]}
+    )
+    answers = await client.questionnaireanswer.find_many(where={"questionLineageId": {"in": lineages}})
+    revisions = await client.questionnaireanswerrevision.find_many(where={"askedQuestionId": {"in": question_ids}})
+    take_drafts = await client.questionnairetakedraft.find_many(where={"questionLineageId": {"in": lineages}})
+    drafts = await client.questionnaireanswerdraft.find_many(where={"questionId": {"in": question_ids}})
     answered = {
         row.questionId
         for row in rows
         if (row.answerText or "").strip() or (row.notes or "").strip()
     }
+    asked = {str(get_value(r, "askedQuestionId")) for r in [*targets, *revisions] if get_value(r, "askedQuestionId")}
+    asked |= {str(get_value(r, "questionId")) for r in drafts}
+    held = {str(get_value(r, "questionLineageId")) for r in [*targets, *answers, *take_drafts] if get_value(r, "questionLineageId")}
+    answered |= {qid for qid in question_ids if qid in asked or lineage_of[qid] in held}
     return answered, {row.questionId for row in rows}
 
 
@@ -2608,7 +2760,26 @@ def _match_question(
     return by_prompt.get((section.id, parsed_question.prompt.strip().lower()))
 
 
+# The whole re-upload is one transaction (audit H7): every section and question write, or none.
+WORKBOOK_TX_MAX_WAIT = timedelta(seconds=15)
+WORKBOOK_TX_TIMEOUT = timedelta(seconds=120)
+
+
 async def apply_parsed_edit(
+    questionnaire_id: str,
+    parsed: ParsedQuestionnaire,
+    *,
+    title: str | None = None,
+    description: str | None = None,
+) -> dict[str, Any]:
+    """:func:`apply_parsed_edit_in` inside ONE transaction (audit H7). A refusal part way (a RESTRICT
+    key, a unique) used to leave the instrument half-applied behind a 500; now nothing is written."""
+    async with db.tx(max_wait=WORKBOOK_TX_MAX_WAIT, timeout=WORKBOOK_TX_TIMEOUT) as tx:
+        return await apply_parsed_edit_in(tx, questionnaire_id, parsed, title=title, description=description)
+
+
+async def apply_parsed_edit_in(
+    client: Any,
     questionnaire_id: str,
     parsed: ParsedQuestionnaire,
     *,
@@ -2647,7 +2818,7 @@ async def apply_parsed_edit(
     rather than a 500 out of Prisma, and so that it happens before any row is written rather than
     half way through.
     """
-    existing = await db.questionnaire.find_unique(where={"id": questionnaire_id})
+    existing = await client.questionnaire.find_unique(where={"id": questionnaire_id})
     if existing is None:
         raise QuestionnaireWorkbookError("That questionnaire no longer exists.")
     # READ ONCE, INTO AN INT, AND NEVER READ OFF `existing` AGAIN. The last thing this function does
@@ -2658,7 +2829,7 @@ async def apply_parsed_edit(
     # inflated number there makes every client believe it is stale on every upload.
     version_before = existing.version
 
-    sections = await db.questionnairesection.find_many(
+    sections = await client.questionnairesection.find_many(
         where={"questionnaireId": questionnaire_id},
         order=[{"sortOrder": "asc"}, {"createdAt": "asc"}],
     )
@@ -2678,7 +2849,7 @@ async def apply_parsed_edit(
     # orphaning, and neither `update_question` nor `reorder_questions` can write a NULL (the schema
     # has no way to send one and `clean_data` strips it). This read is therefore about rows that
     # PREDATE that change, and about the next change that reintroduces a way to make one.
-    all_questions = await db.questionnairequestion.find_many(
+    all_questions = await client.questionnairequestion.find_many(
         where={"questionnaireId": questionnaire_id},
         # ORDERED, and not for tidiness. `by_prompt` below keeps the FIRST question it sees for a
         # given wording, so an unordered read would resolve a duplicate prompt differently on
@@ -2690,7 +2861,7 @@ async def apply_parsed_edit(
     questions = [q for q in all_questions if q.sectionId in section_ids]
     orphans = [q for q in all_questions if not q.sectionId]
 
-    answered, has_response_row = await _answer_evidence([q.id for q in all_questions])
+    answered, has_response_row = await _answer_evidence(all_questions, client)
 
     report = _empty_workbook_report(version_before)
     report["problems"] = [p.payload() for p in parsed.problems]
@@ -2757,7 +2928,7 @@ async def apply_parsed_edit(
     # pass so the admin sees a failure caused by an upload they made a month earlier. The guard is
     # gone below as well: a touched section always has its sortOrder written.
     for position, section in enumerate(sections, start=1):
-        await db.questionnairesection.update(
+        await client.questionnairesection.update(
             where={"id": section.id}, data={"sortOrder": -position}
         )
         section.sortOrder = -position
@@ -2767,7 +2938,7 @@ async def apply_parsed_edit(
         section = section_by_code.get(code.lower()) if code else None
         if section is None:
             new_code = _unique_code(code, parsed_section.title, codes_taken)
-            section = await db.questionnairesection.create(
+            section = await client.questionnairesection.create(
                 data={
                     "questionnaireId": questionnaire_id,
                     "code": new_code,
@@ -2778,7 +2949,7 @@ async def apply_parsed_edit(
             section_by_code[new_code.lower()] = section
             report["sectionsCreated"] += 1
         else:
-            section = await _apply_workbook_section(section, parsed_section, index)
+            section = await _apply_workbook_section(section, parsed_section, index, client)
         touched_sections.add(section.id)
 
         for position, parsed_question in enumerate(parsed_section.questions, start=1):
@@ -2790,7 +2961,7 @@ async def apply_parsed_edit(
             )
             match = _match_question(parsed_question, section, by_id, by_prompt, problems, parsed)
             if match is None:
-                await db.questionnairequestion.create(
+                await client.questionnairequestion.create(
                     data={
                         **workbook_question_data(section),
                         "prompt": parsed_question.prompt,
@@ -2850,7 +3021,7 @@ async def apply_parsed_edit(
             if reworded and match.id in answered:
                 # RULE 3. The recorded answers keep the wording they were given under; the new
                 # wording becomes a new question in the same place.
-                replacement = await db.questionnairequestion.create(
+                replacement = await client.questionnairequestion.create(
                     data={
                         **workbook_question_data(section),
                         "prompt": parsed_question.prompt,
@@ -2859,7 +3030,7 @@ async def apply_parsed_edit(
                         "sortOrder": position,
                     }
                 )
-                await db.questionnairequestion.update(
+                await client.questionnairequestion.update(
                     where={"id": match.id},
                     data={
                         "isActive": False,
@@ -2897,7 +3068,7 @@ async def apply_parsed_edit(
             if match.sectionId != section.id:
                 data.update(workbook_question_data(section))
             if data:
-                await db.questionnairequestion.update(where={"id": match.id}, data=data)
+                await client.questionnairequestion.update(where={"id": match.id}, data=data)
                 report["updated"] += 1
             else:
                 report["unchanged"] += 1
@@ -2911,6 +3082,7 @@ async def apply_parsed_edit(
         touched_sections,
         len(kept_sections) + 1,
         report,
+        client,
     )
 
     _note_skipped_answers(parsed, report)
@@ -2926,19 +3098,13 @@ async def apply_parsed_edit(
         updates["description"] = parsed.description
     if version_bumps:
         updates["version"] = version_before + version_bumps
-    if updates:
-        try:
-            await db.questionnaire.update(where={"id": questionnaire_id}, data=updates)
-        except UniqueViolationError:
-            # @@unique([title]). BY THIS LINE THE STRUCTURE IS ALREADY APPLIED — every section, every
-            # question, every supersede — so raising here would answer 500 on an upload that
-            # SUCCEEDED, and the admin would re-upload a file that has already been applied. The
-            # title is the only field that can collide, so it is dropped, the rest is retried, and
-            # the report says the title was left alone. A failure that is loud about the wrong half
-            # of the work is worse than one sentence in the problem list.
-            rejected = updates.pop("title", None)
-            if rejected is None:
-                raise
+    if updates.get("title"):
+        # @@unique([title]), CHECKED BEFORE THE WRITE: inside the transaction a unique violation would
+        # abort every section and question write above it (audit H7), where it used to cost only the
+        # title. The title is dropped and the report says it was left alone.
+        clash = await client.questionnaire.find_many(where={"title": updates["title"]})
+        if any(get_value(row, "id") != questionnaire_id for row in clash):
+            rejected = updates.pop("title")
             problems.append(
                 {
                     "sheet": parsed.sheet,
@@ -2952,14 +3118,14 @@ async def apply_parsed_edit(
                     "value": str(rejected),
                 }
             )
-            if updates:
-                await db.questionnaire.update(where={"id": questionnaire_id}, data=updates)
+    if updates:
+        await client.questionnaire.update(where={"id": questionnaire_id}, data=updates)
     report["versionAfter"] = version_before + version_bumps
-    await cross_portal_codes.reconcile_question_codes(db, questionnaire_id=questionnaire_id)
+    await cross_portal_codes.reconcile_question_codes(client, questionnaire_id=questionnaire_id)
     return report
 
 
-async def _apply_workbook_section(section: Any, parsed_section: Any, index: int) -> Any:
+async def _apply_workbook_section(section: Any, parsed_section: Any, index: int, client: Any = None) -> Any:
     """Bring one existing section into line with its row in the workbook.
 
     A SECTION TITLE MAY CHANGE EVEN WHEN ANSWERED, because a heading is not the thing an answer
@@ -2971,6 +3137,7 @@ async def _apply_workbook_section(section: Any, parsed_section: Any, index: int)
     sections that did not move and strand them at a negative number for ever. See the block comment
     on the negation pass.
     """
+    client = client or db
     wanted_title = parsed_section.title or section.title
     # CAPTURED BEFORE THE WRITE. Reading `section.title` after the update to decide whether the
     # update renamed anything is a question asked of the answer: it is true only while the object in
@@ -2979,7 +3146,7 @@ async def _apply_workbook_section(section: Any, parsed_section: Any, index: int)
     # `update_many` below never runs. That failure is silent and its consequence is last year's
     # heading on every question in the consolidated export.
     renamed = section.title != wanted_title
-    updated = await db.questionnairesection.update(
+    updated = await client.questionnairesection.update(
         where={"id": section.id},
         data={"title": wanted_title, "sortOrder": index, "isActive": True},
     )
@@ -2988,7 +3155,7 @@ async def _apply_workbook_section(section: Any, parsed_section: Any, index: int)
         # the section, and a rename that updated only the section row leaves every question carrying
         # last year's heading in the consolidated export, in the dataset CSV and on the browse rows —
         # with nothing wrong in the database to find.
-        await db.questionnairequestion.update_many(
+        await client.questionnairequestion.update_many(
             where={"sectionId": section.id},
             data={"sectionCode": updated.code, "sectionTitle": updated.title},
         )
@@ -3004,6 +3171,7 @@ async def _remove_absent(
     touched_sections: set[str],
     next_section_order: int,
     report: dict[str, Any],
+    client: Any = None,
 ) -> int:
     """CLAUSES 4 AND 5: what happens to rows the admin took out of the spreadsheet.
 
@@ -3042,13 +3210,14 @@ async def _remove_absent(
     `QuestionnaireResponse.question` is Restrict and the delete would raise. Nothing at all -> gone,
     because a form littered with every question its author thought better of is not a form.
     """
+    client = client or db
     bumps = 0
     for question in questions:
         if question.id in touched_questions:
             continue
         if question.id in answered:
             if question.isActive:
-                await db.questionnairequestion.update(
+                await client.questionnairequestion.update(
                     where={"id": question.id},
                     data={"isActive": False, "retiredAt": _now()},
                 )
@@ -3076,21 +3245,21 @@ async def _remove_absent(
             # interview rows to clear the way is a write into somebody's fieldwork that a
             # spreadsheet import has no business making.
             if question.isActive:
-                await db.questionnairequestion.update(
+                await client.questionnairequestion.update(
                     where={"id": question.id}, data={"isActive": False}
                 )
                 report["removed"] += 1
             continue
-        await db.questionnairequestion.delete(where={"id": question.id})
+        await client.questionnairequestion.delete(where={"id": question.id})
         report["removed"] += 1
 
     order = next_section_order
     for section in sections:
         if section.id in touched_sections:
             continue
-        verdicts = await db.questionnairesectionstatus.count(where={"sectionId": section.id})
-        tasks = await db.assignedtask.count(where={"sectionIds": {"has": section.id}})
-        await db.questionnairesection.update(
+        verdicts = await client.questionnairesectionstatus.count(where={"sectionId": section.id})
+        tasks = await client.assignedtask.count(where={"sectionIds": {"has": section.id}})
+        await client.questionnairesection.update(
             where={"id": section.id},
             data={"isActive": False, "sortOrder": order},
         )

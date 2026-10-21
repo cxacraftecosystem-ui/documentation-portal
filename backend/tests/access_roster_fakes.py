@@ -134,6 +134,11 @@ def _matches(row: Any, where: dict[str, Any] | None) -> bool:
             if not any(_matches(row, clause) for clause in expected):
                 return False
             continue
+        if field == "AND":
+            # ``live_media_where`` composes its ``removedAt`` clause under AND (audit M19).
+            if not all(_matches(row, clause) for clause in expected):
+                return False
+            continue
         actual = getattr(row, field, None)
         if isinstance(expected, dict):
             if "in" in expected:
@@ -280,6 +285,12 @@ class FakeTable:
         self.writes.append(("create", dict(data)))
         return row
 
+    async def create_many(self, data: list[dict[str, Any]], **_: Any) -> int:
+        """Added for the legacy create's link rows (audit M21), written in its transaction."""
+        for values in data:
+            await self.create(values)
+        return len(data)
+
     async def update(self, where: dict[str, Any], data: dict[str, Any], **_: Any) -> Any:
         row = await self.find_unique(where)
         if row is None:
@@ -424,7 +435,7 @@ class FakeDb:
             INTERVIEW_DEFAULTS, interviews, unique_keys=(("questionnaireId", "artisanSetKey"),)
         )
 
-    def tx(self) -> "_FakeTransaction":
+    def tx(self, **_: Any) -> "_FakeTransaction":
         """``db.tx()``: the same tables, rolled back to how they were if the block raises.
 
         Every row is copied on entry and the copies are put back on an exception, which is what makes
@@ -457,6 +468,30 @@ class _FakeTransaction:
             for name, rows in self.snapshot.items():
                 getattr(self.fake, name).rows = rows
         return False
+
+
+class PassThroughTx:
+    """``db.tx()`` and ``query_raw`` for the auto-vivifying fakes: the block writes through the same
+    tables, and an advisory-lock ``query_raw`` answers nothing. Mixed into a fake's class, so
+    ``__getattr__`` (which only sees missing names) never turns ``tx`` into a table."""
+
+    def tx(self, **_: Any) -> Any:
+        fake = self
+
+        class _Block:
+            async def __aenter__(self) -> Any:
+                return fake
+
+            async def __aexit__(self, *_exc: Any) -> bool:
+                return False
+
+        return _Block()
+
+    async def query_raw(self, *_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
+        return []
+
+    async def execute_raw(self, *_args: Any, **_kwargs: Any) -> int:
+        return 0
 
 
 def install(monkeypatch: pytest.MonkeyPatch, fake: FakeDb) -> FakeDb:
