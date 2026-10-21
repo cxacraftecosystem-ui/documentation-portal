@@ -54,6 +54,10 @@ class ContentAdminDeleteUiTest {
         var removed = 0
         show(user("admin", "ADMIN"), adminView = true, onRemove = { removed++ })
         compose.onNodeWithText("Remove").assertIsDisplayed().performClick()
+        // Asked first: nothing is removed until the confirmation.
+        compose.onNodeWithText("Delete this comment?").assertIsDisplayed()
+        assertEquals(0, removed)
+        compose.onNodeWithText("Delete").performClick()
         assertEquals(1, removed)
         compose.onNodeWithText("Edit").assertDoesNotExist()
     }
@@ -83,5 +87,39 @@ class ContentAdminDeleteUiTest {
         compose.onNodeWithText("Edit").assertIsDisplayed().performClick()
         assertEquals(1, edited)
         compose.onNodeWithText("Remove").assertDoesNotExist()
+    }
+
+    // ── The record page's "Danger zone" card (owner, 2026-10-21) ─────────────────────────────────
+
+    private fun showDangerZone(viewer: UserDto, adminView: Boolean, delete: () -> Unit = {}, deleted: () -> Unit = {}) {
+        compose.setContent {
+            MaterialTheme {
+                if (RecordDangerZone.visible(viewer, adminView)) {
+                    RecordDangerZoneCard(noun = "artisan", delete = { delete() }, onDeleted = deleted, onError = {})
+                }
+            }
+        }
+    }
+
+    @Test
+    fun aMinistryAdminSeesTheDangerZoneAndDeletesOnlyAfterConfirming() {
+        var calls = 0
+        var done = 0
+        showDangerZone(user("ma", "MINISTRY_ADMIN"), adminView = true, delete = { calls++ }, deleted = { done++ })
+        compose.onNodeWithText("Danger zone").assertIsDisplayed()
+        compose.onNodeWithText("Delete this artisan").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Delete artisan?").assertIsDisplayed()
+        assertEquals("nothing is deleted before the confirmation", 0, calls)
+        compose.onNodeWithText("Delete").performClick()
+        compose.waitForIdle()
+        assertEquals(1, calls)
+        assertEquals(1, done)
+    }
+
+    @Test
+    fun aResearcherNeverSeesTheDangerZone() {
+        showDangerZone(user("r1", "RESEARCHER"), adminView = true)
+        compose.onNodeWithText("Danger zone").assertDoesNotExist()
+        compose.onNodeWithText("Delete this artisan").assertDoesNotExist()
     }
 }

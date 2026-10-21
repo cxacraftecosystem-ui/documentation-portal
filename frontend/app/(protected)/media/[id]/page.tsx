@@ -5,6 +5,8 @@ import { useParams } from "next/navigation";
 import { Images } from "lucide-react";
 
 import { PageHeader } from "@/components/PageHeader";
+import { RecordDangerZone } from "@/components/records/RecordDangerZone";
+import { RECORD_LIST_HREF } from "@/components/records/dangerZoneRules";
 import { RecordMediaList } from "@/components/records/RecordMediaList";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
@@ -58,6 +60,7 @@ export default function MediaViewPage() {
               ))}
             </dl>
           </section>
+          <RecordDangerZone noun="file" endpoint={`/media/${encodeURIComponent(id)}`} afterHref={RECORD_LIST_HREF.media} />
         </div>
       )}
     </>
