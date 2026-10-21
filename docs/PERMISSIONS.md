@@ -254,8 +254,8 @@ grant and cancelling one's own staged upload are neither, and are unchanged.
 | Artisan, product, tool, process, craft, workshop, interview | existing privileges; content admins are privileged editors of every record | content admins |
 | Media file (every type), transcripts, relink, transcribe-now, job retry | uploader and record editors; content admins on any media | content admins (uploaders no longer delete their own) |
 | Comments | the author (`PATCH /data-access/comments/{id}`) | content admins |
-| Questionnaire sections and questions | questionnaire managers, plus content admins | content admins |
-| Questionnaire instrument | as before | content admins (`DELETE /questionnaires/{id}`, a soft delete: retired) |
+| Questionnaire sections and questions | questionnaire managers, plus content admins | the form's author (`Questionnaire.createdById`) or content admins (`DELETE /questionnaire/sections/{id}`, `DELETE /questionnaire/questions/{id}`, and `isActive: false` on either PATCH; owner, 2026-10-22) |
+| Questionnaire instrument | as before | the form's author or content admins (`DELETE /questionnaires/{id}` or `PATCH {isActive: false}`, a soft delete: retired; `PATCH {isActive: true}` restores it; owner, 2026-10-22) |
 | Interview and session merge (source removed); session delete; take removal | – | content admins (a session's creator no longer deletes it) |
 | Craft codes mapping, unmapped records, duplicates and merges, completion override, place-name aliases | content admins | content admins |
 | Tasks | content admins create; the creator edits | content admins, any task |
@@ -263,9 +263,12 @@ grant and cancelling one's own staged upload are neither, and are unchanged.
 Clients: Delete controls — list rows, a record page's closing "Danger zone" card, files, comments,
 sessions, takes, questionnaire sections and questions — are drawn for the content admins WHETHER OR
 NOT admin view is on (owner, 2026-10-21): `canDeleteRecords` on the web, `mayDelete` /
-`LocalMayDelete` on the handset. No other role is ever offered one. Admin view still governs
-everything else it did (the unmapped-crafts panel, the completion override, admin chrome).
-`tests/test_permission_matrix.py` drives every content delete over every tier.
+`LocalMayDelete` on the handset. No other role is ever offered one, except that a questionnaire's
+author is offered the deletes of their own form, its sections and its questions (owner, 2026-10-22).
+Admin view still governs everything else it did (the unmapped-crafts panel, the completion
+override, admin chrome). `tests/test_permission_matrix.py` drives every content delete over every
+tier, and the form's own deletes separately (`AUTHOR_OR_ADMIN_DELETES`); the database half is
+`tests/test_questionnaire_author_delete.py`.
 
 ### 2.1 Create, edit, delete — as a decision tree
 

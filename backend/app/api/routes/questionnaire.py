@@ -349,6 +349,39 @@ async def require_section(section_id: str) -> Any:
     return await require_record(db.questionnairesection, section_id)
 
 
+#: The 403 for a delete from a form by somebody who is neither its author nor a content admin.
+FORM_DELETE_REFUSAL = "Only the questionnaire's author or an admin can delete from it."
+
+
+def is_form_author(form: Any, user: Any) -> bool:
+    """Whether ``user`` created this questionnaire (``Questionnaire.createdById``).
+
+    A form with no recorded author (the seeded default, or one made before the column existed) has
+    no author, so only a content admin deletes from it.
+    """
+    author = get_value(form, "createdById")
+    return bool(author) and author == get_value(user, "id")
+
+
+async def assert_may_delete_from_form(questionnaire_id: str | None, user: Any) -> None:
+    """THE FORM'S DELETE RULE (owner, 21 Oct 2026, amended 22 Oct 2026): "the author should be able to
+    edit/delete the questionnaire apart from the admins".
+
+    A questionnaire and everything in it — retiring or deleting the form, deleting a section or a
+    question, switching one off through its PATCH — is its author's or a content admin's
+    (``deps.CONTENT_ADMIN_ROLES``). Everyone else is refused 403, questionnaire managers included.
+    Deleting sessions, interviews and recordings stays a content admin's alone (``assert_can_delete``),
+    and so do sharing, the default form and workshop binding.
+
+    A content admin is answered from memory, so their delete pays no extra query.
+    """
+    if is_content_admin(user):
+        return
+    form = await db.questionnaire.find_unique(where={"id": questionnaire_id}) if questionnaire_id else None
+    if form is None or not is_form_author(form, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=FORM_DELETE_REFUSAL)
+
+
 def section_question_data(section: Any) -> dict[str, str]:
     return {"sectionId": section.id, "sectionCode": section.code, "sectionTitle": section.title}
 
@@ -658,10 +691,13 @@ async def create_section(
 async def update_section(
     section_id: str,
     payload: QuestionnaireSectionUpdate,
-    _: Any = Depends(require_questionnaire_manager),
+    user: Any = Depends(require_questionnaire_manager),
 ) -> dict[str, Any]:
-    await require_section(section_id)
+    section = await require_section(section_id)
     data = clean_data(payload.model_dump(exclude_unset=True))
+    if data.get("isActive") is False and section.isActive:
+        # Switching a section off is taking it out of the form: the delete rule, not the edit rule.
+        await assert_may_delete_from_form(section.questionnaireId, user)
     if "code" in data:
         data["code"] = data["code"].strip()
     if "title" in data:
@@ -711,9 +747,11 @@ async def _questions_switched_off_with(section_id: str) -> list[str]:
 @questionnaire_router.delete("/sections/{section_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_section(
     section_id: str,
-    user: Any = Depends(require_content_admin),
+    user: Any = Depends(get_current_user),
 ) -> None:
-    await require_section(section_id)
+    """Switch a section and its questions off. The form's author or a content admin (22 Oct 2026)."""
+    section = await require_section(section_id)
+    await assert_may_delete_from_form(section.questionnaireId, user)
     live = await db.questionnairequestion.find_many(where={"sectionId": section_id, "isActive": True})
     await db.questionnairesection.update(where={"id": section_id}, data={"isActive": False})
     await db.questionnairequestion.update_many(where={"sectionId": section_id}, data={"isActive": False})
@@ -801,6 +839,9 @@ async def update_question(
 ) -> dict[str, Any]:
     question = await require_record(db.questionnairequestion, question_id)
     data = clean_data(payload.model_dump(exclude_unset=True))
+    if data.get("isActive") is False and question.isActive:
+        # Switching a question off is removing it: the delete rule, not the edit rule (22 Oct 2026).
+        await assert_may_delete_from_form(question.questionnaireId, _)
     if "prompt" in data:
         data["prompt"] = data["prompt"].strip()
     # CLEARING HELP TEXT, PUT BACK BY HAND AFTER `clean_data` DROPPED IT.
@@ -928,9 +969,11 @@ async def _refuse_reparent_with_takes(questions: list[Any]) -> None:
 @questionnaire_router.delete("/questions/{question_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_question(
     question_id: str,
-    _: Any = Depends(require_content_admin),
+    user: Any = Depends(get_current_user),
 ) -> None:
-    await require_record(db.questionnairequestion, question_id)
+    """Switch a question off. The form's author or a content admin (owner, 22 Oct 2026)."""
+    question = await require_record(db.questionnairequestion, question_id)
+    await assert_may_delete_from_form(question.questionnaireId, user)
     await db.questionnairequestion.update(where={"id": question_id}, data={"isActive": False})
 
 
@@ -3626,9 +3669,13 @@ async def update_questionnaire(
     if "title" in data:
         data["title"] = data["title"].strip()
     if data.get("isActive") is False:
-        # Retiring is the delete of an instrument: content admins only, as DELETE (audit M16).
-        if not is_content_admin(user):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only an admin can retire a questionnaire.")
+        # Retiring is the delete of an instrument (audit M16): its author or a content admin, as
+        # DELETE (owner, 22 Oct 2026).
+        if not (is_content_admin(user) or is_form_author(row, user)):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the questionnaire's author or an admin can retire it.",
+            )
         if row.isDefault:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -3662,12 +3709,14 @@ async def update_questionnaire(
 @instruments_router.delete("/{questionnaire_id}")
 async def delete_questionnaire(
     questionnaire_id: str,
-    user: Any = Depends(require_content_admin),
+    user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Delete an instrument — a SOFT delete (``isActive = false``). Content admins only (2026-10-20).
+    """Delete an instrument — a SOFT delete (``isActive = false``). Its author or a content admin
+    (owner, 2026-10-20, amended 2026-10-22); the check is the PATCH's own retire check below.
 
-    Its sessions and answers stay. The same two refusals as retiring through the PATCH above: the
-    default instrument (422) and one a workshop is bound to (409).
+    Its sessions and answers stay, and ``PATCH {isActive: true}`` restores it. The same two refusals
+    as retiring through the PATCH above: the default instrument (422) and one a workshop is bound to
+    (409).
     """
     return await update_questionnaire(questionnaire_id, QuestionnaireUpdate(isActive=False), user)
 
