@@ -77,3 +77,13 @@ test("consent is asked inline and never blocks Start", () => {
   expect(SHEET).toContain("<ConsentQuestion");
   expect(startBlocked.toString()).not.toMatch(/consent/i);
 });
+
+test("each request goes out once per real change: artisan page, consent, coverage", () => {
+  // The artisan page is re-asked only for a new search or workshop, not for a tick.
+  expect(SHEET).toContain("}, [search, form.workshopId]);");
+  // Consent is marked as asked before its request, so one answer does not re-ask the others.
+  expect(SHEET).toMatch(/consentRequested\.current\.has\(id\)\) continue;\s*consentRequested\.current\.add\(id\);/);
+  // Coverage is fetched per instrument and selection; names are laid over it on render.
+  expect(SHEET).toContain("}, [form.questionnaireId, artisanKey]);");
+  expect(SHEET).toContain("}, [coverageGrid, artisans]);");
+});
