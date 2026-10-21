@@ -40,6 +40,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarRange, PencilLine } from "lucide-react";
 
+import { useAuth } from "@/components/AuthProvider";
 import { cutOf, LIST_PAGE_CEILING, mergeById, type ListCut } from "@/components/data/cappedList";
 import { CappedListNotice } from "@/components/data/CappedListNotice";
 import { sortWorkshopsByOccurrence } from "@/components/forms/WorkshopSelect";
@@ -561,6 +562,7 @@ export function RecordSwitcher({
    * whether or not one is mounted.
    */
   const intercept = useLeaveInterceptor();
+  const readerId = useAuth().user?.id ?? null;
 
   // The workshop list, in occurrence order. The selection opens on "All workshops" (the blank id)
   // and moves to the record's own workshop once known — see the header.
@@ -569,7 +571,7 @@ export function RecordSwitcher({
   const [workshopId, setWorkshopId] = useState("");
   useEffect(() => {
     let cancelled = false;
-    loadWorkshopList()
+    loadWorkshopList(readerId)
       .then((result) => {
         if (!cancelled) setWorkshops(sortWorkshopsByOccurrence(result.items));
       })
@@ -582,7 +584,7 @@ export function RecordSwitcher({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [readerId]);
   useEffect(() => {
     setWorkshopId((selected) =>
       recordSwitchWorkshopFor(selected, currentWorkshopId, workshops.map((row) => row.id))

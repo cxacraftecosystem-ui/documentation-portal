@@ -73,6 +73,30 @@ export function clearPasswordChangeOwed() {
   passwordChangeOwed = false;
 }
 
+const writeListeners = new Set<(path: string, method: string) => void>();
+
+/**
+ * Be told after every SUCCESSFUL write (any method but GET/HEAD) made through {@link apiFetch} —
+ * screens, the review editor, the danger zone and the offline outbox's replays alike. Caches of
+ * server lists (`lib/workshopList.ts`) register here so no caller has to remember to invalidate them.
+ * Returns the unsubscribe.
+ */
+export function onApiWrite(listener: (path: string, method: string) => void): () => void {
+  writeListeners.add(listener);
+  return () => writeListeners.delete(listener);
+}
+
+function announceWrite(path: string, method: string) {
+  if (method === "GET" || method === "HEAD") return;
+  writeListeners.forEach((listener) => {
+    try {
+      listener(path, method);
+    } catch {
+      // A cache that fails to forget must never turn a saved write into a reported failure.
+    }
+  });
+}
+
 /**
  * Raised instead of a request that could not possibly have worked: a deployed page whose only known
  * API address is the visitor's own machine.
@@ -214,8 +238,12 @@ export async function apiFetchWithHeaders<T>(
   });
 
   recordClockOffset(response.headers.get("date"), sentAt);
+  const method = (init.method ?? "GET").toUpperCase();
 
-  if (response.status === 204) return { body: undefined as T, headers: response.headers };
+  if (response.status === 204) {
+    announceWrite(path, method);
+    return { body: undefined as T, headers: response.headers };
+  }
 
   const contentType = response.headers.get("content-type") ?? "";
   const body = contentType.includes("application/json") ? await response.json() : await response.text();
@@ -257,6 +285,7 @@ export async function apiFetchWithHeaders<T>(
     throw error;
   }
 
+  announceWrite(path, method);
   return { body: body as T, headers: response.headers };
 }
 

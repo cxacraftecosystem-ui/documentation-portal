@@ -7,6 +7,7 @@ import { migrateStoredToken } from "@/lib/session";
 import type { loginBody } from "@/lib/oidcSignIn";
 import { isTwoFactorChallenge, type SignInResult, type TwoFactorChallenge } from "@/lib/twoFactor";
 import type { User } from "@/lib/types";
+import { invalidateWorkshopList } from "@/lib/workshopList";
 
 type AuthContextValue = {
   user: User | null;
@@ -88,6 +89,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signInPassword.current = "";
     pendingPassword.current = "";
     clearPasswordChangeOwed();
+    // The cached workshop list belonged to the account that just left; the next one reads its own.
+    invalidateWorkshopList();
   }, []);
 
   const recentPassword = useCallback(() => signInPassword.current, []);
