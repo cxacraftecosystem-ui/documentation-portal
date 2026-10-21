@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 
 import { continueBody, latestSession } from "@/components/questionnaire/ContinueWithDialog";
+import { readInbox } from "@/components/questionnaire/useInboxCount";
 import type { Recording, RecordSession, Session } from "@/lib/questionnaireApi";
 import { inboxLabel, inboxRowKey, normaliseInbox, reviewRequest, visibleInbox } from "@/lib/questionnaireInbox";
 import { prompts } from "@/lib/questionnairePrompts";
@@ -103,4 +104,19 @@ test("the inbox reads the artisan list once for every Who-was-there row, within 
   expect(source).toContain('listResource<Artisan>("/artisans", { pageSize: LIST_PAGE_CEILING })');
   expect(source).not.toContain("pageSize: 200");
   expect(source).toContain("options={artisanOptions}");
+});
+
+test("the badge and the inbox page share one inbox request; a reload after an action reads afresh", async () => {
+  let calls = 0;
+  const fetchInbox = async () => {
+    calls += 1;
+    return normaliseInbox({});
+  };
+  await Promise.all([readInbox(false, fetchInbox), readInbox(false, fetchInbox)]);
+  expect(calls).toBe(1);
+  await Promise.all([readInbox(false, fetchInbox), readInbox(true, fetchInbox)]);
+  expect(calls).toBe(3);
+  const list = readFileSync(join(__dirname, "..", "components/questionnaire/InboxList.tsx"), "utf8");
+  expect(list).toContain("void load(false);");
+  expect(list).toContain("setRaw(await readInbox(fresh));");
 });

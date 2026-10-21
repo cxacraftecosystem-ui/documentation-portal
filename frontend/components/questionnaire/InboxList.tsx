@@ -11,6 +11,7 @@ import { CalendarField } from "@/components/ui/CalendarField";
 import { LIST_PAGE_CEILING } from "@/components/data/cappedList";
 import { SearchableMultiSelect } from "@/components/ui/SearchableSelect";
 import { listResource } from "@/lib/api";
+import { readInbox } from "@/components/questionnaire/useInboxCount";
 import { questionnaireApi } from "@/lib/questionnaireApi";
 import {
   INBOX_ORDER,
@@ -61,17 +62,18 @@ export function InboxList() {
   const [rowError, setRowError] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  // The first read may share the badge's request; a reload after an action always reads afresh.
+  const load = useCallback(async (fresh = true) => {
     setError(null);
     try {
-      setRaw(await questionnaireApi.inbox());
+      setRaw(await readInbox(fresh));
     } catch {
       setError(qs("listLoadError"));
     }
   }, []);
   useEffect(() => {
     setDismissed(readDismissed());
-    void load();
+    void load(false);
   }, [load]);
 
   const inbox = useMemo(() => (raw ? visibleInbox(raw, dismissed) : null), [raw, dismissed]);
