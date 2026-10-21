@@ -126,15 +126,19 @@ def take_payload(row: dict[str, Any], *, session_id: str | None, user_id: str | 
     }
 
 
-def suggest_reason(prior: list[dict[str, Any]], *, purpose: str | None, roster: int, user_id: str | None) -> str | None:
+def suggest_reason(prior: list[dict[str, Any]], *, purpose: str | None, roster: int, user_id: str | None,
+                   via_section: bool = False) -> str | None:
     """DESIGN 3.3 rule 2: the session purpose first; otherwise a different setting -> NEW_SETTING,
-    a different researcher -> RE_INTERVIEW, the same researcher -> REDO."""
+    a different researcher -> RE_INTERVIEW, the same researcher -> REDO. A question covered only by
+    its section's take is a FOLLOW_UP (DESIGN 8 E6: "recorded whole"; Follow-up preselected)."""
     if not prior:
         return None
     if purpose == "FOLLOW_UP":
         return "FOLLOW_UP"
     if purpose == "REDO":
         return "REDO"
+    if via_section:
+        return "FOLLOW_UP"
     latest = max(prior, key=lambda r: (aware(r["capturedAt"]), str(r["recordingId"])))
     if (int(latest.get("rosterCount") or 0) == 1) != (roster == 1):
         return "NEW_SETTING"
@@ -181,6 +185,7 @@ async def check(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any
         question_takes_in_section = {(str(r["artisanId"]), str(r["sectionId"])): int(r["n"]) for r in qrows}
     out_targets = []
     covered_prior: list[dict[str, Any]] = []
+    covered_directly = False
     for t in targets:
         per = []
         for artisan_id in payload.artisanIds:
@@ -190,6 +195,7 @@ async def check(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any
             if shown:
                 state = "NEEDS_DECISION" if any(r.get("filing") == "NEEDS_DECISION" for r in shown) else ("RECORDED" if direct else "VIA_SECTION")
                 covered_prior.extend(shown)
+                covered_directly = covered_directly or bool(direct)
             elif t["sectionId"] and question_takes_in_section.get((artisan_id, t["sectionId"])):
                 state = "PARTIAL"
             else:
@@ -203,7 +209,8 @@ async def check(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any
         "asOf": iso(now()),
         "identical": identical,
         "targets": out_targets,
-        "suggestedReason": suggest_reason(covered_prior, purpose=purpose, roster=len(payload.artisanIds), user_id=user.id),
+        "suggestedReason": suggest_reason(covered_prior, purpose=purpose, roster=len(payload.artisanIds), user_id=user.id,
+                                          via_section=not covered_directly),
     }
 
 
