@@ -933,17 +933,16 @@ async def merge_artisans(keep_id: str, merge_id: str, picks: dict[str, str] | No
         await db.crossportalartisanlink.delete_many(where={"id": {"in": [snap["id"] for snap in dropped]}})
     await _merge_consent(moves["sharingConsent"], merged_id=merge_id, survivor_id=keep_id)
 
-    # 4b. Questionnaire v2: recording subjects, canonical answers (pinned, else most recent, wins;
-    # the other becomes a revision), take drafts and consent rows, in their own transaction. They
-    # reference the artisan with RESTRICT, so without this the delete below would refuse.
-    from app.services.questionnaire_v2.merge import merge_artisan_rows
+    # 4b + 5. Questionnaire v2 (recording subjects, canonical answers: pinned, else most recent,
+    # wins and the other becomes a revision; take drafts; consent rows), the delete of the merged
+    # row and the DONE mark, in ONE transaction (DESIGN 3.8; audit M24): the v2 rows reference the
+    # artisan with RESTRICT, so they can never be half-moved under a deleted artisan, nor the
+    # artisan deleted with its takes still pointing at it.
+    from app.services.questionnaire_v2.merge import merge_and_delete
 
-    await merge_artisan_rows(keep_id, merge_id, client=db)
-
-    # 5. The merged row goes. 6. Done.
-    await db.artisan.delete(where={"id": merge_id})
-    done = await db.artisanmerge.update(
-        where={"id": record.id}, data={"status": STATUS_DONE, "completedAt": datetime.now(UTC)}
+    done = await merge_and_delete(
+        keep_id, merge_id, client=db, merge_record_id=record.id,
+        done_data={"status": STATUS_DONE, "completedAt": datetime.now(UTC)},
     )
     forget_redirects()
     return merge_summary(done or record, now=datetime.now(UTC))

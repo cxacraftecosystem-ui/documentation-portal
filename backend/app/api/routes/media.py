@@ -783,6 +783,19 @@ async def relink_media(
     target = await delegate.find_unique(where={"id": payload.linkedRecordId})
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target record not found")
+    take = await db.questionnairerecording.find_unique(where={"mediaFileId": media.id})
+    if take is not None:
+        # A QUESTIONNAIRE TAKE MOVES THROUGH THE RECORDING SERVICE (audit M10): the move is an event,
+        # its subjects become participants there and both titles are regenerated. It never leaves the
+        # questionnaire, where coverage would silently lose it.
+        if rec_type not in ("questionnaire", "questionnaireinterview", "questionnaire_session"):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This recording is a questionnaire take. Move it to another session instead.",
+            )
+        await v2_recordings.relink_take(take.id, payload.linkedRecordId, current_user)
+        moved = await db.mediafile.find_unique(where={"id": media.id}, include=INCLUDE)
+        return await _public(moved, current_user)
     data: dict[str, Any] = {
         "linkedRecordType": rec_type,
         "linkedRecordId": payload.linkedRecordId,

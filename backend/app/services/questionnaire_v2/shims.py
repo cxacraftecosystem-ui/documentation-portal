@@ -5,12 +5,17 @@ runs and both routes behave exactly as before.
 
 * ``POST /interviews`` creates a session (never the old fold). ``sessionDate`` is today in IST,
   estimated. A typed title goes to ``legacyTitle``; the response's ``title`` is the generated one.
-  ``responses`` become answer items, which never produce a 403.
+  ``responses`` become answer items, CREATE-ONLY (``baseVersion=None``), so an old build's stale
+  text never overwrites a newer answer. A contributor or volunteer, who could never create, is
+  attached to the matching open session instead (the old fold's v2 meaning), never refused anew.
+* ``PATCH /interviews/{id}`` (an old build editing): the typed title goes to ``legacyTitle``, artisan
+  changes become participant changes (a participant with takes is never dropped), and responses
+  become answers (an old build may revise only its own earlier answer from that session).
 * ``/media/complete`` for an old clip creates a recording through ``resolve_legacy_target``; an
   unresolved target is NEEDS_DECISION with up to three candidates for the uploader's inbox.
-* After the cutoff (``QUESTIONNAIRE_MIN_APP_VERSION_FOR_CREATE``), an old build's CREATE gets 503 with
-  ``Retry-After: 86400`` (old builds treat it as transient) and the P14 banner. Clips are always
-  accepted.
+* After the cutoff, an old build's CREATE gets 503 with ``Retry-After: 86400`` (old builds treat it
+  as transient) and the P14 banner. Clips are always accepted. The cutoff compares the build NUMBER
+  (``X-App-Version-Code``), per platform (audit C7): see :func:`client_build`.
 """
 
 from __future__ import annotations
@@ -26,7 +31,7 @@ from fastapi import HTTPException
 
 from app.core.config import get_settings
 from app.services.questionnaire_v2 import legacy_resolver, sessions, titles
-from app.services.questionnaire_v2.common import IST, aware, naive_utc, now, today_ist
+from app.services.questionnaire_v2.common import IST, aware, enum_text, naive_utc, now, today_ist
 
 logger = logging.getLogger(__name__)
 LEGACY_TYPES = ("questionnaire", "questionnaireinterview")
@@ -37,33 +42,54 @@ def enabled() -> bool:
     return bool(get_settings().questionnaire_v2)
 
 
-def _version_tuple(value: str | None) -> tuple[int, ...]:
-    return tuple(int(p) for p in re.findall(r"\d+", value or "")[:4])
+#: THE HEADER CONTRACT (audit C7, H22), the same on every request from both clients:
+#:   ``X-App-Platform``     ``android`` | ``web``
+#:   ``X-App-Version-Code`` the build number, a positive integer (Android ``BuildConfig.VERSION_CODE``;
+#:                          the web's build number). The version NAME was reset to 0.0.1 on 21 Oct,
+#:                          so only the number rises.
+#:   ``X-App-Version``      the version name, for people to read; never compared.
+PLATFORM_HEADER = "x-app-platform"
+VERSION_CODE_HEADER = "x-app-version-code"
+VERSION_NAME_HEADER = "x-app-version"
+PLATFORMS = ("android", "web")
+UPDATE_MESSAGE = "Update when you have Wi-Fi. Your recordings are safe."
 
 
-def assert_old_build_may_create(app_version: str | None, *, bearer: bool = False) -> None:
-    """503 + Retry-After for a create from a build below the configured minimum (decision 5).
+def client_build(headers: Any) -> tuple[str, int | None, str | None]:
+    """``(platform, versionCode, versionName)`` of the calling build.
 
-    Builds before v2 send no ``X-App-Version``: an app (bearer token) request without one IS such a
-    build and counts as below any minimum. The web client signs in by cookie and ships with the
-    server, so a header-less cookie request is never refused."""
-    minimum = get_settings().questionnaire_min_app_version_for_create
+    A build that sends no ``X-App-Platform`` predates the contract: ``web-...`` names are the web,
+    anything else is an Android build. A missing or unreadable code is None (an old build)."""
+    name = (headers.get(VERSION_NAME_HEADER) or "").strip() or None
+    platform = (headers.get(PLATFORM_HEADER) or "").strip().lower()
+    if platform not in PLATFORMS:
+        platform = "web" if (name or "").lower().startswith("web-") else "android"
+    raw = (headers.get(VERSION_CODE_HEADER) or "").strip()
+    code = int(raw) if raw.isdigit() and 0 < len(raw) <= 9 else None
+    return platform, code, name
+
+
+def minimum_version_code(platform: str) -> int | None:
+    settings = get_settings()
+    if platform == "web":
+        return settings.questionnaire_min_web_version_code_for_create
+    return settings.questionnaire_min_android_version_code_for_create
+
+
+def assert_old_build_may_create(headers: Any) -> None:
+    """503 + Retry-After for a create from a build below its platform's minimum (decision 5).
+
+    Android: a build that sends no ``X-App-Version-Code`` predates the cutoff and is below any
+    minimum. Web: the page ships with the server, so a web request with no code is never refused;
+    one that sends a code below the web minimum is (a tab left open across a release)."""
+    platform, code, _name = client_build(headers)
+    minimum = minimum_version_code(platform)
     if not minimum:
         return
-    if not app_version:
-        if bearer:
-            raise HTTPException(
-                status_code=503,
-                detail="Update when you have Wi-Fi. Your recordings are safe.",
-                headers={"Retry-After": "86400"},
-            )
+    if code is None and platform == "web":
         return
-    if _version_tuple(app_version) < _version_tuple(minimum):
-        raise HTTPException(
-            status_code=503,
-            detail="Update when you have Wi-Fi. Your recordings are safe.",
-            headers={"Retry-After": "86400"},
-        )
+    if code is None or code < minimum:
+        raise HTTPException(status_code=503, detail=UPDATE_MESSAGE, headers={"Retry-After": "86400"})
 
 
 def _language_code(value: str | None) -> tuple[str | None, str | None]:
@@ -79,6 +105,49 @@ def _language_code(value: str | None) -> tuple[str | None, str | None]:
         if text.casefold() in (code, label.casefold()):
             return code, None
     return "other", text[:40]
+
+
+async def matching_session(questionnaire_id: str, workshop_id: str | None, artisan_ids: list[str],
+                           *, client: Any = None) -> str | None:
+    """The session an old build's create by a contributor or volunteer lands on (audit H5): first an
+    OPEN session today (IST) on this instrument and workshop sharing an artisan; else the newest
+    session on this instrument holding exactly these artisans (the old fold's row). None when there
+    is neither, which is exactly when the old route refused them too."""
+    from app.core.db import db as default_db
+
+    db = client or default_db
+    ids = sorted({a for a in artisan_ids if a})
+    if not ids:
+        return None
+    rows = await db.query_raw(
+        'SELECT i."id" FROM "QuestionnaireInterview" i WHERE i."questionnaireId" = $1 AND i."state" = \'OPEN\' '
+        'AND i."mergedIntoId" IS NULL AND i."workshopId" IS NOT DISTINCT FROM $2 AND i."sessionDate" = $3::date '
+        'AND EXISTS (SELECT 1 FROM "QuestionnaireInterviewArtisan" x WHERE x."interviewId" = i."id" AND x."artisanId" = ANY($4::text[])) '
+        'ORDER BY i."startedAt" DESC NULLS LAST, i."createdAt" DESC LIMIT 1',
+        questionnaire_id, workshop_id, today_ist().isoformat(), ids,
+    )
+    if rows:
+        return str(rows[0]["id"])
+    rows = await db.query_raw(
+        'SELECT i."id" FROM "QuestionnaireInterview" i WHERE i."questionnaireId" = $1 AND i."mergedIntoId" IS NULL '
+        'AND (SELECT array_agg(x."artisanId" ORDER BY x."artisanId") FROM "QuestionnaireInterviewArtisan" x '
+        '     WHERE x."interviewId" = i."id") = $2::text[] '
+        'ORDER BY i."sessionDate" DESC NULLS LAST, i."createdAt" DESC LIMIT 1',
+        questionnaire_id, ids,
+    )
+    return str(rows[0]["id"]) if rows else None
+
+
+async def attach_to_session(session_id: str, payload: Any, user: Any, questionnaire_id: str) -> Any:
+    """A non-creator's old-build create, attached: they join as a researcher and their responses
+    become answers on that session. The old response shape, the session's row."""
+    from app.core.db import db
+
+    role = "VOLUNTEER" if str(enum_text(getattr(user, "role", None))) == "CROWDSOURCE_VOLUNTEER" else "CONTRIBUTOR"
+    await sessions.add_researcher(db, session_id, user.id, role)
+    if payload.responses:
+        await responses_to_answers(session_id, questionnaire_id, payload.responses, user)
+    return await db.questionnaireinterview.find_unique(where={"id": session_id})
 
 
 async def create_interview_shim(payload: Any, user: Any, questionnaire_id: str, check: Any) -> Any:
@@ -132,7 +201,11 @@ async def create_interview_shim(payload: Any, user: Any, questionnaire_id: str, 
 
 
 async def responses_to_answers(session_id: str, questionnaire_id: str, responses: list[Any], user: Any) -> None:
-    """Old ``responses`` as answer items, written per participant; a refusal is logged, never raised."""
+    """Old ``responses`` as answer items, written per participant; a refusal is logged, never raised.
+
+    CREATE-ONLY (audit H5): an old build does not know the answer's version, so sending the current
+    one would let its stale text overwrite a newer answer. The one exception is the build's OWN
+    earlier answer from this same session (an old build re-saving its form), which it may revise."""
     from app.core.db import db
     from app.schemas.questionnaire_v2 import AnswerItem, AnswersPut
     from app.services.questionnaire_v2 import answers
@@ -151,7 +224,8 @@ async def responses_to_answers(session_id: str, questionnaire_id: str, responses
     currents: dict[tuple[str, str], dict[str, Any]] = {}
     if lineage_of:
         for row in await db.query_raw(
-            'SELECT a."artisanId", a."questionLineageId", a."version" FROM "QuestionnaireAnswer" a '
+            'SELECT a."artisanId", a."questionLineageId", a."version", rv."sessionId", rv."actorId" FROM "QuestionnaireAnswer" a '
+            'LEFT JOIN "QuestionnaireAnswerRevision" rv ON rv."id" = a."currentRevisionId" '
             'WHERE a."artisanId" = ANY($1::text[]) AND a."questionLineageId" = ANY($2::text[])',
             list(artisans), sorted(set(lineage_of.values())),
         ):
@@ -166,17 +240,61 @@ async def responses_to_answers(session_id: str, questionnaire_id: str, responses
             continue
         for artisan_id in artisans:
             current = currents.get((str(artisan_id), lineage_id))
+            own = bool(current) and str(current.get("sessionId")) == session_id and str(current.get("actorId")) == str(user.id)
             items.append(AnswerItem(
                 artisanId=artisan_id, questionLineageId=lineage_id, text=text,
                 origin="TRANSCRIPT" if getattr(response, "answerSource", None) == "TRANSCRIPT" else "TYPED",
                 attribution="GROUP_SHARED" if len(artisans) > 1 else "INDIVIDUAL", sessionId=session_id,
-                baseVersion=int(current["version"]) if current else None,
+                baseVersion=int(current["version"]) if own else None,
             ))
     if items:
         result = await answers.put_answers(AnswersPut(items=items), user)
         refused = [r for r in result["results"] if r["status"] in ("CONFLICT", "FORBIDDEN")]
         if refused:
             logger.info("old-build answers: %d of %d items not written (%s)", len(refused), len(items), session_id)
+
+
+async def patch_interview_shim(interview: Any, payload: Any, user: Any) -> dict[str, Any]:
+    """``PATCH /interviews/{id}`` from an old build with v2 on (audit H5). Returns the column changes
+    the route still applies through its own guards (title moved to ``legacyTitle``); participants and
+    answers are written here, through v2."""
+    from app.core.db import db
+
+    session_id = str(interview.id)
+    questionnaire_id = str(getattr(interview, "questionnaireId", "") or "")
+    changes: dict[str, Any] = {}
+    if payload.artisanIds is not None:
+        wanted = [a for a in dict.fromkeys(payload.artisanIds) if a]
+        current = await sessions.participant_ids(db, session_id)
+        added = [a for a in wanted if a not in current]
+        kept: list[str] = []
+        async with db.tx(max_wait=sessions.TX_MAX_WAIT, timeout=sessions.TX_TIMEOUT) as tx:
+            if added:
+                await sessions.add_participants(tx, session_id, added, now())
+            for artisan_id in [a for a in current if a not in wanted]:
+                if await sessions.takes_for(tx, session_id, artisan_id):
+                    kept.append(artisan_id)  # their takes would stop counting for them: never dropped here
+                    continue
+                await tx.execute_raw(
+                    'DELETE FROM "QuestionnaireInterviewArtisan" WHERE "interviewId" = $1 AND "artisanId" = $2', session_id, artisan_id
+                )
+            await sessions.bump_session(tx, session_id)
+            await titles.regenerate_title(tx, session_id)
+        changes["participantsKept"] = kept
+        if kept:
+            logger.info("old-build edit kept %d participant(s) with takes on %s", len(kept), session_id)
+    if payload.responses:
+        await responses_to_answers(session_id, questionnaire_id, payload.responses, user)
+    return changes
+
+
+def legacy_title_change(data: dict[str, Any]) -> dict[str, Any]:
+    """An old build's typed title is kept as ``legacyTitle``; the generated ``title`` is never
+    overwritten (audit H5)."""
+    if "title" in data:
+        typed = (data.pop("title") or "").strip()
+        data["legacyTitle"] = typed or None
+    return data
 
 
 def _filename_stamp(name: str) -> datetime | None:
@@ -191,8 +309,13 @@ def _filename_stamp(name: str) -> datetime | None:
 
 
 async def record_legacy_clip(media: Any, user: Any, *, client: Any = None, provenance: str = "SHIM",
-                             client_clip_key: str | None = None) -> str | None:
-    """Give an old clip its v2 recording. Returns the recording id (None when it has no session)."""
+                             client_clip_key: str | None = None, targets: list[dict[str, Any]] | None = None,
+                             subjects: list[str] | None = None) -> str | None:
+    """Give an old clip its v2 recording. Returns the recording id (None when it has no session).
+
+    ``targets`` (already resolved) and ``subjects`` are given by "File it" (provenance MANUAL); the
+    shim and the backfill's catch-up resolve them from the clip. A NEEDS_DECISION take is PENDING,
+    never approved with its session (DESIGN 7.3; audit M1)."""
     from app.core.db import db as default_db
 
     db = client or default_db
@@ -205,17 +328,25 @@ async def record_legacy_clip(media: Any, user: Any, *, client: Any = None, prove
     session = await sessions.load_session_row(db, session_id)
     if session is None:
         return None
-    resolution = await legacy_resolver.resolve_legacy_target(db, media, str(session["questionnaireId"]))
     from app.services.questionnaire_v2 import coverage
 
-    targets = await coverage.resolve_targets(db, str(session["questionnaireId"]), resolution.targets) if resolution.targets else []
-    participants = await sessions.participant_ids(db, session_id)
+    manual = targets is not None
+    resolution = None if manual else await legacy_resolver.resolve_legacy_target(db, media, str(session["questionnaireId"]))
+    if not manual:
+        targets = await coverage.resolve_targets(db, str(session["questionnaireId"]), resolution.targets) if resolution.targets else []
+    participants = list(subjects) if subjects else await sessions.participant_ids(db, session_id)
     captured = _filename_stamp(getattr(media, "originalFilename", "")) or aware(getattr(media, "recordedAt", None)) or now()
     source = "UPLOAD_TIME"
     recording_id = uuid4().hex
-    filing, decision = ("NEEDS_DECISION", "UNRESOLVED_LEGACY") if resolution.needs_decision else ("FILED", None)
+    filing, decision = ("NEEDS_DECISION", "UNRESOLVED_LEGACY") if resolution and resolution.needs_decision else ("FILED", None)
     if not participants and not decision:
         filing, decision = "NEEDS_DECISION", "NO_PARTICIPANTS"
+    if manual:
+        stored_provenance = "MANUAL"
+    elif provenance == "LEGACY":
+        stored_provenance = resolution.provenance
+    else:
+        stored_provenance = "SHIM"
     async with default_db.tx(max_wait=sessions.TX_MAX_WAIT, timeout=sessions.TX_TIMEOUT) if client is None else _nullctx(db) as tx:
         await tx.execute_raw(
             'INSERT INTO "QuestionnaireRecording" ("id", "mediaFileId", "clientClipKey", "capturedAt", "capturedAtSource", '
@@ -224,8 +355,15 @@ async def record_legacy_clip(media: Any, user: Any, *, client: Any = None, prove
             'ON CONFLICT ("clientClipKey") DO NOTHING',
             recording_id, media.id, client_clip_key or f"shim:{media.id}", naive_utc(captured), source, len(participants),
             str(getattr(media, "uploadedById", None) or user.id), filing, decision,
-            resolution.provenance if provenance == "LEGACY" else "SHIM", session.get("languageCode"),
+            stored_provenance, session.get("languageCode"),
         )
+        if subjects:
+            missing = sorted(set(participants) - set(await sessions.participant_ids(tx, session_id)))
+            if missing:
+                await sessions.add_participants(tx, session_id, missing)
+                await titles.regenerate_title(tx, session_id)
+        if filing == "NEEDS_DECISION":
+            await tx.execute_raw('UPDATE "MediaFile" SET "status" = \'PENDING\' WHERE "id" = $1', media.id)
         for t in targets:
             await tx.execute_raw(
                 'INSERT INTO "QuestionnaireRecordingTarget" ("recordingId", "targetKey", "sectionId", "questionLineageId", "askedQuestionId") '
@@ -238,7 +376,7 @@ async def record_legacy_clip(media: Any, user: Any, *, client: Any = None, prove
                 "ON CONFLICT DO NOTHING",
                 recording_id, artisan_id,
             )
-        if resolution.candidates:
+        if resolution and resolution.candidates:
             await tx.execute_raw(
                 'UPDATE "MediaFile" SET "extraMetadata" = COALESCE("extraMetadata", \'{}\'::jsonb) || $2::jsonb WHERE "id" = $1',
                 media.id, json.dumps({"questionnaireV2": {"candidates": resolution.candidates, "resolverStep": resolution.step}}),

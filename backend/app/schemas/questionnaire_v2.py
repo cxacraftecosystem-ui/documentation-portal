@@ -62,6 +62,9 @@ class Config(Strict):
     snapshotPollSeconds: int
     joinCodeLength: int
     minAppVersionForCreate: str | None
+    #: The old-build cutoff on versionCode (audit C7), per platform. Additive: older clients ignore them.
+    minAndroidVersionCodeForCreate: int | None = None
+    minWebVersionCodeForCreate: int | None = None
 
 
 # ── sessions ───────────────────────────────────────────────────────────────────────────────────
@@ -146,6 +149,8 @@ class ContinueRequest(Strict):
     artisanIds: list[str] = Field(min_length=1)
     split: Literal["ONE", "EACH"] = "ONE"
     sessionDate: date
+    #: Optional. The sessions made are keyed ``<clientKey>:<n>``, so a replay returns them again.
+    clientKey: str | None = Field(default=None, min_length=1, max_length=120)
 
 
 class ConsentSummary(Strict):
@@ -322,6 +327,22 @@ class DecideRequest(Strict):
     _action = field_validator("action")(_one_of(V.DecideAction))
 
 
+class FileRecordingRequest(Strict):
+    """"File it" for a take the server could not place (audit H14)."""
+
+    targets: list[TargetInput] = Field(default_factory=list)
+    subjects: list[SubjectPatch] | None = None
+    sessionId: str | None = None
+
+
+class FileMediaRequest(Strict):
+    """"File it" for an inbox "To file" clip that has no recording yet (audit H14)."""
+
+    sessionId: str = Field(min_length=1)
+    targets: list[TargetInput] = Field(default_factory=list)
+    subjects: list[SubjectPatch] | None = None
+
+
 class MakePrimaryRequest(Strict):
     artisanId: str
     targetKey: str
@@ -441,6 +462,8 @@ class Snapshot(Strict):
     asOfSeq: str
     takes: list[SnapshotTake]
     removedRecordingIds: list[str]
+    #: Every recording changed since ``sinceSeq`` (audit M3). Additive: older clients ignore it.
+    changedRecordingIds: list[str] = Field(default_factory=list)
 
 
 # ── media ──────────────────────────────────────────────────────────────────────────────────────
@@ -456,6 +479,10 @@ class PresignRequest(Strict):
     subjectArtisanIds: list[str] = Field(default_factory=list)
     deviceCapturedAt: datetime | None = None
     clockOffsetMs: int | None = None
+    #: When the device measured ``clockOffsetMs``: an offset older than 7 days marks the time estimated.
+    clockOffsetMeasuredAt: datetime | None = None
+    #: The take this one continues (Part 2), so the minted name ends ``-P2``.
+    continuationOfId: str | None = None
 
 
 class MultipartCreateRequest(PresignRequest):
@@ -504,6 +531,7 @@ class RecordingInput(Strict):
     subjects: list[SubjectInput] = Field(default_factory=list)
     deviceCapturedAt: datetime | None = None
     clockOffsetMs: int | None = None
+    clockOffsetMeasuredAt: datetime | None = None
     capturedAtSource: str = "DEVICE"
     durationMs: int | None = Field(default=None, ge=0)
     rosterCount: int | None = Field(default=None, ge=0)

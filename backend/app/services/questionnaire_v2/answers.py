@@ -20,7 +20,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.core.config import get_settings
-from app.core.deps import has_rank
+from app.core.roles import has_rank
 from app.services import consent_gate
 from app.services.questionnaire_v2 import sessions
 from app.services.questionnaire_v2.common import get
@@ -243,6 +243,12 @@ async def _write_one(
         session_cache[item.sessionId] = session
     if not session["_canWork"] or str(session["questionnaireId"]) != str(question["questionnaireId"]):
         return {**base, "status": "FORBIDDEN"}
+    if "_people" not in session:
+        session["_people"] = await session_people(client, str(session["id"]))
+    if item.artisanId not in session["_people"]:
+        # An answer is about somebody who was there: a participant, or a subject of one of its takes
+        # (audit M15). Anyone else is refused, never silently written.
+        return {**base, "status": "FORBIDDEN"}
     pair = (str(item.artisanId), lineage_key)
     snapshot = pair in pre["current"]
     if snapshot:
@@ -302,11 +308,25 @@ async def _write_one(
             field_value, status, user.id,
         )
         await tx.execute_raw('UPDATE "QuestionnaireAnswer" SET "currentRevisionId" = $2 WHERE "id" = $1', answer_id, revision_id)
+        if session.get("status_t") == "APPROVED":
+            # The revision is PENDING; the session stays APPROVED and goes back to review (audit M13).
+            await sessions.note_pending_change(tx, str(session["id"]))
     saved = {
         "id": answer_id, "version": version, "text": item.text, "origin": item.origin, "attribution": item.attribution,
         "pinned": bool(current and current.get("pinned")), "sourceRecordingId": item.sourceRecordingId,
     }
     return {**base, "status": "SAVED", "answer": saved}
+
+
+async def session_people(client: Any, session_id: str) -> set[str]:
+    """The artisans an answer in this session may be about: its participants and its takes' subjects."""
+    rows = await client.query_raw(
+        'SELECT "artisanId" FROM "QuestionnaireInterviewArtisan" WHERE "interviewId" = $1 UNION '
+        'SELECT s."artisanId" FROM "QuestionnaireRecordingSubject" s JOIN "QuestionnaireRecording" r ON r."id" = s."recordingId" '
+        'JOIN "MediaFile" m ON m."id" = r."mediaFileId" WHERE m."questionnaireInterviewId" = $1',
+        session_id,
+    )
+    return {str(r["artisanId"]) for r in rows}
 
 
 async def put_answers(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any]:
@@ -327,8 +347,21 @@ async def put_answers(payload: Any, user: Any, *, client: Any = None) -> dict[st
             import logging
 
             logging.getLogger(__name__).exception("answer item failed")
+            # Tried once more (a dropped connection is the usual cause); if it fails again the item
+            # is a CONFLICT that CARRIES the stored answer, so the client always has something to
+            # show and to resolve against, never an empty conflict (audit Low).
+            try:
+                results.append(await _write_one(item, user, db, {}))
+                continue
+            except Exception:  # noqa: BLE001
+                logging.getLogger(__name__).exception("answer item failed twice")
+            stored = None
+            try:
+                stored = answer_out(await current_answer(db, item.artisanId, item.questionLineageId))
+            except Exception:  # noqa: BLE001
+                stored = None
             results.append({"artisanId": item.artisanId, "questionLineageId": item.questionLineageId,
-                            "status": "CONFLICT", "answer": None, "current": None})
+                            "status": "CONFLICT", "answer": None, "current": stored})
     return {"results": results}
 
 
@@ -340,6 +373,8 @@ async def proposals(recording_id: str, user: Any, *, client: Any = None) -> dict
 
     db = _db(client)
     row = await recordings.require_recording(db, recording_id)
+    # Proposals can call an outside model: the same people who may change the take (audit M15).
+    await recordings.assert_can_change(db, user, row, reviewers=True)
     rec = (await recordings.serialize_recordings(db, [row], user))[0]
     text = rec["transcript"]["text"]
     if not text:

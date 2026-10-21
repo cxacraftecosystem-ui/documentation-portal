@@ -344,7 +344,8 @@ transcription pause work either way. See `docs/questionnaire/API.md`.
 | Variable | Required | Default | Secret | Notes |
 |---|---|---|---|---|
 | `QUESTIONNAIRE_V2` | No | **`false`** | No | The switch. The owner turns it on after the legacy backfill has been applied (rollout steps 3 and 4). |
-| `QUESTIONNAIRE_MIN_APP_VERSION_FOR_CREATE` | No | unset | No | Owner decision 5: once every active device runs the new build (plus 30 days), set this to that version. A session create from a lower `X-App-Version` then gets `503` + `Retry-After: 86400` and the update banner; its queued clips are always accepted. |
+| `QUESTIONNAIRE_MIN_ANDROID_VERSION_CODE_FOR_CREATE` | No | unset | No | Owner decision 5: once every active Android device runs the new build (plus 30 days; `GET /api/admin/app-versions` shows `accountsBelow`), set this to that build's **versionCode**. A session create from a lower `X-App-Version-Code`, or an Android build that sends none, then gets `503` + `Retry-After: 86400` and the update banner; its queued clips are always accepted. The version name is never compared (it was reset to 0.0.1 on 21 Oct 2026). |
+| `QUESTIONNAIRE_MIN_WEB_VERSION_CODE_FOR_CREATE` | No | unset | No | The same for the web, compared with the web's build number. A web request that sends no code is never refused (the page ships with the server). |
 
 The transcription pause is not a variable: it is `AppSetting.transcriptionPaused`, which migration
 `20261022090000_consent_and_pause` adds as `true` (owner correction (d), 18 Oct 2026).

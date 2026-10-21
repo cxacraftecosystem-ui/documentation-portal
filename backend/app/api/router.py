@@ -5,6 +5,7 @@ from app.api.routes import (
     ai_keys,
     answer_drafts,
     app_release,
+    app_versions,
     artisan_cards,
     artisan_duplicates,
     artisan_merge,
@@ -94,6 +95,7 @@ api_router.include_router(data_browser.router)
 # is the credential it accepts (see app/api/routes/datasets.py and deps.require_dataset_admin).
 api_router.include_router(datasets.router)
 api_router.include_router(app_release.router)
+api_router.include_router(app_versions.router)
 api_router.include_router(feedback.router)
 api_router.include_router(notifications.router)
 api_router.include_router(preferences.router)

@@ -13,9 +13,23 @@ is the authority on shapes.
 |---|---|---|
 | `QUESTIONNAIRE_V2` (env) | `false` | Off: every v2 route answers 404, the old routes behave exactly as before. On: the routes below, and the old-build shims. |
 | `AppSetting.transcriptionPaused` (database) | `true` | Owner correction (d): no audio leaves the server. Jobs wait as QUEUED; Retry answers 202 `{"status":"QUEUED","paused":true}`. |
-| `QUESTIONNAIRE_MIN_APP_VERSION_FOR_CREATE` (env) | unset | Decision 5: older builds' creates get 503 + `Retry-After: 86400`. Clips are always accepted. |
+| `QUESTIONNAIRE_MIN_ANDROID_VERSION_CODE_FOR_CREATE`, `QUESTIONNAIRE_MIN_WEB_VERSION_CODE_FOR_CREATE` (env) | unset | Decision 5: an older build's create gets 503 + `Retry-After: 86400`, compared on the build NUMBER per platform. Clips are always accepted. |
 
-`GET /api/questionnaire/config` reports all three to both clients.
+`GET /api/questionnaire/config` reports them to both clients (`minAndroidVersionCodeForCreate`,
+`minWebVersionCodeForCreate`; `minAppVersionForCreate` is always null since the version name was reset).
+
+## Build headers (every request, both clients)
+
+| Header | Value |
+|---|---|
+| `X-App-Platform` | `android` or `web` |
+| `X-App-Version-Code` | the build number, a positive integer: Android `BuildConfig.VERSION_CODE`, the web's build number. The only value the old-build cutoff compares. |
+| `X-App-Version` | the version name, for people; never compared |
+
+A request with no `X-App-Platform` is read as the web when its version name starts `web-`, else as
+Android. The web proxy must forward `x-app-platform` and `x-app-version-code`. The app-version
+middleware records account, platform, build and last seen; `GET /api/admin/app-versions?days=30`
+(admins) reads it back with `accountsBelow` per platform.
 
 ## Routes
 
@@ -27,7 +41,7 @@ Base `/api/questionnaire` unless the path starts with `/api/`. Errors are always
 | Config | `GET /config` | `backend/app/api/routes/questionnaire_v2.py` |
 | Sessions | `GET /sessions/open-match`, `POST /sessions` (201, or 200 for a repeated `clientKey`), `GET /sessions`, `GET`/`PATCH`/`DELETE /sessions/{id}`, participants, researchers, `POST /sessions/join`, `/finish`, `/merge-into/{targetId}`, `POST /sessions/continue`, `GET /sessions/{id}/insights` | `backend/app/services/questionnaire_v2/sessions.py` |
 | Coverage | `POST /coverage/check`, `GET /coverage`, `GET /coverage/snapshot` | `backend/app/services/questionnaire_v2/coverage.py` |
-| Recordings | `PATCH`/`DELETE /recordings/{id}`, `/restore`, `/decide`, `/make-primary`, `/answer-proposals`, `/transcribe`, `GET /recordings/{id}/download` | `backend/app/services/questionnaire_v2/recordings.py` |
+| Recordings | `PATCH`/`DELETE /recordings/{id}`, `/restore`, `/decide`, `/make-primary`, `/answer-proposals`, `/transcribe`, `GET /recordings/{id}/download`, `POST /recordings/{id}/file` ("File it"), `GET /recordings/removed?sessionId=|artisanId=`, `POST /media/{mediaId}/file` ("File it" for a clip with no recording), `POST /media/{mediaId}/not-needed` ("Not needed": set aside on the server, idempotent, never deleted) | `backend/app/services/questionnaire_v2/recordings.py` |
 | Media | `POST /api/media/presign` and `/api/media/multipart/create` with `linkedRecordType: "questionnaire_session"`, `GET /api/media/uploads/{clientClipKey}`, `POST /api/media/complete` | `backend/app/api/routes/media.py` dispatches to the recordings service |
 | Answers | `PUT /answers` | `backend/app/services/questionnaire_v2/answers.py` |
 | Inbox | `GET /inbox` | `backend/app/services/questionnaire_v2/inbox.py` |

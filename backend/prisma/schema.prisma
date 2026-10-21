@@ -382,6 +382,7 @@ model User {
   questionnairesCreated   Questionnaire[]          @relation("QuestionnaireInstrumentCreatedBy")
   questionnaireResponses QuestionnaireResponse[] @relation("QuestionnaireAnsweredBy")
   appReleases AppRelease[] @relation("AppReleasePublishedBy")
+  appClientVersions AppClientVersion[] @relation("AppClientVersionUser")
   feedback    Feedback?    @relation("FeedbackUser")
   preferences UserPreference? @relation("UserPreferenceUser")
   /// Every e-mail queued for this account. See `EmailMessage`.
@@ -680,6 +681,26 @@ model AppRelease {
   publishedAt   DateTime @default(now())
 
   @@index([versionCode])
+}
+
+/// Which builds are in use (audit H22; DESIGN 5.6, owner decision 5): one row per account, platform
+/// and build number, with the first and last time it was seen. Written by the app-version middleware
+/// from ``X-App-Platform`` / ``X-App-Version-Code`` / ``X-App-Version`` at most once per ten minutes
+/// per row; read by ``GET /api/admin/app-versions``. ``versionCode`` 0 is a build that sends no code
+/// (one from before the header contract).
+model AppClientVersion {
+  userId      String
+  platform    String
+  versionCode Int
+  versionName String?
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+
+  user User @relation("AppClientVersionUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, platform, versionCode])
+  @@index([platform, versionCode])
+  @@index([lastSeenAt])
 }
 
 enum GiStatus {
@@ -2082,6 +2103,10 @@ model QuestionnaireInterview {
   designWorkshopId String?
   mergedIntoId    String?
   version         Int            @default(1)
+  /// New content (a take, an answer revision) arrived on this APPROVED session and waits for review
+  /// (DESIGN 3.10; audit M13). The session stays APPROVED; this puts it back in the review queue,
+  /// and approving it again clears it.
+  pendingChangesAt DateTime?
 
   createdBy User                             @relation("QuestionnaireCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   location  Location?                        @relation(fields: [locationId], references: [id], onDelete: SetNull)
@@ -2106,6 +2131,7 @@ model QuestionnaireInterview {
   @@index([createdAt])
   @@index([questionnaireId, createdAt])
   @@index([status, submittedAt])
+  @@index([pendingChangesAt])
 }
 
 model QuestionnaireInterviewArtisan {

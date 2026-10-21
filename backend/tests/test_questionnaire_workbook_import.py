@@ -156,6 +156,11 @@ class _Db:
 
         return _Block()
 
+    async def query_raw(self, sql: str, *params: Any) -> list[dict[str, Any]]:
+        """The builder's evidence check (has this wording been answered or recorded?): never, here.
+        A reword of an answered question supersedes it instead (tests/test_questionnaire_v2_switch_on)."""
+        return []
+
     def __getattr__(self, name: str) -> Any:
         try:
             return self._delegates[name]

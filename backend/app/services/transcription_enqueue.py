@@ -120,3 +120,43 @@ async def enqueue(
                 raise
     await db.mediafile.update(where={"id": media_id}, data={"transcriptStatus": QUEUED})
     return {"status": QUEUED, "paused": paused, "jobId": job.id}
+
+
+#: A recording held back by consent: the statuses the gate writes, and the queue's older note.
+HELD_STATUSES = ("AWAITING_CONSENT", "REFUSED_CONSENT")
+
+
+async def requeue_held(*, artisan_id: str | None = None, media_id: str | None = None,
+                       requested_by_id: str | None = None, client: Any = None) -> int:
+    """After a GRANTED answer, queue again every recording that consent held back (audit M7): the
+    artisan's recordings by EVERY link the gate reads (a take's subject, the file's artisan, an
+    interview's participant, a product's or tool's artisan), or the one recording. ``enqueue`` asks
+    the gate again, so anyone else's refusal still holds, and the pause still applies. Returns how
+    many were queued."""
+    from app.transcription.consent import CONSENT_REFUSED_MESSAGE
+
+    db = _db(client)
+    held = (
+        '(m."transcriptStatus" = ANY($2::text[]) OR (m."transcriptStatus" = \'FAILED\' AND m."transcriptError" = $3)) '
+        'AND m."removedAt" IS NULL AND m."mediaType" IN (\'AUDIO\', \'VIDEO\')'
+    )
+    if media_id:
+        rows = await db.query_raw(f'SELECT m."id" FROM "MediaFile" m WHERE m."id" = $1 AND {held}', media_id,
+                                  list(HELD_STATUSES), CONSENT_REFUSED_MESSAGE)
+    elif artisan_id:
+        rows = await db.query_raw(
+            'SELECT DISTINCT m."id" FROM "MediaFile" m WHERE ' + held + ' AND ('
+            'm."artisanId" = $1 '
+            'OR EXISTS (SELECT 1 FROM "QuestionnaireRecording" r JOIN "QuestionnaireRecordingSubject" s ON s."recordingId" = r."id" '
+            '           WHERE r."mediaFileId" = m."id" AND s."artisanId" = $1) '
+            'OR (NOT EXISTS (SELECT 1 FROM "QuestionnaireRecording" r WHERE r."mediaFileId" = m."id") AND ('
+            '    EXISTS (SELECT 1 FROM "QuestionnaireInterviewArtisan" qa WHERE qa."interviewId" = m."questionnaireInterviewId" AND qa."artisanId" = $1) '
+            '    OR EXISTS (SELECT 1 FROM "ProductDocumentation" p WHERE p."id" = m."productId" AND p."artisanId" = $1) '
+            '    OR EXISTS (SELECT 1 FROM "ToolArtisan" t WHERE t."toolId" = m."toolId" AND t."artisanId" = $1))))',
+            artisan_id, list(HELD_STATUSES), CONSENT_REFUSED_MESSAGE,
+        )
+    else:
+        return 0
+    for row in rows:
+        await enqueue(str(row["id"]), "consent recorded", requested_by_id=requested_by_id, client=db)
+    return len(rows)

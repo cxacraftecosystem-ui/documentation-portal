@@ -29,6 +29,23 @@ COMMANDS (all refuse a host not named in --allow-host):
     python scripts/questionnaire_v2_backfill.py --allow-host H                     # 3. dry run (default)
     python scripts/questionnaire_v2_backfill.py --allow-host H --apply --run-id R --approved-report P
     python scripts/questionnaire_v2_backfill.py --allow-host H --undo --run-id R
+    python scripts/questionnaire_v2_backfill.py --allow-host H --catch-up          # CATCH-UP dry run
+    python scripts/questionnaire_v2_backfill.py --allow-host H --catch-up --apply --run-id R --approved-report P
+
+CATCH-UP (audit C6). The main backfill reads only legacy rows not yet reconstructed (origin NATIVE),
+and the old-build shim does nothing while QUESTIONNAIRE_V2 is off, so every legacy clip uploaded
+into an already-reconstructed session after the backfill has NO recording: missing from coverage,
+shown only under "To file". ``--catch-up`` gives each live questionnaire clip with no recording,
+WHATEVER ITS SESSION'S ORIGIN, its recording through the same legacy resolver (provenance from the
+resolver, subjects = the session's participants, an unresolved target is NEEDS_DECISION and
+PENDING). It is a dry run by default and writes a report like the main dry run; ``--apply`` needs
+the owner's approval of THAT report and is undone by ``--undo`` with the same run id. Run it
+immediately before the flip; the check after it is "live questionnaire clips with no recording" = 0.
+NEVER run it against production without the approved dry run (the owner's step, not an agent's).
+
+UNDO restores what was there (audit M25): every column the apply changed, from the full prior row
+it stored, and only the researchers the apply added. It refuses once a reconstructed session holds
+native content (a take recorded in v2, an answer), because undoing would orphan it.
 
 The dry run runs in a verified READ ONLY transaction and writes
 ``docs/ops/FieldRepository_Questionnaire_<date>_Backfill-Dry-Run-Report.md`` and ``.csv``. The expected
@@ -429,7 +446,19 @@ async def _apply_session(tx: Any, s: SessionPlan, clips: list[ClipPlan], run_id:
         )
         if not row or row[0]["origin"] == "LEGACY_RECONSTRUCTED":
             return 0
-        before = {"title": row[0]["title"], "sessionDate": str(row[0]["sessionDate"]) if row[0].get("sessionDate") else None}
+        prior = await tx.query_raw(
+            'SELECT "title", "legacyTitle", "sessionDate", "sessionDateEstimated", "languageCode", "languageOther", '
+            '"state"::text AS state, "closedAt" FROM "QuestionnaireInterview" WHERE "id" = $1',
+            s.session_id,
+        )
+        had = {str(r["userId"]) for r in await tx.query_raw(
+            'SELECT "userId" FROM "QuestionnaireInterviewResearcher" WHERE "interviewId" = $1', s.session_id)}
+        # The FULL prior row, so an undo restores exactly what was there (audit M25).
+        before = {
+            key: (str(value)[:10] if key == "sessionDate" and value else (str(value) if key == "closedAt" and value else value))
+            for key, value in prior[0].items()
+        }
+        before["addedResearchers"] = sorted(set(s.researchers) - had)
         await tx.execute_raw(
             'UPDATE "QuestionnaireInterview" SET "origin" = \'LEGACY_RECONSTRUCTED\', "legacyTitle" = COALESCE("legacyTitle", "title"), '
             '"sessionDate" = $2::date, "sessionDateEstimated" = true, "languageCode" = COALESCE("languageCode", $3), '
@@ -461,6 +490,16 @@ async def _apply_session(tx: Any, s: SessionPlan, clips: list[ClipPlan], run_id:
                 rid, c.media_id, f"legacy:{c.media_id}", (c.captured_at or datetime.now(UTC)).astimezone(UTC).replace(tzinfo=None).isoformat(),
                 c.source, len(s.participants), c.uploader_id, c.filing, c.decision, c.provenance,
             )
+            if c.filing == "NEEDS_DECISION":
+                # A take waiting for a decision is PENDING, never approved with its session (DESIGN
+                # 7.3; audit M1). Its status before is kept for the undo.
+                await tx.execute_raw(
+                    'UPDATE "MediaFile" SET "extraMetadata" = COALESCE("extraMetadata", \'{}\'::jsonb) || '
+                    'jsonb_build_object(\'questionnaireV2\', COALESCE("extraMetadata"->\'questionnaireV2\', \'{}\'::jsonb) || '
+                    'jsonb_build_object(\'statusBefore\', "status"::text, \'statusRunId\', $2::text)), "status" = \'PENDING\' '
+                    'WHERE "id" = $1 AND "status" <> \'PENDING\'',
+                    c.media_id, run_id,
+                )
             for t, key in zip(c.targets, c.target_keys):
                 lineage = t.get("questionLineageId")
                 await tx.execute_raw(
@@ -479,9 +518,12 @@ async def _apply_session(tx: Any, s: SessionPlan, clips: list[ClipPlan], run_id:
                 uuid4().hex, rid, json.dumps({"runId": run_id, "step": c.step, "candidates": c.candidates}), c.uploader_id,
             )
             if c.candidates:
+                # Merged INTO questionnaireV2, never over it: movedFrom and statusBefore live there too,
+                # and the undo needs them.
                 await tx.execute_raw(
-                    'UPDATE "MediaFile" SET "extraMetadata" = COALESCE("extraMetadata", \'{}\'::jsonb) || $2::jsonb WHERE "id" = $1',
-                    c.media_id, json.dumps({"questionnaireV2": {"candidates": c.candidates}}),
+                    'UPDATE "MediaFile" SET "extraMetadata" = jsonb_set(COALESCE("extraMetadata", \'{}\'::jsonb), \'{questionnaireV2}\', '
+                    'COALESCE("extraMetadata"->\'questionnaireV2\', \'{}\'::jsonb) || $2::jsonb) WHERE "id" = $1',
+                    c.media_id, json.dumps({"candidates": c.candidates}),
                 )
             changes += 1
         else:
@@ -507,9 +549,33 @@ async def apply_plan(client: Any, plan: Plan, run_id: str) -> int:
     return changed
 
 
+class UndoRefused(Exception):
+    pass
+
+
+async def native_content(client: Any, run_id: str) -> int:
+    """Takes recorded in v2 and answers on the sessions this run reconstructed or created: an undo
+    would orphan them, so it is refused (audit M25)."""
+    rows = await client.query_raw(
+        'WITH s AS (SELECT "id" FROM "QuestionnaireInterview" WHERE "extraMetadata"->\'questionnaireV2\'->\'backfill\'->>\'runId\' = $1) '
+        'SELECT (SELECT count(*) FROM "QuestionnaireRecording" r JOIN "MediaFile" m ON m."id" = r."mediaFileId" '
+        "        WHERE m.\"questionnaireInterviewId\" IN (SELECT \"id\" FROM s) AND r.\"provenance\" IN ('NATIVE', 'SHIM', 'MANUAL')) + "
+        '       (SELECT count(*) FROM "QuestionnaireAnswerRevision" v WHERE v."sessionId" IN (SELECT "id" FROM s)) AS n',
+        run_id,
+    )
+    return int(rows[0]["n"]) if rows else 0
+
+
 async def undo(client: Any, run_id: str) -> int:
     undone = 0
+    if await native_content(client, run_id):
+        raise UndoRefused("sessions of this run already hold takes or answers recorded since; undo would orphan them")
     async with client.tx(max_wait=timedelta(seconds=15), timeout=timedelta(seconds=300)) as tx:
+        undone += int(await tx.execute_raw(
+            'UPDATE "MediaFile" SET "status" = ("extraMetadata"->\'questionnaireV2\'->>\'statusBefore\')::"RecordStatus", '
+            '"extraMetadata" = "extraMetadata" #- \'{questionnaireV2,statusBefore}\' #- \'{questionnaireV2,statusRunId}\' '
+            "WHERE \"extraMetadata\"->'questionnaireV2'->>'statusRunId' = $1", run_id,
+        ) or 0)
         recs = await tx.query_raw(
             "SELECT DISTINCT e.\"recordingId\" FROM \"QuestionnaireRecordingEvent\" e WHERE e.\"kind\" = 'BACKFILL' AND e.\"after\"->>'runId' = $1", run_id
         )
@@ -539,15 +605,147 @@ async def undo(client: Any, run_id: str) -> int:
             before = r.get("before") or {}
             if isinstance(before, str):
                 before = json.loads(before)
+            full = "state" in before  # a run from before audit M25 stored only the title and the date
             await tx.execute_raw(
-                'UPDATE "QuestionnaireInterview" SET "origin" = \'NATIVE\', "title" = $2, "legacyTitle" = NULL, "sessionDate" = $3::date, '
-                '"sessionDateEstimated" = false, "state" = \'OPEN\', "closedAt" = NULL, '
-                '"extraMetadata" = "extraMetadata" #- \'{questionnaireV2,backfill}\' WHERE "id" = $1',
-                r["id"], before.get("title") or "Interview", before.get("sessionDate"),
+                'UPDATE "QuestionnaireInterview" SET "origin" = \'NATIVE\', "title" = $2, "legacyTitle" = $3, "sessionDate" = $4::date, '
+                '"sessionDateEstimated" = $5, "languageCode" = $6, "languageOther" = $7, "state" = $8::"SessionState", '
+                '"closedAt" = $9::timestamp, "extraMetadata" = "extraMetadata" #- \'{questionnaireV2,backfill}\' WHERE "id" = $1',
+                r["id"], before.get("title") or "Interview", before.get("legacyTitle") if full else None, before.get("sessionDate"),
+                bool(before.get("sessionDateEstimated")) if full else False,
+                before.get("languageCode") if full else None, before.get("languageOther") if full else None,
+                before.get("state") or "OPEN", before.get("closedAt") if full else None,
             )
-            await tx.execute_raw('DELETE FROM "QuestionnaireInterviewResearcher" WHERE "interviewId" = $1', r["id"])
+            # Only the researchers this run added: anyone who joined since stays (audit M25).
+            added = before.get("addedResearchers")
+            if added:
+                await tx.execute_raw(
+                    'DELETE FROM "QuestionnaireInterviewResearcher" WHERE "interviewId" = $1 AND "userId" = ANY($2::text[])', r["id"], list(added)
+                )
             undone += 1
     return undone
+
+
+# ── catch-up (audit C6) ────────────────────────────────────────────────────────────────────────
+CATCH_UP_SQL = (
+    'SELECT m."id", m."questionnaireInterviewId" AS "sessionId", m."originalFilename", m."caption", m."extraMetadata", m."recordedAt", '
+    'm."createdAt", m."uploadedById", m."transcriptText", m."transcriptStatus", m."status"::text AS status, '
+    'i."origin"::text AS origin, i."questionnaireId" FROM "MediaFile" m JOIN "QuestionnaireInterview" i ON i."id" = m."questionnaireInterviewId" '
+    "WHERE m.\"mediaType\" IN ('AUDIO', 'VIDEO') AND m.\"removedAt\" IS NULL AND i.\"mergedIntoId\" IS NULL "
+    'AND NOT EXISTS (SELECT 1 FROM "QuestionnaireRecording" r WHERE r."mediaFileId" = m."id") '
+    "AND m.\"extraMetadata\"->'questionnaireV2'->'notNeeded' IS NULL ORDER BY m.\"createdAt\", m.\"id\""
+)
+
+
+@dataclass
+class CatchUpClip:
+    media_id: str
+    session_id: str
+    origin: str
+    uploader_id: str
+    step: str
+    provenance: str
+    target_keys: list[str]
+    filing: str
+    decision: str | None
+
+
+async def catch_up_plan(client: Any) -> list[CatchUpClip]:
+    """Every live questionnaire clip with no recording, and what the resolver makes of it."""
+    from types import SimpleNamespace
+
+    out: list[CatchUpClip] = []
+    rows = await client.query_raw(CATCH_UP_SQL)
+    participants: dict[str, int] = {}
+    instruments: dict[str, tuple[list, list]] = {}
+    for m in rows:
+        sid = str(m["sessionId"])
+        if sid not in participants:
+            n = await client.query_raw('SELECT count(*) AS n FROM "QuestionnaireInterviewArtisan" WHERE "interviewId" = $1', sid)
+            participants[sid] = int(n[0]["n"]) if n else 0
+        qid = str(m["questionnaireId"])
+        if qid not in instruments:
+            instruments[qid] = await legacy_resolver.load_instrument(client, qid)
+        res = legacy_resolver.resolve(SimpleNamespace(**m), *instruments[qid])
+        keys = [f"S:{t['sectionId']}" if t.get("sectionId") else f"Q:{t['questionLineageId']}" for t in res.targets]
+        filing, decision = ("NEEDS_DECISION", "UNRESOLVED_LEGACY") if res.needs_decision else ("FILED", None)
+        if not participants[sid] and not decision:
+            filing, decision = "NEEDS_DECISION", "NO_PARTICIPANTS"
+        out.append(CatchUpClip(
+            media_id=str(m["id"]), session_id=sid, origin=str(m.get("origin") or ""), uploader_id=str(m["uploadedById"]),
+            step=res.step, provenance=res.provenance, target_keys=keys, filing=filing, decision=decision,
+        ))
+    return out
+
+
+def catch_up_report(clips: list[CatchUpClip]) -> tuple[str, str]:
+    """``(markdown, csv)``. Nothing in them depends on the day it is run, so an approval stays valid
+    until the data moves."""
+    buffer = io.StringIO()
+    w = csv.writer(buffer, lineterminator="\n")
+    w.writerow(["mediaFileId", "sessionId", "sessionOrigin", "resolverStep", "provenance", "targets", "filing", "decisionKind"])
+    for c in sorted(clips, key=lambda c: (c.session_id, c.media_id)):
+        w.writerow([c.media_id, c.session_id, c.origin, c.step, c.provenance, " ".join(c.target_keys), c.filing, c.decision or ""])
+    csv_text = buffer.getvalue()
+    filed = sum(1 for c in clips if c.filing == "FILED")
+    by_origin = Counter(c.origin for c in clips)
+    lines = [
+        "# Questionnaire v2 catch-up: dry-run report",
+        "",
+        "Live questionnaire clips with no recording, whatever their session's origin (audit C6). Nothing has been",
+        "written. The owner approves this report (add `Approved-by: <owner email> <YYYY-MM-DD>`) before",
+        "`--catch-up --apply`. No transcription is queued (correction (d)).",
+        "",
+        "| What | Count |",
+        "|---|---|",
+        f"| clips | {len(clips)} |",
+        f"| filed | {filed} |",
+        f"| needsDecision | {len(clips) - filed} |",
+        *[f"| session origin {k or '(none)'} | {v} |" for k, v in sorted(by_origin.items())],
+        "",
+        f"Rows: see the CSV beside this file (sha256 {hashlib.sha256(csv_text.encode()).hexdigest()}).",
+        "",
+    ]
+    return "\n".join(lines), csv_text
+
+
+async def apply_catch_up(client: Any, clips: list[CatchUpClip], run_id: str) -> int:
+    """One transaction per clip, idempotent (a clip that has a recording by now is skipped)."""
+    from types import SimpleNamespace
+
+    from app.services.questionnaire_v2 import sessions as v2_sessions
+    from app.services.questionnaire_v2 import shims
+
+    done = 0
+    for c in clips:
+        async with client.tx(max_wait=timedelta(seconds=15), timeout=timedelta(seconds=60)) as tx:
+            media = await tx.mediafile.find_unique(where={"id": c.media_id})
+            if media is None or getattr(media, "removedAt", None):
+                continue
+            exists = await tx.query_raw('SELECT 1 FROM "QuestionnaireRecording" WHERE "mediaFileId" = $1', c.media_id)
+            if exists:
+                continue
+            rid = await shims.record_legacy_clip(media, SimpleNamespace(id=c.uploader_id), client=tx, provenance="LEGACY",
+                                                 client_clip_key=f"catchup:{c.media_id}")
+            if not rid:
+                continue
+            await v2_sessions.add_researcher(tx, c.session_id, c.uploader_id, "CONTRIBUTOR")
+            await tx.execute_raw(
+                'INSERT INTO "QuestionnaireRecordingEvent" ("id", "recordingId", "kind", "after", "actorId") VALUES ($1, $2, \'BACKFILL\', $3::jsonb, $4)',
+                uuid4().hex, rid, json.dumps({"runId": run_id, "catchUp": True, "step": c.step}), c.uploader_id,
+            )
+            done += 1
+    return done
+
+
+async def catch_up_dry(client: Any) -> list[CatchUpClip]:
+    async with client.tx(max_wait=timedelta(seconds=15), timeout=timedelta(seconds=300)) as tx:
+        await qv2_guard.assert_read_only(tx)
+        return await catch_up_plan(tx)
+
+
+def catch_up_report_names() -> tuple[str, str]:
+    md = naming.export_filename(entity="Questionnaire", what="Catch-Up-Dry-Run-Report", ext="md")
+    return md, md[:-3] + ".csv"
 
 
 _UNHASHED_SQL = (
@@ -593,7 +791,26 @@ async def run(args: argparse.Namespace) -> int:
         if args.undo:
             if not args.run_id:
                 raise qv2_guard.Refused("--undo needs --run-id")
-            print(f"UNDONE: {await undo(client, args.run_id)} changes reverted for run {args.run_id}.")
+            try:
+                undone = await undo(client, args.run_id)
+            except UndoRefused as exc:
+                raise qv2_guard.Refused(str(exc)) from None
+            print(f"UNDONE: {undone} changes reverted for run {args.run_id}.")
+            return 0
+        if getattr(args, "catch_up", False):
+            clips = await catch_up_dry(client)
+            md_text, csv_text = catch_up_report(clips)
+            md_name, csv_name = catch_up_report_names()
+            if not args.apply:
+                qv2_guard.write_report(args.out, md_name, md_text)
+                qv2_guard.write_report(args.out, csv_name, csv_text)
+                print(f"CATCH-UP DRY RUN: {len(clips)} clips have no recording. Nothing was written.")
+                return 0
+            if not args.run_id:
+                raise qv2_guard.Refused("--apply needs --run-id")
+            approver, day = qv2_guard.check_approval(args.approved_report, md_text)
+            done = await apply_catch_up(client, clips, args.run_id)
+            print(f"CATCH-UP APPLIED run {args.run_id} (approved by {approver} on {day}): {done} recordings.")
             return 0
         if args.sha_only:
             # Dry run by default like every other mode: count, read nothing from S3, write nothing.
@@ -634,6 +851,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--undo", action="store_true")
     parser.add_argument("--sha-only", action="store_true")
+    parser.add_argument("--catch-up", action="store_true", help="give live clips with no recording theirs (audit C6)")
     return asyncio.run(run(parser.parse_args(argv)))
 
 

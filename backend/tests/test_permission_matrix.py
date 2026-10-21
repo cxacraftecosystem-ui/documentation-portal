@@ -770,11 +770,10 @@ CONTENT_DELETES = [
     ("DELETE", "/workshops/x1"),
     ("DELETE", "/media/x1"),
     ("DELETE", "/data-access/comments/x1"),
-    ("DELETE", "/questionnaire/sections/x1"),
-    ("DELETE", "/questionnaire/questions/x1"),
+    # A form's own section, question and instrument deletes are its AUTHOR's as well (owner, 22 Oct
+    # 2026) and live in ``AUTHOR_OR_ADMIN_DELETES`` below. An interview stays a content admin's.
     ("DELETE", "/questionnaire/interviews/x1"),
     ("POST", "/questionnaire/interviews/x1/merge-into/x2"),
-    ("DELETE", "/questionnaires/x1"),
     ("DELETE", "/tasks/x1"),
     ("DELETE", "/tasks/batch/b1"),
     ("DELETE", "/map/coverage/aliases/x1"),
@@ -823,6 +822,65 @@ def test_no_role_below_the_content_admins_deletes_a_session_or_a_take(call: str,
     with pytest.raises(HTTPException) as refusal:
         asyncio.run(work(_user(role)))
     assert refusal.value.status_code == 403
+
+
+# --- A questionnaire form: its author OR a content admin deletes from it (owner, 22 Oct 2026) ------
+#
+# "The author should be able to edit/delete the questionnaire apart from the admins." Deleting the
+# instrument, one of its sections or one of its questions is reached by the form's author
+# (``Questionnaire.createdById``) and by every content admin; every other role, a questionnaire
+# manager included, is refused 403. The gate needs the row (it asks who made the form), so the form,
+# the section and the question are preloaded; any other read is the handler doing its work.
+
+
+AUTHOR_OR_ADMIN_DELETES = [
+    ("DELETE", "/questionnaire/sections/x1"),
+    ("DELETE", "/questionnaire/questions/x1"),
+    ("DELETE", "/questionnaires/f1"),
+]
+
+
+class _Row:
+    """One delegate whose ``find_unique`` answers ``row``; reading anything else off it is the
+    handler at work."""
+
+    def __init__(self, name: str, row: Any) -> None:
+        object.__setattr__(self, "_name", name)
+        object.__setattr__(self, "find_unique", _returning(row))
+
+    def __getattr__(self, attr: str) -> Any:
+        raise _DatabaseTouched(f"{object.__getattribute__(self, '_name')}.{attr}")
+
+
+def _authored_by_u1(api: _Api) -> _Api:
+    return (
+        api.preload("questionnaire", _Row("questionnaire", SimpleNamespace(id="f1", createdById="u1", isDefault=False, isActive=True)))
+        .preload("questionnairesection", _Row("questionnairesection", SimpleNamespace(id="x1", questionnaireId="f1", isActive=True)))
+        .preload("questionnairequestion", _Row("questionnairequestion", SimpleNamespace(id="x1", questionnaireId="f1", isActive=True)))
+    )
+
+
+@pytest.mark.parametrize("method,path", AUTHOR_OR_ADMIN_DELETES)
+def test_the_forms_author_deletes_from_it(api: _Api, method: str, path: str) -> None:
+    outcome = _authored_by_u1(api).as_(_user("PROFESSOR", "u1")).call(method, path)
+
+    assert outcome.reached, outcome
+
+
+@pytest.mark.parametrize("role", CONTENT_ADMINS)
+@pytest.mark.parametrize("method,path", AUTHOR_OR_ADMIN_DELETES)
+def test_a_content_admin_deletes_from_somebody_elses_form(api: _Api, method: str, path: str, role: str) -> None:
+    outcome = _authored_by_u1(api).as_(_user(role, "u2")).call(method, path)
+
+    assert outcome.reached, outcome
+
+
+@pytest.mark.parametrize("role", NOT_CONTENT_ADMINS)
+@pytest.mark.parametrize("method,path", AUTHOR_OR_ADMIN_DELETES)
+def test_nobody_else_deletes_from_a_form(api: _Api, method: str, path: str, role: str) -> None:
+    outcome = _authored_by_u1(api).as_(_user(role, "u2", canManageQuestionnaire=True)).call(method, path)
+
+    assert outcome.refused, outcome
 
 
 class _Comments:

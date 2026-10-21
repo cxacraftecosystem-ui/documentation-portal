@@ -24,6 +24,7 @@ from app.services import aadhaar_fingerprint
 from app.core.db import connect_db, db, disconnect_db
 from app.core.deps import PASSWORD_CHANGE_REQUIRED_HEADER
 from app.core.idempotency import IdempotencyMiddleware
+from app.services.app_versions import AppVersionMiddleware
 from app.core.security import verify_jwt_configuration
 from app.services.email_outbox import process_next_email_jobs
 from app.services.media_queue import process_next_media_jobs, queue_work_due
@@ -417,6 +418,8 @@ def create_app() -> FastAPI:
     # CORS or security headers are stamped on it) and exceptions on their way to the handler below.
     # See app/core/idempotency.py for the contract.
     app.add_middleware(IdempotencyMiddleware)
+    # Notes each signed-in caller's app build after the response (audit H22; services/app_versions).
+    app.add_middleware(AppVersionMiddleware)
     app.add_middleware(UnhandledErrorMiddleware)
     app.add_middleware(
         CORSMiddleware,

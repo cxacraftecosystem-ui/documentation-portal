@@ -123,11 +123,35 @@ def group_by_slot(interviews: list) -> tuple[dict[str, str | None], dict[Slot, l
     return correct_key, dict(by_slot)
 
 
+#: Why ``--execute`` refuses once questionnaire v2 exists (audit H11, 21 Oct 2026).
+V2_REFUSAL = (
+    "REFUSED: questionnaire v2 sessions exist. Under v2 a session is a dated event and two sessions "
+    "sharing their artisans is normal (design D1), and this script would merge them while moving only "
+    "their media: recordings, participants, researchers and answers would be left on deleted rows. "
+    "Merge sessions with POST /api/questionnaire/sessions/{id}/merge-into/{targetId} instead."
+)
+
+
+async def v2_in_use() -> bool:
+    """Any questionnaire v2 recording or reconstructed session, or the v2 switch on."""
+    from app.core.config import get_settings
+
+    if getattr(get_settings(), "questionnaire_v2", False):
+        return True
+    if await db.questionnairerecording.count() > 0:
+        return True
+    return await db.questionnaireinterview.count(where={"origin": "LEGACY_RECONSTRUCTED"}) > 0
+
+
 async def main() -> None:
     execute = "--execute" in sys.argv
     print("MODE:", "EXECUTE" if execute else "DRY RUN (no changes)")
     await connect_db()
     try:
+        if execute and await v2_in_use():
+            # RETIRED FOR WRITES under v2 (audit H11): nothing is written; a dry run still reports.
+            print(V2_REFUSAL)
+            return
         interviews = await db.questionnaireinterview.find_many(include={"artisans": True})
         correct_key, by_slot = group_by_slot(interviews)
 

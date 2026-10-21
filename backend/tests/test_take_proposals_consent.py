@@ -58,7 +58,11 @@ def take(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         state.asked.append(transcript)
         return {1: "Since I was small."}, "anthropic", "model"
 
+    async def may_change(*_a: Any, **_k: Any) -> None:
+        return None  # who may ask for proposals is tests/test_questionnaire_v2_switch_on.py's (audit M15)
+
     monkeypatch.setattr(recordings, "require_recording", require)
+    monkeypatch.setattr(recordings, "assert_can_change", may_change)
     monkeypatch.setattr(recordings, "serialize_recordings", serialize)
     monkeypatch.setattr(consent_gate, "verdict", verdict)
     monkeypatch.setattr(answer_drafts, "draft_answers", draft)

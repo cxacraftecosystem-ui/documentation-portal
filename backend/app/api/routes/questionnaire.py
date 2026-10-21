@@ -353,6 +353,39 @@ async def require_section(section_id: str) -> Any:
     return await require_record(db.questionnairesection, section_id)
 
 
+#: The 403 for a delete from a form by somebody who is neither its author nor a content admin.
+FORM_DELETE_REFUSAL = "Only the questionnaire's author or an admin can delete from it."
+
+
+def is_form_author(form: Any, user: Any) -> bool:
+    """Whether ``user`` created this questionnaire (``Questionnaire.createdById``).
+
+    A form with no recorded author (the seeded default, or one made before the column existed) has
+    no author, so only a content admin deletes from it.
+    """
+    author = get_value(form, "createdById")
+    return bool(author) and author == get_value(user, "id")
+
+
+async def assert_may_delete_from_form(questionnaire_id: str | None, user: Any) -> None:
+    """THE FORM'S DELETE RULE (owner, 21 Oct 2026, amended 22 Oct 2026): "the author should be able to
+    edit/delete the questionnaire apart from the admins".
+
+    A questionnaire and everything in it — retiring or deleting the form, deleting a section or a
+    question, switching one off through its PATCH — is its author's or a content admin's
+    (``deps.CONTENT_ADMIN_ROLES``). Everyone else is refused 403, questionnaire managers included.
+    Deleting sessions, interviews and recordings stays a content admin's alone (``assert_can_delete``),
+    and so do sharing, the default form and workshop binding.
+
+    A content admin is answered from memory, so their delete pays no extra query.
+    """
+    if is_content_admin(user):
+        return
+    form = await db.questionnaire.find_unique(where={"id": questionnaire_id}) if questionnaire_id else None
+    if form is None or not is_form_author(form, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=FORM_DELETE_REFUSAL)
+
+
 def section_question_data(section: Any) -> dict[str, str]:
     return {"sectionId": section.id, "sectionCode": section.code, "sectionTitle": section.title}
 
@@ -662,10 +695,13 @@ async def create_section(
 async def update_section(
     section_id: str,
     payload: QuestionnaireSectionUpdate,
-    _: Any = Depends(require_questionnaire_manager),
+    user: Any = Depends(require_questionnaire_manager),
 ) -> dict[str, Any]:
-    await require_section(section_id)
+    section = await require_section(section_id)
     data = clean_data(payload.model_dump(exclude_unset=True))
+    if data.get("isActive") is False and section.isActive:
+        # Switching a section off is taking it out of the form: the delete rule, not the edit rule.
+        await assert_may_delete_from_form(section.questionnaireId, user)
     if "code" in data:
         data["code"] = data["code"].strip()
     if "title" in data:
@@ -686,17 +722,48 @@ async def update_section(
             data={"sectionCode": updated.code, "sectionTitle": updated.title},
         )
         await cross_portal_codes.reconcile_question_codes(db, questionnaire_id=updated.questionnaireId)
+    if data.get("isActive") is True:
+        # Restoring a section restores the questions its delete switched off, and only those (audit
+        # M16): a question deleted on its own before stays deleted.
+        switched = await _questions_switched_off_with(section_id)
+        if switched:
+            await db.questionnairequestion.update_many(where={"id": {"in": switched}}, data={"isActive": True})
     return public_encode(updated)
+
+
+SECTION_DELETE_REVISION = "questionnaire_section"
+
+
+async def _questions_switched_off_with(section_id: str) -> list[str]:
+    """The questions the most recent delete of this section switched off (its RecordRevision)."""
+    rows = await db.query_raw(
+        'SELECT "changes" FROM "RecordRevision" WHERE "recordType" = $1 AND "recordId" = $2 ORDER BY "createdAt" DESC LIMIT 1',
+        SECTION_DELETE_REVISION, section_id,
+    )
+    changes = rows[0].get("changes") if rows else None
+    if isinstance(changes, str):
+        import json
+
+        changes = json.loads(changes)
+    return [str(i) for i in ((changes or {}).get("questionsSwitchedOff") or [])]
 
 
 @questionnaire_router.delete("/sections/{section_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_section(
     section_id: str,
-    _: Any = Depends(require_content_admin),
+    user: Any = Depends(get_current_user),
 ) -> None:
-    await require_section(section_id)
+    """Switch a section and its questions off. The form's author or a content admin (22 Oct 2026)."""
+    section = await require_section(section_id)
+    await assert_may_delete_from_form(section.questionnaireId, user)
+    live = await db.questionnairequestion.find_many(where={"sectionId": section_id, "isActive": True})
     await db.questionnairesection.update(where={"id": section_id}, data={"isActive": False})
     await db.questionnairequestion.update_many(where={"sectionId": section_id}, data={"isActive": False})
+    # Which questions THIS delete switched off, so a restore brings back exactly those (audit M16).
+    await db.recordrevision.create(
+        data={"recordType": SECTION_DELETE_REVISION, "recordId": section_id, "editedById": getattr(user, "id", None),
+              "changes": Json({"questionsSwitchedOff": [q.id for q in live]})}
+    )
 
 
 @questionnaire_router.post("/sections/reorder")
@@ -776,6 +843,9 @@ async def update_question(
 ) -> dict[str, Any]:
     question = await require_record(db.questionnairequestion, question_id)
     data = clean_data(payload.model_dump(exclude_unset=True))
+    if data.get("isActive") is False and question.isActive:
+        # Switching a question off is removing it: the delete rule, not the edit rule (22 Oct 2026).
+        await assert_may_delete_from_form(question.questionnaireId, _)
     if "prompt" in data:
         data["prompt"] = data["prompt"].strip()
     # CLEARING HELP TEXT, PUT BACK BY HAND AFTER `clean_data` DROPPED IT.
@@ -809,20 +879,11 @@ async def update_question(
                     f"section belongs to «{section.questionnaireId}»."
                 ),
             )
-        if section.id != question.sectionId and v2_shims.enabled():
-            # QUESTIONNAIRE V2 (DESIGN 3.8): a question that has takes is never re-parented. Its
-            # recordings point at it by id, and coverage would silently move to another section.
-            takes = await db.query_raw(
-                'SELECT count(*) AS n FROM "QuestionnaireRecordingTarget" t JOIN "QuestionnaireRecording" r '
-                'ON r."id" = t."recordingId" WHERE r."removedAt" IS NULL AND t."questionLineageId" = $1',
-                getattr(question, "lineageId", None) or question.id,
-            )
-            if takes and int(takes[0]["n"]):
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail={"code": "HAS_RECORDINGS", "message": "This question has recordings. Add a new question in the other section instead.",
-                            "count": int(takes[0]["n"])},
-                )
+        if section.id != question.sectionId:
+            # DESIGN 3.8: a question that has takes is never re-parented, whatever the v2 switch says
+            # (the backfill's takes exist while it is off; audit M16). Its recordings point at it by
+            # id, and coverage would silently move to another section.
+            await _refuse_reparent_with_takes([question])
         data.update(section_question_data(section))
         if "sortOrder" not in data or data["sortOrder"] is None:
             data["sortOrder"] = await next_question_sort_order(section.id)
@@ -833,6 +894,11 @@ async def update_question(
     data["questionCode"] = cross_portal_codes.question_code(
         data.get("sectionCode", question.sectionCode), data.get("prompt", question.prompt)
     )
+    if "prompt" in data and data["prompt"] != question.prompt and await _question_has_evidence(question):
+        # A REWORD OF A QUESTION SOMEONE ALREADY ANSWERED IS A NEW WORDING, NEVER AN EDIT IN PLACE
+        # (DESIGN 7.2; audit M16): the old row is superseded, the new one carries the lineage and the
+        # frozen display code, and a take shows "Recorded under earlier wording".
+        return public_encode(await _supersede_question(question, data, getattr(_, "id", None)))
     updated = await db.questionnairequestion.update(where={"id": question_id}, data=data)
     # From questionnaire v2 on, every edit leaves history (DESIGN 7.2), so a later reader can tell
     # what a recording was asked under.
@@ -850,12 +916,68 @@ async def update_question(
     return public_encode(updated)
 
 
+async def _question_has_evidence(question: Any) -> bool:
+    """Takes, answers or drafts were given under this exact wording."""
+    rows = await db.query_raw(
+        'SELECT (EXISTS (SELECT 1 FROM "QuestionnaireRecordingTarget" t WHERE t."askedQuestionId" = $1) '
+        'OR EXISTS (SELECT 1 FROM "QuestionnaireAnswerRevision" v WHERE v."askedQuestionId" = $1) '
+        'OR EXISTS (SELECT 1 FROM "QuestionnaireResponse" r WHERE r."questionId" = $1) '
+        'OR EXISTS (SELECT 1 FROM "QuestionnaireAnswerDraft" d WHERE d."questionId" = $1)) AS used',
+        question.id,
+    )
+    return bool(rows and rows[0].get("used"))
+
+
+async def _supersede_question(question: Any, data: dict[str, Any], editor_id: str | None) -> Any:
+    """Write the new wording as a NEW row of the same lineage and retire the old one, in one
+    transaction. The lineage trigger carries ``lineageId`` and ``displayCode`` across."""
+    fields = ("questionnaireId", "sectionId", "sectionCode", "sectionTitle", "prompt", "questionCode", "helpText",
+              "isRequired", "artisanField", "sortOrder", "isActive")
+    row = {key: data.get(key, getattr(question, key, None)) for key in fields}
+    async with db.tx() as tx:
+        # The old row leaves the live set FIRST: the partial unique on (questionnaireId, displayCode)
+        # admits one live row per code.
+        await tx.execute_raw(
+            'UPDATE "QuestionnaireQuestion" SET "retiredAt" = now(), "isActive" = false '
+            'WHERE "id" = $1',
+            question.id,
+        )
+        created = await tx.questionnairequestion.create(data={
+            **{k: v for k, v in row.items() if v is not None},
+            "lineageId": getattr(question, "lineageId", None) or question.id,
+            "displayCode": getattr(question, "displayCode", None),
+        })
+        await tx.execute_raw('UPDATE "QuestionnaireQuestion" SET "supersededById" = $2 WHERE "id" = $1', question.id, created.id)
+        await tx.recordrevision.create(
+            data={"recordType": "questionnaire_question", "recordId": question.id, "editedById": editor_id,
+                  "changes": Json({"supersededBy": created.id, "prompt": {"old": question.prompt, "new": row["prompt"]}})}
+        )
+    return await db.questionnairequestion.find_unique(where={"id": created.id})
+
+
+async def _refuse_reparent_with_takes(questions: list[Any]) -> None:
+    lineages = sorted({getattr(q, "lineageId", None) or q.id for q in questions})
+    takes = await db.query_raw(
+        'SELECT count(*) AS n FROM "QuestionnaireRecordingTarget" t JOIN "QuestionnaireRecording" r '
+        'ON r."id" = t."recordingId" WHERE r."removedAt" IS NULL AND t."questionLineageId" = ANY($1::text[])',
+        lineages,
+    )
+    if takes and int(takes[0]["n"]):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "HAS_RECORDINGS", "message": "This question has recordings. Add a new question in the other section instead.",
+                    "count": int(takes[0]["n"])},
+        )
+
+
 @questionnaire_router.delete("/questions/{question_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_question(
     question_id: str,
-    _: Any = Depends(require_content_admin),
+    user: Any = Depends(get_current_user),
 ) -> None:
-    await require_record(db.questionnairequestion, question_id)
+    """Switch a question off. The form's author or a content admin (owner, 22 Oct 2026)."""
+    question = await require_record(db.questionnairequestion, question_id)
+    await assert_may_delete_from_form(question.questionnaireId, user)
     await db.questionnairequestion.update(where={"id": question_id}, data={"isActive": False})
 
 
@@ -894,6 +1016,10 @@ async def reorder_questions(
                 f"one from section {section.code}: {strays}."
             ),
         )
+    # The reorder is also a re-parent: the has-takes rule holds here too (audit M16).
+    moving = [q for q in questions if q.sectionId != section.id]
+    if moving:
+        await _refuse_reparent_with_takes(moving)
     for index, question_id in enumerate(payload.questionIds):
         await db.questionnairequestion.update(
             where={"id": question_id},
@@ -1110,31 +1236,32 @@ async def merge_into_interview(
 
 
 def interview_title_from(
-    artisan_name: str | None, questionnaire_title: str | None, when: datetime | None
+    people: list[Any], when: datetime | None, *, workshop: dict[str, Any] | None = None
 ) -> str:
-    """ "Ramesh Chhipa · Craft questionnaire · 17 Oct" — the parts that exist, in that order."""
-    day = when or datetime.now(UTC)
-    parts = [
-        (artisan_name or "").strip(),
-        (questionnaire_title or "").strip(),
-        f"{day.day} {day.strftime('%b')}",
-    ]
-    return " · ".join(part for part in parts if part)[:220]
+    """The generated default (NAMING: ``Entity_Date_Place_Craft_Subject``), e.g.
+    ``Interview_2026-10-17_Ramesh`` or ``Group-Interview_2026-10-17_2-Artisans``. Never the old
+    " · " separators (audit Low)."""
+    moment = when or datetime.now(UTC)
+    day = naming.as_ist(moment if moment.tzinfo else moment.replace(tzinfo=UTC))
+    return naming.session_title(naming.TitleInput(
+        sessionDate=day.date() if isinstance(day, datetime) else day,
+        workshop=workshop,
+        participants=[p if isinstance(p, naming.Person) else naming.Person(name=str(p)) for p in people if p],
+    ))
 
 
 async def automatic_interview_title(
     artisan_ids: list[str], questionnaire_id: str | None, when: datetime | None
 ) -> str:
-    """The title a sitting gets when its creator left the box empty (B8)."""
-    first = next((aid for aid in artisan_ids if aid), None)
-    artisan = await db.artisan.find_unique(where={"id": first}) if first else None
-    instrument = (
-        await db.questionnaire.find_unique(where={"id": questionnaire_id}) if questionnaire_id else None
-    )
-    name = get_value(artisan, "name") if artisan else None
-    if name and len([aid for aid in artisan_ids if aid]) > 1:
-        name = f"{name} and others"
-    return interview_title_from(name, get_value(instrument, "title") if instrument else None, when)
+    """The title a sitting gets when its creator left the box empty (B8). ``questionnaire_id`` is
+    kept for the callers; an instrument's title is not part of a generated name."""
+    ids = [aid for aid in artisan_ids if aid]
+    people: list[Any] = []
+    for aid in ids:
+        artisan = await db.artisan.find_unique(where={"id": aid})
+        if artisan is not None:
+            people.append(naming.Person(name=get_value(artisan, "name"), localName=get_value(artisan, "localName")))
+    return interview_title_from(people, when)
 
 
 # The create's transaction: a lock, a lookup, a row and its links. The slow box needs the headroom.
@@ -1215,10 +1342,16 @@ async def create_interview(
     # the title is generated. Same request and response shapes; never a new error code — after the
     # cutoff an old build's create gets 503 + Retry-After, which it treats as transient.
     if v2_shims.enabled():
-        v2_shims.assert_old_build_may_create(
-            request.headers.get("x-app-version"),
-            bearer=request.headers.get("authorization", "").lower().startswith("bearer "),
-        )
+        v2_shims.assert_old_build_may_create(request.headers)
+        if not can_create_records(current_user):
+            # A contributor or volunteer never created: the old route folded them into the row for
+            # these artisans. Its v2 meaning is the matching session; they are attached to it, never
+            # refused where they used to be accepted (audit H5).
+            match = await v2_shims.matching_session(questionnaire_id, payload.workshopId, payload.artisanIds)
+            if match:
+                attached = await v2_shims.attach_to_session(match, payload, current_user, questionnaire_id)
+                await hydrate_relations([attached], RELATIONS)
+                return public_encode(attached, current_user)
         assert_can_create_records(current_user)
         created = await v2_shims.create_interview_shim(payload, current_user, questionnaire_id, check)
         await hydrate_relations([created], RELATIONS)
@@ -1648,6 +1781,11 @@ async def update_interview(
     if "workshopId" in data and data.get("workshopId") != interview.workshopId:
         check = await enforce_workshop_submission(current_user, data.get("workshopId"))
     privileged = await guard_record_edit(interview, current_user, data, "questionnaire")
+    v2_on = v2_shims.enabled()
+    if v2_on:
+        # An old build's edit with v2 on (audit H5): the typed title is kept as legacyTitle and the
+        # generated title is never overwritten.
+        v2_shims.legacy_title_change(data)
     await apply_status_policy_update(current_user, interview, data)
     # Stamped after the edit guard (the stamp is the API's bookkeeping, never a contributor's edit)
     # and pinned after the status policy, so an already-flagged record cannot be self-approved.
@@ -1662,11 +1800,19 @@ async def update_interview(
         link_count = await db.questionnaireinterviewartisan.count(where={"interviewId": interview_id})
         if not privileged:
             assert_can_contribute_relation(interview, current_user, link_count > 0, "artisanIds")
-        await replace_interview_artisans(interview_id, payload.artisanIds)
-    if payload.responses is not None:
+        if not v2_on:
+            await replace_interview_artisans(interview_id, payload.artisanIds)
+    if payload.responses is not None and not v2_on:
         await upsert_responses(
             interview_id, payload.responses, current_user, get_value(interview, "questionnaireId")
         )
+    if v2_on:
+        # Artisan changes become participant changes (a participant with takes is kept), responses
+        # become answers on the frozen-table-free path v2 reads, and the generated title follows.
+        await v2_shims.patch_interview_shim(interview, payload, current_user)
+        from app.services.questionnaire_v2 import titles as v2_titles
+
+        await v2_titles.regenerate_title(db, interview_id)
     # Re-read the row itself (the PATCH may have changed its columns), but graft the six relations on
     # in one parallel wave rather than letting the include walk them one after another.
     updated = await db.questionnaireinterview.find_unique(where={"id": interview_id})
@@ -2279,6 +2425,9 @@ def _instrument_payload(row: Any, counts: dict[str, dict[str, int]]) -> dict[str
         "questionCount": tally.get("questions", 0),
         "workshopCount": tally.get("workshops", 0),
         "createdAt": public_encode(row.createdAt),
+        # The AUTHOR, so a client can draw the form's Delete, Retire and Remove for them as well as
+        # for a content admin (owner, 22 Oct 2026). Null on a form with no recorded author.
+        "createdById": get_value(row, "createdById"),
     }
 
 
@@ -3677,7 +3826,7 @@ async def create_questionnaire(
 async def update_questionnaire(
     questionnaire_id: str,
     payload: QuestionnaireUpdate,
-    _: Any = Depends(require_questionnaire_manager),
+    user: Any = Depends(require_questionnaire_manager),
 ) -> dict[str, Any]:
     """Rename, re-describe, reorder or RETIRE an instrument.
 
@@ -3692,6 +3841,13 @@ async def update_questionnaire(
     if "title" in data:
         data["title"] = data["title"].strip()
     if data.get("isActive") is False:
+        # Retiring is the delete of an instrument (audit M16): its author or a content admin, as
+        # DELETE (owner, 22 Oct 2026).
+        if not (is_content_admin(user) or is_form_author(row, user)):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the questionnaire's author or an admin can retire it.",
+            )
         if row.isDefault:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -3725,14 +3881,16 @@ async def update_questionnaire(
 @instruments_router.delete("/{questionnaire_id}")
 async def delete_questionnaire(
     questionnaire_id: str,
-    _: Any = Depends(require_content_admin),
+    user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Delete an instrument — a SOFT delete (``isActive = false``). Content admins only (2026-10-20).
+    """Delete an instrument — a SOFT delete (``isActive = false``). Its author or a content admin
+    (owner, 2026-10-20, amended 2026-10-22); the check is the PATCH's own retire check below.
 
-    Its sessions and answers stay. The same two refusals as retiring through the PATCH above: the
-    default instrument (422) and one a workshop is bound to (409).
+    Its sessions and answers stay, and ``PATCH {isActive: true}`` restores it. The same two refusals
+    as retiring through the PATCH above: the default instrument (422) and one a workshop is bound to
+    (409).
     """
-    return await update_questionnaire(questionnaire_id, QuestionnaireUpdate(isActive=False))
+    return await update_questionnaire(questionnaire_id, QuestionnaireUpdate(isActive=False), user)
 
 
 @instruments_router.put("/{questionnaire_id}/default")
@@ -3765,10 +3923,13 @@ async def set_default_questionnaire(
     # ("Questionnaire_isDefault_key" … WHERE "isDefault") will refuse the second true. There is no
     # transaction idiom in this backend, so for the width of one statement no default exists; the
     # resolver's sortOrder fallback covers that window rather than 503ing a researcher mid-save.
+    if not payload.isDefault:
+        # Clearing touches THIS row only: ``isDefault: false`` on some other instrument must never
+        # clear the real default (audit M16).
+        updated = await db.questionnaire.update(where={"id": questionnaire_id}, data={"isDefault": False})
+        return _instrument_payload(updated, {})
     await db.questionnaire.update_many(where={"isDefault": True}, data={"isDefault": False})
-    updated = await db.questionnaire.update(
-        where={"id": questionnaire_id}, data={"isDefault": bool(payload.isDefault)}
-    )
+    updated = await db.questionnaire.update(where={"id": questionnaire_id}, data={"isDefault": True})
     return _instrument_payload(updated, {})
 
 
