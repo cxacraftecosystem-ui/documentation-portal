@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { expect, test } from "@playwright/test";
 
 import { continueBody, latestSession } from "@/components/questionnaire/ContinueWithDialog";
@@ -92,4 +95,12 @@ test("Continue with… carries on from the latest session; one artisan is one se
   expect(latestSession(sessions)?.session.id).toBe("new");
   expect(continueBody({ fromSessionId: "new", artisanIds: ["a1"], split: "EACH", sessionDate: "2026-10-18" }).split).toBe("ONE");
   expect(continueBody({ fromSessionId: "new", artisanIds: ["a1", "a2"], split: "EACH", sessionDate: "2026-10-18" }).split).toBe("EACH");
+});
+
+test("the inbox reads the artisan list once for every Who-was-there row, within the API's cap", () => {
+  const source = readFileSync(join(__dirname, "..", "components/questionnaire/InboxList.tsx"), "utf8");
+  expect(source.match(/listResource<Artisan>\(/g)?.length).toBe(1);
+  expect(source).toContain('listResource<Artisan>("/artisans", { pageSize: LIST_PAGE_CEILING })');
+  expect(source).not.toContain("pageSize: 200");
+  expect(source).toContain("options={artisanOptions}");
 });

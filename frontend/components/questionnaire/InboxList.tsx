@@ -8,6 +8,7 @@ import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { CalendarField } from "@/components/ui/CalendarField";
+import { LIST_PAGE_CEILING } from "@/components/data/cappedList";
 import { SearchableMultiSelect } from "@/components/ui/SearchableSelect";
 import { listResource } from "@/lib/api";
 import { questionnaireApi } from "@/lib/questionnaireApi";
@@ -75,6 +76,23 @@ export function InboxList() {
 
   const inbox = useMemo(() => (raw ? visibleInbox(raw, dismissed) : null), [raw, dismissed]);
 
+  // One artisan list for every "Who was there?" row, read once the first such row is on screen
+  // (it used to be one request per row, and its page size of 200 was refused by the API's cap of 100).
+  const needsArtisans = (inbox?.noParticipants.length ?? 0) > 0;
+  const [artisans, setArtisans] = useState<Artisan[]>([]);
+  const [artisansAsked, setArtisansAsked] = useState(false);
+  useEffect(() => {
+    if (!needsArtisans || artisansAsked) return;
+    setArtisansAsked(true);
+    void listResource<Artisan>("/artisans", { pageSize: LIST_PAGE_CEILING })
+      .then((page) => setArtisans(page.items ?? []))
+      .catch(() => undefined);
+  }, [needsArtisans, artisansAsked]);
+  const artisanOptions = useMemo(
+    () => artisans.map((a) => ({ value: a.id, label: a.place ? `${a.name} · ${a.place}` : a.name })),
+    [artisans]
+  );
+
   async function run(key: string, work: () => Promise<unknown>) {
     setBusy(key);
     setRowError((e) => ({ ...e, [key]: "" }));
@@ -135,7 +153,7 @@ export function InboxList() {
                   {section === "legacy" ? <LegacyPick row={row as unknown as InboxLegacy} busy={busy === key} onConfirm={(lineage) => void run(key, () => confirmLegacy(row as unknown as InboxLegacy, lineage))} /> : null}
                   {section === "setDates" ? <SetDates row={row as unknown as InboxSetDates} busy={busy === key} onSet={(date) => void run(key, () => setDates(row as unknown as InboxSetDates, date))} /> : null}
                   {section === "noParticipants" ? (
-                    <WhoWasThere busy={busy === key} onSave={(ids) => void run(key, () => addArtisans((row as unknown as InboxNoParticipants).sessionId, ids))} />
+                    <WhoWasThere busy={busy === key} options={artisanOptions} onSave={(ids) => void run(key, () => addArtisans((row as unknown as InboxNoParticipants).sessionId, ids))} />
                   ) : null}
                   {rowError[key] ? (
                     <p role="alert" className="text-xs text-error-600">
@@ -296,21 +314,16 @@ function SetDates({ row, busy, onSet }: { row: InboxSetDates; busy: boolean; onS
   );
 }
 
-function WhoWasThere({ busy, onSave }: { busy: boolean; onSave: (ids: string[]) => void }) {
+function WhoWasThere({
+  busy,
+  options,
+  onSave
+}: {
+  busy: boolean;
+  options: { value: string; label: string }[];
+  onSave: (ids: string[]) => void;
+}) {
   const [ids, setIds] = useState<string[]>([]);
-  const [artisans, setArtisans] = useState<Artisan[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    void listResource<Artisan>("/artisans", { pageSize: 200 })
-      .then((page) => {
-        if (!cancelled) setArtisans(page.items ?? []);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  const options = artisans.map((a) => ({ value: a.id, label: a.place ? `${a.name} · ${a.place}` : a.name }));
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
       <div className="min-w-0 flex-1">
