@@ -63,7 +63,7 @@ def test_converging_enums_carry_the_shared_values() -> None:
     mine = _blocks(SCHEMA)
     for line in (ln for ln in SHARED.splitlines() if ln.startswith("// converging-enum: ")):
         name, *values = line[len("// converging-enum: "):].split()
-        have = set(_fields(mine[("enum", name)]) | {v.strip() for v in mine[("enum", name)].splitlines()[1:]})
+        have = {line.split("//")[0].strip() for line in mine[("enum", name)].splitlines()[1:]}
         for value in values:
             assert value in have, f"enum {name} lacks {value}"
 

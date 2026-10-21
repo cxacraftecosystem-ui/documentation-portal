@@ -782,18 +782,21 @@ async def serialize_recordings(client: Any, rows: list[dict[str, Any]], user: An
         'LEFT JOIN "QuestionnaireSection" s ON s."id" = t."sectionId" WHERE t."recordingId" = ANY($1::text[]) ORDER BY t."targetKey"',
         rids,
     )
-    subjects = await client.query_raw(
-        'SELECT s."recordingId", s."artisanId", s."role"::text AS role, s."named", s."repeatReason"::text AS reason, s."flag"::text AS flag '
-        'FROM "QuestionnaireRecordingSubject" s WHERE s."recordingId" = ANY($1::text[]) ORDER BY s."role", s."artisanId"',
+    # Artisan subjects and guest respondents in ONE read (the statement budgets hold): a guest row has
+    # no artisanId and carries its respondentId and name.
+    every_subject = await client.query_raw(
+        'SELECT x.* FROM (SELECT s."recordingId", s."artisanId", NULL::text AS "respondentId", NULL::text AS name, '
+        's."role"::text AS role, s."named", s."repeatReason"::text AS reason, s."flag"::text AS flag '
+        'FROM "QuestionnaireRecordingSubject" s WHERE s."recordingId" = ANY($1::text[]) '
+        'UNION ALL SELECT g."recordingId", NULL, g."respondentId", r."name", g."role"::text, g."named", g."repeatReason"::text, g."flag"::text '
+        'FROM "QuestionnaireRecordingRespondent" g JOIN "QuestionnaireRespondent" r ON r."id" = g."respondentId" '
+        'WHERE g."recordingId" = ANY($1::text[])) x ORDER BY x.role, x."artisanId", x.name',
         rids,
     )
+    subjects = [x for x in every_subject if x.get("artisanId")]
+    guests = [x for x in every_subject if not x.get("artisanId")]
     positions = await client.query_raw(
         'SELECT "recordingId", "artisanId", min("position") AS position FROM questionnaire_take_v WHERE "recordingId" = ANY($1::text[]) GROUP BY 1, 2',
-        rids,
-    )
-    guests = await client.query_raw(
-        'SELECT g."recordingId", g."respondentId", r."name", g."role"::text AS role, g."named" FROM "QuestionnaireRecordingRespondent" g '
-        'JOIN "QuestionnaireRespondent" r ON r."id" = g."respondentId" WHERE g."recordingId" = ANY($1::text[]) ORDER BY g."role", r."name"',
         rids,
     )
     g_by: dict[str, list[dict[str, Any]]] = defaultdict(list)

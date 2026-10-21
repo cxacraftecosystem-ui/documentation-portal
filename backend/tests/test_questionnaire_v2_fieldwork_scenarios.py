@@ -746,8 +746,9 @@ def test_an_artisan_who_refused_consent_is_recorded_and_filed_but_never_sent_out
 
 
 # ── 11 ────────────────────────────────────────────────────────────────────────────────────────
-RECORD_BUDGET = 33
-GRID_BUDGET = 7
+# +1 each since owner amendment 2 (22 Oct 2026): the typed-answer read that lets a typed answer count.
+RECORD_BUDGET = 34
+GRID_BUDGET = 8
 
 
 async def _scenario_three_costs(monkeypatch: pytest.MonkeyPatch, extra_days: int) -> tuple[int, int]:

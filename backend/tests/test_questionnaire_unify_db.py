@@ -289,7 +289,11 @@ def test_the_form_resolution_and_the_workshop_mirror(monkeypatch) -> None:
             assert int(prim[0]["n"]) == 1, "one primary per workshop"
             assert (await bindings.resolve_for_workshop(workshop_id=ids.workshop, explicit=ids.q, client=client))["reason"] == "EXPLICIT"
             # Unbound: the workshop type's default comes before the global default.
+            # The first form stayed bound, no longer primary: it would be the workshop's only binding.
+            assert (await bindings.resolve_for_workshop(workshop_id=ids.workshop, client=client))["reason"] == "PRIMARY_BINDING"
             await bindings.set_bindings(second, [], ids.admin)
+            assert (await bindings.resolve_for_workshop(workshop_id=ids.workshop, client=client))["reason"] == "ONLY_BINDING"
+            await bindings.set_bindings(ids.q, [], ids.admin)
             await client.execute_raw('UPDATE "Workshop" SET "questionnaireId" = NULL WHERE "id" = $1', ids.workshop)
             await bindings.set_type_default(second, ids.admin, workshop_type="OTHER", client=client)
             out = await bindings.resolve_for_workshop(workshop_id=ids.workshop, client=client)
