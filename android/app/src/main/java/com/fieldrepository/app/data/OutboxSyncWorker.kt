@@ -46,25 +46,38 @@ class OutboxSyncWorker(appContext: Context, params: WorkerParameters) : Coroutin
         // Questionnaire v2: older-format entries drain through the shims first, then the
         // per-session queue runs (data/QuestionnaireV2.kt, DESIGN §6.1.6).
         val v2 = QuestionnaireV2.get(context)
-        val outcome = runCatching {
+        val outcome = try {
             QuestionnaireSync.pass(
                 legacyDrain = { runCatching { repository.syncOutbox(context) } },
                 legacyQuestionnaireWaiting = {
                     QuestionnaireSync.legacyQuestionnaireEntries(OfflineOutbox.all(context).replayableBy(userId))
                 },
-                v2 = { runCatching { v2.flushConsents() }; v2.outbox.sync(v2.transport, userId) }
+                v2 = { runCatching { v2.flushConsents() }; v2.outbox.sync(v2.transport, userId) },
+                serverAnswering = { !ServerReachability.unreachable.value }
             )
-        }.getOrNull()
-        val waiting = OfflineOutbox.all(context)
-            .replayableBy(userId)
-            .count { it.failure == null } + (outcome?.v2Remaining?.coerceAtLeast(0) ?: 0)
-        // Entries the server refused wait for a person, not for the network, so they never keep the
-        // worker retrying. Anything else left means the pass stopped on a transient failure.
-        return if (waiting > 0) Result.retry() else Result.success()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failed: Exception) {
+            // A pass that threw left its work where it was: try again, never end quietly (audit M23).
+            return Result.retry()
+        }
+        return resultFor(OfflineOutbox.all(context).replayableBy(userId).count { it.failure == null }, outcome)
     }
 
     companion object {
         private const val UNIQUE_NAME = "outbox-sync"
+
+        /**
+         * Retry while anything replayable is left: the legacy entries still waiting, or v2 steps still
+         * pending. Entries the server refused wait for a person, not for the network, so they never
+         * keep the worker retrying. A v2 queue that did not run because older entries hold it counts
+         * as waiting too.
+         */
+        internal fun resultFor(legacyWaiting: Int, outcome: QuestionnaireSync.Outcome): androidx.work.ListenableWorker.Result {
+            val v2Waiting = if (outcome.v2Ran) outcome.v2Remaining.coerceAtLeast(0) else 1
+            return if (legacyWaiting > 0 || v2Waiting > 0) androidx.work.ListenableWorker.Result.retry()
+            else androidx.work.ListenableWorker.Result.success()
+        }
 
         /**
          * Ask for a sync pass as soon as there is a network.

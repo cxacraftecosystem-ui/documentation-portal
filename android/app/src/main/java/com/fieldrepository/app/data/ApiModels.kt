@@ -1244,7 +1244,9 @@ data class QuestionnaireDto(
     // missing HERE is silently never seen, so the two files are diffed field by field and kept equal
     // even where this client has no screen for the value yet.
     val workshopCount: Int = 0,
-    val createdAt: String? = null
+    val createdAt: String? = null,
+    /** The form's author: with a content admin, the one who may edit and delete it (owner, 22 Oct 2026). */
+    val createdById: String? = null
 )
 
 @Serializable

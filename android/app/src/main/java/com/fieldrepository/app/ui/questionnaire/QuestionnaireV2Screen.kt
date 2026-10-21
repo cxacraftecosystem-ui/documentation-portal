@@ -28,6 +28,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -46,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.BuildConfig
 import com.fieldrepository.app.data.ArtisanDto
 import com.fieldrepository.app.data.FieldRepository
+import com.fieldrepository.app.data.OutboxSyncWorker
 import com.fieldrepository.app.data.QSession
 import com.fieldrepository.app.data.QSessionCreate
 import com.fieldrepository.app.data.QuestionnaireCopy
@@ -61,6 +64,7 @@ import com.fieldrepository.app.recording.RecordingService
 import com.fieldrepository.app.recording.RecoveryScanner
 import com.fieldrepository.app.ui.FieldLinearProgressIndicator
 import com.fieldrepository.app.ui.field
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -103,9 +107,30 @@ internal fun serverRow(s: QSession): SessionListRow = SessionListRow(
     session = s
 )
 
+/** What the Questionnaire entry draws (audit H15). */
+enum class QuestionnaireEntry { LEGACY_FORM, V2_SESSIONS, V2_BUILDER }
+
 /**
- * Questionnaire v2 on Android (DESIGN §4.1): the sessions list with one New session button, the
- * start sheet, the workspace, the inbox and joining. The builder moves to the overflow menu.
+ * v2 off: the legacy form, unchanged. v2 on: the sessions; the builder only for a questionnaire
+ * manager who opened it, and then the builder alone (never the legacy capture form, audit H15).
+ */
+fun questionnaireEntry(v2Enabled: Boolean, builderOpen: Boolean, canBuild: Boolean): QuestionnaireEntry = when {
+    !v2Enabled -> QuestionnaireEntry.LEGACY_FORM
+    builderOpen && canBuild -> QuestionnaireEntry.V2_BUILDER
+    else -> QuestionnaireEntry.V2_SESSIONS
+}
+
+/** The sessions list's overflow menu: Join for everyone, Builder for questionnaire managers only. */
+internal fun sessionsMenu(canBuild: Boolean): List<String> = listOfNotNull("sessions.join", "sessions.builder".takeIf { canBuild })
+
+/** The next page joins the list; a session already listed (a local row, or an earlier page) is not repeated. */
+internal fun appendPage(rows: List<SessionListRow>, page: List<QSession>): List<SessionListRow> =
+    rows + page.map(::serverRow).filter { s -> rows.none { it.key == s.key } }
+
+/**
+ * Questionnaire v2 on Android (DESIGN §4.1): the sessions list (server-paged, searchable) with one
+ * New session button, the start sheet, the workspace, the inbox and joining. The builder sits in the
+ * overflow menu for questionnaire managers only (audit H15).
  */
 @Composable
 fun QuestionnaireV2Screen(
@@ -113,6 +138,10 @@ fun QuestionnaireV2Screen(
     artisans: List<ArtisanDto>,
     meId: String?,
     prefillArtisanIds: List<String> = emptyList(),
+    /** Questionnaire managers only (audit H15): everyone else never sees Builder. */
+    canBuild: Boolean = false,
+    /** Professor and above: "Make main take" on a take. */
+    canMakePrimary: Boolean = false,
     onOpenBuilder: () -> Unit,
     onUpdateApp: () -> Unit,
     onError: (String) -> Unit
@@ -121,20 +150,31 @@ fun QuestionnaireV2Screen(
     val v2 = remember { QuestionnaireV2.get(context) }
     val scope = rememberCoroutineScope()
     var route by remember { mutableStateOf<QRoute>(QRoute.List) }
+    // "Continue with…" / "Start session" from an artisan's record: the artisan is held HERE, because
+    // the caller clears its request as soon as this screen takes it (audit M23: it used to be lost).
+    var prefill by remember { mutableStateOf(prefillArtisanIds) }
     var starting by remember { mutableStateOf(prefillArtisanIds.isNotEmpty()) }
+    LaunchedEffect(prefillArtisanIds) {
+        if (prefillArtisanIds.isNotEmpty()) { prefill = prefillArtisanIds; starting = true; route = QRoute.List }
+    }
     var questionnaires by remember { mutableStateOf<List<QuestionnaireDto>>(emptyList()) }
     var workshops by remember { mutableStateOf<List<WorkshopDetailDto>>(emptyList()) }
     // The start sheet reads its defaults (instrument, workshop) once, when it opens; it waits for both lists.
     var listsLoaded by remember { mutableStateOf(false) }
     var rows by remember { mutableStateOf<List<SessionListRow>>(emptyList()) }
+    var cursor by remember { mutableStateOf<String?>(null) }
+    var capped by remember { mutableStateOf(false) }
+    var search by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(true) }
+    var loadingMore by remember { mutableStateOf(false) }
     var inboxCount by remember { mutableIntStateOf(0) }
     var menu by remember { mutableStateOf(false) }
     var recovered by remember { mutableStateOf<RecordingDraft?>(null) }
     var instrument by remember { mutableStateOf<Instrument?>(null) }
     var refresh by remember { mutableIntStateOf(0) }
     var batteryAsk by remember { mutableStateOf(false) }
-    val names = remember(artisans) { artisans.associate { it.id to it.name } }
+    var unsent by remember { mutableStateOf<List<String>>(emptyList()) }
+    val names = remember(artisans) { artisans.associate { it.id to it.name } + v2.localArtisanNames() }
     val config by v2.config.collectAsState()
 
     LaunchedEffect(Unit) {
@@ -148,23 +188,43 @@ fun QuestionnaireV2Screen(
         recovered = RecoveryScanner.recoverable(drafts, active).firstOrNull()
         batteryAsk = shouldAskBattery(context)
     }
-    LaunchedEffect(refresh, route) {
+    LaunchedEffect(refresh, route, search) {
         if (route != QRoute.List) return@LaunchedEffect
+        if (search.isNotEmpty()) delay(350)
         loading = true
-        val local = v2.outbox.units().filter { it.sessionId == null }.mapNotNull { localRow(it, names) }
-        val server = runCatching { v2.api.sessions().items.map(::serverRow) }.getOrDefault(emptyList())
-        rows = local + server.filter { s -> local.none { it.key == s.key } }
+        val units = v2.outbox.units()
+        val local = units.filter { it.sessionId == null }.mapNotNull { localRow(it, names) }
+            .filter { search.isBlank() || it.title.contains(search, ignoreCase = true) || it.note.orEmpty().contains(search, ignoreCase = true) }
+        val page = runCatching { v2.api.sessions(search = search.trim().ifBlank { null }) }.getOrNull()
+        rows = appendPage(local, page?.items.orEmpty())
+        cursor = page?.nextCursor
+        capped = page?.capped == true
+        // The fix tray's way in: sessions with work this phone could not send (audit H20).
+        unsent = units.filter { it.failedSteps.isNotEmpty() }.map { it.clientKey }
         inboxCount = runCatching { v2.api.inbox().counts.total }.getOrDefault(0)
         loading = false
     }
 
+    suspend fun loadInstrument(qid: String): Instrument? = runCatching {
+        Instrument.from(qid, questionnaires.firstOrNull { it.id == qid }?.title.orEmpty(), repository.questionnaireSections(qid))
+    }.getOrNull()
+
     suspend fun openUnit(clientKey: String) {
         val unit = v2.outbox.unit(clientKey)
         val qid = unit?.questionnaireId ?: return
-        instrument = runCatching {
-            Instrument.from(qid, questionnaires.firstOrNull { it.id == qid }?.title.orEmpty(), repository.questionnaireSections(qid))
-        }.getOrNull()
+        instrument = loadInstrument(qid)
         route = QRoute.Workspace(clientKey)
+    }
+
+    /** A server session (from the inbox, a merge, "Continue with…"): adopted into the outbox, then opened. */
+    suspend fun openServer(session: QSession) {
+        openUnit(v2.outbox.adoptSession(session, session.questionnaire?.id.orEmpty(), meId).clientKey)
+    }
+
+    suspend fun openServerId(sessionId: String) {
+        runCatching { v2.api.sessionSummary(sessionId) }
+            .onSuccess { openServer(it) }
+            .onFailure { onError(QuestionnaireCopy.s("record.error")) }
     }
 
     // A session the top-bar scanner joined: opened once, then forgotten.
@@ -173,6 +233,13 @@ fun QuestionnaireV2Screen(
         val key = scannedSession ?: return@LaunchedEffect
         QuestionnaireV2Nav.openSession.value = null
         openUnit(key)
+    }
+    // A session the server opened elsewhere ("Continue with…" on an artisan's record).
+    val serverSession by QuestionnaireV2Nav.openServerSession.collectAsState()
+    LaunchedEffect(serverSession) {
+        val id = serverSession ?: return@LaunchedEffect
+        QuestionnaireV2Nav.openServerSession.value = null
+        openServerId(id)
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -184,15 +251,23 @@ fun QuestionnaireV2Screen(
                         TextButton(onClick = { route = QRoute.Inbox }) { Text(QuestionnaireCopy.s("sessions.inbox")) }
                     }
                     Box {
-                        IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "More") }
+                        IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = QuestionnaireCopy.s("session.more")) }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(text = { Text(QuestionnaireCopy.s("sessions.join")) }, onClick = { menu = false; route = QRoute.Join })
-                            DropdownMenuItem(text = { Text(QuestionnaireCopy.s("sessions.builder")) }, onClick = { menu = false; onOpenBuilder() })
+                            sessionsMenu(canBuild).forEach { key ->
+                                DropdownMenuItem(text = { Text(QuestionnaireCopy.s(key)) }, onClick = {
+                                    menu = false
+                                    if (key == "sessions.builder") onOpenBuilder() else route = QRoute.Join
+                                })
+                            }
                         }
                     }
                 }
-                val minVersion = config?.minAppVersionForCreate
-                if (minVersion != null && versionBelow(BuildConfig.VERSION_NAME, minVersion)) UpdateBanner(onUpdateApp)
+                if (config?.updateRequired(BuildConfig.VERSION_CODE) == true) UpdateBanner(onUpdateApp)
+                if (unsent.isNotEmpty()) UnsentBanner(unsent.size) { scope.launch { openUnit(unsent.first()) } }
+                OutlinedTextField(
+                    value = search, onValueChange = { search = it },
+                    label = { Text(QuestionnaireCopy.s("sessions.search")) }, singleLine = true, modifier = Modifier.fillMaxWidth()
+                )
                 if (loading || (starting && !listsLoaded)) FieldLinearProgressIndicator(Modifier.fillMaxWidth())
                 if (!loading && rows.isEmpty()) Text(QuestionnaireCopy.s("sessions.empty"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted)
                 rows.forEach { row ->
@@ -209,21 +284,33 @@ fun QuestionnaireV2Screen(
                     }
                     HorizontalDivider(color = MaterialTheme.field.hairline)
                 }
+                // Paging on the server (audit M23: only the first page ever showed).
+                if (cursor != null) PromptButtons(listOf(PromptButton(QuestionnaireCopy.s("sessions.loadMore"), primary = true) {
+                    if (loadingMore) return@PromptButton
+                    loadingMore = true
+                    scope.launch {
+                        runCatching { v2.api.sessions(search = search.trim().ifBlank { null }, cursor = cursor) }
+                            .onSuccess { page -> rows = appendPage(rows, page.items); cursor = page.nextCursor; capped = page.capped }
+                            .onFailure { onError(QuestionnaireCopy.s("error.needsSignal")) }
+                        loadingMore = false
+                    }
+                }))
+                if (capped) Text(QuestionnaireCopy.s("sessions.capped"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
                 Box(Modifier.padding(bottom = 72.dp))
             }
             is QRoute.Workspace -> SessionWorkspace(
                 v2 = v2, clientKey = r.clientKey, instrument = instrument, artisans = artisans, meId = meId,
-                onBack = { route = QRoute.List; refresh++ }, onError = onError
+                canMakePrimary = canMakePrimary,
+                onBack = { route = QRoute.List; refresh++ },
+                onOpenSession = { session -> scope.launch { openServer(session) } },
+                onError = onError
             )
             QRoute.Inbox -> Column {
-                TextButton(onClick = { route = QRoute.List }) { Text("‹ " + QuestionnaireCopy.s("sessions.title")) }
-                InboxScreen(v2, onError, onOpenSession = { sessionId ->
-                    scope.launch {
-                        runCatching { v2.api.sessionSummary(sessionId) }
-                            .onSuccess { s -> openUnit(v2.outbox.adoptSession(s, s.questionnaire?.id.orEmpty(), meId).clientKey) }
-                            .onFailure { onError(QuestionnaireCopy.s("record.error")) }
-                    }
-                })
+                TextButton(onClick = { route = QRoute.List; refresh++ }) { Text("‹ " + QuestionnaireCopy.s("sessions.title")) }
+                InboxScreen(
+                    v2, artisans, loadInstrument = { loadInstrument(it) }, onError = onError,
+                    onOpenSession = { sessionId -> scope.launch { openServerId(sessionId) } }
+                )
             }
             QRoute.Join -> Column {
                 TextButton(onClick = { route = QRoute.List }) { Text("‹ " + QuestionnaireCopy.s("sessions.title")) }
@@ -242,27 +329,33 @@ fun QuestionnaireV2Screen(
 
     if (starting && listsLoaded) SessionStartSheet(
         v2 = v2, workshops = workshops, questionnaires = questionnaires, artisans = artisans, meId = meId,
-        prefillArtisanIds = prefillArtisanIds,
-        onDismiss = { starting = false },
-        onStarted = { key -> starting = false; scope.launch { openUnit(key) } },
+        prefillArtisanIds = prefill,
+        onDismiss = { starting = false; prefill = emptyList() },
+        onStarted = { key -> starting = false; prefill = emptyList(); scope.launch { openUnit(key) } },
         onJoined = { session ->
             starting = false
-            scope.launch {
-                val unit = v2.outbox.adoptSession(session, session.questionnaire?.id.orEmpty(), meId)
-                openUnit(unit.clientKey)
-            }
+            prefill = emptyList()
+            scope.launch { openServer(session) }
         },
         onError = onError
     )
     recovered?.let { draft ->
         RecoveredRecordingPrompt(
             minutes = RecoveryScanner.minutes(draft), label = draft.label,
-            onDiscard = { RecordingDrafts.delete(v2.filesDir, draft, keepAudio = false); recovered = null },
+            onDiscard = {
+                recovered = null
+                scope.launch {
+                    // Read again now: a take queued since the prompt opened is the outbox's upload (audit M23).
+                    val current = RecordingDrafts.read(v2.filesDir, draft.clientClipKey)
+                    val queued = v2.outbox.units().flatMap { it.steps }.mapNotNull { it.clip?.clientClipKey }.toSet()
+                    if (current != null && RecoveryScanner.safeToDiscard(current, queued)) RecordingDrafts.delete(v2.filesDir, current, keepAudio = false)
+                }
+            },
             onKeep = {
                 recovered = null
                 scope.launch {
-                    runCatching { v2.queueTake(draft) }.onFailure { onError("Couldn't recover that recording.") }
-                    com.fieldrepository.app.data.OutboxSyncWorker.schedule(context)
+                    runCatching { v2.queueTake(draft) }.onFailure { onError(QuestionnaireCopy.s("error.recover")) }
+                    OutboxSyncWorker.schedule(context)
                 }
             }
         )
@@ -281,15 +374,15 @@ fun QuestionnaireV2Screen(
     }
 }
 
-/** "0.0.13" < "0.0.14". Non-numeric parts compare as 0. */
-internal fun versionBelow(current: String, minimum: String): Boolean {
-    val a = current.split('.').map { it.toIntOrNull() ?: 0 }
-    val b = minimum.split('.').map { it.toIntOrNull() ?: 0 }
-    for (i in 0 until maxOf(a.size, b.size)) {
-        val x = a.getOrElse(i) { 0 }; val y = b.getOrElse(i) { 0 }
-        if (x != y) return x < y
+/** Work this phone could not send (audit H20): opens the first such session, where the fix tray is. */
+@Composable
+private fun UnsentBanner(sessions: Int, onOpen: () -> Unit) {
+    Surface(color = MaterialTheme.field.surface100, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
+        Text(
+            QuestionnaireCopy.s("tray.title") + " (" + sessions + ")",
+            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(12.dp)
+        )
     }
-    return false
 }
 
 private const val PREFS = "questionnaire-v2"
@@ -319,6 +412,9 @@ object QuestionnaireV2Nav {
 
     /** A session to open on arrival: the top-bar scanner joined it (its `clientKey`). */
     val openSession = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+
+    /** A server session to open on arrival, by id ("Continue with…" opened it on the server). */
+    val openServerSession = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 }
 
 /** P14's Update: the web app's page that serves the current APK. */

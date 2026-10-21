@@ -22,7 +22,13 @@ import java.util.concurrent.TimeUnit
  */
 class QuestionnaireTransport(
     private val api: QuestionnaireApi,
-    private val createArtisanCall: suspend (idempotencyKey: String, bodyJson: String) -> String
+    private val createArtisanCall: suspend (idempotencyKey: String, bodyJson: String) -> String,
+    /**
+     * Whether the server has v2 switched off right now. Every v2 route answers 404 then, and that is
+     * a switch, not a refusal: the step waits for v2 to come back instead of failing for good (audit
+     * H20). A real 404 on a v2 server still fails the step into the fix tray.
+     */
+    private val v2SwitchedOff: suspend () -> Boolean = { false }
 ) : SessionTransport {
 
     private val storage = OkHttpClient.Builder()
@@ -36,10 +42,13 @@ class QuestionnaireTransport(
         block()
     } catch (http: HttpException) {
         val code = http.code()
+        val detail = if (code in 400..499) runCatching {
+            http.response()?.errorBody()?.string()?.let { ApiClient.json.decodeFromString(QErrorBody.serializer(), it).detail }
+        }.getOrNull() else null
+        // `/complete` found no bytes in storage: upload again, never drop the take.
+        if (detail != null && detail.reason == UploadMissing.REASON) throw UploadMissing(detail.message.ifBlank { "The upload is missing from storage." })
+        if (code == 404 && v2SwitchedOff()) throw IOException("Questionnaire v2 is switched off on the server", http)
         if (code in 400..499 && code != 408 && code != 429) {
-            val detail = runCatching {
-                http.response()?.errorBody()?.string()?.let { ApiClient.json.decodeFromString(QErrorBody.serializer(), it).detail }
-            }.getOrNull()
             throw PermanentStepFailure(detail?.message?.ifBlank { null } ?: "The server refused this ($code).", detail?.code)
         }
         throw IOException("HTTP $code", http)
@@ -80,6 +89,8 @@ class QuestionnaireTransport(
             val body = FileRangeBody(file, offset, length, contentType)
             val request = Request.Builder().url(url).put(body).apply { headers.forEach { (k, v) -> header(k, v) } }.build()
             storage.newCall(request).execute().use { response ->
+                // An expired (or otherwise refused) signature: the outbox signs again once (audit M23).
+                if (response.code == 403) throw SignedUrlExpired("Storage refused the signed upload URL (403).")
                 if (response.code in 400..499 && response.code != 408 && response.code != 429) {
                     throw PermanentStepFailure("Storage refused the upload (${response.code}).")
                 }

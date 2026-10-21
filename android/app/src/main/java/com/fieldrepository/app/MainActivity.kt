@@ -605,6 +605,8 @@ import com.fieldrepository.app.data.ScanCopy
 import com.fieldrepository.app.data.ScanTarget
 import com.fieldrepository.app.data.dispatchScan
 import com.fieldrepository.app.ui.questionnaire.QuestionnaireV2Screen
+import com.fieldrepository.app.ui.questionnaire.QuestionnaireEntry
+import com.fieldrepository.app.ui.questionnaire.questionnaireEntry
 import com.fieldrepository.app.ui.questionnaire.openAppDownloadPage
 
 class MainActivity : ComponentActivity() {
@@ -1915,6 +1917,11 @@ private fun HomeScreen(
     LaunchedEffect(questionnaireV2Request) {
         if (questionnaireV2Request != null) screen = screenFor(EntryMode.QUESTIONNAIRE)
     }
+    // "Continue with…" on an artisan's record opened a session on the server: go to it.
+    val questionnaireV2Session by QuestionnaireV2Nav.openServerSession.collectAsState()
+    LaunchedEffect(questionnaireV2Session) {
+        if (questionnaireV2Session != null) screen = screenFor(EntryMode.QUESTIONNAIRE)
+    }
 
     fun refresh() {
         scope.launch {
@@ -2782,12 +2789,28 @@ private fun HomeScreen(
                 val v2Config by remember { QuestionnaireV2.get(v2Context) }.config.collectAsState()
                 var questionnaireBuilder by remember { mutableStateOf(false) }
                 val v2Prefill by QuestionnaireV2Nav.pending.collectAsState()
-                if (v2Config?.v2Enabled == true && !questionnaireBuilder) {
+                // A content admin may edit any form, so reaches the builder too (owner, 22 Oct 2026).
+                val canBuild = isQuestionnaireManager || canDelete
+                val entry = questionnaireEntry(v2Config?.v2Enabled == true, questionnaireBuilder, canBuild)
+                if (entry == QuestionnaireEntry.V2_BUILDER) {
+                    // Audit H15 (21 Oct 2026): Builder used to reopen the whole legacy capture form
+                    // inside v2, for everyone, with no way back. It is the builder alone, for
+                    // questionnaire managers, with Back to the sessions.
+                    BackHandler { questionnaireBuilder = false }
+                    QuestionnaireV2Builder(
+                        repository = repository,
+                        user = user,
+                        onBack = { questionnaireBuilder = false },
+                        onError = { showMessage(it) }
+                    )
+                } else if (entry == QuestionnaireEntry.V2_SESSIONS) {
                     QuestionnaireV2Screen(
                         repository = repository,
                         artisans = artisans,
                         meId = user?.id,
                         prefillArtisanIds = listOfNotNull(v2Prefill),
+                        canBuild = canBuild,
+                        canMakePrimary = roleRank(user?.role) >= RANK_PROFESSOR,
                         onOpenBuilder = { questionnaireBuilder = true },
                         onUpdateApp = { openAppDownloadPage(v2Context) },
                         onError = { showMessage(it) }
@@ -5918,6 +5941,26 @@ private fun AudioClipRecorder(
  * Reusable capture surface embedded inside every record form. Mirrors the web MediaCaptureField:
  * pick files, take photo/video, record audio, tag GPS, and (optionally) attach a measurement grid.
  */
+/**
+ * Start a take of [file] held up by the microphone foreground service (the legacy recorder's
+ * [com.fieldrepository.app.recording.LegacyTake]): a locked screen, an app switch or the system
+ * reclaiming memory no longer kills it or leaves an unplayable file. Returns the recorder for the
+ * level meter only; Pause, Stop and every exit go through [stopHeldTake].
+ */
+private fun startHeldTake(context: Context, file: File): MediaRecorder {
+    val started = createAudioRecorder(context, file).also { it.start() }
+    com.fieldrepository.app.recording.LegacyTake.begin(com.fieldrepository.app.recording.LegacyTake.Media(started), file)
+    com.fieldrepository.app.recording.LegacyRecordingService.start(context)
+    return started
+}
+
+/** Stop the held take and release the service: the file to attach, or null when it held no audio. */
+private fun stopHeldTake(context: Context): File? {
+    val file = com.fieldrepository.app.recording.LegacyTake.finalise()
+    com.fieldrepository.app.recording.LegacyRecordingService.stop(context)
+    return file
+}
+
 /** A small red square used as the universal "stop recording" affordance. */
 @Composable
 private fun StopSquareLabel(text: String = "Stop") {
@@ -5967,6 +6010,17 @@ private fun MediaCaptureSection(
         media.uris.forEach { uri ->
             if (!media.stagedDeferred.containsKey(uri)) {
                 startEagerUpload(repository, context, media, uri, scope)
+            }
+        }
+    }
+    // Leaving with a take running keeps it: it is finalised and attached, never dropped (it records
+    // under the microphone foreground service, so the OS cannot kill it either).
+    DisposableEffect(Unit) {
+        onDispose {
+            if (recording) {
+                runCatching { stopHeldTake(context)?.let { file -> media.uris = media.uris + uriForFile(context, file) } }
+                recorder = null
+                recording = false
             }
         }
     }
@@ -6068,16 +6122,14 @@ private fun MediaCaptureSection(
                     } else if (!recording) {
                         runCatching {
                             val file = createAppFile(context, "field-audio-", ".m4a")
-                            recorder = createAudioRecorder(context, file).also { it.start() }
+                            recorder = startHeldTake(context, file)
                             recordingFile = file
                             recording = true
                             onMessage("Recording audio...")
                         }.onFailure { onError(it.apiErrorMessage("Unable to start audio recording")) }
                     } else {
                         runCatching {
-                            recorder?.stop()
-                            recorder?.release()
-                            recordingFile?.let { file -> media.uris = media.uris + uriForFile(context, file) }
+                            stopHeldTake(context)?.let { file -> media.uris = media.uris + uriForFile(context, file) }
                         }.onFailure { onError(it.apiErrorMessage("Unable to stop audio recording")) }
                         recorder = null
                         recordingFile = null
@@ -9796,15 +9848,14 @@ private fun ToolStagesSection(
                     } else if (!recording) {
                         runCatching {
                             val file = createAppFile(context, "stage-audio-", ".m4a")
-                            recorder = createAudioRecorder(context, file).also { it.start() }
+                            recorder = startHeldTake(context, file)
                             recordingFile = file
                             recording = true
                             onMessage("Recording stage audio…")
                         }.onFailure { onError(it.apiErrorMessage("Unable to start stage audio")) }
                     } else {
                         runCatching {
-                            recorder?.stop(); recorder?.release()
-                            recordingFile?.let { file -> stages.uris = stages.uris + uriForFile(context, file) }
+                            stopHeldTake(context)?.let { file -> stages.uris = stages.uris + uriForFile(context, file) }
                         }.onFailure { onError(it.apiErrorMessage("Unable to stop stage audio")) }
                         recorder = null; recordingFile = null; recording = false
                         onMessage("Stage audio step added")
@@ -11118,7 +11169,10 @@ private fun ArtisanQuestionnaireData(repository: FieldRepository, artisanId: Str
         ArtisanQuestionnaireRecord(
             v2 = v2, artisanId = artisanId, artisanName = artisanName,
             onContinueWith = { QuestionnaireV2Nav.pending.value = it },
-            onStartSession = { QuestionnaireV2Nav.pending.value = it }
+            onStartSession = { QuestionnaireV2Nav.pending.value = it },
+            // "Continue with…" opened a session on the server: the questionnaire screen opens it.
+            onOpenSession = { QuestionnaireV2Nav.openServerSession.value = it },
+            onMessage = { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show() }
         )
         return
     }
@@ -14139,7 +14193,7 @@ private fun AndroidMediaForm(
                 } else if (!recording) {
                     runCatching {
                         val file = createAppFile(context, "field-audio-", ".m4a")
-                        recorder = createAudioRecorder(context, file).also { it.start() }
+                        recorder = startHeldTake(context, file)
                         recordingFile = file
                         recording = true
                         localMessage = "Recording audio..."
@@ -14148,9 +14202,7 @@ private fun AndroidMediaForm(
                     }
                 } else {
                     runCatching {
-                        recorder?.stop()
-                        recorder?.release()
-                        recordingFile?.let { file -> selectedUris = selectedUris + uriForFile(context, file) }
+                        stopHeldTake(context)?.let { file -> selectedUris = selectedUris + uriForFile(context, file) }
                     }.onFailure { error ->
                         onError(error.apiErrorMessage("Unable to stop audio recording"))
                     }
@@ -15276,7 +15328,7 @@ private fun QuestionnaireForm(
     var questionAudio by remember { mutableStateOf<Map<String, List<Uri>>>(emptyMap()) }
     // H21: the interview an earlier, partly failed save of this form already created. Every later
     // save updates it instead of creating a duplicate (data/LegacyQuestionnaireSave.kt).
-    var createdId by remember(editing?.id) { mutableStateOf<String?>(null) }
+    var createdId by remember(editing?.id) { mutableStateOf<String?>(null) }.drafted(draft, "createdId")
     fun sectionIdForKey(key: String): String? =
         if (key.startsWith("section:")) key.removePrefix("section:")
         else sections.firstOrNull { sec -> sec.questions.any { it.id == key } }?.id
@@ -15402,7 +15454,10 @@ private fun QuestionnaireForm(
             // triggers has to ask for that instrument back. Passing `onRefreshSections` bare would
             // re-read whatever the server resolves by default, and a manager who renamed a section
             // on the revised questionnaire would watch the original's sections appear underneath.
-            QuestionnaireBuilder(repository, sections, { onRefreshSections(questionnaireId) }, onError)
+            QuestionnaireBuilder(
+                repository, sections, { onRefreshSections(questionnaireId) }, onError, questionnaireId,
+                canEdit = com.fieldrepository.app.ui.canEditQuestionnaire(repository.cachedUser(), instruments.firstOrNull { it.id == questionnaireId })
+            )
         }
     }
     // Available to every user, including least-privilege: pull the latest sections/questions
@@ -16608,12 +16663,57 @@ private fun QuestionnaireForm(
     }
 }
 
+/**
+ * The builder on its own (audit H15): pick the questionnaire, edit its sections and questions, Back.
+ * New sections join the questionnaire picked here, never the default (audit M23).
+ */
+@Composable
+private fun QuestionnaireV2Builder(repository: FieldRepository, user: UserDto?, onBack: () -> Unit, onError: (String) -> Unit) {
+    var instruments by remember { mutableStateOf<List<QuestionnaireDto>>(emptyList()) }
+    var questionnaireId by remember { mutableStateOf<String?>(null) }
+    var sections by remember { mutableStateOf<List<QuestionnaireSectionDto>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        runCatching { repository.questionnaires() }.onSuccess { list ->
+            instruments = list
+            if (questionnaireId == null) questionnaireId = (list.firstOrNull { it.isDefault } ?: list.firstOrNull())?.id
+        }.onFailure { onError(it.apiErrorMessage("Couldn't load the questionnaires.")) }
+    }
+    LaunchedEffect(questionnaireId) {
+        val id = questionnaireId ?: return@LaunchedEffect
+        runCatching { repository.questionnaireSections(id) }.onSuccess { sections = it }
+            .onFailure { onError(it.apiErrorMessage("Couldn't load the questionnaire sections.")) }
+    }
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        TextButton(onClick = onBack) { Text("‹ Sessions") }
+        com.fieldrepository.app.ui.SearchableSelectField(
+            label = "Questionnaire",
+            options = instruments.map { com.fieldrepository.app.ui.SelectOption(it.id, it.title) },
+            selectedValue = questionnaireId.orEmpty(),
+            includeNone = false
+        ) { questionnaireId = it }
+        val chosen = questionnaireId
+        if (chosen != null) QuestionnaireBuilder(
+            repository, sections,
+            { runCatching { repository.questionnaireSections(chosen) }.onSuccess { sections = it } },
+            onError, chosen,
+            canEdit = com.fieldrepository.app.ui.canEditQuestionnaire(user, instruments.firstOrNull { it.id == chosen })
+        )
+    }
+}
+
 @Composable
 private fun QuestionnaireBuilder(
     repository: FieldRepository,
     sections: List<QuestionnaireSectionDto>,
     onRefresh: suspend () -> Unit,
-    onError: (String) -> Unit
+    onError: (String) -> Unit,
+    /** The questionnaire new sections join; null keeps the old "server default" behaviour. */
+    questionnaireId: String? = null,
+    /**
+     * Whether this viewer may edit and delete the form and everything in it: its author or a content
+     * admin (owner, 22 Oct 2026; [canEditQuestionnaire]). Anyone else reads it.
+     */
+    canEdit: Boolean = true
 ) {
     val scope = rememberCoroutineScope()
     var newCode by remember { mutableStateOf("") }
@@ -16632,13 +16732,14 @@ private fun QuestionnaireBuilder(
         // from; a recogniser hands back "ay" for "A" and "bee" for "B". Same call at the
         // per-section "Code" box below. The sibling application agrees — `designer
         // MainActivity.kt:16763` carries the identical opt-out.
+        if (canEdit) {
         TextInput("New section code", newCode, dictate = false) { newCode = it }
         TextInput("New section title", newTitle) { newTitle = it }
         Button(
             onClick = {
                 scope.launch {
                     runCatching {
-                        repository.createQuestionnaireSection(QuestionnaireSectionCreateRequest(code = newCode.trim(), title = newTitle.trim()))
+                        repository.createQuestionnaireSection(QuestionnaireSectionCreateRequest(code = newCode.trim(), title = newTitle.trim(), questionnaireId = questionnaireId))
                         newCode = ""
                         newTitle = ""
                         onRefresh()
@@ -16648,6 +16749,7 @@ private fun QuestionnaireBuilder(
             enabled = newCode.isNotBlank() && newTitle.isNotBlank(),
             modifier = Modifier.fillMaxWidth()
         ) { Text("Add section") }
+        }
 
         sections.forEachIndexed { sectionIndex, section ->
             val expanded = expandedSections.contains(section.id)
@@ -16677,7 +16779,7 @@ private fun QuestionnaireBuilder(
                         section.questions.forEach { question ->
                             Text("${question.sortOrder}. ${question.prompt}", color = Body, style = MaterialTheme.typography.bodyMedium)
                         }
-                        OutlinedButton(
+                        if (canEdit) OutlinedButton(
                             onClick = { updatingSections = updatingSections + section.id },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                         ) {
@@ -16735,7 +16837,7 @@ private fun QuestionnaireBuilder(
                                 }
                             ) { Text("Down") }
                         }
-                        if (com.fieldrepository.app.ui.LocalMayDelete.current) OutlinedButton(
+                        if (canEdit) OutlinedButton(
                             onClick = {
                                 scope.launch {
                                     runCatching {
@@ -16827,7 +16929,7 @@ private fun QuestionnaireBuilder(
                                         },
                                     ) { Text("Next section") }
                                 }
-                                if (com.fieldrepository.app.ui.LocalMayDelete.current) OutlinedButton(
+                                if (canEdit) OutlinedButton(
                                     onClick = {
                                         scope.launch {
                                             runCatching {

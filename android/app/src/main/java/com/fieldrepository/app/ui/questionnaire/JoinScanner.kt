@@ -117,7 +117,7 @@ fun JoinScanner(v2: QuestionnaireV2, meId: String?, onJoined: (clientKey: String
                     }
                     // Only the server's own refusal means no such session; no signal or a server fault
                     // does not, and the QR still joins offline.
-                    .onFailure { e -> onError(QuestionnaireCopy.s(if (joinCodeUnknown(e)) "join.notFound" else "join.onlineOnly")) }
+                    .onFailure { e -> onError(QuestionnaireCopy.s(joinFailureKey(e))) }
                 busy = false
             }
         }))
@@ -125,5 +125,15 @@ fun JoinScanner(v2: QuestionnaireV2, meId: String?, onJoined: (clientKey: String
 }
 
 /** A typed code the server refused (4xx other than 408/429): the code is wrong, not the signal. */
+/**
+ * What a failed join says: too many wrong codes (429 RATE_LIMITED, ten in ten minutes) asks the
+ * researcher to wait; any other refusal is an unknown code; anything else needs a signal.
+ */
+internal fun joinFailureKey(failure: Throwable): String = when {
+    (failure as? retrofit2.HttpException)?.code() == 429 -> "join.rateLimited"
+    joinCodeUnknown(failure) -> "join.notFound"
+    else -> "join.onlineOnly"
+}
+
 internal fun joinCodeUnknown(failure: Throwable): Boolean =
     (failure as? retrofit2.HttpException)?.code()?.let { it in 400..499 && it != 408 && it != 429 } == true

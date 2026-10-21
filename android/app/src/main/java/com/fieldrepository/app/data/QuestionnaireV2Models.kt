@@ -1,5 +1,9 @@
+@file:OptIn(ExperimentalSerializationApi::class)
+
 package com.fieldrepository.app.data
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -9,6 +13,13 @@ import kotlinx.serialization.json.JsonObject
  * (`shared/questionnaire-contract.json`). Every response field is defaulted so a server one contract
  * step ahead still decodes; requests carry exactly the contract's fields and NEVER a title or a file
  * name (DESIGN §9 test 61).
+ *
+ * REQUEST DEFAULTS ARE ALWAYS ENCODED (audit C1, 21 Oct 2026). Retrofit encodes with [ApiClient.json],
+ * which leaves `encodeDefaults` off for every legacy model, so a defaulted request field was silently
+ * dropped: `linkedRecordType = "questionnaire_session"` never reached the server, which then routed
+ * every presign and complete to the legacy path and refused it with a 422. Each defaulted field of a
+ * request below carries `@EncodeDefault`, so it is on the wire whatever encoder sends it;
+ * `ApiClientEncodingTest` encodes every request through [ApiClient.json] and pins the keys.
  */
 
 object QErrorCodes {
@@ -50,8 +61,20 @@ data class QConfig(
     val partSizeBytes: Long = 8L * 1024 * 1024,
     val snapshotPollSeconds: Int = 60,
     val joinCodeLength: Int = 6,
-    val minAppVersionForCreate: String? = null
-)
+    /** Legacy: a version NAME. Read only when it is a bare number, which is then a versionCode (C7). */
+    val minAppVersionForCreate: String? = null,
+    /** The lowest Android versionCode that may create (audit C7); null when there is no cutoff. */
+    val minAndroidVersionCodeForCreate: Int? = null
+) {
+    /**
+     * P14: whether this build is below the server's cutoff. Codes only: names were reset to 0.0.1, so a
+     * name compare would show the banner for ever on the newest build (audit C7).
+     */
+    fun updateRequired(versionCode: Int): Boolean {
+        val minimum = minAndroidVersionCodeForCreate ?: minAppVersionForCreate?.trim()?.toIntOrNull() ?: return false
+        return versionCode < minimum
+    }
+}
 
 @Serializable
 data class QErrorDetail(
@@ -59,7 +82,11 @@ data class QErrorDetail(
     val message: String = "",
     val current: JsonElement? = null,
     val diff: JsonElement? = null,
-    val count: Int? = null
+    val count: Int? = null,
+    /** Why, in a word the client acts on (`UPLOAD_MISSING`: the bytes never reached storage). */
+    val reason: String? = null,
+    /** The server says the same request can succeed later (after a re-upload, say). */
+    val retry: Boolean = false
 )
 
 @Serializable
@@ -71,7 +98,7 @@ data class QErrorBody(val detail: QErrorDetail? = null)
 data class QArtisanRef(val artisanId: String)
 
 @Serializable
-data class QResearcherRef(val userId: String, val role: String = "CONTRIBUTOR")
+data class QResearcherRef(val userId: String, @EncodeDefault val role: String = "CONTRIBUTOR")
 
 @Serializable
 data class QSessionCreate(
@@ -81,13 +108,13 @@ data class QSessionCreate(
     val designWorkshopId: String? = null,
     val sessionDate: String,
     val startedAt: String,
-    val purpose: String = SessionPurpose.FIRST_SITTING.wire,
+    @EncodeDefault val purpose: String = SessionPurpose.FIRST_SITTING.wire,
     val place: String? = null,
     val languageCode: String? = null,
     val languageOther: String? = null,
     val note: String? = null,
-    val participants: List<QArtisanRef> = emptyList(),
-    val researchers: List<QResearcherRef> = emptyList()
+    @EncodeDefault val participants: List<QArtisanRef> = emptyList(),
+    @EncodeDefault val researchers: List<QResearcherRef> = emptyList()
 )
 
 @Serializable
@@ -331,22 +358,28 @@ data class QSnapshotTake(
 data class QSnapshot(
     val asOfSeq: String = "0",
     val takes: List<QSnapshotTake> = emptyList(),
-    val removedRecordingIds: List<String> = emptyList()
+    val removedRecordingIds: List<String> = emptyList(),
+    /** Takes that changed since `sinceSeq`: their old rows go before [takes] are added (a take now PRESENT-only appears in neither list). */
+    val changedRecordingIds: List<String> = emptyList()
 )
 
 @Serializable
 data class QPresignRequest(
-    val linkedRecordType: String = "questionnaire_session",
+    @EncodeDefault val linkedRecordType: String = "questionnaire_session",
     val sessionId: String,
     val clientClipKey: String,
     val sizeBytes: Long,
-    val contentType: String = "audio/mp4",
-    val extension: String = "m4a",
+    @EncodeDefault val contentType: String = "audio/mp4",
+    @EncodeDefault val extension: String = "m4a",
     val contentSha256: String? = null,
-    val targets: List<QTargetRef> = emptyList(),
-    val subjectArtisanIds: List<String> = emptyList(),
+    @EncodeDefault val targets: List<QTargetRef> = emptyList(),
+    @EncodeDefault val subjectArtisanIds: List<String> = emptyList(),
     val deviceCapturedAt: String,
-    val clockOffsetMs: Long = 0
+    @EncodeDefault val clockOffsetMs: Long = 0,
+    /** When the offset was measured; a stale one marks the capture time estimated (server-side, §3.9). */
+    val clockOffsetMeasuredAt: String? = null,
+    /** The take this one continues, so the name the server mints ends `-P2`, not `-T2`. */
+    val continuationOfId: String? = null
 )
 
 @Serializable
@@ -354,7 +387,9 @@ data class QPresignResponse(
     val objectKey: String,
     val url: String = "",
     val headers: Map<String, String> = emptyMap(),
-    val expiresAt: String? = null
+    val expiresAt: String? = null,
+    /** The upload already landed (its intent is closed): nothing is signed, nothing is PUT again. */
+    val closed: Boolean = false
 )
 
 @Serializable
@@ -363,9 +398,11 @@ data class QPartDone(val partNumber: Int, val etag: String)
 @Serializable
 data class QMultipartCreateResponse(
     val objectKey: String,
-    val uploadId: String,
+    /** Empty when [closed]: the upload already landed and nothing is opened again. */
+    val uploadId: String = "",
     val partSize: Long = 8L * 1024 * 1024,
-    val partsDone: List<QPartDone> = emptyList()
+    val partsDone: List<QPartDone> = emptyList(),
+    val closed: Boolean = false
 )
 
 @Serializable
@@ -389,31 +426,32 @@ data class QUploadState(
 @Serializable
 data class QCompleteSubject(
     val artisanId: String,
-    val role: String = SubjectRole.ANSWERED.wire,
-    val named: Boolean = false,
+    @EncodeDefault val role: String = SubjectRole.ANSWERED.wire,
+    @EncodeDefault val named: Boolean = false,
     val repeatReason: String? = null
 )
 
 @Serializable
 data class QCompleteRecording(
-    val targets: List<QTargetRef> = emptyList(),
-    val subjects: List<QCompleteSubject> = emptyList(),
+    @EncodeDefault val targets: List<QTargetRef> = emptyList(),
+    @EncodeDefault val subjects: List<QCompleteSubject> = emptyList(),
     val deviceCapturedAt: String,
-    val clockOffsetMs: Long = 0,
-    val capturedAtSource: String = "DEVICE",
-    val durationMs: Long = 0,
-    val rosterCount: Int = 1,
+    @EncodeDefault val clockOffsetMs: Long = 0,
+    val clockOffsetMeasuredAt: String? = null,
+    @EncodeDefault val capturedAtSource: String = "DEVICE",
+    @EncodeDefault val durationMs: Long = 0,
+    @EncodeDefault val rosterCount: Int = 1,
     val contentSha256: String? = null,
     val continuationOfId: String? = null,
     val replacesRecordingId: String? = null,
-    val ackedRecordingIds: List<String> = emptyList()
+    @EncodeDefault val ackedRecordingIds: List<String> = emptyList()
 )
 
 @Serializable
 data class QCompleteRequest(
     val objectKey: String,
     val clientClipKey: String,
-    val linkedRecordType: String = "questionnaire_session",
+    @EncodeDefault val linkedRecordType: String = "questionnaire_session",
     val linkedRecordId: String,
     val recording: QCompleteRecording
 )
@@ -438,8 +476,8 @@ data class QAnswerItem(
     val artisanId: String,
     val questionLineageId: String,
     val text: String,
-    val origin: String = "TYPED",
-    val attribution: String = "INDIVIDUAL",
+    @EncodeDefault val origin: String = "TYPED",
+    @EncodeDefault val attribution: String = "INDIVIDUAL",
     val sessionId: String,
     val sourceRecordingId: String? = null,
     val baseVersion: Int? = null
@@ -473,9 +511,9 @@ data class QConsentGet(
 
 @Serializable
 data class QConsentPost(
-    val purpose: String = "EXTERNAL_PROCESSING",
+    @EncodeDefault val purpose: String = "EXTERNAL_PROCESSING",
     val state: String,
-    val basis: String = "VERBAL_RECORDED",
+    @EncodeDefault val basis: String = "VERBAL_RECORDED",
     val note: String? = null,
     val evidenceMediaId: String? = null,
     val clientKey: String
@@ -486,7 +524,12 @@ data class QSubjectPatch(val artisanId: String, val role: String)
 
 /** `PATCH /recordings/{id}`: only the fields being changed; nulls are left out on the wire. */
 @Serializable
-data class QRecordingPatch(val version: Int, val subjects: List<QSubjectPatch>? = null)
+data class QRecordingPatch(
+    val version: Int,
+    val subjects: List<QSubjectPatch>? = null,
+    val targets: List<QTargetRef>? = null,
+    val sessionId: String? = null
+)
 
 @Serializable
 data class QDecideRequest(val action: String, val otherRecordingId: String? = null)
@@ -552,3 +595,56 @@ data class QRecordInstrument(
 
 @Serializable
 data class QArtisanRecord(val artisanId: String, val instruments: List<QRecordInstrument> = emptyList())
+
+// ── Continue, merge, primary, proposals ──────────────────────────────────────────────────────
+
+/** `POST /sessions/continue`: carry on another day with these artisans, as one session or one each. */
+@Serializable
+data class QContinueRequest(
+    val fromSessionId: String,
+    val artisanIds: List<String>,
+    @EncodeDefault val split: String = "ONE",
+    val sessionDate: String,
+    /** Keys the sessions the server makes, so a replay of the same request returns them again. */
+    val clientKey: String? = null
+) {
+    companion object {
+        /** A single artisan is always one session, whatever the picker said (the web's `continueBody`). */
+        fun of(fromSessionId: String, artisanIds: List<String>, split: String, sessionDate: String, clientKey: String? = null) =
+            QContinueRequest(fromSessionId, artisanIds, if (artisanIds.size > 1) split else "ONE", sessionDate, clientKey)
+    }
+}
+
+/** "File it" (audit H14): a "To file" clip joins [sessionId] as a take of [targets]; [subjects] when named. */
+@Serializable
+data class QFileMediaRequest(
+    val sessionId: String,
+    @EncodeDefault val targets: List<QTargetRef> = emptyList(),
+    val subjects: List<QSubjectPatch>? = null
+)
+
+/** "File it" for a take the server could not place (a legacy question, a session with nobody in it). */
+@Serializable
+data class QFileRecordingRequest(
+    @EncodeDefault val targets: List<QTargetRef> = emptyList(),
+    val subjects: List<QSubjectPatch>? = null,
+    val sessionId: String? = null
+)
+
+@Serializable
+data class QContinueResponse(val sessions: List<QSession> = emptyList(), val firstGap: Map<String, String?> = emptyMap())
+
+@Serializable
+data class QMakePrimaryRequest(val artisanId: String, val targetKey: String)
+
+@Serializable
+data class QProposal(
+    val questionLineageId: String,
+    val artisanIds: List<String>? = null,
+    val text: String = "",
+    val origin: String = "TRANSCRIPT",
+    val existing: List<QAnswer> = emptyList()
+)
+
+@Serializable
+data class QProposals(val proposals: List<QProposal> = emptyList())

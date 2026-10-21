@@ -27,6 +27,14 @@ object RecoveryScanner {
         return adts.isFile && adts.length() > 0
     }
 
+    /**
+     * P13 Discard deletes the audio only of a take nothing has queued (audit M23). [current] is the
+     * draft as it is on disk NOW, not as it was when the prompt opened: a take queued in between (the
+     * service finishing late, or Keep on another screen) is in the outbox, and its file is the upload.
+     */
+    fun safeToDiscard(current: RecordingDraft?, queuedClipKeys: Set<String>): Boolean =
+        current != null && !current.queued && current.clientClipKey !in queuedClipKeys
+
     /** Minutes for the P13 sentence: the remuxed duration when known, else the file at 64 kbps. */
     fun minutes(draft: RecordingDraft): Long {
         if (draft.durationMs > 0) return (draft.durationMs / 60_000).coerceAtLeast(1)

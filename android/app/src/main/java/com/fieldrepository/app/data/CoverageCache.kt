@@ -55,7 +55,8 @@ class CoverageCache(private val dir: File?, private val clock: () -> Instant = I
         val k = key(questionnaireId, workshopId)
         val base = if (delta) get(questionnaireId, workshopId)?.snapshot else null
         val merged = if (base == null) incoming else {
-            val replaced = incoming.takes.map { it.recordingId }.toSet()
+            // A changed take's old rows go too: one that dropped to PRESENT-only is in neither list (M3).
+            val replaced = incoming.takes.map { it.recordingId }.toSet() + incoming.changedRecordingIds
             val removed = incoming.removedRecordingIds.toSet()
             QSnapshot(
                 asOfSeq = incoming.asOfSeq,

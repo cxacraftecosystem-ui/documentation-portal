@@ -7,6 +7,7 @@ import com.fieldrepository.app.recording.Remuxer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.builtins.serializer
 import java.io.File
 import java.time.Instant
 
@@ -25,7 +26,10 @@ class QuestionnaireV2 private constructor(context: Context) {
     // The sync pass reads upload state, which must never come from a stale copy: no read cache here.
     private val liveApi: QuestionnaireApi = ApiClient.retrofit(tokenStore).create(QuestionnaireApi::class.java)
     private val legacyApi: FieldRepositoryApi = ApiClient.create(tokenStore)
-    val outbox = SessionOutbox(FileSessionUnitStore(File(app.filesDir, "questionnaire-outbox")))
+    // A landed take's draft record goes with its audio (audit M23: uploaded audio was never deleted).
+    val outbox = SessionOutbox(FileSessionUnitStore(File(app.filesDir, "questionnaire-outbox"))) { clipKey ->
+        RecordingDrafts.read(app.filesDir, clipKey)?.let { RecordingDrafts.delete(app.filesDir, it, keepAudio = false) }
+    }
     val coverage = CoverageCache(File(app.noBackupFilesDir, "questionnaire-coverage"))
     val filesDir: File = app.filesDir
 
@@ -36,8 +40,25 @@ class QuestionnaireV2 private constructor(context: Context) {
     )
     val config: StateFlow<QConfig?> = _config
 
-    val transport: SessionTransport = QuestionnaireTransport(liveApi) { key, bodyJson ->
-        legacyApi.createArtisan(key, ApiClient.json.decodeFromString(ArtisanCreateRequest.serializer(), bodyJson)).id
+    val transport: SessionTransport = QuestionnaireTransport(
+        liveApi,
+        { key, bodyJson -> legacyApi.createArtisan(key, ApiClient.json.decodeFromString(ArtisanCreateRequest.serializer(), bodyJson)).id },
+        v2SwitchedOff = ::v2SwitchedOff
+    )
+
+    /**
+     * Asks the server, live, whether v2 is off (audit H20). A 404 from a switched-off v2 is a switch,
+     * so queued steps wait for it; with no answer at all the step waits too (true).
+     */
+    suspend fun v2SwitchedOff(): Boolean {
+        val live = runCatching { liveApi.config() }
+        live.getOrNull()?.let { fresh ->
+            prefs.edit().putString("config", outboxJson.encodeToString(QConfig.serializer(), fresh)).apply()
+            _config.value = fresh
+            return !fresh.v2Enabled
+        }
+        // The config route itself answering 404 is a server without v2.
+        return true
     }
 
     /** Reads the switches. A server without v2 (404, or no signal on first run) reads as v2 off. */
@@ -116,6 +137,18 @@ class QuestionnaireV2 private constructor(context: Context) {
             val version = api.session(sessionId).recordings.firstOrNull { it.id == recordingId }?.version ?: 1
             api.patchRecording(recordingId, QRecordingPatch(version, subjects.map { QSubjectPatch(it.artisanId, it.role) }))
         }.fold({ AnsweredOutcome.REFILED }, { AnsweredOutcome.FAILED })
+    }
+
+    // ── Offline artisan registration: the names of artisans registered on this phone ──────────
+
+    private val localArtisanSerializer = kotlinx.serialization.builtins.MapSerializer(String.serializer(), String.serializer())
+
+    /** Local id → name, for artisans registered on this phone whose create has not landed yet. */
+    fun localArtisanNames(): Map<String, String> =
+        prefs.getString("localArtisans", null)?.let { runCatching { outboxJson.decodeFromString(localArtisanSerializer, it) }.getOrNull() }.orEmpty()
+
+    fun rememberLocalArtisan(localId: String, name: String) {
+        prefs.edit().putString("localArtisans", outboxJson.encodeToString(localArtisanSerializer, localArtisanNames() + (localId to name))).apply()
     }
 
     // ── Consent (§3.11): asked inline, never blocking. Append-only; offline answers wait here. ──
@@ -214,6 +247,7 @@ class QuestionnaireV2 private constructor(context: Context) {
                 subjects = draft.subjects,
                 deviceCapturedAt = draft.deviceCapturedAt,
                 clockOffsetMs = draft.clockOffsetMs,
+                clockOffsetMeasuredAt = draft.clockOffsetMeasuredAt,
                 capturedAtSource = draft.capturedAtSource,
                 durationMs = draft.durationMs,
                 rosterCount = draft.subjects.size.coerceAtLeast(1),
@@ -241,16 +275,25 @@ internal fun consentRetryable(failure: Throwable): Boolean = when (failure) {
 object QuestionnaireSync {
     data class Outcome(val legacyWaiting: Int, val v2Ran: Boolean, val v2Remaining: Int)
 
+    /**
+     * The v2 queue waits while older entries are still draining, or while there is no signal. One
+     * entry the server keeps answering without taking (it neither lands nor is refused) no longer
+     * holds every v2 take behind it (audit M23): when the server answered and the old queue moved
+     * not at all, the v2 queue runs.
+     */
     suspend fun pass(
         legacyDrain: suspend () -> Unit,
         legacyQuestionnaireWaiting: suspend () -> Int,
-        v2: suspend () -> SessionOutbox.PassResult
+        v2: suspend () -> SessionOutbox.PassResult,
+        serverAnswering: () -> Boolean = { false }
     ): Outcome {
+        val before = legacyQuestionnaireWaiting()
         legacyDrain()
         val waiting = legacyQuestionnaireWaiting()
-        if (waiting > 0) return Outcome(waiting, v2Ran = false, v2Remaining = -1)
+        val draining = waiting < before
+        if (waiting > 0 && (draining || !serverAnswering())) return Outcome(waiting, v2Ran = false, v2Remaining = -1)
         val result = v2()
-        return Outcome(0, v2Ran = true, v2Remaining = result.remaining)
+        return Outcome(waiting, v2Ran = true, v2Remaining = result.remaining)
     }
 
     /** Legacy entries that are questionnaire interviews and still replayable. */
