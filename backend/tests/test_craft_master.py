@@ -46,10 +46,10 @@ SHARED_FILES = (
 SHARED_DIGESTS: dict[str, str] = {
     "backend/app/data/craft_master_list.json": "3ab7073e644bfcd96e580dc53e4ad00633ef70a81de3475a0fd552c7a80019a2",
     "backend/app/data/craft_master_aliases.json": "dc0c3ed2132ebd67d70fa688fd6152895585ae3d907ee51e2b88221adc630ba1",
-    "backend/app/services/craft_master.py": "a99fca81c62c6423f60ffb4dff3d08589d8bb5dab9bdcc777c7eb5eba6f27b7f",
+    "backend/app/services/craft_master.py": "1c4ca0d219d8446e73d97ded4252326d5e010b60b151601479d948880535f9e4",
     "backend/app/services/linked_names.py": "c3645205f672aa2a41374c049ea962689b0513925e5fcbbf5cd234b3a4c9f95a",
     "backend/app/api/routes/craft_categories.py": "19563aa23d85ae31b5d10e448ae9fa6503808dcdbf5a88a3f9956fd5cd4b1b02",
-    "backend/app/scripts/map_crafts.py": "359b9c05aa5110af0838ab5bf45215fb1386261530841b620c052910c3b6217f",
+    "backend/app/scripts/map_crafts.py": "8b7392d68cc74c8a304ff35ce04d9d0c494273a514c188a0754eaa0b131bb978",
     "backend/app/scripts/sync_craft_master.py": "4d5a7701faa59b7812cf6770b0821f4606cdae0fbe0d0b3620067693f77f19e1",
     "backend/scripts/gen_craft_master_sql.py": "40cfa9f474240748d6ab4adc50f6ba9ea8c6ba01e804219b0cd2dd2ff066b669",
     "backend/prisma/migrations/20261104090000_craft_master_list/migration.sql": "940f7b5190d0cb669748e4f80c09001034f01c05d52901c5f248007da37158a4",

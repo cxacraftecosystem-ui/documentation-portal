@@ -101,6 +101,11 @@ async def plan(client: Any) -> list[Row]:
     by_serial = {c.sourceSerial: c for c in masters}
     subs = {s.slug: s for s in await client.craftsubcategory.find_many()}
     legacy = await client.craft.find_many(where={"status": cm.LEGACY})
+    # Read once for the whole report: the spelling table, and every reference count the loop below
+    # can ask for (each legacy craft's, and each master's it may be matched to) -- a handful of
+    # grouped reads where it used to be two spelling reads and seven counts per craft.
+    index = await cm.spelling_index(client)
+    reference_counts = await cm.reference_count_map(client, [c.id for c in legacy] + [c.id for c in masters])
 
     def first(craft: Any) -> tuple:
         entry = curated.get(cm.normalise(craft.name)) or {}
@@ -110,7 +115,7 @@ async def plan(client: Any) -> list[Row]:
     claimed: set[str] = set()
     planned_names: dict[str, tuple[Row, Any]] = {}
     for craft in sorted(legacy, key=first):
-        references = await cm.reference_count(client, craft.id)
+        references = reference_counts[craft.id]
         row = Row("craft", craft.id, craft.name, "unmatched", None, references, delegate="craft")
         entry = curated.get(cm.normalise(craft.name))
         target = None
@@ -129,7 +134,7 @@ async def plan(client: Any) -> list[Row]:
             if len(hits) == 1:
                 target, row.source = hits[0], "exact"
             else:
-                hits = await cm.alias_matches(client, craft.name, masters)
+                hits = await cm.alias_matches(client, craft.name, masters, index=index)
                 if len(hits) == 1:
                     target, row.source = hits[0], "alias"
                 else:
@@ -139,7 +144,7 @@ async def plan(client: Any) -> list[Row]:
                         row.action, row.target, row.targetId, row.source = "proposed", _label(proposed), proposed.id, "fuzzy"
         if target is not None:
             row.target, row.targetId, row.targetSlug = _label(target), target.id, target.slug
-            if target.id not in claimed and _is_seeded(target) and await cm.reference_count(client, target.id) == 0:
+            if target.id not in claimed and _is_seeded(target) and reference_counts[target.id] == 0:
                 row.action = "inPlace"
             else:
                 row.action = "merge"
@@ -181,7 +186,7 @@ async def plan(client: Any) -> list[Row]:
                 if len(hits) == 1:
                     target, row.source = hits[0], "exact"
                 else:
-                    hits = await cm.alias_matches(client, text, actives)
+                    hits = await cm.alias_matches(client, text, actives, index=index)
                     if len(hits) == 1:
                         target, row.source = hits[0], "alias"
             if target is not None:

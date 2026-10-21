@@ -177,21 +177,55 @@ async def ensure_code_row(client: Any, code: str) -> None:
     await client.craftcode.create(data={"code": code, "name": name})
 
 
-async def resolve_craft_code(client: Any, name: str | None) -> str | None:
-    """The code for a craft name: the shared file first, then this portal's admin spellings."""
+@dataclass(frozen=True)
+class SpellingIndex:
+    """This portal's admin spellings, read once: ``spelling -> code`` and ``code -> spellings``.
+
+    For a caller that resolves MANY names in one pass (``craft_master.sync_master`` over the whole
+    master list, ``map_crafts.plan`` over every legacy craft and free-text record): handed to
+    :func:`resolve_craft_code` and ``craft_master.alias_matches``, it answers what their per-name
+    reads of ``CraftSpelling`` answered, from one read of the table. Only for a pass that writes no
+    spelling while it holds the index.
+    """
+
+    by_spelling: dict[str, str]
+    by_code: dict[str, frozenset[str]]
+
+
+async def load_spelling_index(client: Any) -> SpellingIndex:
+    """Every ``CraftSpelling`` row, indexed both ways. One read."""
+    by_spelling: dict[str, str] = {}
+    by_code: dict[str, set[str]] = {}
+    for row in await client.craftspelling.find_many():
+        by_spelling[row.spelling] = row.craftCode
+        by_code.setdefault(row.craftCode, set()).add(row.spelling)
+    return SpellingIndex(by_spelling, {code: frozenset(names) for code, names in by_code.items()})
+
+
+async def resolve_craft_code(
+    client: Any, name: str | None, *, spellings: SpellingIndex | None = None
+) -> str | None:
+    """The code for a craft name: the shared file first, then this portal's admin spellings.
+
+    ``spellings``, when given, answers the second step from memory instead of a read per name.
+    """
     code = shared_craft_code(name)
     if code is not None:
         return code
     key = normalise(name)
     if not key:
         return None
+    if spellings is not None:
+        return spellings.by_spelling.get(key)
     row = await client.craftspelling.find_unique(where={"spelling": key})
     return getattr(row, "craftCode", None) if row is not None else None
 
 
-async def code_for_new_craft(client: Any, name: str | None) -> str | None:
+async def code_for_new_craft(
+    client: Any, name: str | None, *, spellings: SpellingIndex | None = None
+) -> str | None:
     """Resolve a code for a craft about to be created and make sure its row exists. ``None`` if none."""
-    code = await resolve_craft_code(client, name)
+    code = await resolve_craft_code(client, name, spellings=spellings)
     if code is not None:
         await ensure_code_row(client, code)
     return code

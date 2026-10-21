@@ -444,6 +444,43 @@ async def reference_count(client: Any, craft_id: str) -> int:
     return total
 
 
+async def reference_count_map(client: Any, craft_ids: list[str]) -> dict[str, int]:
+    """:func:`reference_count` for many crafts at once, counted EXACTLY as it counts one.
+
+    One grouped read per direct-link table and for the workshops, and one read of the tools that name
+    any of the crafts (with their links), whatever the number of crafts -- where asking
+    :func:`reference_count` craft by craft is seven counts each. A tool counts once for every craft it
+    names through its ``craftId`` or a ``ToolCraft`` row, as the per-craft ``OR`` counts it.
+    (:func:`reference_counts` below is the crafts list's own, cheaper rule for tools.)
+    """
+    ids = list(dict.fromkeys(craft_ids))
+    counts: dict[str, int] = dict.fromkeys(ids, 0)
+    if not ids:
+        return counts
+    wanted = {"in": ids}
+    for delegate, column in _links(client):
+        if delegate == "tooldocumentation":
+            tools = await client.tooldocumentation.find_many(
+                where={"OR": [{column: wanted}, {"craftLinks": {"some": {"craftId": wanted}}}]},
+                include={"craftLinks": True},
+            )
+            for tool in tools:
+                named = {getattr(tool, column, None)}
+                named.update(link.craftId for link in (getattr(tool, "craftLinks", None) or []))
+                for craft_id in named & counts.keys():
+                    counts[craft_id] += 1
+            continue
+        for row in await getattr(client, delegate).group_by(by=[column], where={column: wanted}, count=True):
+            craft_id = row.get(column) if isinstance(row, dict) else getattr(row, column, None)
+            if craft_id in counts:
+                counts[craft_id] += _group_count(row)
+    for row in await client.workshopcraft.group_by(by=["craftId"], where={"craftId": wanted}, count=True):
+        craft_id = row.get("craftId") if isinstance(row, dict) else getattr(row, "craftId", None)
+        if craft_id in counts:
+            counts[craft_id] += _group_count(row)
+    return counts
+
+
 async def reference_counts(client: Any, craft_ids: list[str]) -> dict[str, int]:
     """:func:`reference_count` for many crafts in one grouped read per table.
 
@@ -517,20 +554,36 @@ def exact_matches(text: Any, crafts: list[Any]) -> list[Any]:
     return list({c.id: c for c in _index(crafts).get(key, [])}.values()) if key else []
 
 
-async def alias_matches(client: Any, text: Any, crafts: list[Any]) -> list[Any]:
-    """Step 3: ``text`` is a known spelling of a shared code that exactly one of ``crafts`` carries."""
+async def spelling_index(client: Any) -> Any | None:
+    """``cross_portal_codes.SpellingIndex`` for a pass over many names, or ``None`` for a client
+    without the spelling table (a narrow test fake). One read; see :func:`alias_matches`."""
+    from app.services import cross_portal_codes
+
+    if not hasattr(client, "craftspelling"):
+        return None
+    return await cross_portal_codes.load_spelling_index(client)
+
+
+async def alias_matches(client: Any, text: Any, crafts: list[Any], *, index: Any | None = None) -> list[Any]:
+    """Step 3: ``text`` is a known spelling of a shared code that exactly one of ``crafts`` carries.
+
+    ``index`` (:func:`spelling_index`) answers the two spelling reads from memory -- for a caller
+    matching many names in one pass, which otherwise pays both reads per name.
+    """
     from app.services import cross_portal_codes
 
     # A client without the spelling table (a narrow test fake) still answers from the shared file.
     has_table = hasattr(client, "craftspelling")
     if has_table:
-        code = await cross_portal_codes.resolve_craft_code(client, text)
+        code = await cross_portal_codes.resolve_craft_code(client, text, spellings=index)
     else:
         code = cross_portal_codes.shared_craft_code(text)
     if code is None:
         return []
     spellings = {cross_portal_codes.normalise(s) for s in _code_spellings(code)}
-    if has_table:
+    if has_table and index is not None:
+        spellings.update(index.by_code.get(code, ()))
+    elif has_table:
         for row in await client.craftspelling.find_many(where={"craftCode": code}):
             spellings.add(row.spelling)
     hits = [
@@ -1001,9 +1054,31 @@ async def sync_master(client: Any, *, dry_run: bool = False) -> dict[str, int]:
         "skippedDeleted": 0,
         "retired": 0,
     }
+    # READ ONCE, NOT PER ROW. Every category, sub-category and craft the file names, and the spelling
+    # table, are read up front -- four reads where looking each one up by slug was one read per row
+    # (the master list is 455 crafts). Slugs are unique in the file, so no iteration looks up a row an
+    # earlier one wrote; a row created here goes into its map all the same.
+    categories = master_categories()
+    master_crafts = load_master()
+    categories_by_slug = {
+        row.slug: row
+        for row in await client.craftcategory.find_many(where={"slug": {"in": [c.slug for c in categories]}})
+    }
+    subs_by_slug = {
+        row.slug: row
+        for row in await client.craftsubcategory.find_many(
+            where={"slug": {"in": [s.slug for c in categories for s in c.sub_categories]}}
+        )
+    }
+    crafts_by_slug = {
+        row.slug: row
+        for row in await client.craft.find_many(where={"slug": {"in": [c.slug for c in master_crafts]}})
+    }
+    index = await spelling_index(client)
+
     sub_ids: dict[str, str] = {}
-    for category in master_categories():
-        row = await client.craftcategory.find_unique(where={"slug": category.slug})
+    for category in categories:
+        row = categories_by_slug.get(category.slug)
         if row is None:
             report["categoriesCreated"] += 1
             category_id = master_id("k", category.slug)
@@ -1011,9 +1086,10 @@ async def sync_master(client: Any, *, dry_run: bool = False) -> dict[str, int]:
                 row = await client.craftcategory.create(
                     data={"id": category_id, "slug": category.slug, "name": category.name, "sortOrder": category.sort_order}
                 )
+                categories_by_slug[category.slug] = row
         category_id = row.id if row is not None else master_id("k", category.slug)
         for sub in category.sub_categories:
-            found = await client.craftsubcategory.find_unique(where={"slug": sub.slug})
+            found = subs_by_slug.get(sub.slug)
             if found is None:
                 report["subCategoriesCreated"] += 1
                 if not dry_run:
@@ -1026,24 +1102,25 @@ async def sync_master(client: Any, *, dry_run: bool = False) -> dict[str, int]:
                             "sortOrder": sub.sort_order,
                         }
                     )
+                    subs_by_slug[sub.slug] = found
             sub_ids[sub.slug] = found.id if found is not None else master_id("s", sub.slug)
 
     deleted = {
         row.recordId for row in await client.recordrevision.find_many(where={"recordType": DELETED_MASTER_TYPE})
     }
     in_file: set[str] = set()
-    for craft in load_master():
+    for craft in master_crafts:
         in_file.add(craft.slug)
         wanted = _craft_columns(craft, sub_ids[craft.sub_category_slug])
-        row = await client.craft.find_unique(where={"slug": craft.slug})
+        row = crafts_by_slug.get(craft.slug)
         if row is None:
             if craft.slug in deleted:
                 report["skippedDeleted"] += 1
                 continue
             report["created"] += 1
             if not dry_run:
-                code = await cross_portal_codes.code_for_new_craft(client, craft.name)
-                await client.craft.create(
+                code = await cross_portal_codes.code_for_new_craft(client, craft.name, spellings=index)
+                crafts_by_slug[craft.slug] = await client.craft.create(
                     data={
                         "id": master_id("c", craft.slug),
                         "slug": craft.slug,
@@ -1057,7 +1134,7 @@ async def sync_master(client: Any, *, dry_run: bool = False) -> dict[str, int]:
         changed, kept = _file_changes(row, wanted)
         report["kept"] += kept
         if getattr(row, "craftCode", None) is None:
-            code = await cross_portal_codes.resolve_craft_code(client, craft.name)
+            code = await cross_portal_codes.resolve_craft_code(client, craft.name, spellings=index)
             if code is not None:
                 changed["craftCode"] = code
         meta = craft_meta(row)
