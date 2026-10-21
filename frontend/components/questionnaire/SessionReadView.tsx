@@ -16,7 +16,7 @@ import { apiFetch } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { languageLabel } from "@/lib/languages";
 import { canReview } from "@/lib/permissions";
-import { questionnaireApi, toGridView, type GridQuestion, type GridView, type Recording, type SessionDetail } from "@/lib/questionnaireApi";
+import { questionnaireApi, toGridView, type Answer, type GridQuestion, type GridView, type Recording, type SessionDetail } from "@/lib/questionnaireApi";
 import { loadInstrumentQuestions } from "@/components/questionnaire/instrumentQuestions";
 import { reviewRequest } from "@/lib/questionnaireInbox";
 import { approveBlock, modeLabel, reviewFlags, targetLabel } from "@/lib/questionnaireView";
@@ -38,6 +38,53 @@ export function groupBySection(detail: { recordings: Recording[]; grid: GridView
   }));
   const whole = live.filter((r) => sectionOfTarget(r) === null);
   return [...groups.filter((g) => g.recordings.length), ...(whole.length ? [{ key: "whole", label: qs("wholeSession"), recordings: whole }] : [])];
+}
+
+/**
+ * Answers by section order, each with its question and its artisan (audit, read view: they used to
+ * print as bare text). A group answer names every artisan it was written for once.
+ */
+export function answersBySection(
+  answers: Answer[],
+  grid: GridView,
+  names: Record<string, string>
+): { key: string; label: string; rows: { key: string; code: string; prompt: string; who: string; text: string }[] }[] {
+  const where = new Map<string, { section: number; order: number; code: string; prompt: string; sectionId: string }>();
+  grid.sections.forEach((s, si) => (s.questions ?? []).forEach((q, qi) => where.set(q.lineageId, { section: si, order: qi, code: q.displayCode, prompt: q.prompt, sectionId: s.id })));
+  const byQuestion = new Map<string, { lineage: string; text: string; artisans: string[] }>();
+  for (const a of answers) {
+    const lineage = a.questionLineageId ?? "";
+    const k = `${lineage}|${a.attribution === "GROUP_SHARED" ? "group" : a.artisanId ?? a.id}|${a.text}`;
+    const row = byQuestion.get(k) ?? { lineage, text: a.text, artisans: [] };
+    if (a.artisanId) row.artisans.push(a.artisanId);
+    byQuestion.set(k, row);
+  }
+  const rows = [...byQuestion.entries()].map(([k, r]) => {
+    const at = where.get(r.lineage);
+    const people = r.artisans.map((id) => names[id] ?? "").filter(Boolean);
+    return {
+      key: k,
+      section: at?.section ?? Number.MAX_SAFE_INTEGER,
+      order: at?.order ?? 0,
+      sectionId: at?.sectionId ?? "other",
+      code: at?.code ?? "",
+      prompt: at?.prompt ?? "",
+      who: people.length > 1 ? `${qs("groupAnswer", { count: people.length })} · ${people.join(", ")}` : people[0] ?? "",
+      text: r.text
+    };
+  });
+  rows.sort((a, b) => a.section - b.section || a.order - b.order || a.who.localeCompare(b.who));
+  const groups: { key: string; label: string; rows: typeof rows }[] = [];
+  for (const row of rows) {
+    const section = grid.sections.find((s) => s.id === row.sectionId);
+    let group = groups.find((g) => g.key === row.sectionId);
+    if (!group) {
+      group = { key: row.sectionId, label: section ? `${section.code} ${section.title}` : "", rows: [] };
+      groups.push(group);
+    }
+    group.rows.push(row);
+  }
+  return groups.map((g) => ({ key: g.key, label: g.label, rows: g.rows.map(({ key, code, prompt, who, text }) => ({ key, code, prompt, who, text })) }));
 }
 
 /**
@@ -152,15 +199,19 @@ export function SessionReadView({ id }: { id: string }) {
         </section>
       ))}
 
-      {detail.answers.length ? (
-        <section className="panel mb-4 grid gap-2 p-4">
-          {detail.answers.map((a) => (
-            <p key={a.id} className="text-sm text-ink-700">
-              {a.text}
-            </p>
+      {answersBySection(detail.answers, toGridView(detail.grid, questions), Object.fromEntries(detail.participants.map((p) => [p.artisanId, p.name]))).map((group) => (
+        <section key={`answers-${group.key}`} className="panel mb-4 grid gap-3 p-4" data-answers-section={group.key}>
+          {group.label ? <h2 className="display-title text-base">{group.label}</h2> : null}
+          {group.rows.map((row) => (
+            <div key={row.key} className="grid gap-0.5">
+              <p className="text-xs text-ink-500">
+                {[row.code && row.prompt ? `${row.code} ${row.prompt}` : row.code || row.prompt, row.who].filter(Boolean).join(" · ")}
+              </p>
+              <p className="text-sm text-ink-900">{row.text}</p>
+            </div>
           ))}
         </section>
-      ) : null}
+      ))}
 
       {reviewer ? (
         <section className="panel mb-4 grid gap-3 p-4" data-review>
@@ -204,7 +255,8 @@ export function SessionReadView({ id }: { id: string }) {
             buttons: [
               { id: "cancel", label: qs("cancel"), tone: "secondary" },
               { id: "return", label: qs("returnForChanges"), tone: "primary" }
-            ]
+            ],
+            dismiss: "cancel"
           }}
           open
           onChoose={(choice) => {

@@ -31,6 +31,13 @@ export function activeRecording() {
   return active;
 }
 
+/**
+ * Takes stopped in this tab whose hand-over to the outbox has not finished yet. Their drafts stay
+ * open until the outbox write succeeds (audit H17), so P13 must not offer them in THIS tab meanwhile;
+ * after a crash or reload the set is empty and P13 offers them, which is the point.
+ */
+export const takesInHand = new Set<string>();
+
 function clock(ms: number): string {
   const s = Math.floor(ms / 1000);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -114,7 +121,10 @@ export function Recorder({
         void (async () => {
           await writes.current;
           const chunks = await recorderStore.chunks(draft.takeKey);
-          await recorderStore.finish(draft.takeKey);
+          // NOT marked finished here (audit H17). The draft stays open until the take is in the
+          // outbox — the caller discards it then — so a crash between Stop and that write leaves a
+          // draft P13 offers back instead of chunks nothing will ever look at.
+          takesInHand.add(draft.takeKey);
           const durationMs = Date.now() - startedRef.current - pausedTotal.current;
           active = null;
           void wakeRef.current?.release();

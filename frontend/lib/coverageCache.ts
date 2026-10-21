@@ -8,7 +8,8 @@
  */
 
 import { qs } from "@/lib/strings/qs";
-import type { CoverageCheckRequest, CoverageCheckResponse, CoverageTake, RepeatReason, Snapshot, SnapshotTake } from "@/lib/questionnaireApi";
+import type { CoverageCheckRequest, CoverageCheckResponse, CoverageTake, Recording, RepeatReason, Snapshot, SnapshotTake } from "@/lib/questionnaireApi";
+import type { ClipStep, SessionUnit } from "@/lib/questionnaireQueue";
 
 export const sectionKey = (sectionId: string) => `S:${sectionId}`;
 export const questionKey = (lineageId: string) => `Q:${lineageId}`;
@@ -31,6 +32,126 @@ export function applySnapshotDelta(base: Snapshot | null, delta: Snapshot): Snap
 }
 
 export type OverlayTake = SnapshotTake & { onDevice: true; durationMs?: number | null };
+
+// ── the snapshot this browser holds, and what it lays over it (audit M4) ─────────────────────────
+
+/** Takes still in the outbox, as snapshot rows: every ANSWERED subject × target of every pending clip. */
+export function overlayFromUnits(units: SessionUnit[]): OverlayTake[] {
+  return units.flatMap((unit) =>
+    unit.steps
+      .filter((s): s is ClipStep => s.kind === "clip" && s.status !== "DONE")
+      .flatMap((step) =>
+        step.recording.subjects
+          .filter((s) => s.role === "ANSWERED")
+          .flatMap((subject) =>
+            step.recording.targets.map(
+              (target): OverlayTake => ({
+                recordingId: step.clientClipKey,
+                sessionId: unit.sessionId ?? unit.id,
+                artisanId: subject.artisanId,
+                targetKey: targetKeyOf(target),
+                role: "ANSWERED",
+                capturedAt: step.recording.deviceCapturedAt,
+                estimated: step.recording.capturedAtSource !== "DEVICE",
+                filing: "FILED",
+                position: 0,
+                onDevice: true,
+                durationMs: step.recording.durationMs
+              })
+            )
+          )
+      )
+  );
+}
+
+/** The takes a session payload carries, as snapshot rows; fresher than any snapshot for that session. */
+export function takesFromRecordings(recordings: Recording[]): SnapshotTake[] {
+  return recordings
+    .filter((r) => !r.removedAt)
+    .flatMap((r) =>
+      r.subjects.flatMap((s) =>
+        r.targets.map((t) => ({
+          recordingId: r.id,
+          sessionId: r.sessionId,
+          artisanId: s.artisanId,
+          targetKey: t.targetKey,
+          role: s.role,
+          capturedAt: r.capturedAt,
+          estimated: r.estimated,
+          filing: r.filing,
+          position: s.position ?? 0
+        }))
+      )
+    );
+}
+
+/** A snapshot with rows laid over it: a row for a recording replaces every held row of that recording. */
+export function withTakes(snapshot: Snapshot | null, takes: SnapshotTake[]): Snapshot {
+  const fresh = new Set(takes.map((t) => t.recordingId));
+  return {
+    asOfSeq: snapshot?.asOfSeq ?? "",
+    takes: [...(snapshot?.takes ?? []).filter((t) => !fresh.has(t.recordingId)), ...takes],
+    removedRecordingIds: []
+  };
+}
+
+const SNAPSHOT_PREFIX = "field_repo_qv2_snapshot:";
+export type HeldSnapshot = { snapshot: Snapshot; at: string };
+
+function snapshotKey(questionnaireId: string, workshopId: string | null | undefined) {
+  return `${SNAPSHOT_PREFIX}${questionnaireId}:${workshopId || "none"}`;
+}
+
+/** The snapshot this browser last fetched for an instrument and workshop, and when; null if none. */
+export function readSnapshot(questionnaireId: string, workshopId: string | null | undefined): HeldSnapshot | null {
+  try {
+    const raw = window.localStorage.getItem(snapshotKey(questionnaireId, workshopId));
+    if (!raw) return null;
+    const held = JSON.parse(raw) as HeldSnapshot;
+    return held && held.snapshot && Array.isArray(held.snapshot.takes) ? held : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSnapshot(questionnaireId: string, workshopId: string | null | undefined, held: HeldSnapshot) {
+  try {
+    window.localStorage.setItem(snapshotKey(questionnaireId, workshopId), JSON.stringify(held));
+  } catch {
+    // Storage full or blocked: offline coverage falls back to the session's own takes and the outbox.
+  }
+}
+
+/** Fetches the delta since the held snapshot (or the whole one) and keeps it; the held one on failure. */
+export async function refreshSnapshot(
+  api: { snapshot: (p: { questionnaireId: string; workshopId?: string | null; sinceSeq?: string | null }) => Promise<Snapshot> },
+  questionnaireId: string,
+  workshopId: string | null | undefined,
+  now: Date = new Date()
+): Promise<HeldSnapshot | null> {
+  const held = readSnapshot(questionnaireId, workshopId);
+  try {
+    const delta = await api.snapshot({ questionnaireId, workshopId: workshopId ?? null, sinceSeq: held?.snapshot.asOfSeq || null });
+    const next = { snapshot: applySnapshotDelta(held?.snapshot ?? null, delta), at: now.toISOString() };
+    writeSnapshot(questionnaireId, workshopId, next);
+    return next;
+  } catch {
+    return held;
+  }
+}
+
+/**
+ * The start sheet's offline coverage line, by the "14 of 24 sections" rule (DESIGN §3.2): a section
+ * counts when it has an ANSWERED section take, or every one of its active questions has one.
+ * NEEDS_DECISION takes do not count.
+ */
+export function coveredSectionsOffline(takes: SnapshotTake[], artisanId: string, questionsBySection: Record<string, string[]>): number {
+  const mine = takes.filter((t) => t.artisanId === artisanId && t.role === "ANSWERED" && t.filing !== "NEEDS_DECISION").map((t) => t.targetKey);
+  const keys = new Set(mine);
+  return Object.entries(questionsBySection).filter(
+    ([sectionId, lineages]) => keys.has(sectionKey(sectionId)) || (lineages.length > 0 && lineages.every((l) => keys.has(questionKey(l))))
+  ).length;
+}
 
 export type OfflineContext = {
   /** The section a question lineage belongs to. */

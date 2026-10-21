@@ -14,7 +14,7 @@ import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
 import { shortName } from "@/lib/coverageCache";
 import { questionnaireApi, type ArtisanRecord, type Recording } from "@/lib/questionnaireApi";
 import { shortDate } from "@/lib/questionnairePrompts";
-import { artisanTimeline, modeLabel, subjectRoleFor, targetLabel } from "@/lib/questionnaireView";
+import { artisanTimeline, isLegacyTake, modeLabel, subjectRoleFor, targetLabel } from "@/lib/questionnaireView";
 import { qs } from "@/lib/strings/qs";
 
 function TakeLine({ recording, artisanId, paused }: { recording: Recording; artisanId: string; paused: boolean }) {
@@ -28,7 +28,7 @@ function TakeLine({ recording, artisanId, paused }: { recording: Recording; arti
         {present ? ` · ${qs("presentDidntAnswer")}` : ""}
         {recording.estimated ? ` · ${qs("estimatedDate")}` : ""}
         {recording.filing === "NEEDS_DECISION" ? ` · ${qs("needsDecision")}` : ""}
-        {recording.provenance === "LEGACY" ? ` · ${qs("legacyRecord")}` : ""}
+        {isLegacyTake(recording) ? ` · ${qs("legacyRecord")}` : ""}
       </p>
       <TranscriptStatus recording={recording} paused={paused} />
       <AudioPlayer src={questionnaireApi.downloadHref(recording.id)} />

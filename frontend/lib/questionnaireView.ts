@@ -6,7 +6,7 @@
 
 import { qs } from "@/lib/strings/qs";
 import { isEstimatedSource } from "@/lib/naming";
-import type { Recording, RecordSession, Session } from "@/lib/questionnaireApi";
+import type { CompleteRecording, Recording, RecordSession, RepeatReason, Session, SessionParticipant } from "@/lib/questionnaireApi";
 
 export type TranscriptView = {
   label: string;
@@ -35,6 +35,80 @@ export function transcriptView(recording: Pick<Recording, "transcript" | "consen
   if (status === "FAILED")
     return { label: qs("transcriptionFailed"), tone: "error", retryEnabled: true, retryReason: null, offerConsent: false };
   return { label: qs("transcriptQueued"), tone: "neutral", retryEnabled: false, retryReason: null, offerConsent: false };
+}
+
+/** A take was imported from the old interviews: provenance LEGACY, LEGACY_META, LEGACY_… (audit, Legacy badge). */
+export function isLegacyTake(recording: Pick<Recording, "provenance">): boolean {
+  return (recording.provenance ?? "").toUpperCase().startsWith("LEGACY");
+}
+
+/**
+ * The artisan whose consent a take's "Change consent" is about (audit M22): the subject who refused,
+ * never simply the first one.
+ */
+export function consentSubject(recording: Pick<Recording, "subjects" | "consent">, participants: Pick<SessionParticipant, "artisanId" | "consent">[]): string | null {
+  const onTake = new Set(recording.subjects.map((s) => s.artisanId));
+  const refused = participants.find((p) => onTake.has(p.artisanId) && p.consent?.state === "REFUSED");
+  if (refused) return refused.artisanId;
+  const source = recording.consent?.source ?? null;
+  if (source && onTake.has(source)) return source;
+  return recording.subjects.find((s) => s.role === "ANSWERED")?.artisanId ?? recording.subjects[0]?.artisanId ?? null;
+}
+
+/**
+ * The subjects of a take: every artisan in the roster, ANSWERED when ticked under "Answered by", else
+ * PRESENT (audit M22, DESIGN §3.4) — unticking never drops an artisan from the take.
+ */
+export function takeSubjects(roster: string[], answered: ReadonlySet<string>, reasons: Record<string, RepeatReason>): CompleteRecording["subjects"] {
+  return roster.map((artisanId): CompleteRecording["subjects"][number] => {
+    const answers = answered.has(artisanId);
+    return { artisanId, role: answers ? "ANSWERED" : "PRESENT", named: roster.length > 1, repeatReason: answers ? reasons[artisanId] ?? null : null };
+  });
+}
+
+const EXTENSION_BY_TYPE: Record<string, string> = {
+  "audio/mpeg": "mp3",
+  "audio/mp3": "mp3",
+  "audio/mp4": "m4a",
+  "audio/x-m4a": "m4a",
+  "audio/m4a": "m4a",
+  "audio/aac": "aac",
+  "audio/webm": "webm",
+  "audio/ogg": "ogg",
+  "audio/opus": "opus",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/wave": "wav",
+  "audio/flac": "flac",
+  "audio/amr": "amr",
+  "audio/3gpp": "3gp",
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+  "video/quicktime": "mov",
+  "video/3gpp": "3gp"
+};
+
+/**
+ * What a picked file is sent as (audit, file picks): its extension from the name when it has a usable
+ * one, else from its type (a name with no extension used to fail for good); and its time. A file's
+ * `lastModified` is when it was last copied or saved, not when it was recorded, so a pick is dated
+ * the session day at 12:00 IST (`SESSION_DATE`, shown as estimated) — never the copy time.
+ */
+export function pickedFileMeta(file: { name: string; type: string }, sessionDate: string | null, now: Date = new Date()): {
+  extension: string;
+  contentType: string;
+  deviceCapturedAt: string;
+  capturedAtSource: "SESSION_DATE" | "UPLOAD_TIME";
+} {
+  const type = (file.type || "").split(";")[0].trim().toLowerCase();
+  const dot = file.name.lastIndexOf(".");
+  const fromName = dot > 0 ? file.name.slice(dot + 1).toLowerCase() : "";
+  const extension = /^[a-z0-9]{1,12}$/.test(fromName) ? fromName : EXTENSION_BY_TYPE[type] ?? (type.startsWith("video/") ? "mp4" : "m4a");
+  const contentType = type || (extension === "mp4" || extension === "mov" ? "video/mp4" : extension === "webm" ? "audio/webm" : "audio/mp4");
+  if (sessionDate && /^\d{4}-\d{2}-\d{2}$/.test(sessionDate.slice(0, 10))) {
+    return { extension, contentType, deviceCapturedAt: `${sessionDate.slice(0, 10)}T06:30:00.000Z`, capturedAtSource: "SESSION_DATE" };
+  }
+  return { extension, contentType, deviceCapturedAt: now.toISOString(), capturedAtSource: "UPLOAD_TIME" };
 }
 
 export function modeLabel(session: Pick<Session, "participantCount">): string {
