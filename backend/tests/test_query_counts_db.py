@@ -76,7 +76,8 @@ def test_a_sessions_recordings_cost_the_same_reads_however_many_there_are(monkey
     small = run(_session_with_takes(monkeypatch, 2))
     large = run(_session_with_takes(monkeypatch, 8))
     report("sessions_get", takes2=small, takes8=large)
-    assert small == large == 26, (small, large)
+    # 27 since release 0.0.2 merged the v2 audit fixes: one more fixed read, whatever the number of takes.
+    assert small == large == 27, (small, large)
 
 
 # ── one artisan's record (GET /artisans/{id}/record) ──────────────────────────────────────────
@@ -109,7 +110,8 @@ def test_an_artisans_record_reads_every_session_at_once(monkeypatch) -> None:
     small = run(_record_over_sessions(monkeypatch, 1))
     large = run(_record_over_sessions(monkeypatch, 4))
     report("artisan_record", sessions1=small, sessions4=large)
-    assert small == large == 32, (small, large)
+    # 33 since release 0.0.2 merged the v2 audit fixes: one more fixed read, whatever the number of sessions.
+    assert small == large == 33, (small, large)
 
 
 # ── the corpus feed (GET /questionnaire/v2/corpus.jsonl) ──────────────────────────────────────
@@ -177,8 +179,9 @@ def test_saving_answers_reads_once_for_the_batch_and_writes_per_item(monkeypatch
     per_item = (large - small) // 4
     fixed = small - 2 * per_item
     # Three writes per item (the answer row, its revision, the pointer to it) in one transaction
-    # each; every read is made once for the whole batch.
-    assert (fixed, per_item) == (4, 3), (small, large)
+    # each; every read is made once for the whole batch. The fifth fixed read is the session's people,
+    # once per session (audit M15: an answer is about somebody who was there).
+    assert (fixed, per_item) == (5, 3), (small, large)
     assert (tx_small, tx_large) == (2, 6)
 
 
@@ -246,7 +249,8 @@ def test_old_build_responses_read_their_questions_and_answers_once(monkeypatch) 
     report("shim_responses", responses2=small, responses6=large)
     # Two participants, so every response is two answers of three writes each.
     per_response = (large - small) // 4
-    assert (small - 2 * per_response, per_response) == (6, 6), (small, large)
+    # The seventh fixed read is the session's people, once per session (audit M15).
+    assert (small - 2 * per_response, per_response) == (7, 6), (small, large)
 
 
 # ── draft answers from a take's transcript (GET /recordings/{id}/proposals) ───────────────────

@@ -248,6 +248,9 @@ function takeChoiceLabel(recording: Recording): string {
  * take is the one the server names, else found in the session.
  */
 function DecisionRow({ row, busy, run }: { row: InboxDecision; busy: boolean; run: (work: () => Promise<unknown>) => Promise<void> }) {
+  // "Keep one" removes the other take, and removing a take is a content admin's (the server's
+  // KEEP_THIS refusal; the handset's `mayRemove`). Everyone else keeps both or files Part 2.
+  const { canDeleteRecords } = useAdminView();
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [choosing, setChoosing] = useState(false);
@@ -288,7 +291,7 @@ function DecisionRow({ row, busy, run }: { row: InboxDecision; busy: boolean; ru
           >
             {qs("keepBoth")}
           </button>
-          {other ? (
+          {other && canDeleteRecords ? (
             <button
               type="button"
               className="field-button"
@@ -318,7 +321,7 @@ function DecisionRow({ row, busy, run }: { row: InboxDecision; busy: boolean; ru
         </ul>
       ) : null}
 
-      {choosing && self && other ? (
+      {choosing && canDeleteRecords && self && other ? (
         <div className="grid gap-2" data-keep-one>
           <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={qs("keepOne")}>
             {[earlier!, later!].map((r) => (

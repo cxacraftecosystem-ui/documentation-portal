@@ -279,7 +279,8 @@ test.describe("the lists are wired to it", () => {
     const list = read("app", "(protected)", "questionnaire", "workbooks", "page.tsx");
     expect(list).toContain("<OpenableBlock");
     expect(list).toContain("href={`/questionnaire/workbooks/${encodeURIComponent(instrument.id)}`}");
-    expect(list).toContain("{canManageQuestionnaire(user) ? (");
+    // Its Re-upload is the form's author's or a content admin's (22 Oct 2026).
+    expect(list).toContain("{mayEditQuestionnaire(user, instrument.createdById) ? (");
     expect(existsSync(join(__dirname, "..", "app", "(protected)", "questionnaire", "workbooks", "[id]", "page.tsx"))).toBe(true);
   });
 

@@ -48,7 +48,7 @@ type Seed = {
   questions: Record<string, string>;
   artisans: string[];
   rebuiltSessionId: string;
-  tokens: { lead: string; other: string };
+  tokens: { lead: string; other: string; admin: string };
 };
 const seed = (): Seed => JSON.parse(readFileSync(SEED_PATH, "utf8")) as Seed;
 
@@ -264,7 +264,10 @@ test("M4 + H13: offline coverage agrees with the server, and Keep one decides a 
   expect(row, "the second take needs a decision").toBeTruthy();
   const other = decisionPartner(row!, detail.recordings);
   expect(other?.id).not.toBe(row!.recordingId);
-  await api.decide(row!.recordingId, { action: "KEEP_THIS", otherRecordingId: other!.id });
+  // Keep one removes the other take: a content admin's act. The researcher is refused, the admin decides.
+  await expect(api.decide(row!.recordingId, { action: "KEEP_THIS", otherRecordingId: other!.id })).rejects.toThrow("Only an admin can delete this.");
+  const admin = questionnaireClient(stackFetch(s.tokens.admin));
+  await admin.decide(row!.recordingId, { action: "KEEP_THIS", otherRecordingId: other!.id });
   const decided = await api.getSession(session.id);
   const kept = decided.recordings.find((r) => r.id === row!.recordingId);
   expect(kept?.filing).toBe("FILED");
