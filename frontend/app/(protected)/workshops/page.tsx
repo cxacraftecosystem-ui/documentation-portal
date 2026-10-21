@@ -59,6 +59,8 @@ import { ReviewNoteBanner } from "@/components/review/ReviewNoteBanner";
 type WorkshopWithCrafts = Workshop & { crafts?: Array<{ craftId?: string; craft?: { id: string } }> };
 
 const ARTISAN_PICKER_MAX_PAGES = 50;
+/** How many artisan pages are asked for at once after the first. */
+const ARTISAN_PICKER_PARALLEL = 6;
 
 /** The artisan ids a workshop is already linked to, for pre-filling the picker on edit. */
 function linkedArtisanIds(workshop: Workshop | null): string[] {
@@ -270,24 +272,31 @@ function WorkshopsPageBody() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, applied, completeness]);
 
-  // The linked-artisan / craft pickers only need loading once.
+  // The linked-artisan picker needs loading once, and only where the form is drawn (managers).
+  const artisansRequested = useRef(false);
   useEffect(() => {
+    if (!allowManage || artisansRequested.current) return;
+    artisansRequested.current = true;
     (async () => {
       try {
         // Every artisan, not the API's first 100: a linked artisan past the first page would show
         // no label and could not be picked. Paged at the API's maximum, to a generous ceiling.
-        const all: Artisan[] = [];
-        for (let page = 1; page <= ARTISAN_PICKER_MAX_PAGES; page += 1) {
-          const result = await listResource<Artisan>("/artisans", { page, pageSize: 100 });
-          all.push(...result.items);
-          if (page >= result.pages) break;
+        // Page one says how many pages there are; the rest go out a few at a time rather than one
+        // after another, and are joined in page order, so the list is the same as before.
+        const first = await listResource<Artisan>("/artisans", { page: 1, pageSize: 100 });
+        const lastPage = Math.min(first.pages || 1, ARTISAN_PICKER_MAX_PAGES);
+        const all: Artisan[] = [...first.items];
+        for (let start = 2; start <= lastPage; start += ARTISAN_PICKER_PARALLEL) {
+          const pages = Array.from({ length: Math.min(ARTISAN_PICKER_PARALLEL, lastPage - start + 1) }, (_, index) => start + index);
+          const results = await Promise.all(pages.map((page) => listResource<Artisan>("/artisans", { page, pageSize: 100 })));
+          for (const result of results) all.push(...result.items);
         }
         setArtisans(all);
       } catch {
         // The pickers degrade to empty lists; the workshop list still loads.
       }
     })();
-  }, []);
+  }, [allowManage]);
 
   // Live search: debounce typing by 350ms; Enter applies immediately via onSubmit.
   useEffect(() => {
