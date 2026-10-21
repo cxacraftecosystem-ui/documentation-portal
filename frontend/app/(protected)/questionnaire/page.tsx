@@ -1541,7 +1541,8 @@ function QuestionnairePageBody() {
           place: textValue(form, "place"),
           language: textValue(form, "language"),
           notes: textValue(form, "notes"),
-          status: canPickStatus ? textValue(form, "status") || "APPROVED" : "PENDING",
+          // Nothing picked is PENDING, never APPROVED: a sitting is approved by somebody choosing to.
+          status: canPickStatus ? textValue(form, "status") || "PENDING" : "PENDING",
           workshopId: workshop.workshopId || null,
           artisanIds,
           responses
@@ -2170,7 +2171,7 @@ function QuestionnairePageBody() {
             {canPickStatus ? (
               /* An edit opens on the status the record already carries, not on the create default —
                  re-approving a REJECTED sitting has to be something somebody chose on screen. */
-              <Select name="status" defaultValue={editing?.status ?? "APPROVED"}>
+              <Select name="status" defaultValue={editing?.status ?? "PENDING"}>
                 {["DRAFT", "PENDING", "APPROVED", "REJECTED"].map((status) => (
                   <option key={status} value={status}>{statusLabel(status)}</option>
                 ))}

@@ -172,7 +172,8 @@ test("the form remounts per record, so the uncontrolled boxes re-seed", () => {
   expect(CODE).toMatch(/ref=\{formRef\}/);
   // The uncontrolled half reads its value once per mount, which is what the key is for.
   expect(CODE).toMatch(/defaultValue=\{restoredNotes \?\? editing\?\.notes \?\? null\}/);
-  expect(CODE).toMatch(/defaultValue=\{editing\?\.status \?\? "APPROVED"\}/);
+  // Legacy-status fix (21 Oct 2026 audit): a new sitting opens on PENDING, never APPROVED.
+  expect(CODE).toMatch(/defaultValue=\{editing\?\.status \?\? "PENDING"\}/);
 });
 
 test("the answers are seeded by question id, not by position", () => {
