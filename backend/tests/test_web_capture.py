@@ -426,8 +426,8 @@ def test_the_migration_is_additive_and_matches_the_schema():
 def _drive_apply(monkeypatch, interview: Any) -> dict[str, Any]:
     """Wire ``apply_interview_transcripts`` to fakes: one D3 clip, no answers. Returns what it wrote."""
     captured: dict[str, Any] = {"updates": []}
-    media = [_clip(caption="Question audio: D3 - x", transcriptText="Clay from the river.")]
-    questions = [SimpleNamespace(id="q-d3", sectionCode="D", sortOrder=3)]
+    media = [_clip(caption="Question audio: D3 - How is the clay prepared?", transcriptText="Clay from the river.")]
+    questions = [QUESTIONS[0]]
 
     async def fake_require(model, record_id):
         return interview
@@ -475,6 +475,7 @@ def _drive_apply(monkeypatch, interview: Any) -> dict[str, Any]:
             mediafile=_Any(),
             questionnaireresponse=_Any(),
             questionnairequestion=_Any(),
+            questionnairerecording=_Any(),
         ),
     )
     return captured
