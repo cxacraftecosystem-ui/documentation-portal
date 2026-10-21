@@ -363,9 +363,16 @@ async def artisan_consent_post(artisan_id: str, request: Request, user: Any = De
     held recordings (still subject to the pause, and to anyone else's refusal)."""
     from app.core.db import db
 
+    from app.services.access import record_edit_privilege
+
     payload = await parse(request, S.ConsentPost)
-    if not await db.artisan.find_unique(where={"id": artisan_id}):
+    artisan = await db.artisan.find_unique(where={"id": artisan_id})
+    if not artisan:
         fail("NOT_FOUND", "No such artisan.")
+    # The edit privilege the older /recording-consent route asks (audit H12): any signed-in user
+    # could change any artisan's consent here.
+    if not await record_edit_privilege(artisan, user, "artisan"):
+        fail("FORBIDDEN", "Only someone who may edit this artisan can record their consent.")
     await consent_gate.record_artisan_consent(
         artisan_id, state=payload.state, basis=payload.basis, actor_id=user.id, purpose=payload.purpose,
         note=payload.note, evidence_media_id=payload.evidenceMediaId, client=db,
