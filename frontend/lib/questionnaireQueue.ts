@@ -17,13 +17,24 @@
  *   at once, 1 on a slow link.
  * - The client never names the file: the object key (and its readable leaf) comes from presign.
  *
- * The runner takes its API, store and byte transport as arguments so `e2e/questionnaire-queue-unit.spec.ts`
- * drives it with fakes; `indexedDbQueueStore()` is the browser store.
+ * ONE WRITER PER UNIT (audit C5). Every write to a unit — a step appended by the screen, a step
+ * ticked off by the runner, a P9 decision — goes through `mutateUnit`, which re-reads the stored
+ * unit and applies the change inside a chain held per unit id. The runner writes back only the steps
+ * it touched, so a take recorded while another uploads is never overwritten by the runner's stale
+ * copy, and a unit is removed only when the STORED unit is all done.
+ *
+ * A unit is keyed on the session's `clientKey`, or on its id when it has none (audit C4: every session
+ * the backfill rebuilt has a null clientKey).
+ *
+ * The runner takes its API, store and byte transport as arguments so the unit spec drives it with an
+ * in-memory store that refuses what IndexedDB refuses, and `e2e/questionnaire-v2-stack.spec.ts`
+ * drives it against a real backend and bucket. `indexedDbQueueStore()` is the browser store.
  */
 
 import { ApiError } from "@/lib/api";
 import type {
   AnswerItem,
+  AnswerResult,
   CompleteRecording,
   PresignRequest,
   QuestionnaireApi,
@@ -61,17 +72,29 @@ export type ClipStep = {
   /** Upload progress the browser itself recorded, merged with the server's on resume. */
   objectKey?: string;
   uploadId?: string | null;
+  /** The part size the SERVER chose for this upload; parts are cut at its boundaries. */
+  partSize?: number;
   partsDone?: UploadPart[];
   uploaded?: boolean;
   recordingId?: string;
   attempts?: number;
   error?: string;
 };
-export type AnswersStep = { kind: "answers"; status: StepStatus; items: Omit<AnswerItem, "sessionId">[]; error?: string };
+export type AnswersStep = {
+  kind: "answers";
+  status: StepStatus;
+  items: Omit<AnswerItem, "sessionId">[];
+  /** Minted when the step is queued; how the one writer finds this step again. */
+  key?: string;
+  /** `CONFLICT` while items wait for P9 (or a refusal the researcher must see). */
+  error?: string;
+  /** The server's answer for each held item: the current text and who changed it. */
+  conflicts?: AnswerResult[];
+};
 export type Step = SessionStep | ParticipantStep | ClipStep | AnswersStep;
 
 export type SessionUnit = {
-  /** The session's clientKey; one unit per session. */
+  /** The session's clientKey, or its id when it has none; one unit per session. */
   id: string;
   sessionId: string | null;
   createdAt: string;
@@ -80,6 +103,7 @@ export type SessionUnit = {
 
 export interface QueueStore {
   load(): Promise<SessionUnit[]>;
+  get(id: string): Promise<SessionUnit | null>;
   save(unit: SessionUnit): Promise<void>;
   remove(id: string): Promise<void>;
   getBlob(key: string): Promise<Blob | null>;
@@ -118,6 +142,19 @@ export type QueueOptions = {
 
 export const MAX_PARALLEL_CLIPS = 3;
 
+/** The key a session's unit is stored under: its clientKey, else its id (audit C4). */
+export function sessionUnitKey(session: { id: string; clientKey: string | null | undefined }): string {
+  return session.clientKey || session.id;
+}
+
+function freshKey(prefix: string): string {
+  const random =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+  return `${prefix}-${random}`;
+}
+
 /** A new unit for a session started on this device. Nothing is sent until `runUnit`. */
 export function newSessionUnit(body: SessionCreate, now = new Date()): SessionUnit {
   return { id: body.clientKey, sessionId: null, createdAt: now.toISOString(), steps: [{ kind: "session", status: "PENDING", body }] };
@@ -125,7 +162,21 @@ export function newSessionUnit(body: SessionCreate, now = new Date()): SessionUn
 
 /** A unit for a session that already exists on the server (opened online, or joined). */
 export function existingSessionUnit(session: Pick<Session, "id" | "clientKey">, now = new Date()): SessionUnit {
-  return { id: session.clientKey, sessionId: session.id, createdAt: now.toISOString(), steps: [] };
+  return { id: sessionUnitKey(session), sessionId: session.id, createdAt: now.toISOString(), steps: [] };
+}
+
+/** A step's identity inside its unit; the one writer matches the runner's copy to the stored one by it. */
+export function stepKey(step: Step): string {
+  switch (step.kind) {
+    case "session":
+      return "session";
+    case "participant":
+      return `participant:${step.idempotencyKey}`;
+    case "clip":
+      return `clip:${step.clientClipKey}`;
+    default:
+      return `answers:${step.key ?? JSON.stringify(step.items)}`;
+  }
 }
 
 /**
@@ -146,7 +197,8 @@ function rank(step: Step): number {
 }
 
 export function appendStep(unit: SessionUnit, step: Step): SessionUnit {
-  const steps = [...unit.steps, step];
+  const keyed: Step = step.kind === "answers" && !step.key ? { ...step, key: freshKey("answers") } : step;
+  const steps = [...unit.steps, keyed];
   const indexed = steps.map((s, index) => ({ s, index }));
   indexed.sort((a, b) => {
     const r = rank(a.s) - rank(b.s);
@@ -166,6 +218,127 @@ export function pendingClipCount(units: SessionUnit[]): number {
   return units.reduce((n, u) => n + u.steps.filter((s) => s.kind === "clip" && s.status !== "DONE").length, 0);
 }
 
+// ── the one writer ───────────────────────────────────────────────────────────────────────────────
+
+const chains = new WeakMap<QueueStore, Map<string, Promise<unknown>>>();
+
+/** Runs `work` after every earlier write to the same unit of the same store has settled. */
+export function serialised<T>(store: QueueStore, id: string, work: () => Promise<T>): Promise<T> {
+  let byId = chains.get(store);
+  if (!byId) {
+    byId = new Map();
+    chains.set(store, byId);
+  }
+  const previous = byId.get(id) ?? Promise.resolve();
+  const next = previous.then(work, work);
+  const tail = next.catch(() => undefined);
+  byId.set(id, tail);
+  void tail.then(() => {
+    if (byId!.get(id) === tail) byId!.delete(id);
+  });
+  return next;
+}
+
+/**
+ * The only way a unit is written. `change` sees the STORED unit (a copy; null when there is none)
+ * and returns the unit to store, or null to remove it.
+ */
+export function mutateUnit(
+  store: QueueStore,
+  id: string,
+  change: (current: SessionUnit | null) => SessionUnit | null
+): Promise<SessionUnit | null> {
+  return serialised(store, id, async () => {
+    const stored = await store.get(id);
+    const next = change(stored ? structuredClone(stored) : null);
+    if (next === null) {
+      if (stored) await store.remove(id);
+      return null;
+    }
+    await store.save(next);
+    return next;
+  });
+}
+
+/** Appends a step to a unit (creating it from `base` when it is not stored yet), through the one writer. */
+export function enqueueStep(store: QueueStore, base: SessionUnit, step: Step): Promise<SessionUnit | null> {
+  return mutateUnit(store, base.id, (current) => appendStep(current ?? base, step));
+}
+
+/** The stored unit with the runner's copies of the steps it touched laid over it; new steps stand. */
+function mergeRunner(stored: SessionUnit | null, runner: SessionUnit, touched: ReadonlySet<string>): SessionUnit {
+  if (!stored) return structuredClone(runner);
+  const mine = new Map(runner.steps.map((s) => [stepKey(s), s] as const));
+  const steps = stored.steps.map((s) => {
+    const key = stepKey(s);
+    const ours = mine.get(key);
+    return touched.has(key) && ours ? structuredClone(ours) : s;
+  });
+  return { ...stored, sessionId: runner.sessionId ?? stored.sessionId, steps };
+}
+
+// ── answers held for P9 (audit H18) ──────────────────────────────────────────────────────────────
+
+const sameItem = (a: { artisanId: string; questionLineageId: string }, b: { artisanId: string; questionLineageId: string }) =>
+  a.artisanId === b.artisanId && a.questionLineageId === b.questionLineageId;
+
+/** The results that must not be dropped: a CONFLICT waits for P9, a FORBIDDEN is shown. */
+export function heldAnswerResults(items: { artisanId: string; questionLineageId: string }[], results: AnswerResult[]): AnswerResult[] {
+  return results.filter((r) => (r.status === "CONFLICT" || r.status === "FORBIDDEN") && items.some((item) => sameItem(item, r)));
+}
+
+/** Every answer waiting for a decision in a unit, with the step that holds it. */
+export function answerConflicts(unit: SessionUnit | null): { stepKey: string; item: Omit<AnswerItem, "sessionId">; result: AnswerResult }[] {
+  if (!unit) return [];
+  return unit.steps.flatMap((step) =>
+    step.kind === "answers" && step.error === "CONFLICT"
+      ? step.items.flatMap((item) => {
+          const result = step.conflicts?.find((r) => sameItem(r, item));
+          return result ? [{ stepKey: stepKey(step), item, result }] : [];
+        })
+      : []
+  );
+}
+
+/**
+ * P9 decided: "mine" re-queues the typed text over the server's current version; "theirs" (or a
+ * refusal acknowledged) drops it. The step is done once nothing in it waits.
+ */
+export function resolveAnswerConflict(
+  store: QueueStore,
+  unitId: string,
+  key: string,
+  target: { artisanId: string; questionLineageId: string },
+  choice: "mine" | "theirs"
+): Promise<SessionUnit | null> {
+  return mutateUnit(store, unitId, (current) => {
+    if (!current) return null;
+    let unit = current;
+    const step = unit.steps.find((s): s is AnswersStep => s.kind === "answers" && stepKey(s) === key);
+    if (!step) return unit;
+    const item = step.items.find((i) => sameItem(i, target));
+    const result = step.conflicts?.find((r) => sameItem(r, target));
+    step.items = step.items.filter((i) => !sameItem(i, target));
+    step.conflicts = (step.conflicts ?? []).filter((r) => !sameItem(r, target));
+    if (!step.items.length) {
+      step.status = "DONE";
+      step.error = undefined;
+      step.conflicts = undefined;
+    }
+    if (choice === "mine" && item && result?.status === "CONFLICT") {
+      const baseVersion = result.current?.version;
+      unit = appendStep(unit, {
+        kind: "answers",
+        status: "PENDING",
+        items: [{ ...item, ...(typeof baseVersion === "number" ? { baseVersion } : {}) }]
+      });
+    }
+    return unit.steps.every((s) => s.status === "DONE") ? null : unit;
+  });
+}
+
+// ── the runner ───────────────────────────────────────────────────────────────────────────────────
+
 function describe(error: unknown): string {
   if (error instanceof ApiError) return error.message;
   if (error instanceof Error) return error.message;
@@ -173,8 +346,16 @@ function describe(error: unknown): string {
 }
 
 /** A 4xx (other than 408/429) will not succeed on retry with the same frozen body. */
-function isPermanent(error: unknown): boolean {
+export function isPermanent(error: unknown): boolean {
   return error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429;
+}
+
+/** `POST /media/multipart/presign-parts` answers `{urls: {"2": url, …}}`; the parts asked for, in order. */
+export function signedParts(signed: { urls?: Record<string, string> | null }, wanted: number[]): { partNumber: number; url: string }[] {
+  const urls = signed.urls ?? {};
+  const parts = wanted.map((partNumber) => ({ partNumber, url: urls[String(partNumber)] })).filter((p): p is { partNumber: number; url: string } => typeof p.url === "string" && p.url.length > 0);
+  if (parts.length !== wanted.length) throw new Error("The upload server did not sign every part.");
+  return parts;
 }
 
 async function uploadClip(step: ClipStep, sessionId: string, api: QueueApi, store: QueueStore, transport: ByteTransport, opts: QueueOptions, persist: () => Promise<void>) {
@@ -193,6 +374,7 @@ async function uploadClip(step: ClipStep, sessionId: string, api: QueueApi, stor
         const state = await api.uploadState(step.clientClipKey);
         step.objectKey = state.objectKey;
         step.uploadId = state.multipartUploadId;
+        if (state.partSize) step.partSize = state.partSize;
         step.partsDone = mergeParts(step.partsDone ?? [], state.partsDone);
         if (state.closed) step.uploaded = true;
       } catch (error) {
@@ -224,16 +406,18 @@ async function uploadClip(step: ClipStep, sessionId: string, api: QueueApi, stor
         const created = await api.multipartCreate(request);
         step.objectKey = created.objectKey;
         step.uploadId = created.uploadId;
-        step.partsDone = mergeParts(step.partsDone ?? [], created.partsDone);
+        if (created.partSize) step.partSize = created.partSize;
+        step.partsDone = mergeParts(step.partsDone ?? [], created.partsDone ?? []);
         await persist();
       }
-      const partSize = opts.partSizeBytes;
+      // The server's part size decides the boundaries; the config's is only the fallback.
+      const partSize = step.partSize || opts.partSizeBytes;
       const total = Math.max(1, Math.ceil(step.sizeBytes / partSize));
       const done = new Set((step.partsDone ?? []).map((p) => p.partNumber));
       const missing = Array.from({ length: total }, (_, i) => i + 1).filter((n) => !done.has(n));
       if (missing.length) {
         const signed = await api.multipartPresignParts({ objectKey: step.objectKey!, uploadId: step.uploadId!, partNumbers: missing });
-        for (const part of signed.parts.sort((a, b) => a.partNumber - b.partNumber)) {
+        for (const part of signedParts(signed, missing)) {
           const start = (part.partNumber - 1) * partSize;
           const slice = blob.slice(start, Math.min(start + partSize, step.sizeBytes));
           const { etag } = await transport.put(part.url, slice, {});
@@ -275,9 +459,10 @@ export function mergeParts(a: UploadPart[], b: UploadPart[]): UploadPart[] {
 }
 
 /**
- * Sends one unit's pending steps in order. Returns the unit as it now stands (also persisted after
- * every step). A session step that fails stops the unit, since nothing after it has a session to
- * point at; a failed clip stops only itself.
+ * Sends one unit's pending steps in order. Returns the runner's view of the unit; every change is
+ * written back through the one writer as it happens. A session step that fails stops the unit,
+ * since nothing after it has a session to point at; a failed clip stops only itself. Steps appended
+ * while this runs are kept and sent by the next pass.
  */
 export async function runUnit(
   unit: SessionUnit,
@@ -286,7 +471,11 @@ export async function runUnit(
   transport: ByteTransport,
   opts: QueueOptions
 ): Promise<SessionUnit> {
-  const persist = () => store.save(unit);
+  const touched = new Set<string>();
+  const persist = async (step: Step) => {
+    touched.add(stepKey(step));
+    await mutateUnit(store, unit.id, (stored) => mergeRunner(stored, unit, touched));
+  };
 
   for (const step of unit.steps) {
     if (step.status === "DONE") continue;
@@ -295,12 +484,13 @@ export async function runUnit(
         const session = await api.createSession(step.body);
         unit.sessionId = session.id;
         step.status = "DONE";
+        step.error = undefined;
         opts.onSession?.(session);
-        await persist();
+        await persist(step);
       } catch (error) {
         step.error = describe(error);
         if (isPermanent(error)) step.status = "FAILED";
-        await persist();
+        await persist(step);
         return unit;
       }
     }
@@ -318,11 +508,9 @@ export async function runUnit(
     } catch (error) {
       step.error = describe(error);
       if (isPermanent(error)) step.status = "FAILED";
-      await persist();
       // A clip may name this artisan; the server adds non-participant subjects itself, so carry on.
-      continue;
     }
-    await persist();
+    await persist(step);
   }
 
   const clips = unit.steps.filter((s): s is ClipStep => s.kind === "clip" && s.status !== "DONE" && s.error !== "MISSING_FILE");
@@ -334,34 +522,72 @@ export async function runUnit(
       cursor += 1;
       step.attempts = (step.attempts ?? 0) + 1;
       try {
-        await uploadClip(step, sessionId, api, store, transport, opts, persist);
+        await uploadClip(step, sessionId, api, store, transport, opts, () => persist(step));
+        // A missing file is settled inside; its FAILED state still has to reach the store.
+        if (step.error === "MISSING_FILE") await persist(step);
       } catch (error) {
         step.error = describe(error);
         if (isPermanent(error)) step.status = "FAILED";
-        await persist();
+        await persist(step);
       }
     }
   }
   await Promise.all(Array.from({ length: Math.min(width, clips.length) }, worker));
 
   for (const step of unit.steps) {
-    if (step.kind !== "answers" || step.status === "DONE") continue;
+    // Held answers wait for the researcher's P9; resending them would only conflict again.
+    if (step.kind !== "answers" || step.status === "DONE" || step.error === "CONFLICT") continue;
     try {
-      await api.putAnswers(step.items.map((item) => ({ ...item, sessionId })));
-      step.status = "DONE";
-      step.error = undefined;
+      const { results } = await api.putAnswers(step.items.map((item) => ({ ...item, sessionId })));
+      const held = heldAnswerResults(step.items, results ?? []);
+      if (held.length) {
+        step.items = step.items.filter((item) => held.some((r) => sameItem(r, item)));
+        step.conflicts = held;
+        step.status = "FAILED";
+        step.error = "CONFLICT";
+      } else {
+        step.status = "DONE";
+        step.error = undefined;
+        step.conflicts = undefined;
+      }
     } catch (error) {
       step.error = describe(error);
       if (isPermanent(error)) step.status = "FAILED";
     }
-    await persist();
+    await persist(step);
   }
 
-  if (unit.steps.every((s) => s.status === "DONE")) await store.remove(unit.id);
+  // Removed only when the STORED unit is all done: a step appended meanwhile keeps it.
+  await mutateUnit(store, unit.id, (stored) => {
+    const merged = mergeRunner(stored, unit, touched);
+    return merged.steps.every((s) => s.status === "DONE") ? null : merged;
+  });
   return unit;
 }
 
-/** An in-memory store, for the unit specs and as the fallback where IndexedDB is unavailable. */
+// ── what the screens read off the outbox ─────────────────────────────────────────────────────────
+
+export type ClipUploadState =
+  | { kind: "UPLOADING"; percent: number }
+  | { kind: "WAITING" }
+  | { kind: "RETRYING"; error: string }
+  | { kind: "FAILED"; error: string }
+  | { kind: "UPLOADED" };
+
+/** "Uploading 40%" · "Uploaded" · "Waiting for signal" · "Upload failed. Retrying." (DESIGN §4.3). */
+export function clipUploadState(step: ClipStep, progress: number | undefined, online: boolean): ClipUploadState {
+  if (step.status === "DONE") return { kind: "UPLOADED" };
+  if (step.status === "FAILED") return { kind: "FAILED", error: step.error ?? "" };
+  if (!online) return { kind: "WAITING" };
+  if (step.error) return { kind: "RETRYING", error: step.error };
+  return { kind: "UPLOADING", percent: Math.round(Math.max(0, Math.min(1, progress ?? 0)) * 100) };
+}
+
+/**
+ * An in-memory store, for the unit specs and as the fallback where IndexedDB is unavailable. It
+ * refuses what IndexedDB refuses: a unit with no key (`keyPath: "id"` on a null id throws a
+ * DataError there). The fake that accepted one is how audit C4 shipped.
+ */
 export function memoryQueueStore(): QueueStore & { units: Map<string, SessionUnit>; blobs: Map<string, Blob> } {
   const units = new Map<string, SessionUnit>();
   const blobs = new Map<string, Blob>();
@@ -371,7 +597,12 @@ export function memoryQueueStore(): QueueStore & { units: Map<string, SessionUni
     async load() {
       return [...units.values()].map((u) => structuredClone(u));
     },
+    async get(id) {
+      const unit = units.get(id);
+      return unit ? structuredClone(unit) : null;
+    },
     async save(unit) {
+      if (typeof unit.id !== "string" || !unit.id) throw new DOMException("Evaluating the object store's key path did not yield a value.", "DataError");
       units.set(unit.id, structuredClone(unit));
     },
     async remove(id) {
@@ -424,6 +655,9 @@ export function indexedDbQueueStore(): QueueStore {
   return {
     async load() {
       return tx<SessionUnit[]>(await db(), UNITS, "readonly", (s) => s.getAll() as IDBRequest<SessionUnit[]>);
+    },
+    async get(id) {
+      return ((await tx(await db(), UNITS, "readonly", (s) => s.get(id))) as SessionUnit | undefined) ?? null;
     },
     async save(unit) {
       await tx(await db(), UNITS, "readwrite", (s) => s.put(structuredClone(unit)));
