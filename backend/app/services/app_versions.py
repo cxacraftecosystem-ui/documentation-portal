@@ -145,13 +145,13 @@ async def summary(*, days: int = 30, client: Any = None) -> dict[str, Any]:
     rows = await client.query_raw(
         'SELECT v."platform", v."versionCode", max(v."versionName") AS "versionName", count(DISTINCT v."userId") AS users, '
         'max(v."lastSeenAt") AS "lastSeenAt" FROM "AppClientVersion" v '
-        "WHERE v.\"lastSeenAt\" > now() - make_interval(days => $1) GROUP BY 1, 2 ORDER BY 1, 2 DESC",
+        "WHERE v.\"lastSeenAt\" > now() - make_interval(days => $1::int) GROUP BY 1, 2 ORDER BY 1, 2 DESC",
         int(days),
     )
     latest = await client.query_raw(
         'SELECT DISTINCT ON (v."userId", v."platform") v."userId", v."platform", v."versionCode", v."lastSeenAt", u."name" '
         'FROM "AppClientVersion" v JOIN "User" u ON u."id" = v."userId" '
-        "WHERE v.\"lastSeenAt\" > now() - make_interval(days => $1) "
+        "WHERE v.\"lastSeenAt\" > now() - make_interval(days => $1::int) "
         'ORDER BY v."userId", v."platform", v."lastSeenAt" DESC, v."versionCode" DESC',
         int(days),
     )

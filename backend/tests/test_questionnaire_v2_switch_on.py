@@ -308,7 +308,8 @@ def test_h5_old_responses_are_create_only_and_the_patch_shim_keeps_v2_whole(monk
         })
         await questionnaire.update_interview(s["id"], patch, ids.lead)
         row = await client.query_raw('SELECT "title", "legacyTitle" FROM "QuestionnaireInterview" WHERE "id" = $1', s["id"])
-        assert row[0]["legacyTitle"] == "renamed by hand" and row[0]["title"] != "renamed by hand"
+        # The typed title is standardised like every interview title, then kept as legacyTitle.
+        assert (row[0]["legacyTitle"] or "").lower() == "renamed by hand" and row[0]["title"].lower() != "renamed by hand"
         assert row[0]["title"].startswith("Group-Interview_") and before[0]["title"].startswith("Group-Interview_")
         people = await sessions.participant_ids(client, s["id"])
         assert set(people) == {a0, a1, a2}, "a participant with takes is never dropped by an old edit; a new one is added"
