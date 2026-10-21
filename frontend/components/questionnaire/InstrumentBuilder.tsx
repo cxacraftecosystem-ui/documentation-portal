@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { ArrowDown, ArrowUp, GripVertical, Pencil, Plus, Save, Trash2 } from "lucide-react";
 
-import { useAdminView } from "@/components/AdminViewProvider";
 import { useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { OnDeviceDictationButton } from "@/components/dictation/OnDeviceDictationButton";
 import { Field, Select, TextArea, TextInput } from "@/components/FormControls";
@@ -125,7 +124,8 @@ export function QuestionnaireAdminEditor({
   sections,
   questionnaireId,
   onChanged,
-  defaultOpen = false
+  defaultOpen = false,
+  mayDelete = false
 }: {
   sections: QuestionnaireSection[];
   /** The instrument being built. A new section joins THIS one, not whichever is the default. */
@@ -133,10 +133,13 @@ export function QuestionnaireAdminEditor({
   onChanged: () => Promise<void>;
   /** Open on arrival: `/questionnaire/builder` shows nothing else. */
   defaultOpen?: boolean;
+  /**
+   * Removing or switching off a section or a question is a delete: the form's author or a content
+   * admin (`mayDeleteQuestionnaire`, owner 22 Oct 2026). The caller knows the instrument's author.
+   */
+  mayDelete?: boolean;
 }) {
   const confirm = useConfirm();
-  // Removing a section or a question is a delete: content admins only, admin view or not (2026-10-21).
-  const { canDeleteRecords } = useAdminView();
   const [localSections, setLocalSections] = useState<QuestionnaireSection[]>(sections);
   const [newCode, setNewCode] = useState("");
   const [newTitle, setNewTitle] = useState("");
@@ -203,7 +206,8 @@ export function QuestionnaireAdminEditor({
       body: JSON.stringify({
         code: String(form.get("code") ?? "").trim(),
         title: String(form.get("title") ?? "").trim(),
-        isActive: form.get("isActive") === "on"
+        // Switching a section OFF is a delete; anybody else's save keeps it on (the toggle is locked).
+        isActive: mayDelete || !section.isActive ? form.get("isActive") === "on" : true
       })
     });
     await onChanged();
@@ -478,12 +482,12 @@ export function QuestionnaireAdminEditor({
                 </Field>
                 <SectionTitleField section={section} />
                 <div className="flex items-end">
-                  <Toggle name="isActive" defaultChecked={section.isActive} label="Active" />
+                  <Toggle name="isActive" defaultChecked={section.isActive} label="Active" disabled={section.isActive && !mayDelete} />
                 </div>
                 <ButtonRow
                   className="items-end"
                   destructive={
-                    canDeleteRecords ? (
+                    mayDelete ? (
                       <button type="button" className="field-danger" onClick={() => removeSection(section)}>
                         <Trash2 className="h-4 w-4" aria-hidden />
                         Remove
@@ -536,7 +540,8 @@ export function QuestionnaireAdminEditor({
                       onMoveDown={() => keyboardMove(section, question, 1)}
                       onMoveToSection={(toSectionId) => moveQuestionToSection(question, section.id, toSectionId)}
                       onSave={(prompt, isActive, artisanField) => saveQuestion(question, prompt, isActive, artisanField)}
-                      onRemove={canDeleteRecords ? () => removeQuestion(question) : undefined}
+                      mayDeactivate={mayDelete}
+                      onRemove={mayDelete ? () => removeQuestion(question) : undefined}
                     />
                   </div>
                 ))}
@@ -650,7 +655,9 @@ function QuestionTile({
   onMoveDown: () => void;
   onMoveToSection: (toSectionId: string) => void;
   onSave: (prompt: string, isActive: boolean, artisanField: string) => Promise<boolean>;
-  /** Absent for anybody but a content admin — the server refuses them the delete. */
+  /** Switching a live question off is a delete: the form's author or a content admin. */
+  mayDeactivate: boolean;
+  /** Absent for anybody but the form's author or a content admin — the server refuses them. */
   onRemove?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -764,7 +771,13 @@ function QuestionTile({
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {editing ? (
             <>
-              <Toggle className="w-auto" label="Active" checked={isActive} onChange={setIsActive} />
+              <Toggle
+                className="w-auto"
+                label="Active"
+                checked={isActive}
+                onChange={setIsActive}
+                disabled={question.isActive && !mayDeactivate}
+              />
               <button type="button" className="field-button-secondary" onClick={handleSave} disabled={savingTile || disabled}>
                 <Save className="h-4 w-4" aria-hidden />
                 {savingTile ? "Saving..." : "Save"}

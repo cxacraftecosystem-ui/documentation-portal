@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { CONTENT_ADMIN_ROLES, isAdmin, isContentAdmin } from "@/lib/permissions";
+import { CONTENT_ADMIN_ROLES, isAdmin, isContentAdmin, mayDeleteQuestionnaire } from "@/lib/permissions";
 import type { User, UserRole } from "@/lib/types";
 
 /**
@@ -30,6 +30,37 @@ test("the content admins are the three admin tiers by name, and isAdmin is not w
     expect(isAdmin(user(role)), role).toBe(role === "ADMIN" || role === "MASTER_ADMIN");
   }
   expect(isContentAdmin(null)).toBe(false);
+});
+
+test("a questionnaire is deleted from by its author or a content admin, and nobody else (22 Oct 2026)", () => {
+  // The author: a professor deleting from the form they made.
+  expect(mayDeleteQuestionnaire({ ...user("PROFESSOR"), id: "author" }, "author")).toBe(true);
+  for (const role of ["ADMIN", "MASTER_ADMIN", "MINISTRY_ADMIN"] as UserRole[]) {
+    expect(mayDeleteQuestionnaire(user(role), "author"), role).toBe(true);
+  }
+  // Every other role on somebody else's form, a questionnaire manager included.
+  for (const role of ["CROWDSOURCE_VOLUNTEER", "FIELD_CONTRIBUTOR", "RESEARCHER", "PROFESSOR"] as UserRole[]) {
+    expect(mayDeleteQuestionnaire(user(role), "author"), role).toBe(false);
+  }
+  expect(mayDeleteQuestionnaire(null, "author")).toBe(false);
+  expect(mayDeleteQuestionnaire(user("PROFESSOR"), null)).toBe(false);
+});
+
+test("the builder draws Delete, Remove, switch-off and Restore for the author or a content admin", () => {
+  const builder = read("components/questionnaire/InstrumentBuilder.tsx");
+  expect(builder).not.toContain("canDeleteRecords");
+  expect(builder).toContain("onRemove={mayDelete ? () => removeQuestion(question) : undefined}");
+  expect(builder).toContain("disabled={section.isActive && !mayDelete}");
+  expect(builder).toContain("disabled={question.isActive && !mayDeactivate}");
+  const screen = read("components/questionnaire/BuilderScreen.tsx");
+  expect(screen).toContain("const mayDelete = mayDeleteQuestionnaire(user, selected?.createdById);");
+  expect(screen).toContain("mayDeleteQuestionnaire(user, instrument.createdById)");
+  expect(screen).toContain("{selected && mayDelete && !selected.isDefault ? (");
+  expect(screen).toContain('body: JSON.stringify({ isActive: true })');
+  const page = read("app/(protected)/questionnaire/page.tsx");
+  expect(page).toContain("mayDelete={mayDeleteQuestionnaire(user, instruments.find((instrument) => instrument.id === questionnaireId)?.createdById)}");
+  // Sessions and interviews stay a content admin's.
+  expect(page).toContain("{canDeleteRecords ? (\n                          <button className={rowAction(\"danger\")} onClick={() => remove(interview.id)}>");
 });
 
 test("admin view, and with it every Delete, is offered to the content admins", () => {
@@ -74,7 +105,8 @@ test("files, sessions, takes and questionnaire structure are deleted by content 
   expect(read("components/questionnaire/SessionWorkspace.tsx")).toContain("onRemove={canDeleteRecords ? (r) => setRemoveTake(r) : undefined}");
   const page = read("app/(protected)/questionnaire/page.tsx");
   // The builder moved to its own module so /questionnaire/builder renders it alone (audit H15).
-  expect(read("components/questionnaire/InstrumentBuilder.tsx")).toContain("onRemove={canDeleteRecords ? () => removeQuestion(question) : undefined}");
+  // A section or a question is removed by the form's author or a content admin (22 Oct 2026).
+  expect(read("components/questionnaire/InstrumentBuilder.tsx")).toContain("onRemove={mayDelete ? () => removeQuestion(question) : undefined}");
   expect(page).toContain("editing && isContentAdmin(user) ? await offerMergeOnConflict(err, editing.id) : false");
 });
 

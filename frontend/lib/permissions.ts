@@ -150,6 +150,17 @@ export function canEditOwnOrAdmin(user: User | null | undefined, ownerId?: strin
 }
 
 /**
+ * Deleting from a questionnaire — the instrument itself (a soft delete, restorable), a section, a
+ * question, or switching one off — is its AUTHOR's (`Questionnaire.createdById`) or a content admin's
+ * (owner, 22 Oct 2026): the server's `assert_may_delete_from_form`. Deleting sessions, takes and
+ * interviews stays `isContentAdmin` alone (`canDeleteRecords`), and so do the default form and
+ * workshop binding.
+ */
+export function mayDeleteQuestionnaire(user: User | null | undefined, createdById?: string | null) {
+  return canEditOwnOrAdmin(user, createdById);
+}
+
+/**
  * Provenance — created-by plus the per-field edit history. Android parity
  * (MainActivity `canViewProvenance = isAdmin || user.canViewProvenance`): admins always, plus
  * anyone the master admin granted the capability. Admin view may hide it from an admin, but a
