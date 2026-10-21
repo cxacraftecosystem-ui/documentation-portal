@@ -24,11 +24,10 @@ required"). ``verdict(media)`` answers ALLOW or REFUSED:
 ``AWAITING`` stays in the vocabulary only because recordings stored before 19 Oct 2026 can still
 carry ``AWAITING_CONSENT``; ``scripts/release_awaiting_consent.py`` moves them on.
 
-THE OLDER ``RecordingConsent`` TABLE IS READ ONLY AS A FALLBACK. Its rows are copied into the ledger
-by ``scripts/migrate_recording_consent_to_ledger.py`` (dry run first); until then
-:func:`current_states` folds every row not yet copied in beside the ledger's, newest answer winning,
-so nothing recorded there is lost and nothing writes there any more. Once the script has run against
-production the fallback reads nothing, and a later release drops it with the table.
+THE OLDER ``RecordingConsent`` TABLE IS NOT READ (audit M8, 21 Oct 2026). It held 0 rows in
+production, so the fallback that folded its uncopied rows in beside the ledger's read nothing and
+cost a UNION on every consent question. ``scripts/migrate_recording_consent_to_ledger.py`` stays for
+any other database; a later release drops the table.
 
 NEVER CONSULTED BY recording, uploading, filing, playing, typing answers, review or export: none of
 those sends anything anywhere. ``tests/test_consent_gate.py`` holds that line.
@@ -58,8 +57,6 @@ PURPOSE = ledger.EXTERNAL_PROCESSING
 SOURCE_RESEARCHER = ledger.SOURCE_RESEARCHER
 SOURCE_OWNER = ledger.SOURCE_OWNER
 TRANSCRIPT_STATUS_FOR = {AWAITING: "AWAITING_CONSENT", REFUSED: "REFUSED_CONSENT"}
-#: The older table the fallback reads, and the ``migratedFrom`` prefix its copies carry.
-LEGACY_TABLE = "RecordingConsent"
 
 
 def decide(recording: Any, subjects: Iterable[Any]) -> Verdict:
@@ -75,43 +72,14 @@ def _db(client: Any) -> Any:
     return db
 
 
-#: The ``RecordingConsent`` rows not yet copied into the ledger, in the ledger's columns. ``{scope}``
-#: picks a recording's own rows or an artisan's (a row naming a recording is never an artisan's).
-_LEGACY_SQL = (
-    'SELECT {subject} AS "subjectId", rc."decision" AS state, '
-    """CASE WHEN rc."source" = 'owner attestation' THEN 'OWNER_ATTESTATION' ELSE 'VERBAL_RECORDED' END AS basis, """
-    """COALESCE(rc."source", 'researcher') AS "source", rc."attestedAt" AS "recordedAt", rc."createdAt", """
-    'rc."attestedById" AS "actorId", rc."note", NULL AS "evidenceMediaId", 1 AS "version", '
-    'NULL AS "migratedFrom", 1 AS legacy FROM "RecordingConsent" rc WHERE {scope} '
-    """AND NOT EXISTS (SELECT 1 FROM "Consent" c WHERE c."migratedFrom" = 'RecordingConsent:' || rc."id")"""
-)
-_LEGACY_SCOPE = {
-    ledger.RECORDING: ('rc."mediaFileId"', 'rc."mediaFileId" = ANY($1::text[])'),
-    ledger.ARTISAN: ('rc."artisanId"', 'rc."mediaFileId" IS NULL AND rc."artisanId" = ANY($1::text[])'),
-}
-
-
 async def current_states(
     subject_type: str, subject_ids: list[str], *, purpose: str = PURPOSE, client: Any = None
 ) -> dict[str, dict[str, Any]]:
-    """The newest consent row per subject, keyed by subject id: the ledger's, or a newer row of the
-    older ``RecordingConsent`` table that has not been copied into it yet (module docstring)."""
+    """The newest ledger row per subject, keyed by subject id."""
     ids = list(dict.fromkeys(str(i) for i in subject_ids if i))
     if not ids:
         return {}
-    if purpose != PURPOSE or subject_type not in _LEGACY_SCOPE:
-        return await ledger.current_states(_db(client), subject_type, ids, purpose=purpose)
-    subject, scope = _LEGACY_SCOPE[subject_type]
-    rows = await _db(client).query_raw(
-        'SELECT DISTINCT ON ("subjectId") * FROM ('
-        f"SELECT {ledger.COLUMNS}, 0 AS legacy FROM consent_current_v "
-        'WHERE "subjectType" = $2::"ConsentSubjectType" AND "purpose" = $3::"ConsentPurpose" '
-        'AND "subjectId" = ANY($1::text[]) UNION ALL '
-        + _LEGACY_SQL.format(subject=subject, scope=scope)
-        + ') x ORDER BY "subjectId", "recordedAt" DESC, "createdAt" DESC, legacy ASC',
-        ids, subject_type, purpose,
-    )
-    return {str(row["subjectId"]): {k: v for k, v in dict(row).items() if k != "legacy"} for row in rows}
+    return await ledger.current_states(_db(client), subject_type, ids, purpose=purpose)
 
 
 async def _media_subjects(media_id: str, client: Any) -> list[str]:
