@@ -604,6 +604,8 @@ import com.fieldrepository.app.data.ScanCopy
 import com.fieldrepository.app.data.ScanTarget
 import com.fieldrepository.app.data.dispatchScan
 import com.fieldrepository.app.ui.questionnaire.QuestionnaireV2Screen
+import com.fieldrepository.app.ui.questionnaire.QuestionnaireEntry
+import com.fieldrepository.app.ui.questionnaire.questionnaireEntry
 import com.fieldrepository.app.ui.questionnaire.openAppDownloadPage
 
 class MainActivity : ComponentActivity() {
@@ -1912,6 +1914,11 @@ private fun HomeScreen(
     LaunchedEffect(questionnaireV2Request) {
         if (questionnaireV2Request != null) screen = screenFor(EntryMode.QUESTIONNAIRE)
     }
+    // "Continue with…" on an artisan's record opened a session on the server: go to it.
+    val questionnaireV2Session by QuestionnaireV2Nav.openServerSession.collectAsState()
+    LaunchedEffect(questionnaireV2Session) {
+        if (questionnaireV2Session != null) screen = screenFor(EntryMode.QUESTIONNAIRE)
+    }
 
     fun refresh() {
         scope.launch {
@@ -2779,12 +2786,25 @@ private fun HomeScreen(
                 val v2Config by remember { QuestionnaireV2.get(v2Context) }.config.collectAsState()
                 var questionnaireBuilder by remember { mutableStateOf(false) }
                 val v2Prefill by QuestionnaireV2Nav.pending.collectAsState()
-                if (v2Config?.v2Enabled == true && !questionnaireBuilder) {
+                val entry = questionnaireEntry(v2Config?.v2Enabled == true, questionnaireBuilder, isQuestionnaireManager)
+                if (entry == QuestionnaireEntry.V2_BUILDER) {
+                    // Audit H15 (21 Oct 2026): Builder used to reopen the whole legacy capture form
+                    // inside v2, for everyone, with no way back. It is the builder alone, for
+                    // questionnaire managers, with Back to the sessions.
+                    BackHandler { questionnaireBuilder = false }
+                    QuestionnaireV2Builder(
+                        repository = repository,
+                        onBack = { questionnaireBuilder = false },
+                        onError = { showMessage(it) }
+                    )
+                } else if (entry == QuestionnaireEntry.V2_SESSIONS) {
                     QuestionnaireV2Screen(
                         repository = repository,
                         artisans = artisans,
                         meId = user?.id,
                         prefillArtisanIds = listOfNotNull(v2Prefill),
+                        canBuild = isQuestionnaireManager,
+                        canMakePrimary = roleRank(user?.role) >= RANK_PROFESSOR,
                         onOpenBuilder = { questionnaireBuilder = true },
                         onUpdateApp = { openAppDownloadPage(v2Context) },
                         onError = { showMessage(it) }
@@ -11097,7 +11117,10 @@ private fun ArtisanQuestionnaireData(repository: FieldRepository, artisanId: Str
         ArtisanQuestionnaireRecord(
             v2 = v2, artisanId = artisanId, artisanName = artisanName,
             onContinueWith = { QuestionnaireV2Nav.pending.value = it },
-            onStartSession = { QuestionnaireV2Nav.pending.value = it }
+            onStartSession = { QuestionnaireV2Nav.pending.value = it },
+            // "Continue with…" opened a session on the server: the questionnaire screen opens it.
+            onOpenSession = { QuestionnaireV2Nav.openServerSession.value = it },
+            onMessage = { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show() }
         )
         return
     }
@@ -15366,7 +15389,7 @@ private fun QuestionnaireForm(
             // triggers has to ask for that instrument back. Passing `onRefreshSections` bare would
             // re-read whatever the server resolves by default, and a manager who renamed a section
             // on the revised questionnaire would watch the original's sections appear underneath.
-            QuestionnaireBuilder(repository, sections, { onRefreshSections(questionnaireId) }, onError)
+            QuestionnaireBuilder(repository, sections, { onRefreshSections(questionnaireId) }, onError, questionnaireId)
         }
     }
     // Available to every user, including least-privilege: pull the latest sections/questions
@@ -16548,12 +16571,51 @@ private fun QuestionnaireForm(
     }
 }
 
+/**
+ * The builder on its own (audit H15): pick the questionnaire, edit its sections and questions, Back.
+ * New sections join the questionnaire picked here, never the default (audit M23).
+ */
+@Composable
+private fun QuestionnaireV2Builder(repository: FieldRepository, onBack: () -> Unit, onError: (String) -> Unit) {
+    var instruments by remember { mutableStateOf<List<QuestionnaireDto>>(emptyList()) }
+    var questionnaireId by remember { mutableStateOf<String?>(null) }
+    var sections by remember { mutableStateOf<List<QuestionnaireSectionDto>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        runCatching { repository.questionnaires() }.onSuccess { list ->
+            instruments = list
+            if (questionnaireId == null) questionnaireId = (list.firstOrNull { it.isDefault } ?: list.firstOrNull())?.id
+        }.onFailure { onError(it.apiErrorMessage("Couldn't load the questionnaires.")) }
+    }
+    LaunchedEffect(questionnaireId) {
+        val id = questionnaireId ?: return@LaunchedEffect
+        runCatching { repository.questionnaireSections(id) }.onSuccess { sections = it }
+            .onFailure { onError(it.apiErrorMessage("Couldn't load the questionnaire sections.")) }
+    }
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        TextButton(onClick = onBack) { Text("‹ Sessions") }
+        com.fieldrepository.app.ui.SearchableSelectField(
+            label = "Questionnaire",
+            options = instruments.map { com.fieldrepository.app.ui.SelectOption(it.id, it.title) },
+            selectedValue = questionnaireId.orEmpty(),
+            includeNone = false
+        ) { questionnaireId = it }
+        val chosen = questionnaireId
+        if (chosen != null) QuestionnaireBuilder(
+            repository, sections,
+            { runCatching { repository.questionnaireSections(chosen) }.onSuccess { sections = it } },
+            onError, chosen
+        )
+    }
+}
+
 @Composable
 private fun QuestionnaireBuilder(
     repository: FieldRepository,
     sections: List<QuestionnaireSectionDto>,
     onRefresh: suspend () -> Unit,
-    onError: (String) -> Unit
+    onError: (String) -> Unit,
+    /** The questionnaire new sections join; null keeps the old "server default" behaviour. */
+    questionnaireId: String? = null
 ) {
     val scope = rememberCoroutineScope()
     var newCode by remember { mutableStateOf("") }
@@ -16578,7 +16640,7 @@ private fun QuestionnaireBuilder(
             onClick = {
                 scope.launch {
                     runCatching {
-                        repository.createQuestionnaireSection(QuestionnaireSectionCreateRequest(code = newCode.trim(), title = newTitle.trim()))
+                        repository.createQuestionnaireSection(QuestionnaireSectionCreateRequest(code = newCode.trim(), title = newTitle.trim(), questionnaireId = questionnaireId))
                         newCode = ""
                         newTitle = ""
                         onRefresh()

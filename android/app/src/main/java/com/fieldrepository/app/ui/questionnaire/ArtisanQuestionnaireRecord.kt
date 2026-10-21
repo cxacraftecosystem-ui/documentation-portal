@@ -37,7 +37,9 @@ import kotlinx.coroutines.launch
 
 /**
  * Artisan → Questionnaire (DESIGN §4.6): summary, section chips, Continue with…, Timeline | By
- * question. Replaces the consolidated screen and the old answer panel when v2 is on.
+ * question, Export CSV. Replaces the consolidated screen and the old answer panel when v2 is on.
+ * "Continue with…" carries on another day from the artisan's latest session on this instrument
+ * (`POST /sessions/continue`, as on the web); with no session yet it starts one.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -46,9 +48,15 @@ fun ArtisanQuestionnaireRecord(
     artisanId: String,
     artisanName: String,
     onContinueWith: (artisanId: String) -> Unit,
-    onStartSession: (artisanId: String) -> Unit
+    onStartSession: (artisanId: String) -> Unit,
+    /** A session the server opened for "Continue with…": the questionnaire screen opens it. */
+    onOpenSession: (sessionId: String) -> Unit = {},
+    onMessage: (String) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var continueFrom by remember { mutableStateOf<com.fieldrepository.app.data.QRecordInstrument?>(null) }
+    var exporting by remember { mutableStateOf(false) }
     var record by remember { mutableStateOf<QArtisanRecord?>(null) }
     var failed by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
@@ -97,7 +105,21 @@ fun ArtisanQuestionnaireRecord(
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted
                     )
                     if (instrument.summary.open.isNotEmpty()) Text(QuestionnaireCopy.openSections(instrument.summary.open), style = MaterialTheme.typography.bodySmall)
-                    PromptButtons(listOf(PromptButton(QuestionnaireCopy.continueWith(QuestionnaireCopy.firstName(artisanName)), primary = true) { onContinueWith(artisanId) }))
+                    PromptButtons(listOf(
+                        PromptButton(QuestionnaireCopy.s("record.exportCsv")) {
+                            if (exporting) return@PromptButton
+                            exporting = true
+                            scope.launch {
+                                runCatching { com.fieldrepository.app.data.QuestionnaireExport.saveArtisanRecordCsv(context, v2.api, artisanId, instrument.questionnaireId) }
+                                    .onSuccess { onMessage(QuestionnaireCopy.s("csv.saved")) }
+                                    .onFailure { onMessage(QuestionnaireCopy.s("csv.failed")) }
+                                exporting = false
+                            }
+                        },
+                        PromptButton(QuestionnaireCopy.continueWith(QuestionnaireCopy.firstName(artisanName)), primary = true) {
+                            if (latestSession(instrument) != null) continueFrom = instrument else onContinueWith(artisanId)
+                        }
+                    ))
                     SegmentedChoice(
                         label = "",
                         options = listOf(SelectOption("T", QuestionnaireCopy.s("record.timeline")), SelectOption("Q", QuestionnaireCopy.s("record.byQuestion"))),
@@ -146,4 +168,21 @@ fun ArtisanQuestionnaireRecord(
             playing?.let { AudioPlayer(it) }
         }
     }
+    continueFrom?.let { instrument ->
+        val last = latestSession(instrument)
+        if (last == null) { continueFrom = null } else {
+            val people = (listOf(artisanId to artisanName) + last.session.participants.map { it.artisanId to it.name }).distinctBy { it.first }
+            ContinueWithDialog(
+                v2 = v2, title = QuestionnaireCopy.continueWith(QuestionnaireCopy.firstName(artisanName)),
+                fromSessionId = last.session.id, people = people, preselected = setOf(artisanId),
+                onDismiss = { continueFrom = null },
+                onOpened = { session -> continueFrom = null; onOpenSession(session.id) },
+                onError = onMessage
+            )
+        }
+    }
 }
+
+/** The session "Continue with…" carries on from: the artisan's latest on this instrument (the web's latestSession). */
+internal fun latestSession(instrument: com.fieldrepository.app.data.QRecordInstrument): com.fieldrepository.app.data.QRecordSession? =
+    instrument.sessions.maxByOrNull { it.session.sessionDate.orEmpty() }

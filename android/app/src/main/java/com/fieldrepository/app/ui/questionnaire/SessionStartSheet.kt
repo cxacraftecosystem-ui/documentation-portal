@@ -16,6 +16,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -28,6 +29,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.fieldrepository.app.data.ApiClient
+import com.fieldrepository.app.data.ArtisanCreateRequest
 import com.fieldrepository.app.data.ArtisanDto
 import com.fieldrepository.app.data.Naming
 import com.fieldrepository.app.data.OutboxSyncWorker
@@ -125,7 +128,12 @@ fun SessionStartSheet(
     onError: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    val byId = remember(artisans) { artisans.associateBy { it.id } }
+    // Artisans registered on this phone in this sheet (offline registration): local id → the form.
+    var registered by remember { mutableStateOf<List<Pair<String, NewArtisan>>>(emptyList()) }
+    var registering by remember { mutableStateOf(false) }
+    val byId = remember(artisans, registered) {
+        artisans.associateBy { it.id } + registered.associate { (id, a) -> id to ArtisanDto(id = id, name = a.name.trim(), place = a.place.trim(), status = "PENDING") }
+    }
     val defaultInstrument = questionnaires.firstOrNull { it.isDefault }?.id ?: questionnaires.firstOrNull()?.id.orEmpty()
     var form by remember {
         mutableStateOf(StartForm(questionnaireId = defaultInstrument, artisanIds = prefillArtisanIds, group = prefillArtisanIds.size > 1))
@@ -144,15 +152,23 @@ fun SessionStartSheet(
     }
 
     LaunchedEffect(form.artisanIds) {
-        form.artisanIds.forEach { id -> if (!consent.containsKey(id)) consent[id] = v2.consentState(id) }
+        // An artisan registered on this phone has no server record to hold consent yet.
+        form.artisanIds.filter { id -> registered.none { it.first == id } }.forEach { id -> if (!consent.containsKey(id)) consent[id] = v2.consentState(id) }
     }
 
     fun create() {
         val key = SessionOutbox.newKey()
         scope.launch {
-            runCatching { v2.outbox.startSession(form.toCreate(key, meId, Instant.now()), meId) }
-                .onSuccess { OutboxSyncWorker.schedule(v2App(v2)); onStarted(key) }
-                .onFailure { onError("Couldn't start the session on this device.") }
+            // Offline registrations go first in the session's unit; the server's ids replace the local ones.
+            val locals = registered.filter { (id, _) -> id in form.artisanIds }.map { (id, a) ->
+                id to ApiClient.json.encodeToString(ArtisanCreateRequest.serializer(), a.request(form.workshopId))
+            }
+            runCatching { v2.outbox.startSession(form.toCreate(key, meId, Instant.now()), meId, localArtisans = locals) }
+                .onSuccess {
+                    registered.filter { (id, _) -> id in form.artisanIds }.forEach { (id, a) -> v2.rememberLocalArtisan(id, a.name.trim()) }
+                    OutboxSyncWorker.schedule(v2App(v2)); onStarted(key)
+                }
+                .onFailure { onError(QuestionnaireCopy.s("error.startSession")) }
             starting = false
         }
     }
@@ -187,7 +203,8 @@ fun SessionStartSheet(
                 selectedValue = if (form.group) "G" else "I"
             ) { v -> form = form.copy(group = v == "G", artisanIds = if (v == "I") form.artisanIds.take(1) else form.artisanIds) }
             val pool = workshop?.artisans?.mapNotNull { link -> byId[link.artisanId] ?: link.artisan }?.takeIf { it.isNotEmpty() } ?: artisans
-            val artisanOptions = pool.map { SelectOption(it.id, it.name, it.place.ifBlank { null }) }
+            val artisanOptions = pool.map { SelectOption(it.id, it.name, it.place.ifBlank { null }) } +
+                registered.map { (id, a) -> SelectOption(id, a.name.trim(), QuestionnaireCopy.s("artisan.onPhone")) }
             if (form.group) {
                 SearchableMultiSelectField(
                     label = QuestionnaireCopy.s("start.artisans"),
@@ -203,6 +220,7 @@ fun SessionStartSheet(
                     searchable = true
                 ) { form = form.copy(artisanIds = listOf(it)) }
             }
+            TextButton(onClick = { registering = true }) { Text(QuestionnaireCopy.s("artisan.new")) }
             coverageLine(v2, form, byId, questionnaires.firstOrNull { it.id == form.questionnaireId }?.sectionCount)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted) }
             // Consent is assumed by default: a notice with Switch off for no answer, Switch back on after a refusal.
             form.artisanIds.filter { consent.containsKey(it) && consent[it] in setOf(null, "NOT_RECORDED", "REFUSED") }.take(3).forEach { id ->
@@ -260,6 +278,13 @@ fun SessionStartSheet(
                 }) { Text(QuestionnaireCopy.s("start.submit")) }
             }
         }
+    }
+
+    if (registering) RegisterArtisanDialog(onDismiss = { registering = false }) { artisan ->
+        registering = false
+        val localId = "local-" + SessionOutbox.newKey()
+        registered = registered + (localId to artisan)
+        form = form.copy(artisanIds = if (form.group) form.artisanIds + localId else listOf(localId))
     }
 
     openMatch?.let { match ->
