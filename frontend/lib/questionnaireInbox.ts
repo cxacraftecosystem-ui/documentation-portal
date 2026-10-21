@@ -5,17 +5,28 @@
  * inbox.py`); each section has its own fields, so a row's label is built here from them.
  */
 
+import { shortName } from "@/lib/coverageCache";
+import type { Recording } from "@/lib/questionnaireApi";
 import { shortDate, durationLabel } from "@/lib/questionnairePrompts";
 import { qs } from "@/lib/strings/qs";
 
 export type InboxToFile = { mediaId: string; name: string | null; date: string | null; sessionId: string | null; candidate?: unknown; durationMs?: number | null };
-export type InboxDecision = { recordingId: string; sessionId: string | null; decisionKind: string | null; targets: string[]; artisanNames: string | null; capturedAt: string | null };
+export type InboxDecision = {
+  recordingId: string;
+  sessionId: string | null;
+  decisionKind: string | null;
+  targets: string[];
+  artisanNames: string | null;
+  capturedAt: string | null;
+  /** The take this one clashes with, where the server names it (audit H13); else found from the session. */
+  otherRecordingId?: string | null;
+};
 export type LegacyCandidate = { questionLineageId: string; prompt: string | null; score?: number };
-export type InboxLegacy = { recordingId: string; sessionId: string | null; candidates: LegacyCandidate[]; capturedAt: string | null };
+export type InboxLegacy = { recordingId: string; sessionId: string | null; candidates: LegacyCandidate[]; capturedAt: string | null; code?: string | null; section?: string | null };
 export type InboxSetDates = { workshopId: string | null; workshop: string | null; sessionIds: string[]; from: string | null; to: string | null; count: number };
 export type InboxNoParticipants = { sessionId: string; title: string | null; date: string | null };
 export type InboxEmptySession = { sessionId: string; title: string | null; approvedAt: string | null };
-export type InboxPrimaryChanged = { eventId: string; recordingId: string; change: unknown; at: string | null };
+export type InboxPrimaryChanged = { eventId: string; recordingId: string; change: unknown; at: string | null; name?: string | null; target?: string | null };
 
 export type Inbox = {
   toFile: InboxToFile[];
@@ -67,26 +78,91 @@ export function inboxLabel(section: InboxSectionKey, row: unknown): string {
       return qs("inboxDecisionRow", { names: r.artisanNames || qs("inboxNoOneNamed"), when });
     }
     case "legacy": {
+      // The shared row when the server names the code and section; the web fallback otherwise.
       const r = row as InboxLegacy;
-      return qs("inboxLegacyRow", { date: shortDate(r.capturedAt) });
+      return r.code && r.section
+        ? qs("legacyChanged", { code: r.code, date: shortDate(r.capturedAt), section: r.section })
+        : qs("inboxLegacyRow", { date: shortDate(r.capturedAt) });
     }
     case "setDates": {
+      // The shared row (audit, inbox copy drift), with the workshop the rows are grouped by after it.
       const r = row as InboxSetDates;
-      return [qs("inboxSetDatesRow", { count: r.count }), r.workshop ?? "", range(r.from, r.to)].filter(Boolean).join(" · ");
+      const span = range(r.from, r.to);
+      const line = span ? qs("legacySessionsRange", { count: r.count, range: span }) : qs("legacySessionsRange", { count: r.count, range: "" }).replace(/,\s*$/, "");
+      return [line, r.workshop ?? ""].filter(Boolean).join(" · ");
     }
     case "noParticipants": {
       const r = row as InboxNoParticipants;
-      return qs("inboxNoArtisansRow", { date: shortDate(r.date) || r.title || "" });
+      return qs("sessionHasNoArtisans", { date: shortDate(r.date) || r.title || "" });
     }
     case "emptySessions": {
       const r = row as InboxEmptySession;
-      return qs("inboxEmptyRow", { date: shortDate(r.approvedAt) });
+      return qs("emptyApproved", { date: shortDate(r.approvedAt) });
     }
     case "primaryChanged": {
       const r = row as InboxPrimaryChanged;
-      return qs("inboxPrimaryRow", { date: shortDate(r.at) });
+      return r.name && r.target ? qs("mainTakeChanged", { name: shortName(r.name), target: r.target }) : qs("inboxPrimaryRow", { date: shortDate(r.at) });
     }
   }
+}
+
+/** "D" for "Section D", "D3" for a question: the code a decision row names its target by. */
+function targetCode(recording: Recording): string {
+  const t = recording.targets[0];
+  if (!t) return qs("wholeSession");
+  return t.displayCode ?? t.label.replace(/^Section\s+/, "");
+}
+
+/**
+ * The take a NEEDS_DECISION take clashes with (audit H13): the one the server names, else the live
+ * take in the same session that shares a target and an answering artisan, captured nearest to it.
+ */
+export function decisionPartner(row: Pick<InboxDecision, "recordingId" | "otherRecordingId">, recordings: Recording[]): Recording | null {
+  const live = recordings.filter((r) => !r.removedAt);
+  if (row.otherRecordingId) return live.find((r) => r.id === row.otherRecordingId) ?? null;
+  const self = live.find((r) => r.id === row.recordingId);
+  if (!self) return null;
+  const targets = new Set(self.targets.map((t) => t.targetKey));
+  const answered = new Set(self.subjects.filter((s) => s.role === "ANSWERED").map((s) => s.artisanId));
+  const at = Date.parse(self.capturedAt);
+  const candidates = live.filter(
+    (r) =>
+      r.id !== self.id &&
+      r.targets.some((t) => targets.has(t.targetKey)) &&
+      r.subjects.some((s) => s.role === "ANSWERED" && answered.has(s.artisanId))
+  );
+  candidates.sort((a, b) => Math.abs(Date.parse(a.capturedAt) - at) - Math.abs(Date.parse(b.capturedAt) - at));
+  return candidates[0] ?? null;
+}
+
+/** "Two takes of D for Giriraj, 7 Jul 10:42 and 10:44" (DESIGN §4.7), earlier take first. */
+export function decisionLabel(row: InboxDecision, self: Recording, other: Recording): string {
+  const [first, second] = [self, other].sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
+  const names = row.artisanNames
+    ? row.artisanNames
+        .split(",")
+        .map((n) => shortName(n))
+        .filter(Boolean)
+        .join(", ")
+    : qs("inboxNoOneNamed");
+  return qs("twoTakesOf", { target: targetCode(self), name: names, date: shortDate(first.capturedAt), first: time(first.capturedAt), second: time(second.capturedAt) });
+}
+
+/** What "File it" starts from: the candidate the server suggests, else the session the clip is linked to. */
+export function fileItDefaults(row: InboxToFile): { sessionId: string; targetKey: string; subjectArtisanIds: string[] } {
+  const c = row.candidate && typeof row.candidate === "object" ? (row.candidate as Record<string, unknown>) : {};
+  const sessionId = typeof c.sessionId === "string" ? c.sessionId : row.sessionId ?? "";
+  const lineage = typeof c.questionLineageId === "string" ? c.questionLineageId : null;
+  const section = typeof c.sectionId === "string" ? c.sectionId : null;
+  const subjects = Array.isArray(c.subjectArtisanIds) ? c.subjectArtisanIds.filter((x): x is string => typeof x === "string") : [];
+  return { sessionId, targetKey: lineage ? `Q:${lineage}` : section ? `S:${section}` : "", subjectArtisanIds: subjects };
+}
+
+/** The `File it` body: a target key back to the contract's target shape; the picked artisans answered. */
+export function fileItBody(input: { sessionId: string; targetKey: string; subjectArtisanIds: string[] }) {
+  const ref = input.targetKey.slice(2);
+  const targets = !input.targetKey ? [] : input.targetKey.startsWith("S:") ? [{ sectionId: ref }] : [{ questionLineageId: ref }];
+  return { sessionId: input.sessionId, targets, subjects: input.subjectArtisanIds.map((artisanId) => ({ artisanId, role: "ANSWERED" })) };
 }
 
 /** A blank-safe read of the inbox: a section the server leaves out reads as empty. */
