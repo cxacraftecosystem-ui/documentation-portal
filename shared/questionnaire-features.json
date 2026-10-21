@@ -8,7 +8,7 @@
     "status per client: 'tagged' (its marker exists: a Playwright test titled '@qf:<id>' under frontend/e2e, or '@QFeature(\"<id>\")' under android/app/src/{test,androidTest}) or 'planned' (the stream named in 'stream' builds it). A marker found on a 'planned' client fails: mark it tagged.",
     "server per portal: 'built' means every 'api' route of that portal is mounted (checked in that portal's CI); 'planned' is built by U1 (DR) or U3 (FR).",
     "unifiedRelease false: 'planned' is allowed. U5 sets it true in the commit that cuts the unified release and switches QUESTIONNAIRE_V2 on in designer-portal; from then on every required client must be 'tagged' and every server 'built', in both portals.",
-    "A portal whose Settings default for QUESTIONNAIRE_V2 (questionnaire_v2) is true is held to the same rule for its own clients, and a feature with a 'flag' whose Settings default is true is held to it in every client."
+    "A portal whose Settings default for QUESTIONNAIRE_V2 (questionnaire_v2) is true is held to the same rule for its own clients, and a feature with a 'flag' (a Settings field) whose default is true is held to it in every client."
   ],
   "unifiedRelease": false,
   "clients": {
@@ -463,8 +463,7 @@
         "fr-web": "missing",
         "fr-android": "missing"
       },
-      "flag": "questionnaire_answer_locks",
-      "note": "Server rule app/questionnaire/answer_lock.py, dark behind QUESTIONNAIRE_ANSWER_LOCKS until every client shows LOCKED."
+      "note": "Server rule app/questionnaire/answer_lock.py: FORBIDDEN with code ANSWER_LOCKED per item (older clients read the FORBIDDEN they know)."
     },
     {
       "id": "A12",

@@ -7,8 +7,8 @@
 * identical text is ``UNCHANGED``;
 * a pinned answer edited below Professor is ``FORBIDDEN``;
 * a PREFILL only ever overwrites an earlier PREFILL revision;
-* with ``QUESTIONNAIRE_ANSWER_LOCKS`` on, an answer with text written by someone else is ``LOCKED``
-  unless the caller leads the session or is an admin (``answer_lock``; owner decision 2).
+* an answer with text written by someone else is ``FORBIDDEN`` with ``code: ANSWER_LOCKED`` unless
+  the caller leads the session or is an admin (``answer_lock``; owner decision 2).
 
 Proposals write drafts (``QuestionnaireTakeDraft``), never answers; a person accepts them here.
 """
@@ -207,13 +207,32 @@ async def _prefetch(items: list[Any], client: Any) -> dict[str, dict[Any, Any]]:
     return pre
 
 
-def _settled_without_write(
-    item: Any, user: Any, base: dict[str, Any], current: dict[str, Any] | None, leads: set[str] | None = None
-) -> dict[str, Any] | None:
+#: ``code`` of a per-item refusal under the answer lock (``answer_lock``). The status stays FORBIDDEN,
+#: which every client already treats as "not yours to change", so builds that predate the lock refuse
+#: it too.
+ANSWER_LOCKED = answer_lock.CODE
+
+
+def _locked_for(item: Any, user: Any, current: dict[str, Any] | None) -> bool:
+    """The owner's answer lock (21 Oct 2026; UNIFY U9), before the LEAD question: see ``answer_lock``."""
+    return answer_lock.locked_for(current, user, text=item.text, origin=item.origin)
+
+
+async def _is_lead(client: Any, session: dict[str, Any], user: Any) -> bool:
+    """Is the caller a LEAD researcher of this session? Read once per session per request, and only
+    when an item meets the lock."""
+    if "_lead" not in session:
+        rows = await client.query_raw(
+            'SELECT 1 FROM "QuestionnaireInterviewResearcher" WHERE "interviewId" = $1 AND "userId" = $2 AND "role" = \'LEAD\' LIMIT 1',
+            str(session["id"]), str(user.id),
+        )
+        session["_lead"] = bool(rows)
+    return bool(session["_lead"])
+
+
+def _settled_without_write(item: Any, user: Any, base: dict[str, Any], current: dict[str, Any] | None) -> dict[str, Any] | None:
     """The outcome decided by the answer as it stands, without writing (CONFLICT, a pinned answer's
-    FORBIDDEN, UNCHANGED, and with the locks on LOCKED), or None when the item goes on to its
-    versioned write. ``leads`` is None while the answer locks are off. An unchanged answer is
-    UNCHANGED before the lock is consulted, so resending what is there never trips it."""
+    FORBIDDEN, UNCHANGED), or None when the item goes on to its versioned write."""
     if current is None:
         return None
     out_current = answer_out(current)
@@ -225,9 +244,6 @@ def _settled_without_write(
         return {**base, "status": "CONFLICT", "current": out_current}
     if (current.get("text") or "") == item.text and (current.get("origin") or "") == item.origin:
         return {**base, "status": "UNCHANGED", "answer": out_current, "current": out_current}
-    if leads is not None and answer_lock.answer_locked(current, user, session_leads=leads):
-        return {**base, "status": answer_lock.STATUS, "code": answer_lock.CODE, "current": out_current,
-                "lockedBy": current.get("actorId")}
     return None
 
 
@@ -254,11 +270,6 @@ async def _write_one(
         return {**base, "status": "FORBIDDEN"}
     if "_people" not in session:
         session["_people"] = await session_people(client, str(session["id"]))
-    leads = None
-    if answer_lock.locks_enabled(get_settings()):
-        if "_leads" not in session:
-            session["_leads"] = await session_leads(client, str(session["id"]))
-        leads = session["_leads"]
     if item.artisanId not in session["_people"]:
         # An answer is about somebody who was there: a participant, or a subject of one of its takes
         # (audit M15). Anyone else is refused, never silently written.
@@ -269,13 +280,20 @@ async def _write_one(
         current = pre["current"][pair]
     else:
         current = await current_answer(client, item.artisanId, item.questionLineageId)
-    settled = _settled_without_write(item, user, base, current, leads)
+    settled = _settled_without_write(item, user, base, current)
     if settled is not None and snapshot:
         # The batch read may be older than a save that landed since (another device, another tab).
         # An outcome that writes nothing is reported from a fresh read, never from that snapshot;
         # one that writes is checked by the versioned UPDATE / INSERT below, which re-reads on a miss.
         current = await current_answer(client, item.artisanId, item.questionLineageId)
-        settled = _settled_without_write(item, user, base, current, leads)
+        settled = _settled_without_write(item, user, base, current)
+    if _locked_for(item, user, current):
+        if snapshot and settled is None:
+            # Refuse on a fresh read, never on the batch snapshot alone.
+            current = await current_answer(client, item.artisanId, item.questionLineageId)
+            settled = _settled_without_write(item, user, base, current)
+        if _locked_for(item, user, current) and not await _is_lead(client, session, user):
+            return {**base, "status": "FORBIDDEN", "code": ANSWER_LOCKED, "current": answer_out(current)}
     if settled is not None:
         return settled
     field_value = None
@@ -369,13 +387,10 @@ async def _write_respondent(item: Any, user: Any, client: Any, session_cache: di
     )
     if not owner:
         return {**base, "status": "FORBIDDEN"}
-    leads = None
-    if answer_lock.locks_enabled(get_settings()):
-        if "_leads" not in session:
-            session["_leads"] = await session_leads(client, str(session["id"]))
-        leads = session["_leads"]
     current = await current_respondent_answer(client, item.respondentId, item.questionLineageId)
-    settled = _settled_without_write(item, user, base, current, leads)
+    settled = _settled_without_write(item, user, base, current)
+    if _locked_for(item, user, current) and not await _is_lead(client, session, user):
+        return {**base, "status": "FORBIDDEN", "code": ANSWER_LOCKED, "current": answer_out(current)}
     if settled is not None:
         return settled
     async with client.tx(max_wait=TX_MAX_WAIT, timeout=TX_TIMEOUT) as tx:
@@ -417,16 +432,6 @@ async def _write_respondent(item: Any, user: Any, client: Any, session_cache: di
         "pinned": bool(current and current.get("pinned")), "sourceRecordingId": item.sourceRecordingId,
     }
     return {**base, "status": "SAVED", "answer": saved}
-
-
-async def session_leads(client: Any, session_id: str) -> set[str]:
-    """The session's LEAD researchers (its creator is one), for the answer lock."""
-    rows = await client.query_raw(
-        'SELECT "userId" FROM "QuestionnaireInterviewResearcher" WHERE "interviewId" = $1 AND "role" = \'LEAD\' '
-        'UNION SELECT "createdById" FROM "QuestionnaireInterview" WHERE "id" = $1',
-        session_id,
-    )
-    return {str(r["userId"]) for r in rows if r.get("userId")}
 
 
 async def answer_revisions(answer_id: str, *, client: Any = None) -> dict[str, Any]:

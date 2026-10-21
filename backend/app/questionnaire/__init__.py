@@ -19,7 +19,7 @@ Modules:
 * ``errors``     the one door to FastAPI's ``HTTPException``;
 * ``ports``      the one door to portal code;
 * ``authoring``  who may change a form, a session, a take (the author rule, content admins);
-* ``answer_lock`` the one answer-lock rule (switched by ``QUESTIONNAIRE_ANSWER_LOCKS``);
+* ``answer_lock`` the one answer-lock rule (FORBIDDEN with code ANSWER_LOCKED, per item);
 * ``subjects``   the subject key, ``A:<artisanId>`` or ``R:<respondentId>``;
 * ``respondents`` guest respondents: add, edit, retract, register as an artisan;
 * ``bindings``   forms bound to workshops, type defaults, and the start sheet's form;

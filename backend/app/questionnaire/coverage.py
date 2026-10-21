@@ -136,15 +136,19 @@ def take_payload(row: dict[str, Any], *, session_id: str | None, user_id: str | 
     }
 
 
-def suggest_reason(prior: list[dict[str, Any]], *, purpose: str | None, roster: int, user_id: str | None) -> str | None:
+def suggest_reason(prior: list[dict[str, Any]], *, purpose: str | None, roster: int, user_id: str | None,
+                   via_section: bool = False) -> str | None:
     """DESIGN 3.3 rule 2: the session purpose first; otherwise a different setting -> NEW_SETTING,
-    a different researcher -> RE_INTERVIEW, the same researcher -> REDO."""
+    a different researcher -> RE_INTERVIEW, the same researcher -> REDO. A question covered only by
+    its section's take is a FOLLOW_UP (DESIGN 8 E6: "recorded whole"; Follow-up preselected)."""
     if not prior:
         return None
     if purpose == "FOLLOW_UP":
         return "FOLLOW_UP"
     if purpose == "REDO":
         return "REDO"
+    if via_section:
+        return "FOLLOW_UP"
     latest = max(prior, key=lambda r: (aware(r["capturedAt"]), str(r["recordingId"])))
     if (int(latest.get("rosterCount") or 0) == 1) != (roster == 1):
         return "NEW_SETTING"
@@ -215,6 +219,7 @@ async def check(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any
     typed = await typed_lineages(db, payload.questionnaireId, list(payload.artisanIds))
     out_targets = []
     covered_prior: list[dict[str, Any]] = []
+    covered_directly = False
     for t in targets:
         per = []
         for artisan_id in payload.artisanIds:
@@ -224,6 +229,7 @@ async def check(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any
             if shown:
                 state = "NEEDS_DECISION" if any(r.get("filing") == "NEEDS_DECISION" for r in shown) else ("RECORDED" if direct else "VIA_SECTION")
                 covered_prior.extend(shown)
+                covered_directly = covered_directly or bool(direct)
             elif t["sectionId"] and question_takes_in_section.get((artisan_id, t["sectionId"])):
                 state = "PARTIAL"
             else:
@@ -239,7 +245,8 @@ async def check(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any
         "asOf": iso(now()),
         "identical": identical,
         "targets": out_targets,
-        "suggestedReason": suggest_reason(covered_prior, purpose=purpose, roster=len(payload.artisanIds), user_id=user.id),
+        "suggestedReason": suggest_reason(covered_prior, purpose=purpose, roster=len(payload.artisanIds), user_id=user.id,
+                                          via_section=not covered_directly),
     }
 
 
@@ -267,8 +274,11 @@ async def _live_lineages(client: Any, questionnaire_id: str) -> dict[str, set[st
     return out
 
 
-async def grid(questionnaire_id: str, *, artisan_ids: list[str] | None = None, workshop_id: str | None = None, client: Any = None) -> dict[str, Any]:
-    """``GET /coverage``: artisan x section, with partial counts and the admin overrides."""
+async def grid(questionnaire_id: str, *, artisan_ids: list[str] | None = None, workshop_id: str | None = None, client: Any = None,
+               respondent_ids: list[str] | None = None) -> dict[str, Any]:
+    """``GET /coverage``: artisan x section, with partial counts and the admin overrides. Every cell
+    carries its subject key; a session's guest respondents (``respondent_ids``) get their own cells
+    under ``guestCells`` (subject key ``R:<id>``): they are on the grid but have no artisan record."""
     db = _db(client)
     if artisan_ids is None:
         if not workshop_id:
@@ -345,17 +355,89 @@ async def grid(questionnaire_id: str, *, artisan_ids: list[str] | None = None, w
             distinct_takes = len({str(t["recordingId"]) for t in st} | question_takes.get((a, sid), set()))
             source = SOURCE_RECORDED if (st or recorded_q) else (SOURCE_TYPED if typed_q else None)
             cells.append({
-                "artisanId": a, "state": state, "takes": distinct_takes, "covered": covered, "total": total,
+                "artisanId": a, "subjectKey": f"A:{a}", "state": state, "takes": distinct_takes, "covered": covered, "total": total,
                 "needsDecision": bool(nd.get((a, sid))), "override": override_by.get((a, sid)),
                 "source": source, "recordedCount": len(recorded_q), "typedOnlyCount": len(typed_q - recorded_q),
                 "addRecording": source == SOURCE_TYPED,
             })
         out_sections.append({"sectionId": sid, "code": s["code"], "title": s["title"], "cells": cells})
-    return {
+    out = {
         "questionnaireId": questionnaire_id,
         "artisans": [{"artisanId": str(n["id"]), "name": n["name"]} for n in names],
         "sections": out_sections,
     }
+    if respondent_ids:
+        await _guest_cells(db, questionnaire_id, list(respondent_ids), out, sections, live, lineage_home)
+    return out
+
+
+async def _guest_cells(db: Any, questionnaire_id: str, respondent_ids: list[str], out: dict[str, Any],
+                       sections: list[dict[str, Any]], live: dict[str, set[str]], lineage_home: dict[str, str]) -> None:
+    """The grid's guest columns: the same rule as an artisan's cell (a take, or a typed answer with
+    text; recordings preferred) over the guest's own takes and answers, live sessions only."""
+    people = await db.query_raw(
+        'SELECT "id", "name" FROM "QuestionnaireRespondent" WHERE "id" = ANY($1::text[]) AND "artisanId" IS NULL ORDER BY "createdAt", "id"',
+        respondent_ids,
+    )
+    order = [str(p["id"]) for p in people]
+    out["respondents"] = [{"respondentId": str(p["id"]), "name": p["name"], "subjectKey": f"R:{p['id']}"} for p in people]
+    if not order:
+        return
+    takes = await db.query_raw(
+        'SELECT g."respondentId", t."sectionId", t."questionLineageId", r."id" AS "recordingId", r."filing"::text AS filing '
+        'FROM "QuestionnaireRecordingRespondent" g JOIN "QuestionnaireRecording" r ON r."id" = g."recordingId" '
+        'JOIN "MediaFile" m ON m."id" = r."mediaFileId" JOIN "QuestionnaireInterview" i ON i."id" = m."questionnaireInterviewId" '
+        'JOIN "QuestionnaireRecordingTarget" t ON t."recordingId" = r."id" '
+        "WHERE g.\"respondentId\" = ANY($1::text[]) AND g.\"role\" = 'ANSWERED' AND r.\"removedAt\" IS NULL AND m.\"removedAt\" IS NULL "
+        'AND i."deletedAt" IS NULL AND i."questionnaireId" = $2',
+        order, questionnaire_id,
+    )
+    typed = await db.query_raw(
+        'SELECT a."respondentId", a."questionLineageId" FROM "QuestionnaireAnswer" a '
+        'JOIN "QuestionnaireAnswerRevision" rv ON rv."id" = a."currentRevisionId" '
+        'JOIN "QuestionnaireInterview" si ON si."id" = rv."sessionId" AND si."deletedAt" IS NULL '
+        'WHERE a."respondentId" = ANY($1::text[]) AND a."questionnaireId" = $2 AND btrim(rv."text") <> \'\'',
+        order, questionnaire_id,
+    )
+    section_take: set[tuple[str, str]] = set()
+    recorded: dict[tuple[str, str], set[str]] = defaultdict(set)
+    takes_in: dict[tuple[str, str], set[str]] = defaultdict(set)
+    waiting: set[tuple[str, str]] = set()
+    for t in takes:
+        g = str(t["respondentId"])
+        sec = str(t["sectionId"]) if t.get("sectionId") else lineage_home.get(str(t.get("questionLineageId")))
+        if not sec:
+            continue
+        if t.get("filing") == "NEEDS_DECISION":
+            waiting.add((g, sec))
+            continue
+        takes_in[(g, sec)].add(str(t["recordingId"]))
+        if t.get("sectionId"):
+            section_take.add((g, sec))
+        else:
+            recorded[(g, sec)].add(str(t["questionLineageId"]))
+    typed_by: dict[str, set[str]] = defaultdict(set)
+    for a in typed:
+        typed_by[str(a["respondentId"])].add(str(a["questionLineageId"]))
+    for section, s in zip(out["sections"], sections):
+        sid = str(s["id"])
+        asked = live.get(sid, set())
+        total = int(s["total"] or 0)
+        cells = []
+        for g in order:
+            rec_q = recorded.get((g, sid), set()) & asked
+            typed_q = {x for x in typed_by.get(g, set()) if lineage_home.get(x) == sid} & asked
+            covered = len(rec_q | typed_q)
+            whole = (g, sid) in section_take
+            state = "RECORDED" if whole else ("PARTIAL" if covered else ("NEEDS_DECISION" if (g, sid) in waiting else "NOT_RECORDED"))
+            source = SOURCE_RECORDED if (whole or rec_q) else (SOURCE_TYPED if typed_q else None)
+            cells.append({
+                "respondentId": g, "subjectKey": f"R:{g}", "state": state, "takes": len(takes_in.get((g, sid), set())),
+                "covered": covered, "total": total, "needsDecision": (g, sid) in waiting, "override": None,
+                "source": source, "recordedCount": len(rec_q), "typedOnlyCount": len(typed_q - rec_q),
+                "addRecording": source == SOURCE_TYPED,
+            })
+        section["guestCells"] = cells
 
 
 def section_covered(cell: dict[str, Any]) -> bool:
@@ -465,7 +547,10 @@ def choose_primary(
             redos.append(t)
     if redos:
         return str(redos[-1]["recordingId"])
-    solo = [t for t in ordered if int(t.get("rosterCount") or 0) == 1]
+    # "A Re-interview never demotes the earlier account" (DESIGN 3.5): a solo re-interview after a
+    # group take is a second account, so it never wins rule 4 over the take it re-interviews. The
+    # earliest take is nobody's second account, whatever reason a late upload inferred for it.
+    solo = [t for i, t in enumerate(ordered) if int(t.get("rosterCount") or 0) == 1 and (i == 0 or t.get("reason") != "RE_INTERVIEW")]
     if solo:
         return str(solo[0]["recordingId"])
     return str(ordered[0]["recordingId"])

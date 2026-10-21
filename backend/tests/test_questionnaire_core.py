@@ -71,27 +71,22 @@ def test_the_content_admins_are_the_portals_own() -> None:
 
 # ── the one answer-lock rule (owner decision 2) ───────────────────────────────────────────────
 def test_an_answer_with_text_is_locked_to_others() -> None:
-    current = {"text": "Wool from Bikaner", "actorId": "author"}
-    assert answer_lock.answer_locked(current, user("stranger"))
-    assert not answer_lock.answer_locked(current, user("author")), "its author"
-    assert not answer_lock.answer_locked(current, user("lead"), session_leads={"lead"}), "a session lead"
-    assert not answer_lock.answer_locked(current, user("x", "ADMIN")), "an admin"
-    assert not answer_lock.answer_locked(current, user("x", "MINISTRY_ADMIN"))
-    assert answer_lock.answer_locked(current, user("x", "PROFESSOR")), "rank alone is not authorship"
+    current = {"text": "Wool from Bikaner", "actorId": "author", "origin": "TYPED"}
+    assert answer_lock.answer_locked(current, user("stranger"), text="Silk", origin="TYPED")
+    assert not answer_lock.answer_locked(current, user("author"), text="Silk"), "its author"
+    assert not answer_lock.answer_locked(current, user("lead"), session_leads={"lead"}, text="Silk"), "a session lead"
+    assert not answer_lock.answer_locked(current, user("x", "ADMIN"), text="Silk"), "an admin"
+    assert not answer_lock.answer_locked(current, user("x", "MINISTRY_ADMIN"), text="Silk")
+    assert answer_lock.answer_locked(current, user("x", "PROFESSOR"), text="Silk"), "rank alone is not authorship"
+    assert (answer_lock.STATUS, answer_lock.CODE) == ("FORBIDDEN", "ANSWER_LOCKED")
 
 
-def test_an_empty_answer_is_never_locked() -> None:
-    assert not answer_lock.answer_locked({"text": "   ", "actorId": "author"}, user("stranger"))
-    assert not answer_lock.answer_locked(None, user("stranger"))
-
-
-def test_the_lock_is_off_until_switched_and_says_who() -> None:
-    assert not answer_lock.locks_enabled(SimpleNamespace())
-    assert answer_lock.locks_enabled(SimpleNamespace(questionnaire_answer_locks=True))
+def test_what_is_never_locked() -> None:
+    assert not answer_lock.answer_locked({"text": "   ", "actorId": "author"}, user("stranger"), text="x"), "empty"
+    assert not answer_lock.answer_locked(None, user("stranger"), text="x")
+    assert not answer_lock.answer_locked({"text": "Wool", "actorId": "a", "origin": "TYPED"}, user("s"), text="Wool", origin="TYPED"), "the identical text is UNCHANGED"
+    assert not answer_lock.answer_locked({"text": "+91 98765 43210", "actorId": "a", "origin": "PREFILL"}, user("s"), text="x"), "a prefill is nobody's account"
     assert answer_lock.lock_message("Nandini") == "Answered by Nandini. Only they or a lead can change it."
-    from app.core.config import Settings
-
-    assert Settings.model_fields["questionnaire_answer_locks"].default is False
 
 
 # ── the subject key ───────────────────────────────────────────────────────────────────────────
@@ -176,7 +171,6 @@ def test_the_unify_vocabularies_match_the_shared_json() -> None:
     assert enums["WorkshopType"] == list(bindings.WORKSHOP_TYPES)
     assert set(shared["pending"]["errorCodes"]["add"]) == set(common.UNIFY_MESSAGES) == set(common.UNIFY_STATUS)
     assert not set(common.UNIFY_MESSAGES) & set(common.MESSAGES), "a pending code is already in the frozen list"
-    assert shared["pending"]["AnswerPutStatus"]["add"] == [answer_lock.STATUS]
 
 
 # ── guest respondents (owner decision 1) ──────────────────────────────────────────────────────

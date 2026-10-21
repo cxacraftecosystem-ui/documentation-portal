@@ -5,23 +5,75 @@
   "enforcedBy": "backend/tests/test_questionnaire_core.py, identical in both portals",
   "note": "The unification's vocabularies. The v2 lists both portals already share live in shared/enums.json (documentation-portal's generator); the 'pending' lists below join that file in the stream whose clients first show them.",
   "enums": {
-    "QuestionnaireKind": ["WORKSHOP_INTERVIEW", "MARKET_SURVEY"],
-    "SessionSource": ["APP", "UPLOAD", "HANDOFF"],
-    "RespondentKind": ["GUEST", "SELF"],
-    "SectionStatus": ["COMPLETED", "NEEDS_REVIEW", "NEEDS_REDO"],
-    "CoverageSource": ["RECORDED", "TYPED"],
-    "SubjectKeyPrefix": ["A", "R"],
-    "FormResolution": ["EXPLICIT", "PRIMARY_BINDING", "ONLY_BINDING", "TYPE_DEFAULT", "GLOBAL_DEFAULT", "PICKER"],
-    "WorkshopType": ["DESIGN_PROTOTYPE", "OTHER"]
+    "QuestionnaireKind": [
+      "WORKSHOP_INTERVIEW",
+      "MARKET_SURVEY"
+    ],
+    "SessionSource": [
+      "APP",
+      "UPLOAD",
+      "HANDOFF"
+    ],
+    "RespondentKind": [
+      "GUEST",
+      "SELF"
+    ],
+    "SectionStatus": [
+      "COMPLETED",
+      "NEEDS_REVIEW",
+      "NEEDS_REDO"
+    ],
+    "CoverageSource": [
+      "RECORDED",
+      "TYPED"
+    ],
+    "SubjectKeyPrefix": [
+      "A",
+      "R"
+    ],
+    "FormResolution": [
+      "EXPLICIT",
+      "PRIMARY_BINDING",
+      "ONLY_BINDING",
+      "TYPE_DEFAULT",
+      "GLOBAL_DEFAULT",
+      "PICKER"
+    ],
+    "WorkshopType": [
+      "DESIGN_PROTOTYPE",
+      "OTHER"
+    ]
   },
   "pending": {
-    "AnswerOrigin": {"add": ["WORKBOOK"], "stream": "U3 (workbook answer import), with shared/enums.json and the Prisma enum"},
-    "AnswerPutStatus": {"add": ["LOCKED"], "stream": "U1-U4 (each client shows the lock), before QUESTIONNAIRE_ANSWER_LOCKS is turned on"},
-    "errorCodes": {"add": ["ANSWER_LOCKED", "RESPONDENT_HAS_ROWS", "FORM_DELETED", "BUNDLE_VERSION"], "stream": "U1-U4, into shared/questionnaire-contract.json errorCodes"}
+    "AnswerOrigin": {
+      "add": [
+        "WORKBOOK"
+      ],
+      "stream": "U3 (workbook answer import), with shared/enums.json and the Prisma enum"
+    },
+    "errorCodes": {
+      "add": [
+        "ANSWER_LOCKED",
+        "RESPONDENT_HAS_ROWS",
+        "FORM_DELETED",
+        "BUNDLE_VERSION"
+      ],
+      "stream": "U1-U4, into shared/questionnaire-contract.json errorCodes"
+    }
   },
   "labels": {
-    "QuestionnaireKind": {"WORKSHOP_INTERVIEW": "Workshop interview", "MARKET_SURVEY": "Market survey"},
-    "SectionStatus": {"COMPLETED": "Marked complete", "NEEDS_REVIEW": "Needs review", "NEEDS_REDO": "Needs redo"},
-    "CoverageSource": {"RECORDED": "Recorded", "TYPED": "Typed"}
+    "QuestionnaireKind": {
+      "WORKSHOP_INTERVIEW": "Workshop interview",
+      "MARKET_SURVEY": "Market survey"
+    },
+    "SectionStatus": {
+      "COMPLETED": "Marked complete",
+      "NEEDS_REVIEW": "Needs review",
+      "NEEDS_REDO": "Needs redo"
+    },
+    "CoverageSource": {
+      "RECORDED": "Recorded",
+      "TYPED": "Typed"
+    }
   }
 }

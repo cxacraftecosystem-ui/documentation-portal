@@ -591,9 +591,20 @@ async def complete(payload: Any, user: Any, *, client: Any = None, provenance: s
         'SELECT "artisanId", "joinedAt", "leftAt" FROM "QuestionnaireInterviewArtisan" WHERE "interviewId" = $1', session_id
     )
     present = [str(p["artisanId"]) for p in participants if not p.get("leftAt")] or [str(p["artisanId"]) for p in participants]
-    subjects = [s.model_dump() for s in rec.subjects] or [
+    sent = [s.model_dump() for s in rec.subjects]
+    # Guest respondents on the take (owner decision 1) sit beside the artisan subjects; every rule
+    # below (flags, locks, primaries) is about artisans, a guest is recorded and shown.
+    guest_subjects = [s for s in sent if s.get("respondentId")]
+    subjects = [s for s in sent if s.get("artisanId")] or ([] if guest_subjects else [
         {"artisanId": a, "role": "ANSWERED", "named": False, "repeatReason": None} for a in present
-    ]
+    ])
+    if guest_subjects:
+        mine = await db.query_raw(
+            'SELECT "id" FROM "QuestionnaireRespondent" WHERE "sessionId" = $1 AND "artisanId" IS NULL AND "id" = ANY($2::text[])',
+            session_id, [s["respondentId"] for s in guest_subjects],
+        )
+        if len({str(m["id"]) for m in mine}) != len({s["respondentId"] for s in guest_subjects}):
+            fail("VALIDATION_FAILED", "A respondent on this take is not one of this session's respondents.")
     newcomers = sorted({s["artisanId"] for s in subjects} - {str(p["artisanId"]) for p in participants})
     if newcomers:
         await sessions._assert_exists(db, "Artisan", newcomers, "subjects")
@@ -665,6 +676,12 @@ async def complete(payload: Any, user: Any, *, client: Any = None, provenance: s
                     'VALUES ($1, $2, $3::"SubjectRole", $4, $5::"RepeatReason") ON CONFLICT DO NOTHING',
                     recording_id, s["artisanId"], s["role"], bool(s.get("named")), s.get("repeatReason"),
                 )
+            for g in guest_subjects:
+                await tx.execute_raw(
+                    'INSERT INTO "QuestionnaireRecordingRespondent" ("recordingId", "respondentId", "role", "named", "repeatReason") '
+                    'VALUES ($1, $2, $3::"SubjectRole", $4, $5::"RepeatReason") ON CONFLICT DO NOTHING',
+                    recording_id, g["respondentId"], g["role"], bool(g.get("named")), g.get("repeatReason"),
+                )
             filing, decision, flags = await _flag_subjects(
                 tx, questionnaire_id=questionnaire_id, session=session, recording_id=recording_id, captured_at=captured,
                 targets=targets, answered=answered, acked=set(rec.ackedRecordingIds), continuation_of=rec.continuationOfId,
@@ -679,7 +696,7 @@ async def complete(payload: Any, user: Any, *, client: Any = None, provenance: s
                     'WHERE "recordingId" = $1 AND "artisanId" = $2',
                     recording_id, artisan_id, f["flag"], f["repeatReason"],
                 )
-            if not subjects and not decision:
+            if not subjects and not guest_subjects and not decision:
                 filing, decision = "NEEDS_DECISION", "NO_PARTICIPANTS"
             await tx.execute_raw(
                 'UPDATE "QuestionnaireRecording" SET "filing" = $2::"RecordingFiling", "decisionKind" = $3 WHERE "id" = $1',
@@ -774,6 +791,17 @@ async def serialize_recordings(client: Any, rows: list[dict[str, Any]], user: An
         'SELECT "recordingId", "artisanId", min("position") AS position FROM questionnaire_take_v WHERE "recordingId" = ANY($1::text[]) GROUP BY 1, 2',
         rids,
     )
+    guests = await client.query_raw(
+        'SELECT g."recordingId", g."respondentId", r."name", g."role"::text AS role, g."named" FROM "QuestionnaireRecordingRespondent" g '
+        'JOIN "QuestionnaireRespondent" r ON r."id" = g."respondentId" WHERE g."recordingId" = ANY($1::text[]) ORDER BY g."role", r."name"',
+        rids,
+    )
+    g_by: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for g in guests:
+        g_by[str(g["recordingId"])].append({
+            "respondentId": str(g["respondentId"]), "name": g.get("name") or "", "role": g["role"], "named": bool(g["named"]),
+            "subjectKey": f"R:{g['respondentId']}",
+        })
     pos = {(str(p["recordingId"]), str(p["artisanId"])): int(p["position"]) for p in positions if p.get("position") is not None}
     paused = await transcription.is_paused(client)
     consents = await consent_gate.verdict_details([str(r["mediaFileId"]) for r in rows], client=client)
@@ -824,7 +852,7 @@ async def serialize_recordings(client: Any, rows: list[dict[str, Any]], user: An
             "version": int(r.get("version") or 1), "capturedAt": iso(r["capturedAt"]), "capturedAtSource": r.get("source"),
             "estimated": r.get("source") in ESTIMATED, "durationMs": r.get("durationMs"), "rosterCount": int(r.get("rosterCount") or 0),
             "recordedBy": {"id": str(r["recordedById"]), "name": r.get("recordedByName") or ""},
-            "targets": tlist, "subjects": slist, "continuationOfId": r.get("continuationOfId"),
+            "targets": tlist, "subjects": slist, "respondents": g_by.get(rid, []), "continuationOfId": r.get("continuationOfId"),
             "filing": r.get("filing_t") or "FILED", "decisionKind": r.get("decisionKind"), "provenance": r.get("provenance_t") or "NATIVE",
             "languageCode": r.get("languageCode"), "removedAt": iso(r.get("removedAt")), "downloadName": download,
             "transcript": {
@@ -1031,9 +1059,20 @@ async def _shares_target(client: Any, a: str, b: str) -> bool:
     return bool(rows)
 
 
-async def _assert_other_take(client: Any, user: Any, row: dict[str, Any], other: str) -> dict[str, Any]:
+async def _same_session_day(client: Any, a: Any, b: Any) -> bool:
+    rows = await client.query_raw(
+        'SELECT count(*) AS n, count(DISTINCT "sessionDate") AS days FROM "QuestionnaireInterview" '
+        'WHERE "id" = ANY($1::text[]) AND "sessionDate" IS NOT NULL',
+        [str(a), str(b)],
+    )
+    return bool(rows) and int(rows[0]["n"]) == 2 and int(rows[0]["days"]) == 1
+
+
+async def _assert_other_take(client: Any, user: Any, row: dict[str, Any], other: str, action: str | None = None) -> dict[str, Any]:
     """The take a decision names (audit H2): not this take, live, and in the same session sharing a
-    target, or the verified twin of a "same file on two sessions" take. The caller may change it."""
+    target, or the verified twin of a "same file on two sessions" take, or (Keep both / Keep one) the
+    take a CONCURRENT one met in another session of the same day on a shared target (DESIGN 3.3
+    rule 3). Part 2 stays within one session. The caller may change it."""
     if other == str(row["id"]):
         fail("VALIDATION_FAILED", "A take can't be decided against itself.")
     rows = await recording_rows(client, recording_ids=[other])
@@ -1043,7 +1082,12 @@ async def _assert_other_take(client: Any, user: Any, row: dict[str, Any], other:
     same_file = (row.get("decisionKind") == "SAME_FILE_OTHER_SESSION" and row.get("contentSha256")
                  and row.get("contentSha256") == orow.get("contentSha256") and orow.get("shaVerifiedAt"))
     same_session = str(orow.get("sessionId")) == str(row.get("sessionId")) and await _shares_target(client, str(row["id"]), other)
-    if not (same_file or same_session):
+    same_day_twin = (
+        not same_session and action != "CONTINUATION" and row.get("decisionKind") == "CONCURRENT"
+        and await _same_session_day(client, row.get("sessionId"), orow.get("sessionId"))
+        and await _shares_target(client, str(row["id"]), other)
+    )
+    if not (same_file or same_session or same_day_twin):
         fail("VALIDATION_FAILED", "The other take must be in this session and on the same question or section.")
     await _assert_can_change(client, user, orow, reviewers=True)
     return orow
@@ -1057,7 +1101,7 @@ async def decide(recording_id: str, payload: Any, user: Any, *, client: Any = No
     if payload.action in ("KEEP_THIS", "CONTINUATION") and not other:
         fail("VALIDATION_FAILED", "Name the other take.")
     if other:
-        await _assert_other_take(db, user, row, other)
+        await _assert_other_take(db, user, row, other, payload.action)
     if payload.action == "KEEP_THIS" and not is_content_admin(user):
         # "Keep one" removes the other take, and removing a take is for content admins only.
         fail("FORBIDDEN", CONTENT_DELETE_REFUSAL)

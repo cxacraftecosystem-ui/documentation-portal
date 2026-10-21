@@ -349,6 +349,8 @@ class Recording(Strict):
     recordedBy: Ref
     targets: list[RecordingTarget]
     subjects: list[RecordingSubject]
+    #: Guest respondents on the take (owner decision 1): {respondentId, name, role, named, subjectKey}.
+    respondents: list[dict[str, Any]] = Field(default_factory=list)
     continuationOfId: str | None
     filing: str
     decisionKind: str | None
@@ -581,13 +583,21 @@ class UploadState(Strict):
 
 
 class SubjectInput(Strict):
-    artisanId: str = Field(min_length=1)
+    #: An artisan, or a guest respondent of the session (owner decision 1; subject key R:<id>).
+    artisanId: str | None = Field(default=None, min_length=1)
+    respondentId: str | None = Field(default=None, min_length=1)
     role: str = "ANSWERED"
     named: bool = False
     repeatReason: str | None = None
 
     _role = field_validator("role")(_one_of(V.SubjectRole))
     _reason = field_validator("repeatReason")(_one_of(V.RepeatReason))
+
+    @model_validator(mode="after")
+    def _one_subject(self) -> "SubjectInput":
+        if bool(self.artisanId) == bool(self.respondentId):
+            raise ValueError("A subject is exactly one of an artisanId or a respondentId")
+        return self
 
 
 class RecordingInput(Strict):
@@ -662,6 +672,9 @@ class AnswerResult(Strict):
     status: str
     answer: AnswerOut | None
     current: AnswerOut | None
+    #: ``ANSWER_LOCKED`` on a FORBIDDEN item that someone else's text holds (the owner's answer lock,
+    #: 21 Oct 2026). Additive: older clients ignore it and read the FORBIDDEN they already know.
+    code: str | None = None
 
 
 class AnswersPutResponse(Strict):

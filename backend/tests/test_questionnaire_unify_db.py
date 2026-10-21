@@ -4,7 +4,7 @@ and amendment 2 of 22 Oct 2026). Real Postgres, migrated through 20261107090000;
 
 * guest respondents: a session with only a guest saves; their answers are unique per lineage;
   registering the guest moves answers and their place in one transaction, or nothing;
-* the one answer-lock rule, behind its switch;
+* the one answer-lock rule, guests' answers included;
 * restorable soft delete of sessions, content admins only, hidden from every reader;
 * typed or recorded coverage, recording preferred, and the "Already recorded" prompt ignoring typed;
 * bindings, type defaults and the four-step form resolution, with the Workshop mirror;
@@ -120,36 +120,36 @@ def test_registering_a_guest_moves_their_rows_in_one_transaction(monkeypatch) ->
 
 
 # ── the one answer-lock rule ──────────────────────────────────────────────────────────────────
-def test_the_lock_refuses_others_per_item_only_when_switched_on(monkeypatch) -> None:
-    from app.core.config import get_settings
+def test_the_lock_refuses_others_per_item_and_the_guests_answers_too(monkeypatch) -> None:
     from app.questionnaire import answers, sessions
 
     async def go() -> None:
         client, ids = await _world(monkeypatch)
         try:
-            s, _ = await sessions.create_session(session_create(ids, ids.artisans[:2]), ids.lead)
+            s, _ = await sessions.create_session(session_create(ids, ids.artisans[:2], respondents=[{"name": "Guest"}]), ids.lead)
             a, b = ids.artisans[0], ids.artisans[1]
+            guest = s["respondents"][0]["id"]
             d1, d2 = ids.questions["D1"], ids.questions["D2"]
             await sessions.add_researcher_route(s["id"], ids.other.id, "CONTRIBUTOR", ids.lead)
-            await answers.put_answers(_put({"artisanId": a, "questionLineageId": d1, "text": "Chisels", "sessionId": s["id"]}), ids.other)
+            await answers.put_answers(_put(
+                {"artisanId": a, "questionLineageId": d1, "text": "Chisels", "sessionId": s["id"]},
+                {"respondentId": guest, "questionLineageId": d1, "text": "Looms", "sessionId": s["id"]},
+            ), ids.other)
             change = {"artisanId": a, "questionLineageId": d1, "text": "Files", "sessionId": s["id"], "baseVersion": 1}
-            monkeypatch.setattr(get_settings(), "questionnaire_answer_locks", True, raising=False)
             out = await answers.put_answers(_put(
                 change, {"artisanId": b, "questionLineageId": d2, "text": "Teak", "sessionId": s["id"]},
                 {**change, "text": "Chisels"},
+                {"respondentId": guest, "questionLineageId": d1, "text": "Spindles", "sessionId": s["id"], "baseVersion": 1},
             ), ids.prof)
-            statuses = [r["status"] for r in out["results"]]
-            assert statuses == ["LOCKED", "SAVED", "UNCHANGED"], statuses
-            assert out["results"][0]["code"] == "ANSWER_LOCKED" and out["results"][0]["current"]["text"] == "Chisels"
+            statuses = [(r["status"], r.get("code")) for r in out["results"]]
+            assert statuses == [("FORBIDDEN", "ANSWER_LOCKED"), ("SAVED", None), ("UNCHANGED", None), ("FORBIDDEN", "ANSWER_LOCKED")], statuses
+            assert out["results"][0]["current"]["text"] == "Chisels"
             lead = await answers.put_answers(_put(change), ids.lead)
             assert lead["results"][0]["status"] == "SAVED", "the session lead may change it"
             admin = await answers.put_answers(_put({**change, "text": "Saws", "baseVersion": 2}), ids.admin)
             assert admin["results"][0]["status"] == "SAVED", "an admin may change it"
-            monkeypatch.setattr(get_settings(), "questionnaire_answer_locks", False, raising=False)
-            open_again = await answers.put_answers(_put({**change, "text": "Adzes", "baseVersion": 3}), ids.prof)
-            assert open_again["results"][0]["status"] == "SAVED", "off: today's behaviour"
-            history = await answers.answer_revisions(open_again["results"][0]["answer"]["id"])
-            assert [r["text"] for r in history["revisions"]] == ["Adzes", "Saws", "Files", "Chisels"]
+            history = await answers.answer_revisions(admin["results"][0]["answer"]["id"])
+            assert [r["text"] for r in history["revisions"]] == ["Saws", "Files", "Chisels"]
             assert history["revisions"][0]["current"] and not history["revisions"][1]["current"]
         finally:
             await client.disconnect()

@@ -99,7 +99,12 @@ async def inbox(user: Any, *, client: Any = None) -> dict[str, Any]:
         'SELECT e."id", e."recordingId", e."after", e."at" FROM "QuestionnaireRecordingEvent" e '
         'JOIN "QuestionnaireRecording" r ON r."id" = e."recordingId" JOIN "MediaFile" m ON m."id" = r."mediaFileId" '
         'JOIN "QuestionnaireInterview" i ON i."id" = m."questionnaireInterviewId" '
-        'WHERE e."kind" = \'PRIMARY_CHANGED\' AND e."at" > now() - interval \'30 days\' AND (' + (everything if admin else _mine_sql("i", "$1")) + ') '
+        # The affected researchers (DESIGN 3.5): those of the take that is primary now AND those of
+        # the take that stopped being primary, which a late arrival from another session demotes.
+        'WHERE e."kind" = \'PRIMARY_CHANGED\' AND e."at" > now() - interval \'30 days\' AND ('
+        + (everything if admin else _mine_sql("i", "$1") + ' OR EXISTS (SELECT 1 FROM "QuestionnaireRecording" fr '
+           'JOIN "MediaFile" fm ON fm."id" = fr."mediaFileId" JOIN "QuestionnaireInterview" fi ON fi."id" = fm."questionnaireInterviewId" '
+           'WHERE fr."id" = e."after"->>\'from\' AND ' + _mine_sql("fi", "$1") + ')') + ') '
         'ORDER BY e."at" DESC LIMIT 100',
         uid,
     )
@@ -171,11 +176,16 @@ async def _other_takes(db: Any, recording_ids: list[str]) -> dict[str, list[str]
     rows = await db.query_raw(
         'SELECT DISTINCT ON (r."id", o."id") r."id" AS rid, o."id" AS oid, o."capturedAt" FROM "QuestionnaireRecording" r '
         'JOIN "MediaFile" m ON m."id" = r."mediaFileId" '
+        'JOIN "QuestionnaireInterview" si ON si."id" = m."questionnaireInterviewId" '
         'JOIN "QuestionnaireRecordingTarget" t ON t."recordingId" = r."id" '
         'JOIN "QuestionnaireRecordingTarget" ot ON ot."targetKey" = t."targetKey" AND ot."recordingId" <> r."id" '
         'JOIN "QuestionnaireRecording" o ON o."id" = ot."recordingId" AND o."removedAt" IS NULL '
         'JOIN "MediaFile" om ON om."id" = o."mediaFileId" AND om."removedAt" IS NULL '
-        '  AND om."questionnaireInterviewId" = m."questionnaireInterviewId" '
+        'JOIN "QuestionnaireInterview" oi ON oi."id" = om."questionnaireInterviewId" '
+        # The same session, or (DESIGN 3.3 rule 3) a CONCURRENT take's twin in another session of the
+        # same day, captured within the same two hours: "Keep one" must be able to name it.
+        '  AND (om."questionnaireInterviewId" = m."questionnaireInterviewId" OR (r."decisionKind" = \'CONCURRENT\' '
+        '       AND oi."sessionDate" = si."sessionDate" AND abs(extract(epoch FROM o."capturedAt" - r."capturedAt")) <= 7200)) '
         'WHERE r."id" = ANY($1::text[]) AND EXISTS (SELECT 1 FROM "QuestionnaireRecordingSubject" s '
         '  JOIN "QuestionnaireRecordingSubject" os ON os."artisanId" = s."artisanId" AND os."recordingId" = o."id" '
         "  WHERE s.\"recordingId\" = r.\"id\" AND s.\"role\" = 'ANSWERED' AND os.\"role\" = 'ANSWERED') "

@@ -17,7 +17,7 @@ keeps CI green while U1-U4 build, and stops being accepted, for every required c
    one commit, so the switch-on cannot ship with a planned feature);
 2. for this portal's own clients, when its ``Settings`` default for ``questionnaire_v2`` is true;
 3. for one feature in every client, when the portal's ``Settings`` default for that feature's
-   ``flag`` (``questionnaire_answer_locks`` for A11) is true.
+   ``flag`` (a Settings field named on the feature) is true.
 
 A marker present on a client still marked ``planned`` also fails: the registry must say ``tagged``.
 """

@@ -139,7 +139,11 @@ async def sessions_get(session_id: str, user: Any = Depends(get_current_user)) -
     rows = await recordings.recording_rows(db, session_id=session_id)
     recs = await recordings.serialize_recordings(db, rows, user)
     participant_ids = [p["artisanId"] for p in session["participants"]]
-    grid = await coverage.grid(session["questionnaire"]["id"], artisan_ids=participant_ids, client=db) if participant_ids else None
+    guest_ids = [r["id"] for r in session.get("respondents", []) if not r.get("artisanId")]
+    grid = (
+        await coverage.grid(session["questionnaire"]["id"], artisan_ids=participant_ids, client=db, respondent_ids=guest_ids)
+        if participant_ids or guest_ids else None
+    )
     session_answers = await answers.answers_for(db, session_id=session_id)
     return {
         **session,
