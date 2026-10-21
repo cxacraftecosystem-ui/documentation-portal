@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LIST_PAGE_CEILING, listCut, mergeById, type ListCut } from "@/components/data/cappedList";
 import { SEARCH_DEBOUNCE_MS, shouldSearchServer } from "@/components/forms/RecordSwitcher";
 import { listResource } from "@/lib/api";
+import { sharedListResource } from "@/lib/sharedList";
 
 /**
  * A11 — A RECORD PICKER THAT SEARCHES THE SERVER WHEN ITS LIST IS CUT.
@@ -51,7 +52,8 @@ export function useServerSearchList<T extends { id: string }>(
     }
     const mine = (generation.current += 1);
     setState("pending");
-    listResource<T>(endpoint, { ...stableParams, pageSize: LIST_PAGE_CEILING })
+    // Shared with any other picker asking for the same page in the same moment (`lib/sharedList`).
+    sharedListResource<T>(endpoint, { ...stableParams, pageSize: LIST_PAGE_CEILING })
       .then((page) => {
         if (mine !== generation.current) return;
         setItems(page.items);

@@ -32,7 +32,10 @@ import com.fieldrepository.app.data.TranscriptInsightStates
 import com.fieldrepository.app.data.TranscriptInsightViewDto
 import kotlinx.coroutines.delay
 
-/** How often a queued summary is looked at again, and for how long. The web's numbers. */
+/**
+ * How often a queued summary is looked at again, and for how long. The web's numbers. Every card's
+ * poll goes through the repository's batch, so cards that fall due together share one request.
+ */
 private const val POLL_MILLIS = 15_000L
 private const val POLL_LIMIT_MILLIS = 10 * 60_000L
 
@@ -41,12 +44,15 @@ private const val POLL_LIMIT_MILLIS = 10 * 60_000L
  * and regenerating are on the web. Draws nothing while loading, when the feature is off (the server
  * answers 404), offline, or when there is nothing to show.
  *
- * [load] fetches the full item (translation included); [formatDate] is the screen's own date format.
+ * [load] reads the item through the screen-wide batch (no translation text), and polls through it;
+ * [loadFull] reads the single item, for the translation when it is opened. [formatDate] is the
+ * screen's own date format.
  */
 @Composable
 fun TranscriptInsightsCard(
     mediaId: String,
     load: suspend (String) -> TranscriptInsightViewDto?,
+    loadFull: suspend (String) -> TranscriptInsightViewDto?,
     formatDate: (String?) -> String?
 ) {
     var view by remember(mediaId) { mutableStateOf<TranscriptInsightViewDto?>(null) }
@@ -90,7 +96,7 @@ fun TranscriptInsightsCard(
             Text("The transcript changed after this summary.", color = Muted, style = MaterialTheme.typography.bodySmall)
         }
         if (insight != null && !TranscriptInsightStates.isWorking(current)) {
-            InsightBody(insight)
+            InsightBody(current.mediaId.ifBlank { mediaId }, insight, loadFull)
         }
     }
 }
@@ -113,7 +119,7 @@ private fun EditedOrMachine(insight: TranscriptInsightDto, formatDate: (String?)
 }
 
 @Composable
-private fun InsightBody(insight: TranscriptInsightDto) {
+private fun InsightBody(mediaId: String, insight: TranscriptInsightDto, loadFull: suspend (String) -> TranscriptInsightViewDto?) {
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
         insight.summaryLines.forEach { line -> Text("•  $line", color = Body, style = MaterialTheme.typography.bodyMedium) }
     }
@@ -135,15 +141,30 @@ private fun InsightBody(insight: TranscriptInsightDto) {
             }
         }
     }
+    // The text the full read answered with, once it has; see `TranslationDisclosure`.
+    var loaded by remember(insight.id, insight.version) { mutableStateOf<String?>(null) }
     when {
-        TranscriptInsightStates.hasTranslation(insight) -> TranslationDisclosure(insight)
+        TranscriptInsightStates.offersTranslation(insight, loaded) ->
+            TranslationDisclosure(mediaId, insight, loaded, { loaded = it }, loadFull)
         insight.translation.status == "FAILED" -> Text(insight.translation.note ?: "Translation failed.", color = Muted, style = MaterialTheme.typography.bodySmall)
     }
 }
 
 @Composable
-private fun TranslationDisclosure(insight: TranscriptInsightDto) {
+private fun TranslationDisclosure(
+    mediaId: String,
+    insight: TranscriptInsightDto,
+    loaded: String?,
+    onLoaded: (String) -> Unit,
+    loadFull: suspend (String) -> TranscriptInsightViewDto?
+) {
     var open by remember(insight.id) { mutableStateOf(false) }
+    // The batch leaves the text out; it is read the first time the translation is opened. A failed
+    // read leaves it null, so closing and reopening asks again; a blank answer hides the panel.
+    val text = loaded ?: insight.translation.text
+    LaunchedEffect(open, text) {
+        if (open && text == null) TranscriptInsightStates.fullTranslationText(loadFull(mediaId))?.let(onLoaded)
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -160,7 +181,7 @@ private fun TranslationDisclosure(insight: TranscriptInsightDto) {
         Text("English translation", color = FieldPalette.Purple700, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     }
     if (open) {
-        Text(insight.translation.text.orEmpty(), color = Body, style = MaterialTheme.typography.bodyMedium)
+        Text(text.orEmpty(), color = Body, style = MaterialTheme.typography.bodyMedium)
         insight.translation.note?.let { Text(it, color = Muted, style = MaterialTheme.typography.bodySmall) }
     }
 }

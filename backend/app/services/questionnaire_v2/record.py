@@ -56,10 +56,17 @@ async def artisan_record(artisan_id: str, user: Any, *, questionnaire_id: str | 
             artisan_id, qid,
         )
         serialized = await sessions.serialize_sessions(db, session_rows)
+        # Every session's recordings in one read and one serialisation, then dealt back out per
+        # session in the order the per-session read returned them (the ORDER BY is the same).
+        session_ids = [str(srow["id"]) for srow in session_rows]
+        all_rows = await recordings.recording_rows(db, session_ids=session_ids) if session_ids else []
+        all_recs = await recordings.serialize_recordings(db, all_rows, user)
+        recs_by_session: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for row, rec in zip(all_rows, all_recs):
+            recs_by_session[str(row["sessionId"])].append(rec)
         timeline = []
         for srow, s in zip(session_rows, serialized):
-            rows = await recordings.recording_rows(db, session_id=str(srow["id"]))
-            recs = await recordings.serialize_recordings(db, rows, user)
+            recs = recs_by_session.get(str(srow["id"]), [])
             mine = [r for r in recs if not r["subjects"] or any(x["artisanId"] == artisan_id for x in r["subjects"])]
             timeline.append({
                 "session": s,

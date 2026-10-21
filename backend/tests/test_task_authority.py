@@ -127,6 +127,9 @@ class _Delegate:
         return self.row
 
     async def find_many(self, where: dict | None = None, **_: Any) -> list:
+        batch = (where or {}).get("batchId")
+        if batch:
+            return [_task(**data) for data in self.creates if data.get("batchId") == batch]
         return []
 
     async def count(self, where: dict | None = None, **_: Any) -> int:
@@ -135,6 +138,10 @@ class _Delegate:
     async def create(self, data: dict, include: dict | None = None) -> Any:
         self.creates.append(data)
         return _task(**{key: value for key, value in data.items() if key != "id"})
+
+    async def create_many(self, data: list[dict]) -> int:
+        self.creates.extend(data)
+        return len(data)
 
     async def update(self, where: dict, data: dict, include: dict | None = None) -> Any:
         self.updates.append(data)
@@ -148,6 +155,10 @@ class _UserDelegate(_Delegate):
 
     async def find_unique(self, where: dict, include: dict | None = None) -> Any:
         return PEOPLE.get(where.get("id"))
+
+    async def find_many(self, where: dict | None = None, **_: Any) -> list:
+        wanted = ((where or {}).get("id") or {}).get("in") or []
+        return [PEOPLE[uid] for uid in wanted if uid in PEOPLE]
 
 
 _CURRENT: dict[str, Any] = {"user": None}

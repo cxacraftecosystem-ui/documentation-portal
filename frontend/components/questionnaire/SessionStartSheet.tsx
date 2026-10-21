@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { mostRecentRecordableWorkshop } from "@/components/forms/WorkshopSelect";
@@ -77,6 +77,8 @@ export function sessionCreateBody(form: StartSheetState, clientKey: string, now 
  * will be saved. The consent notice shows inline for a chosen artisan who has not agreed explicitly
  * (consent is assumed by default, with Switch off beside it) or who refused, and never blocks Start. The session is created through the outbox, so Start works offline.
  */
+type CoverageGrid = Awaited<ReturnType<typeof questionnaireApi.coverage>>;
+
 export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initialArtisanIds?: string[]; onStarted?: (key: string) => void }) {
   const router = useRouter();
   const { user } = useAuth();
@@ -98,7 +100,8 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
     note: ""
   });
   const [consentAsked, setConsentAsked] = useState<Record<string, "ASK" | "REFUSED" | "DONE">>({});
-  const [coverage, setCoverage] = useState<ArtisanCoverage[]>([]);
+  // The coverage grid and the artisan ids it was asked for; the names are laid over it on render.
+  const [coverageGrid, setCoverageGrid] = useState<{ ids: string[]; grid: CoverageGrid } | null>(null);
   const [openMatch, setOpenMatch] = useState<OpenMatchItem | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -127,12 +130,18 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
     };
   }, []);
 
+  // The artisan page is asked for again only when the search or the workshop changes. Ticking an
+  // artisan re-applies the same merge to the page already held, without a request.
+  const artisanIdsRef = useRef<readonly string[]>(form.artisanIds);
+  const artisanPage = useRef<Artisan[] | null>(null);
   useEffect(() => {
     let cancelled = false;
     const timer = window.setTimeout(() => {
       void listResource<Artisan>("/artisans", { pageSize: 80, search: search || undefined, workshopId: form.workshopId && form.workshopId !== FIELD_VISIT ? form.workshopId : undefined })
         .then((page) => {
-          if (!cancelled) setArtisans((prev) => mergeById(prev.filter((a) => form.artisanIds.includes(a.id)), page.items ?? []));
+          if (cancelled) return;
+          artisanPage.current = page.items ?? [];
+          setArtisans((prev) => mergeById(prev.filter((a) => artisanIdsRef.current.includes(a.id)), page.items ?? []));
         })
         .catch(() => undefined);
     }, 250);
@@ -140,7 +149,15 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [search, form.workshopId, form.artisanIds]);
+  }, [search, form.workshopId]);
+  const artisanKey = form.artisanIds.join(",");
+  useEffect(() => {
+    const selected = artisanKey ? artisanKey.split(",") : [];
+    artisanIdsRef.current = selected;
+    const held = artisanPage.current;
+    if (!held) return;
+    setArtisans((prev) => mergeById(prev.filter((a) => selected.includes(a.id)), held));
+  }, [artisanKey]);
 
   // The workshop's bound instrument is the default.
   useEffect(() => {
@@ -149,9 +166,13 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
   }, [form.workshopId, workshops]);
 
   // Consent: tell the researcher for each chosen artisan with no answer (assumed, can be switched off) or a refusal.
+  // Asked once per artisan: an id is marked before its request goes out, so an answer landing for
+  // one artisan does not re-ask for the others still in flight.
+  const consentRequested = useRef(new Set<string>());
   useEffect(() => {
     for (const id of form.artisanIds) {
-      if (consentAsked[id]) continue;
+      if (consentAsked[id] || consentRequested.current.has(id)) continue;
+      consentRequested.current.add(id);
       void questionnaireApi
         .getConsent(id)
         .then((c) => setConsentAsked((m) => ({ ...m, [id]: c.state === "GRANTED" ? "DONE" : c.state === "REFUSED" ? "REFUSED" : "ASK" })))
@@ -160,31 +181,35 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
   }, [form.artisanIds, consentAsked]);
 
   // Coverage line under the artisan field.
+  // Asked once per change of instrument or selection; the artisan names are read from `artisans` on render.
   useEffect(() => {
-    if (!form.questionnaireId || form.artisanIds.length === 0) {
-      setCoverage([]);
+    if (!form.questionnaireId || !artisanKey) {
+      setCoverageGrid(null);
       return;
     }
     let cancelled = false;
+    const artisanIds = artisanKey.split(",");
     void questionnaireApi
-      .coverage({ questionnaireId: form.questionnaireId, artisanIds: form.artisanIds })
+      .coverage({ questionnaireId: form.questionnaireId, artisanIds })
       .then((grid) => {
-        if (cancelled) return;
-        const total = grid.sections.length;
-        const cells = grid.sections.flatMap((s) => s.cells);
-        setCoverage(
-          form.artisanIds.map((id) => ({
-            name: artisans.find((a) => a.id === id)?.name ?? grid.artisans?.find((a) => a.artisanId === id)?.name ?? "",
-            total,
-            covered: cells.filter((c) => c.artisanId === id && (c.state === "RECORDED" || (c.state === "PARTIAL" && c.total !== null && c.covered === c.total))).length
-          }))
-        );
+        if (!cancelled) setCoverageGrid({ ids: artisanIds, grid });
       })
-      .catch(() => setCoverage([]));
+      .catch(() => setCoverageGrid(null));
     return () => {
       cancelled = true;
     };
-  }, [form.questionnaireId, form.artisanIds, artisans]);
+  }, [form.questionnaireId, artisanKey]);
+  const coverage = useMemo<ArtisanCoverage[]>(() => {
+    if (!coverageGrid) return [];
+    const { ids: coveredIds, grid } = coverageGrid;
+    const total = grid.sections.length;
+    const cells = grid.sections.flatMap((s) => s.cells);
+    return coveredIds.map((id) => ({
+      name: artisans.find((a) => a.id === id)?.name ?? grid.artisans?.find((a) => a.artisanId === id)?.name ?? "",
+      total,
+      covered: cells.filter((c) => c.artisanId === id && (c.state === "RECORDED" || (c.state === "PARTIAL" && c.total !== null && c.covered === c.total))).length
+    }));
+  }, [coverageGrid, artisans]);
 
   const workshop = workshops.find((w) => w.id === form.workshopId) ?? null;
   const chosen = form.artisanIds.map((id) => artisans.find((a) => a.id === id)).filter((a): a is Artisan => Boolean(a));

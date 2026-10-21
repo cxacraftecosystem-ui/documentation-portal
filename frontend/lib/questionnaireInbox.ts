@@ -137,3 +137,18 @@ export function reviewRequest(action: "approve" | "revise", sessionId: string, n
   if (action === "revise" && !notes) return null;
   return { path: `/review/questionnaire/${encodeURIComponent(sessionId)}/${action}`, body: { notes: notes || null } };
 }
+
+/**
+ * The one artisan list the "Who was there?" rows share. It is read when the first such row is on
+ * screen; a failed read is not final but is not retried in a loop either: it is asked again on the
+ * next inbox read (after a row action, or "Try again").
+ */
+export type ArtisanListRead = "idle" | "reading" | "read" | "failed";
+
+export function artisanReadDue(needed: boolean, state: ArtisanListRead): boolean {
+  return needed && state === "idle";
+}
+
+export function artisanReadOnInboxReload(state: ArtisanListRead): ArtisanListRead {
+  return state === "failed" ? "idle" : state;
+}

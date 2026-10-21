@@ -1404,11 +1404,15 @@ class FieldRepository(
     ): PendingReviewListDto =
         api.pendingReviews(page = page, pageSize = pageSize, workshopId = workshopId?.blankToNull())
 
-    private var reasonsCache: List<ReviewReasonDto>? = null
+    @Volatile private var reasonsCache: List<ReviewReasonDto>? = null
+    private val reasonsLock = Mutex()
 
-    /** The reasons a reviewer picks from, read once per session (the server's own wording). */
+    /**
+     * The reasons a reviewer picks from, read once per session (the server's own wording). Callers
+     * asking at the same moment (a record page and its review bar) wait for the one read in flight.
+     */
     suspend fun reviewReasons(): List<ReviewReasonDto> =
-        reasonsCache ?: api.reviewReasons().also { reasonsCache = it }
+        reasonsCache ?: reasonsLock.withLock { reasonsCache ?: api.reviewReasons().also { reasonsCache = it } }
 
     /** The last review decision on a record, for the note above its edit form (A1). */
     suspend fun latestReview(recordType: String, recordId: String): LatestReviewAnswerDto =
@@ -1598,6 +1602,16 @@ class FieldRepository(
      */
     suspend fun transcriptInsight(mediaId: String): TranscriptInsightViewDto? =
         insightOrHidden { api.transcriptInsight(mediaId) }
+
+    private val insightBatcher by lazy {
+        TranscriptInsightBatcher({ ids -> insightOrHidden { api.transcriptInsights(ids.joinToString(",")).items } })
+    }
+
+    /**
+     * The same answer as [transcriptInsight] without the translation text, read together with every
+     * other card asking at the same moment (one `GET /media/insights?ids=` for a whole screen).
+     */
+    suspend fun transcriptInsightBatched(mediaId: String): TranscriptInsightViewDto? = insightBatcher.load(mediaId)
 
     /** Download an update APK to the cache and return the file, for handing to the system installer. */
     suspend fun downloadApk(context: Context, url: String, versionCode: Int): File = withContext(Dispatchers.IO) {

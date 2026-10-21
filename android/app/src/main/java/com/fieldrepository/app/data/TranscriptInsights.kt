@@ -1,6 +1,15 @@
 package com.fieldrepository.app.data
 
 import java.io.IOException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import retrofit2.HttpException
 
 /**
@@ -19,6 +28,65 @@ suspend fun <T> insightOrHidden(call: suspend () -> T): T? =
     } catch (_: IOException) {
         null
     }
+
+/**
+ * Collects the insight reads asked for within [windowMillis] of each other and answers them from
+ * `GET /media/insights?ids=` — at most [BATCH_MAX] ids per request — instead of one
+ * `GET /media/{id}/insights` per card. A screen composes all of its transcript cards in one frame,
+ * and their 15 s polls fall due together, so each load and each poll is one request for the list.
+ *
+ * [fetchBatch] answers null when the request failed (switched off, offline): every id in it reads
+ * as null, exactly what the single read gave. An id the answer leaves out is null too. The batch
+ * carries no translation text; the card reads the single item when the translation is opened.
+ */
+class TranscriptInsightBatcher(
+    private val fetchBatch: suspend (List<String>) -> Map<String, TranscriptInsightViewDto>?,
+    private val windowMillis: Long = WINDOW_MILLIS,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+) {
+    private val lock = Mutex()
+    private var pending = LinkedHashMap<String, MutableList<CompletableDeferred<TranscriptInsightViewDto?>>>()
+    private var flushJob: Job? = null
+
+    suspend fun load(mediaId: String): TranscriptInsightViewDto? {
+        val answer = CompletableDeferred<TranscriptInsightViewDto?>()
+        lock.withLock {
+            pending.getOrPut(mediaId) { mutableListOf() }.add(answer)
+            if (flushJob == null) {
+                flushJob = scope.launch {
+                    delay(windowMillis)
+                    flush()
+                }
+            }
+        }
+        return answer.await()
+    }
+
+    private suspend fun flush() {
+        val batch = lock.withLock {
+            val taken = pending
+            pending = LinkedHashMap()
+            flushJob = null
+            taken
+        }
+        batch.keys.toList().chunked(BATCH_MAX).forEach { slice ->
+            val answers = try {
+                fetchBatch(slice)
+            } catch (error: Exception) {
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                null
+            }
+            slice.forEach { id -> batch[id]?.forEach { it.complete(answers?.get(id)) } }
+        }
+    }
+
+    companion object {
+        /** The server's cap on ids per request. */
+        const val BATCH_MAX = 50
+        /** Long enough for one frame's cards to join; short enough to be invisible. */
+        const val WINDOW_MILLIS = 40L
+    }
+}
 
 object TranscriptInsightStates {
     const val READY = "READY"
@@ -45,6 +113,28 @@ object TranscriptInsightStates {
     fun hasTranslation(insight: TranscriptInsightDto): Boolean =
         (insight.translation.status == "COMPLETED" || insight.translation.status == "PARTIAL") &&
             !insight.translation.text.isNullOrBlank()
+
+    /**
+     * Whether the disclosure is drawn for an item read through the batch, which leaves the text out
+     * (null): a finished translation is offered and its text read when it is opened. [loadedText] is
+     * that text once the full read has answered; a blank one (like an empty string in the batch) is
+     * a translation with nothing in it, and the panel is hidden.
+     */
+    fun offersTranslation(insight: TranscriptInsightDto, loadedText: String? = null): Boolean {
+        if (insight.translation.status != "COMPLETED" && insight.translation.status != "PARTIAL") return false
+        val known = loadedText ?: insight.translation.text
+        return known == null || known.isNotBlank()
+    }
+
+    /**
+     * The translation text a full read of one item answered with, or null when the read failed (no
+     * answer, or no insight in it) so the disclosure asks again the next time it is opened. An insight
+     * that came back without text has none: "" (hidden by [offersTranslation]), never a retry loop.
+     */
+    fun fullTranslationText(view: TranscriptInsightViewDto?): String? {
+        val insight = view?.insight ?: return null
+        return insight.translation.text.orEmpty()
+    }
 
     /** "Machine-generated · gpt-4o-mini · 30 Oct 2026", or the edited stamp. */
     fun provenanceLine(insight: TranscriptInsightDto, formatDate: (String?) -> String?): String {

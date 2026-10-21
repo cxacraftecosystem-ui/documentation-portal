@@ -251,6 +251,42 @@ def test_a_task_of_every_kind_still_names_its_kinds_so_the_queue_leaves_workshop
     assert body["reviewQuery"] == {"createdById": "u1", "recordType": "artisan,product,tool,process,questionnaire"}
 
 
+def test_one_request_answers_every_card_with_what_the_single_task_route_says(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``GET /tasks/pending-records?ids=`` (the task cards' one request): per visible task the same
+    total, byType and reviewQuery as ``GET /tasks/{id}/pending-records``; an unseen task is absent;
+    two tasks with one scope share one COUNT."""
+    mine = SimpleNamespace(
+        id="t1", assigneeId="u1", createdById="boss", workshopId="w1", recordTypes=["product", "media"], artisanIds=["a1"]
+    )
+    twin = SimpleNamespace(
+        id="t3", assigneeId="u1", createdById="boss", workshopId="w1", recordTypes=["product"], artisanIds=["a1"]
+    )
+    theirs = SimpleNamespace(id="t9", assigneeId="u2", createdById="boss", workshopId="w1", recordTypes=["product"], artisanIds=[])
+    products = _Pending(
+        [SimpleNamespace(id="p1", productName="Dupatta", submittedAt=datetime(2026, 10, 2, tzinfo=UTC), createdAt=None)]
+    )
+
+    class _Tasks:
+        async def find_many(self, where: dict[str, Any]) -> list[Any]:
+            return [t for t in (mine, twin, theirs) if t.id in where["id"]["in"]]
+
+    async def require(task_id: str) -> Any:
+        return {"t1": mine, "t3": twin}[task_id]
+
+    monkeypatch.setattr(tasks, "require_task", require)
+    monkeypatch.setattr(tasks, "db", SimpleNamespace(productdocumentation=products, assignedtask=_Tasks()))
+    _CURRENT["user"] = _user("RESEARCHER", "u1")
+    batch = _call("GET", "/tasks/pending-records?ids=t1,t3,t9,missing").json()["tasks"]
+    assert set(batch) == {"t1", "t3"}
+    assert len(products.wheres) == 1, "one COUNT for the scope both tasks share"
+    for task_id in ("t1", "t3"):
+        single = _call("GET", f"/tasks/{task_id}/pending-records").json()
+        assert batch[task_id] == {key: single[key] for key in ("total", "byType", "reviewQuery")}
+    too_many = ",".join(f"t{i}" for i in range(tasks.PENDING_BATCH_LIMIT + 1))
+    assert _call("GET", f"/tasks/pending-records?ids={too_many}").status_code == 422
+    _CURRENT["user"] = None
+
+
 # --- The review-status filter on the data surfaces -----------------------------------------------
 
 

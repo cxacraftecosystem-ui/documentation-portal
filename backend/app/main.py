@@ -26,7 +26,7 @@ from app.core.deps import PASSWORD_CHANGE_REQUIRED_HEADER
 from app.core.idempotency import IdempotencyMiddleware
 from app.core.security import verify_jwt_configuration
 from app.services.email_outbox import process_next_email_jobs
-from app.services.media_queue import process_next_media_jobs
+from app.services.media_queue import process_next_media_jobs, queue_work_due
 
 logger = logging.getLogger(__name__)
 
@@ -167,17 +167,21 @@ async def _media_queue_worker() -> None:
     settings = get_settings()
     interval = max(settings.media_queue_interval_seconds, 1.0)
     while True:
+        # One read decides whether either drain has anything to do (see app/worker.py).
+        media_due, mail_due = await queue_work_due()
         try:
-            await process_next_media_jobs(
-                limit=settings.media_queue_batch_size,
-                worker_id="fastapi-background",
-                settings=settings,
-            )
+            if media_due:
+                await process_next_media_jobs(
+                    limit=settings.media_queue_batch_size,
+                    worker_id="fastapi-background",
+                    settings=settings,
+                )
         except Exception:
             logger.exception("Media processing queue worker failed")
         # The e-mail outbox drains wherever the media queue does (see app/worker.py).
         try:
-            await process_next_email_jobs(worker_id="fastapi-background", settings=settings)
+            if mail_due:
+                await process_next_email_jobs(worker_id="fastapi-background", settings=settings)
         except Exception:
             logger.exception("E-mail outbox drain failed")
         await asyncio.sleep(interval)

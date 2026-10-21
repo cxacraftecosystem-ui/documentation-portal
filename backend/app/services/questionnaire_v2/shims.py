@@ -138,19 +138,36 @@ async def responses_to_answers(session_id: str, questionnaire_id: str, responses
     from app.services.questionnaire_v2 import answers
 
     artisans = await sessions.participant_ids(db, session_id)
+    # The questions' lineages and every (participant, lineage) answer in two reads for the whole
+    # list, not one plus one per participant for every response.
+    wanted = [r for r in responses if (getattr(r, "answerText", None) or "").strip()] if artisans else []
+    lineage_of: dict[str, str] = {}
+    if wanted:
+        for row in await db.query_raw(
+            'SELECT "id", "lineageId" FROM "QuestionnaireQuestion" WHERE "id" = ANY($1::text[]) AND "questionnaireId" = $2',
+            sorted({str(r.questionId) for r in wanted}), questionnaire_id,
+        ):
+            lineage_of[str(row["id"])] = str(row["lineageId"])
+    currents: dict[tuple[str, str], dict[str, Any]] = {}
+    if lineage_of:
+        for row in await db.query_raw(
+            'SELECT a."artisanId", a."questionLineageId", a."version" FROM "QuestionnaireAnswer" a '
+            'WHERE a."artisanId" = ANY($1::text[]) AND a."questionLineageId" = ANY($2::text[])',
+            list(artisans), sorted(set(lineage_of.values())),
+        ):
+            currents[(str(row["artisanId"]), str(row["questionLineageId"]))] = row
     items = []
     for response in responses:
         text = (getattr(response, "answerText", None) or "").strip()
         if not text or not artisans:
             continue
-        rows = await db.query_raw('SELECT "lineageId" FROM "QuestionnaireQuestion" WHERE "id" = $1 AND "questionnaireId" = $2',
-                                  response.questionId, questionnaire_id)
-        if not rows:
+        lineage_id = lineage_of.get(str(response.questionId))
+        if lineage_id is None:
             continue
         for artisan_id in artisans:
-            current = await answers.current_answer(db, artisan_id, str(rows[0]["lineageId"]))
+            current = currents.get((str(artisan_id), lineage_id))
             items.append(AnswerItem(
-                artisanId=artisan_id, questionLineageId=str(rows[0]["lineageId"]), text=text,
+                artisanId=artisan_id, questionLineageId=lineage_id, text=text,
                 origin="TRANSCRIPT" if getattr(response, "answerSource", None) == "TRANSCRIPT" else "TYPED",
                 attribution="GROUP_SHARED" if len(artisans) > 1 else "INDIVIDUAL", sessionId=session_id,
                 baseVersion=int(current["version"]) if current else None,

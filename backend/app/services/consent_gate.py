@@ -139,6 +139,73 @@ async def _media_subjects(media_id: str, client: Any) -> list[str]:
     return [str(row["a"]) for row in rows if row.get("a")]
 
 
+async def _media_subjects_many(media_ids: list[str], client: Any) -> dict[str, list[str]]:
+    """:func:`_media_subjects` for many media files in at most two reads, whatever their number.
+
+    The first read answers rule 2 for every questionnaire recording at once (a recording with no
+    subject comes back as one row with a NULL artisan, which is the "no answer" case); the second
+    asks the linked-record fallback only for the media that are no recording at all.
+    """
+    db = _db(client)
+    ids = list(dict.fromkeys(str(i) for i in media_ids if i))
+    if not ids:
+        return {}
+    out: dict[str, list[str]] = {}
+    rows = await db.query_raw(
+        'SELECT r."mediaFileId" AS m, s."artisanId" FROM "QuestionnaireRecording" r '
+        'LEFT JOIN "QuestionnaireRecordingSubject" s ON s."recordingId" = r."id" WHERE r."mediaFileId" = ANY($1::text[])',
+        ids,
+    )
+    for row in rows:
+        subjects = out.setdefault(str(row["m"]), [])
+        if row.get("artisanId"):
+            subjects.append(str(row["artisanId"]))
+    rest = [media_id for media_id in ids if media_id not in out]
+    if rest:
+        linked = await db.query_raw(
+            'SELECT m."id" AS m, m."artisanId" AS a FROM "MediaFile" m WHERE m."id" = ANY($1::text[]) AND m."artisanId" IS NOT NULL '
+            'UNION SELECT m."id", qa."artisanId" FROM "MediaFile" m JOIN "QuestionnaireInterviewArtisan" qa '
+            '  ON qa."interviewId" = m."questionnaireInterviewId" WHERE m."id" = ANY($1::text[]) '
+            'UNION SELECT m."id", p."artisanId" FROM "MediaFile" m JOIN "ProductDocumentation" p ON p."id" = m."productId" '
+            '  WHERE m."id" = ANY($1::text[]) AND p."artisanId" IS NOT NULL '
+            'UNION SELECT m."id", t."artisanId" FROM "MediaFile" m JOIN "ToolArtisan" t ON t."toolId" = m."toolId" '
+            '  WHERE m."id" = ANY($1::text[])',
+            rest,
+        )
+        for media_id in rest:
+            out[media_id] = []
+        for row in linked:
+            if row.get("a"):
+                out[str(row["m"])].append(str(row["a"]))
+    return out
+
+
+async def verdict_details(media_ids: Iterable[str], *, client: Any = None) -> dict[str, dict[str, Any]]:
+    """:func:`verdict_detail` for many media files, keyed by media id, in at most four reads.
+
+    Same rule, same answer per file as asking one by one; a list of recordings (a session, an
+    artisan's record, the corpus feed) no longer pays three or four round trips per row for it.
+    """
+    ids = list(dict.fromkeys(str(i) for i in media_ids if i))
+    if not ids:
+        return {}
+    grants = await current_states(ledger.RECORDING, ids, client=client)
+    subjects = await _media_subjects_many(ids, client)
+    everyone = [artisan_id for media_id in ids for artisan_id in subjects.get(media_id, [])]
+    states = await current_states(ledger.ARTISAN, everyone, client=client)
+    out: dict[str, dict[str, Any]] = {}
+    for media_id in ids:
+        grant = grants.get(media_id)
+        rows = [states.get(artisan_id) for artisan_id in subjects.get(media_id, [])]
+        result = decide(grant, rows)
+        if result == ALLOW and (grant or {}).get("state") == ledger.GRANTED:
+            out[media_id] = {"verdict": ALLOW, "source": (grant or {}).get("source") or SOURCE_OWNER}
+        else:
+            answered = grant is not None or any(rows)
+            out[media_id] = {"verdict": result, "source": SOURCE_RESEARCHER if answered else None}
+    return out
+
+
 async def verdict(media: Any, *, client: Any = None) -> Verdict:
     """ALLOW | AWAITING | REFUSED for one media file (a row, a dict or its id)."""
     media_id = media if isinstance(media, str) else str(getattr(media, "id", None) or media["id"])

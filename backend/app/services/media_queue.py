@@ -237,6 +237,63 @@ async def _mark_measurement_queued(media_id: str, target_data: dict[str, str]) -
         await db.tooldocumentation.update(where={"id": target_data["toolId"]}, data=data)
 
 
+def _naive_utc(moment: datetime) -> datetime:
+    return moment.astimezone(UTC).replace(tzinfo=None)
+
+
+async def queue_work_due(now: datetime | None = None) -> tuple[bool, bool]:
+    """``(media, mail)``: whether :func:`process_next_media_jobs` and
+    ``email_outbox.process_next_email_jobs`` could find anything to do on this tick of the worker.
+
+    WHY. The worker ticks every few seconds, and an idle tick used to cost five round trips (each
+    queue's stale-row recovery read, the settings row, and each queue's due-row read) to learn that
+    nothing was due; those idle polls were most of the statements the database ran. This asks the
+    same questions in ONE read, plus the settings row only when the one thing due is a held-back
+    transcription, and a tick that finds nothing skips both drains. When it says True the drains run
+    exactly as before, so it can only ever skip a pass that would have done nothing. If the read
+    fails it answers ``(True, True)``: the old behaviour, never a stalled queue.
+    """
+    from app.services.email_outbox import SENDING, STALE_SENDING_AFTER
+
+    now = now or datetime.now(UTC)
+    try:
+        rows = await db.query_raw(
+            'SELECT (SELECT array_agg(DISTINCT j."jobType"::text) FROM "MediaProcessingJob" j '
+            "        WHERE j.\"status\" = 'QUEUED' AND j.\"runAfter\" <= $1::timestamp) AS due, "
+            'EXISTS (SELECT 1 FROM "MediaProcessingJob" j '
+            "        WHERE j.\"status\" = 'PROCESSING' AND j.\"lockedAt\" < $2::timestamp) AS stale, "
+            'EXISTS (SELECT 1 FROM "EmailMessage" e '
+            "        WHERE (e.\"status\" = 'QUEUED' AND e.\"runAfter\" <= $1::timestamp) "
+            '           OR (e."status" = $4 AND e."lockedAt" < $3::timestamp)) AS mail',
+            _naive_utc(now),
+            _naive_utc(now - STALE_PROCESSING_AFTER),
+            _naive_utc(now - STALE_SENDING_AFTER),
+            SENDING,
+        )
+        row = rows[0] if rows else {}
+        mail = bool(row.get("mail"))
+        if row.get("stale"):
+            return True, mail
+        due = set(row.get("due") or [])
+        if TRANSCRIPT_INSIGHTS in due and not transcript_insights.enabled():
+            due.discard(TRANSCRIPT_INSIGHTS)
+        if due - {TRANSCRIPTION}:
+            return True, mail
+        if not due:
+            return False, mail
+        # Only transcription is due: the same gate process_next_media_jobs applies before selecting it.
+        app_settings = await load_app_settings()
+        allowed = (
+            not transcription_paused(app_settings)
+            and within_processing_window(app_settings)
+            and not _transcription_in_cooldown(now)
+        )
+        return allowed, mail
+    except Exception:  # noqa: BLE001 - a failed probe must never stop the queue
+        logger.warning("queue probe failed; draining as usual", exc_info=True)
+        return True, True
+
+
 async def process_next_media_jobs(
     limit: int | None = None,
     worker_id: str = "api-worker",

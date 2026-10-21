@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useAuth } from "@/components/AuthProvider";
 import { Field } from "@/components/FormControls";
 import { LateSubmissionDialog } from "@/components/LateSubmissionDialog";
 import { ComboBox } from "@/components/ui/Dropdown";
-import { apiFetch, listResource } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import type { Workshop, WorkshopSubmissionCheck } from "@/lib/types";
+import { loadWorkshopList } from "@/lib/workshopList";
 import { hasTypedTitle, workshopDisplayTitle } from "@/lib/workshopTitle";
 
 /**
@@ -291,6 +293,7 @@ export function useWorkshopSelection({
   defaultRule?: "running" | "mostRecent";
 } = {}): WorkshopSelection {
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
+  const readerId = useAuth().user?.id ?? null;
   const [loading, setLoading] = useState(true);
   const [workshopId, setWorkshopIdState] = useState(initialWorkshopId ?? "");
   const [touched, setTouched] = useState(Boolean(initialWorkshopId));
@@ -306,7 +309,7 @@ export function useWorkshopSelection({
 
   useEffect(() => {
     let cancelled = false;
-    listResource<Workshop>("/workshops", { pageSize: 100 })
+    loadWorkshopList(readerId)
       .then((result) => {
         if (!cancelled) setWorkshops(sortWorkshopsByOccurrence(result.items));
       })
@@ -319,7 +322,7 @@ export function useWorkshopSelection({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [readerId]);
 
   // Declared BEFORE the default probe so a record switch clears `touched` in the same commit that
   // the probe reads it.

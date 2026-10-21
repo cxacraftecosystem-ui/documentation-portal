@@ -455,6 +455,23 @@ async def _reachable(user_id: Any, actor: Any) -> Any | None:
     return person
 
 
+async def _reachable_many(user_ids: list[Any], actor: Any, *, people: list[Any] | None = None) -> dict[str, Any]:
+    """:func:`_reachable` for many accounts in at most two reads: ``id -> account`` for each one to
+    tell. ``people`` are rows the caller already holds (they are not read again)."""
+    actor_id = str(_value(actor, "id") or "")
+    wanted = [str(uid) for uid in dict.fromkeys(user_ids) if uid and str(uid) != actor_id]
+    if not wanted:
+        return {}
+    if people is None:
+        people = await db.user.find_many(where={"id": {"in": wanted}})
+    by_id = {str(person.id): person for person in people if str(person.id) in wanted and person.email}
+    if not by_id:
+        return {}
+    prefs = await db.userpreference.find_many(where={"userId": {"in": list(by_id)}})
+    opted_out = {str(row.userId) for row in prefs if not bool(getattr(row, "emailTaskUpdates", True))}
+    return {uid: by_id[uid] for uid in wanted if uid in by_id and uid not in opted_out}
+
+
 async def notify_review_decision(
     *,
     record_type: str,
@@ -507,9 +524,14 @@ async def notify_bulk_approvals(approved: list[dict[str, Any]], *, actor: Any) -
         creator = item.get("creatorId")
         if creator:
             by_creator.setdefault(str(creator), []).append(item)
+    try:
+        reachable = await _reachable_many(list(by_creator), actor)
+    except Exception:
+        logger.exception("mail: could not read the accounts for a bulk approval notice")
+        return 0
     for creator_id, items in by_creator.items():
         try:
-            person = await _reachable(creator_id, actor)
+            person = reachable.get(creator_id)
             if person is None:
                 continue
             first = items[0]
@@ -610,12 +632,14 @@ async def notify_workshop_access_request(*, requester: Any, workshop_titles: lis
     sent = 0
     try:
         admins = await db.user.find_many(where={"role": {"in": list(ADMIN_ROLES)}})
+        # The rows just read are the accounts; only their opt-outs are read, once for all of them.
+        reachable = await _reachable_many([admin.id for admin in admins], requester, people=admins)
     except Exception:
         logger.exception("mail: could not read the administrators for a workshop-access notice")
         return 0
     for admin in admins:
         try:
-            person = await _reachable(admin.id, requester)
+            person = reachable.get(str(admin.id))
             if person is None:
                 continue
             params = {

@@ -35,7 +35,7 @@ from app.core.config import get_settings
 from app.core.db import connect_db, disconnect_db, ensure_db_connected
 from app.services import artisan_duplicates
 from app.services.email_outbox import process_next_email_jobs
-from app.services.media_queue import process_next_media_jobs
+from app.services.media_queue import process_next_media_jobs, queue_work_due
 from app.services.questionnaire_v2.sessions import maybe_close_stale_sessions
 from app.services.workshop_auto_map import maybe_run_nightly_auto_map
 from app.services.weekly_digest import run_weekly_digests
@@ -98,22 +98,28 @@ async def _run() -> None:
     last_search_pass = 0.0
     try:
         while not stop.is_set():
+            # One read says whether either queue has anything to do (media_queue.queue_work_due); an
+            # idle tick then skips both drains instead of paying their five reads to find nothing.
+            media_due, mail_due = True, True
             try:
                 # Self-heal like the web app: probe the connection each iteration and, when the probe
                 # fails (or a previous iteration broke the engine), disconnect-first then reconnect —
                 # is_connected() alone can read True while the engine is actually unusable.
                 await ensure_db_connected()
-                await process_next_media_jobs(
-                    limit=settings.media_queue_batch_size,
-                    worker_id="queue-service",
-                    settings=settings,
-                )
+                media_due, mail_due = await queue_work_due()
+                if media_due:
+                    await process_next_media_jobs(
+                        limit=settings.media_queue_batch_size,
+                        worker_id="queue-service",
+                        settings=settings,
+                    )
             except Exception:  # one bad iteration must never kill the worker
                 logger.exception("Media queue iteration failed; backing off")
             # The e-mail outbox rides the same loop, in its own try so neither can hold the other
             # back. A no-op when mail is not configured.
             try:
-                await process_next_email_jobs(worker_id="queue-service", settings=settings)
+                if mail_due:
+                    await process_next_email_jobs(worker_id="queue-service", settings=settings)
             except Exception:  # one bad iteration must never kill the worker
                 logger.exception("E-mail outbox iteration failed; backing off")
             # The nightly workshop filing (services/workshop_auto_map). Its own try for the same

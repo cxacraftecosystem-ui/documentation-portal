@@ -137,6 +137,34 @@ async def _part_number(client: Any, recording_id: str | None) -> int | None:
     return depth if depth >= 2 else None
 
 
+async def _part_numbers(client: Any, recording_ids: list[str]) -> dict[str, int | None]:
+    """:func:`_part_number` for many recordings: one recursive read for every chain at once, then
+    the same walk (and the same answer on a broken or circular chain) over the rows it returned."""
+    ids = list(dict.fromkeys(str(i) for i in recording_ids if i))
+    if not ids:
+        return {}
+    rows = await client.query_raw(
+        'WITH RECURSIVE chain("id", "continuationOfId") AS ('
+        'SELECT "id", "continuationOfId" FROM "QuestionnaireRecording" WHERE "id" = ANY($1::text[]) '
+        'UNION SELECT r."id", r."continuationOfId" FROM "QuestionnaireRecording" r JOIN chain c ON r."id" = c."continuationOfId"'
+        ') SELECT "id", "continuationOfId" FROM chain',
+        ids,
+    )
+    parent = {str(r["id"]): r.get("continuationOfId") for r in rows}
+    out: dict[str, int | None] = {}
+    for rid in ids:
+        depth = 1
+        seen = set()
+        current: str | None = rid
+        while current and current not in seen:
+            seen.add(current)
+            current = parent.get(current)
+            if current:
+                depth += 1
+        out[rid] = depth if depth >= 2 else None
+    return out
+
+
 # ── presign, multipart, resume ─────────────────────────────────────────────────────────────────
 async def _session_for_upload(client: Any, session_id: str, user: Any) -> dict[str, Any]:
     row = await sessions.load_session_row(client, session_id)
@@ -458,7 +486,7 @@ def _bucket() -> str:
 
 # ── reading ────────────────────────────────────────────────────────────────────────────────────
 async def recording_rows(client: Any, *, recording_ids: list[str] | None = None, session_id: str | None = None,
-                         include_removed: bool = False) -> list[dict[str, Any]]:
+                         session_ids: list[str] | None = None, include_removed: bool = False) -> list[dict[str, Any]]:
     where, params = [], []
     if recording_ids is not None:
         params.append(recording_ids)
@@ -466,6 +494,9 @@ async def recording_rows(client: Any, *, recording_ids: list[str] | None = None,
     if session_id:
         params.append(session_id)
         where.append(f'm."questionnaireInterviewId" = ${len(params)}')
+    if session_ids is not None:
+        params.append(session_ids)
+        where.append(f'm."questionnaireInterviewId" = ANY(${len(params)}::text[])')
     if not include_removed:
         where.append('r."removedAt" IS NULL AND m."removedAt" IS NULL')
     return await client.query_raw(
@@ -506,13 +537,15 @@ async def serialize_recordings(client: Any, rows: list[dict[str, Any]], user: An
         t_by[str(t["recordingId"])].append(t)
     for s in subjects:
         s_by[str(s["recordingId"])].append(s)
-    title_inputs: dict[str, naming.TitleInput] = {}
+    # Everything below that used to be read per row (the session's naming inputs, a continuation's
+    # part number, the consent verdict) is read once for the whole list.
+    title_inputs = await titles.title_inputs(client, [r["sessionId"] for r in rows if r.get("sessionId")])
+    parts = await _part_numbers(client, [str(r["id"]) for r in rows if r.get("continuationOfId")])
+    consents = await consent_gate.verdict_details([str(r["mediaFileId"]) for r in rows], client=client)
     out = []
     for r in rows:
         rid = str(r["id"])
         sid = r.get("sessionId")
-        if sid and sid not in title_inputs:
-            title_inputs[sid] = await titles.title_input(client, sid)
         tlist = [
             {
                 "targetKey": t["targetKey"], "sectionId": t.get("sectionId"), "questionLineageId": t.get("questionLineageId"),
@@ -530,7 +563,7 @@ async def serialize_recordings(client: Any, rows: list[dict[str, Any]], user: An
             for s in s_by.get(rid, [])
         ]
         answered_positions = [s["position"] for s in slist if s["role"] == "ANSWERED" and s["position"]]
-        part = await _part_number(client, rid) if r.get("continuationOfId") else None
+        part = parts.get(rid) if r.get("continuationOfId") else None
         ext = (str(r.get("objectKey") or "").rsplit(".", 1)[-1] or "m4a") if "." in str(r.get("objectKey") or "") else "m4a"
         download = naming.recording_filename(
             title_inputs.get(sid) or naming.TitleInput(), captured_at=r["capturedAt"], captured_at_source=r.get("source"),
@@ -541,7 +574,7 @@ async def serialize_recordings(client: Any, rows: list[dict[str, Any]], user: An
         for t in tlist:
             t.pop("_sectionCode", None)
         status = r.get("transcriptStatus")
-        consent = await consent_gate.verdict_detail(str(r["mediaFileId"]), client=client)
+        consent = consents[str(r["mediaFileId"])]
         out.append({
             "id": rid, "mediaFileId": str(r["mediaFileId"]), "clientClipKey": r["clientClipKey"], "sessionId": sid,
             "version": int(r.get("version") or 1), "capturedAt": iso(r["capturedAt"]), "capturedAtSource": r.get("source"),
