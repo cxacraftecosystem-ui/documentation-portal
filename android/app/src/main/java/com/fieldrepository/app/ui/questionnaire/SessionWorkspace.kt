@@ -828,7 +828,7 @@ internal fun OutboxTray(
 ) {
     Surface(color = MaterialTheme.field.surface100, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(QuestionnaireCopy.s("tray.title") + " (${rows.size})", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.error)
+            Text(QuestionnaireCopy.s("tray.title") + " (${rows.size})", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
             rows.forEach { row ->
                 Text(row.title, style = MaterialTheme.typography.bodyMedium)
                 if (row.conflict != null) {

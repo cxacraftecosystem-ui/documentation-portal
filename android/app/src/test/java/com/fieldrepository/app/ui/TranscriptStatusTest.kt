@@ -8,6 +8,7 @@ import com.fieldrepository.app.ui.questionnaire.TranscriptTone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Paused, waiting for consent, refused; Retry disabled while paused (owner correction d). */
@@ -42,11 +43,20 @@ class TranscriptStatusTest {
         assertEquals("Transcription paused", line!!.text)
     }
 
+    /**
+     * The take sheet's Retry (audit M23, 21 Oct 2026: it was never wired) is the ONE control that asks
+     * for a transcription, and only through [TranscriptStatus]'s line, whose Retry is disabled while
+     * transcription is paused (above). Any other caller is a control that could start one.
+     */
     @Test
-    fun `no control in the app can start a transcription`() {
+    fun `only the take's Retry can ask for a transcription, and never while paused`() {
         val dir = repoFile("app/src/main/java/com/fieldrepository/app/ui/questionnaire/QuestionnairePrompts.kt").parentFile
-        dir.listFiles { f -> f.extension == "kt" }!!.forEach { file ->
-            assertFalse("${file.name} calls transcribe", file.readText().contains(".transcribe("))
-        }
+        val callers = dir.listFiles { f -> f.extension == "kt" }!!.filter { it.readText().contains(".transcribe(") }
+        assertEquals(listOf("SessionWorkspace.kt"), callers.map { it.name })
+        val lines = callers.single().readLines().filter { it.contains(".transcribe(") }
+        assertEquals(1, lines.size)
+        assertTrue("the call is the take sheet's Retry", lines.single().contains("onRetry"))
+        assertFalse(TranscriptStatus.line(rec("FAILED", "ALLOW"), paused = true)!!.retryEnabled)
+        assertTrue(TranscriptStatus.line(rec("FAILED", "ALLOW", paused = false), paused = false)!!.retryEnabled)
     }
 }
