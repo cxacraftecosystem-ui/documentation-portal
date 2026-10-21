@@ -1599,6 +1599,16 @@ class FieldRepository(
     suspend fun transcriptInsight(mediaId: String): TranscriptInsightViewDto? =
         insightOrHidden { api.transcriptInsight(mediaId) }
 
+    private val insightBatcher by lazy {
+        TranscriptInsightBatcher({ ids -> insightOrHidden { api.transcriptInsights(ids.joinToString(",")).items } })
+    }
+
+    /**
+     * The same answer as [transcriptInsight] without the translation text, read together with every
+     * other card asking at the same moment (one `GET /media/insights?ids=` for a whole screen).
+     */
+    suspend fun transcriptInsightBatched(mediaId: String): TranscriptInsightViewDto? = insightBatcher.load(mediaId)
+
     /** Download an update APK to the cache and return the file, for handing to the system installer. */
     suspend fun downloadApk(context: Context, url: String, versionCode: Int): File = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "updates").apply { mkdirs() }

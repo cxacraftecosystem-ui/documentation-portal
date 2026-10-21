@@ -11024,7 +11024,8 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
             if (repository != null) {
                 TranscriptInsightsCard(
                     mediaId = media.id,
-                    load = { id -> repository.transcriptInsight(id) },
+                    load = { id -> repository.transcriptInsightBatched(id) },
+                    loadFull = { id -> repository.transcriptInsight(id) },
                     formatDate = ::formatIsoDate
                 )
             }
