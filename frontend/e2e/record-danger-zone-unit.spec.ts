@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 
 import { DANGER_ZONE, dangerZoneVisible, RECORD_LIST_HREF } from "@/components/records/dangerZoneRules";
+import { CONTENT_ADMIN_ROLES } from "@/lib/permissions";
 import type { User } from "@/lib/types";
 
 /**
@@ -18,14 +19,15 @@ import type { User } from "@/lib/types";
 const user = (role: string): User => ({ id: role, email: `${role}@example.org`, name: role, role }) as unknown as User;
 
 test("content admins in admin view see the card", () => {
-  for (const role of ["MINISTRY_ADMIN", "ADMIN", "MASTER_ADMIN"]) {
+  for (const role of CONTENT_ADMIN_ROLES) {
     expect(dangerZoneVisible(user(role), true), role).toBe(true);
     expect(dangerZoneVisible(user(role), false), `${role} with admin view off`).toBe(false);
   }
 });
 
 test("no other role ever sees it", () => {
-  for (const role of ["CROWDSOURCE_VOLUNTEER", "FIELD_CONTRIBUTOR", "RESEARCHER", "DESIGNER", "PROFESSOR"]) {
+  // A sample below the content admins, not the ladder: `isContentAdmin` is set membership.
+  for (const role of ["RESEARCHER", "DESIGNER", "PROFESSOR"]) {
     expect(dangerZoneVisible(user(role), true), role).toBe(false);
   }
   expect(dangerZoneVisible(null, true)).toBe(false);
