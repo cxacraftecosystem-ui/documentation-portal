@@ -205,6 +205,23 @@ async def _prefetch(items: list[Any], client: Any) -> dict[str, dict[Any, Any]]:
     return pre
 
 
+def _settled_without_write(item: Any, user: Any, base: dict[str, Any], current: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The outcome decided by the answer as it stands, without writing (CONFLICT, a pinned answer's
+    FORBIDDEN, UNCHANGED), or None when the item goes on to its versioned write."""
+    if current is None:
+        return None
+    out_current = answer_out(current)
+    if item.baseVersion is None or item.baseVersion != int(current["version"]):
+        return {**base, "status": "CONFLICT", "current": out_current}
+    if current.get("pinned") and not has_rank(user, "PROFESSOR"):
+        return {**base, "status": "FORBIDDEN", "current": out_current}
+    if item.origin == "PREFILL" and current.get("origin") != "PREFILL":
+        return {**base, "status": "CONFLICT", "current": out_current}
+    if (current.get("text") or "") == item.text and (current.get("origin") or "") == item.origin:
+        return {**base, "status": "UNCHANGED", "answer": out_current, "current": out_current}
+    return None
+
+
 async def _write_one(
     item: Any, user: Any, client: Any, session_cache: dict[str, Any], pre: dict[str, dict[Any, Any]] | None = None
 ) -> dict[str, Any]:
@@ -227,20 +244,20 @@ async def _write_one(
     if not session["_canWork"] or str(session["questionnaireId"]) != str(question["questionnaireId"]):
         return {**base, "status": "FORBIDDEN"}
     pair = (str(item.artisanId), lineage_key)
-    if pair in pre["current"]:
+    snapshot = pair in pre["current"]
+    if snapshot:
         current = pre["current"][pair]
     else:
         current = await current_answer(client, item.artisanId, item.questionLineageId)
-    if current is not None:
-        out_current = answer_out(current)
-        if item.baseVersion is None or item.baseVersion != int(current["version"]):
-            return {**base, "status": "CONFLICT", "current": out_current}
-        if current.get("pinned") and not has_rank(user, "PROFESSOR"):
-            return {**base, "status": "FORBIDDEN", "current": out_current}
-        if item.origin == "PREFILL" and current.get("origin") != "PREFILL":
-            return {**base, "status": "CONFLICT", "current": out_current}
-        if (current.get("text") or "") == item.text and (current.get("origin") or "") == item.origin:
-            return {**base, "status": "UNCHANGED", "answer": out_current, "current": out_current}
+    settled = _settled_without_write(item, user, base, current)
+    if settled is not None and snapshot:
+        # The batch read may be older than a save that landed since (another device, another tab).
+        # An outcome that writes nothing is reported from a fresh read, never from that snapshot;
+        # one that writes is checked by the versioned UPDATE / INSERT below, which re-reads on a miss.
+        current = await current_answer(client, item.artisanId, item.questionLineageId)
+        settled = _settled_without_write(item, user, base, current)
+    if settled is not None:
+        return settled
     field_value = None
     if item.origin == "PREFILL" and question.get("artisanField"):
         if str(item.artisanId) in pre["artisan"]:

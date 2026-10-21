@@ -182,6 +182,44 @@ def test_saving_answers_reads_once_for_the_batch_and_writes_per_item(monkeypatch
     assert (tx_small, tx_large) == (2, 6)
 
 
+def test_a_stale_batch_read_never_misreports_unchanged_or_conflict(monkeypatch) -> None:
+    """The batch reads every pair's answer up front; a save from another device can land before the
+    item is reached. A write the client based on the newest version must still save, and an item
+    that matches only the stale snapshot must come back CONFLICT with the real current answer, not
+    UNCHANGED."""
+    from app.services.questionnaire_v2 import answers, sessions
+
+    async def go() -> None:
+        client, ids = await _world(monkeypatch, artisans=1, sections={"F": 3})
+        try:
+            s, _ = await sessions.create_session(session_create(ids, ids.artisans), ids.lead)
+
+            def item(code: str, text: str, base: int | None) -> dict[str, Any]:
+                return {"artisanId": ids.artisans[0], "questionLineageId": ids.questions[code], "text": text,
+                        "sessionId": s["id"], "baseVersion": base}
+
+            first = await answers.put_answers(_put(item("F1", "x", None), item("F2", "x", None)), ids.lead)
+            assert [r["status"] for r in first["results"]] == ["SAVED", "SAVED"]
+            later = _put(item("F1", "z", 2), item("F2", "x", 1))
+            stale = await answers._prefetch(list(later.items), client)
+            # Another device saves both answers after this batch read them.
+            other = await answers.put_answers(_put(item("F1", "y", 1), item("F2", "y", 1)), ids.lead)
+            assert [r["answer"]["version"] for r in other["results"]] == [2, 2]
+
+            async def frozen(_items: Any, _client: Any) -> Any:
+                return stale
+
+            monkeypatch.setattr(answers, "_prefetch", frozen)
+            out = (await answers.put_answers(later, ids.lead))["results"]
+            assert out[0]["status"] == "SAVED" and out[0]["answer"]["version"] == 3, out[0]
+            assert out[1]["status"] == "CONFLICT", out[1]
+            assert (out[1]["current"]["version"], out[1]["current"]["text"]) == (2, "y"), out[1]
+        finally:
+            await client.disconnect()
+
+    run(go())
+
+
 # ── answers typed into an old build (the v1 shim) ─────────────────────────────────────────────
 
 
