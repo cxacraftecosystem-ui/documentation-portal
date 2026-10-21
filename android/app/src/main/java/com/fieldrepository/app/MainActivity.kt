@@ -5777,28 +5777,41 @@ private fun AudioClipRecorder(
         uris.forEach { onAddClip(it) }
     }
 
+    // The take lives in [LegacyTake], held up by a microphone foreground service, so a locked screen,
+    // an app switch or a collapsed section never drops it (H21).
+    val addClip by rememberUpdatedState(onAddClip)
+
     fun startNew() {
         runCatching {
             val file = createAppFile(context, "question-audio-", ".m4a")
-            recorder = createAudioRecorder(context, file).also { it.start() }
+            val started = createAudioRecorder(context, file).also { it.start() }
+            com.fieldrepository.app.recording.LegacyTake.begin(com.fieldrepository.app.recording.LegacyTake.Media(started), file)
+            com.fieldrepository.app.recording.LegacyRecordingService.start(context)
+            recorder = started
             recordingFile = file
             phase = RecPhase.RECORDING
         }.onFailure { onError(it.apiErrorMessage("Unable to start recording")); phase = RecPhase.IDLE }
     }
 
-    fun stopAndSave() {
-        runCatching {
-            recorder?.stop()
-            recorder?.release()
-            recordingFile?.let { onAddClip(uriForFile(context, it)) }
-        }.onFailure { onError(it.apiErrorMessage("Unable to stop recording")) }
+    /** Stop the take and attach it. Also the dispose path: a collapse or Back keeps the take. */
+    fun finaliseTake(): Boolean {
+        if (recorder == null) return false
+        val file = com.fieldrepository.app.recording.LegacyTake.finalise()
+        com.fieldrepository.app.recording.LegacyRecordingService.stop(context)
         recorder = null
         recordingFile = null
+        if (file != null) addClip(uriForFile(context, file))
+        return file != null
+    }
+
+    fun stopAndSave() {
+        runCatching { if (!finaliseTake()) onError("Recording too short to keep") }
+            .onFailure { onError(it.apiErrorMessage("Unable to stop recording")) }
         phase = RecPhase.RECORDED
     }
 
     DisposableEffect(Unit) {
-        onDispose { runCatching { recorder?.stop(); recorder?.release() }; recorder = null }
+        onDispose { runCatching { finaliseTake() } }
     }
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -5812,7 +5825,7 @@ private fun AudioClipRecorder(
             RecPhase.RECORDING -> {
                 ActionRow {
                     OutlinedButton(
-                        onClick = { runCatching { recorder?.pause(); phase = RecPhase.PAUSED }.onFailure { onError(it.apiErrorMessage("Unable to pause")) } },
+                        onClick = { runCatching { com.fieldrepository.app.recording.LegacyTake.pause(); phase = RecPhase.PAUSED }.onFailure { onError(it.apiErrorMessage("Unable to pause")) } },
                         contentPadding = pad
                     ) {
                         Icon(Icons.Filled.Pause, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -5828,7 +5841,7 @@ private fun AudioClipRecorder(
             RecPhase.PAUSED -> {
                 ActionRow {
                     OutlinedButton(
-                        onClick = { runCatching { recorder?.resume(); phase = RecPhase.RECORDING }.onFailure { onError(it.apiErrorMessage("Unable to resume")) } },
+                        onClick = { runCatching { com.fieldrepository.app.recording.LegacyTake.resume(); phase = RecPhase.RECORDING }.onFailure { onError(it.apiErrorMessage("Unable to resume")) } },
                         contentPadding = pad
                     ) { Text("Resume ●", maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelLarge) }
                     OutlinedButton(onClick = { stopAndSave() }, contentPadding = pad) {
