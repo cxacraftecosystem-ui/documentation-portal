@@ -159,6 +159,8 @@ def test_the_primary_take_rule_in_order() -> None:
                           answer_source=None, explicit=None) == "g1", "not even a solo re-interview after a group take"
     assert choose_primary([take("g1", 0, roster=3), take("n1", 1, roster=1, reason="NEW_SETTING")],
                           answer_source=None, explicit=None) == "n1", "a solo take in a new setting still wins rule 4"
+    assert choose_primary([take("l1", 0, roster=1, reason="RE_INTERVIEW", by="u9"), take("o1", 1, roster=1, by="u2")],
+                          answer_source=None, explicit=None) == "l1", "a late upload captured first is the first account"
 
 
 def test_the_snapshot_carries_edits_and_removals_since_a_sequence(monkeypatch) -> None:
