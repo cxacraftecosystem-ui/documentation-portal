@@ -1404,11 +1404,15 @@ class FieldRepository(
     ): PendingReviewListDto =
         api.pendingReviews(page = page, pageSize = pageSize, workshopId = workshopId?.blankToNull())
 
-    private var reasonsCache: List<ReviewReasonDto>? = null
+    @Volatile private var reasonsCache: List<ReviewReasonDto>? = null
+    private val reasonsLock = Mutex()
 
-    /** The reasons a reviewer picks from, read once per session (the server's own wording). */
+    /**
+     * The reasons a reviewer picks from, read once per session (the server's own wording). Callers
+     * asking at the same moment (a record page and its review bar) wait for the one read in flight.
+     */
     suspend fun reviewReasons(): List<ReviewReasonDto> =
-        reasonsCache ?: api.reviewReasons().also { reasonsCache = it }
+        reasonsCache ?: reasonsLock.withLock { reasonsCache ?: api.reviewReasons().also { reasonsCache = it } }
 
     /** The last review decision on a record, for the note above its edit form (A1). */
     suspend fun latestReview(recordType: String, recordId: String): LatestReviewAnswerDto =

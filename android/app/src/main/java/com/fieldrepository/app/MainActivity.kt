@@ -82,6 +82,7 @@ import com.fieldrepository.app.ui.ProvideCompletenessFocus
 import com.fieldrepository.app.ui.rememberCompletenessRules
 import com.fieldrepository.app.ui.rememberImageCount
 import com.fieldrepository.app.data.CompletenessDto
+import com.fieldrepository.app.data.RecordMediaReviewDto
 import com.fieldrepository.app.data.CompletenessFilter
 import com.fieldrepository.app.data.CompletenessKind
 import com.fieldrepository.app.data.RecordCompletenessStore
@@ -13498,7 +13499,14 @@ private fun RecordViewScreen(
 ) {
     var status by remember(mode, recordId) { mutableStateOf<String?>(null) }
     var refresh by remember(mode, recordId) { mutableIntStateOf(0) }
-    ReviewFeedbackCopy.recordTypeFor(mode.name)?.let { type ->
+    val reviewType = ReviewFeedbackCopy.recordTypeFor(mode.name)
+    /*
+     * The page's `GET /review/{type}/{id}/media` answer, handed to the review bar so the two do not
+     * each ask for it. Completed with null when the read failed or was cancelled; the bar then asks
+     * itself, as it always did.
+     */
+    val mediaReviewAnswer = remember(reviewType, recordId, mayReview, refresh) { CompletableDeferred<RecordMediaReviewDto?>() }
+    reviewType?.let { type ->
         ReviewNoteBanner(repository = repository, recordType = type, recordId = recordId, knownStatus = status)
         // Approve, send back or reject without going back to the queue (A13), as the web's page does.
         RecordReviewBar(
@@ -13507,6 +13515,7 @@ private fun RecordViewScreen(
             recordId = recordId,
             knownStatus = status,
             mayReview = mayReview,
+            mediaReview = mediaReviewAnswer,
             onDecided = { message -> onMessage(message); refresh += 1 }
         )
     }
@@ -13526,21 +13535,25 @@ private fun RecordViewScreen(
      * this reader may reject; a card not on the list draws no button.
      */
     var mediaReview by remember(mode, recordId) { mutableStateOf<MediaReviewScope?>(null) }
-    val reviewType = ReviewFeedbackCopy.recordTypeFor(mode.name)
     LaunchedEffect(reviewType, recordId, mayReview, refresh) {
-        if (!mayReview || reviewType == null) {
-            mediaReview = null
-            return@LaunchedEffect
-        }
-        val reasons = runCatching { repository.reviewReasons() }.getOrDefault(emptyList())
-        runCatching { repository.recordMediaReview(reviewType, recordId) }
-            .onSuccess { answer ->
-                mediaReview = MediaReviewScope(repository, answer.rejectable.toSet(), reasons) { message ->
-                    onMessage(message)
-                    refresh += 1
-                }
+        try {
+            if (!mayReview || reviewType == null) {
+                mediaReview = null
+                return@LaunchedEffect
             }
-            .onFailure { mediaReview = null }
+            val reasons = runCatching { repository.reviewReasons() }.getOrDefault(emptyList())
+            runCatching { repository.recordMediaReview(reviewType, recordId) }
+                .onSuccess { answer ->
+                    mediaReviewAnswer.complete(answer)
+                    mediaReview = MediaReviewScope(repository, answer.rejectable.toSet(), reasons) { message ->
+                        onMessage(message)
+                        refresh += 1
+                    }
+                }
+                .onFailure { mediaReview = null }
+        } finally {
+            mediaReviewAnswer.complete(null)
+        }
     }
     // Under Update: what this record still lacks. The chips open the form at the field for a reader
     // who may update it; for anyone else they are plain words.
