@@ -637,6 +637,7 @@ function QuestionTile({
   onMoveDown,
   onMoveToSection,
   onSave,
+  mayDeactivate,
   onRemove
 }: {
   question: QuestionnaireQuestion;

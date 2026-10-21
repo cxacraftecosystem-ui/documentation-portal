@@ -134,7 +134,7 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 |---|---|---|---|---|
 | `backend/app` | 228 | 77,398 | 228 | 77,398 |
 | `frontend/app` | 78 | 22,154 | 78 | 22,154 |
-| `frontend/components` | 279 | 71,746 | 279 | 71,746 |
+| `frontend/components` | 279 | 71,747 | 279 | 71,747 |
 | `frontend/lib` | 130 | 41,914 | 130 | 41,914 |
 | `android/app/src/main/java` | 206 | 105,879 | 206 | 105,879 |
 
