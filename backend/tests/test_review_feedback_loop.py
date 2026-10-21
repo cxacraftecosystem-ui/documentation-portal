@@ -37,6 +37,10 @@ def _matches(row: Any, where: dict[str, Any]) -> bool:
             if not any(_matches(row, clause) for clause in expected):
                 return False
             continue
+        if key == "AND":  # live_media_where composes its removedAt clause under AND (M19)
+            if not all(_matches(row, clause) for clause in expected):
+                return False
+            continue
         actual = getattr(row, key, None)
         if isinstance(expected, dict):
             if "in" in expected and actual not in expected["in"]:
