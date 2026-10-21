@@ -375,6 +375,66 @@ def choose_primary(
     return str(ordered[0]["recordingId"])
 
 
+async def primaries_many(client: Any, rows_by_artisan: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, str | None]]:
+    """:func:`primaries` for many artisans at once, keyed by artisan id, in three reads in all.
+
+    Each artisan sees exactly what its own call would: its answers, the MAKE_PRIMARY events on ITS
+    rows' recordings that name it, and the senior roles of ITS rows' recorders.
+    """
+    targets: dict[str, dict[str, list]] = {}
+    for artisan_id, rows in rows_by_artisan.items():
+        by_target: dict[str, list] = defaultdict(list)
+        for r in rows:
+            if r.get("continuationOfId"):
+                continue
+            by_target[str(r["targetKey"])].append(r)
+        if by_target:
+            targets[artisan_id] = by_target
+    out: dict[str, dict[str, str | None]] = {artisan_id: {} for artisan_id in rows_by_artisan}
+    if not targets:
+        return out
+    wanted = list(targets)
+    answers = await client.query_raw(
+        'SELECT a."artisanId", a."questionLineageId", rv."sourceRecordingId" FROM "QuestionnaireAnswer" a '
+        'JOIN "QuestionnaireAnswerRevision" rv ON rv."id" = a."currentRevisionId" WHERE a."artisanId" = ANY($1::text[])',
+        wanted,
+    )
+    source: dict[str, dict[str, Any]] = defaultdict(dict)
+    for a in answers:
+        source[str(a["artisanId"])][question_key(str(a["questionLineageId"]))] = a.get("sourceRecordingId")
+    recordings_of = {artisan_id: {str(r["recordingId"]) for r in rows_by_artisan[artisan_id]} for artisan_id in wanted}
+    events = await client.query_raw(
+        'SELECT e."recordingId", e."after" FROM "QuestionnaireRecordingEvent" e WHERE e."kind" = \'MAKE_PRIMARY\' '
+        'AND e."recordingId" = ANY($1::text[]) ORDER BY e."at"',
+        list(set().union(*recordings_of.values())),
+    )
+    explicit: dict[str, dict[str, str]] = defaultdict(dict)
+    for e in events:
+        after = e.get("after") or {}
+        if isinstance(after, str):
+            import json
+
+            after = json.loads(after)
+        artisan_id = str(after.get("artisanId"))
+        if artisan_id in targets and after.get("targetKey") and str(e["recordingId"]) in recordings_of[artisan_id]:
+            explicit[artisan_id][str(after["targetKey"])] = str(e["recordingId"])
+    seniors = await client.query_raw(
+        "SELECT \"id\" FROM \"User\" WHERE \"role\" IN ('PROFESSOR', 'ADMIN', 'MASTER_ADMIN') AND \"id\" = ANY($1::text[])",
+        list({str(r["recordedById"]) for artisan_id in wanted for r in rows_by_artisan[artisan_id]}),
+    )
+    senior_ids = {str(s["id"]) for s in seniors}
+    for artisan_id, by_target in targets.items():
+        mine = {str(r["recordedById"]) for r in rows_by_artisan[artisan_id]}
+        out[artisan_id] = {
+            key: choose_primary(
+                takes, answer_source=source[artisan_id].get(key), explicit=explicit[artisan_id].get(key),
+                senior_redoers=senior_ids & mine,
+            )
+            for key, takes in by_target.items()
+        }
+    return out
+
+
 async def primaries(client: Any, artisan_id: str, rows: list[dict[str, Any]]) -> dict[str, str | None]:
     """targetKey -> primary recordingId for one artisan, over view rows of that artisan."""
     by_target: dict[str, list] = defaultdict(list)

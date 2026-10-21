@@ -56,12 +56,15 @@ async def corpus(questionnaire_id: str, *, status: str | None = "APPROVED", clie
     for t in takes:
         by_key.setdefault((str(t["artisanId"]), str(t["targetKey"])), []).append(t)
     answer_rows = []
-    primary_cache: dict[str, dict[str, Any]] = {}
+    # Every answering artisan's primary takes in one batched read, not three round trips each.
+    takes_by_artisan: dict[str, list] = {str(a["artisanId"]): [] for a in answers}
+    for t in takes:
+        if str(t["artisanId"]) in takes_by_artisan:
+            takes_by_artisan[str(t["artisanId"])].append(t)
+    primary_cache = await coverage.primaries_many(db, takes_by_artisan)
     for a in answers:
         artisan_id = str(a["artisanId"])
         key = coverage.question_key(str(a["questionLineageId"]))
-        if artisan_id not in primary_cache:
-            primary_cache[artisan_id] = await coverage.primaries(db, artisan_id, [t for t in takes if str(t["artisanId"]) == artisan_id])
         rows = by_key.get((artisan_id, key), [])
         primary = primary_cache[artisan_id].get(key)
         ptake = next((t for t in rows if str(t["recordingId"]) == primary), None)
@@ -84,8 +87,9 @@ async def corpus(questionnaire_id: str, *, status: str | None = "APPROVED", clie
         questionnaire_id, status,
     )
     recording_rows = []
+    details = await consent_gate.verdict_details([str(r["mediaFileId"]) for r in recs], client=db)
     for r in recs:
-        detail = await consent_gate.verdict_detail(str(r["mediaFileId"]), client=db)
+        detail = details[str(r["mediaFileId"])]
         recording_rows.append({
             "schemaVersion": SCHEMA_VERSION, **{k: _plain(r.get(k)) for k in RECORDING_FIELDS if k in r},
             "sessionDate": str(r["sessionDate"])[:10] if r.get("sessionDate") else None,
