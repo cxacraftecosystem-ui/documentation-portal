@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ClipboardList, Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useAuth } from "@/components/AuthProvider";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
 import { OpenableRow, RecordTitleLink } from "@/components/records/OpenableRow";
@@ -11,6 +12,7 @@ import { SearchInput } from "@/components/SearchInput";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { formatDate } from "@/lib/format";
+import { canManageQuestionnaire } from "@/lib/permissions";
 import { questionnaireApi, type Session } from "@/lib/questionnaireApi";
 import { coverageCell, modeLabel, sessionMatches } from "@/lib/questionnaireView";
 import { qs } from "@/lib/strings/qs";
@@ -21,6 +23,7 @@ import { qs } from "@/lib/strings/qs";
  * runs on the server over title, note and legacyTitle; the page says when the list is capped.
  */
 export function SessionsList() {
+  const { user } = useAuth();
   const [items, setItems] = useState<Session[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [capped, setCapped] = useState(false);
@@ -63,9 +66,12 @@ export function SessionsList() {
             <Link className="field-button-secondary" href="/questionnaire/coverage">
               {qs("coverageTitle")}
             </Link>
-            <Link className="field-button-secondary" href="/questionnaire/builder">
-              {qs("builder")}
-            </Link>
+            {/* The builder edits the instrument: managers only (audit H15). */}
+            {canManageQuestionnaire(user) ? (
+              <Link className="field-button-secondary" href="/questionnaire/builder">
+                {qs("builder")}
+              </Link>
+            ) : null}
             <Link className="field-button" href="/questionnaire/sessions/new">
               <Plus className="h-4 w-4" aria-hidden />
               {qs("newSession")}

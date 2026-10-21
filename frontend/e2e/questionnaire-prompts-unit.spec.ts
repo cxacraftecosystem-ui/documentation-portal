@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { prompts, type PromptSpec } from "@/lib/questionnairePrompts";
+import { alreadyRecorded, DISMISSED, prompts, type PromptSpec } from "@/lib/questionnairePrompts";
 
 /**
  * DESIGN §4.5 copy, exactly, and the button-row rule for every prompt (test 48's rule half; the
@@ -55,4 +55,41 @@ test("button rows: 0 inline, 1 centred, 2 on one line; destructive last", () => 
   const src = readFileSync(join(__dirname, "..", "components", "questionnaire", "Prompts.tsx"), "utf8");
   expect(src).toContain("<ButtonRow");
   expect(src).not.toMatch(/className="flex[^"]*gap-[^"]*"\s*>\s*\{row/);
+});
+
+test("every prompt names a safe dismissal; P13 keeps the take and Finish does nothing (audit H16)", () => {
+  // Escape, the backdrop and a lost focus resolve to `spec.dismiss`. It used to be "the first
+  // secondary button", which made a dismissed P13 DISCARD the recovered take and a dismissed Finish
+  // finish the session.
+  const byId = Object.fromEntries(ALL);
+  expect(byId.P13.dismiss).toBe("keep");
+  expect(byId.FINISH.dismiss).toBeNull();
+  expect(byId.P1.dismiss, "neither starts nor joins").toBeNull();
+  expect(byId.P9.dismiss, "both answers wait").toBeNull();
+  expect(byId.P3.dismiss).toBe("keep");
+  expect(byId.P8.dismiss).toBe("keep");
+  expect(byId.LEAVE.dismiss).toBe("stay");
+  for (const [id, spec] of ALL) {
+    expect(spec, `${id} declares its dismissal`).toHaveProperty("dismiss");
+    if (spec.dismiss === null) continue;
+    const button = spec.buttons.find((b) => b.id === spec.dismiss);
+    expect(button, `${id} dismisses to one of its own buttons`).toBeTruthy();
+    expect(button?.tone, `${id} never dismisses to a destructive button`).not.toBe("danger");
+    expect(["discard", "remove", "finish", "replace", "leave", "stop", "mine", "theirs", "join", "new"], `${id} dismisses to a choice that loses nothing`).not.toContain(spec.dismiss);
+  }
+  const p2 = alreadyRecorded({
+    check: { asOf: "", identical: null, targets: [], suggestedReason: null },
+    names: {},
+    targetLabel: "Section D",
+    code: "D",
+    part2Allowed: false,
+    replaceAllowed: false
+  }).spec;
+  expect(p2.dismiss).toBe("cancel");
+  const dialog = readFileSync(join(__dirname, "..", "components", "questionnaire", "Prompts.tsx"), "utf8");
+  expect(dialog).toContain("const safe = spec.dismiss ?? DISMISSED;");
+  expect(DISMISSED).toBe("dismissed");
+  // And the workspace acts on P13's Discard only when Discard was pressed.
+  const workspace = readFileSync(join(__dirname, "..", "components", "questionnaire", "SessionWorkspace.tsx"), "utf8");
+  expect(workspace).toContain('} else if (choice === "discard") {');
 });

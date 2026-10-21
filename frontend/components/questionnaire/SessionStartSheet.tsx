@@ -6,19 +6,22 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { mostRecentRecordableWorkshop } from "@/components/forms/WorkshopSelect";
 import { ConsentQuestion } from "@/components/questionnaire/ConsentQuestion";
+import { loadInstrumentQuestions } from "@/components/questionnaire/instrumentQuestions";
 import { PromptDialog } from "@/components/questionnaire/Prompts";
-import { enqueueUnit, onSessionLanded } from "@/components/questionnaire/useSessionQueue";
+import { enqueueUnit, onSessionLanded, useSessionQueue } from "@/components/questionnaire/useSessionQueue";
+import { SearchInput } from "@/components/SearchInput";
 import { CalendarField } from "@/components/ui/CalendarField";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SearchableMultiSelect, SearchableSelect } from "@/components/ui/SearchableSelect";
 import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
 import { apiFetch, listResource } from "@/lib/api";
-import { coverageLine, type ArtisanCoverage } from "@/lib/coverageCache";
+import { agoLabel, coveredSectionsOffline, coverageLine, overlayFromUnits, readSnapshot, withTakes, type ArtisanCoverage } from "@/lib/coverageCache";
 import { LANGUAGES } from "@/lib/languages";
 import { sessionTitle } from "@/lib/naming";
 import { mintKey, questionnaireApi, SESSION_PURPOSES, type OpenMatchItem, type Session, type SessionCreate, type SessionPurpose } from "@/lib/questionnaireApi";
 import { prompts } from "@/lib/questionnairePrompts";
 import { newSessionUnit } from "@/lib/questionnaireQueue";
+import { readStartLists, searchCachedArtisans, titleWorkshop, trimArtisan, trimWorkshop, writeStartLists } from "@/lib/startSheetCache";
 import { PURPOSE_KEY, qs } from "@/lib/strings/qs";
 import type { Artisan, Questionnaire, Workshop } from "@/lib/types";
 
@@ -78,10 +81,28 @@ export function sessionCreateBody(form: StartSheetState, clientKey: string, now 
  * (consent is assumed by default, with Switch off beside it) or who refused, and never blocks Start. The session is created through the outbox, so Start works offline.
  */
 type CoverageGrid = Awaited<ReturnType<typeof questionnaireApi.coverage>>;
+/**
+ * The preview's input, built as the server builds the title (audit, title preview): the workshop's
+ * locality, district and single craft, and each artisan's craft — not the workshop's free-text place.
+ */
+export function titlePreviewInput(input: {
+  sessionDate: string;
+  place: string;
+  workshop: Parameters<typeof titleWorkshop>[0];
+  artisans: { name: string; localName?: string | null; craft?: { name: string } | null }[];
+}) {
+  return {
+    sessionDate: input.sessionDate,
+    place: input.place.trim() || null,
+    workshop: titleWorkshop(input.workshop),
+    participants: input.artisans.map((a) => ({ name: a.name, localName: a.localName ?? null, craft: a.craft?.name ?? null }))
+  };
+}
 
 export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initialArtisanIds?: string[]; onStarted?: (key: string) => void }) {
   const router = useRouter();
   const { user } = useAuth();
+  const queue = useSessionQueue(null);
   const ids = { workshop: useId(), instrument: useId(), date: useId(), artisans: useId(), place: useId(), language: useId(), other: useId(), note: useId() };
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
   const [instruments, setInstruments] = useState<Questionnaire[]>([]);
@@ -102,6 +123,8 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
   const [consentAsked, setConsentAsked] = useState<Record<string, "ASK" | "REFUSED" | "DONE">>({});
   // The coverage grid and the artisan ids it was asked for; the names are laid over it on render.
   const [coverageGrid, setCoverageGrid] = useState<{ ids: string[]; grid: CoverageGrid } | null>(null);
+  // No signal: the held snapshot's count per artisan, with the outbox laid over it, and its age.
+  const [coverageHeld, setCoverageHeld] = useState<{ ids: string[]; total: number; covered: Record<string, number>; age: string } | null>(null);
   const [openMatch, setOpenMatch] = useState<OpenMatchItem | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -110,11 +133,25 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
 
   useEffect(() => {
     let cancelled = false;
+    // Offline (or on a failed read) the lists last read on this device stand in, so Start works with
+    // no signal (audit M4). The held workshop rows carry every field the default-workshop rule reads.
+    const held = readStartLists();
     void Promise.all([
-      listResource<Workshop>("/workshops", { pageSize: 100 }).catch(() => ({ items: [] as Workshop[] })),
-      apiFetch<Questionnaire[]>("/questionnaires").catch(() => [] as Questionnaire[])
-    ]).then(([w, q]) => {
+      listResource<Workshop>("/workshops", { pageSize: 100 })
+        .then((page) => {
+          writeStartLists({ workshops: (page.items ?? []).map(trimWorkshop) });
+          return page.items ?? [];
+        })
+        .catch(() => held.workshops as unknown as Workshop[]),
+      apiFetch<Questionnaire[]>("/questionnaires")
+        .then((list) => {
+          writeStartLists({ instruments: list });
+          return list;
+        })
+        .catch(() => held.instruments)
+    ]).then(([items, q]) => {
       if (cancelled) return;
+      const w = { items };
       setWorkshops(w.items ?? []);
       setInstruments(q);
       // The most recent workshop the researcher may record in is the default; a pick already made stands.
@@ -136,14 +173,23 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
   const artisanPage = useRef<Artisan[] | null>(null);
   useEffect(() => {
     let cancelled = false;
+    const workshopId = form.workshopId && form.workshopId !== FIELD_VISIT ? form.workshopId : null;
     const timer = window.setTimeout(() => {
-      void listResource<Artisan>("/artisans", { pageSize: 80, search: search || undefined, workshopId: form.workshopId && form.workshopId !== FIELD_VISIT ? form.workshopId : undefined })
+      void listResource<Artisan>("/artisans", { pageSize: 80, search: search || undefined, workshopId: workshopId ?? undefined })
         .then((page) => {
+          const items = page.items ?? [];
+          writeStartLists({ artisans: items.map((a) => trimArtisan({ ...a, workshopId })) });
           if (cancelled) return;
-          artisanPage.current = page.items ?? [];
-          setArtisans((prev) => mergeById(prev.filter((a) => artisanIdsRef.current.includes(a.id)), page.items ?? []));
+          artisanPage.current = items;
+          setArtisans((prev) => mergeById(prev.filter((a) => artisanIdsRef.current.includes(a.id)), items));
         })
-        .catch(() => undefined);
+        .catch(() => {
+          // No signal: search the artisans this device has seen.
+          const found = searchCachedArtisans(readStartLists().artisans, search, workshopId) as unknown as Artisan[];
+          if (cancelled) return;
+          artisanPage.current = found;
+          setArtisans((prev) => mergeById(prev.filter((a) => artisanIdsRef.current.includes(a.id)), found));
+        });
     }, 250);
     return () => {
       cancelled = true;
@@ -180,47 +226,79 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
     }
   }, [form.artisanIds, consentAsked]);
 
-  // Coverage line under the artisan field.
-  // Asked once per change of instrument or selection; the artisan names are read from `artisans` on render.
+  // The instrument's sections and question lineages, held for the offline coverage line.
+  useEffect(() => {
+    if (!form.questionnaireId) return;
+    const questionnaireId = form.questionnaireId;
+    void loadInstrumentQuestions(questionnaireId)
+      .then((q) => writeStartLists({ sections: { [questionnaireId]: Object.fromEntries(q.sections.map((s) => [s.id, (q.byId[s.id] ?? []).map((x) => x.lineageId)])) } }))
+      .catch(() => undefined);
+  }, [form.questionnaireId]);
+
+  // Coverage line under the artisan field: the server's, else the held snapshot with the outbox laid
+  // over it, marked "Checked … ago" (DESIGN §4.2, audit M4). Asked once per change of instrument,
+  // workshop or selection; the artisan names are read from `artisans` on render.
+  const unitsRef = useRef(queue.units);
+  useEffect(() => {
+    unitsRef.current = queue.units;
+  }, [queue.units]);
   useEffect(() => {
     if (!form.questionnaireId || !artisanKey) {
       setCoverageGrid(null);
+      setCoverageHeld(null);
       return;
     }
     let cancelled = false;
     const artisanIds = artisanKey.split(",");
+    const questionnaireId = form.questionnaireId;
     void questionnaireApi
-      .coverage({ questionnaireId: form.questionnaireId, artisanIds })
+      .coverage({ questionnaireId, artisanIds })
       .then((grid) => {
-        if (!cancelled) setCoverageGrid({ ids: artisanIds, grid });
+        if (cancelled) return;
+        setCoverageHeld(null);
+        setCoverageGrid({ ids: artisanIds, grid });
       })
-      .catch(() => setCoverageGrid(null));
+      .catch(() => {
+        if (cancelled) return;
+        setCoverageGrid(null);
+        const workshopId = form.workshopId && form.workshopId !== FIELD_VISIT ? form.workshopId : null;
+        const held = readSnapshot(questionnaireId, workshopId);
+        const sections = readStartLists().sections[questionnaireId];
+        if (!held || !sections) {
+          setCoverageHeld(null);
+          return;
+        }
+        const takes = withTakes(held.snapshot, overlayFromUnits(unitsRef.current)).takes;
+        setCoverageHeld({
+          ids: artisanIds,
+          total: Object.keys(sections).length,
+          covered: Object.fromEntries(artisanIds.map((id) => [id, coveredSectionsOffline(takes, id, sections)])),
+          age: agoLabel(held.at)
+        });
+      });
     return () => {
       cancelled = true;
     };
-  }, [form.questionnaireId, artisanKey]);
+  }, [form.questionnaireId, form.workshopId, artisanKey]);
   const coverage = useMemo<ArtisanCoverage[]>(() => {
+    const nameOf = (id: string) => artisans.find((a) => a.id === id)?.name ?? "";
+    if (coverageHeld) return coverageHeld.ids.map((id) => ({ name: nameOf(id), total: coverageHeld.total, covered: coverageHeld.covered[id] ?? 0 }));
     if (!coverageGrid) return [];
     const { ids: coveredIds, grid } = coverageGrid;
     const total = grid.sections.length;
     const cells = grid.sections.flatMap((s) => s.cells);
     return coveredIds.map((id) => ({
-      name: artisans.find((a) => a.id === id)?.name ?? grid.artisans?.find((a) => a.artisanId === id)?.name ?? "",
+      name: nameOf(id) || grid.artisans?.find((a) => a.artisanId === id)?.name || "",
       total,
       covered: cells.filter((c) => c.artisanId === id && (c.state === "RECORDED" || (c.state === "PARTIAL" && c.total !== null && c.covered === c.total))).length
     }));
-  }, [coverageGrid, artisans]);
+  }, [coverageGrid, coverageHeld, artisans]);
+  const coverageAge = coverageHeld?.age ?? null;
 
   const workshop = workshops.find((w) => w.id === form.workshopId) ?? null;
   const chosen = form.artisanIds.map((id) => artisans.find((a) => a.id === id)).filter((a): a is Artisan => Boolean(a));
   const preview = useMemo(
-    () =>
-      sessionTitle({
-        sessionDate: form.sessionDate,
-        place: form.place || null,
-        workshop: workshop ? { district: workshop.place } : null,
-        participants: chosen.map((a) => ({ name: a.name }))
-      }),
+    () => sessionTitle(titlePreviewInput({ sessionDate: form.sessionDate, place: form.place, workshop, artisans: chosen })),
     [form.sessionDate, form.place, workshop, chosen]
   );
 
@@ -320,7 +398,12 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
           {form.mode === "GROUP" ? qs("fieldArtisans") : qs("fieldArtisan")}
         </label>
         {form.mode === "GROUP" ? (
-          <SearchableMultiSelect values={form.artisanIds} onChange={(v) => set("artisanIds", v)} options={artisanOptions} searchable ariaLabel={qs("fieldArtisans")} />
+          // Group mode searches the server through the box above the picker (audit M22): a filter over
+          // the 80 rows in hand would answer "No matches" about artisans that exist.
+          <div className="grid gap-2">
+            <SearchInput value={search} onChange={setSearch} placeholder={qs("fieldArtisans")} />
+            <SearchableMultiSelect values={form.artisanIds} onChange={(v) => set("artisanIds", v)} options={artisanOptions} searchable={false} ariaLabel={qs("fieldArtisans")} />
+          </div>
         ) : (
           <SearchableSelect
             id={ids.artisans}
@@ -334,7 +417,7 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
         )}
         {coverage.length ? (
           <p className="text-sm text-ink-500" data-coverage-line>
-            {coverageLine(coverage)}
+            {coverageLine(coverage, coverageAge)}
           </p>
         ) : null}
         {chosen

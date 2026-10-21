@@ -596,6 +596,8 @@ export type Questionnaire = {
   questionCount?: number;
   workshopCount?: number;
   createdAt?: string;
+  /** The author, who may delete from this form as a content admin may (owner, 22 Oct 2026). */
+  createdById?: string | null;
 };
 
 export type QuestionnaireQuestion = {

@@ -51,6 +51,8 @@ import { expect, test } from "@playwright/test";
 const read = (...parts: string[]) => readFileSync(join(__dirname, "..", ...parts), "utf8");
 
 const PAGE = read("app", "(protected)", "questionnaire", "page.tsx");
+/** The instrument builder, moved out of the page so `/questionnaire/builder` renders it alone (audit H15). */
+const BUILDER = read("components", "questionnaire", "InstrumentBuilder.tsx");
 const ON_DEVICE_BUTTON = read("components", "dictation", "OnDeviceDictationButton.tsx");
 const DICTATED_INPUT = read("components", "richtext", "DictatedTextInput.tsx");
 const DICTATED_TEXTAREA = read("components", "richtext", "DictatedTextArea.tsx");
@@ -75,7 +77,8 @@ function codeOnly(source: string): string {
     .join("\n");
 }
 
-const CODE = codeOnly(PAGE);
+// The page and the builder it mounts are one screen for these rules, so they are read together.
+const CODE = codeOnly(`${PAGE}\n${BUILDER}`);
 
 /** The body of a top-level function in the page, from its own declaration to the next named one. */
 function region(start: string, end: string): string {

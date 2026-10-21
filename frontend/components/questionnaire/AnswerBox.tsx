@@ -5,9 +5,11 @@ import { useState } from "react";
 import { PromptDialog } from "@/components/questionnaire/Prompts";
 import { enqueue } from "@/components/questionnaire/useSessionQueue";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
+import { ApiError } from "@/lib/api";
 import { shortName } from "@/lib/coverageCache";
 import { questionnaireApi, type Answer, type AnswerItem, type AnswerResult, type Recording, type Session, type SessionParticipant } from "@/lib/questionnaireApi";
 import { prompts, shortDate } from "@/lib/questionnairePrompts";
+import { heldAnswerResults, isPermanent, type AnswersStep } from "@/lib/questionnaireQueue";
 import { answersFromTakes } from "@/lib/questionnaireView";
 import { qs } from "@/lib/strings/qs";
 
@@ -39,10 +41,40 @@ export function answerItems(input: {
   });
 }
 
+/** The queue fills `sessionId` when it sends: an offline session has no server id yet. */
+function forQueue(items: AnswerItem[]): Omit<AnswerItem, "sessionId">[] {
+  return items.map((item) => {
+    const rest: Partial<AnswerItem> = { ...item };
+    delete rest.sessionId;
+    return rest as Omit<AnswerItem, "sessionId">;
+  });
+}
+
+/**
+ * What a save becomes when it cannot simply land (audit H18): a failure that might pass later goes
+ * to the outbox as it was typed; a CONFLICT or FORBIDDEN result is kept in the outbox for P9 rather
+ * than dropped. Null when nothing needs keeping. A 4xx that no retry will cure is the caller's error.
+ */
+export function answerFallback(
+  items: AnswerItem[],
+  outcome: { error: unknown } | { results: Parameters<typeof heldAnswerResults>[1] }
+): AnswersStep | null {
+  if ("error" in outcome) {
+    if (isPermanent(outcome.error)) return null;
+    return { kind: "answers", status: "PENDING", items: forQueue(items) };
+  }
+  const held = heldAnswerResults(items, outcome.results);
+  if (!held.length) return null;
+  const kept = items.filter((item) => held.some((r) => r.artisanId === item.artisanId && r.questionLineageId === item.questionLineageId));
+  return { kind: "answers", status: "FAILED", error: "CONFLICT", items: forQueue(kept), conflicts: held };
+}
+
 /**
  * One question's answer box (DESIGN §3.4, §3.6): "Answer for: All 3" by default in a group, a
- * per-artisan switch, and per-item results — a CONFLICT asks P9 (another device) or Keep · Replace
- * (an answer that already exists), and never blocks the other artisans' saves.
+ * per-artisan switch, and per-item results. Nothing typed is lost (audit H18): offline, on a new
+ * session, or when the save fails for a reason that may pass, the answer goes to the outbox; a
+ * CONFLICT (another device, or an answer that already exists) waits in the outbox for the
+ * workspace's P9, and never blocks the other artisans' saves.
  */
 export function AnswerBox({
   session,
@@ -63,58 +95,64 @@ export function AnswerBox({
   const [forWhom, setForWhom] = useState(ALL);
   const [text, setText] = useState(() => answers[0]?.text ?? "");
   const [saved, setSaved] = useState<string | null>(null);
-  const [conflict, setConflict] = useState<AnswerResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [existing, setExisting] = useState<Answer[]>(answers);
   // P8: answers that came from a take wait for "Replace" before they are overwritten.
   const [p8, setP8] = useState<{ artisanId: string; sourceRecordingId: string }[]>([]);
   const [confirmed, setConfirmed] = useState<Set<string>>(() => new Set());
   const [skipped, setSkipped] = useState<Set<string>>(() => new Set());
 
-  async function save(override?: Answer[], approved: Set<string> = confirmed, skip: Set<string> = skipped) {
-    const items = answerItems({ sessionId: session.id, lineageId, text, forWhom, participants, existing: override ?? existing }).filter(
-      (i) => !skip.has(i.artisanId)
-    );
+  async function keep(step: AnswersStep) {
+    await enqueue({ id: session.id, clientKey: session.clientKey }, step);
+  }
+
+  async function save(approved: Set<string> = confirmed, skip: Set<string> = skipped) {
+    const items = answerItems({ sessionId: session.id, lineageId, text, forWhom, participants, existing }).filter((i) => !skip.has(i.artisanId));
     if (!items.length || !text.trim()) return;
-    const fromTakes = answersFromTakes(override ?? existing, items.map((i) => i.artisanId), text).filter((a) => !approved.has(a.artisanId));
+    const fromTakes = answersFromTakes(existing, items.map((i) => i.artisanId), text).filter((a) => !approved.has(a.artisanId));
     if (fromTakes.length) {
       setP8(fromTakes);
       return;
     }
-    if (navigator.onLine === false || session.version === 0) {
-      await enqueue({ id: session.id, clientKey: session.clientKey }, {
-        kind: "answers",
-        status: "PENDING",
-        // The queue fills `sessionId` when it sends: an offline session has no server id yet.
-        items: items.map((item) => {
-          const rest: Partial<AnswerItem> = { ...item };
-          delete rest.sessionId;
-          return rest as Omit<AnswerItem, "sessionId">;
-        })
-      });
-      setSaved("✓");
-      return;
-    }
-    const { results } = await questionnaireApi.putAnswers(items);
-    const next = [...existing];
-    for (const r of results) {
-      if (r.answer) {
-        const at = next.findIndex((a) => a.artisanId === r.artisanId);
-        const value = { ...r.answer, artisanId: r.artisanId };
-        if (at >= 0) next[at] = value;
-        else next.push(value);
+    setError(null);
+    try {
+      if (navigator.onLine === false || session.version === 0) {
+        await keep({ kind: "answers", status: "PENDING", items: forQueue(items) });
+        setSaved("✓");
+        return;
       }
+      let results: AnswerResult[];
+      try {
+        ({ results } = await questionnaireApi.putAnswers(items));
+      } catch (failure) {
+        const step = answerFallback(items, { error: failure });
+        if (!step) throw failure;
+        await keep(step);
+        setSaved("✓");
+        return;
+      }
+      const next = [...existing];
+      for (const r of results) {
+        if (r.answer) {
+          const at = next.findIndex((a) => a.artisanId === r.artisanId);
+          const value = { ...r.answer, artisanId: r.artisanId };
+          if (at >= 0) next[at] = value;
+          else next.push(value);
+        }
+      }
+      setExisting(next);
+      const held = answerFallback(items, { results });
+      if (held) await keep(held);
+      setSaved(results.some((r) => r.status === "SAVED" || r.status === "UNCHANGED") ? "✓" : null);
+    } catch (failure) {
+      setError(failure instanceof ApiError || failure instanceof Error ? failure.message : String(failure));
     }
-    setExisting(next);
-    const clash = results.find((r) => r.status === "CONFLICT");
-    if (clash) setConflict(clash);
-    setSaved(results.some((r) => r.status === "SAVED" || r.status === "UNCHANGED") ? "✓" : null);
   }
 
   const options = [
     { value: ALL, label: qs("answerForAll", { count: participants.length }) },
     ...participants.map((p) => ({ value: p.artisanId, label: p.name }))
   ];
-  const conflictName = conflict ? shortName(participants.find((p) => p.artisanId === conflict.artisanId)?.name ?? "") : "";
   const p8Take = p8[0] ? recordings.find((r) => r.id === p8[0].sourceRecordingId) : undefined;
 
   return (
@@ -138,6 +176,11 @@ export function AnswerBox({
         onBlur={() => void save()}
       />
       {saved ? <span className="text-xs text-success-600">{saved}</span> : null}
+      {error ? (
+        <p role="alert" className="text-xs text-error-600">
+          {error}
+        </p>
+      ) : null}
       {p8[0] ? (
         <PromptDialog
           spec={prompts.p8({
@@ -151,7 +194,7 @@ export function AnswerBox({
             const [first, ...rest] = p8;
             const approved = new Set(confirmed);
             const skip = new Set(skipped);
-            // Replace: overwrite this artisan's answer. Keep current: leave it; the others still save.
+            // Replace: overwrite this artisan's answer. Keep current (or a dismissal): leave it; the others still save.
             if (choice === "replace") approved.add(first.artisanId);
             else {
               skip.add(first.artisanId);
@@ -160,42 +203,7 @@ export function AnswerBox({
             setConfirmed(approved);
             setSkipped(skip);
             setP8(rest);
-            if (!rest.length) void save(undefined, approved, skip);
-          }}
-        />
-      ) : null}
-      {conflict && conflict.current ? (
-        <PromptDialog
-          spec={
-            conflict.current.editedBy
-              ? prompts.p9({
-                  researcher: conflict.current.editedBy.name,
-                  name: conflictName,
-                  code,
-                  time: conflict.current.editedAt
-                    ? new Date(conflict.current.editedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Kolkata" })
-                    : ""
-                })
-              : {
-                  id: "ANSWER_EXISTS",
-                  title: qs("answerExists", { name: conflictName }),
-                  body: conflict.current.text,
-                  buttons: [
-                    { id: "theirs", label: qs("keep"), tone: "secondary" },
-                    { id: "mine", label: qs("replace"), tone: "primary" }
-                  ]
-                }
-          }
-          open
-          onChoose={(choice) => {
-            const c = conflict;
-            setConflict(null);
-            if (!c?.current) return;
-            const current = { ...c.current, artisanId: c.artisanId };
-            const others = existing.filter((a) => a.artisanId !== c.artisanId);
-            setExisting([...others, current]);
-            if (choice === "theirs") setText(current.text);
-            else void save([...others, current]);
+            if (!rest.length) void save(approved, skip);
           }}
         />
       ) : null}

@@ -100,6 +100,10 @@ const FORWARDED_REQUEST_HEADERS = new Set([
   // build, for the old-build cutoff.
   "x-client-time",
   "x-app-version",
+  // The build NUMBER and the platform (audit C7): version names were reset to 0.0.1, so the cutoff
+  // compares this rising code, per platform, sent apart from the name.
+  "x-app-version-code",
+  "x-app-platform",
   "x-confirm-provider",
   "x-confirm-sign-in",
   "x-sign-in-proof"

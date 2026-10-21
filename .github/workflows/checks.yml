@@ -978,6 +978,144 @@ jobs:
           fi
           exit "$status"
 
+  # ═══════════════════════════════════════════════════════════════════════════════════════
+  # The web outbox against a real backend, database and bucket (questionnaire v2)
+  # ═══════════════════════════════════════════════════════════════════════════════════════
+  # The audit of 2026-10-21 found that the web unit specs mocked the questionnaire API with a fake
+  # that answered presign-parts as `{parts}` while the server sends `{urls}` (C3), and an in-memory
+  # store that took a unit with no key where IndexedDB throws (C4). This job runs the browser's own
+  # client and byte transport, unmocked, against the FastAPI app with QUESTIONNAIRE_V2 on, this
+  # job's throwaway Postgres (migrated from empty) and a throwaway MinIO bucket:
+  # frontend/e2e/questionnaire-v2-stack.spec.ts, seeded by scripts/ci/seed_qv2_stack.py. Nothing
+  # outside the runner is touched; the spec and the seed both refuse a non-loopback host.
+  web-v2-stack:
+    name: Web outbox against a real stack
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: field_repository
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PYTHONUTF8: "1"
+      DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"
+      JWT_SECRET: "ci-web-stack-not-a-secret-0123456789abcdef"
+      MASTER_ADMIN_EMAIL: "ci@example.invalid"
+      # MinIO's documented local defaults, for a bucket that lives and dies with this runner.
+      AWS_ACCESS_KEY_ID: "minioadmin"
+      AWS_SECRET_ACCESS_KEY: "minioadmin"
+      AWS_S3_BUCKET: "field-repository"
+      AWS_S3_ENDPOINT: "http://127.0.0.1:9000"
+      AWS_S3_PUBLIC_BASE_URL: "http://127.0.0.1:9000/field-repository"
+      AWS_REGION: "us-east-1"
+      # MinIO speaks S3 but not KMS and refuses the SSE header; empty is the documented local value.
+      AWS_S3_SSE_ALGORITHM: ""
+      QUESTIONNAIRE_V2: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          # The box's interpreter, as in jobs 1 and 4 (test_interpreter_pin.py holds every copy).
+          python-version: "3.14.8"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.lock
+            backend/pyproject.toml
+
+      - name: Install the backend from the lock
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock
+          pip install --no-deps -e .
+
+      - name: Prisma client and migrations
+        run: |
+          set -euo pipefail
+          python -m prisma py fetch
+          python -m prisma generate --schema prisma/schema.prisma
+          python -m prisma migrate deploy --schema prisma/schema.prisma
+
+      - name: Start a throwaway bucket
+        # docker-compose.yml's image and bucket, started by hand: a service container cannot be given
+        # the `server /data` command this image needs.
+        run: |
+          set -euo pipefail
+          docker run -d --name qv2-minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z server /data
+          for i in $(seq 1 30); do
+            if docker exec qv2-minio mcli alias set local http://127.0.0.1:9000 minioadmin minioadmin >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          docker exec qv2-minio mcli mb --ignore-existing local/field-repository
+
+      - name: Seed the database
+        run: python ../scripts/ci/seed_qv2_stack.py "$RUNNER_TEMP/qv2-seed.json"
+
+      - name: Start the API
+        run: |
+          set -euo pipefail
+          nohup python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 > "$RUNNER_TEMP/api.log" 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8000/health >/dev/null; then echo "API is up."; exit 0; fi
+            sleep 2
+          done
+          echo "::error::the API did not answer /health within two minutes"
+          tail -n 200 "$RUNNER_TEMP/api.log"
+          exit 1
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: frontend/package.json
+          check-latest: true
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install npm 12 and the web dependencies
+        # As in job 2; no browser download, because this spec drives no page.
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          npm install --global npm@12
+          npm ci
+
+      - name: The web outbox against the stack
+        working-directory: frontend
+        env:
+          QV2_STACK_API: "http://127.0.0.1:8000"
+        run: |
+          set -uo pipefail
+          export QV2_STACK_SEED="$RUNNER_TEMP/qv2-seed.json"
+          status=0
+          npx playwright test e2e/questionnaire-v2-stack.spec.ts || status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "--- API log (last 200 lines) ---"
+            tail -n 200 "$RUNNER_TEMP/api.log"
+          fi
+          # Both variables are set above, so the spec cannot skip itself here.
+          exit "$status"
+
   # The box side of the backend deploy, proved without a box (2026-10-19). backend/deploy/blue_green.sh
   # is what deploy-backend.yml pipes over ssh to release the API with no downtime; the test runs it
   # against stubbed systemctl, nginx and curl and fails if nginx is ever left pointing at a port

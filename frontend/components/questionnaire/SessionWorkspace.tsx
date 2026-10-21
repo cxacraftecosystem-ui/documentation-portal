@@ -10,17 +10,29 @@ import { AnswerBox } from "@/components/questionnaire/AnswerBox";
 import { ConsentQuestion } from "@/components/questionnaire/ConsentQuestion";
 import { CoverageGrid } from "@/components/questionnaire/CoverageGrid";
 import { PromptDialog } from "@/components/questionnaire/Prompts";
-import { activeRecording, Recorder, recorderClock, type FinishedTake, type RecorderTarget } from "@/components/questionnaire/Recorder";
+import { activeRecording, Recorder, recorderClock, takesInHand, type FinishedTake, type RecorderTarget } from "@/components/questionnaire/Recorder";
 import { SessionHeader } from "@/components/questionnaire/SessionHeader";
 import { TakeSheet } from "@/components/questionnaire/TakeSheet";
 import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
-import { enqueue, onRecordingLanded, onSessionLanded, useSessionQueue } from "@/components/questionnaire/useSessionQueue";
+import { enqueue, onRecordingLanded, onSessionLanded, resolveQueuedAnswer, useSessionQueue } from "@/components/questionnaire/useSessionQueue";
 import { useLeaveGuard } from "@/components/UnsavedChangesGuard";
 import { ButtonRow } from "@/components/ui/ButtonRow";
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { Toggle } from "@/components/ui/Toggle";
-import { ApiError, clockOffset } from "@/lib/api";
+import { ApiError, clockOffset, listResource } from "@/lib/api";
 import { loadInstrumentQuestions } from "@/components/questionnaire/instrumentQuestions";
-import { offlineCheck, preselectReason, questionKey, sectionKey, shortName } from "@/lib/coverageCache";
+import {
+  offlineCheck,
+  overlayFromUnits,
+  preselectReason,
+  questionKey,
+  readSnapshot,
+  refreshSnapshot,
+  sectionKey,
+  shortName,
+  takesFromRecordings,
+  withTakes
+} from "@/lib/coverageCache";
 import { sha256Hex } from "@/lib/hashFile";
 import {
   contractError,
@@ -35,15 +47,26 @@ import {
   type Session,
   type SessionDetail
 } from "@/lib/questionnaireApi";
-import { prompts, shortDate, type P2Input } from "@/lib/questionnairePrompts";
-import { takesFor } from "@/lib/questionnaireView";
-import type { ClipStep } from "@/lib/questionnaireQueue";
+import { prompts, shortDate, type P2Input, type PromptSpec } from "@/lib/questionnairePrompts";
+import { clipUploadState, sessionUnitKey, type ClipStep, type SessionUnit } from "@/lib/questionnaireQueue";
+import { consentSubject, pickedFileMeta, takesFor, takeSubjects } from "@/lib/questionnaireView";
 import { assembleTake, recorderStore, recoverable, recoveredMinutes, type TakeChunk, type TakeDraft } from "@/lib/recorderStore";
 import { qs } from "@/lib/strings/qs";
-import type { QuestionnaireSection } from "@/lib/types";
+import type { Artisan, QuestionnaireSection } from "@/lib/types";
 
 type Target = { sectionId: string } | { questionLineageId: string };
-type Pending = { targets: Target[]; label: string; code: string; file?: File | null };
+/** What a Record press or file pick is for; the roster is snapshotted at the press (DESIGN §3.4). */
+type Pending = { targets: Target[]; label: string; code: string; file?: File | null; roster: string[] };
+/** Everything a take carries from the press to the outbox. */
+type TakeContext = {
+  pending: Pending;
+  reasons: Record<string, RepeatReason>;
+  acked: string[];
+  replaces: string | null;
+  continuation: string | null;
+  sha: string | null;
+  source: string;
+};
 
 function localSession(body: import("@/lib/questionnaireApi").SessionCreate, title: string): Session {
   return {
@@ -84,15 +107,21 @@ function gridFromSections(sections: QuestionnaireSection[], byId: Record<string,
   return { sections: sections.map((s) => ({ id: s.id, code: s.code, title: s.title, questions: byId[s.id] })), cells: [] };
 }
 
+/** The clip keys already in the outbox: a draft whose take reached it needs no P13. */
+function queuedClipKeys(units: SessionUnit[]): Set<string> {
+  return new Set(units.flatMap((u) => u.steps.filter((s): s is ClipStep => s.kind === "clip").map((s) => s.clientClipKey)));
+}
+
 /**
  * The capture workspace (DESIGN §4.3–4.5, §6.2): the session's coverage grid, the take sheet, the
  * recorder and every prompt. A session started offline lives in the outbox under its clientKey and
- * works the same way; its route swaps to the server id once it lands.
+ * works the same way; its route swaps to the server id once it lands. A rebuilt session with no
+ * clientKey is queued under its id (audit C4).
  */
 export function SessionWorkspace({ id }: { id: string }) {
   const router = useRouter();
   const { user } = useAuth();
-  // Removing a take is a delete: content admins only, admin view or not (owner, 2026-10-21).
+  // Removing a take, and merging sessions, are content admins' acts, admin view or not (owner, 2026-10-21).
   const { canDeleteRecords } = useAdminView();
   const config = useQuestionnaireConfig();
   const paused = config?.transcriptionPaused ?? true;
@@ -103,17 +132,25 @@ export function SessionWorkspace({ id }: { id: string }) {
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [typeAnswers, setTypeAnswers] = useState(false);
   const [p2, setP2] = useState<{ pending: Pending; input: P2Input; reason: RepeatReason; check: CoverageCheckResponse } | null>(null);
-  const [recording, setRecording] = useState<{ target: RecorderTarget; pending: Pending; reasons: Record<string, RepeatReason>; acked: string[]; replaces?: string | null; continuation?: string | null } | null>(null);
+  const [recording, setRecording] = useState<{ target: RecorderTarget; context: TakeContext } | null>(null);
+  const [answering, setAnswering] = useState<{ take: FinishedTake; context: TakeContext; chosen: string[] } | null>(null);
+  const [lastAnswered, setLastAnswered] = useState<Record<string, string[]>>({});
   const [p3, setP3] = useState<Pending | null>(null);
-  const [p5, setP5] = useState<{ spec: ReturnType<typeof prompts.p5> } | null>(null);
+  const [p5, setP5] = useState<{ spec: PromptSpec; act: ((choice: string) => Promise<void>) | null } | null>(null);
   const [p13, setP13] = useState<{ draft: TakeDraft; chunks: TakeChunk[] }[]>([]);
+  const [takeError, setTakeError] = useState<string | null>(null);
   const [finishOpen, setFinishOpen] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [consentFor, setConsentFor] = useState<{ artisanId: string; name: string } | null>(null);
   const [removeTake, setRemoveTake] = useState<Recording | null>(null);
   const [p7, setP7] = useState<{ run: () => void; position: number; target: string } | null>(null);
   const [p10, setP10] = useState<{ artisanId: string; name: string; count: number } | null>(null);
-  const queue = useSessionQueue(detail?.clientKey ?? id);
+  const [adding, setAdding] = useState(false);
+  const queue = useSessionQueue(detail ?? id);
+  const unitsRef = useRef<SessionUnit[]>(queue.units);
+  useEffect(() => {
+    unitsRef.current = queue.units;
+  }, [queue.units]);
   const generation = useRef(0);
 
   const load = useCallback(async () => {
@@ -131,8 +168,8 @@ export function SessionWorkspace({ id }: { id: string }) {
         .catch(() => undefined);
     } catch (error) {
       if (mine !== generation.current) return;
-      const unit = queue.units.find((u) => u.id === id);
-      if (unit?.sessionId) {
+      const unit = unitsRef.current.find((u) => u.id === id);
+      if (unit?.sessionId && unit.sessionId !== id) {
         router.replace(`/questionnaire/sessions/${encodeURIComponent(unit.sessionId)}`);
         return;
       }
@@ -149,7 +186,7 @@ export function SessionWorkspace({ id }: { id: string }) {
       }
       setLoadError(error instanceof ApiError && error.status === 404 ? qs("sessionLoadError") : qs("sessionLoadError"));
     }
-  }, [id, queue.units, router]);
+  }, [id, router]);
 
   useEffect(() => {
     void load();
@@ -168,31 +205,56 @@ export function SessionWorkspace({ id }: { id: string }) {
     };
   }, [detail, id, load, router]);
 
-  // P13: a take this browser started for this session and never stopped.
+  // The workshop's coverage snapshot, kept fresh while the workspace is open, so P2 asks the same
+  // question offline (audit M4). A failure keeps the held one.
+  const questionnaireId = detail?.questionnaire.id ?? null;
+  const workshopId = detail?.workshop?.id ?? null;
   useEffect(() => {
-    if (!detail) return;
-    let cancelled = false;
-    void Promise.all([recorderStore.drafts(), recorderStore.chunks()])
-      .then(([drafts, chunks]) => {
-        if (cancelled) return;
-        setP13(recoverable(drafts.filter((d) => d.sessionKey === detail.clientKey && !activeRecording()), chunks));
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
+    if (!questionnaireId) return;
+    const refresh = () => {
+      if (navigator.onLine !== false) void refreshSnapshot(questionnaireApi, questionnaireId, workshopId);
     };
-  }, [detail]);
+    refresh();
+    const timer = window.setInterval(refresh, Math.max(15, config?.snapshotPollSeconds ?? 60) * 1000);
+    return () => window.clearInterval(timer);
+  }, [questionnaireId, workshopId, config?.snapshotPollSeconds]);
+
+  const sessionKey = detail ? sessionUnitKey(detail) : null;
+
+  /**
+   * P13: a take this browser started for this session and never handed to the outbox. A take that
+   * reached the outbox before the draft was cleared is cleared now; one being handed over in this tab
+   * is left alone (audit H17).
+   */
+  const checkRecovery = useCallback(async () => {
+    if (!sessionKey || activeRecording()) return;
+    try {
+      const [drafts, chunks] = await Promise.all([recorderStore.drafts(), recorderStore.chunks()]);
+      const queued = queuedClipKeys(unitsRef.current);
+      for (const d of drafts) if (queued.has(d.clientClipKey)) void recorderStore.discard(d.takeKey).catch(() => undefined);
+      setP13(recoverable(drafts.filter((d) => d.sessionKey === sessionKey && !takesInHand.has(d.takeKey) && !queued.has(d.clientClipKey)), chunks));
+    } catch {
+      // No IndexedDB (a private window): nothing was kept to recover.
+    }
+  }, [sessionKey]);
+
+  useEffect(() => {
+    void checkRecovery();
+  }, [checkRecovery]);
 
   const pendingCount = queue.pendingClips.length;
-  useLeaveGuard(pendingCount > 0, () => setLeaveOpen(true));
+  // A take in progress, or waiting for "Answered by", is unsaved work too (audit, leave guard).
+  const inHand = recording !== null || answering !== null ? 1 : 0;
+  const guarded = pendingCount + inHand;
+  useLeaveGuard(guarded > 0, () => setLeaveOpen(true));
   useEffect(() => {
-    if (pendingCount === 0) return;
+    if (guarded === 0) return;
     const warn = (event: BeforeUnloadEvent) => {
       event.preventDefault();
     };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [pendingCount]);
+  }, [guarded]);
 
   // Overlay: takes still in the outbox show as uploading on the grid.
   const shownGrid = useMemo<Grid | null>(() => {
@@ -205,14 +267,14 @@ export function SessionWorkspace({ id }: { id: string }) {
           const key = "sectionId" in t ? sectionKey(t.sectionId) : null;
           if (!key) continue;
           const existing = cells.findIndex((c) => c.artisanId === subject.artisanId && c.targetKey === key);
-          const state = navigator.onLine === false ? "ON_DEVICE" : "UPLOADING";
+          const state = queue.online ? "UPLOADING" : "ON_DEVICE";
           if (existing < 0) cells.push({ artisanId: subject.artisanId, targetKey: key, state, count: 1 });
           else if (cells[existing].state === "NOT_RECORDED") cells[existing] = { ...cells[existing], state };
         }
       }
     }
     return { ...grid, cells };
-  }, [grid, queue.pendingClips]);
+  }, [grid, queue.pendingClips, queue.online]);
 
   if (loadError) {
     return (
@@ -229,9 +291,15 @@ export function SessionWorkspace({ id }: { id: string }) {
   if (!detail || !shownGrid) return <div className="panel p-4 text-sm text-ink-500">{qs("loading")}</div>;
 
   const session = detail;
+  const unitSession = { id: session.id, clientKey: session.clientKey };
   const roster = session.participants.filter((p) => !p.leftAt).map((p) => p.artisanId);
   const names = Object.fromEntries(session.participants.map((p) => [p.artisanId, p.name]));
   const sectionOf = (lineageId: string) => shownGrid.sections.find((s) => s.questions?.some((q) => q.lineageId === lineageId))?.id ?? null;
+  const sectionOfTargets = (targets: Target[]) => {
+    const t = targets[0];
+    if (!t) return "whole";
+    return "sectionId" in t ? t.sectionId : sectionOf(t.questionLineageId) ?? "whole";
+  };
   const labelOf = (key: string) => {
     const [kind, ref] = [key.slice(0, 1), key.slice(2)];
     if (kind === "S") return `Section ${shownGrid.sections.find((s) => s.id === ref)?.code ?? ""}`.trim();
@@ -242,14 +310,30 @@ export function SessionWorkspace({ id }: { id: string }) {
     return key;
   };
 
+  /**
+   * `coverage/check`, or — offline OR on any failure — the held workshop snapshot with this session's
+   * own takes and the outbox laid over it (audit M4). A failed check is never read as "not covered".
+   */
   async function check(pending: Pending, sha: string | null): Promise<CoverageCheckResponse> {
-    const request = { questionnaireId: session.questionnaire.id, artisanIds: roster, targets: pending.targets, sessionId: session.id, contentSha256: sha };
-    try {
-      if (navigator.onLine === false) throw new Error("offline");
-      return await questionnaireApi.checkCoverage(request);
-    } catch {
-      return offlineCheck(null, [], request, { sectionOf, labelOf, sessionId: session.id, me: user?.id ?? null });
+    const request = { questionnaireId: session.questionnaire.id, artisanIds: pending.roster, targets: pending.targets, sessionId: session.id, contentSha256: sha };
+    if (navigator.onLine !== false) {
+      try {
+        return await questionnaireApi.checkCoverage(request);
+      } catch {
+        // Fall through to what this browser holds.
+      }
     }
+    const held = readSnapshot(session.questionnaire.id, session.workshop?.id ?? null);
+    const snapshot = withTakes(held?.snapshot ?? null, takesFromRecordings(session.recordings));
+    const recordedBy = new Map(session.recordings.map((r) => [r.id, r.recordedBy] as const));
+    return offlineCheck(snapshot, overlayFromUnits(queue.units), request, {
+      sectionOf,
+      labelOf,
+      sessionId: session.id,
+      me: user?.id ?? null,
+      recordedBy: (rid) => recordedBy.get(rid) ?? (user ? { id: user.id, name: user.name } : null),
+      sessionInfo: (sid) => (sid === session.id || sid === sessionKey ? { date: session.sessionDate, rosterCount: roster.length } : null)
+    });
   }
 
   /** P10: a participant with takes leaves only with `detach`; the server's count wins over ours. */
@@ -263,6 +347,70 @@ export function SessionWorkspace({ id }: { id: string }) {
     }
   }
 
+  /** "+ Add artisan" (audit M22): through the outbox, so it works offline and in order. */
+  async function addArtisan(artisan: { id: string; name: string }) {
+    setAdding(false);
+    if (session.participants.some((p) => p.artisanId === artisan.id)) return;
+    await enqueue(unitSession, { kind: "participant", status: "PENDING", op: "add", artisanId: artisan.id, at: new Date().toISOString(), idempotencyKey: mintKey("part") });
+    setDetail({
+      ...detail!,
+      participantCount: detail!.participantCount + 1,
+      participants: [...detail!.participants, { artisanId: artisan.id, name: artisan.name, joinedAt: new Date().toISOString(), leftAt: null, consent: null }]
+    });
+  }
+
+  /**
+   * P5, from the session the identical file is on (audit M22): this session → add the artisans the
+   * take is missing; another session of the same sitting → merge (content admins); otherwise OK.
+   */
+  async function identicalPrompt(other: NonNullable<CoverageCheckResponse["identical"]>, pending: Pending) {
+    if (other.sameSession) {
+      const take = session.recordings.find((r) => r.id === other.recordingId);
+      const answered = new Set(take?.subjects.filter((s) => s.role === "ANSWERED").map((s) => s.artisanId) ?? []);
+      const missing = pending.roster.filter((a) => !answered.has(a));
+      const onIt = take?.subjects.find((s) => s.role === "ANSWERED")?.artisanId ?? pending.roster[0];
+      const base = { name: shortName(names[onIt] ?? ""), date: shortDate(take?.capturedAt ?? session.sessionDate) };
+      if (take && missing.length) {
+        setP5({
+          spec: prompts.p5({ ...base, case: "SAME_SESSION", addName: missing.map((a) => shortName(names[a] ?? "")).join(", ") }),
+          act: async (choice) => {
+            if (choice !== "add") return;
+            // Everyone already on the take stays as they were; the missing artisans join it as answering.
+            const kept = take.subjects.map((s) => ({ artisanId: s.artisanId, role: missing.includes(s.artisanId) ? "ANSWERED" : s.role }));
+            const added = missing.filter((a) => !take.subjects.some((s) => s.artisanId === a)).map((artisanId) => ({ artisanId, role: "ANSWERED" }));
+            await questionnaireApi.patchRecording(take.id, { version: take.version, subjects: [...kept, ...added] });
+            void load();
+          }
+        });
+      } else setP5({ spec: prompts.p5({ ...base, case: "OTHER" }), act: null });
+      return;
+    }
+    let elsewhere: SessionDetail | null = null;
+    try {
+      elsewhere = await questionnaireApi.getSession(other.sessionId);
+    } catch {
+      elsewhere = null;
+    }
+    const base = {
+      name: shortName(elsewhere?.participants[0]?.name ?? ""),
+      date: shortDate(elsewhere?.sessionDate ?? elsewhere?.startedAt ?? null)
+    };
+    const sameSitting = Boolean(
+      elsewhere && elsewhere.sessionDate === session.sessionDate && elsewhere.participants.some((p) => pending.roster.includes(p.artisanId))
+    );
+    if (elsewhere && sameSitting && canDeleteRecords && session.version > 0) {
+      const target = elsewhere.id;
+      setP5({
+        spec: prompts.p5({ ...base, case: "OTHER_SESSION" }),
+        act: async (choice) => {
+          if (choice !== "merge") return;
+          await questionnaireApi.mergeInto(session.id, target);
+          router.replace(`/questionnaire/sessions/${encodeURIComponent(target)}`);
+        }
+      });
+    } else setP5({ spec: prompts.p5({ ...base, case: "OTHER" }), act: null });
+  }
+
   async function begin(pending: Pending) {
     const live = activeRecording();
     if (live) {
@@ -272,15 +420,7 @@ export function SessionWorkspace({ id }: { id: string }) {
     const sha = pending.file ? await sha256Hex(pending.file) : null;
     const answer = await check(pending, sha);
     if (pending.file && answer.identical) {
-      const other = answer.identical;
-      setP5({
-        spec: prompts.p5({
-          name: names[roster[0]]?.split(" ")[0] ?? "",
-          date: shortDate(session.sessionDate),
-          case: other.sameSession ? "SAME_SESSION" : "OTHER",
-          addName: names[roster[0]]?.split(" ")[0] ?? ""
-        })
-      });
+      await identicalPrompt(answer.identical, pending);
       return;
     }
     const covered = answer.targets[0]?.perArtisan.some((p) => p.takes.length > 0);
@@ -290,7 +430,7 @@ export function SessionWorkspace({ id }: { id: string }) {
       setP2({
         pending: { ...pending },
         check: answer,
-        reason: preselectReason({ purpose: session.purpose, rosterCount: roster.length, earlier, me: user?.id ?? null, suggested: answer.suggestedReason }),
+        reason: preselectReason({ purpose: session.purpose, rosterCount: pending.roster.length, earlier, me: user?.id ?? null, suggested: answer.suggestedReason }),
         input: {
           check: answer,
           names,
@@ -312,74 +452,80 @@ export function SessionWorkspace({ id }: { id: string }) {
 
   function proceed(pending: Pending, reasons: Record<string, RepeatReason>, acked: string[], replaces: string | null, continuation: string | null, sha: string | null) {
     if (pending.file) {
-      void queueClip(
+      // A picked file is dated the session day, never by its copy time; its type names a missing extension.
+      const meta = pickedFileMeta(pending.file, session.sessionDate);
+      finishTake(
         {
           takeKey: mintKey("file"),
           clientClipKey: mintKey("clip"),
           blob: pending.file,
-          mimeType: pending.file.type || "audio/mp4",
-          extension: (pending.file.name.split(".").pop() ?? "m4a").toLowerCase(),
+          mimeType: meta.contentType,
+          extension: meta.extension,
           durationMs: 0,
-          deviceCapturedAt: pending.file.lastModified ? new Date(pending.file.lastModified).toISOString() : new Date().toISOString()
+          deviceCapturedAt: meta.deviceCapturedAt
         },
-        pending,
-        reasons,
-        acked,
-        replaces,
-        continuation,
-        sha,
-        pending.file.lastModified ? "FILE_METADATA" : "SESSION_DATE"
+        { pending, reasons, acked, replaces, continuation, sha, source: meta.capturedAtSource }
       );
       return;
     }
     setRecording({
-      target: { label: pending.label, targets: pending.targets, roster, sessionKey: session.clientKey },
-      pending,
-      reasons,
-      acked,
-      replaces,
-      continuation
+      target: { label: pending.label, targets: pending.targets, roster: pending.roster, sessionKey: sessionUnitKey(session) },
+      context: { pending, reasons, acked, replaces, continuation, sha: null, source: "DEVICE" }
     });
   }
 
-  async function queueClip(
-    take: FinishedTake,
-    pending: Pending,
-    reasons: Record<string, RepeatReason>,
-    acked: string[],
-    replaces: string | null,
-    continuation: string | null,
-    knownSha: string | null,
-    source = "DEVICE"
-  ) {
-    const sha = knownSha ?? (await sha256Hex(take.blob));
-    const offset = clockOffset();
-    const step: ClipStep = {
-      kind: "clip",
-      status: "PENDING",
-      clientClipKey: take.clientClipKey,
-      blobKey: take.takeKey,
-      label: pending.label,
-      sizeBytes: take.blob.size,
-      contentType: take.mimeType.split(";")[0] || "audio/webm",
-      extension: take.extension,
-      presign: { contentSha256: sha, targets: pending.targets, subjectArtisanIds: roster, deviceCapturedAt: take.deviceCapturedAt, clockOffsetMs: offset?.offsetMs ?? null },
-      recording: {
-        targets: pending.targets,
-        subjects: roster.map((artisanId) => ({ artisanId, role: "ANSWERED", named: false, repeatReason: reasons[artisanId] ?? null })),
-        deviceCapturedAt: take.deviceCapturedAt,
-        clockOffsetMs: offset?.offsetMs ?? null,
-        capturedAtSource: source,
-        durationMs: take.durationMs || null,
-        rosterCount: roster.length,
-        contentSha256: sha,
-        continuationOfId: continuation,
-        replacesRecordingId: replaces,
-        ackedRecordingIds: acked
-      }
-    };
-    await enqueue({ id: session.id, clientKey: session.clientKey }, step, { key: take.takeKey, blob: take.blob });
-    void recorderStore.discard(take.takeKey).catch(() => undefined);
+  /** After Stop or a pick: a group asks "Answered by" first (all ticked, the section's last choice kept). */
+  function finishTake(take: FinishedTake, context: TakeContext) {
+    if (context.pending.roster.length > 1) {
+      const remembered = lastAnswered[sectionOfTargets(context.pending.targets)]?.filter((a) => context.pending.roster.includes(a));
+      setAnswering({ take, context, chosen: remembered?.length ? remembered : context.pending.roster });
+      return;
+    }
+    void queueClip(take, context, new Set(context.pending.roster));
+  }
+
+  /**
+   * Into the outbox. The recorder's draft is cleared only once the outbox holds the take (audit H17);
+   * if the write fails, the draft stays and P13 offers the take back at once.
+   */
+  async function queueClip(take: FinishedTake, context: TakeContext, answered: ReadonlySet<string>) {
+    setTakeError(null);
+    try {
+      const sha = context.sha ?? (await sha256Hex(take.blob));
+      const offset = clockOffset();
+      const roster = context.pending.roster;
+      const step: ClipStep = {
+        kind: "clip",
+        status: "PENDING",
+        clientClipKey: take.clientClipKey,
+        blobKey: take.takeKey,
+        label: context.pending.label,
+        sizeBytes: take.blob.size,
+        contentType: take.mimeType.split(";")[0] || "audio/webm",
+        extension: take.extension,
+        presign: { contentSha256: sha, targets: context.pending.targets, subjectArtisanIds: roster, deviceCapturedAt: take.deviceCapturedAt, clockOffsetMs: offset?.offsetMs ?? null },
+        recording: {
+          targets: context.pending.targets,
+          subjects: takeSubjects(roster, answered, context.reasons),
+          deviceCapturedAt: take.deviceCapturedAt,
+          clockOffsetMs: offset?.offsetMs ?? null,
+          capturedAtSource: context.source,
+          durationMs: take.durationMs || null,
+          rosterCount: roster.length,
+          contentSha256: sha,
+          continuationOfId: context.continuation,
+          replacesRecordingId: context.replaces,
+          ackedRecordingIds: context.acked
+        }
+      };
+      await enqueue(unitSession, step, { key: take.takeKey, blob: take.blob });
+      await recorderStore.discard(take.takeKey).catch(() => undefined);
+    } catch {
+      setTakeError(qs("takeNotSaved"));
+    } finally {
+      takesInHand.delete(take.takeKey);
+      void checkRecovery();
+    }
   }
 
   function chooseP2(choice: P2Choice) {
@@ -407,6 +553,8 @@ export function SessionWorkspace({ id }: { id: string }) {
     }
   }
 
+  const press = (targets: Target[], label: string, code: string, file?: File) => void begin({ targets, label, code, file, roster });
+
   const sheetSection = sheet ? shownGrid.sections.find((s) => s.id === sheet.sectionId) ?? null : null;
   const sheetRecordings = sheet
     ? detail.recordings.filter(
@@ -420,6 +568,8 @@ export function SessionWorkspace({ id }: { id: string }) {
     ...(s.questions ?? []).map((q) => ({ value: questionKey(q.lineageId), label: `${q.displayCode} ${q.prompt}` }))
   ]);
   const activeGridSection = activeSection ? shownGrid.sections.find((s) => s.id === activeSection) ?? null : null;
+  const myClips = (queue.unit?.steps ?? []).filter((s): s is ClipStep => s.kind === "clip" && s.status !== "DONE");
+  const conflict = queue.conflicts[0] ?? null;
 
   return (
     <div className="grid gap-4" data-session-workspace>
@@ -429,7 +579,7 @@ export function SessionWorkspace({ id }: { id: string }) {
         onFinish={() => setFinishOpen(true)}
         onPresence={(artisanId, present) => {
           const at = new Date().toISOString();
-          void enqueue({ id: session.id, clientKey: session.clientKey }, { kind: "participant", status: "PENDING", op: present ? "join" : "leave", artisanId, at, idempotencyKey: mintKey("part") });
+          void enqueue(unitSession, { kind: "participant", status: "PENDING", op: present ? "join" : "leave", artisanId, at, idempotencyKey: mintKey("part") });
           setDetail({ ...detail, participants: detail.participants.map((p) => (p.artisanId === artisanId ? { ...p, leftAt: present ? null : at } : p)) });
         }}
         onRemove={
@@ -442,15 +592,22 @@ export function SessionWorkspace({ id }: { id: string }) {
               }
             : undefined
         }
+        onAddArtisan={session.state === "OPEN" ? () => setAdding(!adding) : undefined}
       />
 
-      {(queue.unit?.steps ?? [])
-        .filter((s): s is ClipStep => s.kind === "clip" && s.error === "MISSING_FILE")
-        .map((s) => (
-          <p key={s.clientClipKey} role="status" className="panel border-error-600/30 p-3 text-sm text-error-600">
-            {qs("missingOutboxFile", { target: s.label ?? qs("wholeSession"), date: shortDate(s.recording.deviceCapturedAt) })}
-          </p>
-        ))}
+      {adding ? <AddArtisan exclude={session.participants.map((p) => p.artisanId)} onPick={(a) => void addArtisan(a)} /> : null}
+
+      {myClips.filter((s) => s.error === "MISSING_FILE").map((s) => (
+        <p key={s.clientClipKey} role="status" className="panel border-error-600/30 p-3 text-sm text-error-600">
+          {qs("missingOutboxFile", { target: s.label ?? qs("wholeSession"), date: shortDate(s.recording.deviceCapturedAt) })}
+        </p>
+      ))}
+
+      {takeError ? (
+        <p role="alert" className="panel border-error-600/30 p-3 text-sm text-error-600">
+          {takeError}
+        </p>
+      ) : null}
 
       {p13.length ? (
         <PromptDialog
@@ -460,6 +617,7 @@ export function SessionWorkspace({ id }: { id: string }) {
             const [first, ...rest] = p13;
             setP13(rest);
             if (choice === "keep") {
+              takesInHand.add(first.draft.takeKey);
               const blob = assembleTake(first.chunks, first.draft.mimeType);
               void queueClip(
                 {
@@ -471,14 +629,18 @@ export function SessionWorkspace({ id }: { id: string }) {
                   durationMs: Math.max(0, (first.chunks.at(-1)?.at ?? first.draft.startedAt) - first.draft.startedAt),
                   deviceCapturedAt: first.draft.deviceCapturedAt
                 },
-                { targets: first.draft.targets, label: first.draft.targetLabel, code: "" },
-                {},
-                [],
-                null,
-                null,
-                null
+                {
+                  pending: { targets: first.draft.targets, label: first.draft.targetLabel, code: "", roster: first.draft.roster },
+                  reasons: {},
+                  acked: [],
+                  replaces: null,
+                  continuation: null,
+                  sha: null,
+                  source: "DEVICE"
+                },
+                new Set(first.draft.roster)
               );
-            } else {
+            } else if (choice === "discard") {
               void recorderStore.discard(first.draft.takeKey);
             }
           }}
@@ -493,10 +655,51 @@ export function SessionWorkspace({ id }: { id: string }) {
             onFinished={(take) => {
               const r = recording;
               setRecording(null);
-              void queueClip(take, r.pending, r.reasons, r.acked, r.replaces ?? null, r.continuation ?? null, null);
+              finishTake(take, r.context);
             }}
           />
         </div>
+      ) : null}
+
+      {answering ? (
+        <section className="panel grid gap-3 p-4" data-answered-by>
+          <h2 className="field-label">{qs("answeredBy")}</h2>
+          <div className="flex flex-wrap gap-2" role="group" aria-label={qs("answeredBy")}>
+            {answering.context.pending.roster.map((artisanId) => {
+              const on = answering.chosen.includes(artisanId);
+              return (
+                <button
+                  key={artisanId}
+                  type="button"
+                  role="checkbox"
+                  aria-checked={on}
+                  data-answered={artisanId}
+                  className={`min-h-10 rounded-full border px-3 text-sm ${on ? "border-purple-700 bg-purple-700 text-white" : "border-line-200 bg-card text-ink-700"}`}
+                  onClick={() =>
+                    setAnswering({ ...answering, chosen: on ? answering.chosen.filter((a) => a !== artisanId) : [...answering.chosen, artisanId] })
+                  }
+                >
+                  {shortName(names[artisanId] ?? "")}
+                </button>
+              );
+            })}
+          </div>
+          <ButtonRow>
+            <button
+              type="button"
+              className="field-button"
+              disabled={answering.chosen.length === 0}
+              onClick={() => {
+                const current = answering;
+                setAnswering(null);
+                setLastAnswered({ ...lastAnswered, [sectionOfTargets(current.context.pending.targets)]: current.chosen });
+                void queueClip(current.take, current.context, new Set(current.chosen));
+              }}
+            >
+              {qs("saveTake")}
+            </button>
+          </ButtonRow>
+        </section>
       ) : null}
 
       <section className="panel grid gap-3 p-4">
@@ -514,6 +717,35 @@ export function SessionWorkspace({ id }: { id: string }) {
           ))}
           {pendingCount ? <span className="ml-auto text-xs text-purple-700">{qs("takesUploading", { count: pendingCount })}</span> : null}
         </div>
+        {myClips.length ? (
+          <ul className="grid gap-1" data-upload-states>
+            {myClips
+              .filter((s) => s.error !== "MISSING_FILE")
+              .map((s) => {
+                const state = clipUploadState(s, queue.progress[s.clientClipKey], queue.online);
+                const words =
+                  state.kind === "UPLOADING"
+                    ? qs("uploadingPercent", { percent: state.percent })
+                    : state.kind === "WAITING"
+                      ? qs("waitingForSignal")
+                      : state.kind === "UPLOADED"
+                        ? qs("uploaded")
+                        : qs("uploadFailedRetrying");
+                const bad = state.kind === "RETRYING" || state.kind === "FAILED";
+                return (
+                  <li key={s.clientClipKey} className="flex flex-wrap items-center justify-between gap-2 text-xs" data-upload-state={state.kind}>
+                    <span className="text-ink-700">{[s.label ?? qs("wholeSession"), shortDate(s.recording.deviceCapturedAt)].filter(Boolean).join(" · ")}</span>
+                    <span className={bad ? "text-error-600" : "text-ink-500"}>{words}</span>
+                    {bad && queue.online ? (
+                      <button type="button" className="text-xs font-semibold text-purple-700 underline dark:text-purple-300" onClick={queue.retry}>
+                        {qs("retry")}
+                      </button>
+                    ) : null}
+                  </li>
+                );
+              })}
+          </ul>
+        ) : null}
         {shownGrid.sections.length ? (
           <CoverageGrid
             grid={shownGrid}
@@ -523,7 +755,7 @@ export function SessionWorkspace({ id }: { id: string }) {
           />
         ) : (
           <ButtonRow>
-            <button type="button" className="field-button" onClick={() => void begin({ targets: [], label: qs("wholeSession"), code: "" })}>
+            <button type="button" className="field-button" onClick={() => press([], qs("wholeSession"), "")}>
               {qs("record")}
             </button>
           </ButtonRow>
@@ -539,11 +771,7 @@ export function SessionWorkspace({ id }: { id: string }) {
             <Toggle label={qs("typeAnswers")} checked={typeAnswers} onChange={setTypeAnswers} />
           </div>
           <ButtonRow>
-            <button
-              type="button"
-              className="field-button"
-              onClick={() => void begin({ targets: [{ sectionId: activeGridSection.id }], label: `Section ${activeGridSection.code}`, code: activeGridSection.code })}
-            >
+            <button type="button" className="field-button" onClick={() => press([{ sectionId: activeGridSection.id }], `Section ${activeGridSection.code}`, activeGridSection.code)}>
               {qs("recordSection")}
             </button>
           </ButtonRow>
@@ -555,11 +783,7 @@ export function SessionWorkspace({ id }: { id: string }) {
                     <span className="mr-2 font-semibold">{q.displayCode}</span>
                     {q.prompt}
                   </p>
-                  <button
-                    type="button"
-                    className="field-button-secondary"
-                    onClick={() => void begin({ targets: [{ questionLineageId: q.lineageId }], label: q.displayCode, code: q.displayCode })}
-                  >
+                  <button type="button" className="field-button-secondary" onClick={() => press([{ questionLineageId: q.lineageId }], q.displayCode, q.displayCode)}>
                     {qs("record")}
                   </button>
                 </div>
@@ -590,16 +814,17 @@ export function SessionWorkspace({ id }: { id: string }) {
           onClose={() => setSheet(null)}
           onRecord={() => {
             setSheet(null);
-            void begin({ targets: [{ sectionId: sheetSection.id }], label: `Section ${sheetSection.code}`, code: sheetSection.code });
+            press([{ sectionId: sheetSection.id }], `Section ${sheetSection.code}`, sheetSection.code);
           }}
           onUpload={(file) => {
             setSheet(null);
-            void begin({ targets: [{ sectionId: sheetSection.id }], label: `Section ${sheetSection.code}`, code: sheetSection.code, file });
+            press([{ sectionId: sheetSection.id }], `Section ${sheetSection.code}`, sheetSection.code, file);
           }}
           onRemove={canDeleteRecords ? (r) => setRemoveTake(r) : undefined}
           onRecordConsent={(r) => {
-            const subject = r.subjects.find((s) => s.role === "ANSWERED");
-            if (subject) setConsentFor({ artisanId: subject.artisanId, name: names[subject.artisanId] ?? "" });
+            // The artisan who refused, not simply the first one on the take (audit M22).
+            const artisanId = consentSubject(r, session.participants);
+            if (artisanId) setConsentFor({ artisanId, name: names[artisanId] ?? "" });
           }}
         />
       ) : null}
@@ -627,7 +852,17 @@ export function SessionWorkspace({ id }: { id: string }) {
         />
       ) : null}
 
-      {p5 ? <PromptDialog spec={p5.spec} open onChoose={() => setP5(null)} /> : null}
+      {p5 ? (
+        <PromptDialog
+          spec={p5.spec}
+          open
+          onChoose={(choice) => {
+            const current = p5;
+            setP5(null);
+            void current.act?.(choice).catch((error: unknown) => setTakeError(error instanceof Error ? error.message : String(error)));
+          }}
+        />
+      ) : null}
 
       {p7 ? (
         <PromptDialog
@@ -649,6 +884,17 @@ export function SessionWorkspace({ id }: { id: string }) {
             const target = p10;
             setP10(null);
             if (choice === "remove") void dropParticipant(target.artisanId, true);
+          }}
+        />
+      ) : null}
+
+      {conflict && queue.unit ? (
+        <PromptDialog
+          spec={conflictSpec(conflict.result, shortName(names[conflict.item.artisanId] ?? ""), labelOf(questionKey(conflict.item.questionLineageId)))}
+          open
+          onChoose={(choice) => {
+            if (choice !== "mine" && choice !== "theirs") return;
+            void resolveQueuedAnswer(queue.unit!.id, conflict.stepKey, conflict.item, choice).then(() => load());
           }}
         />
       ) : null}
@@ -684,7 +930,7 @@ export function SessionWorkspace({ id }: { id: string }) {
 
       {leaveOpen ? (
         <PromptDialog
-          spec={prompts.leave({ count: pendingCount })}
+          spec={prompts.leave({ count: guarded })}
           open
           onChoose={(choice) => {
             setLeaveOpen(false);
@@ -692,6 +938,76 @@ export function SessionWorkspace({ id }: { id: string }) {
           }}
         />
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * P9 for an answer held in the outbox: "Changed on another device" when the server says who edited
+ * it, "Giriraj already has an answer. Keep · Replace" when one simply exists, and a pinned answer's
+ * refusal with OK (which drops the typed text).
+ */
+export function conflictSpec(result: import("@/lib/questionnaireApi").AnswerResult, name: string, code: string): PromptSpec {
+  const current = result.current;
+  if (result.status === "FORBIDDEN") {
+    return { id: "ANSWER_PINNED", title: qs("answerPinned", { name, code }), body: current?.text ?? "", buttons: [{ id: "theirs", label: qs("ok"), tone: "primary" }], dismiss: null };
+  }
+  if (current?.editedBy) {
+    return prompts.p9({
+      researcher: current.editedBy.name,
+      name,
+      code,
+      time: current.editedAt
+        ? new Date(current.editedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Kolkata" })
+        : ""
+    });
+  }
+  return {
+    id: "ANSWER_EXISTS",
+    title: qs("answerExists", { name }),
+    body: current?.text ?? "",
+    buttons: [
+      { id: "theirs", label: qs("keep"), tone: "secondary" },
+      { id: "mine", label: qs("replace"), tone: "primary" }
+    ],
+    dismiss: null
+  };
+}
+
+/** "+ Add artisan": artisans searched on the server, the session's own left out. */
+function AddArtisan({ exclude, onPick }: { exclude: string[]; onPick: (artisan: { id: string; name: string }) => void }) {
+  const [search, setSearch] = useState("");
+  const [artisans, setArtisans] = useState<Artisan[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void listResource<Artisan>("/artisans", { pageSize: 80, search: search || undefined })
+        .then((page) => {
+          if (!cancelled) setArtisans(page.items ?? []);
+        })
+        .catch(() => undefined);
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [search]);
+  const options = artisans.filter((a) => !exclude.includes(a.id)).map((a) => ({ value: a.id, label: a.place ? `${a.name} · ${a.place}` : a.name }));
+  return (
+    <div className="panel grid gap-1 p-4" data-add-artisan>
+      <span className="field-label">{qs("addArtisan")}</span>
+      <SearchableSelect
+        value=""
+        onChange={(value) => {
+          const artisan = artisans.find((a) => a.id === value);
+          if (artisan) onPick({ id: artisan.id, name: artisan.name });
+        }}
+        onSearch={setSearch}
+        options={options}
+        searchable
+        advanceOnSelect={false}
+        ariaLabel={qs("addArtisan")}
+      />
     </div>
   );
 }

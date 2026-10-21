@@ -135,7 +135,8 @@ export type SessionParticipant = {
 
 export type Session = {
   id: string;
-  clientKey: string;
+  /** Null on every session the backfill rebuilt; the outbox keys those on `id` (audit C4). */
+  clientKey: string | null;
   version: number;
   title: string;
   note: string | null;
@@ -355,6 +356,8 @@ export type PresignRequest = {
 };
 export type PresignResponse = { objectKey: string; url: string; headers: Record<string, string>; expiresAt: string };
 export type MultipartCreateResponse = { objectKey: string; uploadId: string; partSize: number; partsDone: UploadPart[] };
+/** `POST /media/multipart/presign-parts`: part number (as a string key) → signed URL (audit C3). */
+export type MultipartPartUrls = { urls: Record<string, string> };
 export type UploadPart = { partNumber: number; etag: string };
 export type UploadState = {
   objectKey: string;
@@ -461,103 +464,125 @@ function json(method: string, body: unknown, idempotencyKey?: string): RequestIn
   return { method, body: body === undefined ? undefined : JSON.stringify(body), headers };
 }
 
-export const questionnaireApi = {
-  config: () => apiFetch<QuestionnaireConfig>(`${Q}/config`),
+/** The JSON fetcher the client is built over: `apiFetch` in the browser, a plain one in the stack spec. */
+export type JsonFetcher = <T>(path: string, init?: RequestInit) => Promise<T>;
 
-  openMatch: (params: { questionnaireId: string; workshopId?: string | null; artisanIds: string[]; date: string }) =>
-    apiFetch<{ items: OpenMatchItem[] }>(
-      `${Q}/sessions/open-match${buildQuery({
-        questionnaireId: params.questionnaireId,
-        workshopId: params.workshopId ?? undefined,
-        artisanIds: params.artisanIds.join(","),
-        date: params.date
-      })}`
-    ),
-  /** Always creates; the body's `clientKey` doubles as the Idempotency-Key, so a replay lands once. */
-  createSession: (body: SessionCreate) => apiFetch<Session>(`${Q}/sessions`, json("POST", body, body.clientKey)),
-  listSessions: (params: Record<string, string | number | undefined | null>) =>
-    apiFetch<SessionList>(`${Q}/sessions${buildQuery(params)}`),
-  getSession: (id: string) => apiFetch<SessionDetail>(`${Q}/sessions/${encodeURIComponent(id)}`),
-  patchSession: (id: string, body: SessionPatch) => apiFetch<Session>(`${Q}/sessions/${encodeURIComponent(id)}`, json("PATCH", body)),
-  addParticipant: (id: string, artisanId: string, key = mintKey("part")) =>
-    apiFetch<Session>(`${Q}/sessions/${encodeURIComponent(id)}/participants`, json("POST", { artisanId }, key)),
-  patchParticipant: (id: string, artisanId: string, body: { joinedAt?: string | null; leftAt?: string | null }) =>
-    apiFetch<Session>(`${Q}/sessions/${encodeURIComponent(id)}/participants/${encodeURIComponent(artisanId)}`, json("PATCH", body)),
-  removeParticipant: (id: string, artisanId: string, detach = false) =>
-    apiFetch<Session>(
-      `${Q}/sessions/${encodeURIComponent(id)}/participants/${encodeURIComponent(artisanId)}${detach ? "?detach=true" : ""}`,
-      { method: "DELETE" }
-    ),
-  addResearcher: (id: string, body: { userId: string; role: string }) =>
-    apiFetch<Session>(`${Q}/sessions/${encodeURIComponent(id)}/researchers`, json("POST", body, mintKey("res"))),
-  join: (joinCode: string) => apiFetch<Session>(`${Q}/sessions/join`, json("POST", { joinCode })),
-  joinByKey: (clientKey: string) => apiFetch<Session>(`${Q}/sessions/join-by-key`, json("POST", { clientKey })),
-  finish: (id: string) => apiFetch<Session>(`${Q}/sessions/${encodeURIComponent(id)}/finish`, json("POST", {})),
-  mergeInto: (id: string, targetId: string) =>
-    apiFetch<Session>(`${Q}/sessions/${encodeURIComponent(id)}/merge-into/${encodeURIComponent(targetId)}`, json("POST", {})),
-  continueSessions: (body: { fromSessionId: string; artisanIds: string[]; split: "ONE" | "EACH"; sessionDate: string }) =>
-    apiFetch<{ sessions: Session[]; firstGap: Record<string, string | null> }>(`${Q}/sessions/continue`, json("POST", body, mintKey("cont"))),
-  deleteSession: (id: string) => apiFetch<void>(`${Q}/sessions/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  insights: (id: string) => apiFetch<{ items: unknown[] }>(`${Q}/sessions/${encodeURIComponent(id)}/insights`),
+/**
+ * The client over any fetcher. The browser uses `questionnaireApi` (over `apiFetch`); the stack spec
+ * (`e2e/questionnaire-v2-stack.spec.ts`) builds the SAME client over a fetcher pointed at a real local
+ * backend, so a shape the server does not send fails there rather than hiding behind a fake.
+ */
+export function questionnaireClient(fetchJson: JsonFetcher) {
+  return {
+    config: () => fetchJson<QuestionnaireConfig>(`${Q}/config`),
 
-  checkCoverage: (body: CoverageCheckRequest) => apiFetch<CoverageCheckResponse>(`${Q}/coverage/check`, json("POST", body)),
-  coverage: (params: { questionnaireId: string; workshopId?: string; artisanIds?: string[] }) =>
-    apiFetch<CoverageGrid>(
-      `${Q}/coverage${buildQuery({
-        questionnaireId: params.questionnaireId,
-        workshopId: params.workshopId,
-        artisanIds: params.artisanIds?.join(",")
-      })}`
-    ),
-  snapshot: (params: { questionnaireId: string; workshopId?: string | null; sinceSeq?: string | null }) =>
-    apiFetch<Snapshot>(
-      `${Q}/coverage/snapshot${buildQuery({
-        questionnaireId: params.questionnaireId,
-        workshopId: params.workshopId ?? undefined,
-        sinceSeq: params.sinceSeq ?? undefined
-      })}`
-    ),
+    openMatch: (params: { questionnaireId: string; workshopId?: string | null; artisanIds: string[]; date: string }) =>
+      fetchJson<{ items: OpenMatchItem[] }>(
+        `${Q}/sessions/open-match${buildQuery({
+          questionnaireId: params.questionnaireId,
+          workshopId: params.workshopId ?? undefined,
+          artisanIds: params.artisanIds.join(","),
+          date: params.date
+        })}`
+      ),
+    /** Always creates; the body's `clientKey` doubles as the Idempotency-Key, so a replay lands once. */
+    createSession: (body: SessionCreate) => fetchJson<Session>(`${Q}/sessions`, json("POST", body, body.clientKey)),
+    listSessions: (params: Record<string, string | number | undefined | null>) =>
+      fetchJson<SessionList>(`${Q}/sessions${buildQuery(params)}`),
+    getSession: (id: string) => fetchJson<SessionDetail>(`${Q}/sessions/${encodeURIComponent(id)}`),
+    patchSession: (id: string, body: SessionPatch) => fetchJson<Session>(`${Q}/sessions/${encodeURIComponent(id)}`, json("PATCH", body)),
+    addParticipant: (id: string, artisanId: string, key = mintKey("part")) =>
+      fetchJson<Session>(`${Q}/sessions/${encodeURIComponent(id)}/participants`, json("POST", { artisanId }, key)),
+    patchParticipant: (id: string, artisanId: string, body: { joinedAt?: string | null; leftAt?: string | null }) =>
+      fetchJson<Session>(`${Q}/sessions/${encodeURIComponent(id)}/participants/${encodeURIComponent(artisanId)}`, json("PATCH", body)),
+    removeParticipant: (id: string, artisanId: string, detach = false) =>
+      fetchJson<Session>(
+        `${Q}/sessions/${encodeURIComponent(id)}/participants/${encodeURIComponent(artisanId)}${detach ? "?detach=true" : ""}`,
+        { method: "DELETE" }
+      ),
+    addResearcher: (id: string, body: { userId: string; role: string }) =>
+      fetchJson<Session>(`${Q}/sessions/${encodeURIComponent(id)}/researchers`, json("POST", body, mintKey("res"))),
+    join: (joinCode: string) => fetchJson<Session>(`${Q}/sessions/join`, json("POST", { joinCode })),
+    joinByKey: (clientKey: string) => fetchJson<Session>(`${Q}/sessions/join-by-key`, json("POST", { clientKey })),
+    finish: (id: string) => fetchJson<Session>(`${Q}/sessions/${encodeURIComponent(id)}/finish`, json("POST", {})),
+    mergeInto: (id: string, targetId: string) =>
+      fetchJson<Session>(`${Q}/sessions/${encodeURIComponent(id)}/merge-into/${encodeURIComponent(targetId)}`, json("POST", {})),
+    continueSessions: (body: { fromSessionId: string; artisanIds: string[]; split: "ONE" | "EACH"; sessionDate: string }) =>
+      fetchJson<{ sessions: Session[]; firstGap: Record<string, string | null> }>(`${Q}/sessions/continue`, json("POST", body, mintKey("cont"))),
+    deleteSession: (id: string) => fetchJson<void>(`${Q}/sessions/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    insights: (id: string) => fetchJson<{ items: unknown[] }>(`${Q}/sessions/${encodeURIComponent(id)}/insights`),
 
-  patchRecording: (id: string, body: Record<string, unknown> & { version: number }) =>
-    apiFetch<Recording>(`${Q}/recordings/${encodeURIComponent(id)}`, json("PATCH", body)),
-  removeRecording: (id: string) => apiFetch<Recording>(`${Q}/recordings/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  restoreRecording: (id: string) => apiFetch<Recording>(`${Q}/recordings/${encodeURIComponent(id)}/restore`, json("POST", {})),
-  decide: (id: string, body: { action: "KEEP_BOTH" | "KEEP_THIS" | "CONTINUATION"; otherRecordingId?: string }) =>
-    apiFetch<Recording>(`${Q}/recordings/${encodeURIComponent(id)}/decide`, json("POST", body)),
-  makePrimary: (id: string, body: { artisanId: string; targetKey: string }) =>
-    apiFetch<Recording>(`${Q}/recordings/${encodeURIComponent(id)}/make-primary`, json("POST", body)),
-  answerProposals: (id: string) =>
-    apiFetch<{ proposals: { questionLineageId: string; artisanIds: string[] | null; text: string; origin: AnswerOrigin; existing: Answer[] }[] }>(
-      `${Q}/recordings/${encodeURIComponent(id)}/answer-proposals`,
-      json("POST", {})
-    ),
-  /** While paused the server answers 202 `{status:"QUEUED",paused:true}`; the UI never offers it then. */
-  transcribe: (id: string) =>
-    apiFetch<{ status: string; paused: boolean }>(`${Q}/recordings/${encodeURIComponent(id)}/transcribe`, json("POST", {})),
-  /** The server 302s to a signed URL whose Content-Disposition is the recording's `downloadName`. */
-  downloadHref: (id: string) => `/api${Q}/recordings/${encodeURIComponent(id)}/download`,
+    checkCoverage: (body: CoverageCheckRequest) => fetchJson<CoverageCheckResponse>(`${Q}/coverage/check`, json("POST", body)),
+    coverage: (params: { questionnaireId: string; workshopId?: string; artisanIds?: string[] }) =>
+      fetchJson<CoverageGrid>(
+        `${Q}/coverage${buildQuery({
+          questionnaireId: params.questionnaireId,
+          workshopId: params.workshopId,
+          artisanIds: params.artisanIds?.join(",")
+        })}`
+      ),
+    snapshot: (params: { questionnaireId: string; workshopId?: string | null; sinceSeq?: string | null }) =>
+      fetchJson<Snapshot>(
+        `${Q}/coverage/snapshot${buildQuery({
+          questionnaireId: params.questionnaireId,
+          workshopId: params.workshopId ?? undefined,
+          sinceSeq: params.sinceSeq ?? undefined
+        })}`
+      ),
 
-  putAnswers: (items: AnswerItem[]) => apiFetch<{ results: AnswerResult[] }>(`${Q}/answers`, json("PUT", { items })),
-  inbox: () => apiFetch<Partial<Inbox>>(`${Q}/inbox`).then(normaliseInbox),
+    patchRecording: (id: string, body: Record<string, unknown> & { version: number }) =>
+      fetchJson<Recording>(`${Q}/recordings/${encodeURIComponent(id)}`, json("PATCH", body)),
+    removeRecording: (id: string) => fetchJson<Recording>(`${Q}/recordings/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    restoreRecording: (id: string) => fetchJson<Recording>(`${Q}/recordings/${encodeURIComponent(id)}/restore`, json("POST", {})),
+    decide: (id: string, body: { action: "KEEP_BOTH" | "KEEP_THIS" | "CONTINUATION"; otherRecordingId?: string }) =>
+      fetchJson<Recording>(`${Q}/recordings/${encodeURIComponent(id)}/decide`, json("POST", body)),
+    makePrimary: (id: string, body: { artisanId: string; targetKey: string }) =>
+      fetchJson<Recording>(`${Q}/recordings/${encodeURIComponent(id)}/make-primary`, json("POST", body)),
+    answerProposals: (id: string) =>
+      fetchJson<{ proposals: { questionLineageId: string; artisanIds: string[] | null; text: string; origin: AnswerOrigin; existing: Answer[] }[] }>(
+        `${Q}/recordings/${encodeURIComponent(id)}/answer-proposals`,
+        json("POST", {})
+      ),
+    /** While paused the server answers 202 `{status:"QUEUED",paused:true}`; the UI never offers it then. */
+    transcribe: (id: string) =>
+      fetchJson<{ status: string; paused: boolean }>(`${Q}/recordings/${encodeURIComponent(id)}/transcribe`, json("POST", {})),
+    /** The server 302s to a signed URL whose Content-Disposition is the recording's `downloadName`. */
+    downloadHref: (id: string) => `/api${Q}/recordings/${encodeURIComponent(id)}/download`,
 
-  getConsent: (artisanId: string) => apiFetch<ConsentRecord>(`/artisans/${encodeURIComponent(artisanId)}/consent`),
-  postConsent: (artisanId: string, body: ConsentPost) =>
-    apiFetch<ConsentRecord>(`/artisans/${encodeURIComponent(artisanId)}/consent`, json("POST", body, body.clientKey)),
-  artisanRecord: (artisanId: string, questionnaireId?: string) =>
-    apiFetch<ArtisanRecord>(`/artisans/${encodeURIComponent(artisanId)}/record${buildQuery({ questionnaireId })}`),
-  artisanRecordCsvHref: (artisanId: string, questionnaireId?: string) =>
-    `/api/artisans/${encodeURIComponent(artisanId)}/record.csv${buildQuery({ questionnaireId })}`,
+    putAnswers: (items: AnswerItem[]) => fetchJson<{ results: AnswerResult[] }>(`${Q}/answers`, json("PUT", { items })),
+    inbox: () => fetchJson<Partial<Inbox>>(`${Q}/inbox`).then(normaliseInbox),
+    /**
+     * "File it" (DESIGN §4.7, audit H14): a clip in "To file" becomes a recording of the session,
+     * target and subjects picked in the inbox (`POST /questionnaire/media/{mediaId}/file`).
+     */
+    fileClip: (
+      mediaId: string,
+      body: { sessionId: string; targets: ({ sectionId: string } | { questionLineageId: string })[]; subjects: { artisanId: string; role: string }[] }
+    ) => fetchJson<Recording>(`${Q}/media/${encodeURIComponent(mediaId)}/file`, json("POST", body)),
+    /** "Not needed" on a clip in "To file", stored on the server so every device agrees (audit M22). */
+    dismissClip: (mediaId: string) => fetchJson<void>(`${Q}/media/${encodeURIComponent(mediaId)}/not-needed`, json("POST", {})),
 
-  presign: (body: PresignRequest) => apiFetch<PresignResponse>(`/media/presign`, json("POST", body)),
-  multipartCreate: (body: PresignRequest) => apiFetch<MultipartCreateResponse>(`/media/multipart/create`, json("POST", body)),
-  multipartPresignParts: (body: { objectKey: string; uploadId: string; partNumbers: number[] }) =>
-    apiFetch<{ parts: { partNumber: number; url: string }[] }>(`/media/multipart/presign-parts`, json("POST", body)),
-  multipartComplete: (body: { objectKey: string; uploadId: string; parts: UploadPart[] }) =>
-    apiFetch<{ objectKey: string }>(`/media/multipart/complete`, json("POST", body)),
-  /** 404 (an ApiError) when the server holds no intent for this clip. */
-  uploadState: (clientClipKey: string) => apiFetch<UploadState>(`/media/uploads/${encodeURIComponent(clientClipKey)}`),
-  /** Idempotent on `clientClipKey`: 201 the first time, 200 on a replay, the same Recording either way. */
-  complete: (body: CompleteRequest) => apiFetch<Recording>(`/media/complete`, json("POST", body, body.clientClipKey))
-};
+    getConsent: (artisanId: string) => fetchJson<ConsentRecord>(`/artisans/${encodeURIComponent(artisanId)}/consent`),
+    postConsent: (artisanId: string, body: ConsentPost) =>
+      fetchJson<ConsentRecord>(`/artisans/${encodeURIComponent(artisanId)}/consent`, json("POST", body, body.clientKey)),
+    artisanRecord: (artisanId: string, questionnaireId?: string) =>
+      fetchJson<ArtisanRecord>(`/artisans/${encodeURIComponent(artisanId)}/record${buildQuery({ questionnaireId })}`),
+    artisanRecordCsvHref: (artisanId: string, questionnaireId?: string) =>
+      `/api/artisans/${encodeURIComponent(artisanId)}/record.csv${buildQuery({ questionnaireId })}`,
+
+    presign: (body: PresignRequest) => fetchJson<PresignResponse>(`/media/presign`, json("POST", body)),
+    multipartCreate: (body: PresignRequest) => fetchJson<MultipartCreateResponse>(`/media/multipart/create`, json("POST", body)),
+    multipartPresignParts: (body: { objectKey: string; uploadId: string; partNumbers: number[] }) =>
+      fetchJson<MultipartPartUrls>(`/media/multipart/presign-parts`, json("POST", body)),
+    multipartComplete: (body: { objectKey: string; uploadId: string; parts: UploadPart[] }) =>
+      fetchJson<{ objectKey: string }>(`/media/multipart/complete`, json("POST", body)),
+    /** 404 (an ApiError) when the server holds no intent for this clip. */
+    uploadState: (clientClipKey: string) => fetchJson<UploadState>(`/media/uploads/${encodeURIComponent(clientClipKey)}`),
+    /** Idempotent on `clientClipKey`: 201 the first time, 200 on a replay, the same Recording either way. */
+    complete: (body: CompleteRequest) => fetchJson<Recording>(`/media/complete`, json("POST", body, body.clientClipKey))
+  };
+}
+
+export const questionnaireApi = questionnaireClient(apiFetch);
 
 export type QuestionnaireApi = typeof questionnaireApi;
