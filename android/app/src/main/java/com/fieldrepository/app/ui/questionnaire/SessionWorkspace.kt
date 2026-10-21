@@ -8,17 +8,25 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -26,11 +34,13 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -39,15 +49,21 @@ import com.fieldrepository.app.data.ClientClock
 import com.fieldrepository.app.data.CoverageCache
 import com.fieldrepository.app.data.JoinQr
 import com.fieldrepository.app.data.JoinQrPayload
+import com.fieldrepository.app.data.MissingSessionUnit
 import com.fieldrepository.app.data.Naming
 import com.fieldrepository.app.data.OutboxSyncWorker
 import com.fieldrepository.app.data.OverlayTake
 import com.fieldrepository.app.data.ParticipantChange
-import com.fieldrepository.app.data.QAnswerItem
 import com.fieldrepository.app.data.QAnswersPut
 import com.fieldrepository.app.data.QCompleteSubject
 import com.fieldrepository.app.data.QCoverageCheckRequest
 import com.fieldrepository.app.data.QCoverageCheckResponse
+import com.fieldrepository.app.data.QErrorBody
+import com.fieldrepository.app.data.QErrorCodes
+import com.fieldrepository.app.data.QMakePrimaryRequest
+import com.fieldrepository.app.data.QProposal
+import com.fieldrepository.app.data.QRecording
+import com.fieldrepository.app.data.QSession
 import com.fieldrepository.app.data.QSessionCreate
 import com.fieldrepository.app.data.QSessionDetail
 import com.fieldrepository.app.data.QSnapshotTake
@@ -58,24 +74,26 @@ import com.fieldrepository.app.data.SessionOutbox
 import com.fieldrepository.app.data.SessionUnit
 import com.fieldrepository.app.data.StepKind
 import com.fieldrepository.app.data.SubjectRole
+import com.fieldrepository.app.data.outboxDiscardSentence
 import com.fieldrepository.app.data.outboxJson
 import com.fieldrepository.app.recording.RecordingDraft
 import com.fieldrepository.app.recording.RecordingDrafts
 import com.fieldrepository.app.recording.RecordingService
+import com.fieldrepository.app.ui.AppToggle
+import com.fieldrepository.app.ui.LocalMayDelete
 import com.fieldrepository.app.ui.MICROPHONE_PERMISSION
 import com.fieldrepository.app.ui.MICROPHONE_REFUSED_SENTENCE
 import com.fieldrepository.app.ui.SearchableMultiSelectField
 import com.fieldrepository.app.ui.SearchableSelectField
 import com.fieldrepository.app.ui.SearchableSelectSheet
 import com.fieldrepository.app.ui.SelectOption
-import com.fieldrepository.app.ui.AppToggle
 import com.fieldrepository.app.ui.field
 import com.fieldrepository.app.ui.rememberPermissionGate
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.Dispatchers
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
@@ -88,10 +106,19 @@ private data class RecordRequest(val target: QTargetRef?, val label: String, val
 
 private data class PickedFile(val path: String, val sha256: String, val size: Long, val mime: String, val ext: String, val metadataTime: Instant?, val durationMs: Long)
 
+/** P8 waiting for the researcher: the answer to save, once they confirm the recorded one is replaced. */
+private data class PendingAnswer(val question: InstrumentQuestion, val text: String, val forIds: Set<String>, val replacing: String)
+
+/** A tray Discard waiting for its confirmation. */
+private data class PendingDiscard(val row: TrayRow)
+
 /**
  * The session workspace (DESIGN §4.3): header, section strip, coverage grid, the open section with
- * a Record control per question, the recorder, and the take sheet. Works offline from the session
- * outbox and the coverage snapshot; online it adds the server's session and its recordings.
+ * a Record control per question, the recorder, the take sheet and the fix tray. Works offline from
+ * the session outbox and the coverage snapshot; online it adds the server's session and its takes.
+ *
+ * EVERY OUTBOX CALL GOES THROUGH [withUnit] (audit C2, 21 Oct 2026): a unit that is missing is put
+ * back from the copy this screen holds, and any other failure is said, never a crash.
  */
 @Composable
 fun SessionWorkspace(
@@ -100,12 +127,15 @@ fun SessionWorkspace(
     instrument: Instrument?,
     artisans: List<ArtisanDto>,
     meId: String?,
+    canMakePrimary: Boolean = false,
     onBack: () -> Unit,
+    onOpenSession: (QSession) -> Unit = {},
     onError: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val names = remember(artisans) { artisans.associate { it.id to it.name } }
+    val mayDelete = LocalMayDelete.current
+    val names = remember(artisans) { artisans.associate { it.id to it.name } + v2.localArtisanNames() }
     var unit by remember { mutableStateOf<SessionUnit?>(null) }
     var detail by remember { mutableStateOf<QSessionDetail?>(null) }
     var overlay by remember { mutableStateOf<List<OverlayTake>>(emptyList()) }
@@ -116,6 +146,8 @@ fun SessionWorkspace(
     var p2 by remember { mutableStateOf<Pair<RecordRequest, P2Model>?>(null) }
     var p3 by remember { mutableStateOf<RecordRequest?>(null) }
     var p5 by remember { mutableStateOf<String?>(null) }
+    var p7 by remember { mutableStateOf<Pair<RecordRequest, P2Model>?>(null) }
+    var p8 by remember { mutableStateOf<PendingAnswer?>(null) }
     var takeSheet by remember { mutableStateOf<Pair<String, String?>?>(null) }
     var playing by remember { mutableStateOf<Uri?>(null) }
     var leaving by remember { mutableStateOf(false) }
@@ -124,6 +156,19 @@ fun SessionWorkspace(
     var differentFor by remember { mutableStateOf<RecordRequest?>(null) }
     var removeTake by remember { mutableStateOf<TakeRow?>(null) }
     var pendingPick by remember { mutableStateOf<RecordRequest?>(null) }
+    var menu by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf(false) }
+    var continuing by remember { mutableStateOf(false) }
+    var merging by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
+    var removingArtisan by remember { mutableStateOf(false) }
+    var p10 by remember { mutableStateOf<Pair<String, Int>?>(null) }
+    var consentFor by remember { mutableStateOf<String?>(null) }
+    var proposals by remember { mutableStateOf<Pair<String, List<QProposal>>?>(null) }
+    var discard by remember { mutableStateOf<PendingDiscard?>(null) }
+    var deleteHint by remember { mutableStateOf<String?>(null) }
+    // Takes removed in this visit, so "Show removed" can restore them (the session lists live takes only).
+    val removedHere = remember { mutableStateListOf<QRecording>() }
     val lastAnswered = remember { mutableStateMapOf<String, Set<String>>() }
     val recorderState by RecordingService.state.collectAsState()
     val micGate = rememberPermissionGate { onError(it) }
@@ -144,6 +189,37 @@ fun SessionWorkspace(
         overlay = CoverageCache.overlayFrom(v2.outbox.units(), qid)
     }
 
+    /**
+     * Runs an outbox change for this session (audit C2). A unit that is gone is put back from the
+     * copy this screen holds ([SessionOutbox.reopen]) and the change runs again; anything else is
+     * said in plain words instead of ending the app. Then the next sync is asked for.
+     */
+    fun withUnit(work: suspend (key: String) -> Unit) {
+        scope.launch {
+            val ok = try {
+                work(clientKey); true
+            } catch (missing: MissingSessionUnit) {
+                val known = unit
+                if (known == null) false else runCatching { v2.outbox.reopen(known); work(clientKey) }.isSuccess
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (other: Exception) {
+                false
+            }
+            if (!ok) onError(QuestionnaireCopy.s("error.saveOnPhone"))
+            OutboxSyncWorker.schedule(context)
+            reload()
+        }
+    }
+
+    /** An online-only change: a signal is needed, a refusal is said in the server's words. */
+    fun online(work: suspend () -> Unit) {
+        scope.launch {
+            runCatching { work() }.onFailure { onError(it.userSentence()) }
+            reload()
+        }
+    }
+
     LaunchedEffect(clientKey) {
         while (true) {
             reload()
@@ -151,7 +227,15 @@ fun SessionWorkspace(
         }
     }
     LaunchedEffect(recorderState) {
-        if (recorderState is RecordingService.State.Finished) { delay(600); reload() }
+        val state = recorderState
+        if (state is RecordingService.State.Finished && state.draft.sessionKey == clientKey) {
+            // Never silent (audit M23 and C2): a recorder that could not start, a take that could not queue.
+            when (state.reason) {
+                RecordingService.REASON_START_FAILED -> { onError(QuestionnaireCopy.s("error.recorderStart")); RecordingService.clearFinished() }
+                RecordingService.REASON_QUEUE_FAILED -> { onError(QuestionnaireCopy.s("error.queueTake")); RecordingService.clearFinished() }
+            }
+        }
+        if (state is RecordingService.State.Finished) { delay(600); reload() }
     }
     // Leaving the workspace (Back, dispose) finalises a running take; it is never dropped.
     DisposableEffect(clientKey) {
@@ -177,6 +261,7 @@ fun SessionWorkspace(
     val locked = detail?.state == "CLOSED"
     val sessionTakes = CoverageGridModel.takesOf(detail?.recordings.orEmpty())
     val known = CoverageGridModel.merge(snapshotTakes, sessionTakes)
+    val answers = detail?.answers.orEmpty()
     val title = detail?.title?.ifBlank { null } ?: frozen?.let { f ->
         Naming.sessionTitle(Naming.SessionFields(
             sessionDate = runCatching { LocalDate.parse(f.sessionDate) }.getOrNull(), place = f.place,
@@ -187,7 +272,10 @@ fun SessionWorkspace(
     val joinQr = detail?.joinQr ?: unit?.let { u ->
         frozen?.let { f -> JoinQr.encode(JoinQrPayload(clientKey = u.clientKey, questionnaireId = u.questionnaireId, workshopId = u.workshopId, sessionDate = f.sessionDate, participants = participantIds)) }
     }
-    val pendingCount = unit?.pendingClips?.size ?: 0
+    // Uploading means queued and not refused; a refused take waits in the tray (audit H20).
+    val pendingCount = unit?.uploadingClips?.size ?: 0
+    val trayRows = unit?.let { u -> OutboxTrayModel.rows(u, participantName) { lineage -> instrument?.question(lineage)?.displayCode ?: lineage } }.orEmpty()
+    val serverSessionId = unit?.sessionId ?: detail?.id
 
     fun startRecording(req: RecordRequest, reasons: Map<String, String>, acked: List<String>, continuationOf: String? = null, replaces: String? = null) {
         val u = unit ?: return
@@ -196,7 +284,7 @@ fun SessionWorkspace(
         val picked = req.pickedFile
         if (picked != null) {
             // A picked file: its metadata time, else the session date at 12:00 IST (§3.9).
-            val sessionNoon = frozen?.sessionDate?.let { runCatching { LocalDate.parse(it).atTime(12, 0).atZone(Naming.IST).toInstant() }.getOrNull() }
+            val sessionNoon = (frozen?.sessionDate ?: detail?.sessionDate)?.let { runCatching { LocalDate.parse(it.take(10)).atTime(12, 0).atZone(Naming.IST).toInstant() }.getOrNull() }
             val draft = RecordingDraft(
                 clientClipKey = key, sessionKey = u.clientKey, questionnaireId = u.questionnaireId, adtsPath = picked.path,
                 deviceCapturedAt = (picked.metadataTime ?: sessionNoon ?: Instant.now()).toString(),
@@ -206,11 +294,9 @@ fun SessionWorkspace(
                 ackedRecordingIds = acked, finished = true, m4aPath = picked.path, durationMs = picked.durationMs,
                 sha256 = picked.sha256, sizeBytes = picked.size
             )
-            scope.launch {
+            withUnit {
                 RecordingDrafts.write(v2.filesDir, draft)
                 v2.queueTake(draft)
-                OutboxSyncWorker.schedule(context)
-                reload()
             }
             return
         }
@@ -226,6 +312,22 @@ fun SessionWorkspace(
             RecordingDrafts.write(v2.filesDir, draft)
             RecordingService.start(context, draft)
         }
+    }
+
+    /** P5 names the session that already holds the file (audit M23: it named this one, today). */
+    suspend fun p5Body(identicalSessionId: String?, sha: String?): String {
+        val elsewhere = identicalSessionId?.let { id -> runCatching { v2.api.sessionSummary(id) }.getOrNull() }
+        if (elsewhere != null) {
+            val name = elsewhere.participants.firstOrNull()?.name.orEmpty()
+            val day = elsewhere.sessionDate?.let { runCatching { LocalDate.parse(it.take(10)) }.getOrNull() } ?: LocalDate.now(Naming.IST)
+            return QuestionnaireCopy.p5Body(QuestionnaireCopy.firstName(name), day)
+        }
+        // On this phone: the queued session the identical file waits in.
+        val owner = sha?.let { s -> v2.outbox.units().firstOrNull { un -> un.steps.any { it.clip?.contentSha256 == s } } }
+        val body = owner?.steps?.firstOrNull { it.kind == StepKind.SESSION }?.bodyJson?.let { runCatching { outboxJson.decodeFromString(QSessionCreate.serializer(), it) }.getOrNull() }
+        val name = body?.participants?.firstOrNull()?.artisanId?.let { names[owner?.resolve(it) ?: it] ?: names[it] } ?: roster.firstOrNull()?.name.orEmpty()
+        val day = body?.sessionDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: LocalDate.now(Naming.IST)
+        return QuestionnaireCopy.p5Body(QuestionnaireCopy.firstName(name), day)
     }
 
     fun requestRecord(req: RecordRequest) {
@@ -246,19 +348,32 @@ fun SessionWorkspace(
                     labels = instrument?.labels.orEmpty()
                 )
             )
-            // P5: the identical file is already uploaded, so nothing is sent.
+            // P5: the identical file is already uploaded (or queued), so nothing is sent.
             val identical = response.identical
-            if (identical != null || (req.pickedFile != null && overlay.isNotEmpty() && v2.outbox.units().any { un -> un.pendingClips.any { it.clip?.contentSha256 == req.pickedFile.sha256 } })) {
-                File(req.pickedFile?.path ?: "").takeIf { req.pickedFile != null }?.delete()
-                p5 = QuestionnaireCopy.p5Body(participantName(ids.first()).let(QuestionnaireCopy::firstName), LocalDate.now(Naming.IST))
+            val queuedHere = req.pickedFile != null && v2.outbox.units().any { un -> un.pendingClips.any { it.clip?.contentSha256 == req.pickedFile.sha256 } }
+            if (identical != null || queuedHere) {
+                req.pickedFile?.let { File(it.path).delete() }
+                p5 = p5Body(identical?.sessionId, req.pickedFile?.sha256)
                 return@launch
             }
             val model = AlreadyRecorded.model(
                 response, req.label, req.code, ids.associateWith(participantName), ids,
-                frozen?.purpose ?: "FIRST_SITTING", filePick = req.pickedFile != null, now = Instant.now()
+                frozen?.purpose ?: detail?.purpose ?: "FIRST_SITTING", filePick = req.pickedFile != null, now = Instant.now()
             )
             if (model == null) startRecording(req, emptyMap(), emptyList()) else p2 = req to model
         }
+    }
+
+    /** H19: save an answer with the version it replaces; P8 first when that answer came from a recording. */
+    fun saveAnswer(question: InstrumentQuestion, text: String, forIds: Set<String>, confirmed: Boolean = false) {
+        if (!confirmed) {
+            AnswerModel.replacesRecordedAnswer(answers, forIds, question.lineageId)?.let { current ->
+                p8 = PendingAnswer(question, text, forIds, current.sourceRecordingId.orEmpty())
+                return
+            }
+        }
+        val items = AnswerModel.items(text, forIds, question.lineageId, unit?.sessionId ?: clientKey, answers)
+        withUnit { key -> v2.outbox.addAnswers(key, QAnswersPut(items)) }
     }
 
     val pickLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -267,7 +382,7 @@ fun SessionWorkspace(
         if (uri == null || req == null) return@rememberLauncherForActivityResult
         scope.launch {
             val picked = withContext(Dispatchers.IO) { runCatching { copyPicked(context, uri, File(RecordingDrafts.dir(v2.filesDir), SessionOutbox.newKey())) }.getOrNull() }
-            if (picked == null) onError("Couldn't read that file.") else requestRecord(req.copy(pickedFile = picked))
+            if (picked == null) onError(QuestionnaireCopy.s("error.readFile")) else requestRecord(req.copy(pickedFile = picked))
         }
     }
 
@@ -276,21 +391,46 @@ fun SessionWorkspace(
     }
 
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { if (pendingCount > 0 || recorderState is RecordingService.State.Recording) leaving = true else onBack() }) {
+                Text("‹ " + QuestionnaireCopy.s("sessions.title"))
+            }
+            Box(Modifier.weight(1f))
+            Box {
+                IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = QuestionnaireCopy.s("session.more")) }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    if (!locked) DropdownMenuItem(text = { Text(QuestionnaireCopy.s("session.edit")) }, onClick = { menu = false; editing = true })
+                    if (serverSessionId != null && participantIds.isNotEmpty()) {
+                        DropdownMenuItem(text = { Text(QuestionnaireCopy.s("session.continue")) }, onClick = { menu = false; continuing = true })
+                    }
+                    if (!locked && participantIds.size > 1) DropdownMenuItem(text = { Text(QuestionnaireCopy.s("session.removeArtisan")) }, onClick = { menu = false; removingArtisan = true })
+                    // Merging and deleting a session are content admins' acts (owner, 2026-10-21).
+                    if (mayDelete && serverSessionId != null) {
+                        DropdownMenuItem(text = { Text(QuestionnaireCopy.s("session.merge")) }, onClick = { menu = false; merging = true })
+                        DropdownMenuItem(text = { Text(QuestionnaireCopy.s("session.delete")) }, onClick = { menu = false; deleting = true })
+                    }
+                }
+            }
+        }
         SessionHeader(
             title = title, note = detail?.note ?: frozen?.note, joinCode = detail?.joinCode, joinQr = joinQr,
             participants = headerParticipants, locked = locked,
             onTogglePresent = { id, isPresent ->
                 present[id] = isPresent
-                scope.launch {
-                    v2.outbox.addParticipantChange(clientKey, ParticipantChange(id, if (isPresent) ParticipantChange.JOIN else ParticipantChange.LEAVE, Instant.now().toString()))
-                    OutboxSyncWorker.schedule(context)
-                }
+                withUnit { key -> v2.outbox.addParticipantChange(key, ParticipantChange(id, if (isPresent) ParticipantChange.JOIN else ParticipantChange.LEAVE, Instant.now().toString())) }
             },
             onAddArtisan = { addingArtisan = true },
             onFinish = { finishing = true }
         )
+        if (trayRows.isNotEmpty()) OutboxTray(
+            rows = trayRows,
+            onSendAgain = { row -> withUnit { key -> v2.outbox.retryStep(key, row.stepId) } },
+            onDiscard = { row -> discard = PendingDiscard(row) },
+            onKeepTheirs = { row -> row.conflict?.let { c -> withUnit { key -> v2.outbox.resolveConflict(key, row.stepId, c.artisanId, c.questionLineageId, keepMine = false) } } },
+            onKeepMine = { row -> row.conflict?.let { c -> withUnit { key -> v2.outbox.resolveConflict(key, row.stepId, c.artisanId, c.questionLineageId, keepMine = true) } } }
+        )
         (recorderState as? RecordingService.State.Recording)?.takeIf { it.draft.sessionKey == clientKey }?.let { RecorderControl(it) }
-        (recorderState as? RecordingService.State.Finished)?.takeIf { it.draft.sessionKey == clientKey && roster.size > 1 }?.let { done ->
+        (recorderState as? RecordingService.State.Finished)?.takeIf { it.draft.sessionKey == clientKey && roster.size > 1 && !it.reason.startsWith("error:") }?.let { done ->
             val sectionKey = done.draft.targets.firstOrNull()?.let { instrument?.sectionOfQuestion?.get(it.questionLineageId) ?: it.sectionId } ?: "whole"
             AnsweredByChips(roster, lastAnswered[sectionKey].orEmpty()) { chosen ->
                 lastAnswered[sectionKey] = chosen
@@ -303,7 +443,10 @@ fun SessionWorkspace(
                 }
             }
         }
-        if (pendingCount > 0) Text(QuestionnaireCopy.takesUploading(pendingCount), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
+        if (pendingCount > 0) {
+            val percent = unit?.uploadingClips?.mapNotNull { it.clip?.uploadedPercent }?.let { if (it.isEmpty()) 0 else it.sum() / it.size } ?: 0
+            Text(QuestionnaireCopy.takesUploading(pendingCount) + " · " + OutboxTrayModel.uploadLine(percent), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
+        }
         AppToggle(label = QuestionnaireCopy.s("workspace.typeAnswers"), checked = typeAnswers, onCheckedChange = { typeAnswers = it })
 
         if (instrument != null) {
@@ -324,18 +467,12 @@ fun SessionWorkspace(
                 section.questions.forEach { q ->
                     QuestionBlock(
                         question = q, roster = roster, known = known, overlay = overlay, locked = locked, typeAnswers = typeAnswers,
+                        answerLines = AnswerModel.lines(roster.map { it.artisanId }, q.lineageId, answers, unit) { recId -> detail?.recordings?.firstOrNull { it.id == recId }?.rosterCount },
+                        currentText = { forIds -> forIds.map { id -> AnswerModel.queued(unit, id, q.lineageId) ?: AnswerModel.current(answers, id, q.lineageId)?.text.orEmpty() }.distinct().singleOrNull().orEmpty() },
+                        nameOf = participantName,
                         onRecord = { requestRecord(RecordRequest(QTargetRef(questionLineageId = q.lineageId), q.displayCode, q.displayCode)) },
                         onOpenTakes = { takeSheet = section.id to null },
-                        onSaveAnswer = { text, forIds ->
-                            scope.launch {
-                                // "All N" is one group answer; picking one artisan is that artisan's own.
-                                val shared = forIds.size > 1
-                                v2.outbox.addAnswers(clientKey, QAnswersPut(roster.filter { it.artisanId in forIds }.map {
-                                    QAnswerItem(it.artisanId, q.lineageId, text, origin = "TYPED", attribution = if (shared) "GROUP_SHARED" else "INDIVIDUAL", sessionId = unit?.sessionId ?: clientKey)
-                                }))
-                                OutboxSyncWorker.schedule(context)
-                            }
-                        }
+                        onSaveAnswer = { text, forIds -> saveAnswer(q, text, forIds) }
                     )
                 }
             }
@@ -356,10 +493,26 @@ fun SessionWorkspace(
                     startRecording(req, reasons, model.ackedRecordingIds)
                 }
                 P2Choice.PartTwo -> startRecording(req, emptyMap(), model.ackedRecordingIds, continuationOf = model.latestRecordingId)
-                P2Choice.Replace -> startRecording(req, roster.associate { it.artisanId to "REDO" }, model.ackedRecordingIds, replaces = model.latestRecordingId)
+                // P7 first: replacing removes the earlier take once this one lands (audit M23: not wired).
+                P2Choice.Replace -> p7 = req to model
                 P2Choice.DifferentQuestion -> differentFor = req
             }
         }
+    }
+    p7?.let { (req, model) ->
+        val position = known.firstOrNull { it.recordingId == model.latestRecordingId }?.position ?: 1
+        QuestionnairePrompt(
+            title = QuestionnaireCopy.p7Title(req.label, position),
+            body = QuestionnaireCopy.p7Body(position),
+            buttons = listOf(
+                PromptButton(QuestionnaireCopy.s("p7.cancel")) { p7 = null; req.pickedFile?.let { File(it.path).delete() } },
+                PromptButton(QuestionnaireCopy.s("p7.replace"), primary = true) {
+                    p7 = null
+                    startRecording(req, roster.associate { it.artisanId to "REDO" }, model.ackedRecordingIds, replaces = model.latestRecordingId)
+                }
+            ),
+            onDismiss = { p7 = null; req.pickedFile?.let { File(it.path).delete() } }
+        )
     }
     differentFor?.let { req ->
         val all = instrument?.sections.orEmpty().flatMap { s -> listOf(SelectOption("S:${s.id}", "Section ${s.code} · ${s.title}")) + s.questions.map { SelectOption("Q:${it.lineageId}", "${it.displayCode} · ${it.prompt}") } }
@@ -384,16 +537,38 @@ fun SessionWorkspace(
         )
     }
     p5?.let { body -> AlreadyUploadedPrompt(body) { p5 = null } }
+    p8?.let { pending ->
+        val source = detail?.recordings?.firstOrNull { it.id == pending.replacing }
+        val who = QuestionnaireCopy.firstName(participantName(pending.forIds.first()))
+        val researcher = source?.recordedBy?.name?.let(QuestionnaireCopy::firstName).orEmpty()
+        val day = source?.capturedAt?.let { runCatching { Instant.parse(it).atZone(Naming.IST).toLocalDate() }.getOrNull() }
+        QuestionnairePrompt(
+            title = QuestionnaireCopy.p8Title(who, pending.question.displayCode),
+            body = if (day != null && researcher.isNotBlank()) QuestionnaireCopy.p8Body(researcher, day) else QuestionnaireCopy.t("answerExists", "name" to who),
+            buttons = listOf(
+                PromptButton(QuestionnaireCopy.s("p8.keepCurrent")) { p8 = null },
+                PromptButton(QuestionnaireCopy.s("p8.replace"), primary = true) {
+                    p8 = null
+                    saveAnswer(pending.question, pending.text, pending.forIds, confirmed = true)
+                }
+            ),
+            onDismiss = { p8 = null }
+        )
+    }
     takeSheet?.let { (sid, artisanId) ->
-        val mayRemoveTakes = com.fieldrepository.app.ui.LocalMayDelete.current
         val section = instrument?.section(sid)
         val keys = setOf("S:$sid") + section?.questions?.map { "Q:${it.lineageId}" }.orEmpty()
         val rows = known.filter { it.targetKey in keys && (artisanId == null || it.artisanId == artisanId) && it.role == SubjectRole.ANSWERED.wire }
             .distinctBy { it.recordingId }.sortedBy { it.capturedAt ?: "" }
-            .map { t -> takeRow(t, detail, paused, mayRemoveTakes) } + overlay.filter { it.targetKey in keys && (artisanId == null || it.artisanId == artisanId) }
-            .distinctBy { it.clientClipKey }.map { o ->
-                TakeRow("local:${o.clientClipKey}", 0, QuestionnaireCopy.minutes(o.durationMs),
-                    if (o.uploading) QuestionnaireCopy.uploading(50) else QuestionnaireCopy.s("upload.onDevice"), null, local = true, removable = false)
+            .map { t -> takeRow(t, detail, paused, mayDelete && !locked, canMakePrimary && artisanId != null) } +
+            overlay.filter { it.targetKey in keys && (artisanId == null || it.artisanId == artisanId) }
+                .distinctBy { it.clientClipKey }.map { o ->
+                    val clip = unit?.steps?.firstOrNull { it.clip?.clientClipKey == o.clientClipKey }?.clip
+                    TakeRow("local:${o.clientClipKey}", 0, QuestionnaireCopy.minutes(o.durationMs),
+                        if (o.uploading) OutboxTrayModel.uploadLine(clip?.uploadedPercent ?: 0) else QuestionnaireCopy.s("upload.onDevice"), null, local = true, removable = false)
+                } +
+            removedHere.filter { r -> r.targets.any { it.targetKey in keys } && (artisanId == null || r.subjects.any { it.artisanId == artisanId }) }.map { r ->
+                TakeRow(r.id, 0, listOfNotNull(QuestionnaireCopy.minutes(r.durationMs), r.recordedBy?.name?.ifBlank { null }).joinToString("  "), "", null, local = false, removable = false, removed = true)
             }
         TakeSheet(
             heading = listOfNotNull("Section ${section?.code.orEmpty()}", artisanId?.let { QuestionnaireCopy.firstName(participantName(it)) }).joinToString(" · "),
@@ -402,7 +577,7 @@ fun SessionWorkspace(
                 scope.launch {
                     playing = if (row.local) {
                         val key = row.recordingId.removePrefix("local:")
-                        v2.outbox.units().flatMap { it.steps }.firstOrNull { it.clip?.clientClipKey == key }?.clip?.localPath?.let { Uri.fromFile(File(it)) }
+                        v2.outbox.units().flatMap { it.steps }.firstOrNull { it.clip?.clientClipKey == key }?.clip?.localPath?.let { File(it) }?.takeIf { it.isFile }?.let { Uri.fromFile(it) }
                     } else v2.playbackUrl(row.recordingId)?.let(Uri::parse)
                 }
             },
@@ -415,7 +590,26 @@ fun SessionWorkspace(
                 takeSheet = null
                 section?.let { pendingPick = RecordRequest(QTargetRef(sectionId = it.id), "Section ${it.code}", it.code); pickLauncher.launch("audio/*") }
             },
-            onDismiss = { takeSheet = null; playing = null }
+            onDismiss = { takeSheet = null; playing = null },
+            onRetry = { row -> online { v2.api.transcribe(row.recordingId) } },
+            onRecordConsent = { row ->
+                detail?.recordings?.firstOrNull { it.id == row.recordingId }?.let { rec -> consentFor = ParticipantModel.refusingSubject(rec, detail) }
+            },
+            onRestore = { row ->
+                online {
+                    v2.api.restoreRecording(row.recordingId)
+                    removedHere.removeAll { it.id == row.recordingId }
+                }
+            },
+            onMakePrimary = { row ->
+                val who = artisanId ?: return@TakeSheet
+                val target = row.targetKey ?: return@TakeSheet
+                online {
+                    v2.api.makePrimary(row.recordingId, QMakePrimaryRequest(who, target))
+                    onError(QuestionnaireCopy.s("take.madePrimary"))
+                }
+            },
+            onPropose = { row -> online { proposals = row.recordingId to v2.api.answerProposals(row.recordingId).proposals } }
         )
     }
     removeTake?.let { row ->
@@ -423,8 +617,40 @@ fun SessionWorkspace(
             onCancel = { removeTake = null },
             onRemove = {
                 removeTake = null
-                scope.launch { runCatching { v2.api.removeRecording(row.recordingId) }.onFailure { onError("Couldn't remove the take. Try again with a signal.") }; reload() }
+                scope.launch {
+                    runCatching { v2.api.removeRecording(row.recordingId) }
+                        .onSuccess { removedHere += it }
+                        .onFailure { onError(QuestionnaireCopy.s("error.removeTake")) }
+                    reload()
+                }
             })
+    }
+    consentFor?.let { artisanId ->
+        QuestionnairePromptContent(
+            title = QuestionnaireCopy.s("consent.record"),
+            onDismiss = { consentFor = null },
+            content = {
+                ConsentQuestion(participantName(artisanId), refused = true, onAnswer = { state ->
+                    consentFor = null
+                    if (state != null) scope.launch {
+                        if (!v2.recordConsent(artisanId, state)) onError(com.fieldrepository.app.data.RecordingConsentCopy.SAVE_FAILED)
+                        reload()
+                    }
+                })
+            },
+            buttons = emptyList()
+        )
+    }
+    proposals?.let { (recordingId, list) ->
+        ProposalsDialog(
+            proposals = list, roster = roster,
+            codeOf = { lineage -> instrument?.question(lineage)?.displayCode ?: lineage },
+            onDismiss = { proposals = null },
+            onAccept = { p, ids ->
+                val items = AnswerModel.items(p.text, ids, p.questionLineageId, unit?.sessionId ?: clientKey, answers + p.existing, origin = p.origin, sourceRecordingId = recordingId)
+                withUnit { key -> v2.outbox.addAnswers(key, QAnswersPut(items)) }
+            }
+        )
     }
     if (addingArtisan) {
         var chosen by remember { mutableStateOf(emptySet<String>()) }
@@ -440,12 +666,113 @@ fun SessionWorkspace(
             },
             buttons = listOf(PromptButton(QuestionnaireCopy.s("p5.ok"), primary = true) {
                 addingArtisan = false
-                scope.launch {
-                    chosen.forEach { v2.outbox.addParticipantChange(clientKey, ParticipantChange(it, ParticipantChange.ADD, Instant.now().toString())) }
-                    OutboxSyncWorker.schedule(context)
-                    reload()
-                }
+                val ids = chosen
+                withUnit { key -> ids.forEach { v2.outbox.addParticipantChange(key, ParticipantChange(it, ParticipantChange.ADD, Instant.now().toString())) } }
             })
+        )
+    }
+    if (removingArtisan) {
+        SearchableSelectSheet(
+            title = QuestionnaireCopy.s("session.removeArtisan"),
+            options = headerParticipants.map { SelectOption(it.artisanId, it.name) },
+            onDismiss = { removingArtisan = false }
+        ) { id ->
+            removingArtisan = false
+            val takes = ParticipantModel.takesOf(detail, id)
+            if (takes > 0) p10 = id to takes else removeParticipant(v2, clientKey, serverSessionId, id, detach = false, ::withUnit, ::online)
+        }
+    }
+    p10?.let { (id, takes) ->
+        RemoveParticipantPrompt(
+            name = QuestionnaireCopy.firstName(participantName(id)), takes = takes,
+            onCancel = { p10 = null },
+            onRemove = {
+                p10 = null
+                removeParticipant(v2, clientKey, serverSessionId, id, detach = true, ::withUnit, ::online)
+            }
+        )
+    }
+    if (editing) {
+        val initial = SessionEdit.of(
+            detail?.sessionDate ?: frozen?.sessionDate, detail?.purpose ?: frozen?.purpose, detail?.place ?: frozen?.place,
+            detail?.languageCode ?: frozen?.languageCode, frozen?.languageOther, detail?.note ?: frozen?.note
+        )
+        EditSessionDialog(initial, onDismiss = { editing = false }) { edit ->
+            editing = false
+            val d = detail
+            if (d != null) online {
+                try {
+                    v2.api.patchSession(d.id, edit.patch(d.version, initial))
+                } catch (http: retrofit2.HttpException) {
+                    if (http.errorCode() == QErrorCodes.STALE_VERSION) { onError(QuestionnaireCopy.s("error.changedElsewhere")); return@online }
+                    throw http
+                }
+            } else withUnit { key ->
+                if (!v2.outbox.editPendingSession(key, edit::applyTo)) onError(QuestionnaireCopy.s("error.needsSignal"))
+            }
+        }
+    }
+    if (continuing && serverSessionId != null) {
+        ContinueWithDialog(
+            v2 = v2, title = QuestionnaireCopy.s("session.continue"), fromSessionId = serverSessionId,
+            people = headerParticipants.map { it.artisanId to it.name }, preselected = participantIds.toSet(),
+            onDismiss = { continuing = false },
+            onOpened = { session -> continuing = false; onOpenSession(session) },
+            onError = onError
+        )
+    }
+    if (merging && serverSessionId != null) {
+        MergeSessionDialog(v2, serverSessionId, unit?.questionnaireId ?: detail?.questionnaire?.id.orEmpty(), onDismiss = { merging = false }) { target ->
+            merging = false
+            scope.launch {
+                runCatching { v2.api.mergeInto(serverSessionId, target.id) }
+                    .onSuccess { v2.outbox.forget(clientKey); onOpenSession(target) }
+                    .onFailure { onError(it.userSentence()) }
+            }
+        }
+    }
+    if (deleting && serverSessionId != null) {
+        QuestionnairePrompt(
+            title = QuestionnaireCopy.s("session.deleteTitle"),
+            body = deleteHint ?: QuestionnaireCopy.s("session.deleteBody"),
+            buttons = listOf(
+                PromptButton(QuestionnaireCopy.s("session.cancel")) { deleting = false; deleteHint = null },
+                PromptButton(QuestionnaireCopy.s("session.delete"), primary = true, destructive = true) {
+                    scope.launch {
+                        val response = runCatching { v2.api.deleteSession(serverSessionId) }.getOrNull()
+                        when {
+                            response == null -> { deleting = false; onError(QuestionnaireCopy.s("error.needsSignal")) }
+                            response.isSuccessful -> { deleting = false; v2.outbox.forget(clientKey); onBack() }
+                            else -> {
+                                // P11: a session with recordings is not deleted; say how many to move first.
+                                val detailBody = runCatching { com.fieldrepository.app.data.ApiClient.json.decodeFromString(QErrorBody.serializer(), response.errorBody()?.string().orEmpty()).detail }.getOrNull()
+                                deleteHint = if (detailBody?.code == QErrorCodes.HAS_RECORDINGS && detailBody.count != null) QuestionnaireCopy.p11(detailBody.count)
+                                else detailBody?.message?.ifBlank { null } ?: QuestionnaireCopy.s("upload.waiting")
+                            }
+                        }
+                    }
+                }
+            ),
+            onDismiss = { deleting = false; deleteHint = null }
+        )
+    }
+    discard?.let { (row) ->
+        QuestionnairePrompt(
+            title = QuestionnaireCopy.s("tray.discardTitle"),
+            body = outboxDiscardSentence(row.title, row.files, clash = false),
+            buttons = listOf(
+                PromptButton(QuestionnaireCopy.s("session.cancel")) { discard = null },
+                PromptButton(QuestionnaireCopy.s("tray.discard"), primary = true, destructive = true) {
+                    discard = null
+                    val c = row.conflict
+                    withUnit { key ->
+                        // One conflicted answer goes alone; anything else is the whole step.
+                        if (c != null) v2.outbox.resolveConflict(key, row.stepId, c.artisanId, c.questionLineageId, keepMine = false)
+                        else v2.outbox.discardStep(key, row.stepId)
+                    }
+                }
+            ),
+            onDismiss = { discard = null }
         )
     }
     if (leaving) LeaveSessionPrompt(pendingCount.coerceAtLeast(1), onStay = { leaving = false }) {
@@ -458,12 +785,68 @@ fun SessionWorkspace(
         val sections = known.filter { it.sessionId == unit?.sessionId || it.sessionId == clientKey }.map { it.targetKey }.distinct().count { it.startsWith("S:") }
         FinishSessionPrompt(sections, participantIds.size, pendingCount, onDismiss = { finishing = false }) {
             finishing = false
-            scope.launch {
-                val s = RecordingService.state.value
-                if (s is RecordingService.State.Recording && s.draft.sessionKey == clientKey) RecordingService.stop(context)
-                v2.outbox.finishSession(clientKey)
-                OutboxSyncWorker.schedule(context)
-                onBack()
+            val s = RecordingService.state.value
+            if (s is RecordingService.State.Recording && s.draft.sessionKey == clientKey) RecordingService.stop(context)
+            withUnit { key -> v2.outbox.finishSession(key) }
+            onBack()
+        }
+    }
+}
+
+/**
+ * P10 (audit §1, "remove participant" was missing): before the session reaches the server, the
+ * frozen create loses the artisan; after, `DELETE …/participants/{id}`, detaching their takes when
+ * P10 was confirmed.
+ */
+private fun removeParticipant(
+    v2: QuestionnaireV2, clientKey: String, sessionId: String?, artisanId: String, detach: Boolean,
+    withUnit: (suspend (String) -> Unit) -> Unit, online: (suspend () -> Unit) -> Unit
+) {
+    if (sessionId == null) {
+        withUnit { key -> v2.outbox.removePendingParticipant(key, artisanId) }
+        return
+    }
+    online { v2.api.removeParticipant(sessionId, artisanId, detach = if (detach) true else null) }
+}
+
+/** The contract code of a refusal, when it sent one. */
+private fun retrofit2.HttpException.errorCode(): String? = runCatching {
+    com.fieldrepository.app.data.ApiClient.json.decodeFromString(QErrorBody.serializer(), response()?.errorBody()?.string().orEmpty()).detail?.code
+}.getOrNull()
+
+/**
+ * The fix tray (audit H20): everything this phone could not send, with Send again and Discard, and
+ * P9 (Keep theirs · Keep mine) for an answer changed on another device.
+ */
+@Composable
+internal fun OutboxTray(
+    rows: List<TrayRow>,
+    onSendAgain: (TrayRow) -> Unit,
+    onDiscard: (TrayRow) -> Unit,
+    onKeepTheirs: (TrayRow) -> Unit,
+    onKeepMine: (TrayRow) -> Unit
+) {
+    Surface(color = MaterialTheme.field.surface100, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(QuestionnaireCopy.s("tray.title") + " (${rows.size})", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.error)
+            rows.forEach { row ->
+                Text(row.title, style = MaterialTheme.typography.bodyMedium)
+                if (row.conflict != null) {
+                    Text(QuestionnaireCopy.s("p9.title"), style = MaterialTheme.typography.labelLarge)
+                    Text(QuestionnaireCopy.s("tray.theirs") + ": " + row.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body)
+                    row.mine?.let { Text(QuestionnaireCopy.s("tray.mine") + ": " + it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body) }
+                    PromptButtons(listOf(
+                        PromptButton(QuestionnaireCopy.s("p9.theirs")) { onKeepTheirs(row) },
+                        PromptButton(QuestionnaireCopy.s("p9.mine"), primary = true) { onKeepMine(row) }
+                    ))
+                } else {
+                    Text(row.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
+                    PromptButtons(listOfNotNull(
+                        PromptButton(QuestionnaireCopy.s("tray.discard")) { onDiscard(row) },
+                        if (row.sendAgain) PromptButton(QuestionnaireCopy.s("tray.sendAgain"), primary = true) { onSendAgain(row) } else null
+                    ))
+                }
+                HorizontalDivider(color = MaterialTheme.field.hairline)
             }
         }
     }
@@ -477,22 +860,33 @@ private fun QuestionBlock(
     overlay: List<OverlayTake>,
     locked: Boolean,
     typeAnswers: Boolean,
+    answerLines: List<AnswerLine>,
+    currentText: (Set<String>) -> String,
+    nameOf: (String) -> String,
     onRecord: () -> Unit,
     onOpenTakes: () -> Unit,
     onSaveAnswer: (text: String, forArtisanIds: Set<String>) -> Unit
 ) {
-    var answer by remember(question.lineageId) { mutableStateOf("") }
     var answerFor by remember(question.lineageId) { mutableStateOf(ALL_ARTISANS) }
+    // The box opens on the answer it would replace (audit H19: a saved answer used to vanish).
+    var answer by remember(question.lineageId, answerFor) { mutableStateOf(currentText(answerForIds(roster, answerFor))) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("${question.displayCode}  ${question.prompt}", style = MaterialTheme.typography.bodyMedium)
         val marks = roster.map { CoverageGridModel.questionMark(question, it.artisanId, known, overlay) }
         val line = roster.zip(marks).filter { it.second.mark != CellMark.NONE }
             .joinToString(" · ") { (p, m) -> "${QuestionnaireCopy.firstName(p.name)} ${m.glyph}" }
         if (line.isNotBlank()) TextButton(onClick = onOpenTakes) { Text(line, style = MaterialTheme.typography.bodySmall) }
+        answerLines.forEach { a ->
+            Text(
+                listOfNotNull(QuestionnaireCopy.firstName(nameOf(a.artisanId)) + ": " + a.text, a.badge).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (a.onPhone) MaterialTheme.field.muted else MaterialTheme.field.body
+            )
+        }
         if (!locked) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onRecord) { Text(QuestionnaireCopy.s("workspace.record")) }
         }
-        if (typeAnswers) {
+        if (typeAnswers && !locked) {
             if (roster.size > 1) SearchableSelectField(
                 label = QuestionnaireCopy.answerForLabel(),
                 options = answerForOptions(roster),
@@ -501,9 +895,9 @@ private fun QuestionBlock(
                 onSelect = { answerFor = it }
             )
             OutlinedTextField(value = answer, onValueChange = { answer = it }, modifier = Modifier.fillMaxWidth())
-            if (answer.isNotBlank()) PromptButtons(listOf(PromptButton(QuestionnaireCopy.s("save"), primary = true) {
-                onSaveAnswer(answer.trim(), answerForIds(roster, answerFor))
-                answer = ""
+            val ids = answerForIds(roster, answerFor)
+            if (answer.isNotBlank() && answer.trim() != currentText(ids)) PromptButtons(listOf(PromptButton(QuestionnaireCopy.s("save"), primary = true) {
+                onSaveAnswer(answer.trim(), ids)
             }))
         }
     }
@@ -519,7 +913,7 @@ internal fun answerForOptions(roster: List<HeaderParticipant>): List<SelectOptio
 internal fun answerForIds(roster: List<HeaderParticipant>, choice: String): Set<String> =
     if (choice == ALL_ARTISANS || roster.none { it.artisanId == choice }) roster.map { it.artisanId }.toSet() else setOf(choice)
 
-private fun takeRow(t: QSnapshotTake, detail: QSessionDetail?, paused: Boolean, mayRemove: Boolean): TakeRow {
+private fun takeRow(t: QSnapshotTake, detail: QSessionDetail?, paused: Boolean, mayRemove: Boolean, mayMakePrimary: Boolean): TakeRow {
     val rec = detail?.recordings?.firstOrNull { it.id == t.recordingId }
     val at = t.capturedAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
     val first = listOfNotNull(
@@ -533,8 +927,11 @@ private fun takeRow(t: QSnapshotTake, detail: QSessionDetail?, paused: Boolean, 
     return TakeRow(
         t.recordingId, t.position, first, second,
         rec?.let { TranscriptStatus.line(it, paused) }, local = false,
-        // Removing a take is a delete: content admins in admin view only (owner's ruling, 2026-10-20).
-        removable = mayRemove
+        // Removing a take is a delete: content admins only (owner's ruling, 2026-10-20).
+        removable = mayRemove,
+        targetKey = t.targetKey,
+        canMakePrimary = mayMakePrimary,
+        canPropose = rec?.transcript?.status == "COMPLETED"
     )
 }
 
@@ -585,6 +982,6 @@ fun QuestionnairePromptContent(title: String, onDismiss: () -> Unit, content: @C
         onDismissRequest = onDismiss,
         title = { Text(title, style = MaterialTheme.typography.titleLarge) },
         text = { content() },
-        confirmButton = { PromptButtons(buttons) }
+        confirmButton = { if (buttons.isNotEmpty()) PromptButtons(buttons) }
     )
 }

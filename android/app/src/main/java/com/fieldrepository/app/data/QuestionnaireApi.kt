@@ -123,6 +123,14 @@ interface QuestionnaireApi {
     @PATCH("questionnaire/recordings/{id}")
     suspend fun patchRecording(@Path("id") id: String, @Body body: QRecordingPatch): QRecording
 
+    /** "File it" for a take the server could not place: its targets, who answered, its session. */
+    @POST("questionnaire/recordings/{id}/file")
+    suspend fun fileRecording(@Path("id") id: String, @Body body: QFileRecordingRequest): QRecording
+
+    /** "File it" for an inbox "To file" clip, which has no recording yet: it becomes one in the session. */
+    @POST("questionnaire/media/{id}/file")
+    suspend fun fileMedia(@Path("id") mediaId: String, @Body body: QFileMediaRequest): QRecording
+
     /** An inbox "Needs a decision" row: keep both takes, or keep this one. */
     @POST("questionnaire/recordings/{id}/decide")
     suspend fun decide(@Path("id") id: String, @Body body: QDecideRequest): QRecording

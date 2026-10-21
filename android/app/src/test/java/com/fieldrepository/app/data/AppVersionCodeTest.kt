@@ -34,8 +34,8 @@ class AppVersionCodeTest {
     @Test fun `the P14 banner compares versionCodes, never names`() {
         // A name minimum that once stopped old builds no longer shows the banner on a new build.
         assertFalse(QConfig(minAppVersionForCreate = "0.0.22").updateRequired(versionCode = 27))
-        assertTrue(QConfig(minAppVersionCodeForCreate = 28).updateRequired(versionCode = 27))
-        assertFalse(QConfig(minAppVersionCodeForCreate = 27).updateRequired(versionCode = 27))
+        assertTrue(QConfig(minAndroidVersionCodeForCreate = 28).updateRequired(versionCode = 27))
+        assertFalse(QConfig(minAndroidVersionCodeForCreate = 27).updateRequired(versionCode = 27))
         // A bare-number legacy minimum is a versionCode.
         assertTrue(QConfig(minAppVersionForCreate = "30").updateRequired(versionCode = 27))
         assertFalse(QConfig().updateRequired(versionCode = 1))

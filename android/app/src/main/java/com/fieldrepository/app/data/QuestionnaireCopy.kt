@@ -189,7 +189,14 @@ object QuestionnaireCopy {
         "legacySessionsRange" to "{count} legacy sessions, {range}",
         "sessionHasNoArtisans" to "Session of {date} has no artisans",
         "emptyApproved" to "Empty session, approved {date}",
-        "mainTakeChanged" to "{name}'s main take of {target} changed (late upload)"
+        "mainTakeChanged" to "{name}'s main take of {target} changed (late upload)",
+        "keepCurrent" to "Keep current",
+        "transcribed" to "Transcribed",
+        "transcribing" to "Transcribing",
+        "continueOneSession" to "One session",
+        "continueOneEach" to "One each",
+        "answerExists" to "{name} already has an answer.",
+        "mergeWrongInstrument" to "That recording belongs to the {title}."
     )
 
     /** The keys the screens use, each pointing at its shared key. */
@@ -322,7 +329,18 @@ object QuestionnaireCopy {
         "inbox.save" to "save",
         "inbox.keep" to "keep",
         "inbox.delete" to "delete",
-        "inbox.ok" to "ok"
+        "inbox.ok" to "ok",
+        "inbox.partTwo" to "continueAsPart2",
+        "p8.keepCurrent" to "keepCurrent",
+        "p8.replace" to "replace",
+        "transcript.done" to "transcribed",
+        "transcript.running" to "transcribing",
+        "continue.one" to "continueOneSession",
+        "continue.each" to "continueOneEach",
+        "tray.discard" to "discard",
+        "session.delete" to "delete",
+        "session.cancel" to "cancel",
+        "take.replace" to "replace"
     )
 
     /**
@@ -342,7 +360,75 @@ object QuestionnaireCopy {
         "join.notFound" to "No session has that code.",
         "join.noQr" to "No join code found in that picture.",
         "join.onlineOnly" to "The code needs a signal. Scan the QR code to join offline.",
-        "battery.title" to "Keep recording in the background"
+        "battery.title" to "Keep recording in the background",
+        // Transcript words and errors that were hard-coded in the screens (audit Low, 21 Oct 2026).
+        "transcript.failed" to "Transcription failed",
+        "transcript.queued" to "Queued to transcribe",
+        "error.removeTake" to "Couldn't remove the take. Try again with a signal.",
+        "error.readFile" to "Couldn't read that file.",
+        "error.recover" to "Couldn't recover that recording.",
+        "error.startSession" to "Couldn't start the session on this device.",
+        "error.recorderStart" to "Couldn't start the recorder.",
+        "error.queueTake" to "That take couldn't be queued. It is kept on this phone.",
+        "error.needsSignal" to "That needs a signal. Try again when you're online.",
+        "error.saveOnPhone" to "Couldn't save that on this phone.",
+        "error.changedElsewhere" to "This session changed on another device. It has been reloaded.",
+        // The outbox fix tray (audit H20).
+        "tray.title" to "Not sent",
+        "tray.sendAgain" to "Send again",
+        "tray.notAllowed" to "The server won't take this answer from you.",
+        "tray.theirs" to "On the server",
+        "tray.mine" to "On this phone",
+        "tray.session" to "The session",
+        "tray.newArtisan" to "A new artisan",
+        "tray.participant" to "A change to who was there",
+        "tray.answers" to "Typed answers",
+        "tray.finish" to "Finishing the session",
+        "tray.discardTitle" to "Discard this?",
+        // Session actions.
+        "session.more" to "More",
+        "session.edit" to "Edit session",
+        "session.continue" to "Continue another day",
+        "session.merge" to "Merge into another session",
+        "session.removeArtisan" to "Remove an artisan",
+        "session.deleteTitle" to "Delete this session?",
+        "session.deleteBody" to "This can't be undone.",
+        "session.mergeBody" to "Its takes and answers move into the session you pick. This can't be undone.",
+        "session.noOtherSessions" to "No other session on this questionnaire.",
+        // Takes.
+        "take.restore" to "Restore",
+        "take.removed" to "Removed",
+        "take.makePrimary" to "Make main take",
+        "take.madePrimary" to "This is now the main take.",
+        "take.propose" to "Draft answers",
+        "take.noProposals" to "Nothing to draft from this take yet.",
+        "take.accept" to "Accept",
+        "take.whose" to "Whose answer is this?",
+        // Inbox (audit H13, H14).
+        "inbox.fileTitle" to "File this recording",
+        "inbox.fileSession" to "Session",
+        "inbox.fileTarget" to "Question or section",
+        "inbox.fileWho" to "Who answered",
+        "inbox.keepThis" to "Keep this take",
+        "inbox.keepOther" to "Keep the earlier take",
+        "inbox.noOtherTake" to "The other take could not be found. Open the session to decide.",
+        // Sessions list.
+        "sessions.search" to "Search sessions",
+        "sessions.loadMore" to "Load more",
+        "sessions.capped" to "Showing the first results. Narrow the search to see more.",
+        // Offline artisan registration.
+        "artisan.new" to "+ New artisan",
+        "artisan.name" to "Name",
+        "artisan.place" to "Village or town",
+        "artisan.aadhaar" to "Aadhaar number",
+        "artisan.aadhaarNotShared" to "Aadhaar not shared by the artisan",
+        "artisan.dos" to "Do's",
+        "artisan.donts" to "Don'ts",
+        "artisan.register" to "Register artisan",
+        "artisan.onPhone" to "Registered on this phone",
+        // Artisan record export.
+        "csv.saved" to "Saved to Downloads.",
+        "csv.failed" to "Couldn't export the CSV."
     )
 
     /** Every fixed string the screens ask for by key. */

@@ -242,10 +242,10 @@ object TranscriptStatus {
         if (paused || t?.paused == true) return TranscriptLine(QuestionnaireCopy.s("transcript.paused"), TranscriptTone.NEUTRAL, false, QuestionnaireCopy.s("transcript.pausedReason"))
         return when (t?.status) {
             null -> null
-            "COMPLETED" -> TranscriptLine("Transcribed", TranscriptTone.NEUTRAL, false, null)
-            "FAILED" -> TranscriptLine("Transcription failed", TranscriptTone.ERROR, true, null)
-            "PROCESSING" -> TranscriptLine("Transcribing", TranscriptTone.NEUTRAL, false, null)
-            else -> TranscriptLine("Queued to transcribe", TranscriptTone.NEUTRAL, false, null)
+            "COMPLETED" -> TranscriptLine(QuestionnaireCopy.s("transcript.done"), TranscriptTone.NEUTRAL, false, null)
+            "FAILED" -> TranscriptLine(QuestionnaireCopy.s("transcript.failed"), TranscriptTone.ERROR, true, null)
+            "PROCESSING" -> TranscriptLine(QuestionnaireCopy.s("transcript.running"), TranscriptTone.NEUTRAL, false, null)
+            else -> TranscriptLine(QuestionnaireCopy.s("transcript.queued"), TranscriptTone.NEUTRAL, false, null)
         }
     }
 }

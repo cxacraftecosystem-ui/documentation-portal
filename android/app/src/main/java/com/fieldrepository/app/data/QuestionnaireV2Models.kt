@@ -64,14 +64,14 @@ data class QConfig(
     /** Legacy: a version NAME. Read only when it is a bare number, which is then a versionCode (C7). */
     val minAppVersionForCreate: String? = null,
     /** The lowest Android versionCode that may create (audit C7); null when there is no cutoff. */
-    val minAppVersionCodeForCreate: Int? = null
+    val minAndroidVersionCodeForCreate: Int? = null
 ) {
     /**
      * P14: whether this build is below the server's cutoff. Codes only: names were reset to 0.0.1, so a
      * name compare would show the banner for ever on the newest build (audit C7).
      */
     fun updateRequired(versionCode: Int): Boolean {
-        val minimum = minAppVersionCodeForCreate ?: minAppVersionForCreate?.trim()?.toIntOrNull() ?: return false
+        val minimum = minAndroidVersionCodeForCreate ?: minAppVersionForCreate?.trim()?.toIntOrNull() ?: return false
         return versionCode < minimum
     }
 }
@@ -377,7 +377,9 @@ data class QPresignResponse(
     val objectKey: String,
     val url: String = "",
     val headers: Map<String, String> = emptyMap(),
-    val expiresAt: String? = null
+    val expiresAt: String? = null,
+    /** The upload already landed (its intent is closed): nothing is signed, nothing is PUT again. */
+    val closed: Boolean = false
 )
 
 @Serializable
@@ -589,14 +591,32 @@ data class QContinueRequest(
     val fromSessionId: String,
     val artisanIds: List<String>,
     @EncodeDefault val split: String = "ONE",
-    val sessionDate: String
+    val sessionDate: String,
+    /** Keys the sessions the server makes, so a replay of the same request returns them again. */
+    val clientKey: String? = null
 ) {
     companion object {
         /** A single artisan is always one session, whatever the picker said (the web's `continueBody`). */
-        fun of(fromSessionId: String, artisanIds: List<String>, split: String, sessionDate: String) =
-            QContinueRequest(fromSessionId, artisanIds, if (artisanIds.size > 1) split else "ONE", sessionDate)
+        fun of(fromSessionId: String, artisanIds: List<String>, split: String, sessionDate: String, clientKey: String? = null) =
+            QContinueRequest(fromSessionId, artisanIds, if (artisanIds.size > 1) split else "ONE", sessionDate, clientKey)
     }
 }
+
+/** "File it" (audit H14): a "To file" clip joins [sessionId] as a take of [targets]; [subjects] when named. */
+@Serializable
+data class QFileMediaRequest(
+    val sessionId: String,
+    @EncodeDefault val targets: List<QTargetRef> = emptyList(),
+    val subjects: List<QSubjectPatch>? = null
+)
+
+/** "File it" for a take the server could not place (a legacy question, a session with nobody in it). */
+@Serializable
+data class QFileRecordingRequest(
+    @EncodeDefault val targets: List<QTargetRef> = emptyList(),
+    val subjects: List<QSubjectPatch>? = null,
+    val sessionId: String? = null
+)
 
 @Serializable
 data class QContinueResponse(val sessions: List<QSession> = emptyList(), val firstGap: Map<String, String?> = emptyMap())
