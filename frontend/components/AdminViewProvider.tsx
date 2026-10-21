@@ -19,6 +19,12 @@ type AdminViewValue = {
   adminMode: boolean;
   /** Whether the user is currently in admin view (false for non-admins). */
   adminView: boolean;
+  /**
+   * Whether this reader is offered Delete — every record, row, file, comment and section delete in
+   * the app reads this. The content admins (`isContentAdmin`), WHETHER OR NOT admin view is on
+   * (owner, 2026-10-21); nobody else, and the server refuses everyone else regardless.
+   */
+  canDeleteRecords: boolean;
   /** Whether the user has any admin capability at all — the toggle is offered to these users only. */
   canAdmin: boolean;
   /** The content admins (`isContentAdmin`) — whoever may turn admin view on. Same value as `canAdmin`. */
@@ -67,7 +73,8 @@ function writePreference(key: string, value: string | null) {
 
 export function AdminViewProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  // The content admins (owner's ruling, 2026-10-20). Every Delete reads `adminMode`.
+  // The content admins (owner's ruling, 2026-10-20). Every Delete reads `canDeleteRecords`, which
+  // is this set whether or not admin view is on (2026-10-21).
   const canAdmin = isContentAdmin(user);
   // null = not yet read for this user; resolved in the effect below. Tagging it with the user id is
   // what stops one account's preference from being applied for a frame after a switch of accounts.
@@ -107,6 +114,7 @@ export function AdminViewProvider({ children }: { children: React.ReactNode }) {
     return {
       adminView: view,
       adminMode: view,
+      canDeleteRecords: canAdmin,
       canAdmin,
       available: canAdmin,
       adminViewResolved: settled !== null,

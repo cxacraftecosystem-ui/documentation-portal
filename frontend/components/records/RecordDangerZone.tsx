@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
-import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { deleteConfirm, useConfirm } from "@/components/dialogs/ConfirmDialog";
 import { DANGER_ZONE, dangerZoneVisible } from "@/components/records/dangerZoneRules";
@@ -33,12 +32,11 @@ export function RecordDangerZone({
   confirmBody?: string;
 }) {
   const { user } = useAuth();
-  const { adminMode } = useAdminView();
   const confirm = useConfirm();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  if (!dangerZoneVisible(user, adminMode)) return null;
+  if (!dangerZoneVisible(user)) return null;
 
   async function remove() {
     const ok = await confirm(deleteConfirm(DANGER_ZONE.confirmTitle(noun), confirmBody ?? DANGER_ZONE.confirmBody));

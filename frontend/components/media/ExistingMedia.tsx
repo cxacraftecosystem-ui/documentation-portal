@@ -36,10 +36,10 @@ export function ExistingMedia({
   readOnly?: boolean;
 }) {
   const [items, setItems] = useState<MediaFile[] | null>(null);
-  // Removing a file is a delete, and deletes are the content admins' alone, in admin view (owner's
-  // ruling, 2026-10-20). Everybody else attaches and edits; the ✕ is not drawn for them.
-  const { adminMode } = useAdminView();
-  const mayRemove = !readOnly && adminMode;
+  // Removing a file is a delete, and deletes are the content admins' alone, whether or not admin
+  // view is on (owner, 2026-10-21). Everybody else attaches and edits; the ✕ is not drawn for them.
+  const { canDeleteRecords } = useAdminView();
+  const mayRemove = !readOnly && canDeleteRecords;
   const [active, setActive] = useState<PreviewMedia | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);

@@ -32,7 +32,7 @@ function ProcessesPageInner() {
   const confirm = useConfirm();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { adminMode } = useAdminView();
+  const { canDeleteRecords } = useAdminView();
   const { user } = useAuth();
   /**
    * Documenting a process needs `require_record_creator`, the same as an artisan, product or tool.
@@ -368,7 +368,7 @@ function ProcessesPageInner() {
                           <MessageSquare className="h-3.5 w-3.5" aria-hidden />
                           Discuss
                         </button>
-                        {adminMode ? (
+                        {canDeleteRecords ? (
                           <button className={rowAction("danger")} onClick={() => remove(process.id)} type="button">
                             <Trash2 className="h-3.5 w-3.5" aria-hidden />
                             Delete

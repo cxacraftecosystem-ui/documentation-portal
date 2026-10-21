@@ -188,8 +188,8 @@ function RowActions({
 }) {
   const secondary = "field-button-secondary";
   const primary = "field-button";
-  // Deleting a session is a content admin's act, in admin view (owner's ruling, 2026-10-20).
-  const { adminMode } = useAdminView();
+  // Deleting a session is a content admin's act, admin view or not (owner, 2026-10-21).
+  const { canDeleteRecords } = useAdminView();
   const confirm = useConfirm();
   switch (section) {
     case "toFile": {
@@ -233,7 +233,7 @@ function RowActions({
           <button type="button" className={secondary} disabled={busy} onClick={() => dismiss(rowKey)}>
             {qs("keep")}
           </button>
-          {adminMode ? (
+          {canDeleteRecords ? (
             <button type="button" className={`${secondary} field-danger`} disabled={busy} onClick={() => void removeEmptySession()}>
               {qs("delete")}
             </button>

@@ -32,7 +32,7 @@ import { RecordStatusFilter, statusFilterParam } from "@/components/review/Recor
 import { phoneOf } from "@/lib/standardValues";
 
 export default function ArtisansPage() {
-  const { adminMode } = useAdminView();
+  const { canDeleteRecords } = useAdminView();
   const confirm = useConfirm();
   const [data, setData] = useState<PageResult<Artisan> | null>(null);
   const { user } = useAuth();
@@ -325,7 +325,7 @@ export default function ArtisansPage() {
                         >
                           Discuss
                         </button>
-                        {adminMode ? (
+                        {canDeleteRecords ? (
                           <button
                             className={rowAction("danger")}
                             onClick={(event) => {

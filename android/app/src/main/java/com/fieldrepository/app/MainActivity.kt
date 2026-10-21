@@ -1740,8 +1740,9 @@ private fun HomeScreen(
      */
     val adminChrome = !isAdmin || adminView
     // Deletes are the content admins' alone (FieldPermissions.isContentAdmin; owner's ruling
-    // 2026-10-20), and only with admin view on, exactly as the web's `adminMode`. Set, never rank.
-    val canDelete = com.fieldrepository.app.ui.contentAdminChrome(user, adminView)
+    // 2026-10-20), WHETHER OR NOT admin view is on (owner, 2026-10-21), exactly as the web's
+    // `canDeleteRecords`. Set, never rank.
+    val canDelete = com.fieldrepository.app.ui.mayDelete(user)
 
     /**
      * How many people are waiting on an administrator to let them in — THE NOTIFICATION.
@@ -2296,7 +2297,8 @@ private fun HomeScreen(
             CompositionLocalProvider(
                 LocalLayoutDirection provides LayoutDirection.Ltr,
                 LocalUnsavedGuard provides unsavedGuard,
-                com.fieldrepository.app.ui.LocalContentAdminChrome provides canDelete,
+                com.fieldrepository.app.ui.LocalContentAdminChrome provides com.fieldrepository.app.ui.contentAdminChrome(user, adminView),
+                com.fieldrepository.app.ui.LocalMayDelete provides canDelete,
                 com.fieldrepository.app.ui.richtext.LocalRichMediaUrl provides richMediaUrl
             ) {
             // The page gets back the 16dp the drawer bleeds through, and leaves the accessibility
@@ -2869,8 +2871,8 @@ private fun HomeScreen(
                     artisans = artisans,
                     canManageQuestionnaire = isQuestionnaireManager,
                     adminView = adminView,
-                    // Every record Delete on the web is `{adminMode ? … : null}` — the role is what
-                    // grants it, the toggle is what puts it away while an admin browses as a user.
+                    // Every record Delete on the web is `{canDeleteRecords ? … : null}`: the role grants
+                    // it, admin view or not (owner, 2026-10-21).
                     canDelete = canDelete,
                     onRefreshSections = { instrumentId ->
                         runCatching { repository.questionnaireSections(instrumentId) }
@@ -2889,7 +2891,7 @@ private fun HomeScreen(
                 craftSeed = craftSeed,
                 artisanSeed = artisanSeed,
                 adminView = adminView,
-                // Same rule as the interview loader above: `adminMode` gates Delete on every web list.
+                // Same rule as the interview loader above: the content-admin role gates Delete.
                 canDelete = canDelete,
                 onDone = { message = "${s.mode.label} updated"; refresh(); refreshLookups(); goDashboard() },
                 onError = { showMessage(it) },
@@ -13487,7 +13489,7 @@ private fun RecordViewScreen(
     showProvenance: Boolean,
     /** The account has review access (`canAccessReview`); without it the bar asks nothing. */
     mayReview: Boolean = false,
-    /** Content admins in admin view: the page ends with the "Danger zone" card. */
+    /** Content admins, admin view or not: the page ends with the "Danger zone" card. */
     canDelete: Boolean = false,
     onDeleted: () -> Unit = {},
     onMessage: (String) -> Unit = {},
@@ -14539,8 +14541,8 @@ private fun AndroidSavedMediaPreview(
     media: com.fieldrepository.app.data.MediaFileDto,
     onDelete: (() -> Unit)? = null
 ) {
-    // Removing a saved file is a delete: content admins in admin view only (2026-10-20).
-    val onDelete: (() -> Unit)? = onDelete.takeIf { com.fieldrepository.app.ui.LocalContentAdminChrome.current }
+    // Removing a saved file is a delete: content admins only, admin view or not (2026-10-21).
+    val onDelete: (() -> Unit)? = onDelete.takeIf { com.fieldrepository.app.ui.LocalMayDelete.current }
     val uri = remember(media.url) { media.url?.let(Uri::parse) }
     var showViewer by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -16673,7 +16675,7 @@ private fun QuestionnaireBuilder(
                                 }
                             ) { Text("Down") }
                         }
-                        if (com.fieldrepository.app.ui.LocalContentAdminChrome.current) OutlinedButton(
+                        if (com.fieldrepository.app.ui.LocalMayDelete.current) OutlinedButton(
                             onClick = {
                                 scope.launch {
                                     runCatching {
@@ -16765,7 +16767,7 @@ private fun QuestionnaireBuilder(
                                         },
                                     ) { Text("Next section") }
                                 }
-                                if (com.fieldrepository.app.ui.LocalContentAdminChrome.current) OutlinedButton(
+                                if (com.fieldrepository.app.ui.LocalMayDelete.current) OutlinedButton(
                                     onClick = {
                                         scope.launch {
                                             runCatching {

@@ -117,7 +117,7 @@ export default function CraftsPage() {
 function CraftsPageBody() {
   const confirm = useConfirm();
   const { user } = useAuth();
-  const { adminMode } = useAdminView();
+  const { adminMode, canDeleteRecords } = useAdminView();
   const { addCompleted } = useUploads();
   const allowManage = canManageCrafts(user);
   /** Content admins: Admin and Master Admin (Ministry Admin where the role exists). */
@@ -518,7 +518,7 @@ function CraftsPageBody() {
         ))}
       </div>
       {tab === "categories" && catalogue ? (
-        <CraftCategoriesTab catalogue={catalogue} canEdit={contentAdmin} canDelete={contentAdmin && adminMode} onChanged={load} />
+        <CraftCategoriesTab catalogue={catalogue} canEdit={contentAdmin} canDelete={canDeleteRecords} onChanged={load} />
       ) : tab === "categories" ? (
         <div className="panel p-4 text-sm text-ink-500">Loading…</div>
       ) : null}
@@ -866,7 +866,7 @@ function CraftsPageBody() {
                           <td className="px-4 py-3 text-right">
                             <RowActions
                               destructive={
-                                contentAdmin && adminMode ? (
+                                canDeleteRecords ? (
                                   <button className={rowAction("danger")} data-danger onClick={() => remove(craft.id)}>
                                     Delete
                                   </button>
