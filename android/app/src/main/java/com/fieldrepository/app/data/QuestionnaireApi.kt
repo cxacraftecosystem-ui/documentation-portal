@@ -11,6 +11,8 @@ import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.Streaming
+import okhttp3.ResponseBody
 
 /**
  * The typed questionnaire v2 client (BUILD_PLAN §1). Built on [ApiClient.retrofit], so it shares the
@@ -38,13 +40,15 @@ interface QuestionnaireApi {
     @POST("questionnaire/sessions")
     suspend fun createSession(@Header("Idempotency-Key") idempotencyKey: String, @Body body: QSessionCreate): QSession
 
+    /** One page; `nextCursor` asks for the next (audit M23: the server's parameter is `search`, never `q`). */
     @GET("questionnaire/sessions")
     suspend fun sessions(
-        @Query("q") query: String? = null,
+        @Query("search") search: String? = null,
         @Query("workshopId") workshopId: String? = null,
         @Query("questionnaireId") questionnaireId: String? = null,
         @Query("artisanId") artisanId: String? = null,
-        @Query("cursor") cursor: String? = null
+        @Query("cursor") cursor: String? = null,
+        @Query("limit") limit: Int? = null
     ): QSessionList
 
     @GET("questionnaire/sessions/{id}")
@@ -79,6 +83,14 @@ interface QuestionnaireApi {
     @DELETE("questionnaire/sessions/{id}")
     suspend fun deleteSession(@Path("id") id: String): Response<Unit>
 
+    /** Content admins only (owner, 2026-10-21). The source session is hidden and points at [targetId]. */
+    @POST("questionnaire/sessions/{id}/merge-into/{targetId}")
+    suspend fun mergeInto(@Path("id") id: String, @Path("targetId") targetId: String): QSession
+
+    /** "Continue with…" another day: the server opens the session(s) and says each one's first gap. */
+    @POST("questionnaire/sessions/continue")
+    suspend fun continueSessions(@Header("Idempotency-Key") idempotencyKey: String, @Body body: QContinueRequest): QContinueResponse
+
     // ── Coverage ─────────────────────────────────────────────────────────────────────────────
 
     @POST("questionnaire/coverage/check")
@@ -98,6 +110,14 @@ interface QuestionnaireApi {
 
     @POST("questionnaire/recordings/{id}/restore")
     suspend fun restoreRecording(@Path("id") id: String): QRecording
+
+    /** Professor and above: this take becomes [QMakePrimaryRequest.artisanId]'s main take of the target. */
+    @POST("questionnaire/recordings/{id}/make-primary")
+    suspend fun makePrimary(@Path("id") id: String, @Body body: QMakePrimaryRequest): QRecording
+
+    /** Drafts from the take's finished transcript; never an answer, never a new transcription. */
+    @POST("questionnaire/recordings/{id}/answer-proposals")
+    suspend fun answerProposals(@Path("id") id: String): QProposals
 
     /** Refile a landed take: who answered, which target. Optimistic on `version` (409 STALE_VERSION). */
     @PATCH("questionnaire/recordings/{id}")
@@ -151,4 +171,9 @@ interface QuestionnaireApi {
 
     @GET("artisans/{id}/record")
     suspend fun artisanRecord(@Path("id") artisanId: String, @Query("questionnaireId") questionnaireId: String? = null): QArtisanRecord
+
+    /** The record as CSV; the server names the file (Content-Disposition), the app never does. */
+    @Streaming
+    @GET("artisans/{id}/record.csv")
+    suspend fun artisanRecordCsv(@Path("id") artisanId: String, @Query("questionnaireId") questionnaireId: String? = null): Response<ResponseBody>
 }

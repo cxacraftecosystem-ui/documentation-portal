@@ -8,7 +8,8 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
 /**
- * Clock correction (DESIGN §3.9). Every request carries `X-Client-Time` and `X-App-Version`; every
+ * Clock correction (DESIGN §3.9). Every request carries `X-Client-Time`, `X-App-Version` and
+ * `X-App-Version-Code`; every
  * answer's `Date` header gives `clockOffsetMs = serverDate − clientTime`, which the outbox freezes into
  * each clip it queues so the server can correct the capture time.
  *
@@ -18,6 +19,11 @@ import java.time.format.DateTimeFormatter
 object ClientClock {
     const val CLIENT_TIME_HEADER = "X-Client-Time"
     const val APP_VERSION_HEADER = "X-App-Version"
+    /**
+     * The build's versionCode, on its own (audit C7, 21 Oct 2026). Version NAMES were reset to 0.0.1
+     * while codes keep rising, so the old-build cutoff and the P14 banner compare codes only.
+     */
+    const val APP_VERSION_CODE_HEADER = "X-App-Version-Code"
     private val FRESH_FOR: Duration = Duration.ofDays(7)
 
     data class Offset(val offsetMs: Long, val measuredAt: Instant)
@@ -44,11 +50,12 @@ object ClientClock {
         return if (Duration.between(offset.measuredAt, now) <= FRESH_FOR) "DEVICE" else "UPLOAD_TIME"
     }
 
-    fun interceptor(appVersion: String = BuildConfig.VERSION_NAME): Interceptor = Interceptor { chain ->
+    fun interceptor(appVersion: String = BuildConfig.VERSION_NAME, versionCode: Int = BuildConfig.VERSION_CODE): Interceptor = Interceptor { chain ->
         val sentAt = Instant.now()
         val request = chain.request().newBuilder()
             .header(CLIENT_TIME_HEADER, sentAt.toString())
             .header(APP_VERSION_HEADER, appVersion)
+            .header(APP_VERSION_CODE_HEADER, versionCode.toString())
             .build()
         val response = chain.proceed(request)
         if (!request.cacheControl.onlyIfCached) observe(sentAt, response.header("Date"))

@@ -61,8 +61,20 @@ data class QConfig(
     val partSizeBytes: Long = 8L * 1024 * 1024,
     val snapshotPollSeconds: Int = 60,
     val joinCodeLength: Int = 6,
-    val minAppVersionForCreate: String? = null
-)
+    /** Legacy: a version NAME. Read only when it is a bare number, which is then a versionCode (C7). */
+    val minAppVersionForCreate: String? = null,
+    /** The lowest Android versionCode that may create (audit C7); null when there is no cutoff. */
+    val minAppVersionCodeForCreate: Int? = null
+) {
+    /**
+     * P14: whether this build is below the server's cutoff. Codes only: names were reset to 0.0.1, so a
+     * name compare would show the banner for ever on the newest build (audit C7).
+     */
+    fun updateRequired(versionCode: Int): Boolean {
+        val minimum = minAppVersionCodeForCreate ?: minAppVersionForCreate?.trim()?.toIntOrNull() ?: return false
+        return versionCode < minimum
+    }
+}
 
 @Serializable
 data class QErrorDetail(

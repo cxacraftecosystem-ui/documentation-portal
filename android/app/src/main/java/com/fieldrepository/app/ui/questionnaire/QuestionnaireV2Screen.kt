@@ -191,8 +191,7 @@ fun QuestionnaireV2Screen(
                         }
                     }
                 }
-                val minVersion = config?.minAppVersionForCreate
-                if (minVersion != null && versionBelow(BuildConfig.VERSION_NAME, minVersion)) UpdateBanner(onUpdateApp)
+                if (config?.updateRequired(BuildConfig.VERSION_CODE) == true) UpdateBanner(onUpdateApp)
                 if (loading || (starting && !listsLoaded)) FieldLinearProgressIndicator(Modifier.fillMaxWidth())
                 if (!loading && rows.isEmpty()) Text(QuestionnaireCopy.s("sessions.empty"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted)
                 rows.forEach { row ->
@@ -279,17 +278,6 @@ fun QuestionnaireV2Screen(
             onDismiss = { batteryAsk = false; markBatteryAsked(context) }
         )
     }
-}
-
-/** "0.0.13" < "0.0.14". Non-numeric parts compare as 0. */
-internal fun versionBelow(current: String, minimum: String): Boolean {
-    val a = current.split('.').map { it.toIntOrNull() ?: 0 }
-    val b = minimum.split('.').map { it.toIntOrNull() ?: 0 }
-    for (i in 0 until maxOf(a.size, b.size)) {
-        val x = a.getOrElse(i) { 0 }; val y = b.getOrElse(i) { 0 }
-        if (x != y) return x < y
-    }
-    return false
 }
 
 private const val PREFS = "questionnaire-v2"
