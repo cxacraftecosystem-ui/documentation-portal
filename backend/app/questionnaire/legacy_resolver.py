@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from typing import Any
 
-from app.services.questionnaire_v2.common import aware, get
+from app.questionnaire.common import aware, get
 
 PROMPT_MATCH = 0.85
 TRANSCRIPT_MIN = 0.12

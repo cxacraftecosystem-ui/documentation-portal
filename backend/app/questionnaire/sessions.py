@@ -15,10 +15,10 @@ from typing import Any
 
 from prisma.errors import UniqueViolationError
 
-from app.core.roles import CONTENT_DELETE_REFUSAL, can_create_records, has_rank, is_admin, is_content_admin
-from app.services import consent_gate
-from app.services.questionnaire_v2 import titles
-from app.services.questionnaire_v2.common import (
+from app.questionnaire import authoring, ports, titles
+from app.questionnaire.authoring import CONTENT_DELETE_REFUSAL
+from app.questionnaire.ports import can_create_records, consent_gate, has_rank, is_admin, is_content_admin
+from app.questionnaire.common import (
     IST,
     aware,
     as_date,
@@ -39,7 +39,7 @@ PAGE_MAX = 100
 def _client(client: Any) -> Any:
     if client is not None:
         return client
-    from app.core.db import db
+    db = ports.db()
 
     return db
 
@@ -54,9 +54,11 @@ async def load_session_row(client: Any, session_id: str) -> dict[str, Any] | Non
     return rows[0] if rows else None
 
 
-async def require_session(client: Any, session_id: str) -> dict[str, Any]:
+async def require_session(client: Any, session_id: str, *, include_deleted: bool = False) -> dict[str, Any]:
+    """The session row, or ``SESSION_UNKNOWN``. A soft-deleted session (owner decision 3) is unknown
+    to everything but restore and the content admins' Deleted list."""
     row = await load_session_row(client, session_id)
-    if row is None:
+    if row is None or (row.get("deletedAt") is not None and not include_deleted):
         fail("SESSION_UNKNOWN")
     return row
 
@@ -224,14 +226,20 @@ async def serialize_sessions(client: Any, rows: list[dict[str, Any]]) -> list[di
                 "reviewReasons": [last_review["reason"]] if last_review and last_review.get("reason")
                 and last_review.get("status") != "APPROVED" else [],
                 "counts": counts.get(sid, {"sections": 0, "takes": 0, "needsDecision": 0}),
+                "source": enum_text(row.get("source")) or "APP",
+                "deletedAt": iso(row.get("deletedAt")),
             }
         )
     return out
 
 
 async def session_payload(client: Any, session_id: str) -> dict[str, Any]:
+    from app.questionnaire import respondents
+
     row = await require_session(client, session_id)
-    return (await serialize_sessions(client, [row]))[0]
+    out = (await serialize_sessions(client, [row]))[0]
+    out["respondents"] = await respondents.list_for(client, session_id)
+    return out
 
 
 # ── writing ────────────────────────────────────────────────────────────────────────────────────
@@ -367,8 +375,8 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
                          extra: dict[str, Any] | None = None, check_instrument: bool = True) -> tuple[dict[str, Any], bool]:
     """Create a session; returns ``(session, created)``. A repeated clientKey returns the row with
     ``created=False`` (200). Volunteers cannot create (they record into sessions they are on)."""
-    from app.core.db import db as default_db
-    from app.services.workshop_access import enforce_workshop_submission, pin_pending_if_late, stamp_workshop_submission
+    default_db = ports.db()
+    from app.questionnaire.ports import enforce_workshop_submission, pin_pending_if_late, stamp_workshop_submission
 
     db = _client(client)
     joining = _is_join_create(payload, user)
@@ -381,6 +389,9 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
             fail("SESSION_UNKNOWN", NOT_SYNCED)
         fail("FORBIDDEN", "Volunteers record into sessions they are added to; they can't start one.")
     artisan_ids = list(dict.fromkeys(p.artisanId for p in payload.participants))
+    from app.questionnaire import respondents
+
+    guests = [respondents.clean(r.name, r.kind, r.notes, user) for r in (getattr(payload, "respondents", None) or [])]
     await _assert_exists(db, "Questionnaire", [payload.questionnaireId], "questionnaireId")
     await _assert_exists(db, "Workshop", [payload.workshopId] if payload.workshopId else [], "workshopId")
     if check_instrument:
@@ -425,6 +436,7 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
                         "languageOther": payload.languageOther if payload.languageCode == "other" else None,
                         "note": (payload.note or "").strip() or None,
                         "legacyTitle": legacy_title,
+                        "source": getattr(payload, "source", None) or "APP",
                         "status": data["status"],
                         "createdById": user.id,
                         **({"extraMetadata": _json(data["extraMetadata"])} if data["extraMetadata"] else {}),
@@ -432,6 +444,8 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
                 )
                 session_id = created.id
                 await add_participants(tx, session_id, artisan_ids)
+                if guests:
+                    await respondents.insert_many(tx, session_id, guests, user)
                 # A scanner's stand-in row has no LEAD, so the lead's own create can take it over.
                 await add_researcher(tx, session_id, user.id, "CONTRIBUTOR" if joining else "LEAD")
                 for r in payload.researchers:
@@ -462,7 +476,7 @@ async def assert_instrument_allowed(db: Any, questionnaire_id: str, workshop_id:
     """A session is never started on a retired instrument, nor on another instrument than its
     workshop is bound to unless the caller manages questionnaires (the legacy create's rule; audit
     M16)."""
-    from app.core.roles import can_manage_questionnaire
+    from app.questionnaire.ports import can_manage_questionnaire
 
     rows = await db.query_raw('SELECT "isActive" FROM "Questionnaire" WHERE "id" = $1', questionnaire_id)
     if rows and not rows[0].get("isActive"):
@@ -495,7 +509,7 @@ async def has_content(client: Any, session_id: str) -> int:
 
 
 async def patch_session(session_id: str, payload: Any, user: Any, *, client: Any = None) -> dict[str, Any]:
-    from app.core.db import db as default_db
+    default_db = ports.db()
 
     db = _client(client)
     row = await require_session(db, session_id)
@@ -549,7 +563,7 @@ def _plain(value: Any) -> Any:
 
 
 async def add_participant(session_id: str, artisan_id: str, joined_at: datetime | None, user: Any, *, client: Any = None) -> dict[str, Any]:
-    from app.core.db import db as default_db
+    default_db = ports.db()
 
     db = _client(client)
     row = await require_session(db, session_id)
@@ -594,7 +608,7 @@ async def takes_for(client: Any, session_id: str, artisan_id: str) -> list[str]:
 
 
 async def remove_participant(session_id: str, artisan_id: str, detach: bool, user: Any, *, client: Any = None) -> dict[str, Any]:
-    from app.core.db import db as default_db
+    default_db = ports.db()
 
     db = _client(client)
     row = await require_session(db, session_id)
@@ -624,7 +638,7 @@ async def remove_participant(session_id: str, artisan_id: str, detach: bool, use
 async def log_event(client: Any, recording_id: str, kind: str, before: Any, after: Any, actor_id: str) -> None:
     from uuid import uuid4
 
-    from app.services.questionnaire_v2.common import jsonable
+    from app.questionnaire.common import jsonable
 
     await client.execute_raw(
         'INSERT INTO "QuestionnaireRecordingEvent" ("id", "recordingId", "kind", "before", "after", "actorId") '
@@ -658,7 +672,7 @@ _JOIN_MISSES: dict[str, list[datetime]] = {}
 def join_rate_limit(user: Any, *, missed: bool = False) -> None:
     """Ten wrong codes in ten minutes per account, then 429 (audit Low): a six-letter code can be
     guessed by a script, never by a person reading it across a courtyard."""
-    from fastapi import HTTPException
+    from app.questionnaire.errors import http_error
 
     key = str(get(user, "id"))
     cutoff = now() - JOIN_WINDOW
@@ -667,7 +681,7 @@ def join_rate_limit(user: Any, *, missed: bool = False) -> None:
         recent.append(now())
     _JOIN_MISSES[key] = recent
     if len(recent) > JOIN_MISSES_PER_WINDOW:
-        raise HTTPException(status_code=429, detail={"code": "RATE_LIMITED", "message": "Too many wrong codes. Wait a few minutes."},
+        raise http_error(429, {"code": "RATE_LIMITED", "message": "Too many wrong codes. Wait a few minutes."},
                             headers={"Retry-After": str(int(JOIN_WINDOW.total_seconds()))})
 
 
@@ -677,7 +691,7 @@ async def _assert_may_join(db: Any, session_id: str, user: Any) -> None:
     rows = await db.query_raw('SELECT "workshopId" FROM "QuestionnaireInterview" WHERE "id" = $1', session_id)
     workshop_id = rows[0].get("workshopId") if rows else None
     if workshop_id:
-        from app.services.workshop_access import enforce_workshop_submission
+        from app.questionnaire.ports import enforce_workshop_submission
 
         await enforce_workshop_submission(user, str(workshop_id))
 
@@ -686,7 +700,7 @@ async def join(join_code: str, user: Any, *, client: Any = None) -> dict[str, An
     db = _client(client)
     join_rate_limit(user)
     rows = await db.query_raw(
-        'SELECT "id" FROM "QuestionnaireInterview" WHERE "joinCode" = $1 AND "state" = \'OPEN\' AND "mergedIntoId" IS NULL',
+        'SELECT "id" FROM "QuestionnaireInterview" WHERE "joinCode" = $1 AND "state" = \'OPEN\' AND "mergedIntoId" IS NULL AND "deletedAt" IS NULL',
         join_code.strip().upper(),
     )
     if not rows:
@@ -707,12 +721,17 @@ async def finish(session_id: str, user: Any, *, client: Any = None) -> dict[str,
         '"endedAt" = COALESCE("endedAt", now()), "version" = "version" + 1, "updatedAt" = now() WHERE "id" = $1',
         session_id,
     )
-    return await session_payload(db, session_id)
+    from app.questionnaire import coverage
+
+    out = await session_payload(db, session_id)
+    # A19: reported, never blocking ("3 required questions unanswered").
+    out["requiredUnanswered"] = await coverage.required_unanswered(db, session_id)
+    return out
 
 
 async def merge_into(source_id: str, target_id: str, user: Any, *, client: Any = None) -> dict[str, Any]:
     """Move recordings, participants, researchers and answers onto the target, in one transaction."""
-    from app.core.db import db as default_db
+    default_db = ports.db()
 
     db = _client(client)
     # A merge removes its source: content admins only (roles.CONTENT_ADMIN_ROLES, 2026-10-20).
@@ -772,20 +791,17 @@ async def merge_into(source_id: str, target_id: str, user: Any, *, client: Any =
 
 
 async def delete_session(session_id: str, user: Any, *, client: Any = None) -> None:
+    """A RESTORABLE SOFT DELETE, content admins only (owner decision 3, 21 Oct 2026), even when the
+    session holds recordings or answers: ``deletedAt`` hides the session, its takes and its answers
+    from every reader (``live.LIVE_SESSION_SQL``, ``questionnaire_take_v``) until a content admin
+    restores it. Nothing is erased; only the purge job ever hard-deletes.
+
+    The one refusal left is a take still on its way from a device (an open, unexpired upload
+    intent): it would land on a session nobody can see. ``HAS_RECORDINGS`` with ``pending``."""
     db = _client(client)
-    # Content admins only since 2026-10-20; the session's creator no longer deletes it.
-    if not is_content_admin(user):
+    if not (authoring.may_delete_session(user) and is_content_admin(user)):
         fail("FORBIDDEN", CONTENT_DELETE_REFUSAL)
     await require_session(db, session_id)
-    live = await db.query_raw(
-        'SELECT count(*) AS n FROM "MediaFile" WHERE "questionnaireInterviewId" = $1 AND "removedAt" IS NULL', session_id
-    )
-    answers = await db.query_raw('SELECT count(*) AS n FROM "QuestionnaireAnswerRevision" WHERE "sessionId" = $1', session_id)
-    count = int(live[0]["n"]) + int(answers[0]["n"])
-    if count:
-        fail("HAS_RECORDINGS", f"Move or remove its {count} recordings first.", count=count)
-    # An open, unexpired upload intent is a take on its way here from a device: refuse rather than
-    # delete the session under it (the take would land on SESSION_UNKNOWN and be orphaned).
     pending = await db.query_raw(
         'SELECT count(*) AS n FROM "MediaUploadIntent" WHERE "sessionId" = $1 AND "closedAt" IS NULL '
         "AND \"expiresAt\" > (now() AT TIME ZONE 'UTC')",
@@ -794,20 +810,38 @@ async def delete_session(session_id: str, user: Any, *, client: Any = None) -> N
     uploading = int(pending[0]["n"]) if pending else 0
     if uploading:
         fail("HAS_RECORDINGS", "A recording is still uploading to this session. Try again once it lands.", count=uploading, pending=uploading)
-    await db.execute_raw('DELETE FROM "MediaUploadIntent" WHERE "sessionId" = $1 AND "closedAt" IS NULL', session_id)
-    await db.questionnaireinterview.delete(where={"id": session_id})
+    await db.execute_raw(
+        'UPDATE "QuestionnaireInterview" SET "deletedAt" = now(), "deletedById" = $2, "version" = "version" + 1, '
+        '"updatedAt" = now() WHERE "id" = $1 AND "deletedAt" IS NULL',
+        session_id, str(get(user, "id")),
+    )
+
+
+async def restore_session(session_id: str, user: Any, *, client: Any = None) -> dict[str, Any]:
+    """Undo :func:`delete_session`; content admins only. Restoring a live session changes nothing."""
+    db = _client(client)
+    if not (authoring.may_restore_session(user) and is_content_admin(user)):
+        fail("FORBIDDEN", "Only an admin can restore this.")
+    await require_session(db, session_id, include_deleted=True)
+    await db.execute_raw(
+        'UPDATE "QuestionnaireInterview" SET "deletedAt" = NULL, "deletedById" = NULL, "version" = "version" + 1, '
+        '"updatedAt" = now() WHERE "id" = $1 AND "deletedAt" IS NOT NULL',
+        session_id,
+    )
+    return await session_payload(db, session_id)
 
 
 # ── lists and lookups ──────────────────────────────────────────────────────────────────────────
 async def list_sessions(
     *, client: Any = None, workshopId: str | None = None, questionnaireId: str | None = None,
     artisanId: str | None = None, researcherId: str | None = None, dateFrom: Any = None, dateTo: Any = None,
-    search: str | None = None, cursor: str | None = None, limit: int = 20,
+    search: str | None = None, cursor: str | None = None, limit: int = 20, deleted: bool = False,
 ) -> dict[str, Any]:
-    """Newest ``sessionDate`` first (undated legacy rows last), keyset-paged by an opaque cursor."""
+    """Newest ``sessionDate`` first (undated legacy rows last), keyset-paged by an opaque cursor.
+    ``deleted=True`` lists the soft-deleted sessions instead (the route allows it to content admins)."""
     db = _client(client)
     limit = max(1, min(int(limit or 20), PAGE_MAX))
-    where = ['i."mergedIntoId" IS NULL']
+    where = ['i."mergedIntoId" IS NULL', 'i."deletedAt" IS NOT NULL' if deleted else 'i."deletedAt" IS NULL']
     params: list[Any] = []
 
     def p(value: Any) -> str:
@@ -862,7 +896,7 @@ async def open_match(*, questionnaire_id: str, workshop_id: str | None, artisan_
     rows = await db.query_raw(
         'SELECT i."id", i."title", i."startedAt", i."createdById", u."name" AS uname FROM "QuestionnaireInterview" i '
         'JOIN "User" u ON u."id" = i."createdById" '
-        'WHERE i."questionnaireId" = $1 AND i."state" = \'OPEN\' AND i."mergedIntoId" IS NULL '
+        'WHERE i."questionnaireId" = $1 AND i."state" = \'OPEN\' AND i."mergedIntoId" IS NULL AND i."deletedAt" IS NULL '
         'AND i."workshopId" IS NOT DISTINCT FROM $2 AND i."sessionDate" = $3::date '
         'AND EXISTS (SELECT 1 FROM "QuestionnaireInterviewArtisan" x WHERE x."interviewId" = i."id" AND x."artisanId" = ANY($4::text[])) '
         'ORDER BY i."startedAt" DESC NULLS LAST LIMIT 5',
@@ -886,8 +920,8 @@ async def open_match(*, questionnaire_id: str, workshop_id: str | None, artisan_
 
 async def continue_sessions(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any]:
     """"Continue with...": one session for all, or one each, on a new day, with each artisan's first gap."""
-    from app.schemas.questionnaire_v2 import ParticipantInput, SessionCreate
-    from app.services.questionnaire_v2 import coverage
+    from app.questionnaire.schemas import ParticipantInput, SessionCreate
+    from app.questionnaire import coverage
 
     db = _client(client)
     source = await follow_merges(db, payload.fromSessionId)
@@ -945,7 +979,7 @@ async def maybe_close_stale_sessions(*, at: datetime | None = None) -> int | Non
     """The nightly ``close_stale_sessions`` (DESIGN 3.7), run by the queue worker once per IST day
     after 02:00, and only while QUESTIONNAIRE_V2 is on. Never rejects anything: CLOSED only stops
     the UI from starting new takes."""
-    from app.core.config import get_settings
+    from app.questionnaire.ports import get_settings
 
     if not get_settings().questionnaire_v2:
         return None
@@ -955,7 +989,7 @@ async def maybe_close_stale_sessions(*, at: datetime | None = None) -> int | Non
     _LAST_CLOSE_DAY[0] = local.date()
     closed = await close_stale_sessions()
     # The same nightly pass aborts the multipart uploads of expired upload intents (audit Low).
-    from app.services.questionnaire_v2 import recordings
+    from app.questionnaire import recordings
 
     await recordings.sweep_expired_intents()
     return closed

@@ -9,7 +9,7 @@ from prisma import Json
 from pydantic import Field, ValidationError
 
 from app.core.db import db
-from app.services.questionnaire_v2.live import live_media_where
+from app.questionnaire.live import live_media_where
 from app.core.deps import (
     ROLE_RANK,
     can_access_review,
@@ -25,8 +25,8 @@ from app.core.deps import (
 )
 from app.schemas.common import APIModel, ReviewAction
 from app.schemas.questionnaire import QuestionnaireInterviewUpdate
-from app.services.questionnaire_v2 import review as v2_review
-from app.services.questionnaire_v2 import shims as v2_shims
+from app.questionnaire import review as v2_review
+from app.questionnaire import shims_fr as v2_shims
 from app.schemas.records import (
     ArtisanUpdate,
     ProcessUpdate,

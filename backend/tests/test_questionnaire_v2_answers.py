@@ -8,13 +8,13 @@ pytestmark = needs_db
 
 
 def _put(*items):
-    from app.schemas.questionnaire_v2 import AnswersPut
+    from app.questionnaire.schemas import AnswersPut
 
     return AnswersPut.model_validate({"items": list(items)})
 
 
 def test_put_answers_is_per_item_and_never_fails_as_a_whole(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import answers, sessions
+    from app.questionnaire import answers, sessions
 
     async def go() -> None:
         client = await connect()
@@ -48,7 +48,7 @@ def test_put_answers_is_per_item_and_never_fails_as_a_whole(monkeypatch) -> None
 
 
 def test_prefill_never_overwrites_a_person(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import answers, sessions
+    from app.questionnaire import answers, sessions
 
     async def go() -> None:
         client = await connect()
@@ -73,7 +73,7 @@ def test_prefill_never_overwrites_a_person(monkeypatch) -> None:
 
 
 def test_proposals_for_an_unnamed_group_take_write_drafts_never_answers(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import answers, sessions
+    from app.questionnaire import answers, sessions
 
     async def go() -> None:
         client = await connect()

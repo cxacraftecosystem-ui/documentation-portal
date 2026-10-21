@@ -12,9 +12,9 @@ import io
 import json
 from typing import Any
 
-from app.services import consent_gate, naming
-from app.services.questionnaire_v2 import coverage
-from app.services.questionnaire_v2.common import fail, iso
+from app.questionnaire import coverage, ports
+from app.questionnaire.ports import consent_gate, naming
+from app.questionnaire.common import fail, iso
 
 SCHEMA_VERSION = 1
 ANSWER_FIELDS = [
@@ -32,7 +32,7 @@ RECORDING_FIELDS = [
 def _db(client: Any) -> Any:
     if client is not None:
         return client
-    from app.core.db import db
+    db = ports.db()
 
     return db
 
@@ -47,8 +47,11 @@ async def corpus(questionnaire_id: str, *, status: str | None = "APPROVED", clie
         'aq."prompt" AS "askedWording", rv."text", rv."languageCode", rv."attribution"::text AS attribution, rv."origin"::text AS origin, '
         'rv."status"::text AS status, rv."sourceRecordingId" FROM "QuestionnaireAnswer" a '
         'JOIN "QuestionnaireAnswerRevision" rv ON rv."id" = a."currentRevisionId" '
+        # Live sessions only (a soft-deleted session hides its answers); guest answers have no
+        # artisan to key the corpus on and stay out of it until they are registered.
+        'JOIN "QuestionnaireInterview" si ON si."id" = rv."sessionId" AND si."deletedAt" IS NULL '
         'JOIN "QuestionnaireQuestion" q ON q."id" = a."questionLineageId" JOIN "QuestionnaireQuestion" aq ON aq."id" = rv."askedQuestionId" '
-        'WHERE a."questionnaireId" = $1 AND ($2::text IS NULL OR rv."status"::text = $2) ORDER BY a."artisanId", q."displayCode"',
+        'WHERE a."questionnaireId" = $1 AND a."artisanId" IS NOT NULL AND ($2::text IS NULL OR rv."status"::text = $2) ORDER BY a."artisanId", q."displayCode"',
         questionnaire_id, status,
     )
     takes = await coverage.take_rows(db, questionnaire_id)

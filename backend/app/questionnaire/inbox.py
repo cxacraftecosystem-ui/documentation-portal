@@ -15,8 +15,9 @@ from collections import defaultdict
 from datetime import timedelta
 from typing import Any
 
-from app.core.roles import is_admin
-from app.services.questionnaire_v2.common import as_date, aware, iso, now
+from app.questionnaire import ports
+from app.questionnaire.ports import is_admin
+from app.questionnaire.common import as_date, aware, iso, now
 
 LEGACY_TYPES = ("questionnaire", "questionnaireinterview", "questionnaire_session")
 
@@ -24,7 +25,7 @@ LEGACY_TYPES = ("questionnaire", "questionnaireinterview", "questionnaire_sessio
 def _db(client: Any) -> Any:
     if client is not None:
         return client
-    from app.core.db import db
+    db = ports.db()
 
     return db
 

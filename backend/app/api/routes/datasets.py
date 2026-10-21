@@ -62,7 +62,7 @@ from fastapi.responses import StreamingResponse
 
 from app.core.config import get_settings
 from app.core.db import db
-from app.services.questionnaire_v2.live import live_media_where
+from app.questionnaire.live import live_media_where
 from app.core.deps import (
     DATASET_READ_SCOPE,
     get_value,

@@ -9,16 +9,17 @@ import io
 from collections import defaultdict
 from typing import Any
 
-from app.services import naming
-from app.services.questionnaire_v2 import answers as answers_service
-from app.services.questionnaire_v2 import coverage, recordings, sessions
-from app.services.questionnaire_v2.common import fail
+from app.questionnaire import ports
+from app.questionnaire.ports import naming
+from app.questionnaire import answers as answers_service
+from app.questionnaire import coverage, recordings, sessions
+from app.questionnaire.common import fail
 
 
 def _db(client: Any) -> Any:
     if client is not None:
         return client
-    from app.core.db import db
+    db = ports.db()
 
     return db
 
@@ -101,12 +102,18 @@ async def artisan_record(artisan_id: str, user: Any, *, questionnaire_id: str | 
             qtakes = takes_by_key.get(key, [])
             answer = current.get(lineage)
             primary = primaries.get(key)
+            section_key = coverage.section_key(str(q["sectionId"])) if q.get("sectionId") else None
+            recorded = bool(qtakes) or bool(section_key and takes_by_key.get(section_key))
+            typed = bool(answer and str(answer.get("text") or "").strip())
             entry = {
                 "displayCode": q.get("displayCode"),
                 "answer": answers_service.answer_out(answer) if answer else None,
                 "primaryRecordingId": primary,
                 "otherRecordingIds": sorted({str(t["recordingId"]) for t in qtakes} - {primary} if primary else set()),
                 "accountsDiffer": False,
+                # Where this question's coverage comes from (owner, amendment 2 point 4): a recording
+                # when there is one (preferred), else a typed answer, else nothing.
+                "coverageSource": coverage.SOURCE_RECORDED if recorded else (coverage.SOURCE_TYPED if typed else None),
                 "recordedUnderEarlierWording": any(t.get("askedQuestionId") and str(t["askedQuestionId"]) != str(q["id"]) for t in qtakes),
             }
             if not asked_now:
@@ -146,12 +153,13 @@ async def artisan_record_csv(artisan_id: str, user: Any, *, questionnaire_id: st
     subject = name if (name or "").isascii() else (local if (local or "").isascii() and local else name)
     buffer = io.StringIO()
     writer = csv.writer(buffer)
-    writer.writerow(["Questionnaire", "Section", "Question", "Answer", "Origin", "Attribution", "Primary recording", "Other recordings"])
+    writer.writerow(["Questionnaire", "Section", "Question", "Answer", "Origin", "Attribution", "Primary recording", "Other recordings", "Covered by"])
     for inst in record["instruments"]:
         for section in inst["document"]:
             for q in section["questions"]:
                 a = q["answer"] or {}
                 writer.writerow([inst["title"], section["sectionCode"], q["displayCode"], a.get("text", ""), a.get("origin", ""),
-                                 a.get("attribution", ""), q["primaryRecordingId"] or "", " ".join(q["otherRecordingIds"])])
+                                 a.get("attribution", ""), q["primaryRecordingId"] or "", " ".join(q["otherRecordingIds"]),
+                                 {"RECORDED": "Recorded", "TYPED": "Typed"}.get(q.get("coverageSource") or "", "")])
     filename = naming.export_filename(entity="Questionnaire", what="Export", ext="csv", subject=subject)
     return filename, buffer.getvalue()

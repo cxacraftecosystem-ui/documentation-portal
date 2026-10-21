@@ -28,7 +28,7 @@ KEY_RE = re.compile(r"^media/[^/]+/[0-9a-f]{32}/[A-Za-z0-9._-]{1,150}$")
 
 
 def _presign(ids, session_id: str, clip: str, **extra):
-    from app.schemas.questionnaire_v2 import PresignRequest
+    from app.questionnaire.schemas import PresignRequest
 
     return PresignRequest.model_validate({
         "linkedRecordType": "questionnaire_session", "sessionId": session_id, "clientClipKey": clip, "sizeBytes": 3_400_000,
@@ -38,7 +38,7 @@ def _presign(ids, session_id: str, clip: str, **extra):
 
 
 def test_presign_needs_a_session_and_is_idempotent_on_the_clip_key(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import recordings, sessions
+    from app.questionnaire import recordings, sessions
 
     async def go() -> None:
         client = await connect()
@@ -69,7 +69,7 @@ def test_presign_needs_a_session_and_is_idempotent_on_the_clip_key(monkeypatch) 
 
 
 def test_complete_is_atomic_and_idempotent_on_the_clip_key(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import recordings, sessions
+    from app.questionnaire import recordings, sessions
 
     async def go() -> None:
         client = await connect()
@@ -101,7 +101,7 @@ def test_complete_is_atomic_and_idempotent_on_the_clip_key(monkeypatch) -> None:
 
 
 def test_complete_never_refuses_on_coverage_and_flags_only_the_truly_ambiguous(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire import sessions
 
     async def go() -> None:
         client = await connect()
@@ -116,7 +116,7 @@ def test_complete_never_refuses_on_coverage_and_flags_only_the_truly_ambiguous(m
         assert acked["filing"] == "FILED" and acked["subjects"][0]["repeatReason"] == "REDO" and acked["subjects"][0]["flag"] is None
         concurrent = await record_take(client, ids, s["id"], ids.other, targets=target, at=t(1), ackedRecordingIds=[first["id"]])
         assert concurrent["filing"] == "NEEDS_DECISION" and concurrent["subjects"][0]["flag"] == "CONCURRENT"
-        from app.services.questionnaire_v2 import inbox
+        from app.questionnaire import inbox
 
         mine = await inbox.inbox(ids.lead, client=client)
         assert concurrent["id"] in [d["recordingId"] for d in mine["needsDecision"]], "the session's researchers are asked"
@@ -133,7 +133,7 @@ def test_complete_never_refuses_on_coverage_and_flags_only_the_truly_ambiguous(m
 
 
 def test_twenty_concurrent_completes_for_overlapping_subjects_do_not_deadlock(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire import sessions
 
     async def go() -> None:
         client = await connect()
@@ -157,7 +157,7 @@ def test_twenty_concurrent_completes_for_overlapping_subjects_do_not_deadlock(mo
 
 
 def test_a_late_clip_into_a_closed_session_and_a_non_participant_subject_are_accepted(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire import sessions
 
     async def go() -> None:
         client = await connect()
@@ -180,7 +180,7 @@ def test_a_late_clip_into_a_closed_session_and_a_non_participant_subject_are_acc
 
 
 def test_clock_correction_stale_offset_and_future_clamp() -> None:
-    from app.services.questionnaire_v2.recordings import correct_capture_time
+    from app.questionnaire.recordings import correct_capture_time
 
     now = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
     device = datetime(2026, 6, 29, 12, 0, tzinfo=UTC)
@@ -199,7 +199,7 @@ def test_clock_correction_stale_offset_and_future_clamp() -> None:
 
 
 def test_old_keys_are_untouched_and_downloads_get_the_readable_name(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import recordings, sessions
+    from app.questionnaire import recordings, sessions
 
     async def go() -> None:
         client = await connect()

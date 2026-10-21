@@ -9,7 +9,7 @@ from app.core.db import db
 from app.core.deps import get_current_user, get_value, role_value
 from app.services import cross_portal, search_embeddings, search_query
 from app.services import unified_search as us
-from app.services.questionnaire_v2.live import live_media_where
+from app.questionnaire.live import live_media_where
 from app.services.concurrency import gather_reads
 from app.services.cross_portal_client import (
     RECORD_TIMEOUT_SECONDS,

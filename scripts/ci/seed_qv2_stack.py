@@ -37,7 +37,7 @@ async def main(out_path: str) -> None:
     import app  # noqa: F401  (loads settings and the Prisma client the way the API does)
     from app.core.db import db
     from app.core.security import create_access_token
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire import sessions
     from qv2_fixtures import seed, session_create
 
     await db.connect()

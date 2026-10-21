@@ -16,7 +16,7 @@ pytestmark = needs_db
 def test_nothing_reaches_a_provider_while_paused(monkeypatch) -> None:
     from app.services import transcription_enqueue as transcription
     from app.services import consent_gate, media_queue, transcription_jobs
-    from app.services.questionnaire_v2 import recordings, sessions
+    from app.questionnaire import recordings, sessions
 
     async def go() -> None:
         client = await connect()

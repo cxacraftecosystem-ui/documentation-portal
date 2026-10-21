@@ -6,7 +6,9 @@
 * a stale ``baseVersion`` is a ``CONFLICT`` (P9);
 * identical text is ``UNCHANGED``;
 * a pinned answer edited below Professor is ``FORBIDDEN``;
-* a PREFILL only ever overwrites an earlier PREFILL revision.
+* a PREFILL only ever overwrites an earlier PREFILL revision;
+* with ``QUESTIONNAIRE_ANSWER_LOCKS`` on, an answer with text written by someone else is ``LOCKED``
+  unless the caller leads the session or is an admin (``answer_lock``; owner decision 2).
 
 Proposals write drafts (``QuestionnaireTakeDraft``), never answers; a person accepts them here.
 """
@@ -19,11 +21,9 @@ from datetime import timedelta
 from typing import Any
 from uuid import uuid4
 
-from app.core.config import get_settings
-from app.core.roles import has_rank
-from app.services import consent_gate
-from app.services.questionnaire_v2 import sessions
-from app.services.questionnaire_v2.common import get
+from app.questionnaire import answer_lock, ports, sessions
+from app.questionnaire.ports import consent_gate, get_settings, has_rank
+from app.questionnaire.common import get
 
 TX_TIMEOUT = timedelta(seconds=20)
 TX_MAX_WAIT = timedelta(seconds=15)
@@ -33,7 +33,7 @@ DEFAULT_COUNTRY_CODE = "+91"
 def _db(client: Any) -> Any:
     if client is not None:
         return client
-    from app.core.db import db
+    db = ports.db()
 
     return db
 
@@ -122,6 +122,8 @@ async def answers_for(client: Any, *, artisan_ids: list[str] | None = None, sess
         'rv."attribution"::text AS attribution, rv."sourceRecordingId", rv."sessionId", rv."status"::text AS status, '
         'rv."sourceTranscriptHash", rv."askedQuestionId", rv."languageCode" '
         'FROM "QuestionnaireAnswer" a JOIN "QuestionnaireAnswerRevision" rv ON rv."id" = a."currentRevisionId" '
+        # A soft-deleted session hides the answers it holds (owner decision 3; live.LIVE_SESSION_SQL).
+        'JOIN "QuestionnaireInterview" si ON si."id" = rv."sessionId" AND si."deletedAt" IS NULL '
         + ("WHERE " + " AND ".join(where) if where else "") + ' ORDER BY a."artisanId", a."questionLineageId"',
         *params,
     )
@@ -205,9 +207,13 @@ async def _prefetch(items: list[Any], client: Any) -> dict[str, dict[Any, Any]]:
     return pre
 
 
-def _settled_without_write(item: Any, user: Any, base: dict[str, Any], current: dict[str, Any] | None) -> dict[str, Any] | None:
+def _settled_without_write(
+    item: Any, user: Any, base: dict[str, Any], current: dict[str, Any] | None, leads: set[str] | None = None
+) -> dict[str, Any] | None:
     """The outcome decided by the answer as it stands, without writing (CONFLICT, a pinned answer's
-    FORBIDDEN, UNCHANGED), or None when the item goes on to its versioned write."""
+    FORBIDDEN, UNCHANGED, and with the locks on LOCKED), or None when the item goes on to its
+    versioned write. ``leads`` is None while the answer locks are off. An unchanged answer is
+    UNCHANGED before the lock is consulted, so resending what is there never trips it."""
     if current is None:
         return None
     out_current = answer_out(current)
@@ -219,6 +225,9 @@ def _settled_without_write(item: Any, user: Any, base: dict[str, Any], current: 
         return {**base, "status": "CONFLICT", "current": out_current}
     if (current.get("text") or "") == item.text and (current.get("origin") or "") == item.origin:
         return {**base, "status": "UNCHANGED", "answer": out_current, "current": out_current}
+    if leads is not None and answer_lock.answer_locked(current, user, session_leads=leads):
+        return {**base, "status": answer_lock.STATUS, "code": answer_lock.CODE, "current": out_current,
+                "lockedBy": current.get("actorId")}
     return None
 
 
@@ -237,7 +246,7 @@ async def _write_one(
     session = session_cache.get(item.sessionId)
     if session is None:
         session = await sessions.load_session_row(client, item.sessionId)
-        if session is None:
+        if session is None or session.get("deletedAt") is not None:
             return {**base, "status": "FORBIDDEN"}
         session["_canWork"] = await sessions.can_work_in(client, user, session)
         session_cache[item.sessionId] = session
@@ -245,6 +254,11 @@ async def _write_one(
         return {**base, "status": "FORBIDDEN"}
     if "_people" not in session:
         session["_people"] = await session_people(client, str(session["id"]))
+    leads = None
+    if answer_lock.locks_enabled(get_settings()):
+        if "_leads" not in session:
+            session["_leads"] = await session_leads(client, str(session["id"]))
+        leads = session["_leads"]
     if item.artisanId not in session["_people"]:
         # An answer is about somebody who was there: a participant, or a subject of one of its takes
         # (audit M15). Anyone else is refused, never silently written.
@@ -255,13 +269,13 @@ async def _write_one(
         current = pre["current"][pair]
     else:
         current = await current_answer(client, item.artisanId, item.questionLineageId)
-    settled = _settled_without_write(item, user, base, current)
+    settled = _settled_without_write(item, user, base, current, leads)
     if settled is not None and snapshot:
         # The batch read may be older than a save that landed since (another device, another tab).
         # An outcome that writes nothing is reported from a fresh read, never from that snapshot;
         # one that writes is checked by the versioned UPDATE / INSERT below, which re-reads on a miss.
         current = await current_answer(client, item.artisanId, item.questionLineageId)
-        settled = _settled_without_write(item, user, base, current)
+        settled = _settled_without_write(item, user, base, current, leads)
     if settled is not None:
         return settled
     field_value = None
@@ -300,12 +314,12 @@ async def _write_one(
         revision_id = uuid4().hex
         await tx.execute_raw(
             'INSERT INTO "QuestionnaireAnswerRevision" ("id", "answerId", "text", "languageCode", "origin", "attribution", '
-            '"askedQuestionId", "sessionId", "sourceRecordingId", "sourceTranscriptHash", "sourceFieldValue", "status", "actorId") '
-            'VALUES ($1, $2, $3, $4, $5::"AnswerOrigin", $6::"AnswerAttribution", $7, $8, $9, $10, $11, $12::"RecordStatus", $13)',
+            '"askedQuestionId", "sessionId", "sourceRecordingId", "sourceTranscriptHash", "sourceFieldValue", "status", "actorId", "note") '
+            'VALUES ($1, $2, $3, $4, $5::"AnswerOrigin", $6::"AnswerAttribution", $7, $8, $9, $10, $11, $12::"RecordStatus", $13, $14)',
             revision_id, answer_id, item.text, session.get("languageCode"), item.origin, item.attribution, str(question["id"]),
             item.sessionId, item.sourceRecordingId,
             pre["hash"][str(item.sourceRecordingId)] if hash_known else await _transcript_hash(tx, item.sourceRecordingId),
-            field_value, status, user.id,
+            field_value, status, user.id, getattr(item, "note", None),
         )
         await tx.execute_raw('UPDATE "QuestionnaireAnswer" SET "currentRevisionId" = $2 WHERE "id" = $1', answer_id, revision_id)
         if session.get("status_t") == "APPROVED":
@@ -316,6 +330,130 @@ async def _write_one(
         "pinned": bool(current and current.get("pinned")), "sourceRecordingId": item.sourceRecordingId,
     }
     return {**base, "status": "SAVED", "answer": saved}
+
+
+async def current_respondent_answer(client: Any, respondent_id: str, lineage_id: str) -> dict[str, Any] | None:
+    rows = await client.query_raw(
+        f'SELECT {_CURRENT_COLUMNS} FROM "QuestionnaireAnswer" a '
+        'LEFT JOIN "QuestionnaireAnswerRevision" rv ON rv."id" = a."currentRevisionId" '
+        'WHERE a."respondentId" = $1 AND a."questionLineageId" = $2',
+        respondent_id, lineage_id,
+    )
+    return rows[0] if rows else None
+
+
+async def _write_respondent(item: Any, user: Any, client: Any, session_cache: dict[str, Any]) -> dict[str, Any]:
+    """One item of ``PUT /answers`` owned by a guest respondent (owner decision 1): the same rules as
+    an artisan's answer (create-only without ``baseVersion``, P9 conflicts, UNCHANGED, the pinned
+    rule, the answer lock) on the respondent's own answer row. A respondent answers only in the
+    session they belong to; PREFILL has no artisan to read and is refused."""
+    base = {"respondentId": item.respondentId, "artisanId": None, "questionLineageId": item.questionLineageId,
+            "answer": None, "current": None}
+    if item.origin == "PREFILL":
+        return {**base, "status": "FORBIDDEN"}
+    question = await _lineage(client, item.questionLineageId)
+    if question is None:
+        return {**base, "status": "FORBIDDEN"}
+    session = session_cache.get(item.sessionId)
+    if session is None:
+        session = await sessions.load_session_row(client, item.sessionId)
+        if session is None or session.get("deletedAt") is not None:
+            return {**base, "status": "FORBIDDEN"}
+        session["_canWork"] = await sessions.can_work_in(client, user, session)
+        session_cache[item.sessionId] = session
+    if not session["_canWork"] or str(session["questionnaireId"]) != str(question["questionnaireId"]):
+        return {**base, "status": "FORBIDDEN"}
+    owner = await client.query_raw(
+        'SELECT 1 AS ok FROM "QuestionnaireRespondent" WHERE "id" = $1 AND "sessionId" = $2 AND "artisanId" IS NULL',
+        item.respondentId, item.sessionId,
+    )
+    if not owner:
+        return {**base, "status": "FORBIDDEN"}
+    leads = None
+    if answer_lock.locks_enabled(get_settings()):
+        if "_leads" not in session:
+            session["_leads"] = await session_leads(client, str(session["id"]))
+        leads = session["_leads"]
+    current = await current_respondent_answer(client, item.respondentId, item.questionLineageId)
+    settled = _settled_without_write(item, user, base, current, leads)
+    if settled is not None:
+        return settled
+    async with client.tx(max_wait=TX_MAX_WAIT, timeout=TX_TIMEOUT) as tx:
+        if current is None:
+            answer_id = uuid4().hex
+            inserted = await tx.execute_raw(
+                'INSERT INTO "QuestionnaireAnswer" ("id", "respondentId", "questionnaireId", "questionLineageId", "updatedAt") '
+                'VALUES ($1, $2, $3, $4, now()) ON CONFLICT ("respondentId", "questionLineageId") DO NOTHING',
+                answer_id, item.respondentId, str(question["questionnaireId"]), item.questionLineageId,
+            )
+            if not inserted:
+                raced = await current_respondent_answer(tx, item.respondentId, item.questionLineageId)
+                return {**base, "status": "CONFLICT", "current": answer_out(raced)}
+            version = 1
+        else:
+            answer_id = str(current["id"])
+            changed = await tx.execute_raw(
+                'UPDATE "QuestionnaireAnswer" SET "version" = "version" + 1, "updatedAt" = now() WHERE "id" = $1 AND "version" = $2',
+                answer_id, int(current["version"]),
+            )
+            if not changed:
+                raced = await current_respondent_answer(tx, item.respondentId, item.questionLineageId)
+                return {**base, "status": "CONFLICT", "current": answer_out(raced)}
+            version = int(current["version"]) + 1
+        revision_id = uuid4().hex
+        await tx.execute_raw(
+            'INSERT INTO "QuestionnaireAnswerRevision" ("id", "answerId", "text", "languageCode", "origin", "attribution", '
+            '"askedQuestionId", "sessionId", "sourceRecordingId", "sourceTranscriptHash", "status", "actorId", "note") '
+            'VALUES ($1, $2, $3, $4, $5::"AnswerOrigin", $6::"AnswerAttribution", $7, $8, $9, $10, $11::"RecordStatus", $12, $13)',
+            revision_id, answer_id, item.text, session.get("languageCode"), item.origin, item.attribution, str(question["id"]),
+            item.sessionId, item.sourceRecordingId, await _transcript_hash(tx, item.sourceRecordingId), "PENDING", user.id,
+            getattr(item, "note", None),
+        )
+        await tx.execute_raw('UPDATE "QuestionnaireAnswer" SET "currentRevisionId" = $2 WHERE "id" = $1', answer_id, revision_id)
+        if session.get("status_t") == "APPROVED":
+            await sessions.note_pending_change(tx, str(session["id"]))
+    saved = {
+        "id": answer_id, "version": version, "text": item.text, "origin": item.origin, "attribution": item.attribution,
+        "pinned": bool(current and current.get("pinned")), "sourceRecordingId": item.sourceRecordingId,
+    }
+    return {**base, "status": "SAVED", "answer": saved}
+
+
+async def session_leads(client: Any, session_id: str) -> set[str]:
+    """The session's LEAD researchers (its creator is one), for the answer lock."""
+    rows = await client.query_raw(
+        'SELECT "userId" FROM "QuestionnaireInterviewResearcher" WHERE "interviewId" = $1 AND "role" = \'LEAD\' '
+        'UNION SELECT "createdById" FROM "QuestionnaireInterview" WHERE "id" = $1',
+        session_id,
+    )
+    return {str(r["userId"]) for r in rows if r.get("userId")}
+
+
+async def answer_revisions(answer_id: str, *, client: Any = None) -> dict[str, Any]:
+    """``GET /answers/{id}/revisions`` (B21): every revision, newest first, with who wrote it."""
+    db = _db(client)
+    rows = await db.query_raw(
+        'SELECT rv."id", rv."text", rv."origin"::text AS origin, rv."attribution"::text AS attribution, rv."sessionId", '
+        'rv."sourceRecordingId", rv."status"::text AS status, rv."actorId", u."name" AS "actorName", rv."createdAt", '
+        '(a."currentRevisionId" = rv."id") AS current '
+        'FROM "QuestionnaireAnswerRevision" rv JOIN "QuestionnaireAnswer" a ON a."id" = rv."answerId" '
+        'LEFT JOIN "User" u ON u."id" = rv."actorId" WHERE rv."answerId" = $1 ORDER BY rv."createdAt" DESC, rv."id" DESC',
+        answer_id,
+    )
+    from app.questionnaire.common import iso
+
+    return {
+        "answerId": answer_id,
+        "revisions": [
+            {
+                "id": str(r["id"]), "text": r.get("text") or "", "origin": r.get("origin"), "attribution": r.get("attribution"),
+                "sessionId": r.get("sessionId"), "sourceRecordingId": r.get("sourceRecordingId"), "status": r.get("status"),
+                "actor": {"id": r.get("actorId"), "name": r.get("actorName") or ""}, "createdAt": iso(r.get("createdAt")),
+                "current": bool(r.get("current")),
+            }
+            for r in rows
+        ],
+    }
 
 
 async def session_people(client: Any, session_id: str) -> set[str]:
@@ -332,8 +470,9 @@ async def session_people(client: Any, session_id: str) -> set[str]:
 async def put_answers(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any]:
     db = _db(client)
     cache: dict[str, Any] = {}
+    artisan_items = [i for i in payload.items if not getattr(i, "respondentId", None)]
     try:
-        pre = await _prefetch(list(payload.items), db)
+        pre = await _prefetch(artisan_items, db)
     except Exception:  # noqa: BLE001 - each item then reads for itself, exactly as before
         import logging
 
@@ -341,6 +480,16 @@ async def put_answers(payload: Any, user: Any, *, client: Any = None) -> dict[st
         pre = None
     results = []
     for item in payload.items:
+        if getattr(item, "respondentId", None):
+            try:
+                results.append(await _write_respondent(item, user, db, cache))
+            except Exception:  # noqa: BLE001 - one item never fails the batch
+                import logging
+
+                logging.getLogger(__name__).exception("respondent answer item failed")
+                results.append({"artisanId": None, "respondentId": item.respondentId, "questionLineageId": item.questionLineageId,
+                                "status": "CONFLICT", "answer": None, "current": None})
+            continue
         try:
             results.append(await _write_one(item, user, db, cache, pre))
         except Exception:  # noqa: BLE001 - one item never fails the batch
@@ -368,8 +517,8 @@ async def put_answers(payload: Any, user: Any, *, client: Any = None) -> dict[st
 # ── proposals ──────────────────────────────────────────────────────────────────────────────────
 async def proposals(recording_id: str, user: Any, *, client: Any = None) -> dict[str, Any]:
     """Drafts from one take's COMPLETED transcript; never answers, never a new transcription."""
-    from app.services import answer_drafts
-    from app.services.questionnaire_v2 import recordings
+    from app.questionnaire import recordings
+    from app.questionnaire.ports import answer_drafts
 
     db = _db(client)
     row = await recordings.require_recording(db, recording_id)

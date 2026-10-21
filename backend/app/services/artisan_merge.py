@@ -938,7 +938,7 @@ async def merge_artisans(keep_id: str, merge_id: str, picks: dict[str, str] | No
     # row and the DONE mark, in ONE transaction (DESIGN 3.8; audit M24): the v2 rows reference the
     # artisan with RESTRICT, so they can never be half-moved under a deleted artisan, nor the
     # artisan deleted with its takes still pointing at it.
-    from app.services.questionnaire_v2.merge import merge_and_delete
+    from app.questionnaire.merge import merge_and_delete
 
     done = await merge_and_delete(
         keep_id, merge_id, client=db, merge_record_id=record.id,

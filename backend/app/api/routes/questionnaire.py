@@ -71,10 +71,11 @@ from app.services.questionnaire_instruments import (
 )
 from app.services import answer_drafts, cross_portal_codes
 from app.services import completeness as completeness_module
-from app.services.questionnaire_v2 import shims as v2_shims
-from app.services.questionnaire_v2 import sessions as v2_sessions
-from app.services.questionnaire_v2.common import fail as v2_fail
-from app.services.questionnaire_v2.locks import lock_key
+from app.questionnaire import authoring as questionnaire_authoring
+from app.questionnaire import shims_fr as v2_shims
+from app.questionnaire import sessions as v2_sessions
+from app.questionnaire.common import fail as v2_fail
+from app.questionnaire.locks import lock_key
 from app.services.concurrency import gather_reads
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.record_filters import (
@@ -365,8 +366,8 @@ def is_form_author(form: Any, user: Any) -> bool:
     A form with no recorded author (the seeded default, or one made before the column existed) has
     no author, so only a content admin deletes from it.
     """
-    author = get_value(form, "createdById")
-    return bool(author) and author == get_value(user, "id")
+    # The one rule, shared with designer-portal (app/questionnaire/authoring.py).
+    return questionnaire_authoring.is_form_author(form, user)
 
 
 async def assert_may_delete_from_form(questionnaire_id: str | None, user: Any) -> None:
@@ -390,7 +391,7 @@ async def may_change_form(questionnaire_id: str | None, user: Any) -> bool:
     if is_content_admin(user):
         return True
     form = await db.questionnaire.find_unique(where={"id": questionnaire_id}) if questionnaire_id else None
-    return form is not None and is_form_author(form, user)
+    return questionnaire_authoring.may_change_form(user, form)
 
 
 async def assert_may_edit_form(questionnaire_id: str | None, user: Any) -> None:
@@ -1365,7 +1366,7 @@ async def create_interview(
                 ),
             )
 
-    # QUESTIONNAIRE V2 ON: the old-build shim (services/questionnaire_v2/shims). Every create makes a
+    # QUESTIONNAIRE V2 ON: the old-build shim (app/questionnaire/shims_fr). Every create makes a
     # NEW session (a session is a dated event; no fold), the typed title is kept as legacyTitle and
     # the title is generated. Same request and response shapes; never a new error code — after the
     # cutoff an old build's create gets 503 + Retry-After, which it treats as transient.
@@ -1838,7 +1839,7 @@ async def update_interview(
         # Artisan changes become participant changes (a participant with takes is kept), responses
         # become answers on the frozen-table-free path v2 reads, and the generated title follows.
         await v2_shims.patch_interview_shim(interview, payload, current_user)
-        from app.services.questionnaire_v2 import titles as v2_titles
+        from app.questionnaire import titles as v2_titles
 
         await v2_titles.regenerate_title(db, interview_id)
     # Re-read the row itself (the PATCH may have changed its columns), but graft the six relations on

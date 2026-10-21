@@ -12,9 +12,9 @@ pytestmark = needs_db
 def test_approval_is_refused_for_no_people_no_content_or_an_undecided_take_and_cascades_otherwise(monkeypatch) -> None:
     from app.api.routes import review
     from app.schemas.common import ReviewAction
-    from app.schemas.questionnaire_v2 import AnswersPut, DecideRequest
+    from app.questionnaire.schemas import AnswersPut, DecideRequest
     from app.services import email_outbox
-    from app.services.questionnaire_v2 import answers, recordings, sessions
+    from app.questionnaire import answers, recordings, sessions
 
     async def no_mail(**kwargs):
         return 0

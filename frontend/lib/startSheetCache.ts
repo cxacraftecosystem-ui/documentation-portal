@@ -96,7 +96,7 @@ export function searchCachedArtisans(artisans: CachedArtisan[], query: string, w
 
 /**
  * The workshop half of the title preview, built exactly as the server builds it
- * (`services/questionnaire_v2/titles.py` `workshop_fields`): locality is the village, else the
+ * (`app/questionnaire/titles.py` `workshop_fields`): locality is the village, else the
  * place when no district or state is known; the craft only when the workshop has exactly one.
  */
 export function titleWorkshop(w: (Pick<Workshop, "place"> & WorkshopExtras) | null | undefined): TitleWorkshop | null {

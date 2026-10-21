@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 
 from app.services import answer_drafts, consent_gate
-from app.services.questionnaire_v2 import answers, recordings
+from app.questionnaire import answers, recordings
 
 
 class _Db:

@@ -6,6 +6,15 @@ A question take after a section take therefore prompts; a section take after que
 not (it shows "D3, D4 also have question takes."). Only ANSWERED subjects count; a general
 ("Whole session") recording counts for nothing; a NEEDS_DECISION take counts for the prompt but
 NEVER for "covered" (DESIGN 3.1; audit M2), and only live questions count toward a section's total.
+
+TYPED OR RECORDED, EITHER COUNTS; RECORDING PREFERRED (owner, amendment 2 of 22 Oct 2026, point 4).
+A question is covered for an artisan by a take (ANSWERED) OR by a typed answer with text (their own
+or a group answer; a soft-deleted session's answers do not count). Every grid cell says where its
+coverage comes from: ``source`` is ``RECORDED`` when any take covers it (shown first: a recording is
+preferred), ``TYPED`` when only typed answers do (a lighter mark, and ``addRecording`` asks the
+gentle "Add a recording?"), else None. "14 of 24 sections" counts both. The "Already recorded"
+prompt (``check``) is about RECORDING, so a typed answer is NOT prior coverage there: recording over a
+typed answer asks nothing; each per-artisan entry carries ``typed`` so a client can say it is there.
 """
 
 from __future__ import annotations
@@ -14,7 +23,8 @@ from collections import defaultdict
 from typing import Any
 
 from app import shared_vocab
-from app.services.questionnaire_v2.common import aware, as_date, fail, get, iso, now
+from app.questionnaire import ports
+from app.questionnaire.common import aware, as_date, fail, get, iso, now
 
 ESTIMATED = set(shared_vocab.ESTIMATED_CAPTURED_AT_SOURCES)
 
@@ -22,7 +32,7 @@ ESTIMATED = set(shared_vocab.ESTIMATED_CAPTURED_AT_SOURCES)
 def _db(client: Any) -> Any:
     if client is not None:
         return client
-    from app.core.db import db
+    db = ports.db()
 
     return db
 
@@ -143,6 +153,29 @@ def suggest_reason(prior: list[dict[str, Any]], *, purpose: str | None, roster: 
     return "REDO"
 
 
+#: Where a cell's coverage comes from (``shared/questionnaire-enums.json`` CoverageSource).
+SOURCE_RECORDED = "RECORDED"
+SOURCE_TYPED = "TYPED"
+
+
+async def typed_lineages(client: Any, questionnaire_id: str, artisan_ids: list[str]) -> dict[str, set[str]]:
+    """artisanId -> the question lineages they have a typed answer WITH TEXT for, in live sessions."""
+    if not artisan_ids:
+        return {}
+    rows = await client.query_raw(
+        'SELECT a."artisanId", a."questionLineageId" FROM "QuestionnaireAnswer" a '
+        'JOIN "QuestionnaireAnswerRevision" rv ON rv."id" = a."currentRevisionId" '
+        'JOIN "QuestionnaireInterview" si ON si."id" = rv."sessionId" AND si."deletedAt" IS NULL '
+        'WHERE a."questionnaireId" = $1 AND a."artisanId" = ANY($2::text[]) AND btrim(rv."text") <> \'\'',
+        questionnaire_id, artisan_ids,
+    )
+    out: dict[str, set[str]] = defaultdict(set)
+    for r in rows:
+        if r.get("artisanId"):
+            out[str(r["artisanId"])].add(str(r["questionLineageId"]))
+    return out
+
+
 async def check(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any]:
     """``POST /coverage/check``: asked once, before recording or upload (P2, P5)."""
     db = _db(client)
@@ -179,6 +212,7 @@ async def check(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any
             payload.questionnaireId, payload.artisanIds, section_ids,
         )
         question_takes_in_section = {(str(r["artisanId"]), str(r["sectionId"])): int(r["n"]) for r in qrows}
+    typed = await typed_lineages(db, payload.questionnaireId, list(payload.artisanIds))
     out_targets = []
     covered_prior: list[dict[str, Any]] = []
     for t in targets:
@@ -197,6 +231,8 @@ async def check(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any
             per.append({
                 "artisanId": artisan_id, "state": state, "viaSection": bool(via and not direct),
                 "takes": [take_payload(r, session_id=payload.sessionId, user_id=user.id) for r in shown],
+                # A typed answer is there; it never makes this prompt fire (recording over it is encouraged).
+                "typed": bool(t["questionLineageId"] and str(t["questionLineageId"]) in typed.get(artisan_id, set())),
             })
         out_targets.append({"targetKey": t["targetKey"], "label": t["label"], "perArtisan": per})
     return {
@@ -260,6 +296,8 @@ async def grid(questionnaire_id: str, *, artisan_ids: list[str] | None = None, w
     )
     override_by = {(str(o["artisanId"]), str(o["sectionId"])): o["status"] for o in overrides}
     live = await _live_lineages(db, questionnaire_id)
+    typed = await typed_lineages(db, questionnaire_id, order)
+    lineage_home = {lineage: sid for sid, lineages in live.items() for lineage in lineages}
     section_takes: dict[tuple[str, str], list] = defaultdict(list)
     question_lineages: dict[tuple[str, str], set] = defaultdict(set)
     question_takes: dict[tuple[str, str], set] = defaultdict(set)
@@ -290,8 +328,12 @@ async def grid(questionnaire_id: str, *, artisan_ids: list[str] | None = None, w
         for a in order:
             st = section_takes.get((a, sid), [])
             # Only questions asked NOW count toward "covered", so a retired question can never push
-            # Partial to 100% (audit M2).
-            covered = len(question_lineages.get((a, sid), set()) & live.get(sid, set()))
+            # Partial to 100% (audit M2). A typed answer with text covers its question too (owner,
+            # amendment 2 point 4); a section take covers the section whatever was typed.
+            asked = live.get(sid, set())
+            recorded_q = question_lineages.get((a, sid), set()) & asked
+            typed_q = {x for x in typed.get(a, set()) if lineage_home.get(x) == sid} & asked
+            covered = len(recorded_q | typed_q)
             if st:
                 state = "RECORDED"
             elif covered:
@@ -301,9 +343,12 @@ async def grid(questionnaire_id: str, *, artisan_ids: list[str] | None = None, w
             else:
                 state = "NOT_RECORDED"
             distinct_takes = len({str(t["recordingId"]) for t in st} | question_takes.get((a, sid), set()))
+            source = SOURCE_RECORDED if (st or recorded_q) else (SOURCE_TYPED if typed_q else None)
             cells.append({
                 "artisanId": a, "state": state, "takes": distinct_takes, "covered": covered, "total": total,
                 "needsDecision": bool(nd.get((a, sid))), "override": override_by.get((a, sid)),
+                "source": source, "recordedCount": len(recorded_q), "typedOnlyCount": len(typed_q - recorded_q),
+                "addRecording": source == SOURCE_TYPED,
             })
         out_sections.append({"sectionId": sid, "code": s["code"], "title": s["title"], "cells": cells})
     return {
@@ -524,3 +569,51 @@ async def primaries(client: Any, artisan_id: str, rows: list[dict[str, Any]]) ->
         key: choose_primary(takes, answer_source=source.get(key), explicit=explicit.get(key), senior_redoers=senior)
         for key, takes in by_target.items()
     }
+
+
+async def required_unanswered(client: Any, session_id: str) -> dict[str, Any]:
+    """A19: how many REQUIRED questions (``isRequired``, asked now) each subject of a session has
+    neither answered in text nor been recorded on (a question take, or a take on its section). Finish
+    reports it ("3 required questions unanswered") and NEVER blocks on it."""
+    srow = await client.query_raw('SELECT "questionnaireId" FROM "QuestionnaireInterview" WHERE "id" = $1', session_id)
+    if not srow:
+        return {"count": 0, "bySubject": {}}
+    qid = str(srow[0]["questionnaireId"])
+    required = await client.query_raw(
+        'SELECT COALESCE(q."lineageId", q."id") AS lineage, q."sectionId" FROM "QuestionnaireQuestion" q '
+        'WHERE q."questionnaireId" = $1 AND q."isRequired" AND q."isActive" AND q."retiredAt" IS NULL AND q."supersededById" IS NULL',
+        qid,
+    )
+    if not required:
+        return {"count": 0, "bySubject": {}}
+    people = await client.query_raw(
+        'SELECT \'A:\' || "artisanId" AS key, "artisanId", NULL::text AS "respondentId" FROM "QuestionnaireInterviewArtisan" '
+        'WHERE "interviewId" = $1 UNION ALL SELECT \'R:\' || "id", NULL, "id" FROM "QuestionnaireRespondent" '
+        'WHERE "sessionId" = $1 AND "artisanId" IS NULL',
+        session_id,
+    )
+    artisan_ids = [str(p["artisanId"]) for p in people if p.get("artisanId")]
+    covered: dict[str, set[str]] = defaultdict(set)
+    for a, lineages in (await typed_lineages(client, qid, artisan_ids)).items():
+        covered[f"A:{a}"] |= lineages
+    section_of = {str(r["lineage"]): str(r["sectionId"]) if r.get("sectionId") else None for r in required}
+    for t in await take_rows(client, qid, artisan_ids=artisan_ids):
+        key = f"A:{t['artisanId']}"
+        if t.get("filing") == "NEEDS_DECISION":
+            continue
+        if t.get("questionLineageId"):
+            covered[key].add(str(t["questionLineageId"]))
+        elif t.get("sectionId"):
+            covered[key] |= {lin for lin, sec in section_of.items() if sec == str(t["sectionId"])}
+    guest_rows = await client.query_raw(
+        'SELECT \'R:\' || a."respondentId" AS key, a."questionLineageId" FROM "QuestionnaireAnswer" a '
+        'JOIN "QuestionnaireAnswerRevision" rv ON rv."id" = a."currentRevisionId" '
+        'JOIN "QuestionnaireRespondent" r ON r."id" = a."respondentId" '
+        'WHERE r."sessionId" = $1 AND btrim(rv."text") <> \'\'',
+        session_id,
+    )
+    for g in guest_rows:
+        covered[str(g["key"])].add(str(g["questionLineageId"]))
+    wanted = set(section_of)
+    by_subject = {str(p["key"]): len(wanted - covered.get(str(p["key"]), set())) for p in people}
+    return {"count": sum(by_subject.values()), "bySubject": by_subject}

@@ -27,11 +27,11 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from fastapi import HTTPException
-
-from app.core.config import get_settings
-from app.services.questionnaire_v2 import legacy_resolver, sessions, titles
-from app.services.questionnaire_v2.common import IST, aware, enum_text, naive_utc, now, today_ist
+from app.questionnaire import ports
+from app.questionnaire.errors import http_error
+from app.questionnaire.ports import get_settings
+from app.questionnaire import legacy_resolver, sessions, titles
+from app.questionnaire.common import IST, aware, enum_text, naive_utc, now, today_ist
 
 logger = logging.getLogger(__name__)
 LEGACY_TYPES = ("questionnaire", "questionnaireinterview")
@@ -89,7 +89,7 @@ def assert_old_build_may_create(headers: Any) -> None:
     if code is None and platform == "web":
         return
     if code is None or code < minimum:
-        raise HTTPException(status_code=503, detail=UPDATE_MESSAGE, headers={"Retry-After": "86400"})
+        raise http_error(503, UPDATE_MESSAGE, headers={"Retry-After": "86400"})
 
 
 def _language_code(value: str | None) -> tuple[str | None, str | None]:
@@ -113,7 +113,7 @@ async def matching_session(questionnaire_id: str, workshop_id: str | None, artis
     OPEN session today (IST) on this instrument and workshop sharing an artisan; else the newest
     session on this instrument holding exactly these artisans (the old fold's row). None when there
     is neither, which is exactly when the old route refused them too."""
-    from app.core.db import db as default_db
+    default_db = ports.db()
 
     db = client or default_db
     ids = sorted({a for a in artisan_ids if a})
@@ -141,7 +141,7 @@ async def matching_session(questionnaire_id: str, workshop_id: str | None, artis
 async def attach_to_session(session_id: str, payload: Any, user: Any, questionnaire_id: str) -> Any:
     """A non-creator's old-build create, attached: they join as a researcher and their responses
     become answers on that session. The old response shape, the session's row."""
-    from app.core.db import db
+    db = ports.db()
 
     role = "VOLUNTEER" if str(enum_text(getattr(user, "role", None))) == "CROWDSOURCE_VOLUNTEER" else "CONTRIBUTOR"
     await sessions.add_researcher(db, session_id, user.id, role)
@@ -152,8 +152,8 @@ async def attach_to_session(session_id: str, payload: Any, user: Any, questionna
 
 async def create_interview_shim(payload: Any, user: Any, questionnaire_id: str, check: Any) -> Any:
     """``POST /interviews`` with v2 on: a NEW session every time, in the old response shape."""
-    from app.core.db import db
-    from app.services.workshop_access import pin_pending_if_late, stamp_workshop_submission
+    db = ports.db()
+    from app.questionnaire.ports import pin_pending_if_late, stamp_workshop_submission
 
     language_code, language_other = _language_code(payload.language)
     started = aware(payload.recordedAt) or now()
@@ -164,7 +164,7 @@ async def create_interview_shim(payload: Any, user: Any, questionnaire_id: str, 
         pin_pending_if_late(data, user, check=check)
     from prisma import Json
 
-    from app.services.records import attach_location
+    from app.questionnaire.ports import attach_location
 
     located = await attach_location({"location": payload.location})
     async with db.tx(max_wait=sessions.TX_MAX_WAIT, timeout=sessions.TX_TIMEOUT) as tx:
@@ -206,9 +206,9 @@ async def responses_to_answers(session_id: str, questionnaire_id: str, responses
     CREATE-ONLY (audit H5): an old build does not know the answer's version, so sending the current
     one would let its stale text overwrite a newer answer. The one exception is the build's OWN
     earlier answer from this same session (an old build re-saving its form), which it may revise."""
-    from app.core.db import db
-    from app.schemas.questionnaire_v2 import AnswerItem, AnswersPut
-    from app.services.questionnaire_v2 import answers
+    db = ports.db()
+    from app.questionnaire.schemas import AnswerItem, AnswersPut
+    from app.questionnaire import answers
 
     artisans = await sessions.participant_ids(db, session_id)
     # The questions' lineages and every (participant, lineage) answer in two reads for the whole
@@ -258,7 +258,7 @@ async def patch_interview_shim(interview: Any, payload: Any, user: Any) -> dict[
     """``PATCH /interviews/{id}`` from an old build with v2 on (audit H5). Returns the column changes
     the route still applies through its own guards (title moved to ``legacyTitle``); participants and
     answers are written here, through v2."""
-    from app.core.db import db
+    db = ports.db()
 
     session_id = str(interview.id)
     questionnaire_id = str(getattr(interview, "questionnaireId", "") or "")
@@ -316,7 +316,7 @@ async def record_legacy_clip(media: Any, user: Any, *, client: Any = None, prove
     ``targets`` (already resolved) and ``subjects`` are given by "File it" (provenance MANUAL); the
     shim and the backfill's catch-up resolve them from the clip. A NEEDS_DECISION take is PENDING,
     never approved with its session (DESIGN 7.3; audit M1)."""
-    from app.core.db import db as default_db
+    default_db = ports.db()
 
     db = client or default_db
     session_id = getattr(media, "questionnaireInterviewId", None)
@@ -328,7 +328,7 @@ async def record_legacy_clip(media: Any, user: Any, *, client: Any = None, prove
     session = await sessions.load_session_row(db, session_id)
     if session is None:
         return None
-    from app.services.questionnaire_v2 import coverage
+    from app.questionnaire import coverage
 
     manual = targets is not None
     resolution = None if manual else await legacy_resolver.resolve_legacy_target(db, media, str(session["questionnaireId"]))
@@ -405,7 +405,7 @@ async def after_legacy_complete(answer: dict[str, Any], payload: Any, user: Any)
     if not enabled() or str(getattr(payload, "linkedRecordType", "") or "").lower() not in LEGACY_TYPES:
         return
     try:
-        from app.core.db import db
+        db = ports.db()
 
         media = await db.mediafile.find_unique(where={"id": answer.get("id")})
         if media is not None and str(getattr(media, "mediaType", "")) in ("AUDIO", "VIDEO", "MediaType.AUDIO", "MediaType.VIDEO"):

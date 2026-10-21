@@ -8,7 +8,7 @@ pytestmark = needs_db
 
 
 def _check(ids, artisans, targets, session_id=None, sha=None):
-    from app.schemas.questionnaire_v2 import CoverageCheckRequest
+    from app.questionnaire.schemas import CoverageCheckRequest
 
     return CoverageCheckRequest.model_validate(
         {"questionnaireId": ids.q, "artisanIds": artisans, "targets": targets, "sessionId": session_id, "contentSha256": sha}
@@ -16,7 +16,7 @@ def _check(ids, artisans, targets, session_id=None, sha=None):
 
 
 def test_positions_are_per_artisan_and_target_and_a_continuation_shares_its_parent(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import coverage, sessions
+    from app.questionnaire import coverage, sessions
 
     async def go() -> None:
         client = await connect()
@@ -49,8 +49,8 @@ def test_positions_are_per_artisan_and_target_and_a_continuation_shares_its_pare
 
 
 def test_the_hierarchy_rule_and_present_subjects_and_titles_never_count(monkeypatch) -> None:
-    from app.schemas.questionnaire_v2 import SessionPatch
-    from app.services.questionnaire_v2 import coverage, sessions
+    from app.questionnaire.schemas import SessionPatch
+    from app.questionnaire import coverage, sessions
 
     async def go() -> None:
         client = await connect()
@@ -79,8 +79,8 @@ def test_the_hierarchy_rule_and_present_subjects_and_titles_never_count(monkeypa
 
 
 def test_remove_then_restore_leaves_the_view_identical_and_removed_media_is_invisible(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import coverage, recordings, sessions
-    from app.services.questionnaire_v2.live import live_media_where
+    from app.questionnaire import coverage, recordings, sessions
+    from app.questionnaire.live import live_media_where
 
     async def go() -> None:
         client = await connect()
@@ -103,7 +103,7 @@ def test_remove_then_restore_leaves_the_view_identical_and_removed_media_is_invi
 
 
 def test_a_reword_keeps_the_lineage_and_a_reorder_moves_no_code(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import coverage, sessions
+    from app.questionnaire import coverage, sessions
 
     async def go() -> None:
         client = await connect()
@@ -137,7 +137,7 @@ def test_a_reword_keeps_the_lineage_and_a_reorder_moves_no_code(monkeypatch) -> 
 
 
 def test_the_primary_take_rule_in_order() -> None:
-    from app.services.questionnaire_v2.coverage import choose_primary
+    from app.questionnaire.coverage import choose_primary
 
     def take(rid, hour, roster=2, reason=None, by="u1"):
         from datetime import UTC, datetime, timedelta
@@ -158,8 +158,8 @@ def test_the_primary_take_rule_in_order() -> None:
 
 
 def test_the_snapshot_carries_edits_and_removals_since_a_sequence(monkeypatch) -> None:
-    from app.schemas.questionnaire_v2 import RecordingPatch
-    from app.services.questionnaire_v2 import coverage, recordings, sessions
+    from app.questionnaire.schemas import RecordingPatch
+    from app.questionnaire import coverage, recordings, sessions
 
     async def go() -> None:
         client = await connect()

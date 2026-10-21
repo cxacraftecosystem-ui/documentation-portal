@@ -31,3 +31,18 @@ def live_media_where(where: dict[str, Any] | None = None, *, always: bool = True
 
 def is_live(media: Any) -> bool:
     return (media.get("removedAt") if isinstance(media, dict) else getattr(media, "removedAt", None)) is None
+
+
+#: THE live-session filter (owner decision 3, 21 Oct 2026): a soft-deleted session (``deletedAt``)
+#: hides itself, its takes (``questionnaire_take_v`` joins only live sessions) and its answers from
+#: every reader until a content admin restores it. Raw SQL over an alias ``i`` uses this; Prisma
+#: readers compose :func:`live_session_where`.
+LIVE_SESSION_SQL = 'i."deletedAt" IS NULL'
+
+
+def live_session_where(where: dict[str, Any] | None = None) -> dict[str, Any]:
+    """``where`` narrowed to live (not soft-deleted) sessions, under AND."""
+    clause = {"deletedAt": None}
+    if not where:
+        return clause
+    return {"AND": [where, clause]}

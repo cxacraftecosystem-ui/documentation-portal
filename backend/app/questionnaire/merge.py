@@ -11,6 +11,8 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any
 
+from app.questionnaire import ports
+
 TX_TIMEOUT = timedelta(seconds=60)
 TX_MAX_WAIT = timedelta(seconds=15)
 
@@ -80,7 +82,7 @@ async def merge_and_delete(keep_id: str, merge_id: str, *, client: Any = None, m
                            done_data: dict[str, Any] | None = None) -> Any:
     """The v2 rows move, the merged artisan is deleted and the merge is marked done, in ONE
     transaction (DESIGN 3.8; audit M24). Returns the updated ``ArtisanMerge`` row (or None)."""
-    from app.core.db import db
+    db = ports.db()
 
     owner = client or db
     if not callable(getattr(type(owner), "query_raw", None)):
@@ -98,7 +100,7 @@ async def merge_and_delete(keep_id: str, merge_id: str, *, client: Any = None, m
 
 
 async def merge_artisan_rows(keep_id: str, merge_id: str, *, client: Any = None) -> dict[str, int]:
-    from app.core.db import db
+    db = ports.db()
 
     owner = client or db
     if not callable(getattr(type(owner), "query_raw", None)):

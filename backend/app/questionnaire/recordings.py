@@ -28,11 +28,12 @@ from typing import Any
 from uuid import uuid4
 
 from app import shared_vocab
-from app.core.roles import CONTENT_DELETE_REFUSAL, can_review, has_rank, is_admin, is_content_admin
-from app.services import consent_gate, naming
-from app.services import transcription_enqueue as transcription
-from app.services.questionnaire_v2 import coverage, sessions, titles
-from app.services.questionnaire_v2.common import (
+from app.questionnaire import ports
+from app.questionnaire.authoring import CONTENT_DELETE_REFUSAL
+from app.questionnaire.ports import can_review, consent_gate, has_rank, is_admin, is_content_admin, naming
+from app.questionnaire.ports import transcription
+from app.questionnaire import coverage, sessions, titles
+from app.questionnaire.common import (
     IST,
     aware,
     as_date,
@@ -43,7 +44,7 @@ from app.services.questionnaire_v2.common import (
     naive_utc,
     now,
 )
-from app.services.questionnaire_v2.locks import lock_key, lock_subjects
+from app.questionnaire.locks import lock_key, lock_subjects
 
 MULTIPART_THRESHOLD = 5 * 1024 * 1024
 PART_SIZE = 8 * 1024 * 1024
@@ -62,7 +63,7 @@ UPLOAD_MISSING = "UPLOAD_MISSING"
 def _db(client: Any) -> Any:
     if client is not None:
         return client
-    from app.core.db import db
+    db = ports.db()
 
     return db
 
@@ -71,7 +72,7 @@ def _owner(client: Any) -> Any:
     """Who opens a transaction: the given client, else the app's."""
     if client is not None:
         return client
-    from app.core.db import db
+    db = ports.db()
 
     return db
 
@@ -222,7 +223,7 @@ async def _session_for_upload(client: Any, session_id: str, user: Any) -> dict[s
         if _volunteer(user):
             fail("FORBIDDEN", "Volunteers record into sessions they are added to.")
         if row.get("workshopId"):
-            from app.services.workshop_access import enforce_workshop_submission
+            from app.questionnaire.ports import enforce_workshop_submission
 
             await enforce_workshop_submission(user, row.get("workshopId"))
     return row
@@ -260,7 +261,7 @@ async def _rearm_if_expired(client: Any, intent: dict[str, Any]) -> dict[str, An
     """An open intent past ``expiresAt`` (audit Low): its multipart upload is aborted (S3 may have
     dropped it already) and it gets a fresh window. It is never closed here: a phone that was
     offline for a month still holds the clip, and closing would tell it the clip is filed."""
-    from app.services import s3
+    from app.questionnaire.ports import s3
 
     expires = aware(intent.get("expiresAt"))
     if intent.get("closedAt") or expires is None or expires > now():
@@ -316,7 +317,7 @@ def _closed(intent: dict[str, Any]) -> dict[str, Any] | None:
 
 
 async def presign(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any]:
-    from app.services import s3
+    from app.questionnaire.ports import s3
 
     db = _db(client)
     intent = await _intent_for(db, payload, user)
@@ -335,7 +336,7 @@ async def presign(payload: Any, user: Any, *, client: Any = None) -> dict[str, A
 async def _live_parts(db: Any, intent: dict[str, Any]) -> tuple[str | None, list[dict[str, Any]]]:
     """``(uploadId, parts)`` of the intent's open multipart upload; ``(None, [])`` when S3 has dropped
     it (audit H8), after clearing the dead id so it is never asked about again."""
-    from app.services import s3
+    from app.questionnaire.ports import s3
 
     upload_id = intent.get("multipartUploadId")
     if not upload_id or intent.get("closedAt"):
@@ -351,7 +352,7 @@ async def _live_parts(db: Any, intent: dict[str, Any]) -> tuple[str | None, list
 
 
 async def multipart_create(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any]:
-    from app.services import s3
+    from app.questionnaire.ports import s3
 
     db = _db(client)
     intent = await _intent_for(db, payload, user)
@@ -387,7 +388,7 @@ async def upload_state(client_clip_key: str, user: Any, *, client: Any = None) -
 async def sweep_expired_intents(*, client: Any = None, limit: int = 200) -> int:
     """Abort the multipart uploads of open intents past ``expiresAt`` so their parts stop costing
     storage (audit Low). The intent stays open (see :func:`_rearm_if_expired`)."""
-    from app.services import s3
+    from app.questionnaire.ports import s3
 
     db = _db(client)
     rows = await db.query_raw(
@@ -540,7 +541,7 @@ async def _submission_stamp(user: Any, session: dict[str, Any]) -> dict[str, Any
     """The workshop-submission stamp a take carries, like every other upload into a workshop."""
     if not session.get("workshopId"):
         return {}
-    from app.services.workshop_access import describe_workshop_submission
+    from app.questionnaire.ports import describe_workshop_submission
 
     try:
         check = await describe_workshop_submission(user, str(session["workshopId"]))
@@ -552,7 +553,7 @@ async def _submission_stamp(user: Any, session: dict[str, Any]) -> dict[str, Any
 async def complete(payload: Any, user: Any, *, client: Any = None, provenance: str = "NATIVE",
                    fault_after_insert: Any = None) -> tuple[dict[str, Any], bool]:
     """``(recording, created)``. ``fault_after_insert`` is a test hook (DESIGN test 5)."""
-    from app.services import s3
+    from app.questionnaire.ports import s3
 
     db = _db(client)
     existing = await _existing_by_clip(db, payload.clientClipKey)
@@ -713,7 +714,7 @@ async def complete(payload: Any, user: Any, *, client: Any = None, provenance: s
 
 
 def _bucket() -> str:
-    from app.core.config import get_settings
+    from app.questionnaire.ports import get_settings
 
     return get_settings().aws_s3_bucket
 
@@ -847,6 +848,31 @@ async def require_recording(client: Any, recording_id: str) -> dict[str, Any]:
     if not rows:
         fail("NOT_FOUND")
     return rows[0]
+
+
+async def recording_events(recording_id: str, user: Any, *, client: Any = None) -> dict[str, Any]:
+    """``GET /questionnaire/recordings/{id}/events`` (B40): the take's append-only history, oldest
+    first: moves, refilings, subject changes, decisions, removals, restores, date edits, primaries."""
+    db = _db(client)
+    await require_recording(db, recording_id)
+    rows = await db.query_raw(
+        'SELECT e."id", e."kind", e."before", e."after", e."actorId", u."name" AS "actorName", e."at" '
+        'FROM "QuestionnaireRecordingEvent" e LEFT JOIN "User" u ON u."id" = e."actorId" '
+        'WHERE e."recordingId" = $1 ORDER BY e."at", e."id"',
+        recording_id,
+    )
+
+    def plain(value: Any) -> Any:
+        return json.loads(value) if isinstance(value, str) else value
+
+    return {
+        "recordingId": recording_id,
+        "events": [
+            {"id": str(r["id"]), "kind": r["kind"], "before": plain(r.get("before")), "after": plain(r.get("after")),
+             "actor": {"id": r.get("actorId"), "name": r.get("actorName") or ""}, "at": iso(r.get("at"))}
+            for r in rows
+        ],
+    }
 
 
 async def removed_takes(user: Any, *, session_id: str | None = None, artisan_id: str | None = None,
@@ -1090,7 +1116,7 @@ async def file_media(media_id: str, payload: Any, user: Any, *, client: Any = No
     """``POST /questionnaire/media/{id}/file`` (audit H14): "File it" for an inbox "To file" clip,
     which has no recording yet. It joins the session and becomes a recording with the chosen
     targets (provenance MANUAL); the session's participants are its subjects unless named."""
-    from app.services.questionnaire_v2 import shims
+    from app.questionnaire import shims_fr as shims
 
     db = _db(client)
     media = await db.mediafile.find_unique(where={"id": media_id})
@@ -1216,7 +1242,7 @@ async def transcribe(recording_id: str, user: Any, *, client: Any = None) -> dic
 
 
 async def download_url(recording_id: str, user: Any, *, client: Any = None) -> str:
-    from app.services import s3
+    from app.questionnaire.ports import s3
 
     db = _db(client)
     payload = await recording_payload(db, recording_id, user)
@@ -1264,7 +1290,7 @@ async def verify_sha(media_id: str, *, client: Any = None, hasher: Any = None) -
       targets merge into the EARLIEST, which is kept; the copy is never transcribed;
     * in ANOTHER session -> the later copy is NEEDS_DECISION ("Same file on two sessions") with a
       pointer to its twin; its transcription is closed only when the twin's transcript exists."""
-    from app.services import s3
+    from app.questionnaire.ports import s3
 
     db = _db(client)
     media = await db.mediafile.find_unique(where={"id": media_id})

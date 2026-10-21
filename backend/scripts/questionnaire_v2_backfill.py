@@ -78,8 +78,8 @@ from scripts import qv2_guard  # noqa: E402
 
 from app import shared_vocab  # noqa: E402
 from app.services import naming  # noqa: E402
-from app.services.questionnaire_v2 import legacy_resolver  # noqa: E402
-from app.services.questionnaire_v2.common import IST, aware  # noqa: E402
+from app.questionnaire import legacy_resolver  # noqa: E402
+from app.questionnaire.common import IST, aware  # noqa: E402
 
 PART2_WINDOW = timedelta(minutes=10)
 _STAMP = re.compile(r"_(\d{2})(\d{2})(\d{4})(\d{2})(\d{2})(\d{2})?(?=\.[^.]*$|$)")
@@ -422,8 +422,8 @@ def report_md(plan: Plan, csv_text: str) -> str:
 
 # ── apply and undo ─────────────────────────────────────────────────────────────────────────────
 async def _apply_session(tx: Any, s: SessionPlan, clips: list[ClipPlan], run_id: str) -> int:
-    from app.services.questionnaire_v2 import sessions as v2_sessions
-    from app.services.questionnaire_v2 import titles
+    from app.questionnaire import sessions as v2_sessions
+    from app.questionnaire import titles
 
     changes = 0
     if s.group:
@@ -712,8 +712,8 @@ async def apply_catch_up(client: Any, clips: list[CatchUpClip], run_id: str) -> 
     """One transaction per clip, idempotent (a clip that has a recording by now is skipped)."""
     from types import SimpleNamespace
 
-    from app.services.questionnaire_v2 import sessions as v2_sessions
-    from app.services.questionnaire_v2 import shims
+    from app.questionnaire import sessions as v2_sessions
+    from app.questionnaire import shims_fr as shims
 
     done = 0
     for c in clips:

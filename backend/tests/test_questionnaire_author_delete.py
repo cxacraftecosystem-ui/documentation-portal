@@ -224,7 +224,7 @@ def test_a_form_with_no_recorded_author_is_deleted_from_by_a_content_admin_alone
 
 @needs_db
 def test_a_session_on_the_authors_form_is_still_deleted_by_a_content_admin_alone(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire import sessions
 
     async def go() -> None:
         client, ids, _other = await _setup(monkeypatch)

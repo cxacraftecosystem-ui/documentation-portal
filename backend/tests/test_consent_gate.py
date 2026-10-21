@@ -36,9 +36,9 @@ def test_recording_upload_filing_and_approval_never_consult_the_gate() -> None:
     recordings-complete paths."""
     allowed = {
         "app/services/transcription_enqueue.py", "app/services/media_queue.py", "app/api/routes/media.py",
-        "app/services/questionnaire_v2/answers.py", "app/api/routes/questionnaire_v2.py",
-        "app/services/questionnaire_v2/recordings.py", "app/services/questionnaire_v2/sessions.py",
-        "app/services/questionnaire_v2/corpus.py", "app/services/consent_gate.py",
+        "app/questionnaire/answers.py", "app/api/routes/questionnaire_v2.py",
+        "app/questionnaire/recordings.py", "app/questionnaire/sessions.py",
+        "app/questionnaire/corpus.py", "app/services/consent_gate.py", "app/questionnaire/ports.py", "app/services/questionnaire_ports.py",
         "app/services/recording_consent.py", "app/api/routes/answer_drafts.py",
         "app/services/search_indexer.py",
     }
@@ -46,11 +46,11 @@ def test_recording_upload_filing_and_approval_never_consult_the_gate() -> None:
         rel = path.relative_to(BACKEND).as_posix()
         if "consent_gate" in path.read_text(encoding="utf-8") and rel not in allowed:
             raise AssertionError(f"{rel} consults the consent gate")
-    for rel in ("app/services/questionnaire_v2/review.py", "app/services/questionnaire_v2/coverage.py", "app/api/routes/review.py"):
+    for rel in ("app/questionnaire/review.py", "app/questionnaire/coverage.py", "app/api/routes/review.py"):
         assert "consent_gate" not in BACKEND.joinpath(rel).read_text(encoding="utf-8")
     # In recordings.py and sessions.py the gate only DESCRIBES a take (verdict_detail / current
     # consent for display); complete() never branches on it.
-    tree = ast.parse(BACKEND.joinpath("app/services/questionnaire_v2/recordings.py").read_text(encoding="utf-8"))
+    tree = ast.parse(BACKEND.joinpath("app/questionnaire/recordings.py").read_text(encoding="utf-8"))
     complete = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "complete")
     assert "consent_gate" not in ast.unparse(complete)
 
@@ -58,7 +58,7 @@ def test_recording_upload_filing_and_approval_never_consult_the_gate() -> None:
 @needs_db
 def test_the_gate_against_the_ledger(monkeypatch) -> None:
     from app.services import consent_gate
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire import sessions
 
     async def go() -> None:
         client = await connect()

@@ -3,7 +3,7 @@
   "contractVersion": 1,
   "owner": "feature/q-backend (written once; WEB and ANDROID copy this file verbatim and load their mocks from it)",
   "source": "C:/dev/IIT/docs/questionnaire/BUILD_PLAN_2026-10-18.md section 1 (frozen) and DESIGN_2026-10-18.md section 5",
-  "enforcedBy": "backend/tests/test_questionnaire_contract.py: every example validates against backend/app/schemas/questionnaire_v2.py, and every route below exists with its method",
+  "enforcedBy": "backend/tests/test_questionnaire_contract.py: every example validates against backend/app/questionnaire/schemas.py, and every route below exists with its method",
   "rules": [
     "Base path /api/questionnaire unless a path starts with /api/.",
     "All times are ISO-8601 UTC; dates are YYYY-MM-DD.",

@@ -454,6 +454,11 @@ class Settings(BaseSettings):
     # behaves exactly as before; GET /questionnaire/config tells both clients which screens to draw.
     # The owner flips it after the backfill (rollout steps 3 and 4).
     questionnaire_v2: bool = Field(default=False, alias="QUESTIONNAIRE_V2")
+    # THE ONE ANSWER-LOCK RULE (owner decision 2, 21 Oct 2026; app/questionnaire/answer_lock.py): an
+    # answer with text is changed only by its author, a session lead or an admin; anyone else gets
+    # LOCKED on that item. OFF until every client shows the lock (U1-U4); turning it on in code makes
+    # tests/test_questionnaire_feature_parity.py demand the A11 marker in all four clients.
+    questionnaire_answer_locks: bool = Field(default=False, alias="QUESTIONNAIRE_ANSWER_LOCKS")
     # Decision 5: old builds stop CREATING sessions 30 days after every active device runs the new
     # build (GET /api/admin/app-versions says when). Unset = old builds keep creating. Set = a create
     # from a lower BUILD NUMBER (X-App-Version-Code; the version NAME was reset to 0.0.1 on 21 Oct

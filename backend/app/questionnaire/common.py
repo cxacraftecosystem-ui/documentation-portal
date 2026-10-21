@@ -37,14 +37,27 @@ STATUS = {
     "CONSENT_REFUSED": 409, "CONSENT_NOT_RECORDED": 409, "APPROVE_BLOCKED": 409,
 }
 
+#: The unification's codes (UNIFY section 2.2), served now and NOT YET in the frozen contract's closed
+#: list (``shared/questionnaire-contract.json``), which every client checks itself against: each one
+#: joins that list in the stream that teaches the clients to show it (U1-U4), and moves up into
+#: MESSAGES/STATUS then. ``shared/questionnaire-enums.json`` lists them as ``pendingErrorCodes``.
+UNIFY_MESSAGES = {
+    "ANSWER_LOCKED": "Only the person who answered, a lead or an admin can change this answer.",
+    "RESPONDENT_HAS_ROWS": "This respondent has answers or takes.",
+    "FORM_DELETED": "This questionnaire was deleted.",
+    "BUNDLE_VERSION": "This bundle was made by a newer version of the app.",
+}
+UNIFY_STATUS = {"ANSWER_LOCKED": 409, "RESPONDENT_HAS_ROWS": 409, "FORM_DELETED": 410, "BUNDLE_VERSION": 422}
+
 
 def fail(code: str, message: str | None = None, **extra: Any) -> NoReturn:
     """Raise the contract's error: ``{"detail": {"code", "message", ...}}``."""
     # Imported here, not at the top: the queue worker imports this module (the nightly session close)
     # and would otherwise load FastAPI for an exception it never raises (tests/test_import_footprint.py).
-    from fastapi import HTTPException
+    from app.questionnaire.errors import http_error
 
-    raise HTTPException(status_code=STATUS[code], detail={"code": code, "message": message or MESSAGES[code], **extra})
+    status = STATUS.get(code) or UNIFY_STATUS[code]
+    raise http_error(status, {"code": code, "message": message or MESSAGES.get(code) or UNIFY_MESSAGES[code], **extra})
 
 
 def now() -> datetime:

@@ -21,7 +21,7 @@ from app.api.routes.data_browser import (
     workshop_reaches_artisan,
 )
 from app.core.db import db
-from app.services.questionnaire_v2.live import live_media_where
+from app.questionnaire.live import live_media_where
 from app.core.deps import can_download_dataset, get_current_user
 from app.services import answer_drafts
 from app.services.access import owner_download_scope

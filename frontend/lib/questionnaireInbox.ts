@@ -1,7 +1,7 @@
 /**
  * The inbox (DESIGN §4.7) and the review decision, as data the screens and the unit specs share.
  *
- * The row shapes are what `GET /questionnaire/inbox` sends (backend `services/questionnaire_v2/
+ * The row shapes are what `GET /questionnaire/inbox` sends (backend `app/questionnaire/
  * inbox.py`); each section has its own fields, so a row's label is built here from them.
  */
 

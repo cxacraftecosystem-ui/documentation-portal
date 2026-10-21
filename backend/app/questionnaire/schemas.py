@@ -79,6 +79,64 @@ class ResearcherInput(Strict):
     _role = field_validator("role")(_one_of(V.ResearcherRole))
 
 
+#: Guest respondents (owner decision 1; ``app/questionnaire/respondents.py``).
+RESPONDENT_KINDS = ("GUEST", "SELF")
+#: Where a session came from (UNIFY U7): the app, a workbook upload, a phone-to-phone handoff.
+SESSION_SOURCES = ("APP", "UPLOAD", "HANDOFF")
+
+
+class RespondentInput(Strict):
+    name: str | None = Field(default=None, max_length=120)
+    kind: str = "GUEST"
+    notes: str | None = Field(default=None, max_length=2000)
+
+    _kind = field_validator("kind")(_one_of(RESPONDENT_KINDS))
+
+
+class RespondentPatch(Strict):
+    name: str | None = Field(default=None, max_length=120)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class RespondentsAdd(Strict):
+    respondents: list[RespondentInput] = Field(min_length=1, max_length=50)
+
+
+class RespondentRegister(Strict):
+    artisanId: str = Field(min_length=1)
+
+
+class BindingInput(Strict):
+    workshopId: str | None = None
+    designWorkshopId: str | None = None
+    isPrimary: bool = False
+
+    @model_validator(mode="after")
+    def _one_workshop(self) -> "BindingInput":
+        if bool(self.workshopId) == bool(self.designWorkshopId):
+            raise ValueError("A binding names a workshopId or a designWorkshopId")
+        return self
+
+
+class BindingsPut(Strict):
+    bindings: list[BindingInput] = Field(default_factory=list, max_length=200)
+
+
+class TypeDefaultPut(Strict):
+    #: None clears the type's default.
+    questionnaireId: str | None = None
+    workshopType: str | None = None
+    designWorkshopKind: str | None = Field(default=None, max_length=64)
+
+    _type = field_validator("workshopType")(_one_of(("DESIGN_PROTOTYPE", "OTHER")))
+
+    @model_validator(mode="after")
+    def _one_type(self) -> "TypeDefaultPut":
+        if bool(self.workshopType) == bool(self.designWorkshopKind):
+            raise ValueError("Name a workshopType or a designWorkshopKind")
+        return self
+
+
 class SessionCreate(Strict):
     clientKey: str = Field(min_length=1, max_length=128)
     questionnaireId: str = Field(min_length=1)
@@ -91,16 +149,22 @@ class SessionCreate(Strict):
     languageCode: str | None = None
     languageOther: str | None = Field(default=None, max_length=LANGUAGE_OTHER_MAX)
     note: str | None = Field(default=None, max_length=NOTE_MAX)
-    participants: list[ParticipantInput] = Field(min_length=1)
+    participants: list[ParticipantInput] = Field(default_factory=list)
     researchers: list[ResearcherInput] = Field(default_factory=list)
+    #: Guests answering without an artisan record; participants may then be empty (UNIFY 4.1).
+    respondents: list[RespondentInput] = Field(default_factory=list, max_length=50)
+    source: str = "APP"
 
     _purpose = field_validator("purpose")(_one_of(V.SessionPurpose))
     _lang = field_validator("languageCode")(_language)
+    _source = field_validator("source")(_one_of(SESSION_SOURCES))
 
     @model_validator(mode="after")
     def _one_workshop_kind(self) -> "SessionCreate":
         if self.workshopId and self.designWorkshopId:
             raise ValueError("A session links to a workshop or a design workshop, not both")
+        if not self.participants and not self.respondents:
+            raise ValueError("A session needs at least one artisan or respondent")
         return self
 
 
@@ -555,7 +619,9 @@ class CompleteRequest(Strict):
 
 # ── answers, consent, inbox, record, corpus ────────────────────────────────────────────────────
 class AnswerItem(Strict):
-    artisanId: str = Field(min_length=1)
+    #: Exactly one owner: an artisan, or a guest respondent of the session (owner decision 1).
+    artisanId: str | None = Field(default=None, min_length=1)
+    respondentId: str | None = Field(default=None, min_length=1)
     questionLineageId: str = Field(min_length=1)
     text: str = Field(max_length=20000)
     origin: str = "TYPED"
@@ -563,9 +629,17 @@ class AnswerItem(Strict):
     sessionId: str = Field(min_length=1)
     sourceRecordingId: str | None = None
     baseVersion: int | None = Field(default=None, ge=1)
+    #: The answer note (A20), kept on the revision.
+    note: str | None = Field(default=None, max_length=2000)
 
     _origin = field_validator("origin")(_one_of(V.AnswerOrigin))
     _attr = field_validator("attribution")(_one_of(V.AnswerAttribution))
+
+    @model_validator(mode="after")
+    def _one_owner(self) -> "AnswerItem":
+        if bool(self.artisanId) == bool(self.respondentId):
+            raise ValueError("An answer belongs to exactly one of an artisanId or a respondentId")
+        return self
 
 
 class AnswersPut(Strict):

@@ -773,7 +773,7 @@ def test_no_role_below_the_content_admins_deletes_a_session_or_a_take(call: str,
     """The session delete (its creator included), the session merge and the recording remove."""
     from fastapi import HTTPException
 
-    from app.services.questionnaire_v2 import recordings, sessions
+    from app.questionnaire import recordings, sessions
 
     work = {
         "delete_session": lambda user: sessions.delete_session("s1", user, client=_Tripwire()),

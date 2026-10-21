@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.questionnaire_v2.common import fail
+from app.questionnaire.common import fail
 
 
 async def approve_blockers(client: Any, session_id: str) -> list[dict[str, Any]]:

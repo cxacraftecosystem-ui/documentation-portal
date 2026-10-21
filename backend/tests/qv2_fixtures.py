@@ -180,7 +180,7 @@ async def seed(client: Any, *, sections: dict[str, int] | None = None, artisans:
 
 
 def session_create(ids: SimpleNamespace, artisans: list[str], *, key: str | None = None, day: str = "2026-06-20", **extra: Any) -> Any:
-    from app.schemas.questionnaire_v2 import SessionCreate
+    from app.questionnaire.schemas import SessionCreate
 
     return SessionCreate.model_validate({
         "clientKey": key or f"c-{uuid.uuid4().hex[:12]}", "questionnaireId": ids.q, "workshopId": ids.workshop,
@@ -191,7 +191,7 @@ def session_create(ids: SimpleNamespace, artisans: list[str], *, key: str | None
 
 def complete_request(object_key: str, session_id: str, *, clip: str | None = None, targets: list[dict] | None = None,
                      subjects: list[dict] | None = None, at: datetime | None = None, offset: int | None = 0, **rec: Any) -> Any:
-    from app.schemas.questionnaire_v2 import CompleteRequest
+    from app.questionnaire.schemas import CompleteRequest
 
     at = at or datetime(2026, 6, 20, 6, 0, tzinfo=UTC)
     return CompleteRequest.model_validate({
@@ -210,7 +210,7 @@ def key_for(u: Any, leaf: str = "clip.m4a") -> str:
 
 async def record_take(client: Any, ids: SimpleNamespace, session_id: str, u: Any, *, targets: list[dict], at: datetime,
                       subjects: list[dict] | None = None, **rec: Any) -> dict[str, Any]:
-    from app.services.questionnaire_v2 import recordings
+    from app.questionnaire import recordings
 
     recording, _created = await recordings.complete(
         complete_request(key_for(u), session_id, targets=targets, subjects=subjects, at=at, **rec), u, client=client

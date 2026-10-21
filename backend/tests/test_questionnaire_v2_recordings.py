@@ -13,8 +13,8 @@ pytestmark = needs_db
 
 
 def test_patch_decide_replace_remove_restore_are_logged_and_never_refuse_on_coverage(monkeypatch) -> None:
-    from app.schemas.questionnaire_v2 import DecideRequest, RecordingPatch
-    from app.services.questionnaire_v2 import recordings, sessions
+    from app.questionnaire.schemas import DecideRequest, RecordingPatch
+    from app.questionnaire import recordings, sessions
 
     async def go() -> None:
         client = await connect()
@@ -60,7 +60,7 @@ def test_patch_decide_replace_remove_restore_are_logged_and_never_refuse_on_cove
 
 
 def test_the_sha_worker_merges_a_same_session_copy_and_flags_one_on_another_session(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import recordings, sessions
+    from app.questionnaire import recordings, sessions
 
     async def go() -> None:
         client = await connect()
@@ -97,8 +97,8 @@ def test_the_sha_worker_merges_a_same_session_copy_and_flags_one_on_another_sess
 
 
 def test_the_corpus_round_trips_stable_ids_and_carries_its_schema_version(monkeypatch) -> None:
-    from app.schemas.questionnaire_v2 import AnswersPut
-    from app.services.questionnaire_v2 import answers, corpus, sessions
+    from app.questionnaire.schemas import AnswersPut
+    from app.questionnaire import answers, corpus, sessions
 
     async def go() -> None:
         client = await connect()

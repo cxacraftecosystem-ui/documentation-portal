@@ -344,6 +344,7 @@ transcription pause work either way. See `docs/questionnaire/API.md`.
 | Variable | Required | Default | Secret | Notes |
 |---|---|---|---|---|
 | `QUESTIONNAIRE_V2` | No | **`false`** | No | The switch. The owner turns it on after the legacy backfill has been applied (rollout steps 3 and 4). |
+| `QUESTIONNAIRE_ANSWER_LOCKS` | No | **`false`** | No | The one answer-lock rule (owner decision 2, 21 Oct 2026): an answer with text is changed only by its author, a session lead or an admin; anyone else gets `LOCKED` on that item of `PUT /questionnaire/answers`. Stays off until every client shows the lock (UNIFY U1-U4). |
 | `QUESTIONNAIRE_MIN_ANDROID_VERSION_CODE_FOR_CREATE` | No | unset | No | Owner decision 5: once every active Android device runs the new build (plus 30 days; `GET /api/admin/app-versions` shows `accountsBelow`), set this to that build's **versionCode**. A session create from a lower `X-App-Version-Code`, or an Android build that sends none, then gets `503` + `Retry-After: 86400` and the update banner; its queued clips are always accepted. The version name is never compared (it was reset to 0.0.1 on 21 Oct 2026). |
 | `QUESTIONNAIRE_MIN_WEB_VERSION_CODE_FOR_CREATE` | No | unset | No | The same for the web, compared with the web's build number. A web request that sends no code is never refused (the page ships with the server). |
 

@@ -37,7 +37,7 @@ def _code(exc: pytest.ExceptionInfo) -> str:
 
 
 def _presign(ids: Any, session_id: str, clip: str, **extra: Any) -> Any:
-    from app.schemas.questionnaire_v2 import PresignRequest
+    from app.questionnaire.schemas import PresignRequest
 
     return PresignRequest.model_validate({
         "linkedRecordType": "questionnaire_session", "sessionId": session_id, "clientClipKey": clip, "sizeBytes": 3_400_000,
@@ -47,7 +47,7 @@ def _presign(ids: Any, session_id: str, clip: str, **extra: Any) -> Any:
 
 
 def _today() -> str:
-    from app.services.questionnaire_v2.common import today_ist
+    from app.questionnaire.common import today_ist
 
     return today_ist().isoformat()
 
@@ -55,7 +55,7 @@ def _today() -> str:
 # ── H1, H2: permissions on replace and decide ─────────────────────────────────────────────────
 @needs_db
 def test_h1_a_replace_removes_only_for_a_content_admin_and_only_in_the_same_session(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import recordings, sessions
+    from app.questionnaire import recordings, sessions
 
     async def go() -> None:
         client = await connect()
@@ -91,8 +91,8 @@ def test_h1_a_replace_removes_only_for_a_content_admin_and_only_in_the_same_sess
 
 @needs_db
 def test_h2_decide_needs_a_live_other_take_in_the_session_on_the_same_target(monkeypatch) -> None:
-    from app.schemas.questionnaire_v2 import DecideRequest
-    from app.services.questionnaire_v2 import recordings, sessions
+    from app.questionnaire.schemas import DecideRequest
+    from app.questionnaire import recordings, sessions
 
     async def go() -> None:
         client = await connect()
@@ -125,7 +125,7 @@ def test_h2_decide_needs_a_live_other_take_in_the_session_on_the_same_target(mon
 # ── H4: merged sessions are followed ──────────────────────────────────────────────────────────
 @needs_db
 def test_h4_presign_complete_and_the_client_key_follow_a_merge_and_merges_never_chain(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import recordings, sessions
+    from app.questionnaire import recordings, sessions
 
     async def go() -> None:
         client = await connect()
@@ -157,7 +157,7 @@ def test_h4_presign_complete_and_the_client_key_follow_a_merge_and_merges_never_
 @needs_db
 def test_h8_a_dropped_multipart_upload_restarts_on_the_same_key_and_h9_a_closed_intent_signs_nothing(monkeypatch) -> None:
     from app.services import s3
-    from app.services.questionnaire_v2 import recordings, sessions
+    from app.questionnaire import recordings, sessions
 
     async def go() -> None:
         client = await connect()
@@ -193,7 +193,7 @@ def test_h8_a_dropped_multipart_upload_restarts_on_the_same_key_and_h9_a_closed_
 # ── H10 and the merged copy's targets: the sha worker is atomic and keeps the earliest ───────
 @needs_db
 def test_h10_the_sha_worker_keeps_the_earliest_copy_whichever_is_verified_first(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import recordings, sessions
+    from app.questionnaire import recordings, sessions
 
     async def go() -> None:
         client = await connect()
@@ -247,7 +247,7 @@ def _old_body(ids: Any, artisans: list[str], **extra: Any) -> dict[str, Any]:
 def test_h5_a_volunteer_old_create_is_attached_to_the_open_session_never_a_new_403(monkeypatch) -> None:
     from app.api.routes import questionnaire
     from app.schemas.questionnaire import QuestionnaireInterviewCreate
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire import sessions
 
     settings_v2(monkeypatch, True)
 
@@ -280,8 +280,8 @@ def test_h5_a_volunteer_old_create_is_attached_to_the_open_session_never_a_new_4
 def test_h5_old_responses_are_create_only_and_the_patch_shim_keeps_v2_whole(monkeypatch) -> None:
     from app.api.routes import questionnaire
     from app.schemas.questionnaire import QuestionnaireInterviewCreate, QuestionnaireInterviewUpdate
-    from app.schemas.questionnaire_v2 import AnswersPut
-    from app.services.questionnaire_v2 import answers, sessions
+    from app.questionnaire.schemas import AnswersPut
+    from app.questionnaire import answers, sessions
 
     settings_v2(monkeypatch, True)
 
@@ -326,7 +326,7 @@ def test_h5_old_responses_are_create_only_and_the_patch_shim_keeps_v2_whole(monk
 def test_c7_the_config_carries_the_per_platform_build_minimums(monkeypatch) -> None:
     from app.api.routes import questionnaire_v2 as routes
     from app.core.config import get_settings
-    from app.schemas.questionnaire_v2 import Config
+    from app.questionnaire.schemas import Config
 
     async def paused(*_a: Any, **_k: Any) -> bool:
         return True
@@ -405,8 +405,8 @@ def test_h22_app_versions_are_upserted_and_summarised_for_the_admin(monkeypatch)
 # ── H13, H14: the decisions inbox names what its buttons act on, and "File it" works ─────────
 @needs_db
 def test_h13_inbox_rows_carry_the_other_take_and_h14_file_it_files_a_take_and_a_clip(monkeypatch) -> None:
-    from app.schemas.questionnaire_v2 import FileMediaRequest, FileRecordingRequest
-    from app.services.questionnaire_v2 import inbox, recordings, sessions
+    from app.questionnaire.schemas import FileMediaRequest, FileRecordingRequest
+    from app.questionnaire import inbox, recordings, sessions
 
     async def go() -> None:
         client = await connect()
@@ -448,7 +448,7 @@ def test_h13_inbox_rows_carry_the_other_take_and_h14_file_it_files_a_take_and_a_
 # ── M2, M3, M9: coverage ──────────────────────────────────────────────────────────────────────
 @needs_db
 def test_m2_an_undecided_take_covers_nothing_and_a_retired_question_never_completes_a_section(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import coverage, sessions
+    from app.questionnaire import coverage, sessions
 
     async def go() -> None:
         client = await connect()
@@ -478,8 +478,8 @@ def test_m2_an_undecided_take_covers_nothing_and_a_retired_question_never_comple
 
 @needs_db
 def test_m3_the_snapshot_lists_every_changed_recording_and_m9_only_a_verified_hash_is_identical(monkeypatch) -> None:
-    from app.schemas.questionnaire_v2 import CoverageCheckRequest, RecordingPatch
-    from app.services.questionnaire_v2 import coverage, recordings, sessions
+    from app.questionnaire.schemas import CoverageCheckRequest, RecordingPatch
+    from app.questionnaire import coverage, recordings, sessions
 
     async def go() -> None:
         client = await connect()
@@ -511,7 +511,7 @@ def test_m3_the_snapshot_lists_every_changed_recording_and_m9_only_a_verified_ha
 
 # ── M5, M6: the clock offset's age, and a take is queued inside the transaction ───────────────
 def test_m5_an_offset_older_than_seven_days_marks_the_time_estimated() -> None:
-    from app.services.questionnaire_v2.recordings import FRESH_OFFSET, correct_capture_time, offset_age
+    from app.questionnaire.recordings import FRESH_OFFSET, correct_capture_time, offset_age
 
     now = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
     age = offset_age("2026-06-20T12:00:00Z", now)
@@ -526,7 +526,7 @@ def test_m5_an_offset_older_than_seven_days_marks_the_time_estimated() -> None:
 
 @needs_db
 def test_m5_complete_reads_the_offset_age_and_m6_the_transcription_job_is_written_with_the_take(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import recordings, sessions
+    from app.questionnaire import recordings, sessions
 
     async def go() -> None:
         client = await connect()
@@ -577,7 +577,7 @@ def test_m7_the_queue_writes_a_refusal_as_refused_consent(monkeypatch) -> None:
 def test_m7_a_grant_requeues_held_recordings_by_every_link_the_gate_reads(monkeypatch) -> None:
     from app.services import consent_gate
     from app.services import transcription_enqueue as transcription
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire import sessions
     from app.transcription.consent import CONSENT_REFUSED_MESSAGE
 
     async def go() -> None:
@@ -610,8 +610,8 @@ def test_m7_a_grant_requeues_held_recordings_by_every_link_the_gate_reads(monkey
 # ── M10, M11, M12: moves go through the service, and removed takes can be listed ─────────────
 @needs_db
 def test_m10_m11_a_relink_and_a_move_add_the_subjects_and_m12_removed_takes_are_listed(monkeypatch) -> None:
-    from app.schemas.questionnaire_v2 import RecordingPatch
-    from app.services.questionnaire_v2 import recordings, sessions
+    from app.questionnaire.schemas import RecordingPatch
+    from app.questionnaire import recordings, sessions
 
     async def go() -> None:
         client = await connect()
@@ -647,7 +647,7 @@ def test_m13_new_content_on_an_approved_session_is_back_in_review_and_m14_primar
     from app.api.routes import review
     from app.schemas.common import ReviewAction
     from app.services import email_outbox
-    from app.services.questionnaire_v2 import inbox, recordings, sessions
+    from app.questionnaire import inbox, recordings, sessions
 
     async def no_mail(**kwargs: Any) -> int:
         return 0
@@ -687,8 +687,8 @@ def test_m13_new_content_on_an_approved_session_is_back_in_review_and_m14_primar
 # ── M15: answers are about people who were there; proposals need the right to change the take ─
 @needs_db
 def test_m15_answer_writes_and_proposals_are_permissioned(monkeypatch) -> None:
-    from app.schemas.questionnaire_v2 import AnswersPut
-    from app.services.questionnaire_v2 import answers, sessions
+    from app.questionnaire.schemas import AnswersPut
+    from app.questionnaire import answers, sessions
 
     async def go() -> None:
         client = await connect()
@@ -721,7 +721,7 @@ def test_m16_sessions_start_only_on_live_instruments_and_the_builder_keeps_cover
         QuestionnaireSectionUpdate,
         QuestionnaireUpdate,
     )
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire import sessions
 
     async def go() -> None:
         client = await connect()
@@ -773,7 +773,7 @@ def test_m16_sessions_start_only_on_live_instruments_and_the_builder_keeps_cover
 
 def test_m16_a_file_name_reads_the_frozen_display_code_after_a_section_rename() -> None:
     from app.services import naming
-    from app.services.questionnaire_v2.recordings import target_ref
+    from app.questionnaire.recordings import target_ref
 
     ref = target_ref(section_code="E", display_code="D3", is_question=True)
     assert naming.recording_sequence([ref]) == "D-Q03", "D3 under a renamed section is still D-Q03, never E-All"
@@ -784,7 +784,7 @@ def test_m16_a_file_name_reads_the_frozen_display_code_after_a_section_rename() 
 # ── M17: the artisan record lists each question once, and only live ones as live ──────────────
 @needs_db
 def test_m17_the_record_lists_a_reworded_question_once_and_a_deleted_one_as_not_live(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import record, sessions
+    from app.questionnaire import record, sessions
 
     async def go() -> None:
         client = await connect()
@@ -816,7 +816,7 @@ def test_m17_the_record_lists_a_reworded_question_once_and_a_deleted_one_as_not_
 # ── M24: the v2 rows move and the merged artisan goes in one transaction ─────────────────────
 @needs_db
 def test_m24_the_artisan_merge_moves_v2_rows_and_deletes_in_one_transaction(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import merge, sessions
+    from app.questionnaire import merge, sessions
 
     async def go() -> None:
         client = await connect()
@@ -873,7 +873,7 @@ class _Counting:
 
 @needs_db
 def test_m26_serializing_takes_costs_a_fixed_number_of_reads(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import recordings, sessions
+    from app.questionnaire import recordings, sessions
 
     async def go() -> None:
         client = await connect()
@@ -905,7 +905,7 @@ def test_m26_serializing_takes_costs_a_fixed_number_of_reads(monkeypatch) -> Non
 def test_m27_session_insights_return_the_takes_summaries(monkeypatch) -> None:
     from app.api.routes import questionnaire_v2 as routes
     from app.services import transcript_insights
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire import sessions
 
     async def go() -> None:
         client = await connect()
@@ -931,7 +931,7 @@ def test_m27_session_insights_return_the_takes_summaries(monkeypatch) -> None:
 # ── Low items ─────────────────────────────────────────────────────────────────────────────────
 @needs_db
 def test_low_part_two_names_end_p2_and_complete_checks_its_object_and_its_caller(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import recordings, sessions
+    from app.questionnaire import recordings, sessions
 
     async def go() -> None:
         client = await connect()
@@ -963,7 +963,7 @@ def test_low_part_two_names_end_p2_and_complete_checks_its_object_and_its_caller
 
 @needs_db
 def test_low_an_expired_intent_is_rearmed_never_closed_and_the_sweep_aborts_its_upload(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import recordings, sessions
+    from app.questionnaire import recordings, sessions
 
     async def go() -> None:
         client = await connect()
@@ -988,8 +988,8 @@ def test_low_an_expired_intent_is_rearmed_never_closed_and_the_sweep_aborts_its_
 
 @needs_db
 def test_low_continue_is_idempotent_and_join_checks_the_workshop_and_limits_guesses(monkeypatch) -> None:
-    from app.schemas.questionnaire_v2 import ContinueRequest
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire.schemas import ContinueRequest
+    from app.questionnaire import sessions
 
     async def go() -> None:
         client = await connect()
@@ -1026,8 +1026,8 @@ def test_low_continue_is_idempotent_and_join_checks_the_workshop_and_limits_gues
 
 @needs_db
 def test_low_an_unexpected_answer_error_is_a_conflict_that_carries_the_stored_answer(monkeypatch) -> None:
-    from app.schemas.questionnaire_v2 import AnswersPut
-    from app.services.questionnaire_v2 import answers, sessions
+    from app.questionnaire.schemas import AnswersPut
+    from app.questionnaire import answers, sessions
 
     async def go() -> None:
         client = await connect()
@@ -1051,7 +1051,7 @@ def test_low_an_unexpected_answer_error_is_a_conflict_that_carries_the_stored_an
 
 @needs_db
 def test_low_set_dates_is_one_row_per_workshop_day(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import inbox, sessions
+    from app.questionnaire import inbox, sessions
 
     async def go() -> None:
         client = await connect()
@@ -1121,8 +1121,8 @@ def test_low_an_approved_report_is_computed_as_of_a_fixed_day() -> None:
 @needs_db
 def test_not_needed_sets_a_clip_aside_on_the_server_once_and_file_it_takes_named_subjects(monkeypatch) -> None:
     from app.api.routes import questionnaire_v2 as routes
-    from app.schemas.questionnaire_v2 import FileMediaRequest
-    from app.services.questionnaire_v2 import inbox, recordings, sessions
+    from app.questionnaire.schemas import FileMediaRequest
+    from app.questionnaire import inbox, recordings, sessions
 
     async def clip(client: Any, ids: Any, name: str) -> str:
         media_id = f"{name}{ids.tag}"

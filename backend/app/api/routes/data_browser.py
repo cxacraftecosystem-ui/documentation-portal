@@ -83,7 +83,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 
 from app.core.db import db
-from app.services.questionnaire_v2.live import live_media_where
+from app.questionnaire.live import live_media_where
 from app.core.deps import require_dataset_downloader
 from app.services import answer_drafts
 from app.services.records import owned_or_granted_where
