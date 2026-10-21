@@ -85,8 +85,7 @@ test("the builder's edit controls are drawn only for the form's author or a cont
   expect(builder).toContain("mayEdit = false,");
   const guard = builder.indexOf("if (!mayEdit) {");
   expect(guard).toBeGreaterThan(-1);
-  const readOnly = builder.slice(guard, builder.indexOf("
-  return (", guard + 1));
+  const readOnly = builder.slice(guard, builder.indexOf("\n  return (", guard + 1));
   expect(readOnly).toContain("Only the form&rsquo;s author or an admin can edit it.");
   for (const control of ["<form", "<button", "addSection", "updateSection", "performSectionReorder", "<QuestionTile", "<Toggle", "draggable"]) {
     expect(readOnly, control).not.toContain(control);
@@ -102,11 +101,9 @@ test("the builder's edit controls are drawn only for the form's author or a cont
   expect(screen).toContain("const mayEdit = mayEditQuestionnaire(user, selected?.createdById);");
   expect(screen).toContain("mayEdit={mayEdit}");
   // The form's own workbook — the editing download and the re-upload — is offered to the same accounts.
-  expect(screen).toContain("{selected && mayEdit ? (
-          <ButtonRow");
+  expect(screen).toContain("{selected && mayEdit ? (\n          <ButtonRow");
   expect(screen).toContain("downloadQuestionnaireWorkbook(selected.id)");
-  expect(screen).toContain("{selected && mayEdit ? (
-        <WorkbookUploadDialog");
+  expect(screen).toContain("{selected && mayEdit ? (\n        <WorkbookUploadDialog");
   expect(screen).not.toContain("downloadQuestionSet");
   expect(screen).not.toContain("downloadProForma");
 
