@@ -513,7 +513,7 @@ async def _task_batch_pages(monkeypatch: Any, people: int, page_size: int) -> tu
         for n in range(people):
             uid = f"pg{n}{ids.tag}"
             await client.execute_raw(
-                'INSERT INTO "User" ("id", "email", "name", "role", "updatedAt") VALUES ($1, $2, $3, 'RESEARCHER', now())',
+                'INSERT INTO "User" ("id", "email", "name", "role", "updatedAt") VALUES ($1, $2, $3, \'RESEARCHER\', now())',
                 uid, f"{uid}@example.test", f"Researcher {n}",
             )
             assignees.append(uid)
