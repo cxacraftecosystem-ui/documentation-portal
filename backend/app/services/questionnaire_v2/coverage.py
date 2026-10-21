@@ -4,7 +4,8 @@ THE HIERARCHY RULE, used by the check, the grid, the backfill and the tests alik
 already covered for an artisan when the target itself, OR ITS PARENT SECTION, has a take for them.
 A question take after a section take therefore prompts; a section take after question takes does
 not (it shows "D3, D4 also have question takes."). Only ANSWERED subjects count; a general
-("Whole session") recording counts for nothing; a NEEDS_DECISION take counts for the prompt.
+("Whole session") recording counts for nothing; a NEEDS_DECISION take counts for the prompt but
+NEVER for "covered" (DESIGN 3.1; audit M2), and only live questions count toward a section's total.
 """
 
 from __future__ import annotations
@@ -148,9 +149,12 @@ async def check(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any
     targets = await resolve_targets(db, payload.questionnaireId, payload.targets)
     identical = None
     if payload.contentSha256:
+        # Only a hash the SERVER verified (audit M9): a wrong client hash must never make P5 hide a
+        # distinct take, which would then upload nothing.
         rows = await db.query_raw(
             'SELECT r."id", m."questionnaireInterviewId" AS sid FROM "MediaFile" m JOIN "QuestionnaireRecording" r ON r."mediaFileId" = m."id" '
-            'WHERE m."contentSha256" = $1 AND m."removedAt" IS NULL AND r."removedAt" IS NULL ORDER BY m."createdAt" LIMIT 1',
+            'WHERE m."contentSha256" = $1 AND m."shaVerifiedAt" IS NOT NULL AND m."removedAt" IS NULL AND r."removedAt" IS NULL '
+            'ORDER BY m."createdAt" LIMIT 1',
             payload.contentSha256.lower(),
         )
         if rows:
@@ -213,6 +217,20 @@ async def _sections(client: Any, questionnaire_id: str) -> list[dict[str, Any]]:
     )
 
 
+async def _live_lineages(client: Any, questionnaire_id: str) -> dict[str, set[str]]:
+    """sectionId -> the lineages asked now (active, not retired, not superseded)."""
+    rows = await client.query_raw(
+        'SELECT q."sectionId", COALESCE(q."lineageId", q."id") AS lineage FROM "QuestionnaireQuestion" q '
+        'WHERE q."questionnaireId" = $1 AND q."isActive" AND q."retiredAt" IS NULL AND q."supersededById" IS NULL',
+        questionnaire_id,
+    )
+    out: dict[str, set[str]] = defaultdict(set)
+    for r in rows:
+        if r.get("sectionId"):
+            out[str(r["sectionId"])].add(str(r["lineage"]))
+    return out
+
+
 async def grid(questionnaire_id: str, *, artisan_ids: list[str] | None = None, workshop_id: str | None = None, client: Any = None) -> dict[str, Any]:
     """``GET /coverage``: artisan x section, with partial counts and the admin overrides."""
     db = _db(client)
@@ -241,21 +259,29 @@ async def grid(questionnaire_id: str, *, artisan_ids: list[str] | None = None, w
         order,
     )
     override_by = {(str(o["artisanId"]), str(o["sectionId"])): o["status"] for o in overrides}
+    live = await _live_lineages(db, questionnaire_id)
     section_takes: dict[tuple[str, str], list] = defaultdict(list)
     question_lineages: dict[tuple[str, str], set] = defaultdict(set)
+    question_takes: dict[tuple[str, str], set] = defaultdict(set)
     nd: dict[tuple[str, str], bool] = defaultdict(bool)
     for t in takes:
         a = str(t["artisanId"])
         if t.get("sectionId"):
             sec = str(t["sectionId"])
+        else:
+            found = lineage_section.get(str(t.get("questionLineageId")))
+            if not found:
+                continue
+            sec = str(found)
+        if t.get("filing") == "NEEDS_DECISION":
+            # Waiting for a decision: shown, never counted as covered (DESIGN 3.1; audit M2).
+            nd[(a, sec)] = True
+            continue
+        if t.get("sectionId"):
             section_takes[(a, sec)].append(t)
         else:
-            sec = lineage_section.get(str(t.get("questionLineageId")))
-            if not sec:
-                continue
-            question_lineages[(a, str(sec))].add(str(t["questionLineageId"]))
-        if t.get("filing") == "NEEDS_DECISION":
-            nd[(a, str(sec))] = True
+            question_takes[(a, sec)].add(str(t["recordingId"]))
+            question_lineages[(a, sec)].add(str(t["questionLineageId"]))
     out_sections = []
     for s in sections:
         sid = str(s["id"])
@@ -263,16 +289,18 @@ async def grid(questionnaire_id: str, *, artisan_ids: list[str] | None = None, w
         cells = []
         for a in order:
             st = section_takes.get((a, sid), [])
-            covered = len(question_lineages.get((a, sid), set()))
+            # Only questions asked NOW count toward "covered", so a retired question can never push
+            # Partial to 100% (audit M2).
+            covered = len(question_lineages.get((a, sid), set()) & live.get(sid, set()))
             if st:
                 state = "RECORDED"
             elif covered:
                 state = "PARTIAL"
+            elif nd.get((a, sid)):
+                state = "NEEDS_DECISION"
             else:
                 state = "NOT_RECORDED"
-            if nd.get((a, sid)):
-                state = "NEEDS_DECISION"
-            distinct_takes = len({str(t["recordingId"]) for t in st}) + covered
+            distinct_takes = len({str(t["recordingId"]) for t in st} | question_takes.get((a, sid), set()))
             cells.append({
                 "artisanId": a, "state": state, "takes": distinct_takes, "covered": covered, "total": total,
                 "needsDecision": bool(nd.get((a, sid))), "override": override_by.get((a, sid)),
@@ -286,15 +314,32 @@ async def grid(questionnaire_id: str, *, artisan_ids: list[str] | None = None, w
 
 
 def section_covered(cell: dict[str, Any]) -> bool:
-    """"14 of 24 sections": Recorded, or Partial at 100% of the active questions."""
-    return cell["state"] in ("RECORDED", "NEEDS_DECISION") or (cell["total"] > 0 and cell["covered"] >= cell["total"])
+    """"14 of 24 sections": Recorded, or Partial at 100% of the active questions. A take waiting
+    for a decision covers nothing until it is decided (audit M2)."""
+    return cell["state"] == "RECORDED" or (cell["total"] > 0 and cell["covered"] >= cell["total"])
+
+
+#: The highest changeSeq that NO transaction still running can undercut (audit M3). A sequence value
+#: is taken when a row is written but becomes visible only on commit, so a slow transaction can
+#: commit a LOWER changeSeq after a reader saw a higher one. Rows written by transactions at or after
+#: the oldest one still running (the snapshot's xmin) do not advance the horizon; they are still
+#: returned, and returned again next time, which a client absorbs (it replaces per recording id).
+HORIZON_SQL = (
+    'SELECT COALESCE(max("changeSeq"), 0) AS s FROM "QuestionnaireRecording" '
+    'WHERE ("xmin"::text)::bigint < (pg_snapshot_xmin(pg_current_snapshot())::text::bigint % 4294967296)'
+)
 
 
 async def snapshot(questionnaire_id: str, workshop_id: str | None, since_seq: int | None, *, client: Any = None) -> dict[str, Any]:
     """Takes changed after ``since_seq`` (every take of each changed recording, so a client replaces
-    its takes per recordingId), and the recordings removed since. Scoped to one workshop."""
+    its takes per recordingId), the recordings removed since, and every recording that changed at
+    all (``changedRecordingIds``: one whose takes all went, e.g. a subject turned PRESENT, is in
+    neither of the other lists). Scoped to one workshop. ``asOfSeq`` is read FIRST and bounded by
+    the oldest running transaction, so a late commit is never skipped (audit M3)."""
     db = _db(client)
     since = int(since_seq or 0)
+    horizon = await db.query_raw(HORIZON_SQL)
+    as_of = int(horizon[0]["s"]) if horizon else 0
     params: list[Any] = [questionnaire_id, since]
     scope = ""
     if workshop_id:
@@ -318,9 +363,15 @@ async def snapshot(questionnaire_id: str, workshop_id: str | None, since_seq: in
         'WHERE i."questionnaireId" = $1 AND r."changeSeq" > $2 AND (r."removedAt" IS NOT NULL OR m."removedAt" IS NOT NULL)' + removed_scope,
         *removed_params,
     )
-    seq = await db.query_raw('SELECT COALESCE(max("changeSeq"), 0) AS s FROM "QuestionnaireRecording"')
+    changed = await db.query_raw(
+        'SELECT r."id" FROM "QuestionnaireRecording" r JOIN "MediaFile" m ON m."id" = r."mediaFileId" '
+        'JOIN "QuestionnaireInterview" i ON i."id" = m."questionnaireInterviewId" '
+        'WHERE i."questionnaireId" = $1 AND r."changeSeq" > $2' + removed_scope,
+        *removed_params,
+    )
     return {
-        "asOfSeq": str(int(seq[0]["s"]) if seq else 0),
+        "asOfSeq": str(max(as_of, since)),
+        "changedRecordingIds": sorted(str(r["id"]) for r in changed),
         "takes": [
             {
                 "recordingId": str(r["recordingId"]), "sessionId": r.get("sessionId"), "artisanId": str(r["artisanId"]),

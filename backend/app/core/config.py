@@ -455,11 +455,16 @@ class Settings(BaseSettings):
     # The owner flips it after the backfill (rollout steps 3 and 4).
     questionnaire_v2: bool = Field(default=False, alias="QUESTIONNAIRE_V2")
     # Decision 5: old builds stop CREATING sessions 30 days after every active device runs the new
-    # build. Unset = old builds keep creating. Set (e.g. "0.0.14") = a create from a lower
-    # X-App-Version gets 503 + Retry-After (which old builds treat as transient) and the P14 banner;
-    # their queued clips are always accepted.
-    questionnaire_min_app_version_for_create: str | None = Field(
-        default=None, alias="QUESTIONNAIRE_MIN_APP_VERSION_FOR_CREATE"
+    # build (GET /api/admin/app-versions says when). Unset = old builds keep creating. Set = a create
+    # from a lower BUILD NUMBER (X-App-Version-Code; the version NAME was reset to 0.0.1 on 21 Oct
+    # 2026 and is never compared, audit C7) gets 503 + Retry-After (which old builds treat as
+    # transient) and the P14 banner; their queued clips are always accepted. One per platform: an
+    # Android build that sends no code is below any minimum; a web page that sends none is not.
+    questionnaire_min_android_version_code_for_create: int | None = Field(
+        default=None, ge=1, alias="QUESTIONNAIRE_MIN_ANDROID_VERSION_CODE_FOR_CREATE"
+    )
+    questionnaire_min_web_version_code_for_create: int | None = Field(
+        default=None, ge=1, alias="QUESTIONNAIRE_MIN_WEB_VERSION_CODE_FOR_CREATE"
     )
 
     model_config = SettingsConfigDict(

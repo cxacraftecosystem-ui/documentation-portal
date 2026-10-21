@@ -61,6 +61,23 @@ async def require_session(client: Any, session_id: str) -> dict[str, Any]:
     return row
 
 
+MERGE_HOPS = 20
+
+
+async def follow_merges(client: Any, session_id: str) -> dict[str, Any] | None:
+    """The session a merged-away session now lives in (audit H4): ``mergedIntoId`` followed to the
+    end. A queued clip, a stale clientKey or a merge naming a merged-away target all land there."""
+    row = await load_session_row(client, session_id)
+    seen: set[str] = set()
+    while row is not None and row.get("mergedIntoId") and str(row["id"]) not in seen and len(seen) < MERGE_HOPS:
+        seen.add(str(row["id"]))
+        nxt = await load_session_row(client, str(row["mergedIntoId"]))
+        if nxt is None:
+            break
+        row = nxt
+    return row
+
+
 async def researcher_ids(client: Any, session_id: str) -> set[str]:
     rows = await client.query_raw('SELECT "userId" FROM "QuestionnaireInterviewResearcher" WHERE "interviewId" = $1', session_id)
     return {str(r["userId"]) for r in rows}
@@ -233,6 +250,20 @@ async def _bump(client: Any, session_id: str) -> None:
     )
 
 
+bump_session = _bump
+
+
+async def note_pending_change(client: Any, session_id: str) -> None:
+    """New content on an APPROVED session stays PENDING and must reach review (DESIGN 3.10; audit
+    M13): the session keeps APPROVED and carries ``pendingChangesAt``, which puts it back in the
+    review queue until it is approved again."""
+    await client.execute_raw(
+        'UPDATE "QuestionnaireInterview" SET "pendingChangesAt" = COALESCE("pendingChangesAt", now()) '
+        "WHERE \"id\" = $1 AND \"status\" = 'APPROVED'",
+        session_id,
+    )
+
+
 async def add_researcher(client: Any, session_id: str, user_id: str, role: str) -> None:
     await client.execute_raw(
         'INSERT INTO "QuestionnaireInterviewResearcher" ("interviewId", "userId", "role") VALUES ($1, $2, $3::"ResearcherRole") '
@@ -326,13 +357,14 @@ async def join_by_key(client_key: str, user: Any, *, client: Any = None) -> dict
     if rows[0]["state"] != "OPEN" or rows[0]["mergedIntoId"]:
         fail("JOIN_CODE_UNKNOWN", "That session has closed.")
     session_id = str(rows[0]["id"])
+    await _assert_may_join(db, session_id, user)
     await add_researcher(db, session_id, user.id, "VOLUNTEER" if _volunteer(user) else "CONTRIBUTOR")
     return await session_payload(db, session_id)
 
 
 async def create_session(payload: Any, user: Any, *, client: Any = None, origin: str = "NATIVE",
                          legacy_title: str | None = None, estimated_date: bool = False,
-                         extra: dict[str, Any] | None = None) -> tuple[dict[str, Any], bool]:
+                         extra: dict[str, Any] | None = None, check_instrument: bool = True) -> tuple[dict[str, Any], bool]:
     """Create a session; returns ``(session, created)``. A repeated clientKey returns the row with
     ``created=False`` (200). Volunteers cannot create (they record into sessions they are on)."""
     from app.core.db import db as default_db
@@ -340,10 +372,10 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
 
     db = _client(client)
     joining = _is_join_create(payload, user)
-    existing = await db.query_raw('SELECT "id" FROM "QuestionnaireInterview" WHERE "clientKey" = $1', payload.clientKey)
+    existing = await _by_client_key(db, payload.clientKey)
     if existing:
-        await _arrive_on_existing(db, str(existing[0]["id"]), payload, user, joining)
-        return await session_payload(db, str(existing[0]["id"])), False
+        await _arrive_on_existing(db, existing, payload, user, joining)
+        return await session_payload(db, existing), False
     if not can_create_records(user) or _volunteer(user):
         if joining:
             fail("SESSION_UNKNOWN", NOT_SYNCED)
@@ -351,6 +383,8 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
     artisan_ids = list(dict.fromkeys(p.artisanId for p in payload.participants))
     await _assert_exists(db, "Questionnaire", [payload.questionnaireId], "questionnaireId")
     await _assert_exists(db, "Workshop", [payload.workshopId] if payload.workshopId else [], "workshopId")
+    if check_instrument:
+        await assert_instrument_allowed(db, payload.questionnaireId, payload.workshopId, user)
     await _assert_exists(db, "Artisan", artisan_ids, "artisanIds")
     await _assert_exists(db, "User", [r.userId for r in payload.researchers], "researchers")
     check = await enforce_workshop_submission(user, payload.workshopId) if payload.workshopId else None
@@ -406,13 +440,39 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
                 await titles.regenerate_title(tx, session_id)
             break
         except UniqueViolationError as exc:
-            again = await db.query_raw('SELECT "id" FROM "QuestionnaireInterview" WHERE "clientKey" = $1', payload.clientKey)
+            again = await _by_client_key(db, payload.clientKey)
             if again:  # the same clientKey won a race: that row is this create
-                await _arrive_on_existing(db, str(again[0]["id"]), payload, user, joining)
-                return await session_payload(db, str(again[0]["id"])), False
+                await _arrive_on_existing(db, again, payload, user, joining)
+                return await session_payload(db, again), False
             if "joinCode" not in str(exc):
                 raise
     return await session_payload(db, session_id), True
+
+
+async def _by_client_key(db: Any, client_key: str) -> str | None:
+    """The session a clientKey names, followed through any merge (audit H4)."""
+    rows = await db.query_raw('SELECT "id" FROM "QuestionnaireInterview" WHERE "clientKey" = $1', client_key)
+    if not rows:
+        return None
+    final = await follow_merges(db, str(rows[0]["id"]))
+    return str(final["id"]) if final else str(rows[0]["id"])
+
+
+async def assert_instrument_allowed(db: Any, questionnaire_id: str, workshop_id: str | None, user: Any) -> None:
+    """A session is never started on a retired instrument, nor on another instrument than its
+    workshop is bound to unless the caller manages questionnaires (the legacy create's rule; audit
+    M16)."""
+    from app.core.roles import can_manage_questionnaire
+
+    rows = await db.query_raw('SELECT "isActive" FROM "Questionnaire" WHERE "id" = $1', questionnaire_id)
+    if rows and not rows[0].get("isActive"):
+        fail("VALIDATION_FAILED", "That questionnaire is retired. Pick the workshop's questionnaire.",
+             fields={"questionnaireId": [questionnaire_id]})
+    if workshop_id:
+        bound = await db.query_raw('SELECT "questionnaireId" FROM "Workshop" WHERE "id" = $1', workshop_id)
+        bound_id = bound[0].get("questionnaireId") if bound else None
+        if bound_id and str(bound_id) != str(questionnaire_id) and not can_manage_questionnaire(user):
+            fail("VALIDATION_FAILED", "This workshop uses a different questionnaire.", fields={"questionnaireId": [questionnaire_id]})
 
 
 def _json(value: Any) -> Any:
@@ -590,15 +650,50 @@ async def add_researcher_route(session_id: str, user_id: str, role: str, user: A
     return await session_payload(db, session_id)
 
 
+JOIN_MISSES_PER_WINDOW = 10
+JOIN_WINDOW = timedelta(minutes=10)
+_JOIN_MISSES: dict[str, list[datetime]] = {}
+
+
+def join_rate_limit(user: Any, *, missed: bool = False) -> None:
+    """Ten wrong codes in ten minutes per account, then 429 (audit Low): a six-letter code can be
+    guessed by a script, never by a person reading it across a courtyard."""
+    from fastapi import HTTPException
+
+    key = str(get(user, "id"))
+    cutoff = now() - JOIN_WINDOW
+    recent = [t for t in _JOIN_MISSES.get(key, []) if t > cutoff]
+    if missed:
+        recent.append(now())
+    _JOIN_MISSES[key] = recent
+    if len(recent) > JOIN_MISSES_PER_WINDOW:
+        raise HTTPException(status_code=429, detail={"code": "RATE_LIMITED", "message": "Too many wrong codes. Wait a few minutes."},
+                            headers={"Retry-After": str(int(JOIN_WINDOW.total_seconds()))})
+
+
+async def _assert_may_join(db: Any, session_id: str, user: Any) -> None:
+    """Joining a session in a workshop is a workshop submission (audit Low): the caller must be able
+    to submit into that workshop, exactly as for starting a session there."""
+    rows = await db.query_raw('SELECT "workshopId" FROM "QuestionnaireInterview" WHERE "id" = $1', session_id)
+    workshop_id = rows[0].get("workshopId") if rows else None
+    if workshop_id:
+        from app.services.workshop_access import enforce_workshop_submission
+
+        await enforce_workshop_submission(user, str(workshop_id))
+
+
 async def join(join_code: str, user: Any, *, client: Any = None) -> dict[str, Any]:
     db = _client(client)
+    join_rate_limit(user)
     rows = await db.query_raw(
         'SELECT "id" FROM "QuestionnaireInterview" WHERE "joinCode" = $1 AND "state" = \'OPEN\' AND "mergedIntoId" IS NULL',
         join_code.strip().upper(),
     )
     if not rows:
+        join_rate_limit(user, missed=True)
         fail("JOIN_CODE_UNKNOWN")
     session_id = str(rows[0]["id"])
+    await _assert_may_join(db, session_id, user)
     await add_researcher(db, session_id, user.id, "VOLUNTEER" if _volunteer(user) else "CONTRIBUTOR")
     return await session_payload(db, session_id)
 
@@ -626,7 +721,15 @@ async def merge_into(source_id: str, target_id: str, user: Any, *, client: Any =
     if source_id == target_id:
         fail("VALIDATION_FAILED", "A session can't be merged into itself.")
     source = await require_session(db, source_id)
-    target = await require_session(db, target_id)
+    if source.get("mergedIntoId"):
+        fail("VALIDATION_FAILED", "That session has already been merged.")
+    # A target merged away itself is resolved to where it lives now, so merges never chain (audit H4).
+    target = await follow_merges(db, target_id)
+    if target is None:
+        fail("SESSION_UNKNOWN")
+    target_id = str(target["id"])
+    if source_id == target_id:
+        fail("VALIDATION_FAILED", "A session can't be merged into itself.")
     if str(source["questionnaireId"]) != str(target["questionnaireId"]):
         fail("MERGE_INSTRUMENT_MISMATCH")
     owner = db if client is not None else default_db
@@ -783,27 +886,43 @@ async def open_match(*, questionnaire_id: str, workshop_id: str | None, artisan_
 
 async def continue_sessions(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any]:
     """"Continue with...": one session for all, or one each, on a new day, with each artisan's first gap."""
-    from uuid import uuid4
-
     from app.schemas.questionnaire_v2 import ParticipantInput, SessionCreate
     from app.services.questionnaire_v2 import coverage
 
     db = _client(client)
-    source = await require_session(db, payload.fromSessionId)
+    source = await follow_merges(db, payload.fromSessionId)
+    if source is None:
+        fail("SESSION_UNKNOWN")
     groups = [payload.artisanIds] if payload.split == "ONE" else [[a] for a in payload.artisanIds]
     sessions = []
-    for group in groups:
+    for index, group in enumerate(groups):
         create = SessionCreate(
-            clientKey=f"cont-{uuid4().hex[:20]}", questionnaireId=str(source["questionnaireId"]),
+            clientKey=continue_key(payload, user, index), questionnaireId=str(source["questionnaireId"]),
             workshopId=source.get("workshopId"), designWorkshopId=source.get("designWorkshopId"),
             sessionDate=payload.sessionDate, purpose="FOLLOW_UP", place=source.get("place"),
             languageCode=source.get("languageCode"), languageOther=source.get("languageOther"),
             participants=[ParticipantInput(artisanId=a) for a in group],
         )
-        session, _created = await create_session(create, user, client=client)
+        # Continuing keeps the instrument the artisans were interviewed on, even if the workshop has
+        # since been bound to another one.
+        session, _created = await create_session(create, user, client=client, check_instrument=False)
         sessions.append(session)
     gaps = await coverage.first_gaps(db, str(source["questionnaireId"]), payload.artisanIds)
     return {"sessions": sessions, "firstGap": gaps}
+
+
+def continue_key(payload: Any, user: Any, index: int) -> str:
+    """The clientKey of the ``index``-th session a "Continue with..." creates. Derived from the
+    request (or the client's own ``clientKey``), never random, so a replay returns the same sessions
+    instead of making new ones (audit Low)."""
+    import hashlib
+
+    base = getattr(payload, "clientKey", None)
+    if base:
+        return f"{base}:{index}"[:128]
+    seed = "|".join([str(get(user, "id")), payload.fromSessionId, ",".join(payload.artisanIds), payload.split,
+                     str(payload.sessionDate)])
+    return f"cont-{hashlib.sha256(seed.encode()).hexdigest()[:24]}-{index}"
 
 
 async def close_stale_sessions(*, client: Any = None, older_than: timedelta = timedelta(hours=24)) -> int:
@@ -834,4 +953,9 @@ async def maybe_close_stale_sessions(*, at: datetime | None = None) -> int | Non
     if local.hour < 2 or _LAST_CLOSE_DAY[0] == local.date():
         return None
     _LAST_CLOSE_DAY[0] = local.date()
-    return await close_stale_sessions()
+    closed = await close_stale_sessions()
+    # The same nightly pass aborts the multipart uploads of expired upload intents (audit Low).
+    from app.services.questionnaire_v2 import recordings
+
+    await recordings.sweep_expired_intents()
+    return closed

@@ -284,9 +284,11 @@ def test_an_interview_may_be_created_without_a_title():
 
 
 def test_the_automatic_title_names_who_what_and_when():
+    """The generated default follows NAMING (Entity_Date_..._Subject), never " · " (audit Low)."""
     when = datetime(2026, 10, 17, 9, 30)
-    assert q_routes.interview_title_from("Ramesh", "Craft questionnaire", when) == "Ramesh · Craft questionnaire · 17 Oct"
-    assert q_routes.interview_title_from(None, None, when) == "17 Oct"
+    assert q_routes.interview_title_from(["Ramesh"], when) == "Interview_2026-10-17_Ramesh"
+    assert q_routes.interview_title_from([], when) == "Interview_2026-10-17"
+    assert "·" not in q_routes.interview_title_from(["Ramesh", "Meena"], when)
 
 
 async def test_the_automatic_title_reads_the_first_artisan_and_the_instrument(monkeypatch):
@@ -294,13 +296,14 @@ async def test_the_automatic_title_reads_the_first_artisan_and_the_instrument(mo
         q_routes,
         "db",
         SimpleNamespace(
-            artisan=_Rows({"a-1": SimpleNamespace(name="Ramesh")}),
+            artisan=_Rows({"a-1": SimpleNamespace(name="Ramesh"), "a-1b": SimpleNamespace(name="Meena")}),
             questionnaire=_Rows({"inst": SimpleNamespace(title="Craft questionnaire")}),
         ),
     )
     when = datetime(2026, 10, 17)
-    assert await q_routes.automatic_interview_title(["a-1"], "inst", when) == "Ramesh · Craft questionnaire · 17 Oct"
-    assert await q_routes.automatic_interview_title(["a-1", "a-2"], "inst", when) == "Ramesh and others · Craft questionnaire · 17 Oct"
+    assert await q_routes.automatic_interview_title(["a-1"], "inst", when) == "Interview_2026-10-17_Ramesh"
+    assert await q_routes.automatic_interview_title(["a-1", "a-2"], "inst", when) == "Interview_2026-10-17_Ramesh"
+    assert await q_routes.automatic_interview_title(["a-1", "a-1b"], "inst", when) == "Group-Interview_2026-10-17_2-Artisans"
 
 
 def test_a_question_maps_only_to_a_known_artisan_field():

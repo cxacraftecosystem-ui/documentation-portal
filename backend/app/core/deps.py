@@ -401,6 +401,10 @@ async def get_current_user(
     """
     user = await _user_from_bearer(credentials, allowed_scopes=frozenset())
     refuse_while_password_change_pending(user, connection)
+    # Which build this account is on (audit H22): the middleware records it after the response.
+    from app.services.app_versions import note_user
+
+    note_user(connection, getattr(user, "id", None))
     return user
 
 

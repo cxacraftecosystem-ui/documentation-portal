@@ -181,6 +181,42 @@ async def verdict_detail(media_id: str, *, client: Any = None) -> dict[str, Any]
     return {"verdict": result, "source": SOURCE_RESEARCHER if answered else None}
 
 
+async def verdict_details(media_ids: list[str], *, client: Any = None) -> dict[str, dict[str, Any]]:
+    """:func:`verdict_detail` for many files in a FIXED number of reads (audit M26): the session
+    payload and the artisan record used to cost about four queries per take. Files that are not
+    questionnaire takes fall back to the one-at-a-time rule (their subjects come from other links)."""
+    ids = list(dict.fromkeys(str(i) for i in media_ids if i))
+    if not ids:
+        return {}
+    db = _db(client)
+    takes = await db.query_raw(
+        'SELECT r."mediaFileId" AS media, s."artisanId" FROM "QuestionnaireRecording" r '
+        'LEFT JOIN "QuestionnaireRecordingSubject" s ON s."recordingId" = r."id" WHERE r."mediaFileId" = ANY($1::text[])',
+        ids,
+    )
+    subjects: dict[str, list[str]] = {}
+    for row in takes:
+        subjects.setdefault(str(row["media"]), [])
+        if row.get("artisanId"):
+            subjects[str(row["media"])].append(str(row["artisanId"]))
+    grants = await current_states(ledger.RECORDING, ids, client=client)
+    artisans = await current_states(ledger.ARTISAN, sorted({a for people in subjects.values() for a in people}), client=client)
+    out: dict[str, dict[str, Any]] = {}
+    for media_id in ids:
+        if media_id not in subjects:
+            out[media_id] = await verdict_detail(media_id, client=client)
+            continue
+        grant = grants.get(media_id)
+        rows = [artisans.get(a) for a in subjects[media_id]]
+        result = decide(grant, rows)
+        answered = grant is not None or any(rows)
+        if result == ALLOW and (grant or {}).get("state") == ledger.GRANTED:
+            out[media_id] = {"verdict": ALLOW, "source": (grant or {}).get("source") or SOURCE_OWNER}
+        else:
+            out[media_id] = {"verdict": result, "source": SOURCE_RESEARCHER if answered else None}
+    return out
+
+
 class DocumentationConsentGate:
     """The transcription package's ``ConsentGate`` for this portal."""
 

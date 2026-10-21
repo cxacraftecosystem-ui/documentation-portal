@@ -76,6 +76,27 @@ async def move_rows(tx: Any, keep_id: str, merge_id: str) -> dict[str, int]:
     return counts
 
 
+async def merge_and_delete(keep_id: str, merge_id: str, *, client: Any = None, merge_record_id: str | None = None,
+                           done_data: dict[str, Any] | None = None) -> Any:
+    """The v2 rows move, the merged artisan is deleted and the merge is marked done, in ONE
+    transaction (DESIGN 3.8; audit M24). Returns the updated ``ArtisanMerge`` row (or None)."""
+    from app.core.db import db
+
+    owner = client or db
+    if not callable(getattr(type(owner), "query_raw", None)):
+        # The artisan-merge suite's in-memory stand-in has no SQL and no transactions.
+        await owner.artisan.delete(where={"id": merge_id})
+        if merge_record_id and done_data is not None:
+            return await owner.artisanmerge.update(where={"id": merge_record_id}, data=done_data)
+        return None
+    async with owner.tx(max_wait=TX_MAX_WAIT, timeout=TX_TIMEOUT) as tx:
+        await move_rows(tx, keep_id, merge_id)
+        await tx.artisan.delete(where={"id": merge_id})
+        if merge_record_id and done_data is not None:
+            return await tx.artisanmerge.update(where={"id": merge_record_id}, data=done_data)
+    return None
+
+
 async def merge_artisan_rows(keep_id: str, merge_id: str, *, client: Any = None) -> dict[str, int]:
     from app.core.db import db
 

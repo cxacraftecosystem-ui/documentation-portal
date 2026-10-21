@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.db import db
 from app.core.deps import get_current_user, get_value, is_admin
-from app.services import recording_consent
+from app.services import recording_consent, transcription_enqueue
 from app.services.access import record_edit_privilege
 
 router = APIRouter(tags=["recording-consent"])
@@ -65,6 +65,9 @@ async def set_artisan_recording_consent(
     row = await recording_consent.record(
         decision=body.decision, actor_id=get_value(current_user, "id"), artisan_id=artisan_id, note=body.note
     )
+    if body.decision == "GRANTED":
+        # What consent held back goes out again, by the same rule as /artisans/{id}/consent (audit M7).
+        await transcription_enqueue.requeue_held(artisan_id=artisan_id, requested_by_id=get_value(current_user, "id"))
     return recording_consent.payload(row, body.decision)
 
 
@@ -94,4 +97,6 @@ async def set_media_recording_consent(
     row = await recording_consent.record(
         decision=body.decision, actor_id=get_value(current_user, "id"), media_id=media_id, note=body.note
     )
+    if body.decision == "GRANTED":
+        await transcription_enqueue.requeue_held(media_id=media_id, requested_by_id=get_value(current_user, "id"))
     return recording_consent.payload(row, body.decision)

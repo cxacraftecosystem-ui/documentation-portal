@@ -183,6 +183,10 @@ class PendingFilters:
 def pending_where(record_type: str, filters: PendingFilters) -> dict[str, Any]:
     """The Prisma filter for one record type's slice of the queue."""
     where: dict[str, Any] = {"status": "PENDING"}
+    if record_type == "questionnaire" and v2_shims.enabled():
+        # An APPROVED session that received new takes or answer revisions is back in the queue until
+        # it is approved again (DESIGN 3.10; audit M13). It stays APPROVED meanwhile.
+        where = {"OR": [{"status": "PENDING"}, {"status": "APPROVED", "pendingChangesAt": {"not": None}}]}
     if filters.roles is not None:
         where["createdBy"] = {"is": {"role": {"in": filters.roles}}}
     if filters.created_by:
@@ -716,6 +720,8 @@ async def set_review_status(
     if v2_session and new_status == "APPROVED":
         # DESIGN 3.10: 0 participants, no content, or a take waiting for a decision -> 409 with the reason.
         await v2_review.assert_may_approve(db, record_id)
+        # Approving again reviews what arrived after the first approval (audit M13).
+        data["pendingChangesAt"] = None
     media_approved = 0
     async with db.tx(max_wait=REVIEW_TX_MAX_WAIT, timeout=REVIEW_TX_TIMEOUT) as tx:
         tx_delegate, _log_type, _relation = delegate_for(record_type, tx)

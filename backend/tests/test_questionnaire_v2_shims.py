@@ -62,20 +62,36 @@ def test_the_title_is_never_used_to_place_a_clip() -> None:
 
 
 def test_an_old_build_after_the_cutoff_gets_a_transient_503_never_a_new_code(monkeypatch) -> None:
+    """Audit C7: the cutoff compares the build NUMBER (X-App-Version-Code), per platform. The version
+    name was reset to 0.0.1, so a name compare would refuse the new build or let every old one in."""
     from app.core.config import get_settings
     from app.services.questionnaire_v2 import shims
 
-    monkeypatch.setattr(get_settings(), "questionnaire_min_app_version_for_create", "0.0.14", raising=False)
+    monkeypatch.setattr(get_settings(), "questionnaire_min_android_version_code_for_create", 30, raising=False)
+    monkeypatch.setattr(get_settings(), "questionnaire_min_web_version_code_for_create", None, raising=False)
+    android = {"x-app-platform": "android", "x-app-version": "0.0.1"}
     with pytest.raises(HTTPException) as old:
-        shims.assert_old_build_may_create("0.0.13")
+        shims.assert_old_build_may_create({**android, "x-app-version-code": "29"})
     assert old.value.status_code == 503 and old.value.headers["Retry-After"] == "86400"
-    shims.assert_old_build_may_create("0.0.14")
-    # The web client (cookie, no header) is never refused.
-    shims.assert_old_build_may_create(None)
-    # A pre-v2 app build sends no X-App-Version at all: a bearer request without one is below any minimum.
+    # The reset name "0.0.1" with a newer number is the NEW build: never refused, whatever its name.
+    shims.assert_old_build_may_create({**android, "x-app-version-code": "30"})
+    shims.assert_old_build_may_create({**android, "x-app-version-code": "31"})
+    # A build from before the header contract sends no code: below any Android minimum.
     with pytest.raises(HTTPException) as headerless:
-        shims.assert_old_build_may_create(None, bearer=True)
+        shims.assert_old_build_may_create({"x-app-version": "0.0.14"})
     assert headerless.value.status_code == 503
+    with pytest.raises(HTTPException):
+        shims.assert_old_build_may_create({})
+    # The web is its own platform: the Android minimum never refuses it, with or without a code.
+    shims.assert_old_build_may_create({"x-app-version": "web-0.1.0"})
+    shims.assert_old_build_may_create({"x-app-platform": "web", "x-app-version-code": "3"})
+    monkeypatch.setattr(get_settings(), "questionnaire_min_web_version_code_for_create", 5, raising=False)
+    with pytest.raises(HTTPException):
+        shims.assert_old_build_may_create({"x-app-platform": "web", "x-app-version-code": "3"})
+    shims.assert_old_build_may_create({"x-app-platform": "web"})  # the page ships with the server
+    assert shims.client_build({"x-app-version": "web-0.1.0"}) == ("web", None, "web-0.1.0")
+    assert shims.client_build({"x-app-platform": "ANDROID", "x-app-version-code": "12"}) == ("android", 12, None)
+    assert shims.client_build({"x-app-version-code": "-1"}) == ("android", None, None)
 
 
 @needs_db

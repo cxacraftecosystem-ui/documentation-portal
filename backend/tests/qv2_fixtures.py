@@ -76,7 +76,8 @@ def no_outside_calls(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             if hasattr(module, name):
                 monkeypatch.setattr(module, name, refuse_async)
     stored: dict[str, bytes] = {}
-    calls: dict[str, list] = {"presign": [], "multipart": [], "deleted": []}
+    calls: dict[str, list] = {"presign": [], "multipart": [], "deleted": [], "aborted": []}
+    missing: set[str] = set()
 
     def presign(key: str, mime: str, checksum: str | None, expires_in: int = 900) -> str:
         calls["presign"].append((key, checksum))
@@ -94,7 +95,10 @@ def no_outside_calls(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(s3, "stream_sha256", lambda key: (hashlib.sha256(stored.get(key, key.encode())).hexdigest(), len(stored.get(key, b""))))
     monkeypatch.setattr(s3, "get_object_bytes", lambda key: refuse())
     monkeypatch.setattr(s3, "delete_object", lambda key: calls["deleted"].append(key))
-    return {"stored": stored, "calls": calls}
+    # /complete checks the object is there (audit Low); a test lists the keys that are NOT.
+    monkeypatch.setattr(s3, "object_exists", lambda key: key not in missing)
+    monkeypatch.setattr(s3, "abort_multipart_upload", lambda key, upload_id: calls["aborted"].append((key, upload_id)))
+    return {"stored": stored, "calls": calls, "missing": missing}
 
 
 def user(role: str, uid: str, name: str | None = None) -> SimpleNamespace:

@@ -69,9 +69,10 @@ async def artisan_record(artisan_id: str, user: Any, *, questionnaire_id: str | 
         primaries = await coverage.primaries(db, artisan_id, takes)
         current = {str(a["questionLineageId"]): a for a in await answers_service.answers_for(db, artisan_ids=[artisan_id], questionnaire_id=qid)}
         questions = await db.query_raw(
-            'SELECT q."id", q."lineageId", q."displayCode", q."prompt", q."sectionId", q."retiredAt", q."supersededById", '
-            's."code" AS scode, s."sortOrder" AS ssort FROM "QuestionnaireQuestion" q LEFT JOIN "QuestionnaireSection" s ON s."id" = q."sectionId" '
-            'WHERE q."questionnaireId" = $1 ORDER BY s."sortOrder", q."displayCode"',
+            'SELECT q."id", q."lineageId", q."displayCode", q."prompt", q."sectionId", q."retiredAt", q."supersededById", q."isActive", '
+            'q."createdAt", s."code" AS scode, s."sortOrder" AS ssort, s."isActive" AS "sectionActive" FROM "QuestionnaireQuestion" q '
+            'LEFT JOIN "QuestionnaireSection" s ON s."id" = q."sectionId" '
+            'WHERE q."questionnaireId" = $1 ORDER BY s."sortOrder", q."displayCode", q."createdAt"',
             qid,
         )
         takes_by_key = defaultdict(list)
@@ -80,12 +81,18 @@ async def artisan_record(artisan_id: str, user: Any, *, questionnaire_id: str | 
         doc: dict[str, list] = defaultdict(list)
         retired = []
         section_order: list[str] = []
+        # ONE entry per lineage (audit M17): a reworded question is listed once, under the wording asked
+        # now; a question the builder deleted (isActive off) or whose section was deleted is not live
+        # and is listed under "retired" only when it holds takes or an answer.
+        lineages: dict[str, list[dict[str, Any]]] = {}
         for q in questions:
-            if str(q["id"]) != str(q.get("lineageId") or q["id"]) and not (q.get("retiredAt") is None and q.get("supersededById") is None):
-                continue  # an older wording of a lineage that is listed once, under its live row
-            key = coverage.question_key(str(q.get("lineageId") or q["id"]))
+            lineages.setdefault(str(q.get("lineageId") or q["id"]), []).append(q)
+        for lineage, wordings in lineages.items():
+            asked_now = [w for w in wordings if _is_live(w)]
+            q = asked_now[0] if asked_now else max(wordings, key=lambda w: str(w.get("createdAt") or ""))
+            key = coverage.question_key(lineage)
             qtakes = takes_by_key.get(key, [])
-            answer = current.get(str(q.get("lineageId") or q["id"]))
+            answer = current.get(lineage)
             primary = primaries.get(key)
             entry = {
                 "displayCode": q.get("displayCode"),
@@ -95,8 +102,7 @@ async def artisan_record(artisan_id: str, user: Any, *, questionnaire_id: str | 
                 "accountsDiffer": False,
                 "recordedUnderEarlierWording": any(t.get("askedQuestionId") and str(t["askedQuestionId"]) != str(q["id"]) for t in qtakes),
             }
-            live = q.get("retiredAt") is None and q.get("supersededById") is None
-            if not live:
+            if not asked_now:
                 if qtakes or answer:
                     retired.append({**entry, "prompt": q.get("prompt")})
                 continue
@@ -116,6 +122,11 @@ async def artisan_record(artisan_id: str, user: Any, *, questionnaire_id: str | 
             "retired": retired,
         })
     return {"artisanId": artisan_id, "instruments": out}
+
+
+def _is_live(q: dict[str, Any]) -> bool:
+    return (q.get("retiredAt") is None and q.get("supersededById") is None and q.get("isActive") is not False
+            and q.get("sectionActive") is not False)
 
 
 async def artisan_record_csv(artisan_id: str, user: Any, *, questionnaire_id: str | None = None, client: Any = None) -> tuple[str, str]:

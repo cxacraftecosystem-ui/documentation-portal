@@ -220,10 +220,13 @@ async def _record_consent_refusal(media: Any, verdict: Any) -> None:
     media_id = str(_value(media, "id") or "")
     if not media_id or str(_value(media, "transcriptText") or "").strip():
         return
+    # A refusal is REFUSED_CONSENT, the status a later GRANTED answer looks for to send it again
+    # (audit M7); FAILED is kept for a consent store that could not be read, which retries itself.
+    held = "REFUSED_CONSENT" if getattr(verdict, "decision", None) == "REFUSED" else FAILED
     try:
         await db.mediafile.update(
             where={"id": media_id},
-            data={"transcriptStatus": FAILED, "transcriptError": verdict.refusal},
+            data={"transcriptStatus": held, "transcriptError": verdict.refusal},
         )
     except Exception as exc:  # noqa: BLE001 - the refusal held; this is only the note
         logger.warning("could not note the consent refusal on media %s (%s)", media_id, type(exc).__name__)

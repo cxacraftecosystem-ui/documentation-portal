@@ -35,10 +35,14 @@ def test_patch_decide_replace_remove_restore_are_logged_and_never_refuse_on_cove
         with pytest.raises(HTTPException) as outside:
             await recordings.patch(take["id"], RecordingPatch(version=moved["version"], targets=[{"sectionId": "nope"}]), ids.lead, client=client)
         assert outside.value.detail["code"] == "TARGET_OUTSIDE_INSTRUMENT"
+        # A replace removes a take, and only a content admin removes one (owner, 21 Oct; audit H1): the
+        # researcher's replace keeps both and the new take is the redo.
         two = await record_take(client, ids, s["id"], ids.lead, targets=[{"questionLineageId": ids.questions["D2"]}], at=t(0.2),
                                 replacesRecordingId=take["id"], ackedRecordingIds=[take["id"]])
-        replaced = await recordings.recording_payload(client, take["id"])
-        assert replaced["removedAt"] is not None and two["filing"] == "FILED"
+        kept = await recordings.recording_payload(client, take["id"])
+        assert kept["removedAt"] is None and two["filing"] == "FILED"
+        assert two["subjects"][0]["repeatReason"] == "REDO"
+        await recordings.remove(take["id"], ids.admin, client=client)
         await recordings.restore(take["id"], ids.lead, client=client)
         three = await record_take(client, ids, s["id"], ids.other, targets=[{"questionLineageId": ids.questions["D2"]}], at=t(0.4))
         assert three["filing"] == "NEEDS_DECISION"

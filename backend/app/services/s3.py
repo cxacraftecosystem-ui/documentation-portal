@@ -376,15 +376,29 @@ def presign_put_url_checksum(object_key: str, mime_type: str, checksum_b64: str 
     return _client().generate_presigned_url(ClientMethod="put_object", Params=params, ExpiresIn=expires_in, HttpMethod="PUT")
 
 
+class NoSuchUpload(Exception):
+    """The multipart upload was aborted or expired: S3 no longer knows its id (audit H8)."""
+
+
 def list_uploaded_parts(object_key: str, upload_id: str) -> list[dict[str, Any]]:
-    """The parts S3 already holds for an open multipart upload, so a client resumes after a restart."""
+    """The parts S3 already holds for an open multipart upload, so a client resumes after a restart.
+
+    Raises :class:`NoSuchUpload` when S3 has dropped the upload, so the caller can start a new one on
+    the same key instead of answering 500 for ever."""
+    from botocore.exceptions import ClientError
+
     parts: list[dict[str, Any]] = []
     marker = 0
     client = _client()
     while True:
-        response = client.list_parts(
-            Bucket=get_settings().aws_s3_bucket, Key=object_key, UploadId=upload_id, PartNumberMarker=marker
-        )
+        try:
+            response = client.list_parts(
+                Bucket=get_settings().aws_s3_bucket, Key=object_key, UploadId=upload_id, PartNumberMarker=marker
+            )
+        except ClientError as exc:
+            if str(exc.response.get("Error", {}).get("Code")) in ("NoSuchUpload", "404"):
+                raise NoSuchUpload(upload_id) from exc
+            raise
         parts.extend({"partNumber": int(p["PartNumber"]), "etag": str(p["ETag"])} for p in response.get("Parts", []))
         if not response.get("IsTruncated"):
             return parts

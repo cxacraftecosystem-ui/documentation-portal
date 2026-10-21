@@ -69,7 +69,11 @@ async def questionnaire_config(_: Any = Depends(get_current_user)) -> dict[str, 
         "partSizeBytes": PART_SIZE,
         "snapshotPollSeconds": 60,
         "joinCodeLength": 6,
-        "minAppVersionForCreate": settings.questionnaire_min_app_version_for_create,
+        # The version NAME was reset to 0.0.1 (21 Oct 2026), so a name minimum can no longer be
+        # compared (audit C7): always null; clients compare their build number with the two below.
+        "minAppVersionForCreate": None,
+        "minAndroidVersionCodeForCreate": settings.questionnaire_min_android_version_code_for_create,
+        "minWebVersionCodeForCreate": settings.questionnaire_min_web_version_code_for_create,
     }
 
 
@@ -193,12 +197,36 @@ async def sessions_merge(session_id: str, target_id: str, user: Any = Depends(ge
 
 
 @router.get("/sessions/{session_id}/insights", dependencies=V2)
-async def sessions_insights(session_id: str, _: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """Batched summaries. ``{"items": []}`` until f-summaries-doc lands; the route and shape are frozen."""
+async def sessions_insights(session_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """The summaries of the session's live takes, one item per take that has a transcript (audit
+    M27): ``{"recordingId", "mediaId", "state", "stale", "canEdit", "canRegenerate", "error",
+    "insight"}``, the per-clip view of ``GET /api/media/{id}/insights`` without the translation
+    text. ``{"items": []}`` while the insights switch is off."""
+    from app.api.routes.transcript_insights import may_edit
     from app.core.db import db
+    from app.services import transcript_insights
 
     await sessions.require_session(db, session_id)
-    return {"items": []}
+    if not transcript_insights.enabled():
+        return {"items": []}
+    rows = await recordings.recording_rows(db, session_id=session_id)
+    by_media = {str(r["mediaFileId"]): str(r["id"]) for r in rows}
+    if not by_media:
+        return {"items": []}
+    media_rows = await db.mediafile.find_many(where={"id": {"in": list(by_media)}})
+    current = await transcript_insights.current_insights(list(by_media))
+    jobs = await transcript_insights.latest_jobs(list(by_media))
+    items = []
+    for media in media_rows:
+        view = transcript_insights.build_view(
+            media, current.get(str(media.id)), jobs.get(str(media.id)), may_edit=may_edit(user, media), include_translation=False,
+        )
+        if view["state"] == "NO_TRANSCRIPT":
+            continue
+        items.append({"recordingId": by_media[str(media.id)], **view})
+    order = {rid: i for i, rid in enumerate(str(r["id"]) for r in rows)}
+    items.sort(key=lambda item: order.get(item["recordingId"], 0))
+    return {"items": items}
 
 
 # ── coverage ───────────────────────────────────────────────────────────────────────────────────
@@ -244,6 +272,27 @@ async def recordings_restore(recording_id: str, user: Any = Depends(get_current_
 async def recordings_decide(recording_id: str, request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
     payload = await parse(request, S.DecideRequest)
     return await recordings.decide(recording_id, payload, user)
+
+
+@router.get("/recordings/removed", dependencies=V2)
+async def recordings_removed(sessionId: str | None = None, artisanId: str | None = None,
+                             user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Removed takes of one session or one artisan, newest first ("Show removed"; audit M12)."""
+    return await recordings.removed_takes(user, session_id=sessionId, artisan_id=artisanId)
+
+
+@router.post("/recordings/{recording_id}/file", dependencies=V2)
+async def recordings_file(recording_id: str, request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """"File it" for a take waiting for a place (audit H14): targets, optionally subjects and session."""
+    payload = await parse(request, S.FileRecordingRequest)
+    return await recordings.file_recording(recording_id, payload, user)
+
+
+@router.post("/media/{media_id}/file", dependencies=V2)
+async def media_file(media_id: str, request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """"File it" for an inbox "To file" clip with no recording yet (audit H14)."""
+    payload = await parse(request, S.FileMediaRequest)
+    return await recordings.file_media(media_id, payload, user)
 
 
 @router.post("/recordings/{recording_id}/make-primary", dependencies=V2)
@@ -350,14 +399,8 @@ async def artisan_consent_post(artisan_id: str, request: Request, user: Any = De
         note=payload.note, evidence_media_id=payload.evidenceMediaId, client=db,
     )
     if payload.state == "GRANTED" and payload.purpose == "EXTERNAL_PROCESSING":
-        waiting = await db.query_raw(
-            'SELECT DISTINCT m."id" FROM "MediaFile" m JOIN "QuestionnaireRecording" r ON r."mediaFileId" = m."id" '
-            'JOIN "QuestionnaireRecordingSubject" s ON s."recordingId" = r."id" WHERE s."artisanId" = $1 '
-            "AND m.\"transcriptStatus\" IN ('AWAITING_CONSENT', 'REFUSED_CONSENT') AND m.\"removedAt\" IS NULL",
-            artisan_id,
-        )
-        for row in waiting:
-            await transcription.enqueue(str(row["id"]), "consent recorded", requested_by_id=user.id, client=db)
+        # Every recording of theirs that consent held back, by every link the gate reads (audit M7).
+        await transcription.requeue_held(artisan_id=artisan_id, requested_by_id=user.id, client=db)
     return await artisan_consent_get(artisan_id, payload.purpose, user)
 
 

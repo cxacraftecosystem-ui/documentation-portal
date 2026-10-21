@@ -162,7 +162,8 @@ class QuestionnaireResponseInput(APIModel):
 
 class QuestionnaireInterviewCreate(APIModel):
     # OPTIONAL SINCE B8 (2026-10-17): left out or blank, the server names the sitting
-    # "<artisan> · <questionnaire> · <17 Oct>" (``routes/questionnaire.automatic_interview_title``).
+    # with the NAMING default, e.g. "Interview_2026-10-17_Ramesh"
+    # (``routes/questionnaire.automatic_interview_title``).
     # Every older client still sends one and keeps its own.
     title: str | None = Field(default=None, max_length=220)
     interviewDate: datetime | None = None
