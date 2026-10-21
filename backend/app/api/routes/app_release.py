@@ -32,31 +32,6 @@ router = APIRouter(prefix="/app", tags=["app"])
 APK_MEDIA_TYPE = "application/vnd.android.package-archive"
 
 
-def _derive_version_code(version_name: str) -> int | None:
-    """MAJOR.MINOR.PATCH -> the integer ``android/app/build.gradle.kts`` derives from it.
-
-    The scheme there is ``major * 1_000_000 + minor * 1_000 + patch``, with minor and patch each
-    capped at 100 so the thousand-wide buckets never collide. It has to be reproduced here because
-    the version code is what every device compares, and a publisher that computes it differently
-    publishes a release that either reaches nobody (too low) or blocks every later one (too high).
-    Returns ``None`` for anything that is not three plain numbers, leaving the caller's value alone
-    rather than inventing one for a version name this scheme does not describe.
-    """
-    parts = version_name.strip().split(".")
-    if len(parts) != 3:
-        return None
-    numbers: list[int] = []
-    for part in parts:
-        if not part.isdigit():
-            return None
-        value = int(part)
-        if value > 999:
-            return None
-        numbers.append(value)
-    major, minor, patch = numbers
-    return major * 1_000_000 + minor * 1_000 + patch
-
-
 async def _latest_release() -> Any | None:
     """THE published release — the single definition of "latest" this API has.
 
@@ -104,11 +79,10 @@ async def publish_release(
     storage (via /media/presign) by the publishing device; this stores the version metadata so other
     devices can discover and self-install it.
 
-    The version code is re-derived from the version name here rather than trusted as sent. Two
-    publishers exist — the phone's "Push update to all" and the browser's upload panel — and a
-    version code each computes for itself is a second definition of the same number waiting to
-    disagree with the build's. Deriving it once, server-side, makes the version NAME the thing a
-    publisher chooses and the code a consequence of it.
+    The version code is stored AS SENT (2026-10-21). It used to be re-derived from the version name,
+    but the name restarted at 0.0.1 while the code must keep rising (Android will not install a
+    lower code over an installed app), so the code is set in android/app/build.gradle.kts and every
+    publisher sends it. The publishers refuse a code at or below the published one.
 
     The download URL is critical: other devices only show the forced-update prompt when the release
     carries a non-blank URL. So if the client didn't send one, derive it from the object key here — a
@@ -117,7 +91,7 @@ async def publish_release(
     url = payload.url or public_url_for_key(payload.objectKey)
     created = await db.apprelease.create(
         data={
-            "versionCode": _derive_version_code(payload.versionName) or payload.versionCode,
+            "versionCode": payload.versionCode,
             "versionName": payload.versionName,
             "objectKey": payload.objectKey,
             "url": url,

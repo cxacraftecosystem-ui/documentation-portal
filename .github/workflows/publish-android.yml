@@ -353,29 +353,17 @@ jobs:
       - name: GUARD 1 — the tag must name the version this tree builds
         id: version
         # ─── THE FAILURE THIS CLOSES ───────────────────────────────────────────────────────────
-        # Tagging v1.1.21 over a tree whose `appVersionName` is still "1.1.20" builds 1.1.20 and
-        # publishes it under the name 1.1.21. The website then offers "1.1.21", the release row says
-        # 1.1.21, and every handset that installs it reports 1.1.20 — because the version is COMPILED
-        # IN, and nothing downstream can correct it. Worse, the derived versionCode is then 1,001,020
-        # and not 1,001,021, which is the number every device compares and which is ALREADY PUBLISHED.
-        # So the comparison happens BEFORE the build, not after it.
+        # Tagging v0.0.2 over a tree whose `appVersionName` is still "0.0.1" publishes a build that
+        # reports 0.0.1 under the name 0.0.2, and the version is compiled in. So the tag is checked
+        # against the tree BEFORE the build, and a mismatch is fatal.
         #
-        # ─── WHY THE VERSION IS READ, NOT PASSED IN ────────────────────────────────────────────
-        # android/app/build.gradle.kts holds the single source of truth:
-        #     val appVersionName = "1.1.20"
-        # and DERIVES versionCode as major*1_000_000 + minor*1_000 + patch. There is no way to
-        # override either from outside — no Gradle property, no env var — so the tag cannot change
-        # what is built. It can only agree or disagree with it, and disagreement has to be fatal.
-        #
-        # ─── THE versionCode ARITHMETIC IS REPRODUCED IN THREE PLACES, ON PURPOSE ──────────────
-        # Here, in android/app/build.gradle.kts, and server-side in
-        # backend/app/api/routes/app_release.py (`_derive_version_code`), which RE-DERIVES it from the
-        # version name and overrides whatever the client sent. This step therefore validates the name
-        # against the SERVER's rules (three parts, `str.isdigit()` on each, each <= 999) rather than
-        # against the looser thing bash would accept: outside them the server returns None and keeps
-        # the client's number instead, and the two definitions of the number every device compares
-        # diverge silently. `10#` forces base 10 — without it bash reads a zero-padded part like `010`
-        # as octal and quietly means eight.
+        # ─── NAME AND CODE ARE TWO LINES IN android/app/build.gradle.kts ───────────────────────
+        #     val appVersionName = "0.0.1"
+        #     val appVersionCode = 22
+        # The name is what people read; the code is what devices compare, and it only ever goes up.
+        # Since the 2026-10-21 reset the code is NOT derived from the name (0.0.1 would be code 1,
+        # below every installed copy). This step reads both; the server stores the code as sent;
+        # GUARD 4 refuses a code at or below the published one.
         run: |
           set -euo pipefail
           gradle_file="app/build.gradle.kts"
@@ -386,7 +374,7 @@ jobs:
           declarations="$(grep -c '^val appVersionName = "' "$gradle_file" || true)"
           if [ "$declarations" != "1" ]; then
             echo "::error::Expected exactly one 'val appVersionName = \"…\"' line in android/${gradle_file}; found ${declarations}."
-            echo "::error::That line is the only source of both the version name and the derived versionCode. Fix this parse to match the file — do not guess the version."
+            echo "::error::That line is the only source of the version name. Fix this parse to match the file — do not guess the version."
             exit 1
           fi
           tree_version="$(sed -n 's/^val appVersionName = "\([^"]*\)".*/\1/p' "$gradle_file")"
@@ -406,7 +394,7 @@ jobs:
             esac
             if [ "$tag_version" != "$tree_version" ]; then
               echo "::error::Tag ${RELEASE_TAG} means version ${tag_version}, but android/${gradle_file} builds ${tree_version}. Refusing to build."
-              echo "::error::The version is COMPILED IN and cannot be corrected downstream: publishing this would put '${tag_version}' on the website over an APK that reports '${tree_version}', with a versionCode derived from ${tree_version} — which is the number devices compare, and which may already be published."
+              echo "::error::The version is COMPILED IN and cannot be corrected downstream: publishing this would put '${tag_version}' on the website over an APK that reports '${tree_version}'."
               echo "::error::Fix by bumping 'val appVersionName' to ${tag_version} and re-tagging that commit (the tag must point at the bump, not at its parent)."
               exit 1
             fi
@@ -415,27 +403,21 @@ jobs:
             echo "::notice::No tag on this run (dry run from ${{ github.ref_type }} '${GITHUB_REF_NAME}'), so GUARD 1's comparison did not run. Version taken from the tree: ${tree_version}."
           fi
 
-          # Validate against the SERVER's rules, then derive.
-          IFS='.' read -r major minor patch extra <<< "$tree_version"
-          if [ -n "${extra:-}" ] || [ -z "${major:-}" ] || [ -z "${minor:-}" ] || [ -z "${patch:-}" ]; then
-            echo "::error::Version '${tree_version}' is not three dot-separated parts. backend/app/api/routes/app_release.py:_derive_version_code returns None for anything else, and the server then TRUSTS the client's version code instead of deriving it — two definitions of the number every device compares."
+          # THE CODE IS READ, NOT DERIVED (2026-10-21). The name restarted at 0.0.1 while the code keeps
+          # counting up, so the code is its own line in build.gradle.kts and the server stores it as sent.
+          code_lines="$(grep -c '^val appVersionCode = ' "$gradle_file" || true)"
+          if [ "$code_lines" != "1" ]; then
+            echo "::error::Expected exactly one 'val appVersionCode = N' line in android/${gradle_file}; found ${code_lines}."
             exit 1
           fi
-          for part in "$major" "$minor" "$patch"; do
-            case "$part" in
-              ''|*[!0-9]*)
-                echo "::error::Version part '${part}' in '${tree_version}' is not a plain number. The server requires str.isdigit() on all three parts."
-                exit 1
-                ;;
-            esac
-            if [ "$((10#$part))" -gt 999 ]; then
-              echo "::error::Version part '${part}' exceeds 999, which the server rejects outright (the 1,000-wide buckets in the versionCode formula would collide). The documented scheme runs each part 0→100 before rolling the next one forward."
-              exit 1
-            fi
-          done
-          version_code=$(( (10#$major) * 1000000 + (10#$minor) * 1000 + (10#$patch) ))
+          version_code="$(sed -n 's/^val appVersionCode = \([0-9][0-9]*\)[[:space:]]*$/\1/p' "$gradle_file")"
+          if [ -z "$version_code" ] || [ "$((10#$version_code))" -lt 1 ]; then
+            echo "::error::'val appVersionCode' in android/${gradle_file} is not a positive whole number."
+            exit 1
+          fi
+          version_code=$((10#$version_code))
 
-          echo "Derived versionCode: ${version_code} (major*1000000 + minor*1000 + patch)"
+          echo "versionCode from android/${gradle_file}: ${version_code}"
           {
             echo "VERSION_NAME=${tree_version}"
             echo "VERSION_CODE=${version_code}"
@@ -1142,15 +1124,8 @@ jobs:
         # android/app/src/main/java/com/fieldrepository/app/MainActivity.kt offers an update only when
         # `latest.versionCode > installedVersionCode` AND the release carries a non-blank url.
         #
-        # THIS IS NOT A THEORETICAL CEILING TODAY. `GET /api/app/download` already answers a redirect,
-        # because v1.1.20 is published — versionCode 1,001,020, read out of the live APK with
-        # `aapt2 dump badging`. A release cut from the tree as it stands would derive the SAME code and
-        # be refused here, correctly. The first release through this pipeline has to bump
-        # `val appVersionName` in android/app/build.gradle.kts first; docs/RELEASING.md says so.
-        #
-        # The devices compare the CODE, not the name, which is why this compares codes: 1.2.0
-        # (1,002,000) beats 1.1.99 (1,001,099) but 1.1.9 (1,001,009) does not, and no amount of reading
-        # the version names tells you that.
+        # The devices compare the CODE, not the name, which is why this compares codes. Since the
+        # 2026-10-21 reset the name restarted at 0.0.1 and the code kept counting up.
         #
         # ─── WHY AN EMPTY BODY IS FINE ─────────────────────────────────────────────────────────
         # `GET /api/app/release/latest` returns `{}` — a 200 with an empty object — when nothing has
@@ -1259,9 +1234,9 @@ jobs:
             if [ "$VERSION_CODE" -eq "$published" ]; then
               echo "::error::Version ${VERSION_NAME} is ALREADY published at this exact code (${published}). Re-publishing the same code is refused outright here: a handset already on ${published} would never be offered it (the updater compares codes), so the only outcome is two different artefacts in the field claiming to be the same build."
             fi
-            echo "::error::Version ${VERSION_NAME} derives versionCode ${VERSION_CODE}, which is NOT ABOVE the published ${published} (${published_name}). Refusing to publish."
+            echo "::error::Version ${VERSION_NAME} has versionCode ${VERSION_CODE}, which is NOT ABOVE the published ${published} (${published_name}). Refusing to publish."
             echo "::error::This is the quiet failure: the API would ACCEPT this release and return 201, this run would go green, and not one device would ever be offered it — 'latest' is the highest versionCode, and that would still be ${published}."
-            echo "::error::Bump 'val appVersionName' in android/app/build.gradle.kts above ${published_name} and tag THAT commit. Remember devices compare the CODE: major*1000000 + minor*1000 + patch."
+            echo "::error::Raise 'val appVersionCode' in android/app/build.gradle.kts above ${published} (and bump 'val appVersionName'), then tag that commit. Devices compare the CODE."
             echo "::error::If you MEANT to go backwards — restarting the numbering — put [version-reset] in the annotated tag's message. Read what it costs in the comment on this step first: every handset uninstalls, and this release is not 'latest' until the higher AppRelease rows are gone."
             exit 1
           fi
@@ -1561,7 +1536,7 @@ jobs:
           server_name="$(jq -r '.versionName // empty' "$out")"
           echo "Server recorded: ${server_name} (code ${server_code})."
           if [ "$server_code" != "$VERSION_CODE" ] || [ "$server_name" != "$VERSION_NAME" ]; then
-            echo "::error::The server stored ${server_name}/${server_code} but this run built ${VERSION_NAME}/${VERSION_CODE}. The server re-derives the version code from the name (_derive_version_code), so a disagreement means the two derivations have drifted apart."
+            echo "::error::The server stored ${server_name}/${server_code} but this run built ${VERSION_NAME}/${VERSION_CODE}. The server stores the version code as sent, so a disagreement means the publish body and the build drifted apart."
             echo "::error::A release row is now live carrying a version this run did not build. Read it at GET /api/app/release/latest and decide deliberately; do not just re-run."
             exit 1
           fi

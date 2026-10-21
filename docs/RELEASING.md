@@ -94,14 +94,14 @@ reach a phone, and that stays true.
 
 ### Before you start
 
-- The version you are about to publish must derive a `versionCode` **strictly above** the published
-  one. Devices compare codes, not names. The formula, in `android/app/build.gradle.kts` and again
-  server-side in `_derive_version_code`, is `major * 1_000_000 + minor * 1_000 + patch`.
-- The numbering restarted at 0.0.1 on 2026-09-14, on the owner's instruction, past GUARD 4 with
-  `[version-reset]` in the tag (§3, GUARD 4); 0.0.1's run failed, so 0.0.2 was the first published.
-  On 2026-10-09 the published release was **0.0.8, code `8`**, and this tree builds 0.0.9 since its
-  cut. **Stay on the 0.0.x line, one patch at a time.** Tagging a tree that still builds the published
-  version would rebuild it, and GUARD 4 would refuse it, correctly.
+- The `versionCode` you are about to publish must be **strictly above** the published one. Devices
+  compare codes, not names. Since 2026-10-21 the code is its own line in
+  `android/app/build.gradle.kts` (`val appVersionCode = N`), no longer derived from the name, and the
+  server stores it as sent.
+- On 2026-10-21 the owner reset the NAME to 0.0.1 and every earlier tag, GitHub release, stored APK
+  and release row was deleted. The CODE was not reset: 0.0.1 shipped as code `22`, above the 21 that
+  phones already had, so installed apps update in place. Never lower the code: Android will not
+  install a lower code over an installed app, and the in-app update check compares codes.
 - `.github/workflows/publish-android.yml` must already be **on `main`**. A `push: tags:` workflow
   runs the file *as of the tagged commit*, unlike the `workflow_run` stages, which are read from the
   default branch. Tag a commit that does not contain this file and nothing happens at all — no run,
@@ -114,13 +114,14 @@ reach a phone, and that stays true.
 
 ### The five steps
 
-1. **Bump the version.** One line in `android/app/build.gradle.kts`:
+1. **Bump the version.** Two lines in `android/app/build.gradle.kts`:
 
    ```kotlin
-   val appVersionName = "0.0.10"
+   val appVersionName = "0.0.2"
+   val appVersionCode = 23
    ```
 
-   The `versionCode` is derived from it. There is nothing else to change.
+   The name goes up one patch; the code goes up by one. There is nothing else to change.
 
 2. **Merge that to `main`.** The tag must point at the commit that carries the bump, not at its
    parent.
@@ -230,13 +231,11 @@ full argument at the step. Summarised here so the set can be read in one place.
 Tagging `v0.0.10` over a tree whose `appVersionName` is still `0.0.9` builds 0.0.9 and publishes it
 under the name 0.0.10. The website then offers "0.0.10", the release row says 0.0.10, and every
 handset that installs it reports 0.0.9 — because **the version is compiled in** and nothing
-downstream can correct it. The derived `versionCode` would also be the already-published `9`,
-which GUARD 4 would then refuse for a reason that looks unrelated.
+downstream can correct it.
 
 It runs *before* the build, so a mistyped tag costs seconds rather than a full Gradle run. It also
-validates the version against the **server's** rules — three dot-separated parts, digits only, each
-at most 999 — because outside them `_derive_version_code` returns `None` and the server keeps the
-client's number instead, leaving two definitions of the one number every device compares.
+reads `val appVersionCode` (exactly one line, a positive whole number), which GUARD 4 then compares
+with the published code.
 
 ### GUARD 2 — the signer must be the expected key, and there must *be* one
 

@@ -58,19 +58,17 @@ val localProperties = Properties().apply {
     }
 }
 
-// Single source of truth for the app version. Scheme is MAJOR.MINOR.PATCH where PATCH runs 0→100,
-// then MINOR rolls forward (…1.1.100 → 1.2.0…) all the way to 1.100.0 before MAJOR turns over to
-// 2.0.0. versionCode is DERIVED from the name so it always increases monotonically with the version
-// — that is exactly what the over-the-air updater compares (a higher published versionCode triggers
-// the in-app update). To cut a release, bump `appVersionName` only; the code follows automatically.
-val appVersionName = "0.0.21"
-val appVersionCode = appVersionName.split(".").let { parts ->
-    val major = parts.getOrNull(0)?.toIntOrNull() ?: 0
-    val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
-    val patch = parts.getOrNull(2)?.toIntOrNull() ?: 0
-    // minor and patch are each capped at 100 by the scheme, so the 1_000-wide buckets never collide.
-    major * 1_000_000 + minor * 1_000 + patch
-}
+// The app version: a NAME people read and a CODE devices compare. Both are set here, by hand.
+//
+// RESET ON 2026-10-21 (owner): the name restarted at 0.0.1 and every earlier tag, release and build
+// was deleted. The CODE did NOT restart, and must never go down: Android refuses to install a lower
+// versionCode over an installed app, and the in-app update check offers a release only when its code
+// is ABOVE the installed one. So the code is no longer derived from the name; it simply counts up.
+//
+// To cut a release: bump `appVersionName` AND add 1 to `appVersionCode`. publish-android.yml reads
+// both lines, checks the tag against the name and refuses a code at or below the published one.
+val appVersionName = "0.0.1"
+val appVersionCode = 22
 
 val releaseKeystorePath = signingProperty(localProperties, "releaseKeystore", "ANDROID_RELEASE_KEYSTORE")
 val releaseKeystorePassword = signingProperty(localProperties, "releaseKeystorePassword", "ANDROID_RELEASE_KEYSTORE_PASSWORD")
