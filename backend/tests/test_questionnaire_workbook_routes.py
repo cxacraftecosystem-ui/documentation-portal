@@ -129,6 +129,18 @@ class _Db:
     def __init__(self, **delegates: _Delegate) -> None:
         self._delegates = delegates
 
+    def tx(self, **_: Any) -> Any:
+        fake = self
+
+        class _Block:
+            async def __aenter__(self) -> Any:
+                return fake
+
+            async def __aexit__(self, *_exc: Any) -> bool:
+                return False
+
+        return _Block()
+
     def __getattr__(self, name: str) -> Any:
         try:
             return self._delegates[name]
@@ -157,6 +169,11 @@ def stub_db(monkeypatch: pytest.MonkeyPatch) -> _Db:
         questionnairesectionstatus=_Delegate(),
         assignedtask=_Delegate(),
         workshop=_Delegate(),
+        questionnairerecordingtarget=_Delegate(),
+        questionnaireanswer=_Delegate(),
+        questionnaireanswerrevision=_Delegate(),
+        questionnairetakedraft=_Delegate(),
+        questionnaireanswerdraft=_Delegate(),
     )
     real_db = core_db.db
     monkeypatch.setattr(core_db, "db", db)

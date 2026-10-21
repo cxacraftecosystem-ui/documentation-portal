@@ -2504,7 +2504,7 @@ def _clip_help(
     return text[: MAX_HELP_CHARS - 1] + "…"
 
 
-async def _answer_evidence(question_ids: list[str]) -> tuple[set[str], set[str]]:
+async def _answer_evidence(questions: list[Any], client: Any = None) -> tuple[set[str], set[str]]:
     """``(answered, has_any_response_row)`` for these questions — TWO SETS, AND THEY ARE NOT THE SAME.
 
     ``answered`` is what the edit-after-answers rule turns on: a question with real recorded content
@@ -2528,14 +2528,34 @@ async def _answer_evidence(question_ids: list[str]) -> tuple[set[str], set[str]]
     admin to know what state their instrument is in. A question in this set and not in ``answered``
     is deactivated instead of deleted, and the report says so.
     """
+    client = client or db
+    question_ids = [str(get_value(q, "id")) for q in questions]
     if not question_ids:
         return set(), set()
-    rows = await db.questionnaireresponse.find_many(where={"questionId": {"in": question_ids}})
+    lineage_of = {str(get_value(q, "id")): str(get_value(q, "lineageId") or get_value(q, "id")) for q in questions}
+    lineages = sorted(set(lineage_of.values()))
+    # NOT ONLY TYPED ANSWERS (audit H7). A recording filed to a question, a v2 answer or revision, and
+    # a draft are evidence too: a question with only takes counted as unanswered, so it was reworded
+    # in place under them, and if it was missing from the sheet it was hard-deleted until a RESTRICT
+    # key stopped the loop half way. Removed takes count: they stay restorable.
+    # One after another, not gathered: ``client`` is the re-upload's transaction.
+    rows = await client.questionnaireresponse.find_many(where={"questionId": {"in": question_ids}})
+    targets = await client.questionnairerecordingtarget.find_many(
+        where={"OR": [{"askedQuestionId": {"in": question_ids}}, {"questionLineageId": {"in": lineages}}]}
+    )
+    answers = await client.questionnaireanswer.find_many(where={"questionLineageId": {"in": lineages}})
+    revisions = await client.questionnaireanswerrevision.find_many(where={"askedQuestionId": {"in": question_ids}})
+    take_drafts = await client.questionnairetakedraft.find_many(where={"questionLineageId": {"in": lineages}})
+    drafts = await client.questionnaireanswerdraft.find_many(where={"questionId": {"in": question_ids}})
     answered = {
         row.questionId
         for row in rows
         if (row.answerText or "").strip() or (row.notes or "").strip()
     }
+    asked = {str(get_value(r, "askedQuestionId")) for r in [*targets, *revisions] if get_value(r, "askedQuestionId")}
+    asked |= {str(get_value(r, "questionId")) for r in drafts}
+    held = {str(get_value(r, "questionLineageId")) for r in [*targets, *answers, *take_drafts] if get_value(r, "questionLineageId")}
+    answered |= {qid for qid in question_ids if qid in asked or lineage_of[qid] in held}
     return answered, {row.questionId for row in rows}
 
 
@@ -2740,7 +2760,26 @@ def _match_question(
     return by_prompt.get((section.id, parsed_question.prompt.strip().lower()))
 
 
+# The whole re-upload is one transaction (audit H7): every section and question write, or none.
+WORKBOOK_TX_MAX_WAIT = timedelta(seconds=15)
+WORKBOOK_TX_TIMEOUT = timedelta(seconds=120)
+
+
 async def apply_parsed_edit(
+    questionnaire_id: str,
+    parsed: ParsedQuestionnaire,
+    *,
+    title: str | None = None,
+    description: str | None = None,
+) -> dict[str, Any]:
+    """:func:`apply_parsed_edit_in` inside ONE transaction (audit H7). A refusal part way (a RESTRICT
+    key, a unique) used to leave the instrument half-applied behind a 500; now nothing is written."""
+    async with db.tx(max_wait=WORKBOOK_TX_MAX_WAIT, timeout=WORKBOOK_TX_TIMEOUT) as tx:
+        return await apply_parsed_edit_in(tx, questionnaire_id, parsed, title=title, description=description)
+
+
+async def apply_parsed_edit_in(
+    client: Any,
     questionnaire_id: str,
     parsed: ParsedQuestionnaire,
     *,
@@ -2779,7 +2818,7 @@ async def apply_parsed_edit(
     rather than a 500 out of Prisma, and so that it happens before any row is written rather than
     half way through.
     """
-    existing = await db.questionnaire.find_unique(where={"id": questionnaire_id})
+    existing = await client.questionnaire.find_unique(where={"id": questionnaire_id})
     if existing is None:
         raise QuestionnaireWorkbookError("That questionnaire no longer exists.")
     # READ ONCE, INTO AN INT, AND NEVER READ OFF `existing` AGAIN. The last thing this function does
@@ -2790,7 +2829,7 @@ async def apply_parsed_edit(
     # inflated number there makes every client believe it is stale on every upload.
     version_before = existing.version
 
-    sections = await db.questionnairesection.find_many(
+    sections = await client.questionnairesection.find_many(
         where={"questionnaireId": questionnaire_id},
         order=[{"sortOrder": "asc"}, {"createdAt": "asc"}],
     )
@@ -2810,7 +2849,7 @@ async def apply_parsed_edit(
     # orphaning, and neither `update_question` nor `reorder_questions` can write a NULL (the schema
     # has no way to send one and `clean_data` strips it). This read is therefore about rows that
     # PREDATE that change, and about the next change that reintroduces a way to make one.
-    all_questions = await db.questionnairequestion.find_many(
+    all_questions = await client.questionnairequestion.find_many(
         where={"questionnaireId": questionnaire_id},
         # ORDERED, and not for tidiness. `by_prompt` below keeps the FIRST question it sees for a
         # given wording, so an unordered read would resolve a duplicate prompt differently on
@@ -2822,7 +2861,7 @@ async def apply_parsed_edit(
     questions = [q for q in all_questions if q.sectionId in section_ids]
     orphans = [q for q in all_questions if not q.sectionId]
 
-    answered, has_response_row = await _answer_evidence([q.id for q in all_questions])
+    answered, has_response_row = await _answer_evidence(all_questions, client)
 
     report = _empty_workbook_report(version_before)
     report["problems"] = [p.payload() for p in parsed.problems]
@@ -2889,7 +2928,7 @@ async def apply_parsed_edit(
     # pass so the admin sees a failure caused by an upload they made a month earlier. The guard is
     # gone below as well: a touched section always has its sortOrder written.
     for position, section in enumerate(sections, start=1):
-        await db.questionnairesection.update(
+        await client.questionnairesection.update(
             where={"id": section.id}, data={"sortOrder": -position}
         )
         section.sortOrder = -position
@@ -2899,7 +2938,7 @@ async def apply_parsed_edit(
         section = section_by_code.get(code.lower()) if code else None
         if section is None:
             new_code = _unique_code(code, parsed_section.title, codes_taken)
-            section = await db.questionnairesection.create(
+            section = await client.questionnairesection.create(
                 data={
                     "questionnaireId": questionnaire_id,
                     "code": new_code,
@@ -2910,7 +2949,7 @@ async def apply_parsed_edit(
             section_by_code[new_code.lower()] = section
             report["sectionsCreated"] += 1
         else:
-            section = await _apply_workbook_section(section, parsed_section, index)
+            section = await _apply_workbook_section(section, parsed_section, index, client)
         touched_sections.add(section.id)
 
         for position, parsed_question in enumerate(parsed_section.questions, start=1):
@@ -2922,7 +2961,7 @@ async def apply_parsed_edit(
             )
             match = _match_question(parsed_question, section, by_id, by_prompt, problems, parsed)
             if match is None:
-                await db.questionnairequestion.create(
+                await client.questionnairequestion.create(
                     data={
                         **workbook_question_data(section),
                         "prompt": parsed_question.prompt,
@@ -2982,7 +3021,7 @@ async def apply_parsed_edit(
             if reworded and match.id in answered:
                 # RULE 3. The recorded answers keep the wording they were given under; the new
                 # wording becomes a new question in the same place.
-                replacement = await db.questionnairequestion.create(
+                replacement = await client.questionnairequestion.create(
                     data={
                         **workbook_question_data(section),
                         "prompt": parsed_question.prompt,
@@ -2991,7 +3030,7 @@ async def apply_parsed_edit(
                         "sortOrder": position,
                     }
                 )
-                await db.questionnairequestion.update(
+                await client.questionnairequestion.update(
                     where={"id": match.id},
                     data={
                         "isActive": False,
@@ -3029,7 +3068,7 @@ async def apply_parsed_edit(
             if match.sectionId != section.id:
                 data.update(workbook_question_data(section))
             if data:
-                await db.questionnairequestion.update(where={"id": match.id}, data=data)
+                await client.questionnairequestion.update(where={"id": match.id}, data=data)
                 report["updated"] += 1
             else:
                 report["unchanged"] += 1
@@ -3043,6 +3082,7 @@ async def apply_parsed_edit(
         touched_sections,
         len(kept_sections) + 1,
         report,
+        client,
     )
 
     _note_skipped_answers(parsed, report)
@@ -3058,19 +3098,13 @@ async def apply_parsed_edit(
         updates["description"] = parsed.description
     if version_bumps:
         updates["version"] = version_before + version_bumps
-    if updates:
-        try:
-            await db.questionnaire.update(where={"id": questionnaire_id}, data=updates)
-        except UniqueViolationError:
-            # @@unique([title]). BY THIS LINE THE STRUCTURE IS ALREADY APPLIED — every section, every
-            # question, every supersede — so raising here would answer 500 on an upload that
-            # SUCCEEDED, and the admin would re-upload a file that has already been applied. The
-            # title is the only field that can collide, so it is dropped, the rest is retried, and
-            # the report says the title was left alone. A failure that is loud about the wrong half
-            # of the work is worse than one sentence in the problem list.
-            rejected = updates.pop("title", None)
-            if rejected is None:
-                raise
+    if updates.get("title"):
+        # @@unique([title]), CHECKED BEFORE THE WRITE: inside the transaction a unique violation would
+        # abort every section and question write above it (audit H7), where it used to cost only the
+        # title. The title is dropped and the report says it was left alone.
+        clash = await client.questionnaire.find_many(where={"title": updates["title"]})
+        if any(get_value(row, "id") != questionnaire_id for row in clash):
+            rejected = updates.pop("title")
             problems.append(
                 {
                     "sheet": parsed.sheet,
@@ -3084,14 +3118,14 @@ async def apply_parsed_edit(
                     "value": str(rejected),
                 }
             )
-            if updates:
-                await db.questionnaire.update(where={"id": questionnaire_id}, data=updates)
+    if updates:
+        await client.questionnaire.update(where={"id": questionnaire_id}, data=updates)
     report["versionAfter"] = version_before + version_bumps
-    await cross_portal_codes.reconcile_question_codes(db, questionnaire_id=questionnaire_id)
+    await cross_portal_codes.reconcile_question_codes(client, questionnaire_id=questionnaire_id)
     return report
 
 
-async def _apply_workbook_section(section: Any, parsed_section: Any, index: int) -> Any:
+async def _apply_workbook_section(section: Any, parsed_section: Any, index: int, client: Any = None) -> Any:
     """Bring one existing section into line with its row in the workbook.
 
     A SECTION TITLE MAY CHANGE EVEN WHEN ANSWERED, because a heading is not the thing an answer
@@ -3103,6 +3137,7 @@ async def _apply_workbook_section(section: Any, parsed_section: Any, index: int)
     sections that did not move and strand them at a negative number for ever. See the block comment
     on the negation pass.
     """
+    client = client or db
     wanted_title = parsed_section.title or section.title
     # CAPTURED BEFORE THE WRITE. Reading `section.title` after the update to decide whether the
     # update renamed anything is a question asked of the answer: it is true only while the object in
@@ -3111,7 +3146,7 @@ async def _apply_workbook_section(section: Any, parsed_section: Any, index: int)
     # `update_many` below never runs. That failure is silent and its consequence is last year's
     # heading on every question in the consolidated export.
     renamed = section.title != wanted_title
-    updated = await db.questionnairesection.update(
+    updated = await client.questionnairesection.update(
         where={"id": section.id},
         data={"title": wanted_title, "sortOrder": index, "isActive": True},
     )
@@ -3120,7 +3155,7 @@ async def _apply_workbook_section(section: Any, parsed_section: Any, index: int)
         # the section, and a rename that updated only the section row leaves every question carrying
         # last year's heading in the consolidated export, in the dataset CSV and on the browse rows —
         # with nothing wrong in the database to find.
-        await db.questionnairequestion.update_many(
+        await client.questionnairequestion.update_many(
             where={"sectionId": section.id},
             data={"sectionCode": updated.code, "sectionTitle": updated.title},
         )
@@ -3136,6 +3171,7 @@ async def _remove_absent(
     touched_sections: set[str],
     next_section_order: int,
     report: dict[str, Any],
+    client: Any = None,
 ) -> int:
     """CLAUSES 4 AND 5: what happens to rows the admin took out of the spreadsheet.
 
@@ -3174,13 +3210,14 @@ async def _remove_absent(
     `QuestionnaireResponse.question` is Restrict and the delete would raise. Nothing at all -> gone,
     because a form littered with every question its author thought better of is not a form.
     """
+    client = client or db
     bumps = 0
     for question in questions:
         if question.id in touched_questions:
             continue
         if question.id in answered:
             if question.isActive:
-                await db.questionnairequestion.update(
+                await client.questionnairequestion.update(
                     where={"id": question.id},
                     data={"isActive": False, "retiredAt": _now()},
                 )
@@ -3208,21 +3245,21 @@ async def _remove_absent(
             # interview rows to clear the way is a write into somebody's fieldwork that a
             # spreadsheet import has no business making.
             if question.isActive:
-                await db.questionnairequestion.update(
+                await client.questionnairequestion.update(
                     where={"id": question.id}, data={"isActive": False}
                 )
                 report["removed"] += 1
             continue
-        await db.questionnairequestion.delete(where={"id": question.id})
+        await client.questionnairequestion.delete(where={"id": question.id})
         report["removed"] += 1
 
     order = next_section_order
     for section in sections:
         if section.id in touched_sections:
             continue
-        verdicts = await db.questionnairesectionstatus.count(where={"sectionId": section.id})
-        tasks = await db.assignedtask.count(where={"sectionIds": {"has": section.id}})
-        await db.questionnairesection.update(
+        verdicts = await client.questionnairesectionstatus.count(where={"sectionId": section.id})
+        tasks = await client.assignedtask.count(where={"sectionIds": {"has": section.id}})
+        await client.questionnairesection.update(
             where={"id": section.id},
             data={"isActive": False, "sortOrder": order},
         )
