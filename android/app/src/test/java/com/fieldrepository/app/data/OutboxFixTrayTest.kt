@@ -31,7 +31,7 @@ class OutboxFixTrayTest {
         QSessionCreate(clientKey = key, questionnaireId = "q", sessionDate = "2026-07-01", startedAt = t0.toString(), participants = listOf(QArtisanRef("a1"))), "u1"
     )
 
-    @Test fun `a refused take is a tray row: Send again resends it, Discard deletes it and its file`() = runBlocking {
+    @Test fun `a refused take is a tray row - Send again resends it, Discard deletes it and its file`() = runBlocking {
         val outbox = SessionOutbox(InMemorySessionUnitStore(), clock = { t0 })
         session(outbox, "c-1")
         val clip = testClip(tmp.newFolder(), "k1", 100, "2026-07-01T10:01:00Z", listOf("a1"))

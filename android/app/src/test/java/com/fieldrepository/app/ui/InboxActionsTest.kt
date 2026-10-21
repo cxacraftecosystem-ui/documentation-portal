@@ -38,7 +38,7 @@ class InboxActionsTest {
         targets = listOf(QTarget(targetKey = target)), subjects = listOf(QSubject(who))
     )
 
-    @Test fun `Keep one names the other take: the server's, else the nearest live take on the same target and artisan`() {
+    @Test fun `Keep one names the other take - the server's, else the nearest live take on the same target and artisan`() {
         val takes = listOf(
             take("r1", "2026-07-07T10:42:00Z"),
             take("r2", "2026-07-07T10:44:00Z"),

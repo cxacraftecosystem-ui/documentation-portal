@@ -57,7 +57,7 @@ class TypedAnswersTest {
         assertEquals(listOf(3, null), group.map { it.baseVersion })
     }
 
-    @Test fun `the question shows the answer: this phone's queued one first, then the server's with its badge`() = runBlocking {
+    @Test fun `the question shows the answer - this phone's queued one first, then the server's with its badge`() = runBlocking {
         val outbox = SessionOutbox(InMemorySessionUnitStore(), clock = { t0 })
         outbox.startSession(QSessionCreate(clientKey = "c", questionnaireId = "q", sessionDate = "2026-07-01", startedAt = t0.toString(), participants = listOf(QArtisanRef("a1"))), "u1")
         outbox.addAnswers("c", QAnswersPut(listOf(QAnswerItem("a1", "lin1", "Queued text", sessionId = "c"))))

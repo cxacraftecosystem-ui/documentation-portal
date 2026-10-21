@@ -50,7 +50,7 @@ class SyncPassResilienceTest {
         assertTrue(OutboxSyncWorker.resultFor(2, QuestionnaireSync.Outcome(0, v2Ran = true, v2Remaining = 0)) is ListenableWorker.Result.Retry)
     }
 
-    @Test fun `a brief focus loss pauses the take and focus back resumes it; only a permanent loss ends it`() {
+    @Test fun `a brief focus loss pauses the take and focus back resumes it, only a permanent loss ends it`() {
         assertEquals(RecordingService.FocusAction.PAUSE, RecordingService.focusAction(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT, pausedForFocus = false))
         assertEquals(RecordingService.FocusAction.RESUME, RecordingService.focusAction(AudioManager.AUDIOFOCUS_GAIN, pausedForFocus = true))
         assertEquals(RecordingService.FocusAction.NONE, RecordingService.focusAction(AudioManager.AUDIOFOCUS_GAIN, pausedForFocus = false))
