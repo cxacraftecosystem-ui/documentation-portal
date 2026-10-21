@@ -51,7 +51,7 @@ import { expect, test } from "@playwright/test";
  *     while the list was empty. This is the web half of the rule `MainActivity.kt` already keeps.
  *  7. **"the form remounts per record"** — there was no `key` on the form, so the uncontrolled half
  *     (notes, status, location, capture rows) would have kept the previous occupant's values.
- *  8. **"the browse table offers Edit"** — the row's only action was Delete, behind `adminMode`.
+ *  8. **"the browse table offers Edit"** — the row's only action was Delete, then behind `adminMode`.
  *  9. **"the data browser carries the id"** — the `editHref` above.
  * 10. **"the shared-entry banner is not shown against the record being edited"** — the lookup keys
  *     on the artisan set and instrument, which an open edit normally still has both of, so the panel
@@ -186,8 +186,9 @@ test("the browse table offers Update, and it is the same ?edit= navigation as ev
   // Through `recordUpdateHref`, whose questionnaire arm is `/questionnaire?edit=<id>` — pinned in
   // `record-view-unit.spec.ts`. The row itself opens the interview's read-only view.
   expect(CODE).toMatch(/href=\{recordUpdateHref\("questionnaire", interview\.id\)!\}/);
-  // Delete stays behind adminMode; Update does not, because the server decides who may write.
-  expect(CODE).toMatch(/\{adminMode \? \(\s*<button className=\{rowAction\("danger"\)\}/);
+  // Delete is the content admins' (canDeleteRecords, admin view or not); Update is not gated, because
+  // the server decides who may write.
+  expect(CODE).toMatch(/\{canDeleteRecords \? \(\s*<button className=\{rowAction\("danger"\)\}/);
 });
 
 test("the data browser carries the interview id instead of dropping it", () => {

@@ -260,8 +260,11 @@ grant and cancelling one's own staged upload are neither, and are unchanged.
 | Craft codes mapping, unmapped records, duplicates and merges, completion override, place-name aliases | content admins | content admins |
 | Tasks | content admins create; the creator edits | content admins, any task |
 
-Clients: Delete controls read admin view (`adminMode` on the web, the handset's
-`LocalContentAdminChrome`), which only a content admin can turn on.
+Clients: Delete controls — list rows, a record page's closing "Danger zone" card, files, comments,
+sessions, takes, questionnaire sections and questions — are drawn for the content admins WHETHER OR
+NOT admin view is on (owner, 2026-10-21): `canDeleteRecords` on the web, `mayDelete` /
+`LocalMayDelete` on the handset. No other role is ever offered one. Admin view still governs
+everything else it did (the unmapped-crafts panel, the completion override, admin chrome).
 `tests/test_permission_matrix.py` drives every content delete over every tier.
 
 ### 2.1 Create, edit, delete — as a decision tree

@@ -28,8 +28,8 @@ export function CollabPanel({ recordType, recordId }: { recordType: string; reco
   const [saving, setSaving] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const { user } = useAuth();
-  // Deleting is the content admins' alone, in admin view (owner's ruling, 2026-10-20).
-  const { adminMode } = useAdminView();
+  // Deleting is the content admins' alone, admin view or not (owner, 2026-10-21).
+  const { canDeleteRecords } = useAdminView();
   const confirm = useConfirm();
 
   const load = useCallback(async () => {
@@ -87,7 +87,7 @@ export function CollabPanel({ recordType, recordId }: { recordType: string; reco
     }
   }
 
-  /** `DELETE /data-access/comments/{id}` — content admins only, so drawn only in admin view. */
+  /** `DELETE /data-access/comments/{id}` — content admins only, so drawn for them alone, admin view or not. */
   async function removeComment(comment: EntryComment) {
     const ok = await confirm(deleteConfirm("Delete this comment?", comment.body, "This cannot be undone."));
     if (!ok) return;
@@ -150,7 +150,7 @@ export function CollabPanel({ recordType, recordId }: { recordType: string; reco
                     Edit
                   </button>
                 ) : null}
-                {user && adminMode ? (
+                {user && canDeleteRecords ? (
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 text-error-600 underline underline-offset-2 disabled:no-underline disabled:opacity-60"

@@ -385,7 +385,7 @@ fun SessionWorkspace(
     }
     p5?.let { body -> AlreadyUploadedPrompt(body) { p5 = null } }
     takeSheet?.let { (sid, artisanId) ->
-        val mayRemoveTakes = com.fieldrepository.app.ui.LocalContentAdminChrome.current
+        val mayRemoveTakes = com.fieldrepository.app.ui.LocalMayDelete.current
         val section = instrument?.section(sid)
         val keys = setOf("S:$sid") + section?.questions?.map { "Q:${it.lineageId}" }.orEmpty()
         val rows = known.filter { it.targetKey in keys && (artisanId == null || it.artisanId == artisanId) && it.role == SubjectRole.ANSWERED.wire }

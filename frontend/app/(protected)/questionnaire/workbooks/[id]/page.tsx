@@ -43,8 +43,9 @@ export default function QuestionnaireInstrumentPage() {
   const { adminMode } = useAdminView();
   const permitted = isAdmin(user) && adminChromeVisible(user, adminMode);
   const mayUpdate = permitted && canManageQuestionnaire(user);
-  // Deleting an instrument retires it (soft); content admins in admin view (2026-10-20).
-  const mayDelete = permitted && adminMode && isContentAdmin(user);
+  // Deleting an instrument retires it (soft); content admins, whether or not admin view is on
+  // (2026-10-21) — though an admin reaches this page in admin view only (`permitted`).
+  const mayDelete = permitted && isContentAdmin(user);
   const { toast } = useToast();
   const confirm = useConfirm();
   const router = useRouter();

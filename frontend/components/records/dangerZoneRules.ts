@@ -7,8 +7,8 @@ import type { User } from "@/lib/types";
  *
  * Byte-identical in designer-portal and documentation-portal, and the same words as both Android
  * apps' `ui/RecordDangerZone.kt`. Drawn for content admins (Admin, Master Admin, Ministry Admin —
- * `isContentAdmin`) with admin view on (`adminMode`), the gate every other Delete in the app reads,
- * and for nobody else; the server refuses everyone else regardless.
+ * `isContentAdmin`) WHETHER OR NOT admin view is on (owner, 2026-10-21), the gate every other Delete
+ * in the app reads, and for nobody else; the server refuses everyone else regardless.
  */
 export const DANGER_ZONE = {
   title: "Danger zone",
@@ -20,9 +20,9 @@ export const DANGER_ZONE = {
   failed: "Unable to delete (admin only)"
 } as const;
 
-/** Whether the card is drawn for this reader. */
-export function dangerZoneVisible(user: User | null | undefined, adminMode: boolean): boolean {
-  return adminMode && isContentAdmin(user);
+/** Whether the card is drawn for this reader. Admin view does not enter into it. */
+export function dangerZoneVisible(user: User | null | undefined): boolean {
+  return isContentAdmin(user);
 }
 
 /** Where a deleted record's page goes next: the list it came from. Keyed by both portals' kinds. */

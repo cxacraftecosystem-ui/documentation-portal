@@ -35,7 +35,7 @@ import { exportFilename } from "@/lib/naming";
 export default function ToolsPage() {
   const { user } = useAuth();
   const confirm = useConfirm();
-  const { adminMode } = useAdminView();
+  const { canDeleteRecords } = useAdminView();
   const [data, setData] = useState<PageResult<ToolDocumentation> | null>(null);
   const [query, setQuery] = useState("");
   const [applied, setApplied] = useState("");
@@ -273,7 +273,7 @@ export default function ToolsPage() {
                         <button className={rowAction("neutral")} onClick={() => setCollabId(tool.id)}>
                           Discuss
                         </button>
-                        {adminMode ? (
+                        {canDeleteRecords ? (
                           <button className={rowAction("danger")} onClick={() => remove(tool.id)}>
                             Delete
                           </button>

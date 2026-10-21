@@ -1,14 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * A content admin sees Delete in admin view (REQUIREMENTS_2026-10-20 §5.4), in a browser, against a
- * running stack. This portal has no Ministry Admin tier: its content admins are ADMIN and
- * MASTER_ADMIN, so E2E_EMAIL must be one of them.
+ * A content admin sees Delete WHETHER OR NOT admin view is on (owner, 2026-10-21), in a browser,
+ * against a running stack. The content admins are ADMIN, MASTER_ADMIN and MINISTRY_ADMIN, so
+ * E2E_EMAIL must be one of them.
  *
- * The control is the comment's Delete on a record page (`CollabPanel`, `user && adminMode`). The
- * spec posts a comment on the first artisan through the API, opens that artisan, and checks the
- * Delete is there with admin view on and gone with it off, then deletes the comment again. With
- * E2E_RESEARCHER_EMAIL set it also checks a researcher sees none.
+ * The controls are the comment's Delete on a record page (`CollabPanel`, `user && canDeleteRecords`)
+ * and the page's closing "Danger zone". The spec posts a comment on the first artisan through the
+ * API, opens that artisan, and checks both are there with admin view on AND with it off, then deletes
+ * the comment again. With E2E_RESEARCHER_EMAIL set it also checks a researcher sees neither.
  *
  *   E2E_EMAIL=… E2E_PASSWORD=… npx playwright test e2e/admin-comment-delete.spec.ts
  */
@@ -79,7 +79,7 @@ function commentRow(page: Page, body: string) {
   return page.locator("li").filter({ hasText: body }).first();
 }
 
-test("an admin in admin view sees Delete on a comment, and not with admin view off", async ({ page }) => {
+test("an admin sees Delete on a comment and the Danger zone, with admin view on or off", async ({ page }) => {
   let posted: Posted | undefined;
   try {
     posted = await commentedArtisan(page, Date.now());
@@ -88,17 +88,19 @@ test("an admin in admin view sees Delete on a comment, and not with admin view o
     await signIn(page, EMAIL, true);
     await page.goto(`/artisans/${id}`);
     await expect(commentRow(page, body).getByRole("button", { name: "Delete" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Danger zone" })).toBeVisible();
 
     await setAdminView(page, false);
     await page.goto(`/artisans/${id}`);
-    await expect(commentRow(page, body)).toBeVisible();
-    await expect(commentRow(page, body).getByRole("button", { name: "Delete" })).toHaveCount(0);
+    await expect(commentRow(page, body).getByRole("button", { name: "Delete" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Danger zone" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Delete this artisan" })).toBeVisible();
   } finally {
     await removeComment(page, posted);
   }
 });
 
-test("a researcher sees no Delete on the same comment", async ({ page }) => {
+test("a researcher sees no Delete on the same comment, and no Danger zone", async ({ page }) => {
   test.skip(!RESEARCHER_EMAIL, "Set E2E_RESEARCHER_EMAIL to check a researcher.");
   let posted: Posted | undefined;
   try {
@@ -108,6 +110,7 @@ test("a researcher sees no Delete on the same comment", async ({ page }) => {
     await page.goto(`/artisans/${id}`);
     await expect(commentRow(page, body)).toBeVisible();
     await expect(commentRow(page, body).getByRole("button", { name: "Delete" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Danger zone" })).toHaveCount(0);
   } finally {
     await removeComment(page, posted);
   }

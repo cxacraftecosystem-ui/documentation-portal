@@ -166,7 +166,7 @@ export default function WorkshopsPage() {
 function WorkshopsPageBody() {
   const confirm = useConfirm();
   const { user } = useAuth();
-  const { adminMode } = useAdminView();
+  const { canDeleteRecords } = useAdminView();
   const { addCompleted } = useUploads();
   const allowManage = canManageWorkshops(user);
   const allowAssign = isAdmin(user);
@@ -833,7 +833,7 @@ function WorkshopsPageBody() {
                             Assign
                           </button>
                         ) : null}
-                        {adminMode ? (
+                        {canDeleteRecords ? (
                           <button className={rowAction("danger")} onClick={() => remove(workshop.id)}>
                             Delete
                           </button>

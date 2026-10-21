@@ -554,7 +554,13 @@ private fun NavRow(
 
 /**
  * True only for a content admin ([FieldPermissions.isContentAdmin]) with admin view on — the handset's
- * `adminMode`. Every remove/delete control reads it, so a role outside the set is never offered a
- * delete the server refuses (owner's ruling, 2026-10-20).
+ * `adminMode` ([contentAdminChrome]). Admin-view chrome only: no delete reads it (owner, 2026-10-21).
  */
 val LocalContentAdminChrome = staticCompositionLocalOf { false }
+
+/**
+ * True for a content admin ([mayDelete]), WHETHER OR NOT admin view is on (owner, 2026-10-21). Every
+ * remove/delete control reads it, so a role outside the set is never offered a delete the server
+ * refuses, and a content admin is never made to switch admin view on to find one.
+ */
+val LocalMayDelete = staticCompositionLocalOf { false }

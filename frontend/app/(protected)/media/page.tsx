@@ -199,7 +199,7 @@ export default function MediaPage() {
  */
 function MediaPageBody() {
   const confirm = useConfirm();
-  const { adminMode } = useAdminView();
+  const { canDeleteRecords } = useAdminView();
   const { addCompleted } = useUploads();
   const [data, setData] = useState<PageResult<MediaFile> | null>(null);
   const [page, setPage] = useState(1);
@@ -595,7 +595,7 @@ function MediaPageBody() {
                     </td>
                     <td className="px-4 py-3 text-ink-700">{formatDateTime(item.createdAt)}</td>
                     <td className="px-4 py-3 text-right">
-                      {adminMode ? (
+                      {canDeleteRecords ? (
                         <RowActions>
                           <button className={rowAction("danger")} onClick={() => remove(item.id)}>
                             Delete
