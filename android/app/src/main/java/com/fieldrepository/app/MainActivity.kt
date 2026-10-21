@@ -2786,7 +2786,9 @@ private fun HomeScreen(
                 val v2Config by remember { QuestionnaireV2.get(v2Context) }.config.collectAsState()
                 var questionnaireBuilder by remember { mutableStateOf(false) }
                 val v2Prefill by QuestionnaireV2Nav.pending.collectAsState()
-                val entry = questionnaireEntry(v2Config?.v2Enabled == true, questionnaireBuilder, isQuestionnaireManager)
+                // A content admin may edit any form, so reaches the builder too (owner, 22 Oct 2026).
+                val canBuild = isQuestionnaireManager || canDelete
+                val entry = questionnaireEntry(v2Config?.v2Enabled == true, questionnaireBuilder, canBuild)
                 if (entry == QuestionnaireEntry.V2_BUILDER) {
                     // Audit H15 (21 Oct 2026): Builder used to reopen the whole legacy capture form
                     // inside v2, for everyone, with no way back. It is the builder alone, for
@@ -2794,6 +2796,7 @@ private fun HomeScreen(
                     BackHandler { questionnaireBuilder = false }
                     QuestionnaireV2Builder(
                         repository = repository,
+                        user = user,
                         onBack = { questionnaireBuilder = false },
                         onError = { showMessage(it) }
                     )
@@ -2803,7 +2806,7 @@ private fun HomeScreen(
                         artisans = artisans,
                         meId = user?.id,
                         prefillArtisanIds = listOfNotNull(v2Prefill),
-                        canBuild = isQuestionnaireManager,
+                        canBuild = canBuild,
                         canMakePrimary = roleRank(user?.role) >= RANK_PROFESSOR,
                         onOpenBuilder = { questionnaireBuilder = true },
                         onUpdateApp = { openAppDownloadPage(v2Context) },
@@ -15435,7 +15438,10 @@ private fun QuestionnaireForm(
             // triggers has to ask for that instrument back. Passing `onRefreshSections` bare would
             // re-read whatever the server resolves by default, and a manager who renamed a section
             // on the revised questionnaire would watch the original's sections appear underneath.
-            QuestionnaireBuilder(repository, sections, { onRefreshSections(questionnaireId) }, onError, questionnaireId)
+            QuestionnaireBuilder(
+                repository, sections, { onRefreshSections(questionnaireId) }, onError, questionnaireId,
+                canEdit = com.fieldrepository.app.ui.canEditQuestionnaire(repository.cachedUser(), instruments.firstOrNull { it.id == questionnaireId })
+            )
         }
     }
     // Available to every user, including least-privilege: pull the latest sections/questions
@@ -16646,7 +16652,7 @@ private fun QuestionnaireForm(
  * New sections join the questionnaire picked here, never the default (audit M23).
  */
 @Composable
-private fun QuestionnaireV2Builder(repository: FieldRepository, onBack: () -> Unit, onError: (String) -> Unit) {
+private fun QuestionnaireV2Builder(repository: FieldRepository, user: UserDto?, onBack: () -> Unit, onError: (String) -> Unit) {
     var instruments by remember { mutableStateOf<List<QuestionnaireDto>>(emptyList()) }
     var questionnaireId by remember { mutableStateOf<String?>(null) }
     var sections by remember { mutableStateOf<List<QuestionnaireSectionDto>>(emptyList()) }
@@ -16673,7 +16679,8 @@ private fun QuestionnaireV2Builder(repository: FieldRepository, onBack: () -> Un
         if (chosen != null) QuestionnaireBuilder(
             repository, sections,
             { runCatching { repository.questionnaireSections(chosen) }.onSuccess { sections = it } },
-            onError, chosen
+            onError, chosen,
+            canEdit = com.fieldrepository.app.ui.canEditQuestionnaire(user, instruments.firstOrNull { it.id == chosen })
         )
     }
 }
@@ -16685,7 +16692,12 @@ private fun QuestionnaireBuilder(
     onRefresh: suspend () -> Unit,
     onError: (String) -> Unit,
     /** The questionnaire new sections join; null keeps the old "server default" behaviour. */
-    questionnaireId: String? = null
+    questionnaireId: String? = null,
+    /**
+     * Whether this viewer may edit and delete the form and everything in it: its author or a content
+     * admin (owner, 22 Oct 2026; [canEditQuestionnaire]). Anyone else reads it.
+     */
+    canEdit: Boolean = true
 ) {
     val scope = rememberCoroutineScope()
     var newCode by remember { mutableStateOf("") }
@@ -16704,6 +16716,7 @@ private fun QuestionnaireBuilder(
         // from; a recogniser hands back "ay" for "A" and "bee" for "B". Same call at the
         // per-section "Code" box below. The sibling application agrees — `designer
         // MainActivity.kt:16763` carries the identical opt-out.
+        if (canEdit) {
         TextInput("New section code", newCode, dictate = false) { newCode = it }
         TextInput("New section title", newTitle) { newTitle = it }
         Button(
@@ -16720,6 +16733,7 @@ private fun QuestionnaireBuilder(
             enabled = newCode.isNotBlank() && newTitle.isNotBlank(),
             modifier = Modifier.fillMaxWidth()
         ) { Text("Add section") }
+        }
 
         sections.forEachIndexed { sectionIndex, section ->
             val expanded = expandedSections.contains(section.id)
@@ -16749,7 +16763,7 @@ private fun QuestionnaireBuilder(
                         section.questions.forEach { question ->
                             Text("${question.sortOrder}. ${question.prompt}", color = Body, style = MaterialTheme.typography.bodyMedium)
                         }
-                        OutlinedButton(
+                        if (canEdit) OutlinedButton(
                             onClick = { updatingSections = updatingSections + section.id },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                         ) {
@@ -16807,7 +16821,7 @@ private fun QuestionnaireBuilder(
                                 }
                             ) { Text("Down") }
                         }
-                        if (com.fieldrepository.app.ui.LocalMayDelete.current) OutlinedButton(
+                        if (canEdit) OutlinedButton(
                             onClick = {
                                 scope.launch {
                                     runCatching {
@@ -16899,7 +16913,7 @@ private fun QuestionnaireBuilder(
                                         },
                                     ) { Text("Next section") }
                                 }
-                                if (com.fieldrepository.app.ui.LocalMayDelete.current) OutlinedButton(
+                                if (canEdit) OutlinedButton(
                                     onClick = {
                                         scope.launch {
                                             runCatching {
