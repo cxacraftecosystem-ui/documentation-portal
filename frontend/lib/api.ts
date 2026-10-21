@@ -159,6 +159,18 @@ export { endSession, getSessionMarker } from "@/lib/session";
  */
 export const APP_VERSION = `web-${(process.env.NEXT_PUBLIC_APP_VERSION ?? "").trim() || "0.1.0"}`;
 
+/**
+ * The build NUMBER, sent as `X-App-Version-Code` with `X-App-Platform: web` (audit C7). Version names
+ * were reset to 0.0.1, so a cutoff that compared names could never stop an old build without nagging
+ * the new one; the server compares this rising number instead, per platform (web and Android keep
+ * separate minimums). It is the deploy run's `GITHUB_RUN_NUMBER`, baked in by `next.config.ts`. A
+ * build without one (a local dev server) sends no code, which the server never refuses on the web.
+ */
+export const APP_PLATFORM = "web";
+export const APP_VERSION_CODE: string | null = /^[1-9]\d{0,8}$/.test((process.env.NEXT_PUBLIC_BUILD_NUMBER ?? "").trim())
+  ? (process.env.NEXT_PUBLIC_BUILD_NUMBER ?? "").trim()
+  : null;
+
 let clockOffsetMs: number | null = null;
 let clockOffsetAt = 0;
 
@@ -206,6 +218,8 @@ export async function apiFetchWithHeaders<T>(
   const sentAt = Date.now();
   headers.set("X-Client-Time", new Date(sentAt).toISOString());
   headers.set("X-App-Version", APP_VERSION);
+  headers.set("X-App-Platform", APP_PLATFORM);
+  if (APP_VERSION_CODE) headers.set("X-App-Version-Code", APP_VERSION_CODE);
 
   const response = await fetch(`${API_BASE}/api${path}`, {
     ...init,

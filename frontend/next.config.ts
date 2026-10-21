@@ -96,6 +96,11 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // The web build number for `X-App-Version-Code` (lib/api.ts, audit C7): the deploy workflow's run
+  // number, which only rises. `vercel build` runs on the GitHub runner, so the variable is there.
+  env: {
+    NEXT_PUBLIC_BUILD_NUMBER: process.env.NEXT_PUBLIC_BUILD_NUMBER || process.env.GITHUB_RUN_NUMBER || ""
+  },
   experimental: {
     /*
       ONLY FOR A SELF-HOSTED SERVER (`next dev`, `next start`, the e2e stack) — Vercel never buffers
