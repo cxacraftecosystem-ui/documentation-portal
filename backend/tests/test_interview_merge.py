@@ -32,7 +32,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from access_roster_fakes import FakeTable, install
+from access_roster_fakes import FakeTable, PassThroughTx, install
 from app.api.router import api_router
 from app.core import deps
 
@@ -43,7 +43,7 @@ OWNER = "u-owner"
 STRANGER = "u-stranger"
 
 
-class _Db:
+class _Db(PassThroughTx):
     """`db`, auto-vivifying an empty table for anything asked of it.
 
     The same shape `tests/test_questionnaire_scope.py` uses and for the same reason: the interview

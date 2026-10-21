@@ -29,7 +29,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from access_roster_fakes import FakeTable, install
+from access_roster_fakes import FakeTable, PassThroughTx, install
 from app.api.router import api_router
 from app.api.routes import questionnaire
 from app.core import deps
@@ -84,7 +84,7 @@ class _Logged(FakeTable):
         return await super().count(where, **kwargs)
 
 
-class _Db:
+class _Db(PassThroughTx):
     """``db``, auto-vivifying an empty logged table for anything asked of it.
 
     The list handler hydrates six relations per page, and a strict fake would turn each of those

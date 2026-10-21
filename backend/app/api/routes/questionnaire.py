@@ -1,6 +1,6 @@
 import csv
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from io import StringIO
 from typing import Any
 
@@ -1137,6 +1137,44 @@ async def automatic_interview_title(
     return interview_title_from(name, get_value(instrument, "title") if instrument else None, when)
 
 
+# The create's transaction: a lock, a lookup, a row and its links. The slow box needs the headroom.
+CREATE_TX_MAX_WAIT = timedelta(seconds=15)
+CREATE_TX_TIMEOUT = timedelta(seconds=30)
+
+
+async def create_interview_atomically(
+    data: dict[str, Any], questionnaire_id: str, set_key: str | None, artisan_ids: list[str]
+) -> tuple[Any | None, Any | None]:
+    """``(created, None)``, or ``(None, winner)`` when this artisan set already has a sitting.
+
+    ONE TRANSACTION, UNDER A LOCK ON THE SET (audit M21). The old path created the row, then looked
+    for racers, then wrote the artisan links outside any transaction: two racing creates could each
+    see the other's bare row, the one that won hit the set-held guard while writing its links and
+    was left with none. Now the lookup, the row and its links happen together while holding
+    ``pg_advisory_xact_lock`` on (instrument, set), so the second racer waits, finds the first one's
+    finished row and folds into it.
+    """
+    unique_ids = sorted({aid for aid in artisan_ids if aid})
+    if unique_ids:
+        found = await db.artisan.find_many(where={"id": {"in": unique_ids}})
+        if len(found) != len(unique_ids):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
+    async with db.tx(max_wait=CREATE_TX_MAX_WAIT, timeout=CREATE_TX_TIMEOUT) as tx:
+        if set_key:
+            await lock_key(tx, f"legacy-set:{questionnaire_id}:{set_key}")
+            winner = await tx.questionnaireinterview.find_first(
+                where={"questionnaireId": questionnaire_id, "artisanSetKey": set_key, "mergedIntoId": None}
+            )
+            if winner is not None:
+                return None, winner
+        created = await tx.questionnaireinterview.create(data=data)
+        if unique_ids:
+            await tx.questionnaireinterviewartisan.create_many(
+                data=[{"interviewId": created.id, "artisanId": aid} for aid in unique_ids]
+            )
+    return created, None
+
+
 @questionnaire_router.post("/interviews", status_code=status.HTTP_201_CREATED)
 async def create_interview(
     payload: QuestionnaireInterviewCreate,
@@ -1237,31 +1275,17 @@ async def create_interview(
     # After the status policy, so a late submission outranks the submitter's own approval rights.
     pin_pending_if_late(data, current_user, check=check)
     try:
-        created = await db.questionnaireinterview.create(data=data)
-        if set_key:
-            # M1 dropped the (questionnaireId, artisanSetKey) unique, so a race that passed the
-            # look-ahead above is no longer refused by the database. Settle it here instead: every
-            # racer reads the same rows and agrees the earliest (createdAt, id) is canonical; a later
-            # racer deletes its bare row (no links or answers written yet) and folds into the winner.
-            same_set = await db.questionnaireinterview.find_many(
-                where={"questionnaireId": questionnaire_id, "artisanSetKey": set_key}
-            )
-            winner = min(same_set, key=lambda r: (str(getattr(r, "createdAt", "") or ""), str(r.id)), default=created)
-            if winner.id != created.id:
-                await db.questionnaireinterview.delete(where={"id": created.id})
-                return await merge_into_interview(winner, payload, current_user, check)
+        created, winner = await create_interview_atomically(data, questionnaire_id, set_key, payload.artisanIds)
     except UniqueViolationError:
-        # Race: a concurrent request won the create for this set ON THIS INSTRUMENT. Fold into the
-        # canonical row. Scoped the same way the look-ahead above is, or the recovery would find the
-        # other instrument's sitting and fold a 3rd-workshop submission into a 2nd-workshop one.
-        existing = await db.questionnaireinterview.find_first(
-            where={"questionnaireId": questionnaire_id, "artisanSetKey": set_key}
+        # A database that still carries the old (questionnaireId, artisanSetKey) unique refuses the
+        # loser of a race outright; fold it into the row that won, as before.
+        created, winner = None, await db.questionnaireinterview.find_first(
+            where={"questionnaireId": questionnaire_id, "artisanSetKey": set_key, "mergedIntoId": None}
         )
-        if existing is not None:
-            return await merge_into_interview(existing, payload, current_user, check)
-        raise
-    if payload.artisanIds:
-        await replace_interview_artisans(created.id, payload.artisanIds)
+        if winner is None:
+            raise
+    if winner is not None:
+        return await merge_into_interview(winner, payload, current_user, check)
     if payload.responses:
         await upsert_responses(created.id, payload.responses, current_user, questionnaire_id)
     # The row we just inserted IS the response; only its links and answers were written afterwards,
