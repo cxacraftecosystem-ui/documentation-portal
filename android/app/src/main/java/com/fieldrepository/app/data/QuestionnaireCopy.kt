@@ -360,6 +360,7 @@ object QuestionnaireCopy {
         "join.notFound" to "No session has that code.",
         "join.noQr" to "No join code found in that picture.",
         "join.onlineOnly" to "The code needs a signal. Scan the QR code to join offline.",
+        "join.rateLimited" to "Too many wrong codes. Wait a few minutes, or scan the QR code.",
         "battery.title" to "Keep recording in the background",
         // Transcript words and errors that were hard-coded in the screens (audit Low, 21 Oct 2026).
         "transcript.failed" to "Transcription failed",

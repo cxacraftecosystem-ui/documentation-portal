@@ -24,6 +24,9 @@ object ClientClock {
      * while codes keep rising, so the old-build cutoff and the P14 banner compare codes only.
      */
     const val APP_VERSION_CODE_HEADER = "X-App-Version-Code"
+    /** Which build the code belongs to: the server keeps one cutoff per platform. */
+    const val APP_PLATFORM_HEADER = "X-App-Platform"
+    const val PLATFORM = "android"
     private val FRESH_FOR: Duration = Duration.ofDays(7)
 
     data class Offset(val offsetMs: Long, val measuredAt: Instant)
@@ -44,6 +47,9 @@ object ClientClock {
 
     fun offsetMs(): Long = latest?.offsetMs ?: 0
 
+    /** When [offsetMs] was measured, sent with each take so the server can tell a stale offset (§3.9). */
+    fun measuredAt(): String? = latest?.measuredAt?.toString()
+
     /** `DEVICE` while the offset is fresh, `UPLOAD_TIME` once it is older than 7 days or never measured. */
     fun captureSource(now: Instant = Instant.now()): String {
         val offset = latest ?: return "DEVICE"
@@ -56,6 +62,7 @@ object ClientClock {
             .header(CLIENT_TIME_HEADER, sentAt.toString())
             .header(APP_VERSION_HEADER, appVersion)
             .header(APP_VERSION_CODE_HEADER, versionCode.toString())
+            .header(APP_PLATFORM_HEADER, PLATFORM)
             .build()
         val response = chain.proceed(request)
         if (!request.cacheControl.onlyIfCached) observe(sentAt, response.header("Date"))

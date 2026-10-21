@@ -304,7 +304,7 @@ fun SessionWorkspace(
             val draft = RecordingDraft(
                 clientClipKey = key, sessionKey = u.clientKey, questionnaireId = u.questionnaireId,
                 adtsPath = File(RecordingDrafts.dir(v2.filesDir), "$key.aac").absolutePath,
-                deviceCapturedAt = Instant.now().toString(), clockOffsetMs = ClientClock.offsetMs(),
+                deviceCapturedAt = Instant.now().toString(), clockOffsetMs = ClientClock.offsetMs(), clockOffsetMeasuredAt = ClientClock.measuredAt(),
                 capturedAtSource = ClientClock.captureSource(), targets = listOfNotNull(req.target), subjects = subjects,
                 label = req.label, continuationOfId = continuationOf, replacesRecordingId = replaces, ackedRecordingIds = acked
             )
@@ -493,8 +493,16 @@ fun SessionWorkspace(
                     startRecording(req, reasons, model.ackedRecordingIds)
                 }
                 P2Choice.PartTwo -> startRecording(req, emptyMap(), model.ackedRecordingIds, continuationOf = model.latestRecordingId)
-                // P7 first: replacing removes the earlier take once this one lands (audit M23: not wired).
-                P2Choice.Replace -> p7 = req to model
+                // P7 first when the earlier take will be removed (audit M23: not wired). Removing a take
+                // is a content admin's act: for anyone else the server keeps both and marks the new
+                // one as the redo, so there is nothing to confirm.
+                P2Choice.Replace -> {
+                    if (replaceRemovesEarlier(mayDelete)) {
+                        p7 = req to model
+                    } else {
+                        startRecording(req, roster.associate { it.artisanId to "REDO" }, model.ackedRecordingIds, replaces = model.latestRecordingId)
+                    }
+                }
                 P2Choice.DifferentQuestion -> differentFor = req
             }
         }

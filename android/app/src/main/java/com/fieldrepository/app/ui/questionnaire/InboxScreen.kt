@@ -76,6 +76,8 @@ internal data class InboxRow(
     val mediaId: String? = null,
     /** "Keep one…": the take this one competes with, when the server names it. */
     val otherRecordingId: String? = null,
+    /** Part 2: the take the server says this one continues. */
+    val part2OfRecordingId: String? = null,
     val sessionIds: List<String> = emptyList(),
     val candidates: List<LegacyCandidate> = emptyList(),
     val dateFrom: String? = null,
@@ -136,7 +138,9 @@ internal fun toFileRow(row: JsonObject): InboxRow {
 internal fun decisionRow(row: JsonObject) = InboxRow(
     InboxSection.NEEDS_DECISION, "needsDecision:${row.str("recordingId")}",
     line(row.strings("targets").joinToString(", ").ifBlank { null }, row.strings("artisanNames").joinToString(", ").ifBlank { null }, inboxDay(row.str("capturedAt"), withTime = true)),
-    row.str("sessionId"), row.str("recordingId"), otherRecordingId = row.str("otherRecordingId")
+    row.str("sessionId"), row.str("recordingId"),
+    otherRecordingId = row.str("otherRecordingId") ?: row.strings("otherRecordingIds").firstOrNull(),
+    part2OfRecordingId = row.str("part2OfRecordingId")
 )
 
 internal fun legacyRow(row: JsonObject) = InboxRow(
@@ -348,7 +352,8 @@ fun InboxScreen(
                         KeepOneChoice.THIS -> v2.api.decide(self.id, QDecideRequest(DecideAction.KEEP_THIS.wire, other.id))
                         KeepOneChoice.OTHER -> v2.api.decide(other.id, QDecideRequest(DecideAction.KEEP_THIS.wire, self.id))
                         KeepOneChoice.PART_TWO -> {
-                            val (continuation, parent) = partTwoOrder(self, other)
+                            // The server's word first: this take continues the one it names.
+                            val (continuation, parent) = row.part2OfRecordingId?.let { self.id to it } ?: partTwoOrder(self, other)
                             v2.api.decide(continuation, QDecideRequest(DecideAction.CONTINUATION.wire, parent))
                         }
                     }

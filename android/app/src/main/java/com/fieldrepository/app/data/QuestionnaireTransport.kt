@@ -42,11 +42,13 @@ class QuestionnaireTransport(
         block()
     } catch (http: HttpException) {
         val code = http.code()
+        val detail = if (code in 400..499) runCatching {
+            http.response()?.errorBody()?.string()?.let { ApiClient.json.decodeFromString(QErrorBody.serializer(), it).detail }
+        }.getOrNull() else null
+        // `/complete` found no bytes in storage: upload again, never drop the take.
+        if (detail != null && detail.reason == UploadMissing.REASON) throw UploadMissing(detail.message.ifBlank { "The upload is missing from storage." })
         if (code == 404 && v2SwitchedOff()) throw IOException("Questionnaire v2 is switched off on the server", http)
         if (code in 400..499 && code != 408 && code != 429) {
-            val detail = runCatching {
-                http.response()?.errorBody()?.string()?.let { ApiClient.json.decodeFromString(QErrorBody.serializer(), it).detail }
-            }.getOrNull()
             throw PermanentStepFailure(detail?.message?.ifBlank { null } ?: "The server refused this ($code).", detail?.code)
         }
         throw IOException("HTTP $code", http)

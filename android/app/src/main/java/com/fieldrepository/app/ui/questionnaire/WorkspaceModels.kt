@@ -131,6 +131,13 @@ object AnswerModel {
         forIds.firstNotNullOfOrNull { id -> current(answers, id, lineageId)?.takeIf { it.sourceRecordingId != null && it.text.isNotBlank() } }
 }
 
+/**
+ * Whether "Replace the earlier take" removes it, so P7 asks first. Removing a take is for content
+ * admins only on every path (owner, 20 Oct 2026): a researcher's replace keeps both takes and the
+ * server marks the new one as the redo.
+ */
+fun replaceRemovesEarlier(isContentAdmin: Boolean): Boolean = isContentAdmin
+
 object ParticipantModel {
     /** P10's count: the takes in this session on which [artisanId] is a subject. */
     fun takesOf(detail: QSessionDetail?, artisanId: String): Int =

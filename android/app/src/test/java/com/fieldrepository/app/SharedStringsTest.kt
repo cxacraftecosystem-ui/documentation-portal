@@ -45,7 +45,7 @@ class SharedStringsTest {
     fun `the Android-only sentences are the pinned few, and none duplicates a shared one`() {
         assertEquals(
             setOf("sessions.builder", "sessions.join", "start.artisan", "inbox.nothing", "inbox.error", "join.scan", "join.pick",
-                "join.code", "join.notFound", "join.noQr", "join.onlineOnly", "battery.title",
+                "join.code", "join.notFound", "join.noQr", "join.onlineOnly", "join.rateLimited", "battery.title",
                 // Audit 21 Oct 2026: the hard-coded transcript words and errors (Low), the fix tray (H20),
                 // the session, take and inbox actions (H13, H14, §1), paging, offline registration, CSV.
                 "transcript.failed", "transcript.queued", "error.removeTake", "error.readFile", "error.recover", "error.startSession",

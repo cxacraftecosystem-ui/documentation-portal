@@ -229,6 +229,11 @@ class PermanentStepFailure(message: String, val code: String? = null) : Exceptio
 /** Storage refused a signed URL as expired (403): sign it again rather than fail the take. */
 class SignedUrlExpired(message: String) : IOException(message)
 
+/** `/complete` answered 404 `UPLOAD_MISSING` (retry: true): the bytes never reached storage, so upload again. */
+class UploadMissing(message: String) : IOException(message) {
+    companion object { const val REASON = "UPLOAD_MISSING" }
+}
+
 /** The session's unit is not on this phone (it settled, or was never adopted); see [SessionOutbox.reopen]. */
 class MissingSessionUnit(clientKey: String) : IllegalStateException("No queued session $clientKey")
 
@@ -649,6 +654,16 @@ class SessionOutbox(
         } catch (refused: PermanentStepFailure) {
             updateStep(clientKey, stepId) { it.copy(state = StepState.FAILED, failure = refused.message, failureCode = refused.code, attempts = it.attempts + 1) }
             false
+        } catch (missing: UploadMissing) {
+            // The server holds no bytes for this take: forget what the phone thought had landed, so
+            // the next pass uploads it again from the file, which is still here.
+            updateStep(clientKey, stepId) {
+                it.copy(
+                    attempts = it.attempts + 1,
+                    clip = it.clip?.copy(uploaded = false, objectKey = null, uploadId = null, partSize = null, partsDone = emptyList(), completeFailures = 0)
+                )
+            }
+            false
         } catch (transient: IOException) {
             updateStep(clientKey, stepId) { it.copy(attempts = it.attempts + 1) }
             false
@@ -664,7 +679,8 @@ class SessionOutbox(
             sessionId = sessionId, clientClipKey = clip.clientClipKey, sizeBytes = clip.sizeBytes,
             contentType = clip.contentType, extension = clip.extension, contentSha256 = clip.contentSha256,
             targets = clip.recording.targets, subjectArtisanIds = clip.subjectArtisanIds.map(unit::resolve),
-            deviceCapturedAt = clip.recording.deviceCapturedAt, clockOffsetMs = clip.recording.clockOffsetMs
+            deviceCapturedAt = clip.recording.deviceCapturedAt, clockOffsetMs = clip.recording.clockOffsetMs,
+            clockOffsetMeasuredAt = clip.recording.clockOffsetMeasuredAt, continuationOfId = clip.recording.continuationOfId
         )
         suspend fun save(next: ClipPayload): ClipPayload {
             updateStep(clientKey, stepId) { it.copy(clip = next) }
@@ -692,6 +708,8 @@ class SessionOutbox(
                     save(clip.copy(objectKey = known.objectKey, uploadId = known.multipartUploadId, partSize = known.partSize, partsDone = known.partsDone))
                 } else {
                     val created = transport.multipartCreate(presign)
+                    // A closed intent: the bytes already landed, so nothing is uploaded again; complete next.
+                    if (created.closed) return save(clip.copy(objectKey = created.objectKey, uploaded = true))
                     save(clip.copy(objectKey = created.objectKey, uploadId = created.uploadId, partSize = created.partSize, partsDone = created.partsDone))
                 }
             }

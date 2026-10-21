@@ -82,7 +82,11 @@ data class QErrorDetail(
     val message: String = "",
     val current: JsonElement? = null,
     val diff: JsonElement? = null,
-    val count: Int? = null
+    val count: Int? = null,
+    /** Why, in a word the client acts on (`UPLOAD_MISSING`: the bytes never reached storage). */
+    val reason: String? = null,
+    /** The server says the same request can succeed later (after a re-upload, say). */
+    val retry: Boolean = false
 )
 
 @Serializable
@@ -354,7 +358,9 @@ data class QSnapshotTake(
 data class QSnapshot(
     val asOfSeq: String = "0",
     val takes: List<QSnapshotTake> = emptyList(),
-    val removedRecordingIds: List<String> = emptyList()
+    val removedRecordingIds: List<String> = emptyList(),
+    /** Takes that changed since `sinceSeq`: their old rows go before [takes] are added (a take now PRESENT-only appears in neither list). */
+    val changedRecordingIds: List<String> = emptyList()
 )
 
 @Serializable
@@ -369,7 +375,11 @@ data class QPresignRequest(
     @EncodeDefault val targets: List<QTargetRef> = emptyList(),
     @EncodeDefault val subjectArtisanIds: List<String> = emptyList(),
     val deviceCapturedAt: String,
-    @EncodeDefault val clockOffsetMs: Long = 0
+    @EncodeDefault val clockOffsetMs: Long = 0,
+    /** When the offset was measured; a stale one marks the capture time estimated (server-side, §3.9). */
+    val clockOffsetMeasuredAt: String? = null,
+    /** The take this one continues, so the name the server mints ends `-P2`, not `-T2`. */
+    val continuationOfId: String? = null
 )
 
 @Serializable
@@ -388,9 +398,11 @@ data class QPartDone(val partNumber: Int, val etag: String)
 @Serializable
 data class QMultipartCreateResponse(
     val objectKey: String,
-    val uploadId: String,
+    /** Empty when [closed]: the upload already landed and nothing is opened again. */
+    val uploadId: String = "",
     val partSize: Long = 8L * 1024 * 1024,
-    val partsDone: List<QPartDone> = emptyList()
+    val partsDone: List<QPartDone> = emptyList(),
+    val closed: Boolean = false
 )
 
 @Serializable
@@ -425,6 +437,7 @@ data class QCompleteRecording(
     @EncodeDefault val subjects: List<QCompleteSubject> = emptyList(),
     val deviceCapturedAt: String,
     @EncodeDefault val clockOffsetMs: Long = 0,
+    val clockOffsetMeasuredAt: String? = null,
     @EncodeDefault val capturedAtSource: String = "DEVICE",
     @EncodeDefault val durationMs: Long = 0,
     @EncodeDefault val rosterCount: Int = 1,

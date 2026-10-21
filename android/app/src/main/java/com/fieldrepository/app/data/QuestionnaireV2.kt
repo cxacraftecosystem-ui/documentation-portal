@@ -247,6 +247,7 @@ class QuestionnaireV2 private constructor(context: Context) {
                 subjects = draft.subjects,
                 deviceCapturedAt = draft.deviceCapturedAt,
                 clockOffsetMs = draft.clockOffsetMs,
+                clockOffsetMeasuredAt = draft.clockOffsetMeasuredAt,
                 capturedAtSource = draft.capturedAtSource,
                 durationMs = draft.durationMs,
                 rosterCount = draft.subjects.size.coerceAtLeast(1),

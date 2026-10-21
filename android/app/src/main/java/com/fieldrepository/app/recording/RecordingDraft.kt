@@ -23,6 +23,8 @@ data class RecordingDraft(
     val adtsPath: String,
     val deviceCapturedAt: String,
     val clockOffsetMs: Long = 0,
+    /** When [clockOffsetMs] was measured (ISO-8601), frozen with the take. */
+    val clockOffsetMeasuredAt: String? = null,
     val capturedAtSource: String = "DEVICE",
     val targets: List<QTargetRef> = emptyList(),
     /** The roster at Record press: everyone ANSWERED until the "Answered by" chips say otherwise. */
