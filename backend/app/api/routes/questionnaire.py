@@ -3585,8 +3585,7 @@ async def reupload_questionnaire(
     request: Request,
     file: UploadFile = File(...),
     title: str | None = Form(default=None),
-    # It can delete questions, so it follows the one delete rule: content admins only (owner, 21 Oct).
-    _: Any = Depends(require_content_admin),
+    _: Any = Depends(require_admin),
 ) -> dict[str, Any]:
     """Re-upload an edited workbook over an existing questionnaire.
 
