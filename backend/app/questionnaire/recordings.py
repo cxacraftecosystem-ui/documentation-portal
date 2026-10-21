@@ -28,15 +28,12 @@ from typing import Any
 from uuid import uuid4
 
 from app import shared_vocab
-from app.questionnaire import ports
+from app.questionnaire import coverage, ports, sessions, titles
 from app.questionnaire.authoring import CONTENT_DELETE_REFUSAL
-from app.questionnaire.ports import can_review, consent_gate, has_rank, is_admin, is_content_admin, naming
-from app.questionnaire.ports import transcription
-from app.questionnaire import coverage, sessions, titles
 from app.questionnaire.common import (
     IST,
-    aware,
     as_date,
+    aware,
     enum_text,
     fail,
     get,
@@ -45,6 +42,15 @@ from app.questionnaire.common import (
     now,
 )
 from app.questionnaire.locks import lock_key, lock_subjects
+from app.questionnaire.ports import (
+    can_review,
+    consent_gate,
+    has_rank,
+    is_admin,
+    is_content_admin,
+    naming,
+    transcription,
+)
 
 MULTIPART_THRESHOLD = 5 * 1024 * 1024
 PART_SIZE = 8 * 1024 * 1024
@@ -63,18 +69,14 @@ UPLOAD_MISSING = "UPLOAD_MISSING"
 def _db(client: Any) -> Any:
     if client is not None:
         return client
-    db = ports.db()
-
-    return db
+    return ports.db()
 
 
 def _owner(client: Any) -> Any:
     """Who opens a transaction: the given client, else the app's."""
     if client is not None:
         return client
-    db = ports.db()
-
-    return db
+    return ports.db()
 
 
 def _media_type(content_type: str) -> str:

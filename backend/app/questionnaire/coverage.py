@@ -24,7 +24,7 @@ from typing import Any
 
 from app import shared_vocab
 from app.questionnaire import ports
-from app.questionnaire.common import aware, as_date, fail, get, iso, now
+from app.questionnaire.common import as_date, aware, fail, get, iso, now
 
 ESTIMATED = set(shared_vocab.ESTIMATED_CAPTURED_AT_SOURCES)
 
@@ -32,9 +32,7 @@ ESTIMATED = set(shared_vocab.ESTIMATED_CAPTURED_AT_SOURCES)
 def _db(client: Any) -> Any:
     if client is not None:
         return client
-    db = ports.db()
-
-    return db
+    return ports.db()
 
 
 def section_key(section_id: str) -> str:
@@ -515,7 +513,7 @@ async def snapshot(questionnaire_id: str, workshop_id: str | None, since_seq: in
 async def first_gaps(client: Any, questionnaire_id: str, artisan_ids: list[str]) -> dict[str, Any]:
     """Each artisan's first section (instrument order) with no take at all."""
     g = await grid(questionnaire_id, artisan_ids=artisan_ids, client=client)
-    gaps: dict[str, Any] = {a: None for a in artisan_ids}
+    gaps: dict[str, Any] = dict.fromkeys(artisan_ids)
     for section in g["sections"]:
         for cell in section["cells"]:
             if gaps.get(cell["artisanId"]) is None and cell["state"] == "NOT_RECORDED" and cell["artisanId"] in gaps:

@@ -24,8 +24,8 @@ def _blocks(text: str) -> dict[tuple[str, str], str]:
 
 def _fields(block: str) -> dict[str, str]:
     out = {}
-    for line in block.splitlines()[1:]:
-        line = line.split("//")[0].strip()
+    for raw in block.splitlines()[1:]:
+        line = raw.split("//")[0].strip()
         if not line or line.startswith("@@") or line == "}":
             continue
         parts = line.split()

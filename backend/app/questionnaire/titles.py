@@ -16,8 +16,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.questionnaire.ports import naming
 from app.questionnaire.common import as_date
+from app.questionnaire.ports import naming
 
 
 async def workshop_fields(client: Any, workshop_id: str | None) -> dict[str, Any] | None:

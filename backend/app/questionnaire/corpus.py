@@ -13,8 +13,8 @@ import json
 from typing import Any
 
 from app.questionnaire import coverage, ports
-from app.questionnaire.ports import consent_gate, naming
 from app.questionnaire.common import fail, iso
+from app.questionnaire.ports import consent_gate, naming
 
 SCHEMA_VERSION = 1
 ANSWER_FIELDS = [
@@ -32,9 +32,7 @@ RECORDING_FIELDS = [
 def _db(client: Any) -> Any:
     if client is not None:
         return client
-    db = ports.db()
-
-    return db
+    return ports.db()
 
 
 async def corpus(questionnaire_id: str, *, status: str | None = "APPROVED", client: Any = None) -> dict[str, list[dict[str, Any]]]:

@@ -9,19 +9,15 @@ import io
 from collections import defaultdict
 from typing import Any
 
-from app.questionnaire import ports
-from app.questionnaire.ports import naming
-from app.questionnaire import answers as answers_service
-from app.questionnaire import coverage, recordings, sessions
+from app.questionnaire import answers as answers_service, coverage, ports, recordings, sessions
 from app.questionnaire.common import fail
+from app.questionnaire.ports import naming
 
 
 def _db(client: Any) -> Any:
     if client is not None:
         return client
-    db = ports.db()
-
-    return db
+    return ports.db()
 
 
 async def artisan_record(artisan_id: str, user: Any, *, questionnaire_id: str | None = None, client: Any = None) -> dict[str, Any]:

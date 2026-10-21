@@ -45,9 +45,8 @@ def locked_for(current: dict[str, Any] | None, user: Any, *, text: str | None = 
         return False
     if is_content_admin(user):
         return False
-    if text is not None and (current.get("text") or "") == text and (current.get("origin") or "") == (origin or ""):
-        return False
-    return True
+    # The identical text sent again is UNCHANGED, never a lock.
+    return not (text is not None and (current.get("text") or "") == text and (current.get("origin") or "") == (origin or ""))
 
 
 def answer_locked(current: dict[str, Any] | None, user: Any, *, session_leads: set[str] | frozenset[str] = frozenset(),

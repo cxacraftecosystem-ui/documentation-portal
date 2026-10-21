@@ -112,6 +112,4 @@ def may_admin_act(user: Any) -> bool:
 def offered_on(portal: str, platform: str, act: str) -> bool:
     """Whether a client offers an authoring act at all. Only ministry/admin authoring on
     designer-portal Android is withheld (owner decision 5); everything else is served everywhere."""
-    if act in ADMIN_AUTHORING_ACTS and portal == PORTAL_DR and platform == "android":
-        return False
-    return True
+    return not (act in ADMIN_AUTHORING_ACTS and portal == PORTAL_DR and platform == "android")

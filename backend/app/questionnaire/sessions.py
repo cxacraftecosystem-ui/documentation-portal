@@ -17,11 +17,10 @@ from prisma.errors import UniqueViolationError
 
 from app.questionnaire import authoring, ports, titles
 from app.questionnaire.authoring import CONTENT_DELETE_REFUSAL
-from app.questionnaire.ports import can_create_records, consent_gate, has_rank, is_admin, is_content_admin
 from app.questionnaire.common import (
     IST,
-    aware,
     as_date,
+    aware,
     enum_text,
     fail,
     get,
@@ -29,6 +28,13 @@ from app.questionnaire.common import (
     naive_utc,
     new_join_code,
     now,
+)
+from app.questionnaire.ports import (
+    can_create_records,
+    consent_gate,
+    has_rank,
+    is_admin,
+    is_content_admin,
 )
 
 TX_TIMEOUT = timedelta(seconds=30)
@@ -39,9 +45,7 @@ PAGE_MAX = 100
 def _client(client: Any) -> Any:
     if client is not None:
         return client
-    db = ports.db()
-
-    return db
+    return ports.db()
 
 
 # ── reading ────────────────────────────────────────────────────────────────────────────────────
@@ -376,7 +380,11 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
     """Create a session; returns ``(session, created)``. A repeated clientKey returns the row with
     ``created=False`` (200). Volunteers cannot create (they record into sessions they are on)."""
     default_db = ports.db()
-    from app.questionnaire.ports import enforce_workshop_submission, pin_pending_if_late, stamp_workshop_submission
+    from app.questionnaire.ports import (
+        enforce_workshop_submission,
+        pin_pending_if_late,
+        stamp_workshop_submission,
+    )
 
     db = _client(client)
     joining = _is_join_create(payload, user)
@@ -920,8 +928,8 @@ async def open_match(*, questionnaire_id: str, workshop_id: str | None, artisan_
 
 async def continue_sessions(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any]:
     """"Continue with...": one session for all, or one each, on a new day, with each artisan's first gap."""
-    from app.questionnaire.schemas import ParticipantInput, SessionCreate
     from app.questionnaire import coverage
+    from app.questionnaire.schemas import ParticipantInput, SessionCreate
 
     db = _client(client)
     source = await follow_merges(db, payload.fromSessionId)

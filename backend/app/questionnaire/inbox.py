@@ -16,8 +16,8 @@ from datetime import timedelta
 from typing import Any
 
 from app.questionnaire import ports
-from app.questionnaire.ports import is_admin
 from app.questionnaire.common import as_date, aware, iso, now
+from app.questionnaire.ports import is_admin
 
 LEGACY_TYPES = ("questionnaire", "questionnaireinterview", "questionnaire_session")
 
@@ -25,9 +25,7 @@ LEGACY_TYPES = ("questionnaire", "questionnaireinterview", "questionnaire_sessio
 def _db(client: Any) -> Any:
     if client is not None:
         return client
-    db = ports.db()
-
-    return db
+    return ports.db()
 
 
 def _mine_sql(alias: str, param: str) -> str:

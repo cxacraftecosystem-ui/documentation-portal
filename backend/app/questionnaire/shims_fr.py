@@ -27,11 +27,10 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from app.questionnaire import ports
+from app.questionnaire import legacy_resolver, ports, sessions, titles
+from app.questionnaire.common import IST, aware, enum_text, naive_utc, now, today_ist
 from app.questionnaire.errors import http_error
 from app.questionnaire.ports import get_settings
-from app.questionnaire import legacy_resolver, sessions, titles
-from app.questionnaire.common import IST, aware, enum_text, naive_utc, now, today_ist
 
 logger = logging.getLogger(__name__)
 LEGACY_TYPES = ("questionnaire", "questionnaireinterview")
@@ -162,9 +161,8 @@ async def create_interview_shim(payload: Any, user: Any, questionnaire_id: str, 
     if payload.workshopId:
         stamp_workshop_submission(data, check=check)
         pin_pending_if_late(data, user, check=check)
-    from prisma import Json
-
     from app.questionnaire.ports import attach_location
+    from prisma import Json
 
     located = await attach_location({"location": payload.location})
     async with db.tx(max_wait=sessions.TX_MAX_WAIT, timeout=sessions.TX_TIMEOUT) as tx:
@@ -207,8 +205,8 @@ async def responses_to_answers(session_id: str, questionnaire_id: str, responses
     one would let its stale text overwrite a newer answer. The one exception is the build's OWN
     earlier answer from this same session (an old build re-saving its form), which it may revise."""
     db = ports.db()
-    from app.questionnaire.schemas import AnswerItem, AnswersPut
     from app.questionnaire import answers
+    from app.questionnaire.schemas import AnswerItem, AnswersPut
 
     artisans = await sessions.participant_ids(db, session_id)
     # The questions' lineages and every (participant, lineage) answer in two reads for the whole
@@ -396,7 +394,7 @@ class _nullctx:
     async def __aenter__(self) -> Any:
         return self.client
 
-    async def __aexit__(self, *exc: Any) -> None:
+    async def __aexit__(self, *exc: object) -> None:
         return None
 
 
@@ -410,5 +408,5 @@ async def after_legacy_complete(answer: dict[str, Any], payload: Any, user: Any)
         media = await db.mediafile.find_unique(where={"id": answer.get("id")})
         if media is not None and str(getattr(media, "mediaType", "")) in ("AUDIO", "VIDEO", "MediaType.AUDIO", "MediaType.VIDEO"):
             await record_legacy_clip(media, user)
-    except Exception:  # noqa: BLE001 - the shim never turns an accepted clip into an error
+    except Exception:
         logger.exception("legacy clip shim failed for %s", answer.get("id"))

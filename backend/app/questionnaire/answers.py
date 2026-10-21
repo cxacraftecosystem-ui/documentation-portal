@@ -22,8 +22,8 @@ from typing import Any
 from uuid import uuid4
 
 from app.questionnaire import answer_lock, ports, sessions
-from app.questionnaire.ports import consent_gate, get_settings, has_rank
 from app.questionnaire.common import get
+from app.questionnaire.ports import consent_gate, get_settings, has_rank
 
 TX_TIMEOUT = timedelta(seconds=20)
 TX_MAX_WAIT = timedelta(seconds=15)
@@ -33,9 +33,7 @@ DEFAULT_COUNTRY_CODE = "+91"
 def _db(client: Any) -> Any:
     if client is not None:
         return client
-    db = ports.db()
-
-    return db
+    return ports.db()
 
 
 # ── phone (owner correction (b)) ───────────────────────────────────────────────────────────────
@@ -117,7 +115,7 @@ async def answers_for(client: Any, *, artisan_ids: list[str] | None = None, sess
     if session_id:
         params.append(session_id)
         where.append(f'EXISTS (SELECT 1 FROM "QuestionnaireAnswerRevision" x WHERE x."answerId" = a."id" AND x."sessionId" = ${len(params)})')
-    rows = await client.query_raw(
+    return await client.query_raw(
         'SELECT a."id", a."artisanId", a."questionLineageId", a."version", a."pinned", rv."text", rv."origin"::text AS origin, '
         'rv."attribution"::text AS attribution, rv."sourceRecordingId", rv."sessionId", rv."status"::text AS status, '
         'rv."sourceTranscriptHash", rv."askedQuestionId", rv."languageCode" '
@@ -127,7 +125,6 @@ async def answers_for(client: Any, *, artisan_ids: list[str] | None = None, sess
         + ("WHERE " + " AND ".join(where) if where else "") + ' ORDER BY a."artisanId", a."questionLineageId"',
         *params,
     )
-    return rows
 
 
 # ── writing ────────────────────────────────────────────────────────────────────────────────────
@@ -478,7 +475,7 @@ async def put_answers(payload: Any, user: Any, *, client: Any = None) -> dict[st
     artisan_items = [i for i in payload.items if not getattr(i, "respondentId", None)]
     try:
         pre = await _prefetch(artisan_items, db)
-    except Exception:  # noqa: BLE001 - each item then reads for itself, exactly as before
+    except Exception:
         import logging
 
         logging.getLogger(__name__).warning("answer prefetch failed; reading per item", exc_info=True)
@@ -488,7 +485,7 @@ async def put_answers(payload: Any, user: Any, *, client: Any = None) -> dict[st
         if getattr(item, "respondentId", None):
             try:
                 results.append(await _write_respondent(item, user, db, cache))
-            except Exception:  # noqa: BLE001 - one item never fails the batch
+            except Exception:
                 import logging
 
                 logging.getLogger(__name__).exception("respondent answer item failed")
@@ -497,7 +494,7 @@ async def put_answers(payload: Any, user: Any, *, client: Any = None) -> dict[st
             continue
         try:
             results.append(await _write_one(item, user, db, cache, pre))
-        except Exception:  # noqa: BLE001 - one item never fails the batch
+        except Exception:
             import logging
 
             logging.getLogger(__name__).exception("answer item failed")
@@ -507,7 +504,7 @@ async def put_answers(payload: Any, user: Any, *, client: Any = None) -> dict[st
             try:
                 results.append(await _write_one(item, user, db, {}))
                 continue
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logging.getLogger(__name__).exception("answer item failed twice")
             stored = None
             try:

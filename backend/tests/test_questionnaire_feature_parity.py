@@ -137,7 +137,7 @@ def _mounted() -> set[tuple[str, str]]:
     have = set()
     for route in routes:
         path = re.sub(r"\{[^}]+\}", "{}", getattr(route, "path", ""))
-        path = path[len("/api"):] if path.startswith("/api") else path
+        path = path.removeprefix("/api")
         for method in getattr(route, "methods", None) or ():
             have.add((method, path))
     return have
