@@ -183,6 +183,27 @@ function captionAnswersQuestion(
   return rest === stem || rest.startsWith(`${stem} `) || rest.startsWith(`${stem}-`);
 }
 
+/**
+ * M20 (audit 21 Oct 2026): the clip whose TRANSCRIPT may answer this question, by its link and never
+ * by its number. `extraMetadata.questionId` first (the web writes it); else the prompt the caption
+ * carries, word for word, within the caption's section (the handset writes the prompt, not the id).
+ * The "D3" in a caption is the question's position on the day it was recorded, so after a reorder it
+ * names another question. The backend's `clip_question_id` is the same rule.
+ */
+function clipAnswersQuestion(
+  media: { caption?: string | null; extraMetadata?: unknown },
+  question: { id: string; sectionCode: string; prompt: string }
+): boolean {
+  const extra = media.extraMetadata && typeof media.extraMetadata === "object" ? (media.extraMetadata as Record<string, unknown>) : null;
+  if (typeof extra?.questionId === "string") return extra.questionId === question.id;
+  const rest = captionBody(media.caption, QUESTION_CAPTION_PREFIX);
+  if (rest === null) return false;
+  const found = /^([A-Za-z]+?)\s*(\d+)\b\s*-?\s*([\s\S]*)$/.exec(rest);
+  if (!found || found[1].toUpperCase() !== question.sectionCode.toUpperCase()) return false;
+  const words = (text: string) => text.trim().split(/\s+/).join(" ").toLowerCase();
+  return Boolean(found[3].trim()) && words(found[3]) === words(question.prompt);
+}
+
 /** Any clip belonging to this section: its whole-section take, or any of its questions' takes. */
 function captionBelongsToSection(caption: string | null | undefined, section: { code: string }): boolean {
   if (captionIsWholeSection(caption, section)) return true;
@@ -744,7 +765,7 @@ function QuestionnairePageBody() {
     const out: Record<string, string> = {};
     const media = [...(editing?.media ?? [])].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
     for (const question of questions) {
-      const clip = media.find((item) => captionAnswersQuestion(item.caption, question) && transcriptAnswerText(item.transcriptText));
+      const clip = media.find((item) => clipAnswersQuestion(item, question) && transcriptAnswerText(item.transcriptText));
       if (clip) out[question.id] = transcriptAnswerText(clip.transcriptText);
     }
     return out;

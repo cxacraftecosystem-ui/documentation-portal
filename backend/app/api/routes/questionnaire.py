@@ -1661,33 +1661,68 @@ def transcript_answer_text(transcript: str | None) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
-# The section code is letters of any length (``D``, ``RESP``); the digits after it are the number.
-_CLIP_QUESTION_CAPTION = re.compile(r"^question\s+audio:\s*([A-Za-z]+?)\s*(\d+)\b", re.IGNORECASE)
+# "Question audio: D3 - <prompt>" (web) or "Question audio: D3 <prompt>" (handset). The code and
+# number are read only to narrow the search to a section; the PROMPT is what places the clip.
+_CLIP_QUESTION_CAPTION = re.compile(r"^question\s+audio:\s*([A-Za-z]+?)\s*(\d+)\b\s*-?\s*(.*)$", re.IGNORECASE | re.DOTALL)
 
 
-def clip_question_id(media: Any, question_by_stem: dict[str, str]) -> str | None:
+def _same_words(a: str | None, b: str | None) -> bool:
+    return bool(a) and bool(b) and " ".join(str(a).split()).casefold() == " ".join(str(b).split()).casefold()
+
+
+def clip_question_id(
+    media: Any, questions: list[Any], links: list[dict[str, Any]] | None = None
+) -> str | None:
     """The ONE question a clip was recorded against, or None for a section take or an unfiled clip.
 
-    ``extraMetadata.questionId`` first — both clients write it when a clip is recorded against a
-    question. Then the caption both clients write ("Question audio: D3 - …" on the web, "Question
-    audio: D3 …" on the handset), resolved against THIS instrument's questions by section code and
-    number. A whole-section take answers no single question and is never matched.
+    BY THE CLIP'S LINK TO ITS QUESTION, NEVER BY POSITION (audit M20). The caption's "D3" is the
+    question's sortOrder on the day it was recorded; after a reorder or a deletion "D3" is a different
+    question, and its transcript filled the wrong answer. In order:
+
+    1. ``extraMetadata.questionId`` — the web writes it on every question clip;
+    2. the clip's recording target (``links``: ``askedQuestionId`` / ``questionLineageId``), which
+       the v2 backfill and the old-build shim resolve by content;
+    3. the prompt text in the caption, matched word for word within the caption's section (the
+       handset writes the prompt but not the id). A caption with no prompt is not placed.
+
+    ``questions`` are this instrument's ACTIVE questions. A whole-section take answers no single
+    question and is never matched.
     """
+    by_id = {str(get_value(q, "id")): q for q in questions}
     extra = get_value(media, "extraMetadata")
     question_id = extra.get("questionId") if isinstance(extra, dict) else None
-    if isinstance(question_id, str) and question_id in question_by_stem.values():
+    if isinstance(question_id, str) and question_id in by_id:
         return question_id
+    for link in links or []:
+        asked = link.get("askedQuestionId")
+        if asked and str(asked) in by_id:
+            return str(asked)
+        lineage = link.get("questionLineageId")
+        if lineage:
+            for q in questions:
+                if str(get_value(q, "lineageId") or get_value(q, "id")) == str(lineage):
+                    return str(get_value(q, "id"))
     found = _CLIP_QUESTION_CAPTION.match((get_value(media, "caption") or "").strip())
     if found:
-        return question_by_stem.get(f"{found.group(1).upper()}{int(found.group(2))}")
+        code, prompt = found.group(1).upper(), found.group(3).strip()
+        if isinstance(extra, dict) and extra.get("questionPrompt"):
+            prompt = str(extra["questionPrompt"])
+        matches = [
+            q for q in questions
+            if (get_value(q, "sectionCode") or "").upper() == code and _same_words(get_value(q, "prompt"), prompt)
+        ]
+        if len(matches) == 1:
+            return str(get_value(matches[0], "id"))
     return None
 
 
-def question_clip_transcripts(media_rows: list[Any], question_by_stem: dict[str, str]) -> dict[str, str]:
+def question_clip_transcripts(
+    media_rows: list[Any], questions: list[Any], links_by_media: dict[str, list[dict[str, Any]]] | None = None
+) -> dict[str, str]:
     """question id → the transcript of its NEWEST transcribed clip, for clips filed to one question."""
     newest: dict[str, tuple[Any, str]] = {}
     for media in media_rows:
-        question_id = clip_question_id(media, question_by_stem)
+        question_id = clip_question_id(media, questions, (links_by_media or {}).get(str(get_value(media, "id"))))
         text = transcript_answer_text(get_value(media, "transcriptText"))
         if not question_id or not text:
             continue
@@ -1696,6 +1731,24 @@ def question_clip_transcripts(media_rows: list[Any], question_by_stem: dict[str,
         if held is None or (stamp is not None and (held[0] is None or stamp > held[0])):
             newest[question_id] = (stamp, text)
     return {question_id: text for question_id, (_, text) in newest.items()}
+
+
+async def _clip_question_links(media_rows: list[Any]) -> dict[str, list[dict[str, Any]]]:
+    """media id → its live recording's question targets (``askedQuestionId``, ``questionLineageId``)."""
+    ids = [str(get_value(m, "id")) for m in media_rows if get_value(m, "id")]
+    if not ids:
+        return {}
+    recordings = await db.questionnairerecording.find_many(
+        where={"mediaFileId": {"in": ids}, "removedAt": None}, include={"targets": True}
+    )
+    links: dict[str, list[dict[str, Any]]] = {}
+    for recording in recordings:
+        links[str(get_value(recording, "mediaFileId"))] = [
+            {"askedQuestionId": get_value(t, "askedQuestionId"), "questionLineageId": get_value(t, "questionLineageId")}
+            for t in (get_value(recording, "targets") or [])
+            if get_value(t, "askedQuestionId") or get_value(t, "questionLineageId")
+        ]
+    return links
 
 
 @questionnaire_router.post("/interviews/{interview_id}/apply-transcripts")
@@ -1719,14 +1772,12 @@ async def apply_interview_transcripts(
     interview = await require_record(db.questionnaireinterview, interview_id)
     questionnaire_id = get_value(interview, "questionnaireId")
     media_rows, responses, questions = await gather_reads(
-        db.mediafile.find_many(where={"questionnaireInterviewId": interview_id}),
+        # Live files only (audit M19): a removed copy's transcript is not an answer.
+        db.mediafile.find_many(where={"questionnaireInterviewId": interview_id, "removedAt": None}),
         db.questionnaireresponse.find_many(where={"interviewId": interview_id}),
         db.questionnairequestion.find_many(where={"questionnaireId": questionnaire_id, "isActive": True}),
     )
-    question_by_stem = {
-        f"{(q.sectionCode or '').upper()}{q.sortOrder}": q.id for q in questions if q.sectionCode
-    }
-    transcripts = question_clip_transcripts(media_rows, question_by_stem)
+    transcripts = question_clip_transcripts(media_rows, questions, await _clip_question_links(media_rows))
     answered = {r.questionId for r in responses if (r.answerText or "").strip()}
     fills = [
         QuestionnaireResponseInput(questionId=qid, answerText=text, answerSource="TRANSCRIPT")
