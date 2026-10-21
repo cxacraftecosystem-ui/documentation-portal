@@ -98,7 +98,12 @@ async def inbox(user: Any, *, client: Any = None) -> dict[str, Any]:
         'SELECT e."id", e."recordingId", e."after", e."at" FROM "QuestionnaireRecordingEvent" e '
         'JOIN "QuestionnaireRecording" r ON r."id" = e."recordingId" JOIN "MediaFile" m ON m."id" = r."mediaFileId" '
         'JOIN "QuestionnaireInterview" i ON i."id" = m."questionnaireInterviewId" '
-        'WHERE e."kind" = \'PRIMARY_CHANGED\' AND e."at" > now() - interval \'30 days\' AND (' + (everything if admin else _mine_sql("i", "$1")) + ') '
+        # The affected researchers (DESIGN 3.5): those of the take that is primary now AND those of
+        # the take that stopped being primary, which a late arrival from another session demotes.
+        'WHERE e."kind" = \'PRIMARY_CHANGED\' AND e."at" > now() - interval \'30 days\' AND ('
+        + (everything if admin else _mine_sql("i", "$1") + ' OR EXISTS (SELECT 1 FROM "QuestionnaireRecording" fr '
+           'JOIN "MediaFile" fm ON fm."id" = fr."mediaFileId" JOIN "QuestionnaireInterview" fi ON fi."id" = fm."questionnaireInterviewId" '
+           'WHERE fr."id" = e."after"->>\'from\' AND ' + _mine_sql("fi", "$1") + ')') + ') '
         'ORDER BY e."at" DESC LIMIT 100',
         uid,
     )
