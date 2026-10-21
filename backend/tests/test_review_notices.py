@@ -40,6 +40,9 @@ class _Prefs:
     async def find_unique(self, where: dict[str, Any]) -> Any:
         return self.rows.get(where["userId"])
 
+    async def find_many(self, where: dict[str, Any]) -> list[Any]:
+        return [SimpleNamespace(userId=uid, **vars(row)) for uid, row in self.rows.items() if uid in where["userId"]["in"]]
+
 
 def _person(uid: str, role: str = "RESEARCHER") -> SimpleNamespace:
     return SimpleNamespace(id=uid, name=f"Person {uid}", email=f"{uid}@example.org", role=role)
@@ -57,6 +60,8 @@ def world(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         return people.get(where["id"])
 
     async def find_many(where: dict[str, Any]) -> list[Any]:
+        if "id" in where:
+            return [p for p in people.values() if p.id in where["id"]["in"]]
         roles = where["role"]["in"]
         return [p for p in people.values() if p.role in roles]
 

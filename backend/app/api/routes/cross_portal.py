@@ -92,17 +92,32 @@ async def _log_access(
 ) -> None:
     """One row per peer request: who asked (the designer-portal account id), what, and what it
     reached. Never the Pehchan number or the Aadhaar code."""
-    asked_by = (request.headers.get(cross_portal.REQUESTED_BY_HEADER) or "").strip()[:64] or None
     await db.crossportalaccesslog.create(
-        data={
-            "action": action,
-            "outcome": outcome,
-            "artisanId": artisan_id,
-            "remoteUserId": asked_by,
-            "remoteArtisanId": (remote_artisan_id or "")[:64] or None,
-            "matchedBy": matched_by,
-        }
+        data=_access_row(
+            request, action, outcome, artisan_id=artisan_id, remote_artisan_id=remote_artisan_id, matched_by=matched_by
+        )
     )
+
+
+def _access_row(
+    request: Request,
+    action: str,
+    outcome: str,
+    *,
+    artisan_id: str | None = None,
+    remote_artisan_id: str | None = None,
+    matched_by: str | None = None,
+) -> dict[str, Any]:
+    """The ``CrossPortalAccessLog`` row :func:`_log_access` writes, for writing several at once."""
+    asked_by = (request.headers.get(cross_portal.REQUESTED_BY_HEADER) or "").strip()[:64] or None
+    return {
+        "action": action,
+        "outcome": outcome,
+        "artisanId": artisan_id,
+        "remoteUserId": asked_by,
+        "remoteArtisanId": (remote_artisan_id or "")[:64] or None,
+        "matchedBy": matched_by,
+    }
 
 
 class PeerLookup(BaseModel):
@@ -313,6 +328,7 @@ async def peer_match(
         )
         consenting = {c.artisanId for c in consents}
     matches: list[dict[str, Any]] = []
+    logged: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for row in candidates.values():
         if row.id not in consenting or getattr(row, "status", None) == "REJECTED":
@@ -328,14 +344,19 @@ async def peer_match(
                 continue
             seen.add((ref, row.id))
             matches.append({"ref": ref, "artisanId": row.id, "matchedBy": matched_by})
-            await _log_access(
-                request,
-                ACTION_SCAN,
-                "MATCH",
-                artisan_id=row.id,
-                remote_artisan_id=ref,
-                matched_by=matched_by,
+            logged.append(
+                _access_row(
+                    request,
+                    ACTION_SCAN,
+                    "MATCH",
+                    artisan_id=row.id,
+                    remote_artisan_id=ref,
+                    matched_by=matched_by,
+                )
             )
+    # Every MATCH row in one insert rather than one round trip each, then the summary row last.
+    if logged:
+        await db.crossportalaccesslog.create_many(data=logged)
     await _log_access(request, ACTION_SCAN, "SUMMARY")
     return _signed(settings, request, {"matches": matches})
 

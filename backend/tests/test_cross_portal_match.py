@@ -67,6 +67,11 @@ class Table:
         self.rows.append(row)
         return SimpleNamespace(**row)
 
+    async def create_many(self, data):
+        for item in data:
+            await self.create(item)
+        return len(data)
+
     async def delete_many(self, where):
         before = len(self.rows)
         self.rows = [r for r in self.rows if not _ok(r, where)]
