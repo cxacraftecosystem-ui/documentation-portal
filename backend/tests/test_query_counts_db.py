@@ -371,6 +371,70 @@ def test_an_idle_worker_tick_is_one_read(monkeypatch) -> None:
     assert (held, held_flags) == (2, (False, False))
 
 
+def test_the_idle_tick_probe_says_true_for_due_stale_and_retried_work(monkeypatch) -> None:
+    """The probe only ever skips a pass that would do nothing, so each kind of work a drain would
+    pick up must make it say True: a due job or e-mail, a job or e-mail whose lock went stale, a
+    transcription when the gate is open, and a retried row once its back-off has passed (and not
+    before)."""
+    from datetime import timedelta
+
+    from app.services import email_outbox, media_queue
+
+    async def go() -> list[tuple[str, tuple[bool, bool], tuple[bool, bool]]]:
+        client, ids = await _world(monkeypatch, artisans=1)
+        now = datetime.now(UTC)
+        later = now + timedelta(minutes=10)
+        stale_job = now - media_queue.STALE_PROCESSING_AFTER - timedelta(minutes=1)
+        stale_mail = now - email_outbox.STALE_SENDING_AFTER - timedelta(minutes=1)
+        fresh_lock = now - timedelta(seconds=30)
+        cases: list[tuple[str, list[dict[str, Any]], list[dict[str, Any]], bool, datetime, tuple[bool, bool]]] = [
+            ("nothing", [], [], False, now, (False, False)),
+            ("due measurement", [{"jobType": "MEASUREMENT"}], [], False, now, (True, False)),
+            ("due transcription, gate open", [{"jobType": "TRANSCRIPTION"}], [], True, now, (True, False)),
+            ("due transcription, paused", [{"jobType": "TRANSCRIPTION"}], [], False, now, (False, False)),
+            ("stale-locked job", [{"jobType": "TRANSCRIPTION", "status": "PROCESSING", "lockedAt": stale_job}], [], False, now, (True, False)),
+            ("freshly locked job", [{"jobType": "MEASUREMENT", "status": "PROCESSING", "lockedAt": fresh_lock}], [], False, now, (False, False)),
+            ("retried job, backing off", [{"jobType": "MEASUREMENT", "attempts": 1, "runAfter": later}], [], False, now, (False, False)),
+            ("retried job, due again", [{"jobType": "MEASUREMENT", "attempts": 1, "runAfter": later}], [], False,
+             later + timedelta(seconds=1), (True, False)),
+            ("due e-mail", [], [{}], False, now, (False, True)),
+            ("stale-locked e-mail", [], [{"status": email_outbox.SENDING, "lockedAt": stale_mail}], False, now, (False, True)),
+            ("freshly locked e-mail", [], [{"status": email_outbox.SENDING, "lockedAt": fresh_lock}], False, now, (False, False)),
+            ("retried e-mail, backing off", [], [{"attempts": 1, "runAfter": later}], False, now, (False, False)),
+            ("retried e-mail, due again", [], [{"attempts": 1, "runAfter": later}], False, later + timedelta(seconds=1), (False, True)),
+        ]
+        seen: list[tuple[str, tuple[bool, bool], tuple[bool, bool]]] = []
+        try:
+            for name, jobs, mails, gate_open, at, expected in cases:
+                await client.execute_raw('DELETE FROM "MediaProcessingJob"')
+                await client.execute_raw('DELETE FROM "EmailMessage"')
+                with monkeypatch.context() as m:
+                    if gate_open:
+                        m.setattr(media_queue, "transcription_paused", lambda *_a, **_k: False)
+                        m.setattr(media_queue, "within_processing_window", lambda *_a, **_k: True)
+                        m.setattr(media_queue, "_transcription_in_cooldown", lambda *_a, **_k: False)
+                    for n, job in enumerate(jobs):
+                        media = await client.mediafile.create(data={
+                            "originalFilename": f"probe{n}.m4a", "mediaType": "AUDIO", "mimeType": "audio/mp4", "sizeBytes": 1,
+                            "bucket": "b", "objectKey": f"probe/{ids.tag}/{len(seen)}/{n}", "url": "u",
+                            "uploadedBy": {"connect": {"id": ids.lead.id}},
+                        })
+                        await client.mediaprocessingjob.create(data={"mediaFileId": media.id, **job})
+                    for n, mail in enumerate(mails):
+                        await client.emailmessage.create(data={
+                            "kind": "probe", "toAddress": f"probe{n}{ids.tag}@example.test", "subject": "Probe", **mail,
+                        })
+                    seen.append((name, await media_queue.queue_work_due(at), expected))
+            return seen
+        finally:
+            await client.execute_raw('DELETE FROM "MediaProcessingJob"')
+            await client.execute_raw('DELETE FROM "EmailMessage"')
+            await client.disconnect()
+
+    for name, got, expected in run(go()):
+        assert got == expected, (name, got, expected)
+
+
 # ── telling every admin about a workshop-access request ──────────────────────────────────────
 
 
@@ -490,7 +554,8 @@ def test_batched_consent_verdicts_match_asking_one_recording_at_a_time(monkeypat
     """``consent_gate.verdict_details`` (what the lists now use) against ``verdict_detail`` (what
     they used per row) over every shape the rule distinguishes: a take with subjects, a take with
     none, its own grant, a refusal by a subject, and media outside the questionnaire reached through
-    its artisan, its product and its interview."""
+    its artisan, its interview, its product (the product's artisan) and its tool (the tool's
+    ToolArtisan links)."""
     from app.services import consent_gate
     from app.services.questionnaire_v2 import sessions
 
@@ -507,16 +572,35 @@ def test_batched_consent_verdicts_match_asking_one_recording_at_a_time(monkeypat
             await consent_gate.record_artisan_consent(ids.artisans[1], state="REFUSED", basis="VERBAL_RECORDED",
                                                       actor_id=ids.lead.id, client=client)
             await consent_gate.record_recording_consent(granted["mediaFileId"], state="GRANTED", actor_id=ids.lead.id, client=client)
+            record = {"craftName": "Block printing", "place": "Bagru", "createdById": ids.lead.id}
+            refused_product = await client.productdocumentation.create(data={
+                "productName": f"Stole {ids.tag}", "artisanName": "Refused", "artisanId": ids.artisans[1], **record,
+            })
+            allowed_product = await client.productdocumentation.create(data={
+                "productName": f"Runner {ids.tag}", "artisanName": "Allowed", "artisanId": ids.artisans[2], **record,
+            })
+            refused_tool = await client.tooldocumentation.create(data={
+                "toolkitName": f"Block {ids.tag}", "artisanName": "Refused", **record,
+            })
+            await client.toolartisan.create(data={"toolId": refused_tool.id, "artisanId": ids.artisans[1]})
+            await client.toolartisan.create(data={"toolId": refused_tool.id, "artisanId": ids.artisans[2]})
+            allowed_tool = await client.tooldocumentation.create(data={
+                "toolkitName": f"Brush {ids.tag}", "artisanName": "Allowed", **record,
+            })
+            await client.toolartisan.create(data={"toolId": allowed_tool.id, "artisanId": ids.artisans[2]})
+            links = (
+                {"artisan": ids.artisans[1]}, {"artisan": ids.artisans[2]}, {"questionnaireInterview": s["id"]},
+                {"product": refused_product.id}, {"product": allowed_product.id},
+                {"tool": refused_tool.id}, {"tool": allowed_tool.id},
+            )
             loose = []
-            for n, link in enumerate(({"artisan": ids.artisans[1]}, {"artisan": ids.artisans[2]}, {"interview": s["id"]})):
+            for n, link in enumerate(links):
                 data: dict[str, Any] = {
                     "originalFilename": f"loose{n}.m4a", "mediaType": "AUDIO", "mimeType": "audio/mp4", "sizeBytes": 1,
                     "bucket": "b", "objectKey": f"loose/{ids.tag}/{n}", "url": "u", "uploadedBy": {"connect": {"id": ids.lead.id}},
                 }
-                if "artisan" in link:
-                    data["artisan"] = {"connect": {"id": link["artisan"]}}
-                else:
-                    data["questionnaireInterview"] = {"connect": {"id": link["interview"]}}
+                ((relation, target),) = link.items()
+                data[relation] = {"connect": {"id": target}}
                 loose.append((await client.mediafile.create(data=data)).id)
             media = [with_subjects["mediaFileId"], no_subjects["mediaFileId"], granted["mediaFileId"], *loose, "no-such-media"]
             one_by_one = {m: await consent_gate.verdict_detail(m, client=client) for m in media}
@@ -525,6 +609,13 @@ def test_batched_consent_verdicts_match_asking_one_recording_at_a_time(monkeypat
             assert batched == one_by_one
             assert one_by_one[with_subjects["mediaFileId"]]["verdict"] == consent_gate.REFUSED
             assert one_by_one[granted["mediaFileId"]]["verdict"] == consent_gate.ALLOW
+            # Product and tool media answer for the artisans behind them: a refusal by any one of a
+            # tool's artisans refuses it, and a record whose artisans all allow it is allowed.
+            by_link = dict(zip(("a1", "a2", "interview", "product_refused", "product_allowed", "tool_refused", "tool_allowed"), loose))
+            assert one_by_one[by_link["product_refused"]]["verdict"] == consent_gate.REFUSED
+            assert one_by_one[by_link["tool_refused"]]["verdict"] == consent_gate.REFUSED
+            assert one_by_one[by_link["product_allowed"]]["verdict"] == consent_gate.ALLOW
+            assert one_by_one[by_link["tool_allowed"]]["verdict"] == consent_gate.ALLOW
             assert seen.count <= 4
         finally:
             await client.disconnect()
