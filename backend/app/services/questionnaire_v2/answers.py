@@ -20,7 +20,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.core.config import get_settings
-from app.core.roles import has_rank
+from app.core.roles import has_rank, is_content_admin
 from app.services import consent_gate
 from app.services.questionnaire_v2 import sessions
 from app.services.questionnaire_v2.common import get
@@ -205,6 +205,36 @@ async def _prefetch(items: list[Any], client: Any) -> dict[str, dict[Any, Any]]:
     return pre
 
 
+#: ``code`` of a per-item refusal under the answer lock. The status stays FORBIDDEN, which every
+#: client already treats as "not yours to change", so builds that predate the lock refuse it too.
+ANSWER_LOCKED = "ANSWER_LOCKED"
+
+
+def _locked_for(item: Any, user: Any, current: dict[str, Any] | None) -> bool:
+    """The owner's answer lock (21 Oct 2026; UNIFY U9): an answer that has text is changed only by
+    its author, the session's LEAD (asked separately, see :func:`_is_lead`) or an admin. Sending the
+    identical text is UNCHANGED, never a lock, and a PREFILL copied from the artisan's profile is
+    nobody's account: whoever corrects it may (the prefill rule already keeps a PREFILL from
+    overwriting anything typed)."""
+    if current is None or not (current.get("text") or "").strip():
+        return False
+    if current.get("origin") == "PREFILL" or str(current.get("actorId") or "") == str(user.id) or is_content_admin(user):
+        return False
+    return not ((current.get("text") or "") == item.text and (current.get("origin") or "") == item.origin)
+
+
+async def _is_lead(client: Any, session: dict[str, Any], user: Any) -> bool:
+    """Is the caller a LEAD researcher of this session? Read once per session per request, and only
+    when an item meets the lock."""
+    if "_lead" not in session:
+        rows = await client.query_raw(
+            'SELECT 1 FROM "QuestionnaireInterviewResearcher" WHERE "interviewId" = $1 AND "userId" = $2 AND "role" = \'LEAD\' LIMIT 1',
+            str(session["id"]), str(user.id),
+        )
+        session["_lead"] = bool(rows)
+    return bool(session["_lead"])
+
+
 def _settled_without_write(item: Any, user: Any, base: dict[str, Any], current: dict[str, Any] | None) -> dict[str, Any] | None:
     """The outcome decided by the answer as it stands, without writing (CONFLICT, a pinned answer's
     FORBIDDEN, UNCHANGED), or None when the item goes on to its versioned write."""
@@ -262,6 +292,13 @@ async def _write_one(
         # one that writes is checked by the versioned UPDATE / INSERT below, which re-reads on a miss.
         current = await current_answer(client, item.artisanId, item.questionLineageId)
         settled = _settled_without_write(item, user, base, current)
+    if _locked_for(item, user, current):
+        if snapshot and settled is None:
+            # Refuse on a fresh read, never on the batch snapshot alone.
+            current = await current_answer(client, item.artisanId, item.questionLineageId)
+            settled = _settled_without_write(item, user, base, current)
+        if _locked_for(item, user, current) and not await _is_lead(client, session, user):
+            return {**base, "status": "FORBIDDEN", "code": ANSWER_LOCKED, "current": answer_out(current)}
     if settled is not None:
         return settled
     field_value = None

@@ -588,6 +588,9 @@ class AnswerResult(Strict):
     status: str
     answer: AnswerOut | None
     current: AnswerOut | None
+    #: ``ANSWER_LOCKED`` on a FORBIDDEN item that someone else's text holds (the owner's answer lock,
+    #: 21 Oct 2026). Additive: older clients ignore it and read the FORBIDDEN they already know.
+    code: str | None = None
 
 
 class AnswersPutResponse(Strict):
