@@ -187,8 +187,12 @@ def assert_status_value(value: str) -> None:
 async def assert_assignable(assigner: Any, assignee_id: str) -> Any:
     """The assignee must exist and rank strictly below the assigner — except the master admin, who
     may assign work to anyone, and an ADMIN or MASTER_ADMIN assigning to THEMSELVES, which is
-    allowed outright (see the argument at the self-assignment clause below)."""
-    assignee = await db.user.find_unique(where={"id": assignee_id})
+    allowed outright (see the argument at the self-assignment clause in :func:`check_assignable`)."""
+    return check_assignable(assigner, await db.user.find_unique(where={"id": assignee_id}))
+
+
+def check_assignable(assigner: Any, assignee: Any | None) -> Any:
+    """:func:`assert_assignable` over an account row already read (``None`` when there is none)."""
     if not assignee:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignee not found")
     if assignee.id == get_value(assigner, "id"):
@@ -1142,9 +1146,11 @@ async def create_task_batch(
         target_count=payload.targetCount,
         require_work=True,
     )
-    # Validate every assignee up front (existence + the rank rule) so the batch is all-or-nothing.
+    # Validate every assignee up front (existence + the rank rule) so the batch is all-or-nothing:
+    # one read for all of them, then the same check, in the same order, as one at a time.
+    people = {person.id: person for person in await db.user.find_many(where={"id": {"in": assignee_ids}})}
     for assignee_id in assignee_ids:
-        await assert_assignable(current_user, assignee_id)
+        check_assignable(current_user, people.get(assignee_id))
 
     title = (payload.title or "").strip() or scope_title(scope)
     batch_id = f"batch_{uuid4().hex}"
@@ -1161,10 +1167,14 @@ async def create_task_batch(
         "createdById": current_user.id,
     }
 
-    created = [
-        await db.assignedtask.create(data={**base, "assigneeId": assignee_id}, include=INCLUDE)
-        for assignee_id in assignee_ids
-    ]
+    # Every row in one insert, then read back once with the relations the answer carries, in the
+    # order the assignees were given (one create per assignee used to be one round trip each).
+    await db.assignedtask.create_many(data=[{**base, "assigneeId": assignee_id} for assignee_id in assignee_ids])
+    position = {assignee_id: index for index, assignee_id in enumerate(assignee_ids)}
+    created = sorted(
+        await db.assignedtask.find_many(where={"batchId": batch_id}, include=INCLUDE),
+        key=lambda task: position.get(task.assigneeId, len(position)),
+    )
     tasks = await serialize_tasks(created)
     return {
         "batchId": batch_id,
@@ -1597,6 +1607,78 @@ async def my_task_summary(
     }
 
 
+#: How many tasks one ``GET /tasks/pending-records`` may name: a page of cards, with room to spare.
+PENDING_BATCH_LIMIT = 50
+
+
+def _can_see_task(task: Any, user: Any) -> bool:
+    return task.assigneeId == user.id or task.createdById == user.id or is_content_admin(user)
+
+
+def _review_query(task: Any, kinds: list[str]) -> dict[str, str]:
+    """The review-queue filter (``GET /review/pending``) that shows exactly a task's pending records."""
+    review_query: dict[str, str] = {"createdById": task.assigneeId, "recordType": ",".join(kinds)}
+    if task.workshopId:
+        review_query["workshopId"] = task.workshopId
+    if task.artisanIds:
+        review_query["artisanId"] = ",".join(sorted(str(a) for a in task.artisanIds))
+    return review_query
+
+
+def _pending_kinds(task: Any) -> list[str]:
+    return [kind for kind in (task.recordTypes or []) if kind in PENDING_REVIEW_KINDS] or list(PENDING_REVIEW_KINDS)
+
+
+@router.get("/pending-records")
+async def tasks_pending_records(
+    ids: str = Query(..., description="Comma-separated task ids, at most PENDING_BATCH_LIMIT"),
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """``GET /tasks/{id}/pending-records`` for a whole page of task cards in one request (B12).
+
+    For each named task the caller may see: ``total``, ``byType`` and ``reviewQuery``, the same
+    values the single-task route answers (it alone also lists the records). A task that does not
+    exist or that the caller may not see is simply absent, where the single route would 404/403.
+    One read for the tasks, then one COUNT per distinct (record type, scope), run together; the
+    cards used to make one request each, and each request a COUNT and a row read per type.
+    """
+    wanted = list(dict.fromkeys(part.strip() for part in ids.split(",") if part.strip()))
+    if len(wanted) > PENDING_BATCH_LIMIT:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Ask for at most {PENDING_BATCH_LIMIT} tasks at once",
+        )
+    if not wanted:
+        return {"tasks": {}}
+    tasks = [task for task in await db.assignedtask.find_many(where={"id": {"in": wanted}}) if _can_see_task(task, current_user)]
+    jobs: dict[tuple, Any] = {}
+    plan: dict[str, list[tuple[str, tuple]]] = {}
+    for task in tasks:
+        artisans = list(task.artisanIds or [])
+        entries: list[tuple[str, tuple]] = []
+        for kind in _pending_kinds(task):
+            scoped = _record_scope(kind, task.assigneeId, task.workshopId, artisans)
+            if scoped is None:
+                continue
+            key = (kind, task.assigneeId, task.workshopId, tuple(sorted(artisans)))
+            if key not in jobs:
+                delegate, where = scoped
+                jobs[key] = delegate.count(where={**where, "status": "PENDING"})
+            entries.append((kind, key))
+        plan[task.id] = entries
+    keys = list(jobs)
+    counted = dict(zip(keys, await gather_reads(*(jobs[key] for key in keys)))) if keys else {}
+    out: dict[str, Any] = {}
+    for task in tasks:
+        by_type = {kind: int(counted[key]) for kind, key in plan[task.id]}
+        out[task.id] = {
+            "total": sum(by_type.values()),
+            "byType": by_type,
+            "reviewQuery": _review_query(task, _pending_kinds(task)),
+        }
+    return {"tasks": out}
+
+
 @router.get("/{task_id}")
 async def get_task(task_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     """One task, enriched exactly like a list item. Visible to the assignee, the creator and admins."""
@@ -1637,18 +1719,12 @@ async def task_pending_records(task_id: str, current_user: Any = Depends(get_cur
     Visible to the assignee, the creator and admins, like the task itself.
     """
     task = await require_task(task_id)
-    if (
-        task.assigneeId != current_user.id
-        and task.createdById != current_user.id
-        and not is_content_admin(current_user)
-    ):
+    if not _can_see_task(task, current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only the assignee, the creator, or an admin can view this task",
         )
-    kinds = [kind for kind in (task.recordTypes or []) if kind in PENDING_REVIEW_KINDS] or list(
-        PENDING_REVIEW_KINDS
-    )
+    kinds = _pending_kinds(task)
     by_type: dict[str, int] = {}
     items: list[dict[str, Any]] = []
     for kind in kinds:
@@ -1678,16 +1754,11 @@ async def task_pending_records(task_id: str, current_user: Any = Depends(get_cur
     items.sort(key=lambda item: str(item.get("submittedAt") or ""))
     # The queue filter for EXACTLY these records: the assignee, the workshop, the task's kinds (always
     # sent, so the queue never adds the assignee's pending workshops) and its artisans.
-    review_query: dict[str, str] = {"createdById": task.assigneeId, "recordType": ",".join(kinds)}
-    if task.workshopId:
-        review_query["workshopId"] = task.workshopId
-    if task.artisanIds:
-        review_query["artisanId"] = ",".join(sorted(str(a) for a in task.artisanIds))
     return {
         "total": sum(by_type.values()),
         "byType": by_type,
         "items": items[:PENDING_LIST_LIMIT],
-        "reviewQuery": review_query,
+        "reviewQuery": _review_query(task, kinds),
     }
 
 
