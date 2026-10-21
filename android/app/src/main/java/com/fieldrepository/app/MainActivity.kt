@@ -1802,10 +1802,12 @@ private fun HomeScreen(
             }
         }
     }
-    LaunchedEffect(Unit) { checkForUpdate() }
     // Re-check on resume. The activity is the LifecycleOwner; cast defensively so a failure simply
-    // falls back to the launch-time check rather than crashing.
+    // falls back to the launch-time check rather than crashing. An observer added to a resumed
+    // lifecycle is handed ON_RESUME at once, so with an owner that IS the launch check: running the
+    // launch effect as well asked twice on every cold start.
     val lifecycleOwner = context as? androidx.lifecycle.LifecycleOwner
+    LaunchedEffect(Unit) { if (lifecycleOwner == null) checkForUpdate() }
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) scope.launch { checkForUpdate() }
