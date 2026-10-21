@@ -48,6 +48,7 @@ import { ComboBox, Dropdown } from "@/components/ui/Dropdown";
 import { useLeaveInterceptor } from "@/components/UnsavedChangesGuard";
 import { listResource } from "@/lib/api";
 import type { Workshop } from "@/lib/types";
+import { loadWorkshopList } from "@/lib/workshopList";
 
 
 /**
@@ -568,7 +569,7 @@ export function RecordSwitcher({
   const [workshopId, setWorkshopId] = useState("");
   useEffect(() => {
     let cancelled = false;
-    listResource<Workshop>("/workshops", { pageSize: 100 })
+    loadWorkshopList()
       .then((result) => {
         if (!cancelled) setWorkshops(sortWorkshopsByOccurrence(result.items));
       })

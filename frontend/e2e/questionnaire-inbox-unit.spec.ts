@@ -1,6 +1,10 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { expect, test } from "@playwright/test";
 
 import { continueBody, latestSession } from "@/components/questionnaire/ContinueWithDialog";
+import { readInbox } from "@/components/questionnaire/useInboxCount";
 import type { Recording, RecordSession, Session } from "@/lib/questionnaireApi";
 import { inboxLabel, inboxRowKey, normaliseInbox, reviewRequest, visibleInbox } from "@/lib/questionnaireInbox";
 import { prompts } from "@/lib/questionnairePrompts";
@@ -92,4 +96,27 @@ test("Continue with… carries on from the latest session; one artisan is one se
   expect(latestSession(sessions)?.session.id).toBe("new");
   expect(continueBody({ fromSessionId: "new", artisanIds: ["a1"], split: "EACH", sessionDate: "2026-10-18" }).split).toBe("ONE");
   expect(continueBody({ fromSessionId: "new", artisanIds: ["a1", "a2"], split: "EACH", sessionDate: "2026-10-18" }).split).toBe("EACH");
+});
+
+test("the inbox reads the artisan list once for every Who-was-there row, within the API's cap", () => {
+  const source = readFileSync(join(__dirname, "..", "components/questionnaire/InboxList.tsx"), "utf8");
+  expect(source.match(/listResource<Artisan>\(/g)?.length).toBe(1);
+  expect(source).toContain('listResource<Artisan>("/artisans", { pageSize: LIST_PAGE_CEILING })');
+  expect(source).not.toContain("pageSize: 200");
+  expect(source).toContain("options={artisanOptions}");
+});
+
+test("the badge and the inbox page share one inbox request; a reload after an action reads afresh", async () => {
+  let calls = 0;
+  const fetchInbox = async () => {
+    calls += 1;
+    return normaliseInbox({});
+  };
+  await Promise.all([readInbox(false, fetchInbox), readInbox(false, fetchInbox)]);
+  expect(calls).toBe(1);
+  await Promise.all([readInbox(false, fetchInbox), readInbox(true, fetchInbox)]);
+  expect(calls).toBe(3);
+  const list = readFileSync(join(__dirname, "..", "components/questionnaire/InboxList.tsx"), "utf8");
+  expect(list).toContain("void load(false);");
+  expect(list).toContain("setRaw(await readInbox(fresh));");
 });

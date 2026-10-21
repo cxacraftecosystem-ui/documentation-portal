@@ -62,6 +62,7 @@ import { LIST_PAGE_CEILING, listCut, mergeById, type ListCut } from "@/component
 import type { CarryScopeState } from "@/components/forms/CarryContextBanner";
 import { apiFetch, listResource } from "@/lib/api";
 import { useCraftCatalogue } from "@/lib/craftCatalogue";
+import { sharedListResource } from "@/lib/sharedList";
 import type { Artisan, Craft } from "@/lib/types";
 
 /** What a picker needs of a craft: the master list's id and name. */
@@ -137,7 +138,12 @@ export function useRecordOffPage<T extends { id: string }>(
 export function useRecordsOffPage<T extends { id: string }>(
   endpoint: string,
   ids: readonly string[],
-  rows: readonly T[]
+  rows: readonly T[],
+  /**
+   * False while the page that may already hold these ids is still loading: asking by id before it
+   * lands fetched every linked row, including the ones the page was about to bring anyway.
+   */
+  ready = true
 ): T[] {
   const [records, setRecords] = useState<Record<string, T>>({});
   const attempted = useRef(new Set<string>());
@@ -160,7 +166,7 @@ export function useRecordsOffPage<T extends { id: string }>(
     unmount is a no-op in React 18+.
   */
   useEffect(() => {
-    if (!missingKey) return;
+    if (!ready || !missingKey) return;
     for (const id of missingKey.split(",")) {
       if (attempted.current.has(id)) continue;
       attempted.current.add(id);
@@ -172,7 +178,7 @@ export function useRecordsOffPage<T extends { id: string }>(
           // who it points at; this form simply cannot offer to change it.
         });
     }
-  }, [endpoint, missingKey]);
+  }, [endpoint, missingKey, ready]);
 
   // Rows fetched for ids the researcher has since UNTICKED are dropped rather than left merged in:
   // an option that is neither on a page nor selected is an option nobody can account for.
@@ -258,7 +264,8 @@ export function useCraftAndArtisanOptions({
   // (1) The repository-wide artisan load; the crafts are the catalogue above, whole.
   useEffect(() => {
     let cancelled = false;
-    listResource<Artisan>("/artisans", { pageSize: LIST_PAGE_CEILING })
+    // The same page `useServerSearchList` reads on a form that mounts both: one request between them.
+    sharedListResource<Artisan>("/artisans", { pageSize: LIST_PAGE_CEILING })
       .then((artisanResult) => {
         if (cancelled) return;
         setArtisans((previous) => mergeById(previous, artisanResult.items));
@@ -320,7 +327,8 @@ export function useCraftAndArtisanOptions({
   // (3) The record's own artisans, whatever page they are on — see `useRecordOffPage` for why a
   // picker that cannot draw its own current value is worse than one that is merely short, and
   // `useRecordsOffPage` for why a multi-select needs that rescue once per ticked id.
-  const offPageArtisans = useRecordsOffPage<Artisan>("/artisans", artisanIds, artisans);
+  // Only once the mount load has answered (or failed), so ids that page holds are never fetched one by one.
+  const offPageArtisans = useRecordsOffPage<Artisan>("/artisans", artisanIds, artisans, artisanState !== "pending");
   const allArtisans = useMemo(
     () => (offPageArtisans.length ? mergeById(artisans, offPageArtisans) : artisans),
     [artisans, offPageArtisans]

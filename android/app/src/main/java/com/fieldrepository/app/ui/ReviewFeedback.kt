@@ -34,14 +34,17 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalContext
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.ReviewSend
 import com.fieldrepository.app.data.LatestReviewDto
+import com.fieldrepository.app.data.RecordMediaReviewDto
 import com.fieldrepository.app.data.ReturnedRecordDto
 import com.fieldrepository.app.data.ReviewReasonDto
 import com.fieldrepository.app.data.apiErrorMessage
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.launch
 
 /**
@@ -400,6 +403,10 @@ fun SentBackCard(
  * `components/review/RecordReviewBar.tsx`. Drawn only when the server says this reader may review
  * this record, so it never offers a decision the API refuses. [mayReview] is the account's review
  * access; without it nothing is asked.
+ *
+ * [mediaReview] is the page's own `GET /review/{type}/{id}/media` answer when the page reads it
+ * anyway: the bar waits for it instead of asking a second time, and asks itself only when it is
+ * absent or came back empty (null).
  */
 @Composable
 fun RecordReviewBar(
@@ -408,6 +415,7 @@ fun RecordReviewBar(
     recordId: String,
     knownStatus: String?,
     mayReview: Boolean,
+    mediaReview: Deferred<RecordMediaReviewDto?>? = null,
     onDecided: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -425,6 +433,7 @@ fun RecordReviewBar(
     var approvesWith by remember(recordType, recordId) { mutableStateOf(0) }
     var confirmApprove by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val sharedMediaReview by rememberUpdatedState(mediaReview)
     LaunchedEffect(recordType, recordId, knownStatus, mayReview) {
         if (!ReviewFeedbackCopy.barNeedsFetch(knownStatus, mayReview)) {
             canReview = false
@@ -434,7 +443,12 @@ fun RecordReviewBar(
             .onSuccess { canReview = it.canReview && it.status == "PENDING"; late = it.needsAdminApproval }
             .onFailure { canReview = false }
         runCatching { repository.reviewReasons() }.onSuccess { reasons = it }
-        runCatching { repository.recordMediaReview(recordType, recordId) }.onSuccess { approvesWith = it.approvesWith }
+        val shared = sharedMediaReview?.await()
+        if (shared != null) {
+            approvesWith = shared.approvesWith
+        } else {
+            runCatching { repository.recordMediaReview(recordType, recordId) }.onSuccess { approvesWith = it.approvesWith }
+        }
     }
     if (!canReview || decided) return
     val reason = reasons.firstOrNull { it.code == reasonCode }

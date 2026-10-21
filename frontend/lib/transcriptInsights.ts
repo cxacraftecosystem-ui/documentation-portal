@@ -10,7 +10,9 @@
  *
  * A 404 means the feature is switched off (or the media is gone): the section is hidden, with no
  * message. While a summary is queued or being written the hook polls every 15 s for 10 minutes,
- * then every minute until it lands: a job can wait behind a long transcription backlog.
+ * then every minute until it lands: a job can wait behind a long transcription backlog. The polls
+ * run on ONE module-level timer (`createInsightPoller`), so every block still working on a page is
+ * re-read in the same batched request rather than each on its own clock.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -108,6 +110,72 @@ export function createInsightBatcher(
 
 const sharedLoad = createInsightBatcher(fetchInsightBatch);
 
+/** Polls that fall due within this window of each other are sent together. */
+export const POLL_COALESCE_MS = 1_000;
+
+export type PollTimers = {
+  now: () => number;
+  set: (run: () => void, ms: number) => unknown;
+  clear: (handle: unknown) => void;
+};
+
+const browserTimers: PollTimers = {
+  now: () => Date.now(),
+  set: (run, ms) => globalThis.setTimeout(run, ms),
+  clear: (handle) => globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>)
+};
+
+/**
+ * One timer for every block still working. Each watcher keeps its own cadence (`pollDelay` from its
+ * own start), but whatever falls due together is asked for in the same tick, so the batcher sends
+ * one `GET /media/insights?ids=` for all of them. Pure apart from the injected `load` and `timers`.
+ */
+export function createInsightPoller(load: (id: string) => Promise<BatchAnswer>, timers: PollTimers = browserTimers) {
+  type Watch = { id: string; started: () => number; onAnswer: (answer: BatchAnswer) => void; due: number; inFlight: boolean };
+  const watches = new Set<Watch>();
+  let handle: unknown = null;
+
+  function arm() {
+    if (handle !== null) timers.clear(handle);
+    handle = null;
+    let next = Infinity;
+    for (const watch of watches) if (!watch.inFlight && watch.due < next) next = watch.due;
+    if (next === Infinity) return;
+    handle = timers.set(fire, Math.max(0, next - timers.now()));
+  }
+
+  function fire() {
+    handle = null;
+    const now = timers.now();
+    for (const watch of watches) {
+      if (watch.inFlight || watch.due > now + POLL_COALESCE_MS) continue;
+      watch.inFlight = true;
+      void load(watch.id).then((answer) => {
+        watch.inFlight = false;
+        if (!watches.has(watch)) return;
+        watch.onAnswer(answer);
+        const at = timers.now();
+        watch.due = at + pollDelay(at - watch.started());
+        arm();
+      });
+    }
+    arm();
+  }
+
+  return function watch(id: string, started: () => number, onAnswer: (answer: BatchAnswer) => void): () => void {
+    const now = timers.now();
+    const entry: Watch = { id, started, onAnswer, due: now + pollDelay(now - started()), inFlight: false };
+    watches.add(entry);
+    arm();
+    return () => {
+      watches.delete(entry);
+      arm();
+    };
+  };
+}
+
+const sharedWatch = createInsightPoller(sharedLoad);
+
 export function isWorking(view: TranscriptInsightView | null | undefined): boolean {
   return view?.state === "QUEUED" || view?.state === "PROCESSING";
 }
@@ -141,22 +209,13 @@ export function useTranscriptInsight(mediaId: string | null | undefined, { enabl
   const working = isWorking(view);
   useEffect(() => {
     if (!mediaId || !working) return;
-    let cancelled = false;
-    let timer = 0;
-    const next = () => {
-      timer = window.setTimeout(() => {
-        void sharedLoad(mediaId).then((answer) => {
-          if (cancelled) return;
-          if (answer !== "error") setView(answer);
-          next();
-        });
-      }, pollDelay(Date.now() - started.current));
-    };
-    next();
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
+    return sharedWatch(
+      mediaId,
+      () => started.current,
+      (answer) => {
+        if (answer !== "error") setView(answer);
+      }
+    );
   }, [mediaId, working]);
 
   const replace = useCallback((next: TranscriptInsightView) => {

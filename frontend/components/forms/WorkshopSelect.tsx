@@ -5,8 +5,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Field } from "@/components/FormControls";
 import { LateSubmissionDialog } from "@/components/LateSubmissionDialog";
 import { ComboBox } from "@/components/ui/Dropdown";
-import { apiFetch, listResource } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import type { Workshop, WorkshopSubmissionCheck } from "@/lib/types";
+import { loadWorkshopList } from "@/lib/workshopList";
 import { hasTypedTitle, workshopDisplayTitle } from "@/lib/workshopTitle";
 
 /**
@@ -306,7 +307,7 @@ export function useWorkshopSelection({
 
   useEffect(() => {
     let cancelled = false;
-    listResource<Workshop>("/workshops", { pageSize: 100 })
+    loadWorkshopList()
       .then((result) => {
         if (!cancelled) setWorkshops(sortWorkshopsByOccurrence(result.items));
       })
