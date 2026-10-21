@@ -76,6 +76,13 @@ class InboxActionsTest {
         assertEquals("subjects left to the server when everyone there answered", setOf("sessionId", "targets"), everyone.keys)
     }
 
+    @Test fun `Not needed is kept on the server, so every device agrees`() {
+        val method = com.fieldrepository.app.data.QuestionnaireApi::class.java.methods.single { it.name == "mediaNotNeeded" }
+        assertEquals("questionnaire/media/{id}/not-needed", method.getAnnotation(retrofit2.http.POST::class.java)!!.value)
+        val file = com.fieldrepository.app.data.QuestionnaireApi::class.java.methods.single { it.name == "fileMedia" }
+        assertEquals("questionnaire/media/{id}/file", file.getAnnotation(retrofit2.http.POST::class.java)!!.value)
+    }
+
     @Test fun `a legacy row carries its candidate questions as pills`() {
         val row = legacyRow(obj("""{"recordingId":"r1","sessionId":"s1","candidates":[{"questionLineageId":"lin7","prompt":"Tools you use"},{"questionLineageId":"lin8"}],"capturedAt":"2026-06-20T05:00:00Z"}"""))
         assertEquals(listOf("lin7" to "Tools you use", "lin8" to "lin8"), row.candidates.map { it.lineageId to it.prompt })

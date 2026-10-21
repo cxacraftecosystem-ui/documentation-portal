@@ -131,6 +131,10 @@ interface QuestionnaireApi {
     @POST("questionnaire/media/{id}/file")
     suspend fun fileMedia(@Path("id") mediaId: String, @Body body: QFileMediaRequest): QRecording
 
+    /** "Not needed" on an inbox "To file" clip, kept on the server so every device agrees; deletes nothing. */
+    @POST("questionnaire/media/{id}/not-needed")
+    suspend fun mediaNotNeeded(@Path("id") mediaId: String): JsonObject
+
     /** An inbox "Needs a decision" row: keep both takes, or keep this one. */
     @POST("questionnaire/recordings/{id}/decide")
     suspend fun decide(@Path("id") id: String, @Body body: QDecideRequest): QRecording

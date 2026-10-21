@@ -281,7 +281,11 @@ fun InboxScreen(
                     )
                     when (row.section) {
                         InboxSection.TO_FILE -> PromptButtons(listOfNotNull(
-                            PromptButton(QuestionnaireCopy.s("inbox.notNeeded")) { dismiss(row) },
+                            PromptButton(QuestionnaireCopy.s("inbox.notNeeded")) {
+                                // Kept on the server so every device agrees; hidden here at once either way.
+                                dismiss(row)
+                                row.mediaId?.let { id -> scope.launch { runCatching { v2.api.mediaNotNeeded(id) } } }
+                            },
                             row.mediaId?.let { PromptButton(QuestionnaireCopy.s("inbox.fileIt"), primary = true) { filing = row } }
                         ))
                         InboxSection.NEEDS_DECISION -> if (row.recordingId != null) PromptButtons(listOf(
