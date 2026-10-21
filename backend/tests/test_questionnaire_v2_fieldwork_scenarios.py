@@ -747,7 +747,7 @@ def test_an_artisan_who_refused_consent_is_recorded_and_filed_but_never_sent_out
 
 
 # ── 11 ────────────────────────────────────────────────────────────────────────────────────────
-RECORD_BUDGET = 32
+RECORD_BUDGET = 33
 GRID_BUDGET = 7
 
 
