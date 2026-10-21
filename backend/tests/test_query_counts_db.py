@@ -387,6 +387,9 @@ def test_the_idle_tick_probe_says_true_for_due_stale_and_retried_work(monkeypatc
         stale_job = now - media_queue.STALE_PROCESSING_AFTER - timedelta(minutes=1)
         stale_mail = now - email_outbox.STALE_SENDING_AFTER - timedelta(minutes=1)
         fresh_lock = now - timedelta(seconds=30)
+        # A row's own runAfter defaults to the moment it is written, which is after `now` above: a due row
+        # is given one a minute back, so "due" does not depend on how fast the inserts run.
+        due_at = now - timedelta(minutes=1)
         cases: list[tuple[str, list[dict[str, Any]], list[dict[str, Any]], bool, datetime, tuple[bool, bool]]] = [
             ("nothing", [], [], False, now, (False, False)),
             ("due measurement", [{"jobType": "MEASUREMENT"}], [], False, now, (True, False)),
@@ -419,10 +422,11 @@ def test_the_idle_tick_probe_says_true_for_due_stale_and_retried_work(monkeypatc
                             "bucket": "b", "objectKey": f"probe/{ids.tag}/{len(seen)}/{n}", "url": "u",
                             "uploadedBy": {"connect": {"id": ids.lead.id}},
                         })
-                        await client.mediaprocessingjob.create(data={"mediaFileId": media.id, **job})
+                        await client.mediaprocessingjob.create(data={"mediaFileId": media.id, "runAfter": due_at, **job})
                     for n, mail in enumerate(mails):
                         await client.emailmessage.create(data={
-                            "kind": "probe", "toAddress": f"probe{n}{ids.tag}@example.test", "subject": "Probe", **mail,
+                            "kind": "probe", "toAddress": f"probe{n}{ids.tag}@example.test", "subject": "Probe", "runAfter": due_at,
+                            **mail,
                         })
                     seen.append((name, await media_queue.queue_work_due(at), expected))
             return seen
