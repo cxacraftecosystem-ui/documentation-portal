@@ -133,7 +133,7 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 
 | Area | Tracked files | Tracked lines | Tree files | Tree lines |
 |---|---|---|---|---|
-| `backend/app` | 230 | 78,932 | 230 | 78,932 |
+| `backend/app` | 230 | 78,935 | 230 | 78,935 |
 | `frontend/app` | 78 | 22,963 | 78 | 22,963 |
 | `frontend/components` | 277 | 69,903 | 277 | 69,903 |
 | `frontend/lib` | 129 | 41,213 | 129 | 41,213 |

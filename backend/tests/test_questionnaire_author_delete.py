@@ -90,6 +90,8 @@ def test_the_author_or_an_admin_deletes_and_restores_the_form_and_nobody_else(mo
     async def go() -> None:
         client, ids, other = await _setup(monkeypatch)
         try:
+            # The instrument names its author, which is what the clients draw the controls from.
+            assert (await questionnaire.get_questionnaire(ids.q, other))["createdById"] == ids.prof.id
             await _refused(lambda: questionnaire.delete_questionnaire(ids.q, other))
             await _refused(lambda: questionnaire.update_questionnaire(ids.q, QuestionnaireUpdate(isActive=False), other))
             assert await _active(client, "Questionnaire", ids.q)

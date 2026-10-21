@@ -2293,6 +2293,9 @@ def _instrument_payload(row: Any, counts: dict[str, dict[str, int]]) -> dict[str
         "questionCount": tally.get("questions", 0),
         "workshopCount": tally.get("workshops", 0),
         "createdAt": public_encode(row.createdAt),
+        # The AUTHOR, so a client can draw the form's Delete, Retire and Remove for them as well as
+        # for a content admin (owner, 22 Oct 2026). Null on a form with no recorded author.
+        "createdById": get_value(row, "createdById"),
     }
 
 
