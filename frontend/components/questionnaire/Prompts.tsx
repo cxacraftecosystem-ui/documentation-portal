@@ -2,7 +2,7 @@
 
 import { FieldDialog } from "@/components/dialogs/FieldDialog";
 import { ButtonRow } from "@/components/ui/ButtonRow";
-import type { PromptButton, PromptSpec } from "@/lib/questionnairePrompts";
+import { DISMISSED, type PromptButton, type PromptSpec } from "@/lib/questionnairePrompts";
 
 /** The class each prompt button wears, by tone. */
 export function promptButtonClass(tone: PromptButton["tone"]): string {
@@ -29,8 +29,9 @@ function buttons(spec: PromptSpec, onChoose: (id: string) => void) {
 }
 
 /**
- * A modal prompt (P1, P3, P5, P7, P7r, P8, P9, P10, P13, leave, finish). The first non-destructive
- * button is the one Escape and the backdrop resolve to, so nothing is lost by a reflex dismissal.
+ * A modal prompt (P1, P3, P5, P7, P7r, P8, P9, P10, P13, leave, finish). Escape and the backdrop
+ * resolve to the spec's own `dismiss` — the choice that loses nothing — or to `DISMISSED`, which no
+ * handler acts on (audit H16). Never "the first secondary button": for P13 that was Discard.
  */
 export function PromptDialog({
   spec,
@@ -43,7 +44,7 @@ export function PromptDialog({
   onChoose: (id: string) => void;
   children?: React.ReactNode;
 }) {
-  const safe = spec.buttons.find((b) => b.tone !== "primary" && b.tone !== "danger")?.id ?? spec.buttons[0]?.id ?? "cancel";
+  const safe = spec.dismiss ?? DISMISSED;
   const row = buttons(spec, onChoose);
   return (
     <FieldDialog
