@@ -184,6 +184,9 @@ test("H13, H14: Keep one, Part 2 and File it happen in the inbox, never by a lin
   expect(list).toContain("questionnaireApi.fileClip(");
   expect(list, "Not needed is stored on the server (audit M22)").toContain("questionnaireApi.dismissClip(r.mediaId)");
   expect(list).not.toMatch(/href=\{sessionHref\(r\.sessionId\)\}>\s*\{qs\("(keepOne|fileIt)"\)\}/);
+  // Keep one removes the other take: drawn for content admins only, as the server refuses anyone else.
+  expect(list).toContain("{other && canDeleteRecords ? (");
+  expect(list).toContain("{choosing && canDeleteRecords && self && other ? (");
   const api = readFileSync(join(__dirname, "..", "lib", "questionnaireApi.ts"), "utf8");
   expect(api).toContain("`${Q}/media/${encodeURIComponent(mediaId)}/file`");
   expect(api).toContain("`${Q}/media/${encodeURIComponent(mediaId)}/not-needed`");

@@ -7,8 +7,8 @@ whose host is not loopback. It reuses the backend's own questionnaire v2 fixture
 one session as the backfill rebuilt them: with a NULL clientKey (audit C4).
 
 Writes a JSON file (the path is the first argument) the spec reads: ids, question lineages, and
-short-lived bearer tokens for two researchers. The tokens are for that throwaway database and die
-with the runner.
+short-lived bearer tokens for two researchers and a content admin. The tokens are for that throwaway
+database and die with the runner.
 
 Usage:  python ../scripts/ci/seed_qv2_stack.py "$RUNNER_TEMP/qv2-seed.json"
 """
@@ -55,7 +55,8 @@ async def main(out_path: str) -> None:
             "questions": {str(r["displayCode"]): str(r["lineageId"]) for r in rows},
             "artisans": ids.artisans,
             "rebuiltSessionId": str(rebuilt["id"]),
-            "tokens": {"lead": create_access_token(ids.lead.id), "other": create_access_token(ids.other.id)},
+            "tokens": {"lead": create_access_token(ids.lead.id), "other": create_access_token(ids.other.id),
+                       "admin": create_access_token(ids.admin.id)},
         }
     finally:
         await db.disconnect()

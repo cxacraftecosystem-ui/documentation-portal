@@ -816,13 +816,22 @@ class _Row:
 
 def _authored_by_u1(api: _Api) -> _Api:
     return (
-        api.preload("questionnaire", _Row("questionnaire", SimpleNamespace(id="f1", createdById="u1", isDefault=False, isActive=True)))
+        api.preload("questionnaire", _Row("questionnaire", _Form(id="f1", createdById="u1", isDefault=False, isActive=True)))
         .preload("questionnairesection", _Row("questionnairesection", _SECTION))
         .preload("questionnairequestion", _Row("questionnairequestion", _QUESTION))
     )
 
 
-_SECTION = SimpleNamespace(id="x1", questionnaireId="f1", isActive=True, code="A", title="About the craft")
+class _Form(SimpleNamespace):
+    """The form row. The gate reads only who wrote it; a handler reading its CONTENT (the workbook
+    export reads the title first) is the handler at work."""
+
+    @property
+    def title(self) -> str:
+        raise _DatabaseTouched("questionnaire.title")
+
+
+_SECTION = SimpleNamespace(id="x1", questionnaireId="f1", isActive=True, code="A", title="About the craft", sortOrder=1)
 _QUESTION = SimpleNamespace(
     id="x1", questionnaireId="f1", isActive=True, sectionId="x1", sectionCode="A", prompt="How long?", sortOrder=1
 )
@@ -902,7 +911,7 @@ def test_another_questionnaire_manager_is_refused_the_edit(api: _Api, method: st
 def test_a_form_with_no_recorded_author_is_edited_by_a_content_admin_alone(
     api: _Api, method: str, path: str, body: Any
 ) -> None:
-    api.preload("questionnaire", _Row("questionnaire", SimpleNamespace(id="f1", createdById=None, isDefault=False, isActive=True)))
+    api.preload("questionnaire", _Row("questionnaire", _Form(id="f1", createdById=None, isDefault=False, isActive=True)))
     api.preload("questionnairesection", _Row("questionnairesection", _SECTION))
     api.preload("questionnairequestion", _Row("questionnairequestion", _QUESTION))
     assert api.as_(_user("PROFESSOR", "u1", canManageQuestionnaire=True)).call(method, path, body).refused

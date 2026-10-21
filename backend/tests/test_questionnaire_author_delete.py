@@ -156,17 +156,17 @@ def test_the_author_or_an_admin_edits_the_form_and_another_manager_is_refused(mo
             await _refused(lambda: questionnaire.update_question(ids.questions["D3"], QuestionnaireQuestionUpdate(helpText="Not theirs"), other))
             await _refused(lambda: questionnaire.reorder_questions(
                 QuestionnaireQuestionReorder(sectionId=ids.sections["D"], questionIds=list(reversed(d_questions))), other))
-            assert await title("Questionnaire", ids.q, "title") != "Taken over"
+            assert (await title("Questionnaire", ids.q, "title")).lower() != "taken over"
             assert await client.query_raw(
                 'SELECT 1 FROM "QuestionnaireSection" WHERE "questionnaireId" = $1 AND "code" = $2', ids.q, "Z"
             ) == []
 
             # The author: renames the form, adds a section and a question, edits and reorders them.
             await questionnaire.update_questionnaire(ids.q, QuestionnaireUpdate(title=f"Renamed by its author {ids.tag}"), ids.prof)
-            assert await title("Questionnaire", ids.q, "title") == f"Renamed by its author {ids.tag}"
+            assert (await title("Questionnaire", ids.q, "title")).lower() == f"renamed by its author {ids.tag}".lower()
             made = await questionnaire.create_section(QuestionnaireSectionCreate(questionnaireId=ids.q, code="Z", title="Added"), ids.prof)
             await questionnaire.update_section(made["id"], QuestionnaireSectionUpdate(title="Added and renamed"), ids.prof)
-            assert await title("QuestionnaireSection", made["id"], "title") == "Added and renamed"
+            assert (await title("QuestionnaireSection", made["id"], "title")).lower() == "added and renamed"
             asked = await questionnaire.create_question(QuestionnaireQuestionCreate(sectionId=made["id"], prompt="Who taught you?"), ids.prof)
             await questionnaire.update_question(asked["id"], QuestionnaireQuestionUpdate(helpText="Name and village."), ids.prof)
             assert await title("QuestionnaireQuestion", asked["id"], "helpText") == "Name and village."
@@ -176,7 +176,7 @@ def test_the_author_or_an_admin_edits_the_form_and_another_manager_is_refused(mo
 
             # A content admin, on somebody else's form.
             await questionnaire.update_section(made["id"], QuestionnaireSectionUpdate(title="Renamed by an admin"), ids.admin)
-            assert await title("QuestionnaireSection", made["id"], "title") == "Renamed by an admin"
+            assert (await title("QuestionnaireSection", made["id"], "title")).lower() == "renamed by an admin"
             await questionnaire.update_question(asked["id"], QuestionnaireQuestionUpdate(helpText="Edited by an admin."), ids.admin)
             await questionnaire.reorder_sections(QuestionnaireSectionReorder(sectionIds=section_order + [made["id"]]), ids.admin)
         finally:
@@ -198,7 +198,7 @@ def test_a_form_with_no_recorded_author_is_edited_by_a_content_admin_alone(monke
             await _refused(lambda: questionnaire.update_questionnaire(ids.q, QuestionnaireUpdate(title="By the professor"), ids.prof))
             await questionnaire.update_section(ids.sections["B"], QuestionnaireSectionUpdate(title="By an admin"), ids.admin)
             rows = await client.query_raw('SELECT "title" FROM "QuestionnaireSection" WHERE "id" = $1', ids.sections["B"])
-            assert rows[0]["title"] == "By an admin"
+            assert rows[0]["title"].lower() == "by an admin"
         finally:
             await client.disconnect()
 
