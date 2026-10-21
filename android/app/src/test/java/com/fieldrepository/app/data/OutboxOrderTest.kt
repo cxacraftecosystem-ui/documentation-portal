@@ -47,10 +47,14 @@ class OutboxOrderTest {
         // The answers typed before the session synced now name the server's session.
         assertTrue(server.bodies.last().contains("\"sessionId\":\"s-2\""))
 
-        // A second pass sends nothing: everything was ticked off, and the unit is gone.
+        // A second pass sends nothing: everything was ticked off. The unit stays while the session is
+        // open (audit C2), and goes once its Finish has landed.
         val callsBefore = server.calls.size
         outbox.sync(server, "u3")
         assertEquals(callsBefore, server.calls.size)
+        assertEquals(1, outbox.units().size)
+        outbox.finishSession("c-1")
+        outbox.sync(server, "u3")
         assertTrue(outbox.units().isEmpty())
     }
 

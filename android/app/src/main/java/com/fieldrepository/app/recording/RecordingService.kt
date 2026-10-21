@@ -89,7 +89,8 @@ class RecordingService : Service() {
             rec.start()
         } catch (failed: Exception) {
             rec.stop()
-            _state.value = State.Finished(draft, "error:start")
+            // The workspace reads this reason and says the recorder could not start (audit M23).
+            _state.value = State.Finished(draft, REASON_START_FAILED)
             stopForegroundCompat()
             stopSelf()
             return
@@ -118,6 +119,8 @@ class RecordingService : Service() {
     private fun finish(reason: String) {
         val s = state.value as? State.Recording ?: run { stopSelf(); return }
         handler.removeCallbacks(ticker)
+        handler.removeCallbacks(endAfterLongLoss)
+        pausedForFocus = false
         recorder?.stop()
         recorder = null
         abandonFocus()
@@ -133,6 +136,10 @@ class RecordingService : Service() {
                 // A group take waits for the workspace's "Answered by" chips (§3.4), which send it;
                 // a solo take, or one whose workspace is gone, goes now.
                 if (queued.subjects.size <= 1 || reason == "leave" || reason == "destroyed") OutboxSyncWorker.schedule(app)
+            }.onFailure {
+                // Never swallowed (audit C2): the draft stays on the phone unqueued, so P13 offers it
+                // back, and the workspace says so now.
+                _state.value = State.Finished(draft, REASON_QUEUE_FAILED)
             }
             stopSelf()
         }
@@ -148,9 +155,34 @@ class RecordingService : Service() {
         super.onDestroy()
     }
 
-    // A phone call takes audio focus: the take ends cleanly and the next Record offers Part 2.
+    // Audio focus (audit M23: any brief loss used to end the take). A permanent loss ends the take
+    // cleanly and the next Record offers Part 2. A brief one (a call, the assistant) pauses it and
+    // focus coming back resumes it, so the file stays one take; a brief loss that never comes back
+    // ends it after [TRANSIENT_LOSS_LIMIT_MS]. Ducking is ignored: the microphone is unaffected.
+    private var pausedForFocus = false
+    private val endAfterLongLoss = Runnable { if (pausedForFocus) finish("call") }
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
-        if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) handler.post { finish("call") }
+        handler.post { onFocusChange(change) }
+    }
+
+    private fun onFocusChange(change: Int) {
+        val action = focusAction(change, pausedForFocus)
+        when (action) {
+            FocusAction.END -> finish("call")
+            FocusAction.PAUSE -> {
+                val s = state.value as? State.Recording ?: return
+                if (s.pausedAt != null) return
+                pausedForFocus = true
+                pause()
+                handler.postDelayed(endAfterLongLoss, TRANSIENT_LOSS_LIMIT_MS)
+            }
+            FocusAction.RESUME -> {
+                pausedForFocus = false
+                handler.removeCallbacks(endAfterLongLoss)
+                resume()
+            }
+            FocusAction.NONE -> Unit
+        }
     }
 
     private fun requestFocus() {
@@ -196,7 +228,24 @@ class RecordingService : Service() {
             .build()
     }
 
+    enum class FocusAction { END, PAUSE, RESUME, NONE }
+
     companion object {
+        /** The recorder could not start; the draft holds nothing. */
+        const val REASON_START_FAILED = "error:start"
+        /** The take was recorded but could not be queued; its draft waits on the phone for P13. */
+        const val REASON_QUEUE_FAILED = "error:queue"
+        /** A brief focus loss longer than this (a long call) ends the take instead of holding it paused. */
+        const val TRANSIENT_LOSS_LIMIT_MS = 10 * 60 * 1000L
+
+        /** What a focus change does to a running take; pure so a JVM test pins it. */
+        fun focusAction(change: Int, pausedForFocus: Boolean): FocusAction = when (change) {
+            AudioManager.AUDIOFOCUS_LOSS -> FocusAction.END
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> FocusAction.PAUSE
+            AudioManager.AUDIOFOCUS_GAIN -> if (pausedForFocus) FocusAction.RESUME else FocusAction.NONE
+            else -> FocusAction.NONE
+        }
+
         const val ACTION_START = "com.fieldrepository.app.recording.START"
         const val ACTION_PAUSE = "com.fieldrepository.app.recording.PAUSE"
         const val ACTION_RESUME = "com.fieldrepository.app.recording.RESUME"
