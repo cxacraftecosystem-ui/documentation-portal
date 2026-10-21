@@ -134,10 +134,15 @@ export default function TaskAssignmentBoardPage() {
     loadBatches();
   }, [loadBatches]);
 
-  // A new workshop scope invalidates the page the batch list was sitting on.
-  useEffect(() => {
-    setBatchPage(1);
-  }, [workshopId]);
+  // A new workshop scope invalidates the page the batch list was sitting on. Set in the same
+  // update as the scope, so the batch list is asked for once (an effect asked twice from page 2+).
+  const chooseWorkshop = useCallback(
+    (next: string) => {
+      if (next !== workshopId) setBatchPage(1);
+      setWorkshopId(next);
+    },
+    [workshopId]
+  );
 
   const workshopOptions = useMemo(
     () => [
@@ -235,7 +240,7 @@ export default function TaskAssignmentBoardPage() {
               {/* Filters the whole page in place, so it must not jump focus into the builder. */}
               <Dropdown
                 value={workshopId}
-                onChange={setWorkshopId}
+                onChange={chooseWorkshop}
                 options={workshopOptions}
                 advanceOnSelect={false}
                 ariaLabel="Workshop scope"
