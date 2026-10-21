@@ -31,7 +31,7 @@ import {
 } from "@/components/questionnaires/workbookApi";
 import { useToast } from "@/components/ui/Toast";
 import { apiFetch } from "@/lib/api";
-import { canManageQuestionnaire, isAdmin, isContentAdmin } from "@/lib/permissions";
+import { isAdmin, isContentAdmin, mayEditQuestionnaire } from "@/lib/permissions";
 import type { Questionnaire, QuestionnaireSection } from "@/lib/types";
 
 type Instrument = Questionnaire & { version?: number; sourceFilename?: string | null; sections: QuestionnaireSection[] };
@@ -42,7 +42,6 @@ export default function QuestionnaireInstrumentPage() {
   const { user, loading: authLoading } = useAuth();
   const { adminMode } = useAdminView();
   const permitted = isAdmin(user) && adminChromeVisible(user, adminMode);
-  const mayUpdate = permitted && canManageQuestionnaire(user);
   // Deleting an instrument retires it (soft); content admins, whether or not admin view is on
   // (2026-10-21) — though an admin reaches this page in admin view only (`permitted`).
   const mayDelete = permitted && isContentAdmin(user);
@@ -55,6 +54,8 @@ export default function QuestionnaireInstrumentPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [report, setReport] = useState<QWorkbookReport | null>(null);
+  // Re-uploading over a form is its author's or a content admin's (owner, 22 Oct 2026).
+  const mayUpdate = permitted && mayEditQuestionnaire(user, instrument?.createdById);
 
   const load = useCallback(() => {
     let cancelled = false;

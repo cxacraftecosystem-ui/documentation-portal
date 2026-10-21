@@ -57,7 +57,7 @@ the six columns on `User` still do that; **two are deliberately no longer read.*
 |---|---|---|
 | `canReview` | **yes** | opens the review queue below Field Contributor |
 | `canDownloadDataset` | **yes** | dataset download and the Data Browser below Professor |
-| `canManageQuestionnaire` | **yes** | edit the questionnaire structure below Professor |
+| `canManageQuestionnaire` | **yes** | create a new questionnaire below Professor (editing one is its author's or a content admin's) |
 | `canViewProvenance` | **yes** (client-side) | shows created-by and per-field edit history; `isAdmin \|\| canViewProvenance` |
 | `canManageCrafts` | **NO — ignored** | craft management is Professor **by rank alone** |
 | `canManageWorkshops` | **NO — ignored** | workshop management is Professor **by rank alone** |
@@ -75,21 +75,21 @@ PREDICATE.** This is the one asymmetry in this document most likely to be filed 
 written down rather than left to be discovered:
 
 * `can_manage_questionnaire` (`deps.py:67-70`) is a **RANK FLOOR** — `has_rank(user, "PROFESSOR")
-  or user.canManageQuestionnaire`. It opens the section and question editor on `/questionnaire`:
-  adding one question, renaming one section, switching one question off. Each of those is a single,
-  visible, reversible act against a row the person is looking at.
-* `is_admin` (`deps.py:59-60`) is **SET MEMBERSHIP** over `{"MASTER_ADMIN", "ADMIN"}`. It is what
-  guards every questionnaire **workbook** route, because one spreadsheet re-states the WHOLE
-  instrument: a professor who downloaded the questionnaire, deleted the rows they were not
+  or user.canManageQuestionnaire`. It creates a NEW, empty form. Since 22 Oct 2026 it no longer
+  edits an existing one: editing a form, its sections and its questions, and downloading and
+  re-uploading that form's own workbook, are its **author's** (`Questionnaire.createdById`) or a
+  **content admin's** (`assert_may_edit_form`, `require_form_editor`); a form with no recorded
+  author is a content admin's alone.
+* `is_admin` (`deps.py:59-60`) is **SET MEMBERSHIP** over `{"MASTER_ADMIN", "ADMIN"}`. It guards
+  creating a NEW form from a **workbook** (the pro-forma, the question set, `POST
+  /questionnaires/upload`), because one spreadsheet states a WHOLE instrument: a professor who downloaded the questionnaire, deleted the rows they were not
   interested in and uploaded the file would retire every question they deleted, across twenty-two
   sections, against interviews already recorded by forty researchers. Nothing is LOST — the
   edit-after-answers rule sees to that — but the blast radius of one press is the difference.
 
-The consequence of a floor beside a set is that **any rank inserted between PROFESSOR (40) and ADMIN
-(50) gains the editor automatically and is refused the workbook automatically**, whatever it is
-called. That is deliberate. Changing it means widening the set literal in `is_admin`, which is a
-decision, and `backend/tests/test_permission_matrix.py` asserts both halves so that it has to be made
-on purpose.
+A Ministry Admin is a content admin, so it edits and re-uploads every form, and is refused a NEW form
+from a workbook (outside `is_admin`'s set). `backend/tests/test_permission_matrix.py` asserts both
+halves (`AUTHOR_OR_ADMIN_EDITS`, `WORKBOOK_ROUTES`).
 
 ---
 
@@ -128,8 +128,9 @@ identically (`shared/signin-role-contract.json`, `tests/test_signin_role_contrac
 | Approve a **late** (out-of-window) submission | `set_review_status` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
 | Create or edit a **craft** | `require_craft_manager` | ⬜ | ⬜ | ⬜ | ✅ | ✅ | ✅ |
 | Create or edit a **workshop** | `require_workshop_manager` | ⬜ | ⬜ | ⬜ | ✅ | ✅ | ✅ |
-| Edit the **questionnaire structure** | `require_questionnaire_manager` | grant | grant | grant | ✅ | ✅ | ✅ |
-| Create / rename / retire a **questionnaire** | `require_questionnaire_manager` | grant | grant | grant | ✅ | ✅ | ✅ |
+| Create a new, empty **questionnaire** | `require_questionnaire_manager` | grant | grant | grant | ✅ | ✅ | ✅ |
+| Edit a **questionnaire** (rename; add, edit, reorder sections and questions; its workbook) | `assert_may_edit_form`: its author or a content admin | author | author | author | author | ✅ | ✅ |
+| Retire / delete a **questionnaire**, its sections, its questions | `assert_may_delete_from_form`: its author or a content admin | author | author | author | author | ✅ | ✅ |
 | **Assign a questionnaire to a workshop** | `require_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
 | **Set the default questionnaire** | `require_admin` | ⬜ | ⬜ | ⬜ | ⬜ | ✅ | ✅ |
 | **Download the dataset** / Data Browser | `require_dataset_downloader` | grant | grant | grant | ✅ | ✅ | ✅ |
@@ -223,15 +224,15 @@ Several asymmetries in that table are deliberate and easy to misread:
   approver comparing "says 10" against "the repository found 2" needs both present at the moment they
   are asked to decide.
 - **Building a questionnaire and choosing WHICH questionnaire are two different tiers.** Since
-  2026-09-13 there is more than one questionnaire, and the three new rows above split accordingly.
-  Creating, renaming, retiring an instrument and editing its sections and questions all stay at
-  `require_questionnaire_manager` — a Professor who can build the form must not lose the ability to
-  build it. Setting the **default** and binding one to a **workshop** are `require_admin`, because
+  2026-09-13 there is more than one questionnaire, and the rows above split accordingly. Creating an
+  instrument is `require_questionnaire_manager`; editing and retiring one, and its sections and
+  questions, are its author's or a content admin's (owner, 22 Oct 2026). Setting the **default** and
+  binding one to a **workshop** are `require_admin`, because
   neither is an edit to a form: the default is where every client that names no questionnaire lands
   (including Android builds that predate the field, and offline payloads queued before them), and a
   workshop binding decides which questions every researcher at that event is shown. The narrowing is
   applied to exactly those two routes and `tests/test_permission_matrix.py` asserts it did not leak
-  onto `POST /questionnaire/sections`.
+  onto the author's `POST /questionnaire/sections`.
 
 ### 2.0 Content admins (owner's ruling, 2026-10-20)
 
@@ -254,8 +255,8 @@ grant and cancelling one's own staged upload are neither, and are unchanged.
 | Artisan, product, tool, process, craft, workshop, interview | existing privileges; content admins are privileged editors of every record | content admins |
 | Media file (every type), transcripts, relink, transcribe-now, job retry | uploader and record editors; content admins on any media | content admins (uploaders no longer delete their own) |
 | Comments | the author (`PATCH /data-access/comments/{id}`) | content admins |
-| Questionnaire sections and questions | questionnaire managers, plus content admins | the form's author (`Questionnaire.createdById`) or content admins (`DELETE /questionnaire/sections/{id}`, `DELETE /questionnaire/questions/{id}`, and `isActive: false` on either PATCH; owner, 2026-10-22) |
-| Questionnaire instrument | as before | the form's author or content admins (`DELETE /questionnaires/{id}` or `PATCH {isActive: false}`, a soft delete: retired; `PATCH {isActive: true}` restores it; owner, 2026-10-22) |
+| Questionnaire sections and questions | the form's author or content admins (`assert_may_edit_form`; owner, 2026-10-22) | the form's author (`Questionnaire.createdById`) or content admins (`DELETE /questionnaire/sections/{id}`, `DELETE /questionnaire/questions/{id}`, and `isActive: false` on either PATCH; owner, 2026-10-22) |
+| Questionnaire instrument | create: questionnaire managers; edit and re-upload its workbook: the form's author or content admins | the form's author or content admins (`DELETE /questionnaires/{id}` or `PATCH {isActive: false}`, a soft delete: retired; `PATCH {isActive: true}` restores it; owner, 2026-10-22) |
 | Interview and session merge (source removed); session delete; take removal | – | content admins (a session's creator no longer deletes it) |
 | Craft codes mapping, unmapped records, duplicates and merges, completion override, place-name aliases | content admins | content admins |
 | Tasks | content admins create; the creator edits | content admins, any task |
@@ -265,10 +266,11 @@ sessions, takes, questionnaire sections and questions — are drawn for the cont
 NOT admin view is on (owner, 2026-10-21): `canDeleteRecords` on the web, `mayDelete` /
 `LocalMayDelete` on the handset. No other role is ever offered one, except that a questionnaire's
 author is offered the deletes of their own form, its sections and its questions (owner, 2026-10-22).
+The form's EDIT controls follow the same rule: `mayEditQuestionnaire` on the web and the handset.
 Admin view still governs everything else it did (the unmapped-crafts panel, the completion
 override, admin chrome). `tests/test_permission_matrix.py` drives every content delete over every
-tier, and the form's own deletes separately (`AUTHOR_OR_ADMIN_DELETES`); the database half is
-`tests/test_questionnaire_author_delete.py`.
+tier, and the form's own deletes and edits separately (`AUTHOR_OR_ADMIN_DELETES`,
+`AUTHOR_OR_ADMIN_EDITS`); the database half is `tests/test_questionnaire_author_delete.py`.
 
 ### 2.1 Create, edit, delete — as a decision tree
 
@@ -559,9 +561,11 @@ and must never lock an admin out of a URL the API would serve.
 convenient. `/questionnaire` itself is **open to every signed-in user** — a crowdsource volunteer
 answering an interview is what the app is for — and is deliberately absent from this table. Only the
 workbook leaf is admin-gated, because uploading one spreadsheet re-states the whole instrument and
-everything absent from the file is removed by rule. Adding or editing ONE question stays at
-`require_questionnaire_manager`. See §1.1's note below for why those two gates are not the same
-KIND of predicate.
+everything absent from the file is removed by rule. Editing a form, one question or a whole
+re-upload, is its author's or a content admin's (`assert_may_edit_form`, 22 Oct 2026), and the web
+offers that form's own Download .xlsx and Re-upload on `/questionnaire/builder` to exactly those
+accounts, so the workbook leaf stays admin-gated for creating a NEW form from a workbook. See §1.1's
+note below for why those gates are not the same KIND of predicate.
 
 `ROUTE_REDIRECTS` handles the different case where a page *has* an ordinary-user twin: a researcher
 opening `/workshop-access/manage` is sent to `/workshop-access/request`, because a padlock would be

@@ -76,6 +76,8 @@ export type QWorkbookInstrument = {
   sectionCount?: number;
   questionCount?: number;
   sections?: unknown[];
+  /** The author; with the content admins, the only account that may re-upload over it. */
+  createdById?: string | null;
 };
 
 export type QWorkbookUploadResult = {

@@ -53,7 +53,7 @@ import { RowActions, rowAction } from "@/components/RowActions";
 import { RestrictedPanel } from "@/components/settings/RestrictedPanel";
 import { useToast } from "@/components/ui/Toast";
 import { apiFetch } from "@/lib/api";
-import { canManageQuestionnaire, isAdmin } from "@/lib/permissions";
+import { isAdmin, mayEditQuestionnaire } from "@/lib/permissions";
 
 export default function QuestionnaireWorkbooksPage() {
   const { user, loading: authLoading } = useAuth();
@@ -148,7 +148,7 @@ export default function QuestionnaireWorkbooksPage() {
         {header}
         <RestrictedPanel
           title="Admin access required"
-          body="Admins only. Edit single questions on the Questionnaire page."
+          body="Admins only. Edit your own forms in the Builder."
         />
       </>
     );
@@ -230,7 +230,8 @@ export default function QuestionnaireWorkbooksPage() {
                     >
                       Download question set
                     </button>
-                    {canManageQuestionnaire(user) ? (
+                    {/* Re-uploading over a form is its author's or a content admin's (22 Oct 2026). */}
+                    {mayEditQuestionnaire(user, instrument.createdById) ? (
                       <button
                         type="button"
                         className={rowAction("edit")}

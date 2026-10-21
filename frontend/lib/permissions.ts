@@ -150,14 +150,27 @@ export function canEditOwnOrAdmin(user: User | null | undefined, ownerId?: strin
 }
 
 /**
+ * EDITING an existing questionnaire is its AUTHOR's (`Questionnaire.createdById`) or a content
+ * admin's (owner, 22 Oct 2026): the server's `assert_may_edit_form`. That covers renaming the form,
+ * adding, editing, reordering or moving its sections and questions, downloading its own workbook for
+ * editing (`GET /questionnaires/{id}/xlsx`) and re-uploading one over it
+ * (`POST /questionnaires/{id}/upload`). A form with no recorded author is a content admin's alone.
+ * Other questionnaire managers (`canManageQuestionnaire`) see it read-only. Creating a NEW form stays
+ * `canManageQuestionnaire`; creating one from a workbook stays `isAdmin`.
+ */
+export function mayEditQuestionnaire(user: User | null | undefined, createdById?: string | null) {
+  return canEditOwnOrAdmin(user, createdById);
+}
+
+/**
  * Deleting from a questionnaire — the instrument itself (a soft delete, restorable), a section, a
  * question, or switching one off — is its AUTHOR's (`Questionnaire.createdById`) or a content admin's
- * (owner, 22 Oct 2026): the server's `assert_may_delete_from_form`. Deleting sessions, takes and
- * interviews stays `isContentAdmin` alone (`canDeleteRecords`), and so do the default form and
- * workshop binding.
+ * (owner, 22 Oct 2026): the server's `assert_may_delete_from_form`, the same predicate as
+ * {@link mayEditQuestionnaire}. Deleting sessions, takes and interviews stays `isContentAdmin` alone
+ * (`canDeleteRecords`), and so do the default form and workshop binding.
  */
 export function mayDeleteQuestionnaire(user: User | null | undefined, createdById?: string | null) {
-  return canEditOwnOrAdmin(user, createdById);
+  return mayEditQuestionnaire(user, createdById);
 }
 
 /**
@@ -256,14 +269,16 @@ export const ROUTE_GUARDS: RouteGuard[] = [
     // the workbook routes is not a narrowing of the builder: one spreadsheet re-states the WHOLE
     // instrument and everything absent from it is removed by rule, so a professor who deleted the
     // rows they were not interested in would retire every question they deleted across twenty-two
-    // sections. Adding or editing ONE question stays at `require_questionnaire_manager`, on
-    // /questionnaire, and this message says so rather than leaving a professor to guess.
+    // sections. Editing an existing form — one question, or re-uploading its own workbook — is its
+    // author's or a content admin's (`assert_may_edit_form`, 22 Oct 2026), and the web offers that
+    // form's Download .xlsx and Re-upload on /questionnaire/builder (`mayEditQuestionnaire`), so this
+    // route stays admin-only: what is left here is creating a NEW form from a workbook.
     path: "/questionnaire/workbooks",
     can: isAdmin,
     gate: "require_admin",
     title: "Admin access required",
     message:
-      "Workbook upload is for admins only. Edit single questions on the Questionnaire page."
+      "Workbook upload is for admins only. Edit your own forms in the Builder."
   },
   {
     // The page now holds two things with two different owners, so the ROUTE is admin and the halves

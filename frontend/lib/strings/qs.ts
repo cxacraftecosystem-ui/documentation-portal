@@ -25,6 +25,8 @@ export const WEB_ONLY_STRINGS = {
   deleteQuestionnaireNote: "Its sessions and answers are kept. You or an admin can restore it.",
   deletedQuestionnaires: "Deleted questionnaires",
   restoreQuestionnaire: "Restore",
+  downloadWorkbook: "Download .xlsx",
+  reuploadWorkbook: "Re-upload",
   colResearchers: "Researchers",
   colCoverage: "Coverage",
   colStatus: "Status",

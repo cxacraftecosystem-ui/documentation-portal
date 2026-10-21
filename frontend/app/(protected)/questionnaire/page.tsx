@@ -65,7 +65,7 @@ import {
 } from "@/lib/media";
 import { saveOrQueue } from "@/lib/offline";
 import { recordUpdateHref, recordViewHref } from "@/lib/recordView";
-import { canManageQuestionnaire, hasRank, isContentAdmin, mayDeleteQuestionnaire } from "@/lib/permissions";
+import { canManageQuestionnaire, hasRank, isContentAdmin, mayDeleteQuestionnaire, mayEditQuestionnaire } from "@/lib/permissions";
 import { UploadsProvider, useEagerStaging, useUploads } from "@/lib/uploads";
 import type { MediaFile, PageResult, Questionnaire, QuestionnaireInterview, QuestionnaireQuestion, QuestionnaireSection } from "@/lib/types";
 import { settleBatch, unsentMessage } from "@/lib/questionnaireUploads";
@@ -2920,6 +2920,7 @@ function QuestionnairePageBody() {
           sections={sections}
           questionnaireId={questionnaireId}
           onChanged={() => loadMeta(questionnaireId)}
+          mayEdit={mayEditQuestionnaire(user, instruments.find((instrument) => instrument.id === questionnaireId)?.createdById)}
           mayDelete={mayDeleteQuestionnaire(user, instruments.find((instrument) => instrument.id === questionnaireId)?.createdById)}
         />
       ) : null}

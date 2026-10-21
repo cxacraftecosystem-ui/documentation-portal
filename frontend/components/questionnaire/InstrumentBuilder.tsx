@@ -125,6 +125,7 @@ export function QuestionnaireAdminEditor({
   questionnaireId,
   onChanged,
   defaultOpen = false,
+  mayEdit = false,
   mayDelete = false
 }: {
   sections: QuestionnaireSection[];
@@ -133,6 +134,13 @@ export function QuestionnaireAdminEditor({
   onChanged: () => Promise<void>;
   /** Open on arrival: `/questionnaire/builder` shows nothing else. */
   defaultOpen?: boolean;
+  /**
+   * Adding, editing, reordering or moving a section or a question is the form's author's or a
+   * content admin's (`mayEditQuestionnaire`, owner 22 Oct 2026; the server's `assert_may_edit_form`).
+   * Anybody else sees the form read-only. Defaults to false so a caller that forgets it locks rather
+   * than offers controls the server refuses.
+   */
+  mayEdit?: boolean;
   /**
    * Removing or switching off a section or a question is a delete: the form's author or a content
    * admin (`mayDeleteQuestionnaire`, owner 22 Oct 2026). The caller knows the instrument's author.
@@ -388,6 +396,42 @@ export function QuestionnaireAdminEditor({
   }
 
   const dragActive = Boolean(dragQuestion);
+
+  // Not the author and not a content admin: the form is shown, never offered for editing.
+  if (!mayEdit) {
+    return (
+      <Accordion title="Questionnaire Builder" subtitle="Read only." defaultOpen={defaultOpen}>
+        <div className="grid gap-4" data-builder-read-only>
+          <p className="text-sm text-ink-muted">Only the form&rsquo;s author or an admin can edit it.</p>
+          {localSections.length === 0 ? <p className="text-sm text-ink-muted">No sections yet.</p> : null}
+          {localSections.map((section) => (
+            <section key={section.id} className="rounded-md border border-line-200 bg-card p-3" aria-labelledby={`builder-section-${section.id}`}>
+              <h3 id={`builder-section-${section.id}`} className="font-display text-xl font-bold text-ink">
+                {section.sortOrder}. {section.code} - {section.title}
+                {!section.isActive ? <span className="ml-2 rounded bg-line-200 px-1.5 py-0.5 align-middle text-xs font-normal text-ink-500">inactive</span> : null}
+              </h3>
+              {section.questions.length === 0 ? (
+                <p className="mt-2 text-sm text-ink-muted">No questions yet.</p>
+              ) : (
+                <ol className="mt-3 grid gap-1">
+                  {section.questions.map((question) => (
+                    <li key={question.id} className="rounded-md border border-line-200 bg-field-50 p-2.5 text-sm text-ink-900">
+                      <span className="mr-1 font-semibold text-ink-500">{question.sortOrder}.</span>
+                      {question.prompt}
+                      {!question.isActive ? <span className="ml-2 rounded bg-line-200 px-1.5 py-0.5 text-xs text-ink-500">inactive</span> : null}
+                      {artisanFieldLabel(question.artisanField) ? (
+                        <Badge className="ml-2">From artisan: {artisanFieldLabel(question.artisanField)}</Badge>
+                      ) : null}
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+          ))}
+        </div>
+      </Accordion>
+    );
+  }
 
   return (
     <Accordion
