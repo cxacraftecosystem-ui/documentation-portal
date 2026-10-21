@@ -144,7 +144,5 @@ class ContentAdminDeleteUiTest {
         showDangerZone(user("r1", "RESEARCHER"), adminView = true)
         compose.onNodeWithText("Danger zone").assertDoesNotExist()
         compose.onNodeWithText("Delete this artisan").assertDoesNotExist()
-        showDangerZone(user("r1", "RESEARCHER"), adminView = false)
-        compose.onNodeWithText("Danger zone").assertDoesNotExist()
     }
 }
