@@ -116,12 +116,25 @@ object TranscriptInsightStates {
 
     /**
      * Whether the disclosure is drawn for an item read through the batch, which leaves the text out
-     * (null): a finished translation is offered and its text read when it is opened. An empty string
-     * is a translation with nothing in it, as before.
+     * (null): a finished translation is offered and its text read when it is opened. [loadedText] is
+     * that text once the full read has answered; a blank one (like an empty string in the batch) is
+     * a translation with nothing in it, and the panel is hidden.
      */
-    fun offersTranslation(insight: TranscriptInsightDto): Boolean =
-        hasTranslation(insight) ||
-            ((insight.translation.status == "COMPLETED" || insight.translation.status == "PARTIAL") && insight.translation.text == null)
+    fun offersTranslation(insight: TranscriptInsightDto, loadedText: String? = null): Boolean {
+        if (insight.translation.status != "COMPLETED" && insight.translation.status != "PARTIAL") return false
+        val known = loadedText ?: insight.translation.text
+        return known == null || known.isNotBlank()
+    }
+
+    /**
+     * The translation text a full read of one item answered with, or null when the read failed (no
+     * answer, or no insight in it) so the disclosure asks again the next time it is opened. An insight
+     * that came back without text has none: "" (hidden by [offersTranslation]), never a retry loop.
+     */
+    fun fullTranslationText(view: TranscriptInsightViewDto?): String? {
+        val insight = view?.insight ?: return null
+        return insight.translation.text.orEmpty()
+    }
 
     /** "Machine-generated · gpt-4o-mini · 30 Oct 2026", or the edited stamp. */
     fun provenanceLine(insight: TranscriptInsightDto, formatDate: (String?) -> String?): String {

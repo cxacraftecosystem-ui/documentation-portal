@@ -141,19 +141,29 @@ private fun InsightBody(mediaId: String, insight: TranscriptInsightDto, loadFull
             }
         }
     }
+    // The text the full read answered with, once it has; see `TranslationDisclosure`.
+    var loaded by remember(insight.id, insight.version) { mutableStateOf<String?>(null) }
     when {
-        TranscriptInsightStates.offersTranslation(insight) -> TranslationDisclosure(mediaId, insight, loadFull)
+        TranscriptInsightStates.offersTranslation(insight, loaded) ->
+            TranslationDisclosure(mediaId, insight, loaded, { loaded = it }, loadFull)
         insight.translation.status == "FAILED" -> Text(insight.translation.note ?: "Translation failed.", color = Muted, style = MaterialTheme.typography.bodySmall)
     }
 }
 
 @Composable
-private fun TranslationDisclosure(mediaId: String, insight: TranscriptInsightDto, loadFull: suspend (String) -> TranscriptInsightViewDto?) {
+private fun TranslationDisclosure(
+    mediaId: String,
+    insight: TranscriptInsightDto,
+    loaded: String?,
+    onLoaded: (String) -> Unit,
+    loadFull: suspend (String) -> TranscriptInsightViewDto?
+) {
     var open by remember(insight.id) { mutableStateOf(false) }
-    // The batch leaves the text out; it is read once, the first time the translation is opened.
-    var text by remember(insight.id, insight.version) { mutableStateOf(insight.translation.text) }
+    // The batch leaves the text out; it is read the first time the translation is opened. A failed
+    // read leaves it null, so closing and reopening asks again; a blank answer hides the panel.
+    val text = loaded ?: insight.translation.text
     LaunchedEffect(open, text) {
-        if (open && text == null) text = loadFull(mediaId)?.insight?.translation?.text.orEmpty()
+        if (open && text == null) TranscriptInsightStates.fullTranslationText(loadFull(mediaId))?.let(onLoaded)
     }
     Row(
         verticalAlignment = Alignment.CenterVertically,

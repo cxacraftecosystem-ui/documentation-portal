@@ -62,4 +62,25 @@ class TranscriptInsightBatcherTest {
         assertFalse(TranscriptInsightStates.offersTranslation(finished.copy(translation = InsightTranslationDto(status = "COMPLETED", text = ""))))
         assertFalse(TranscriptInsightStates.offersTranslation(finished.copy(translation = InsightTranslationDto(status = "NOT_NEEDED"))))
     }
+
+    @Test
+    fun aFailedFullReadRetriesAndABlankFinishedTranslationHidesThePanel() {
+        val finished = TranscriptInsightDto(translation = InsightTranslationDto(status = "COMPLETED", text = null))
+        // The full read failed: no text is recorded, so the disclosure stays offered and asks again.
+        assertNull(TranscriptInsightStates.fullTranslationText(null))
+        assertNull(TranscriptInsightStates.fullTranslationText(TranscriptInsightViewDto(mediaId = "m", state = "READY")))
+        assertTrue(TranscriptInsightStates.offersTranslation(finished, null))
+        // The full read answered with nothing in it: the panel is hidden, not drawn empty.
+        val blank = TranscriptInsightViewDto(
+            mediaId = "m",
+            state = "READY",
+            insight = finished.copy(translation = InsightTranslationDto(status = "COMPLETED", text = "  "))
+        )
+        assertEquals("  ", TranscriptInsightStates.fullTranslationText(blank))
+        assertFalse(TranscriptInsightStates.offersTranslation(finished, TranscriptInsightStates.fullTranslationText(blank)))
+        assertEquals("", TranscriptInsightStates.fullTranslationText(blank.copy(insight = finished)))
+        assertFalse(TranscriptInsightStates.offersTranslation(finished, ""))
+        // The full read answered with text: offered.
+        assertTrue(TranscriptInsightStates.offersTranslation(finished, "Hello"))
+    }
 }
