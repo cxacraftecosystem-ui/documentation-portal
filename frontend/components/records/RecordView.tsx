@@ -24,6 +24,8 @@ import { ArtisanDuplicateBanner } from "@/components/duplicates/ArtisanDuplicate
 import { ExistingMedia } from "@/components/media/ExistingMedia";
 import { PageHeader } from "@/components/PageHeader";
 import { CompletenessMeter } from "@/components/records/CompletenessMeter";
+import { RecordDangerZone } from "@/components/records/RecordDangerZone";
+import { RECORD_LIST_HREF } from "@/components/records/dangerZoneRules";
 import { RecordMediaList } from "@/components/records/RecordMediaList";
 import { MediaReviewProvider } from "@/components/review/MediaReview";
 import { RecordReviewBar } from "@/components/review/RecordReviewBar";
@@ -240,6 +242,11 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
           <section className="panel p-4">
             <CollabPanel recordType={type} recordId={record.id} />
           </section>
+          <RecordDangerZone
+            noun={noun}
+            endpoint={`${RECORD_VIEW_ENDPOINT[type]}/${encodeURIComponent(id)}`}
+            afterHref={RECORD_LIST_HREF[type] ?? "/dashboard"}
+          />
         </div>
       )}
     </>

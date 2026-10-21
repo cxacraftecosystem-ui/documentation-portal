@@ -163,6 +163,8 @@ import com.fieldrepository.app.ui.appSearchSettingItems
 import com.fieldrepository.app.ui.closeAppMenu
 import com.fieldrepository.app.ui.openAppMenu
 import com.fieldrepository.app.ui.Text
+import com.fieldrepository.app.ui.RecordDangerZone
+import com.fieldrepository.app.ui.RecordDangerZoneCard
 import com.fieldrepository.app.ui.AppMessageBanner
 import com.fieldrepository.app.ui.BANNER_STACK_GAP
 import com.fieldrepository.app.ui.LocalBannerClearance
@@ -2623,6 +2625,12 @@ private fun HomeScreen(
                 canOverrideCompletion = isAdmin && adminChrome,
                 showProvenance = canViewProvenance,
                 mayReview = canReview,
+                canDelete = canDelete,
+                onDeleted = {
+                    message = "${deleteNoun(s.mode).replaceFirstChar { it.uppercase() }} deleted"
+                    refresh()
+                    screen = s.back
+                },
                 onMessage = { showMessage(it) },
                 onError = { showMessage(it) }
             )
@@ -6590,11 +6598,22 @@ private suspend fun deleteByMode(repository: FieldRepository, mode: EntryMode, i
         EntryMode.WORKSHOP -> repository.deleteWorkshop(id)
         EntryMode.CRAFT -> repository.deleteCraft(id)
         EntryMode.QUESTIONNAIRE -> repository.deleteInterview(id)
+        EntryMode.MEDIA -> repository.deleteMedia(id)
         else -> throw IllegalArgumentException("This record type cannot be deleted")
     }
 }
 
-/** Admin-only destructive action with a confirmation dialog, shown below an edit form. */
+/** The record kinds a content admin can delete from the record's own page. */
+private val DELETABLE_MODES = setOf(
+    EntryMode.ARTISAN, EntryMode.PRODUCT, EntryMode.PROCESS, EntryMode.TOOL, EntryMode.WORKSHOP,
+    EntryMode.CRAFT, EntryMode.QUESTIONNAIRE, EntryMode.MEDIA,
+)
+
+/** "media file" for a media record, the kind's own name otherwise. */
+private fun deleteNoun(mode: EntryMode): String =
+    if (mode == EntryMode.MEDIA) "media file" else mode.label.lowercase()
+
+/** The "Danger zone" card (ui/RecordDangerZone.kt) for one record, wired to its delete route. */
 @Composable
 private fun DeleteRecordSection(
     repository: FieldRepository,
@@ -6603,44 +6622,12 @@ private fun DeleteRecordSection(
     onDeleted: () -> Unit,
     onError: (String) -> Unit
 ) {
-    val scope = rememberCoroutineScope()
-    var confirm by remember { mutableStateOf(false) }
-    var deleting by remember { mutableStateOf(false) }
-    val noun = mode.label.lowercase()
-    RecordCard(title = "Danger zone") {
-        Text("Permanently deletes this $noun and its links.", color = Muted, style = MaterialTheme.typography.bodySmall)
-        OutlinedButton(
-            onClick = { confirm = true },
-            enabled = !deleting,
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(if (deleting) "Deleting…" else "Delete this $noun")
-        }
-    }
-    if (confirm) {
-        AlertDialog(
-            onDismissRequest = { if (!deleting) confirm = false },
-            title = { Text("Delete $noun?") },
-            text = { Text("This permanently deletes the record.") },
-            confirmButton = {
-                TextButton(
-                    enabled = !deleting,
-                    onClick = {
-                        scope.launch {
-                            deleting = true
-                            runCatching { deleteByMode(repository, mode, recordId) }
-                                .onSuccess { confirm = false; deleting = false; onDeleted() }
-                                .onFailure { deleting = false; onError(it.apiErrorMessage("Unable to delete (admin only)")) }
-                        }
-                    }
-                ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = { TextButton(enabled = !deleting, onClick = { confirm = false }) { Text("Cancel") } }
-        )
-    }
+    RecordDangerZoneCard(
+        noun = deleteNoun(mode),
+        delete = { deleteByMode(repository, mode, recordId) },
+        onDeleted = onDeleted,
+        onError = { onError(it.apiErrorMessage(RecordDangerZone.FAILED)) },
+    )
 }
 
 /**
@@ -13500,6 +13487,9 @@ private fun RecordViewScreen(
     showProvenance: Boolean,
     /** The account has review access (`canAccessReview`); without it the bar asks nothing. */
     mayReview: Boolean = false,
+    /** Content admins in admin view: the page ends with the "Danger zone" card. */
+    canDelete: Boolean = false,
+    onDeleted: () -> Unit = {},
     onMessage: (String) -> Unit = {},
     onError: (String) -> Unit
 ) {
@@ -13570,6 +13560,9 @@ private fun RecordViewScreen(
                 onCompleteness = { completeness = it }
             )
         }
+    }
+    if (canDelete && mode in DELETABLE_MODES) {
+        DeleteRecordSection(repository, mode, recordId, onDeleted = onDeleted, onError = onError)
     }
 }
 
