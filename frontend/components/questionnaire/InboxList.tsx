@@ -14,12 +14,15 @@ import { listResource } from "@/lib/api";
 import { readInbox } from "@/components/questionnaire/useInboxCount";
 import { questionnaireApi } from "@/lib/questionnaireApi";
 import {
+  artisanReadDue,
+  artisanReadOnInboxReload,
   INBOX_ORDER,
   inboxLabel,
   inboxRowKey,
   readDismissed,
   visibleInbox,
   writeDismissed,
+  type ArtisanListRead,
   type Inbox,
   type InboxDecision,
   type InboxEmptySession,
@@ -61,10 +64,13 @@ export function InboxList() {
   const [error, setError] = useState<string | null>(null);
   const [rowError, setRowError] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  // Declared before `load`, which re-arms a failed artisan read (see `artisanReadOnInboxReload`).
+  const [artisanRead, setArtisanRead] = useState<ArtisanListRead>("idle");
 
   // The first read may share the badge's request; a reload after an action always reads afresh.
   const load = useCallback(async (fresh = true) => {
     setError(null);
+    setArtisanRead(artisanReadOnInboxReload);
     try {
       setRaw(await readInbox(fresh));
     } catch {
@@ -82,14 +88,16 @@ export function InboxList() {
   // (it used to be one request per row, and its page size of 200 was refused by the API's cap of 100).
   const needsArtisans = (inbox?.noParticipants.length ?? 0) > 0;
   const [artisans, setArtisans] = useState<Artisan[]>([]);
-  const [artisansAsked, setArtisansAsked] = useState(false);
   useEffect(() => {
-    if (!needsArtisans || artisansAsked) return;
-    setArtisansAsked(true);
+    if (!artisanReadDue(needsArtisans, artisanRead)) return;
+    setArtisanRead("reading");
     void listResource<Artisan>("/artisans", { pageSize: LIST_PAGE_CEILING })
-      .then((page) => setArtisans(page.items ?? []))
-      .catch(() => undefined);
-  }, [needsArtisans, artisansAsked]);
+      .then((page) => {
+        setArtisans(page.items ?? []);
+        setArtisanRead("read");
+      })
+      .catch(() => setArtisanRead("failed"));
+  }, [needsArtisans, artisanRead]);
   const artisanOptions = useMemo(
     () => artisans.map((a) => ({ value: a.id, label: a.place ? `${a.name} · ${a.place}` : a.name })),
     [artisans]

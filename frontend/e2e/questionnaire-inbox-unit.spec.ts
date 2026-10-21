@@ -6,7 +6,15 @@ import { expect, test } from "@playwright/test";
 import { continueBody, latestSession } from "@/components/questionnaire/ContinueWithDialog";
 import { readInbox } from "@/components/questionnaire/useInboxCount";
 import type { Recording, RecordSession, Session } from "@/lib/questionnaireApi";
-import { inboxLabel, inboxRowKey, normaliseInbox, reviewRequest, visibleInbox } from "@/lib/questionnaireInbox";
+import {
+  artisanReadDue,
+  artisanReadOnInboxReload,
+  inboxLabel,
+  inboxRowKey,
+  normaliseInbox,
+  reviewRequest,
+  visibleInbox
+} from "@/lib/questionnaireInbox";
 import { prompts } from "@/lib/questionnairePrompts";
 import { answersFromTakes, takesFor } from "@/lib/questionnaireView";
 import { CONTRACT } from "./questionnaire-contract-fixture";
@@ -104,6 +112,21 @@ test("the inbox reads the artisan list once for every Who-was-there row, within 
   expect(source).toContain('listResource<Artisan>("/artisans", { pageSize: LIST_PAGE_CEILING })');
   expect(source).not.toContain("pageSize: 200");
   expect(source).toContain("options={artisanOptions}");
+});
+
+test("a failed artisan read is asked again on the next inbox read, never in a loop", () => {
+  expect(artisanReadDue(true, "idle")).toBe(true);
+  expect(artisanReadDue(false, "idle")).toBe(false);
+  // In flight, done, or failed: nothing new until the inbox is read again.
+  for (const state of ["reading", "read", "failed"] as const) expect(artisanReadDue(true, state)).toBe(false);
+  expect(artisanReadOnInboxReload("failed")).toBe("idle");
+  expect(artisanReadDue(true, artisanReadOnInboxReload("failed"))).toBe(true);
+  expect(artisanReadOnInboxReload("read")).toBe("read");
+  expect(artisanReadOnInboxReload("reading")).toBe("reading");
+  const source = readFileSync(join(__dirname, "..", "components/questionnaire/InboxList.tsx"), "utf8");
+  expect(source).toContain('.catch(() => setArtisanRead("failed"))');
+  expect(source).toContain("setArtisanRead(artisanReadOnInboxReload);");
+  expect(source).toContain("if (!artisanReadDue(needsArtisans, artisanRead)) return;");
 });
 
 test("the badge and the inbox page share one inbox request; a reload after an action reads afresh", async () => {
