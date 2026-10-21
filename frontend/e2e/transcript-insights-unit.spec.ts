@@ -14,13 +14,15 @@ import {
   cleanQuotes,
   cleanSummaryLines,
   createInsightBatcher,
+  createInsightPoller,
   editRows,
   isWorking,
   needsRegenerateConfirm,
   pollDelay,
   POLL_LIMIT_MS,
   POLL_MS,
-  POLL_SLOW_MS
+  POLL_SLOW_MS,
+  type PollTimers
 } from "@/lib/transcriptInsights";
 import type { TranscriptInsightView } from "@/lib/types";
 
@@ -172,4 +174,82 @@ test("the lightbox draws the section only under a completed transcript", () => {
   expect(read("components", "media", "MediaLightbox.tsx")).toContain(
     'item.id && status === "COMPLETED" ? <TranscriptInsights mediaId={item.id} readOnly />'
   );
+});
+
+function fakeTimers() {
+  let now = 0;
+  let seq = 0;
+  const pending = new Map<number, { at: number; run: () => void }>();
+  const timers: PollTimers = {
+    now: () => now,
+    set: (run, ms) => {
+      seq += 1;
+      pending.set(seq, { at: now + ms, run });
+      return seq;
+    },
+    clear: (handle) => void pending.delete(handle as number)
+  };
+  /** Moves the clock forward, firing every timer that falls due on the way. */
+  async function advance(ms: number) {
+    const until = now + ms;
+    for (;;) {
+      const next = [...pending.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+      if (!next || next[1].at > until) break;
+      pending.delete(next[0]);
+      now = next[1].at;
+      next[1].run();
+      for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    }
+    now = until;
+  }
+  return { timers, advance, size: () => pending.size };
+}
+
+test("every still-working summary on a page is re-read in one batched request per poll", async () => {
+  const calls: string[][] = [];
+  const clock = fakeTimers();
+  const load = createInsightBatcher(async (ids) => {
+    calls.push(ids);
+    return { items: Object.fromEntries(ids.map((id) => [id, view(id, { state: "PROCESSING" })])) };
+  });
+  const watch = createInsightPoller(load, clock.timers);
+  const seen: string[] = [];
+  const stops = ["a", "b", "c"].map((id) => watch(id, () => 0, () => seen.push(id)));
+
+  await clock.advance(POLL_MS - 1);
+  expect(calls).toEqual([]);
+  await clock.advance(1);
+  expect(calls).toEqual([["a", "b", "c"]]);
+  expect(seen.sort()).toEqual(["a", "b", "c"]);
+  expect(clock.size()).toBe(1);
+
+  stops[1]();
+  await clock.advance(POLL_MS);
+  expect(calls).toEqual([["a", "b", "c"], ["a", "c"]]);
+
+  stops[0]();
+  stops[2]();
+  expect(clock.size()).toBe(0);
+});
+
+test("the shared poll keeps each block's own cadence, slowing after ten minutes", async () => {
+  const calls: string[][] = [];
+  const clock = fakeTimers();
+  const load = createInsightBatcher(async (ids) => {
+    calls.push(ids);
+    return { items: {} };
+  });
+  const watch = createInsightPoller(load, clock.timers);
+  watch("old", () => -POLL_LIMIT_MS - 1, () => undefined);
+  watch("new", () => 0, () => undefined);
+  await clock.advance(POLL_MS);
+  expect(calls).toEqual([["new"]]);
+  await clock.advance(POLL_SLOW_MS - POLL_MS);
+  expect(calls).toEqual([["new"], ["new"], ["new"], ["old", "new"]]);
+});
+
+test("the hook polls through the shared poller, not a timer per block", () => {
+  const source = read("lib", "transcriptInsights.ts");
+  expect(source).toContain("const sharedWatch = createInsightPoller(sharedLoad);");
+  expect(source).not.toContain("window.setTimeout");
 });
