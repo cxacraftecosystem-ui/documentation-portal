@@ -73,7 +73,8 @@ test("files, sessions, takes and questionnaire structure are deleted by content 
   expect(read("components/questionnaire/InboxList.tsx")).toContain("{canDeleteRecords ? (\n            <button type=\"button\" className={`${secondary} field-danger`}");
   expect(read("components/questionnaire/SessionWorkspace.tsx")).toContain("onRemove={canDeleteRecords ? (r) => setRemoveTake(r) : undefined}");
   const page = read("app/(protected)/questionnaire/page.tsx");
-  expect(page).toContain("onRemove={canDeleteRecords ? () => removeQuestion(question) : undefined}");
+  // The builder moved to its own module so /questionnaire/builder renders it alone (audit H15).
+  expect(read("components/questionnaire/InstrumentBuilder.tsx")).toContain("onRemove={canDeleteRecords ? () => removeQuestion(question) : undefined}");
   expect(page).toContain("editing && isContentAdmin(user) ? await offerMergeOnConflict(err, editing.id) : false");
 });
 

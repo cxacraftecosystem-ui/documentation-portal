@@ -1,12 +1,11 @@
 "use client";
 
-import QuestionnairePage from "@/app/(protected)/questionnaire/page";
+import { BuilderScreen } from "@/components/questionnaire/BuilderScreen";
 
 /**
- * The instrument builder (DESIGN §4.1). Until the builder is split out of the capture page it is
- * that page reached at this path, which skips the v2 sessions list (`/questionnaire` shows the list
- * when `GET /questionnaire/config` says v2 is on).
+ * The instrument builder (DESIGN §4.1). It renders the builder alone, for managers, with the page
+ * header's Back (audit H15): it no longer reopens the legacy capture page under v2.
  */
 export default function QuestionnaireBuilderPage() {
-  return <QuestionnairePage />;
+  return <BuilderScreen />;
 }
