@@ -149,9 +149,72 @@ async def _transcript_hash(client: Any, recording_id: str | None) -> str | None:
     return hashlib.sha256(text.encode()).hexdigest() if text else None
 
 
-async def _write_one(item: Any, user: Any, client: Any, session_cache: dict[str, Any]) -> dict[str, Any]:
+_CURRENT_COLUMNS = (
+    'a."id", a."version", a."pinned", a."questionnaireId", rv."text", rv."origin"::text AS origin, '
+    'rv."attribution"::text AS attribution, rv."sourceRecordingId", rv."sessionId", rv."createdAt" AS "revisedAt", rv."actorId" '
+)
+
+
+async def _prefetch(items: list[Any], client: Any) -> dict[str, dict[Any, Any]]:
+    """The read-only lookups every item of one ``PUT /answers`` makes, read for the whole batch at
+    once: the live question of each lineage, each pair's current answer, the transcript each
+    source recording carries, and the artisans a PREFILL reads. :func:`_write_one` falls back to its
+    own read for anything not here, and forgets a pair's answer once it has written that pair, so a
+    batch naming one pair twice still sees its own first write exactly as before."""
+    pre: dict[str, dict[Any, Any]] = {"lineage": {}, "current": {}, "hash": {}, "artisan": {}}
+    lineage_ids = sorted({str(i.questionLineageId) for i in items if i.questionLineageId})
+    if not lineage_ids:
+        return pre
+    for row in await client.query_raw(
+        'SELECT DISTINCT ON (q."lineageId") q."lineageId" AS "_lineageId", q."id", q."questionnaireId", q."artisanField" '
+        'FROM "QuestionnaireQuestion" q WHERE q."lineageId" = ANY($1::text[]) '
+        'ORDER BY q."lineageId", (q."retiredAt" IS NULL AND q."supersededById" IS NULL) DESC, q."createdAt" DESC',
+        lineage_ids,
+    ):
+        key = str(row.pop("_lineageId"))
+        pre["lineage"][key] = row
+    for lineage_id in lineage_ids:
+        pre["lineage"].setdefault(lineage_id, None)
+    pairs = sorted({(str(i.artisanId), str(i.questionLineageId)) for i in items})
+    for row in await client.query_raw(
+        f'SELECT {_CURRENT_COLUMNS}, a."artisanId" AS "_artisanId", a."questionLineageId" AS "_lineageId" '
+        'FROM "QuestionnaireAnswer" a LEFT JOIN "QuestionnaireAnswerRevision" rv ON rv."id" = a."currentRevisionId" '
+        'WHERE (a."artisanId", a."questionLineageId") IN (SELECT * FROM unnest($1::text[], $2::text[]))',
+        [a for a, _ in pairs], [q for _, q in pairs],
+    ):
+        pre["current"][(str(row.pop("_artisanId")), str(row.pop("_lineageId")))] = row
+    for pair in pairs:
+        pre["current"].setdefault(pair, None)
+    recording_ids = sorted({str(i.sourceRecordingId) for i in items if i.sourceRecordingId})
+    if recording_ids:
+        found = await client.query_raw(
+            'SELECT r."id", m."transcriptText" FROM "QuestionnaireRecording" r JOIN "MediaFile" m ON m."id" = r."mediaFileId" '
+            'WHERE r."id" = ANY($1::text[])',
+            recording_ids,
+        )
+        texts = {str(r["id"]): r.get("transcriptText") for r in found}
+        for rid in recording_ids:
+            text = texts.get(rid)
+            pre["hash"][rid] = hashlib.sha256(text.encode()).hexdigest() if text else None
+    prefill = sorted({str(i.artisanId) for i in items if i.origin == "PREFILL"})
+    if prefill:
+        for artisan in await client.artisan.find_many(where={"id": {"in": prefill}}, include={"craft": True}):
+            pre["artisan"][artisan.id] = artisan
+        for artisan_id in prefill:
+            pre["artisan"].setdefault(artisan_id, None)
+    return pre
+
+
+async def _write_one(
+    item: Any, user: Any, client: Any, session_cache: dict[str, Any], pre: dict[str, dict[Any, Any]] | None = None
+) -> dict[str, Any]:
     base = {"artisanId": item.artisanId, "questionLineageId": item.questionLineageId, "answer": None, "current": None}
-    question = await _lineage(client, item.questionLineageId)
+    pre = pre or {"lineage": {}, "current": {}, "hash": {}, "artisan": {}}
+    lineage_key = str(item.questionLineageId)
+    if lineage_key in pre["lineage"]:
+        question = pre["lineage"][lineage_key]
+    else:
+        question = await _lineage(client, item.questionLineageId)
     if question is None:
         return {**base, "status": "FORBIDDEN"}
     session = session_cache.get(item.sessionId)
@@ -163,7 +226,11 @@ async def _write_one(item: Any, user: Any, client: Any, session_cache: dict[str,
         session_cache[item.sessionId] = session
     if not session["_canWork"] or str(session["questionnaireId"]) != str(question["questionnaireId"]):
         return {**base, "status": "FORBIDDEN"}
-    current = await current_answer(client, item.artisanId, item.questionLineageId)
+    pair = (str(item.artisanId), lineage_key)
+    if pair in pre["current"]:
+        current = pre["current"][pair]
+    else:
+        current = await current_answer(client, item.artisanId, item.questionLineageId)
     if current is not None:
         out_current = answer_out(current)
         if item.baseVersion is None or item.baseVersion != int(current["version"]):
@@ -176,9 +243,15 @@ async def _write_one(item: Any, user: Any, client: Any, session_cache: dict[str,
             return {**base, "status": "UNCHANGED", "answer": out_current, "current": out_current}
     field_value = None
     if item.origin == "PREFILL" and question.get("artisanField"):
-        artisan = await client.artisan.find_unique(where={"id": item.artisanId}, include={"craft": True})
+        if str(item.artisanId) in pre["artisan"]:
+            artisan = pre["artisan"][str(item.artisanId)]
+        else:
+            artisan = await client.artisan.find_unique(where={"id": item.artisanId}, include={"craft": True})
         field_value = prefill_value(artisan, str(question["artisanField"]), session=session) if artisan else None
     status = "PENDING"
+    hash_known = bool(item.sourceRecordingId) and str(item.sourceRecordingId) in pre["hash"]
+    # From here on this pair may change, so a later item naming it reads it afresh.
+    pre["current"].pop(pair, None)
     async with client.tx(max_wait=TX_MAX_WAIT, timeout=TX_TIMEOUT) as tx:
         if current is None:
             answer_id = uuid4().hex
@@ -207,7 +280,9 @@ async def _write_one(item: Any, user: Any, client: Any, session_cache: dict[str,
             '"askedQuestionId", "sessionId", "sourceRecordingId", "sourceTranscriptHash", "sourceFieldValue", "status", "actorId") '
             'VALUES ($1, $2, $3, $4, $5::"AnswerOrigin", $6::"AnswerAttribution", $7, $8, $9, $10, $11, $12::"RecordStatus", $13)',
             revision_id, answer_id, item.text, session.get("languageCode"), item.origin, item.attribution, str(question["id"]),
-            item.sessionId, item.sourceRecordingId, await _transcript_hash(tx, item.sourceRecordingId), field_value, status, user.id,
+            item.sessionId, item.sourceRecordingId,
+            pre["hash"][str(item.sourceRecordingId)] if hash_known else await _transcript_hash(tx, item.sourceRecordingId),
+            field_value, status, user.id,
         )
         await tx.execute_raw('UPDATE "QuestionnaireAnswer" SET "currentRevisionId" = $2 WHERE "id" = $1', answer_id, revision_id)
     saved = {
@@ -220,10 +295,17 @@ async def _write_one(item: Any, user: Any, client: Any, session_cache: dict[str,
 async def put_answers(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any]:
     db = _db(client)
     cache: dict[str, Any] = {}
+    try:
+        pre = await _prefetch(list(payload.items), db)
+    except Exception:  # noqa: BLE001 - each item then reads for itself, exactly as before
+        import logging
+
+        logging.getLogger(__name__).warning("answer prefetch failed; reading per item", exc_info=True)
+        pre = None
     results = []
     for item in payload.items:
         try:
-            results.append(await _write_one(item, user, db, cache))
+            results.append(await _write_one(item, user, db, cache, pre))
         except Exception:  # noqa: BLE001 - one item never fails the batch
             import logging
 
@@ -253,6 +335,7 @@ async def proposals(recording_id: str, user: Any, *, client: Any = None) -> dict
     else:
         owners = None  # "Whose answer is this?" before Accept
     items: list[tuple[str, str, str]] = []  # (lineage, text, origin)
+    verdict: str | None = None  # one recording, so one consent read however many sections it covers
     for t in rec["targets"]:
         if t["questionLineageId"]:
             items.append((t["questionLineageId"], text, "TRANSCRIPT"))
@@ -261,7 +344,9 @@ async def proposals(recording_id: str, user: Any, *, client: Any = None) -> dict
             # Drafting is an outside service: the consent gate and the off-by-default switch both apply.
             if not getattr(settings, "ai_answer_drafts_enabled", False):
                 continue
-            if await consent_gate.verdict(rec["mediaFileId"], client=db) != consent_gate.ALLOW:
+            if verdict is None:
+                verdict = await consent_gate.verdict(rec["mediaFileId"], client=db)
+            if verdict != consent_gate.ALLOW:
                 continue
             qs = await db.query_raw(
                 'SELECT "lineageId", "prompt" FROM "QuestionnaireQuestion" WHERE "sectionId" = $1 AND "isActive" '
@@ -277,17 +362,37 @@ async def proposals(recording_id: str, user: Any, *, client: Any = None) -> dict
                 if drafted.get(i + 1):
                     items.append((str(q["lineageId"]), drafted[i + 1], "MACHINE_SUGGESTED"))
     out = []
+    readers = list(owners or [s["artisanId"] for s in answered])
+    existing_by: dict[tuple[str, str], dict[str, Any]] = {}
+    if items and readers:
+        for row in await db.query_raw(
+            f'SELECT {_CURRENT_COLUMNS}, a."artisanId" AS "_artisanId", a."questionLineageId" AS "_lineageId" '
+            'FROM "QuestionnaireAnswer" a LEFT JOIN "QuestionnaireAnswerRevision" rv ON rv."id" = a."currentRevisionId" '
+            'WHERE a."artisanId" = ANY($1::text[]) AND a."questionLineageId" = ANY($2::text[])',
+            readers, sorted({lineage for lineage, _t, _o in items}),
+        ):
+            existing_by[(str(row.pop("_artisanId")), str(row.pop("_lineageId")))] = row
+    # Every draft row in ONE upsert. A (lineage, artisan) named twice keeps its last text, as the
+    # one-row-at-a-time upserts did (and as one statement must: it may not touch a row twice).
+    drafts: dict[tuple[str, str], tuple[str, str]] = {}
     for lineage_id, draft, origin in items:
         for artisan_key in (owners or [""]):
-            await db.execute_raw(
-                'INSERT INTO "QuestionnaireTakeDraft" ("id", "recordingId", "questionLineageId", "artisanId", "text", "origin") '
-                'VALUES ($1, $2, $3, $4, $5, $6::"AnswerOrigin") ON CONFLICT ("recordingId", "questionLineageId", "artisanId") '
-                'DO UPDATE SET "text" = EXCLUDED."text", "origin" = EXCLUDED."origin"',
-                uuid4().hex, recording_id, lineage_id, artisan_key, draft, origin,
-            )
+            drafts[(str(lineage_id), str(artisan_key))] = (draft, origin)
+    if drafts:
+        keys = list(drafts)
+        await db.execute_raw(
+            'INSERT INTO "QuestionnaireTakeDraft" ("id", "recordingId", "questionLineageId", "artisanId", "text", "origin") '
+            'SELECT x.id, $1, x.lineage, x.artisan, x.body, x.origin::"AnswerOrigin" '
+            'FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[]) AS x(id, lineage, artisan, body, origin) '
+            'ON CONFLICT ("recordingId", "questionLineageId", "artisanId") '
+            'DO UPDATE SET "text" = EXCLUDED."text", "origin" = EXCLUDED."origin"',
+            recording_id, [uuid4().hex for _ in keys], [k[0] for k in keys], [k[1] for k in keys],
+            [drafts[k][0] for k in keys], [drafts[k][1] for k in keys],
+        )
+    for lineage_id, draft, origin in items:
         existing = []
-        for artisan_id in owners or [s["artisanId"] for s in answered]:
-            cur = await current_answer(db, artisan_id, lineage_id)
+        for artisan_id in readers:
+            cur = existing_by.get((str(artisan_id), str(lineage_id)))
             if cur:
                 existing.append({"artisanId": artisan_id, **(answer_out(cur) or {})})
         out.append({"questionLineageId": lineage_id, "artisanIds": owners, "text": draft, "origin": origin, "existing": existing})
