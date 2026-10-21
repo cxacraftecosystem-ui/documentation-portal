@@ -420,7 +420,9 @@ def choose_primary(
             redos.append(t)
     if redos:
         return str(redos[-1]["recordingId"])
-    solo = [t for t in ordered if int(t.get("rosterCount") or 0) == 1]
+    # "A Re-interview never demotes the earlier account" (DESIGN 3.5): a solo re-interview after a
+    # group take is a second account, so it never wins rule 4 over the take it re-interviews.
+    solo = [t for t in ordered if int(t.get("rosterCount") or 0) == 1 and t.get("reason") != "RE_INTERVIEW"]
     if solo:
         return str(solo[0]["recordingId"])
     return str(ordered[0]["recordingId"])
