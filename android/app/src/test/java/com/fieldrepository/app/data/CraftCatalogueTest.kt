@@ -56,6 +56,18 @@ class CraftCatalogueTest {
     }
 
     @Test
+    fun `a category or sub-category name finds the crafts filed under it`() {
+        val heading = "Textiles based Craft Category › Hand Block Printing"
+        val bySub = CraftCatalogueCache.search(catalogue, "Hand Block Printing")
+        assertTrue(bySub.size > 1)
+        assertTrue(bySub.any { CraftCatalogueCache.path(catalogue, it) == heading })
+        assertTrue(CraftCatalogueCache.group(catalogue, bySub).any { it.heading == heading })
+        val byCategory = CraftCatalogueCache.search(catalogue, "Textiles based Craft Category")
+        assertTrue(byCategory.size > 10)
+        assertTrue(byCategory.all { CraftCatalogueCache.path(catalogue, it).startsWith("Textiles based Craft Category › ") })
+    }
+
+    @Test
     fun `the fold and the ranking are the web's`() {
         assertEquals("kutch ajrakh and co", CraftCatalogueCache.fold("  Kútch–AJRAKH & Co "))
         assertEquals("Tharu Embroidery", CraftCatalogueCache.search(catalogue, "Tharu Embroidery").first().name)
