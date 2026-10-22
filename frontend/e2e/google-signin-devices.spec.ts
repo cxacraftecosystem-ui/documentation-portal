@@ -1,4 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
+import { writeFileSync } from "node:fs";
+
+import { expect, test, type Page, type TestInfo } from "@playwright/test";
 
 /**
  * "CONTINUE WITH GOOGLE" MUST OPEN GOOGLE'S SIGN-IN, ON EVERY KIND OF SCREEN.
@@ -38,6 +40,13 @@ function visibleGoogleButton(page: Page) {
     .first();
 }
 
+/** Attached to the report AND written beside the screenshots, so the run artifact can be read
+ *  without opening the HTML report. */
+async function evidence(info: TestInfo, name: string, body: string, contentType: string) {
+  writeFileSync(info.outputPath(name), body);
+  await info.attach(name, { body, contentType });
+}
+
 test("tapping Continue with Google opens Google's sign-in window", async ({ page, context, hasTouch }, info) => {
   const consoleLines: string[] = [];
   page.on("console", (message) => consoleLines.push(`[${message.type()}] ${message.text()}`));
@@ -49,13 +58,14 @@ test("tapping Continue with Google opens Google's sign-in window", async ({ page
   const response = await page.goto("/login", { waitUntil: "domcontentloaded" });
   const all = response?.headers() ?? {};
   const headers = Object.fromEntries(HEADERS_OF_INTEREST.map((name) => [name, all[name] ?? null]));
-  await info.attach("login-headers.json", {
-    body: JSON.stringify({ url: response?.url(), status: response?.status(), headers }, null, 2),
-    contentType: "application/json"
-  });
+  await evidence(info, "login-headers.json", JSON.stringify({ url: response?.url(), status: response?.status(), headers }, null, 2), "application/json");
 
   const agree = page.locator(AGREE_BOX);
   if ((await agree.count()) > 0) {
+    // The terms gate: until the box is ticked the button is shown, greyed and out of reach. Only a
+    // build that draws Google's button visibly marks its row; the old overlay is not asserted on.
+    const row = page.locator("[data-google-button]");
+    if ((await row.count()) > 0) await expect(row).toHaveAttribute("aria-disabled", "true");
     await agree.check();
     await expect(agree).toBeChecked();
   }
@@ -105,7 +115,7 @@ test("tapping Continue with Google opens Google's sign-in window", async ({ page
       frameInert: Boolean(frame?.closest("[inert]"))
     };
   }, GOOGLE_FRAME);
-  await info.attach("button-geometry.json", { body: JSON.stringify(geometry, null, 2), contentType: "application/json" });
+  await evidence(info, "button-geometry.json", JSON.stringify(geometry, null, 2), "application/json");
   await page.screenshot({ path: info.outputPath("before-tap.png"), fullPage: false });
 
   const box = await button.boundingBox();
@@ -119,11 +129,13 @@ test("tapping Continue with Google opens Google's sign-in window", async ({ page
   if (popup) await popup.waitForLoadState("domcontentloaded").catch(() => undefined);
   await page.screenshot({ path: info.outputPath("after-tap.png"), fullPage: false });
 
-  await info.attach("console.txt", { body: consoleLines.join("\n") || "(empty)", contentType: "text/plain" });
-  await info.attach("outcome.json", {
-    body: JSON.stringify({ input: hasTouch ? "touch tap" : "mouse click", popupUrl: popup ? popup.url() : null }, null, 2),
-    contentType: "application/json"
-  });
+  await evidence(info, "console.txt", consoleLines.join("\n") || "(empty)", "text/plain");
+  await evidence(
+    info,
+    "outcome.json",
+    JSON.stringify({ input: hasTouch ? "touch tap" : "mouse click", popupUrl: popup ? popup.url() : null }, null, 2),
+    "application/json"
+  );
 
   expect(popup, `no window opened (tap at centre landed on: ${geometry.tapLandsOn.centre})`).not.toBeNull();
   expect(new URL(popup!.url()).hostname).toBe("accounts.google.com");

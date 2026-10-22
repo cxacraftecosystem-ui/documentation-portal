@@ -1,14 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Clock, Eye, EyeOff, Lock, Mail } from "lucide-react";
 
 import { FieldRepoLogo } from "@/components/FieldRepoLogo";
+import { GoogleSignInButton } from "@/components/GoogleSignInButton";
 import { TwoStepChallengeForm } from "@/components/TwoStepChallengeForm";
 import { useAuth } from "@/components/AuthProvider";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { GLASS_PANEL, GlassSurface } from "@/components/ui/GlassSurface";
 import { useToast } from "@/components/ui/Toast";
 import { accessRefusalCode } from "@/lib/accessRoster";
@@ -24,45 +25,8 @@ import {
 } from "@/lib/oidcSignIn";
 import { isTwoFactorChallenge, type TwoFactorChallenge } from "@/lib/twoFactor";
 import type { User } from "@/lib/types";
-import { cn } from "@/lib/utils";
-
-declare global {
-  interface Window {
-    google?: {
-      accounts: {
-        id: {
-          initialize: (config: { client_id: string; callback: (response: { credential: string }) => void }) => void;
-          renderButton: (element: HTMLElement, options: Record<string, string | boolean | number>) => void;
-        };
-      };
-    };
-  }
-}
 
 /** Official provider marks (inline SVG — no external requests). */
-function GoogleMark({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 48 48" className={className} aria-hidden>
-      <path
-        fill="#EA4335"
-        d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
-      />
-      <path
-        fill="#4285F4"
-        d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
-      />
-      <path
-        fill="#FBBC05"
-        d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
-      />
-      <path
-        fill="#34A853"
-        d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
-      />
-    </svg>
-  );
-}
-
 function MicrosoftMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 21 21" className={className} aria-hidden>
@@ -94,9 +58,6 @@ const BRAND_POINTS = [
   "Recordings transcribed and translated to English automatically.",
   "Six-tier access control; every edit audited."
 ];
-
-/** Shared chrome for the sign-in provider buttons, so they are one height and one radius. */
-const PROVIDER_BUTTON = buttonVariants({ variant: "provider", size: "auth" });
 
 export default function LoginPage() {
   // ToastProvider lives in app/layout.tsx, so this page needs no provider of its own.
@@ -133,8 +94,6 @@ function LoginView() {
    * the code form in place of the sign-in controls. Nobody is signed in while this is set.
    */
   const [challenge, setChallenge] = useState<string | null>(null);
-  const googleHost = useRef<HTMLDivElement | null>(null);
-  const renderedWidth = useRef(0);
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
   /**
    * Microsoft and Yahoo, each present only when this build carries its client ID — no badge and no
@@ -156,99 +115,55 @@ function LoginView() {
   );
 
   /**
-   * Google Identity Services will only render *its* button, at its own size — which is why
-   * it never matched the rest of the card. So we draw our own chrome and lay the real GSI
-   * button over it, transparent: it stays the only focusable, clickable thing (the flow is
-   * untouched, no dead request), while the size and radius become ours. GSI takes a pixel
-   * width, so the hit area is re-rendered whenever the card resizes.
+   * GOOGLE'S ANSWER. `GoogleSignInButton` draws Google's own button, visibly, and hands the ID token
+   * here once Google has signed the person in. Until 2026-10-22 this page drew a button of its own
+   * and laid Google's over it at `opacity: 0`; from a tablet that read as a button that highlights
+   * and never opens Google. The component says why.
    */
-  const renderGoogleButton = useCallback(() => {
-    const host = googleHost.current;
-    if (!host || !window.google) return;
-    const width = Math.round(Math.min(400, Math.max(200, host.offsetWidth)));
-    if (width === renderedWidth.current) return;
-    renderedWidth.current = width;
-    host.replaceChildren();
-    window.google.accounts.id.renderButton(host, {
-      theme: "outline",
-      size: "large",
-      shape: "rectangular",
-      text: "continue_with",
-      width
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!googleClientId) return;
-
-    const initialize = () => {
-      window.google?.accounts.id.initialize({
-        client_id: googleClientId,
-        callback: async (response) => {
-          setError(null);
-          setRefusal(null);
-          try {
-            proceed(await loginWithGoogle(response.credential));
-          } catch (err) {
-            /**
-             * GOOGLE FAILURES LAND IN THE CARD'S BANNER, NOT IN A TOAST — and that change is what
-             * makes the gate visible on this path at all.
-             *
-             * Google sign-in is now allow-listed like everything else: a verified Google identity
-             * that is not on the roster gets no account and no token, and is told it is waiting for
-             * an administrator. That sentence is something the person must READ and act on (by
-             * waiting, and by talking to an admin), and a toast is the wrong home for it twice
-             * over — `aria-live="polite"` never interrupts, so a screen reader may not reach it
-             * before it is gone, and it dismisses itself after five seconds. The banner stays until
-             * the next attempt.
-             *
-             * The toast is kept ONLY for failures that are not the gate — a rejected ID token, a
-             * network drop — where "try again" really is the whole advice.
-             */
-            const code = accessRefusalCode(err);
-            const message = err instanceof Error ? err.message : "Please try again.";
-            setRefusal(code);
-            setError(message);
-            if (!code) {
-              toast({ title: "Google sign-in failed", description: message, tone: "error" });
-            }
-          }
+  const onGoogleCredential = useCallback(
+    async (credential: string) => {
+      setError(null);
+      setRefusal(null);
+      try {
+        proceed(await loginWithGoogle(credential));
+      } catch (err) {
+        /**
+         * GOOGLE FAILURES LAND IN THE CARD'S BANNER, NOT IN A TOAST — and that change is what
+         * makes the gate visible on this path at all.
+         *
+         * Google sign-in is now allow-listed like everything else: a verified Google identity
+         * that is not on the roster gets no account and no token, and is told it is waiting for
+         * an administrator. That sentence is something the person must READ and act on (by
+         * waiting, and by talking to an admin), and a toast is the wrong home for it twice
+         * over — `aria-live="polite"` never interrupts, so a screen reader may not reach it
+         * before it is gone, and it dismisses itself after five seconds. The banner stays until
+         * the next attempt.
+         *
+         * The toast is kept ONLY for failures that are not the gate — a rejected ID token, a
+         * network drop — where "try again" really is the whole advice.
+         */
+        const code = accessRefusalCode(err);
+        const message = err instanceof Error ? err.message : "Please try again.";
+        setRefusal(code);
+        setError(message);
+        if (!code) {
+          toast({ title: "Google sign-in failed", description: message, tone: "error" });
         }
-      });
-      renderGoogleButton();
-    };
+      }
+    },
+    [loginWithGoogle, proceed, toast]
+  );
 
-    if (window.google) {
-      initialize();
-      return;
-    }
-    const existing = document.querySelector<HTMLScriptElement>('script[src="https://accounts.google.com/gsi/client"]');
-    if (existing) {
-      existing.addEventListener("load", initialize, { once: true });
-      return;
-    }
-    const script = document.createElement("script");
-    script.src = "https://accounts.google.com/gsi/client";
-    script.async = true;
-    script.defer = true;
-    script.onload = initialize;
-    script.onerror = () =>
+  const onGoogleLoadError = useCallback(
+    () =>
       toast({
         title: "Could not load Google sign-in",
         description: "Check your connection and reload the page.",
         tone: "error",
         duration: 0
-      });
-    document.body.appendChild(script);
-  }, [googleClientId, loginWithGoogle, proceed, renderGoogleButton, toast]);
-
-  useEffect(() => {
-    const host = googleHost.current;
-    if (!host) return;
-    const observer = new ResizeObserver(() => renderGoogleButton());
-    observer.observe(host);
-    return () => observer.disconnect();
-  }, [renderGoogleButton]);
+      }),
+    [toast]
+  );
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -494,25 +409,11 @@ function LoginView() {
 
             <div className="grid gap-2.5">
               {googleClientId ? (
-                <div
-                  className={cn(
-                    PROVIDER_BUTTON,
-                    // The GSI button underneath carries the focus, so the ring has to be drawn
-                    // by the wrapper — an outline on a transparent element is invisible.
-                    "relative w-full min-w-0 overflow-hidden focus-within:outline-solid focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-purple-700"
-                  )}
-                >
-                  <span aria-hidden className="pointer-events-none flex min-w-0 items-center gap-2.5">
-                    <GoogleMark className="h-5 w-5 shrink-0" />
-                    <span className="min-w-0 truncate">Continue with Google</span>
-                  </span>
-                  {/* GSI renders a 40px-tall button; stretching this layer vertically makes the
-                      invisible hit area cover the full 52px of chrome behind it. */}
-                  <div
-                    ref={googleHost}
-                    className="absolute inset-0 flex items-center justify-center opacity-0 transform-[scaleY(1.35)]"
-                  />
-                </div>
+                <GoogleSignInButton
+                  clientId={googleClientId}
+                  onCredential={(credential) => void onGoogleCredential(credential)}
+                  onLoadError={onGoogleLoadError}
+                />
               ) : (
                 <div className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm text-ink-500">
                   Google sign-in is unavailable. Use email and password.
