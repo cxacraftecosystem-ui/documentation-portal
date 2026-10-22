@@ -977,9 +977,6 @@ jobs:
       REVIEW_SQL_TEST_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"
       RECORD_COMPLETENESS_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"
       QV2_BACKFILL_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository_backfill"
-      # An EMPTY database: tests/test_questionnaire_unify_backfill.py migrates it in stages itself
-      # (today's production schema, then the U0 release, then prisma/deferred).
-      QUESTIONNAIRE_UNIFY_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository_unify"
 
     steps:
       - name: Checkout
@@ -1019,7 +1016,6 @@ jobs:
           # Through the service container's own psql, so the runner image needs no client.
           docker exec "${{ job.services.postgres.id }}" \
             psql -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE field_repository_backfill'
-          docker exec "${{ job.services.postgres.id }}"             psql -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE field_repository_unify'
           python -m prisma migrate deploy --schema prisma/schema.prisma
           DATABASE_URL="$QV2_BACKFILL_DATABASE_URL" python -m prisma migrate deploy --schema prisma/schema.prisma
 
@@ -1203,6 +1199,81 @@ jobs:
   # is what deploy-backend.yml pipes over ssh to release the API with no downtime; the test runs it
   # against stubbed systemctl, nginx and curl and fails if nginx is ever left pointing at a port
   # nothing serves. shellcheck is on the runner image. Not a branch-protection gate; seconds to run.
+  questionnaire-unify-backfill:
+    # Field Repository's half of the questionnaire unification (UNIFY section 3.1, U-M1):
+    # tests/test_questionnaire_unify_backfill.py migrates an EMPTY database in stages (today's
+    # production schema, the U0 release, prisma/deferred) and checks the SQL backfill with
+    # scripts/questionnaire_unify_check.py. Its own job and database, so the database job's suite
+    # neither waits for three migration runs nor shares its rows.
+    name: Questionnaire unify backfill
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: field_repository
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PYTHONUTF8: "1"
+      DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"
+      QUESTIONNAIRE_UNIFY_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository_unify"
+      JWT_SECRET: "ci-unify-not-a-secret-0123456789abcdef"
+      AWS_ACCESS_KEY_ID: "ci-placeholder"
+      AWS_SECRET_ACCESS_KEY: "ci-placeholder"
+      AWS_S3_BUCKET: "ci-placeholder"
+      MASTER_ADMIN_EMAIL: "ci@example.invalid"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14.8"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.lock
+            backend/pyproject.toml
+
+      - name: Install the backend from the lock
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock
+          pip install --no-deps -e .
+
+      - name: Fetch the Prisma engines and generate the client
+        run: |
+          set -euo pipefail
+          python -m prisma py fetch
+          python -m prisma generate --schema prisma/schema.prisma
+
+      - name: Create the empty database
+        run: docker exec "${{ job.services.postgres.id }}" psql -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE field_repository_unify'
+
+      - name: The backfill, before and after U0, and the deferred migrations
+        run: |
+          set -uo pipefail
+          status=0
+          python -m pytest -rs --durations=10 tests/test_questionnaire_unify_backfill.py | tee unify.log || status=1
+          if grep -q '^SKIPPED' unify.log; then
+            echo "::error::the backfill test skipped; QUESTIONNAIRE_UNIFY_DATABASE_URL must reach the empty database."
+            exit 1
+          fi
+          exit "$status"
+
   questionnaire-parity:
     # UNIFY_2026-10-21.md section 5.3: the questionnaire is one package, one schema fragment and one
     # feature registry in both portals. This job runs only those guards, against a checkout of the

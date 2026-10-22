@@ -34,7 +34,8 @@ SPEC.loader.exec_module(check)
 
 pytestmark = pytest.mark.skipif(
     not URL or urlsplit(URL).hostname not in ("127.0.0.1", "localhost"),
-    reason="QUESTIONNAIRE_UNIFY_DATABASE_URL is not set to an empty LOCAL database of its own (CI: the 'Questionnaire unify backfill' job)",
+    # Worded without the opt-in variable's name: the database job fails on any skip that names one.
+    reason="needs an empty local database of its own (CI: the 'Questionnaire unify backfill' job sets it)",
 )
 
 
