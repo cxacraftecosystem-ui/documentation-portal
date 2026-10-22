@@ -36,6 +36,11 @@ import {
   emptyLine,
   formSummary,
   groupByKind,
+  isOffline,
+  listCacheKey,
+  readFormsCache,
+  savedCopyLine,
+  writeFormsCache,
   kindLabel,
   KIND_NOT_STATED,
   KINDS,
@@ -67,6 +72,7 @@ export default function QuestionnairesLibraryPage() {
   const [dialog, setDialog] = useState<"new" | "upload" | "bundle" | null>(null);
   const [report, setReport] = useState<QWorkbookReport | null>(null);
   const [reload, setReload] = useState(0);
+  const [saved, setSaved] = useState<string | null>(null);
   const tab = scope ?? defaultTab(user);
 
   useEffect(() => {
@@ -86,15 +92,27 @@ export default function QuestionnairesLibraryPage() {
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
+    const options = { workshopId: tab === "workshop" ? workshopId || null : null, kind: kind || null };
+    const key = listCacheKey(tab, options);
     library
-      .list(tab, { workshopId: tab === "workshop" ? workshopId || null : null, kind: kind || null })
+      .list(tab, options)
       .then((rows) => {
         if (cancelled) return;
+        writeFormsCache(user.id, { list: { key, forms: rows } });
         setForms(rows);
+        setSaved(null);
         setError(null);
       })
       .catch((err) => {
         if (cancelled) return;
+        // Offline (A16): the copy this account last read, never another account's.
+        const held = isOffline(err) ? readFormsCache(user.id) : null;
+        if (held?.lists[key]) {
+          setForms(held.lists[key]);
+          setSaved(held.at);
+          setError(null);
+          return;
+        }
         setForms([]);
         setError(libraryError(err, "Couldn't load the forms."));
       });
@@ -214,6 +232,11 @@ export default function QuestionnairesLibraryPage() {
         ) : null}
 
         {error ? <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
+        {saved ? (
+          <p className="text-sm text-ink-500" data-saved-copy>
+            {savedCopyLine(saved)}
+          </p>
+        ) : null}
 
         {forms === null ? (
           <p className="text-sm text-ink-500">Loading…</p>

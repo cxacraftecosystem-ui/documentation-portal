@@ -329,7 +329,20 @@ async def counts_for(kind: str, ids: Iterable[str], client: Any = None) -> dict[
     for (name, _), by_id in zip(plan, fetched):
         for record_id in unique:
             result[record_id][name] = max(result[record_id].get(name, 0), by_id.get(record_id, 0))
+    await _add_session_answers(kind, result, client)
     return result
+
+
+async def _add_session_answers(kind: str, counts: dict[str, dict[str, int]], client: Any) -> None:
+    """A shared-questionnaire session's answers count toward its ``answers`` (UNIFY C10); nothing,
+    and no query, while v2 is off or for any other kind."""
+    if kind != "interview" or "answers" not in count_names(kind):
+        return
+    from app.services import questionnaire_readers
+
+    for session_id, n in (await questionnaire_readers.answer_counts(list(counts), client=client)).items():
+        if session_id in counts:
+            counts[session_id]["answers"] = counts[session_id].get("answers", 0) + n
 
 
 def _count_from_payload(kind: str, name: str, item: dict[str, Any], key: str) -> int:
@@ -375,6 +388,10 @@ async def attach(kind: str, payload: Any, client: Any = None) -> Any:
         for (name, _), by_id in zip(queried, fetched):
             for record_id in ids:
                 counts[record_id][name] = max(counts[record_id].get(name, 0), by_id.get(record_id, 0))
+    try:
+        await _add_session_answers(kind, counts, client)
+    except Exception:  # noqa: BLE001 - the meter never fails a read or a save
+        pass
     for item in records:
         item["completeness"] = evaluate(kind, item, counts[item["id"]])
     return payload
