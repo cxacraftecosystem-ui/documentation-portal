@@ -10,7 +10,7 @@
     "unifiedRelease false: 'planned' is allowed. U5 sets it true in the commit that cuts the unified release and switches QUESTIONNAIRE_V2 on in designer-portal; from then on every required client must be 'tagged' and every server 'built', in both portals.",
     "A portal whose Settings default for QUESTIONNAIRE_V2 (questionnaire_v2) is true is held to the same rule for its own clients, and a feature with a 'flag' (a Settings field) whose default is true is held to it in every client."
   ],
-  "unifiedRelease": false,
+  "unifiedRelease": true,
   "clients": {
     "dr-web": "designer-portal",
     "dr-android": "designer-portal",

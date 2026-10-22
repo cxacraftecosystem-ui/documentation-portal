@@ -1879,7 +1879,6 @@ model Questionnaire {
   interviews QuestionnaireInterview[]
   workshops  Workshop[]               @relation("WorkshopQuestionnaire")
 
-  @@unique([title])
   @@index([isActive, sortOrder])
   @@index([ownerId])
   @@index([deletedAt])

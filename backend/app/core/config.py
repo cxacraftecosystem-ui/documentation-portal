@@ -453,7 +453,7 @@ class Settings(BaseSettings):
     # and every old route (POST /questionnaire/interviews, /media/complete with "questionnaire")
     # behaves exactly as before; GET /questionnaire/config tells both clients which screens to draw.
     # The owner flips it after the backfill (rollout steps 3 and 4).
-    questionnaire_v2: bool = Field(default=False, alias="QUESTIONNAIRE_V2")
+    questionnaire_v2: bool = Field(default=True, alias="QUESTIONNAIRE_V2")
     # Decision 5: old builds stop CREATING sessions 30 days after every active device runs the new
     # build (GET /api/admin/app-versions says when). Unset = old builds keep creating. Set = a create
     # from a lower BUILD NUMBER (X-App-Version-Code; the version NAME was reset to 0.0.1 on 21 Oct
