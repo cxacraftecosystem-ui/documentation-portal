@@ -20,6 +20,9 @@ object QuestionnaireCopy {
 
     /** Shared key to text, copied from `shared/strings/questionnaire.json`. */
     val shared: Map<String, String> = linkedMapOf(
+        "continueAnotherDay" to "Continue another day",
+        "deleteSessionTitle" to "Delete this session?",
+        "restore" to "Restore",
         "sessionsTitle" to "Sessions",
         "newSession" to "New session",
         "startSession" to "Start session",

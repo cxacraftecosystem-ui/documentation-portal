@@ -30,6 +30,7 @@ import {
   WORKSHOP_TYPES,
   writeFormsCache
 } from "@/lib/questionnaireLibrary";
+import { addDraftQuestion, addDraftSection, draftSummary, getDraft, isDraftId, listDrafts, newDraft, sendDraft } from "@/lib/questionnaireDraftForms";
 import type { User } from "@/lib/types";
 
 /**
@@ -298,4 +299,37 @@ test("@qf:A16 a form reads offline from this account's saved copy, never another
   expect(savedCopyLine("2026-10-22T04:42:00Z")).toBe("Offline · saved copy from 22 Oct, 10:12 am.");
   expect(LIBRARY_PAGE).toContain("const held = isOffline(err) ? readFormsCache(user.id) : null;");
   expect(FORM_PAGE).toContain("const held = isOffline(err) ? readFormsCache(owner) : null;");
+});
+
+test("@qf:A15 a form written offline is sent in order, remapping its temporary ids, and resumes where it stopped", async () => {
+  const data = new Map<string, string>();
+  const store = { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => void data.set(k, v), removeItem: (k: string) => void data.delete(k) };
+  let draft = newDraft("u1", { title: "Village market survey", kind: "MARKET_SURVEY" }, store);
+  expect(isDraftId(draft.tempId)).toBe(true);
+  draft = addDraftSection(draft, "A", "Stalls", store);
+  draft = addDraftQuestion(draft, draft.sections[0].tempId, "What do you sell?", true, store);
+  draft = addDraftQuestion(draft, draft.sections[0].tempId, "Since when?", false, store);
+  expect(listDrafts("u2", store)).toEqual([]);
+  expect(draftSummary(draft)).toBe("1 section · 2 questions");
+
+  const calls: { path: string; body: Record<string, unknown> }[] = [];
+  let failAt = 3;
+  const fetcher = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
+    calls.push({ path, body: JSON.parse(String(init.body)) });
+    if (calls.length === failAt) throw new TypeError("Failed to fetch");
+    const id = path === "/questionnaires" ? "f-real" : path === "/questionnaire/sections" ? "s-real" : `q-real-${calls.length}`;
+    return { id } as T;
+  };
+  // The connection drops after the section lands: nothing is lost and nothing is sent twice.
+  expect(await sendDraft(draft, fetcher, store)).toBeNull();
+  const held = getDraft("u1", draft.tempId, store)!;
+  expect(held.serverId).toBe("f-real");
+  expect(held.sections[0].serverId).toBe("s-real");
+  failAt = 0;
+  expect(await sendDraft(held, fetcher, store)).toBe("f-real");
+  expect(calls.map((c) => c.path)).toEqual(["/questionnaires", "/questionnaire/sections", "/questionnaire/questions", "/questionnaire/questions", "/questionnaire/questions"]);
+  expect(calls[1].body).toMatchObject({ questionnaireId: "f-real", code: "A" });
+  expect(calls[4].body).toMatchObject({ sectionId: "s-real", prompt: "Since when?" });
+  expect(listDrafts("u1", store)).toEqual([]);
+  expect(DIALOGS).toContain("const draft = newDraft(owner,");
 });

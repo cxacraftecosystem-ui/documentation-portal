@@ -20,6 +20,7 @@ import { useConfirm } from "@/components/dialogs";
 import { PageHeader } from "@/components/PageHeader";
 import { QuestionnaireAdminEditor } from "@/components/questionnaires/InstrumentBuilder";
 import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
+import { DraftFormPanel } from "@/components/questionnaires/DraftFormPanel";
 import { FormBindingsCard } from "@/components/questionnaires/FormBindingsCard";
 import { ReuseFormDialog } from "@/components/questionnaires/FormDialogs";
 import { FormSessionsCard } from "@/components/questionnaires/FormSessionsCard";
@@ -53,12 +54,17 @@ import {
   writeFormsCache,
   type LibraryFormDetail
 } from "@/lib/questionnaireLibrary";
+import { isDraftId } from "@/lib/questionnaireDraftForms";
 import type { QuestionnaireSection } from "@/lib/types";
 import { loadWorkshopList } from "@/lib/workshopList";
 
 export default function QuestionnaireFormPage() {
   const params = useParams<{ id: string }>();
-  const id = params.id;
+  // A form written offline lives on this device until it is sent (A15).
+  return isDraftId(params.id) ? <DraftFormPanel id={params.id} /> : <QuestionnaireFormView id={params.id} />;
+}
+
+function QuestionnaireFormView({ id }: { id: string }) {
   const router = useRouter();
   const { user } = useAuth();
   const confirm = useConfirm();

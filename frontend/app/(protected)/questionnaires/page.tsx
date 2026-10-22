@@ -51,6 +51,7 @@ import {
   type FormScope,
   type LibraryForm
 } from "@/lib/questionnaireLibrary";
+import { draftSummary, listDrafts, sendDraft } from "@/lib/questionnaireDraftForms";
 import { loadWorkshopList } from "@/lib/workshopList";
 
 export default function QuestionnairesLibraryPage() {
@@ -123,6 +124,26 @@ export default function QuestionnairesLibraryPage() {
 
   const load = () => setReload((n) => n + 1);
 
+  // Forms written offline on this device (A15): listed under Mine, and sent once there is a
+  // connection, oldest first; each lands as a form of its own and leaves the device.
+  const [draftRevision, setDraftRevision] = useState(0);
+  const drafts = user ? listDrafts(user.id) : [];
+  void draftRevision;
+  useEffect(() => {
+    if (!online || !user) return;
+    let cancelled = false;
+    void (async () => {
+      let sent = 0;
+      for (const draft of listDrafts(user.id)) if (await sendDraft(draft)) sent += 1;
+      if (cancelled) return;
+      setDraftRevision((n) => n + 1);
+      if (sent) setReload((n) => n + 1);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [online, user]);
+
   async function run(key: string, work: () => Promise<void>) {
     setBusy(key);
     try {
@@ -134,7 +155,7 @@ export default function QuestionnairesLibraryPage() {
     }
   }
 
-  const open = (form: LibraryForm) => router.push(`/questionnaires/${encodeURIComponent(form.id)}`);
+  const open = (form: Pick<LibraryForm, "id">) => router.push(`/questionnaires/${encodeURIComponent(form.id)}`);
   const offlineTitle = online ? undefined : NEEDS_CONNECTION;
   const annexureAllowed = (author || canDownloadDataset(user)) && config?.v2Enabled === true;
 
@@ -147,7 +168,7 @@ export default function QuestionnairesLibraryPage() {
         actions={
           author ? (
             <>
-              <button type="button" className="field-button" disabled={!online} title={offlineTitle} onClick={() => setDialog("new")}>
+              <button type="button" className="field-button" onClick={() => setDialog("new")}>
                 <FilePlus2 className="h-4 w-4" aria-hidden /> New form
               </button>
               <button type="button" className="field-button-secondary" disabled={!online} title={offlineTitle} onClick={() => setDialog("upload")}>
@@ -238,6 +259,19 @@ export default function QuestionnairesLibraryPage() {
           </p>
         ) : null}
 
+        {tab === "mine" && drafts.length ? (
+          <ul className="divide-y divide-line-200 rounded-md border border-dashed border-line-200" data-draft-forms>
+            {drafts.map((draft) => (
+              <li key={draft.tempId} className="p-3">
+                <RecordTitleLink href={`/questionnaires/${encodeURIComponent(draft.tempId)}`}>{draft.title}</RecordTitleLink>
+                <p className="mt-0.5 text-xs text-ink-500">
+                  {draftSummary(draft)} · On this device{draft.error ? ` · ${draft.error}` : ""}
+                </p>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
         {forms === null ? (
           <p className="text-sm text-ink-500">Loading…</p>
         ) : forms.length === 0 ? (
@@ -292,7 +326,7 @@ export default function QuestionnairesLibraryPage() {
 
       {isContentAdmin(user) && config?.v2Enabled ? <TypeDefaultsCard online={online} /> : null}
 
-      <NewFormDialog open={dialog === "new"} onClose={() => setDialog(null)} onCreated={(form) => open(form)} />
+      <NewFormDialog open={dialog === "new"} onClose={() => setDialog(null)} onCreated={(form) => open(form)} online={online} owner={user?.id ?? null} />
       <OpenBundleDialog
         open={dialog === "bundle"}
         onClose={() => setDialog(null)}
