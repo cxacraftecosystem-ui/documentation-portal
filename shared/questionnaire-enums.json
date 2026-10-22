@@ -45,18 +45,10 @@
     ]
   },
   "pending": {
-    "AnswerOrigin": {
-      "add": [
-        "WORKBOOK"
-      ],
-      "stream": "U3 (workbook answer import), with shared/enums.json and the Prisma enum"
-    },
     "errorCodes": {
       "add": [
         "ANSWER_LOCKED",
-        "RESPONDENT_HAS_ROWS",
-        "FORM_DELETED",
-        "BUNDLE_VERSION"
+        "RESPONDENT_HAS_ROWS"
       ],
       "stream": "U1-U4, into shared/questionnaire-contract.json errorCodes"
     }

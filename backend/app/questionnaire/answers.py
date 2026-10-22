@@ -89,13 +89,18 @@ def answer_out(row: dict[str, Any] | None) -> dict[str, Any] | None:
         "id": str(row["id"]), "version": int(row["version"]), "text": row.get("text") or "",
         "origin": row.get("origin") or "TYPED", "attribution": row.get("attribution") or "INDIVIDUAL",
         "pinned": bool(row.get("pinned")), "sourceRecordingId": row.get("sourceRecordingId"),
+        # Who wrote it (the lock's "Answered by", P15) and the answer note (A20), when the read has them.
+        "actorId": str(row["actorId"]) if row.get("actorId") else None, "actorName": row.get("actorName"),
+        "note": row.get("note"),
+        # Decision C8: the canonical plain text above, and the rich text an editor wrote, when it did.
+        "richText": row.get("richText"),
     }
 
 
 async def current_answer(client: Any, artisan_id: str, lineage_id: str) -> dict[str, Any] | None:
     rows = await client.query_raw(
         'SELECT a."id", a."version", a."pinned", a."questionnaireId", rv."text", rv."origin"::text AS origin, '
-        'rv."attribution"::text AS attribution, rv."sourceRecordingId", rv."sessionId", rv."createdAt" AS "revisedAt", rv."actorId" '
+        'rv."attribution"::text AS attribution, rv."sourceRecordingId", rv."sessionId", rv."createdAt" AS "revisedAt", rv."actorId", rv."richText", (SELECT u."name" FROM "User" u WHERE u."id" = rv."actorId") AS "actorName" '
         'FROM "QuestionnaireAnswer" a LEFT JOIN "QuestionnaireAnswerRevision" rv ON rv."id" = a."currentRevisionId" '
         'WHERE a."artisanId" = $1 AND a."questionLineageId" = $2',
         artisan_id, lineage_id,
@@ -116,9 +121,9 @@ async def answers_for(client: Any, *, artisan_ids: list[str] | None = None, sess
         params.append(session_id)
         where.append(f'EXISTS (SELECT 1 FROM "QuestionnaireAnswerRevision" x WHERE x."answerId" = a."id" AND x."sessionId" = ${len(params)})')
     return await client.query_raw(
-        'SELECT a."id", a."artisanId", a."questionLineageId", a."version", a."pinned", rv."text", rv."origin"::text AS origin, '
+        'SELECT a."id", a."artisanId", a."respondentId", a."questionLineageId", a."version", a."pinned", rv."text", rv."origin"::text AS origin, '
         'rv."attribution"::text AS attribution, rv."sourceRecordingId", rv."sessionId", rv."status"::text AS status, '
-        'rv."sourceTranscriptHash", rv."askedQuestionId", rv."languageCode" '
+        'rv."sourceTranscriptHash", rv."askedQuestionId", rv."languageCode", rv."note", rv."actorId", rv."richText", (SELECT u."name" FROM "User" u WHERE u."id" = rv."actorId") AS "actorName" '
         'FROM "QuestionnaireAnswer" a JOIN "QuestionnaireAnswerRevision" rv ON rv."id" = a."currentRevisionId" '
         # A soft-deleted session hides the answers it holds (owner decision 3; live.LIVE_SESSION_SQL).
         'JOIN "QuestionnaireInterview" si ON si."id" = rv."sessionId" AND si."deletedAt" IS NULL '
@@ -150,7 +155,7 @@ async def _transcript_hash(client: Any, recording_id: str | None) -> str | None:
 
 _CURRENT_COLUMNS = (
     'a."id", a."version", a."pinned", a."questionnaireId", rv."text", rv."origin"::text AS origin, '
-    'rv."attribution"::text AS attribution, rv."sourceRecordingId", rv."sessionId", rv."createdAt" AS "revisedAt", rv."actorId" '
+    'rv."attribution"::text AS attribution, rv."sourceRecordingId", rv."sessionId", rv."createdAt" AS "revisedAt", rv."actorId", rv."richText", (SELECT u."name" FROM "User" u WHERE u."id" = rv."actorId") AS "actorName" '
 )
 
 
@@ -329,12 +334,12 @@ async def _write_one(
         revision_id = uuid4().hex
         await tx.execute_raw(
             'INSERT INTO "QuestionnaireAnswerRevision" ("id", "answerId", "text", "languageCode", "origin", "attribution", '
-            '"askedQuestionId", "sessionId", "sourceRecordingId", "sourceTranscriptHash", "sourceFieldValue", "status", "actorId", "note") '
-            'VALUES ($1, $2, $3, $4, $5::"AnswerOrigin", $6::"AnswerAttribution", $7, $8, $9, $10, $11, $12::"RecordStatus", $13, $14)',
+            '"askedQuestionId", "sessionId", "sourceRecordingId", "sourceTranscriptHash", "sourceFieldValue", "status", "actorId", "note", "richText") '
+            'VALUES ($1, $2, $3, $4, $5::"AnswerOrigin", $6::"AnswerAttribution", $7, $8, $9, $10, $11, $12::"RecordStatus", $13, $14, $15)',
             revision_id, answer_id, item.text, session.get("languageCode"), item.origin, item.attribution, str(question["id"]),
             item.sessionId, item.sourceRecordingId,
             pre["hash"][str(item.sourceRecordingId)] if hash_known else await _transcript_hash(tx, item.sourceRecordingId),
-            field_value, status, user.id, getattr(item, "note", None),
+            field_value, status, user.id, getattr(item, "note", None), getattr(item, "richText", None),
         )
         await tx.execute_raw('UPDATE "QuestionnaireAnswer" SET "currentRevisionId" = $2 WHERE "id" = $1', answer_id, revision_id)
         if session.get("status_t") == "APPROVED":
@@ -343,6 +348,8 @@ async def _write_one(
     saved = {
         "id": answer_id, "version": version, "text": item.text, "origin": item.origin, "attribution": item.attribution,
         "pinned": bool(current and current.get("pinned")), "sourceRecordingId": item.sourceRecordingId,
+        "actorId": str(user.id), "actorName": getattr(user, "name", None), "note": getattr(item, "note", None),
+        "richText": getattr(item, "richText", None),
     }
     return {**base, "status": "SAVED", "answer": saved}
 
@@ -415,11 +422,11 @@ async def _write_respondent(item: Any, user: Any, client: Any, session_cache: di
         revision_id = uuid4().hex
         await tx.execute_raw(
             'INSERT INTO "QuestionnaireAnswerRevision" ("id", "answerId", "text", "languageCode", "origin", "attribution", '
-            '"askedQuestionId", "sessionId", "sourceRecordingId", "sourceTranscriptHash", "status", "actorId", "note") '
-            'VALUES ($1, $2, $3, $4, $5::"AnswerOrigin", $6::"AnswerAttribution", $7, $8, $9, $10, $11::"RecordStatus", $12, $13)',
+            '"askedQuestionId", "sessionId", "sourceRecordingId", "sourceTranscriptHash", "status", "actorId", "note", "richText") '
+            'VALUES ($1, $2, $3, $4, $5::"AnswerOrigin", $6::"AnswerAttribution", $7, $8, $9, $10, $11::"RecordStatus", $12, $13, $14)',
             revision_id, answer_id, item.text, session.get("languageCode"), item.origin, item.attribution, str(question["id"]),
             item.sessionId, item.sourceRecordingId, await _transcript_hash(tx, item.sourceRecordingId), "PENDING", user.id,
-            getattr(item, "note", None),
+            getattr(item, "note", None), getattr(item, "richText", None),
         )
         await tx.execute_raw('UPDATE "QuestionnaireAnswer" SET "currentRevisionId" = $2 WHERE "id" = $1', answer_id, revision_id)
         if session.get("status_t") == "APPROVED":
@@ -427,6 +434,8 @@ async def _write_respondent(item: Any, user: Any, client: Any, session_cache: di
     saved = {
         "id": answer_id, "version": version, "text": item.text, "origin": item.origin, "attribution": item.attribution,
         "pinned": bool(current and current.get("pinned")), "sourceRecordingId": item.sourceRecordingId,
+        "actorId": str(user.id), "actorName": getattr(user, "name", None), "note": getattr(item, "note", None),
+        "richText": getattr(item, "richText", None),
     }
     return {**base, "status": "SAVED", "answer": saved}
 
@@ -436,7 +445,7 @@ async def answer_revisions(answer_id: str, *, client: Any = None) -> dict[str, A
     db = _db(client)
     rows = await db.query_raw(
         'SELECT rv."id", rv."text", rv."origin"::text AS origin, rv."attribution"::text AS attribution, rv."sessionId", '
-        'rv."sourceRecordingId", rv."status"::text AS status, rv."actorId", u."name" AS "actorName", rv."createdAt", '
+        'rv."sourceRecordingId", rv."status"::text AS status, rv."actorId", u."name" AS "actorName", rv."createdAt", rv."richText", '
         '(a."currentRevisionId" = rv."id") AS current '
         'FROM "QuestionnaireAnswerRevision" rv JOIN "QuestionnaireAnswer" a ON a."id" = rv."answerId" '
         'LEFT JOIN "User" u ON u."id" = rv."actorId" WHERE rv."answerId" = $1 ORDER BY rv."createdAt" DESC, rv."id" DESC',
@@ -451,7 +460,7 @@ async def answer_revisions(answer_id: str, *, client: Any = None) -> dict[str, A
                 "id": str(r["id"]), "text": r.get("text") or "", "origin": r.get("origin"), "attribution": r.get("attribution"),
                 "sessionId": r.get("sessionId"), "sourceRecordingId": r.get("sourceRecordingId"), "status": r.get("status"),
                 "actor": {"id": r.get("actorId"), "name": r.get("actorName") or ""}, "createdAt": iso(r.get("createdAt")),
-                "current": bool(r.get("current")),
+                "current": bool(r.get("current")), "richText": r.get("richText"),
             }
             for r in rows
         ],
@@ -470,8 +479,16 @@ async def session_people(client: Any, session_id: str) -> set[str]:
 
 
 async def put_answers(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any]:
+    from app.questionnaire import richtext
+
     db = _db(client)
     cache: dict[str, Any] = {}
+    # Decision C8: the plain text is canonical (coverage, the lock, search and exports read it); a
+    # client with an editor sends the document too, and one that sends only the document has it
+    # flattened into the text here.
+    for item in payload.items:
+        if getattr(item, "richText", None) is not None:
+            item.text, item.richText = richtext.normalise(item.text, item.richText)
     artisan_items = [i for i in payload.items if not getattr(i, "respondentId", None)]
     try:
         pre = await _prefetch(artisan_items, db)

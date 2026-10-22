@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
-import { mostRecentRecordableWorkshop } from "@/components/forms/WorkshopSelect";
 import { ConsentQuestion } from "@/components/questionnaire/ConsentQuestion";
 import { loadInstrumentQuestions } from "@/components/questionnaire/instrumentQuestions";
 import { PromptDialog } from "@/components/questionnaire/Prompts";
@@ -14,16 +13,27 @@ import { CalendarField } from "@/components/ui/CalendarField";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SearchableMultiSelect, SearchableSelect } from "@/components/ui/SearchableSelect";
 import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
-import { apiFetch, listResource } from "@/lib/api";
-import { agoLabel, coveredSectionsOffline, coverageLine, overlayFromUnits, readSnapshot, withTakes, type ArtisanCoverage } from "@/lib/coverageCache";
-import { LANGUAGES } from "@/lib/languages";
+import { listResource } from "@/lib/api";
+import { agoLabel, coveredSectionsOffline, coverageLine, overlayFromUnits, readSnapshot, withTakes, type ArtisanCoverage } from "@/lib/questionnaire/coverageCache";
+import { LANGUAGES } from "@/lib/questionnaire/languages";
 import { sessionTitle } from "@/lib/naming";
-import { mintKey, questionnaireApi, SESSION_PURPOSES, type OpenMatchItem, type Session, type SessionCreate, type SessionPurpose } from "@/lib/questionnaireApi";
-import { prompts } from "@/lib/questionnairePrompts";
-import { newSessionUnit } from "@/lib/questionnaireQueue";
-import { readStartLists, searchCachedArtisans, titleWorkshop, trimArtisan, trimWorkshop, writeStartLists } from "@/lib/startSheetCache";
-import { PURPOSE_KEY, qs } from "@/lib/strings/qs";
-import type { Artisan, Questionnaire, Workshop } from "@/lib/types";
+import { mintKey, questionnaireApi, SESSION_PURPOSES, type FormFor, type OpenMatchItem, type Session, type SessionCreate, type SessionPurpose } from "@/lib/questionnaire/api";
+import { prompts } from "@/lib/questionnaire/prompts";
+import { newSessionUnit } from "@/lib/questionnaire/queue";
+import { readStartLists, searchCachedArtisans, titleWorkshop, trimArtisan, trimWorkshop, writeStartLists } from "@/lib/questionnaire/startSheetCache";
+import { PURPOSE_KEY, qs } from "@/lib/questionnaire/qs";
+import {
+  artisanFilter,
+  defaultWorkshopId,
+  listForms,
+  listWorkshops,
+  NO_WORKSHOP_LABEL,
+  WORKSHOP_LABEL,
+  workshopScope,
+  type PortalForm,
+  type PortalWorkshop
+} from "@/lib/questionnairePortal";
+import type { Artisan } from "@/lib/types";
 
 export const FIELD_VISIT = "__field_visit__";
 
@@ -31,7 +41,10 @@ export type StartSheetState = {
   workshopId: string;
   questionnaireId: string;
   sessionDate: string;
-  mode: "INDIVIDUAL" | "GROUP";
+  /** GUEST: "Someone else" — a named person who is not a registered artisan (owner decision 1). */
+  mode: "INDIVIDUAL" | "GROUP" | "GUEST";
+  /** The guest's name when `mode` is GUEST. */
+  guestName: string;
   artisanIds: string[];
   purpose: SessionPurpose;
   place: string;
@@ -46,13 +59,19 @@ function todayLocal(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-/** Start is allowed once the instrument, the date and at least one artisan are set (DESIGN test 36). */
-export function startBlocked(form: Pick<StartSheetState, "questionnaireId" | "sessionDate" | "artisanIds">): boolean {
-  return !form.questionnaireId || !form.sessionDate || form.artisanIds.length === 0;
+/**
+ * Start is allowed once the form, the date and someone to ask are set (DESIGN test 36): at least one
+ * artisan, or the guest's name for "Someone else".
+ */
+export function startBlocked(form: Pick<StartSheetState, "questionnaireId" | "sessionDate" | "artisanIds"> & Partial<Pick<StartSheetState, "mode" | "guestName">>): boolean {
+  if (!form.questionnaireId || !form.sessionDate) return true;
+  if (form.mode === "GUEST") return !(form.guestName ?? "").trim();
+  return form.artisanIds.length === 0;
 }
 
-/** Individual keeps one artisan; switching from Group trims the pick to its first. */
+/** Individual keeps one artisan; switching from Group trims the pick to its first; a guest has none. */
 export function constrainArtisans(mode: StartSheetState["mode"], ids: string[]): string[] {
+  if (mode === "GUEST") return [];
   return mode === "INDIVIDUAL" ? ids.slice(0, 1) : ids;
 }
 
@@ -62,8 +81,7 @@ export function sessionCreateBody(form: StartSheetState, clientKey: string, now 
   return {
     clientKey,
     questionnaireId: form.questionnaireId,
-    workshopId: form.workshopId && form.workshopId !== FIELD_VISIT ? form.workshopId : null,
-    designWorkshopId: null,
+    ...workshopScope(form.workshopId && form.workshopId !== FIELD_VISIT ? form.workshopId : null),
     sessionDate: form.sessionDate,
     startedAt: now.toISOString(),
     purpose: form.purpose,
@@ -71,8 +89,21 @@ export function sessionCreateBody(form: StartSheetState, clientKey: string, now 
     languageCode: form.languageCode || null,
     languageOther: form.languageCode === "other" ? form.languageOther.trim() || null : null,
     note: note || null,
-    participants: form.artisanIds.map((artisanId) => ({ artisanId }))
+    participants: form.mode === "GUEST" ? [] : form.artisanIds.map((artisanId) => ({ artisanId })),
+    respondents: form.mode === "GUEST" ? [{ name: form.guestName.trim().slice(0, 120), kind: "GUEST" }] : []
   };
+}
+
+/** The form picker's options: the workshop's bound forms first, grouped by kind, then every other form. */
+export function formOptions(forms: PortalForm[], resolved: FormFor | null): { value: string; label: string; group?: string }[] {
+  const bound = new Set((resolved?.bound ?? []).map((b) => b.questionnaireId));
+  const kindLabel = (kind: string | null) => (kind ? qs(kind === "MARKET_SURVEY" ? "kindMarketSurvey" : "kindWorkshopInterview") : qs("kindNotStated"));
+  const boundForms = forms.filter((f) => bound.has(f.id));
+  const rest = forms.filter((f) => !bound.has(f.id));
+  return [
+    ...boundForms.map((f) => ({ value: f.id, label: f.title, group: `${qs("boundToWorkshop")} · ${kindLabel(f.kind)}` })),
+    ...rest.map((f) => ({ value: f.id, label: f.title, group: bound.size ? qs("otherForms") : undefined }))
+  ];
 }
 
 /**
@@ -88,7 +119,7 @@ type CoverageGrid = Awaited<ReturnType<typeof questionnaireApi.coverage>>;
 export function titlePreviewInput(input: {
   sessionDate: string;
   place: string;
-  workshop: Parameters<typeof titleWorkshop>[0];
+  workshop: PortalWorkshop | null;
   artisans: { name: string; localName?: string | null; craft?: { name: string } | null }[];
 }) {
   return {
@@ -99,20 +130,34 @@ export function titlePreviewInput(input: {
   };
 }
 
-export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initialArtisanIds?: string[]; onStarted?: (key: string) => void }) {
+export function SessionStartSheet({
+  initialArtisanIds = [],
+  initialQuestionnaireId = null,
+  initialWorkshopId = null,
+  onStarted
+}: {
+  initialArtisanIds?: string[];
+  /** A form picked before the sheet opened (a form's own page, an old answer link). */
+  initialQuestionnaireId?: string | null;
+  /** A workshop picked before the sheet opened (the workshop's own Questionnaires card). */
+  initialWorkshopId?: string | null;
+  onStarted?: (key: string) => void;
+}) {
   const router = useRouter();
   const { user } = useAuth();
   const queue = useSessionQueue(null);
   const ids = { workshop: useId(), instrument: useId(), date: useId(), artisans: useId(), place: useId(), language: useId(), other: useId(), note: useId() };
-  const [workshops, setWorkshops] = useState<Workshop[]>([]);
-  const [instruments, setInstruments] = useState<Questionnaire[]>([]);
+  const [workshops, setWorkshops] = useState<PortalWorkshop[]>([]);
+  const [instruments, setInstruments] = useState<PortalForm[]>([]);
+  const [resolved, setResolved] = useState<FormFor | null>(null);
   const [artisans, setArtisans] = useState<Artisan[]>([]);
   const [search, setSearch] = useState("");
   const [form, setForm] = useState<StartSheetState>({
-    workshopId: "",
-    questionnaireId: "",
+    workshopId: initialWorkshopId ?? "",
+    questionnaireId: initialQuestionnaireId ?? "",
     sessionDate: todayLocal(),
     mode: initialArtisanIds.length > 1 ? "GROUP" : "INDIVIDUAL",
+    guestName: "",
     artisanIds: initialArtisanIds,
     purpose: "FIRST_SITTING",
     place: "",
@@ -137,29 +182,30 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
     // no signal (audit M4). The held workshop rows carry every field the default-workshop rule reads.
     const held = readStartLists();
     void Promise.all([
-      listResource<Workshop>("/workshops", { pageSize: 100 })
-        .then((page) => {
-          writeStartLists({ workshops: (page.items ?? []).map(trimWorkshop) });
-          return page.items ?? [];
+      listWorkshops()
+        .then((items) => {
+          writeStartLists({ workshops: items.map(trimWorkshop) });
+          return items;
         })
-        .catch(() => held.workshops as unknown as Workshop[]),
-      apiFetch<Questionnaire[]>("/questionnaires")
+        .catch(() => held.workshops),
+      listForms()
         .then((list) => {
           writeStartLists({ instruments: list });
           return list;
         })
         .catch(() => held.instruments)
-    ]).then(([items, q]) => {
+    ]).then(async ([items, q]) => {
       if (cancelled) return;
-      const w = { items };
-      setWorkshops(w.items ?? []);
+      setWorkshops(items);
       setInstruments(q);
-      // The most recent workshop the researcher may record in is the default; a pick already made stands.
-      const recent = mostRecentRecordableWorkshop(w.items ?? []);
+      // B30: the workshop most recently given to this account (else the latest one that may still be
+      // recorded in) is the default; a pick already made stands. The form follows from it below.
+      const recent = await defaultWorkshopId(items);
+      if (cancelled) return;
       setForm((f) => ({
         ...f,
-        workshopId: f.workshopId || recent?.id || "",
-        questionnaireId: f.questionnaireId || q.find((i) => i.isDefault)?.id || q[0]?.id || ""
+        workshopId: f.workshopId || recent || "",
+        questionnaireId: f.questionnaireId || (recent ? "" : q.find((i) => i.isDefault)?.id || "")
       }));
     });
     return () => {
@@ -175,7 +221,7 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
     let cancelled = false;
     const workshopId = form.workshopId && form.workshopId !== FIELD_VISIT ? form.workshopId : null;
     const timer = window.setTimeout(() => {
-      void listResource<Artisan>("/artisans", { pageSize: 80, search: search || undefined, workshopId: workshopId ?? undefined })
+      void listResource<Artisan>("/artisans", { pageSize: 80, search: search || undefined, ...artisanFilter(workshopId) })
         .then((page) => {
           const items = page.items ?? [];
           writeStartLists({ artisans: items.map((a) => trimArtisan({ ...a, workshopId })) });
@@ -205,11 +251,26 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
     setArtisans((prev) => mergeById(prev.filter((a) => selected.includes(a.id)), held));
   }, [artisanKey]);
 
-  // The workshop's bound instrument is the default.
+  // The form follows the workshop, in the shared order (UNIFY 2.3 rule 5, owner amendment 2): its
+  // primary binding, its only binding, its type's default, the global default; with several bound
+  // and none primary the picker shows them first, grouped by kind. Any other form may still be picked.
   useEffect(() => {
-    const w = workshops.find((x) => x.id === form.workshopId);
-    if (w?.questionnaireId) setForm((f) => ({ ...f, questionnaireId: w.questionnaireId! }));
-  }, [form.workshopId, workshops]);
+    let cancelled = false;
+    const workshopId = form.workshopId && form.workshopId !== FIELD_VISIT ? form.workshopId : null;
+    void questionnaireApi
+      .formFor({ ...workshopScope(workshopId), questionnaireId: initialQuestionnaireId })
+      .then((r) => {
+        if (cancelled) return;
+        setResolved(r);
+        if (r.questionnaireId) setForm((f) => ({ ...f, questionnaireId: r.questionnaireId! }));
+      })
+      .catch(() => {
+        if (!cancelled) setResolved(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [form.workshopId, initialQuestionnaireId]);
 
   // Consent: tell the researcher for each chosen artisan with no answer (assumed, can be switched off) or a refusal.
   // Asked once per artisan: an id is marked before its request goes out, so an answer landing for
@@ -302,8 +363,8 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
     [form.sessionDate, form.place, workshop, chosen]
   );
 
-  const workshopOptions = [{ value: FIELD_VISIT, label: qs("fieldVisitNoWorkshop") }, ...workshops.map((w) => ({ value: w.id, label: w.title }))];
-  const instrumentOptions = instruments.map((i) => ({ value: i.id, label: i.title }));
+  const workshopOptions = [{ value: FIELD_VISIT, label: NO_WORKSHOP_LABEL }, ...workshops.map((w) => ({ value: w.id, label: w.title }))];
+  const instrumentOptions = formOptions(instruments, resolved);
   const artisanOptions = artisans.map((a) => ({ value: a.id, label: a.place ? `${a.name} · ${a.place}` : a.name }));
   const languageOptions = LANGUAGES.map((l) => ({ value: l.code, label: l.label }));
 
@@ -312,9 +373,9 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
     setError(null);
     setBusy(true);
     try {
-      if (!skipMatch && navigator.onLine !== false) {
+      if (!skipMatch && form.mode !== "GUEST" && navigator.onLine !== false) {
         const match = await questionnaireApi
-          .openMatch({ questionnaireId: form.questionnaireId, workshopId: form.workshopId === FIELD_VISIT ? null : form.workshopId || null, artisanIds: form.artisanIds, date: form.sessionDate })
+          .openMatch({ questionnaireId: form.questionnaireId, ...workshopScope(form.workshopId === FIELD_VISIT ? null : form.workshopId || null), artisanIds: form.artisanIds, date: form.sessionDate })
           .catch(() => ({ items: [] as OpenMatchItem[] }));
         if (match.items.length) {
           setOpenMatch(match.items[0]);
@@ -363,9 +424,9 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
       <div className="grid gap-4 md:grid-cols-2">
         <div className="grid gap-1">
           <label htmlFor={ids.workshop} className="field-label">
-            {qs("fieldWorkshop")}
+            {WORKSHOP_LABEL}
           </label>
-          <SearchableSelect id={ids.workshop} value={form.workshopId} onChange={(v) => set("workshopId", v)} options={workshopOptions} searchable ariaLabel={qs("fieldWorkshop")} />
+          <SearchableSelect id={ids.workshop} value={form.workshopId} onChange={(v) => set("workshopId", v)} options={workshopOptions} searchable ariaLabel={WORKSHOP_LABEL} />
         </div>
         <div className="grid gap-1">
           <label htmlFor={ids.instrument} className="field-label">
@@ -386,13 +447,32 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
             value={form.mode}
             options={[
               { value: "INDIVIDUAL", label: qs("modeIndividual") },
-              { value: "GROUP", label: qs("modeGroup") }
+              { value: "GROUP", label: qs("modeGroup") },
+              { value: "GUEST", label: qs("modeSomeoneElse") }
             ]}
             onChange={(v) => setForm((f) => ({ ...f, mode: v as StartSheetState["mode"], artisanIds: constrainArtisans(v as StartSheetState["mode"], f.artisanIds) }))}
           />
         </div>
       </div>
 
+      {form.mode === "GUEST" ? (
+        <div className="grid gap-1">
+          <label htmlFor={ids.artisans} className="field-label">
+            {qs("fieldGuestName")}
+          </label>
+          <input
+            id={ids.artisans}
+            className="field-input"
+            value={form.guestName}
+            maxLength={120}
+            autoComplete="off"
+            placeholder={qs("guestNamePlaceholder")}
+            onChange={(e) => set("guestName", e.target.value)}
+            data-guest-name
+          />
+          <p className="text-xs text-ink-500">{qs("guestHint")}</p>
+        </div>
+      ) : (
       <div className="grid gap-1">
         <label htmlFor={ids.artisans} className="field-label">
           {form.mode === "GROUP" ? qs("fieldArtisans") : qs("fieldArtisan")}
@@ -432,6 +512,7 @@ export function SessionStartSheet({ initialArtisanIds = [], onStarted }: { initi
             />
           ))}
       </div>
+      )}
 
       <div className="grid gap-1">
         <span className="field-label">{qs("fieldPurpose")}</span>

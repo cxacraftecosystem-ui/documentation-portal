@@ -93,6 +93,9 @@ REVIEW_DECISION_ROUTE = re.compile(
     r"^/api/review/(?:artisan|workshop|product|tool|process|questionnaire|media)/[^/]+/(?:approve|reject|revise)$"
 )
 REVIEW_BULK_ROUTE = "/api/review/bulk-approve"
+#: The forms library's creates (UNIFY 4.1: every questionnaire create takes Idempotency-Key): a new
+#: form, a reuse, and a bundle import.
+FORM_CREATE_ROUTE = re.compile(r"^/api/questionnaires(?:/bundles/import|/[^/]+/reuse)?$")
 
 
 def is_create_route(path: str) -> bool:
@@ -102,6 +105,7 @@ def is_create_route(path: str) -> bool:
         or trimmed == REVIEW_BULK_ROUTE
         or bool(REVIEW_DECISION_ROUTE.match(trimmed))
         or bool(CONSENT_ROUTE.match(trimmed))
+        or bool(FORM_CREATE_ROUTE.match(trimmed))
     )
 _KEY_RE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 # Creates answer small JSON. A body larger than this is passed through and not stored.

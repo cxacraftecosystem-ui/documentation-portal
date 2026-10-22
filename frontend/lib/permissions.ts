@@ -258,29 +258,6 @@ export const ROUTE_GUARDS: RouteGuard[] = [
       "The access roster is for admins only."
   },
   {
-    // THE ONLY GUARD UNDER /questionnaire, AND THE ONLY ONE THERE SHOULD BE. /questionnaire itself
-    // is open to every signed-in user — a volunteer answering an interview is the whole point of the
-    // app — so this row is deliberately the NARROW one and nothing above it claims the prefix.
-    // Longest match wins, so somebody who follows a link here and is not entitled is told what a
-    // questionnaire workbook is rather than being told about a settings hub they were not trying to
-    // open.
-    //
-    // TWO TIERS ON ONE SUBJECT, and the wording is what carries the difference. `require_admin` on
-    // the workbook routes is not a narrowing of the builder: one spreadsheet re-states the WHOLE
-    // instrument and everything absent from it is removed by rule, so a professor who deleted the
-    // rows they were not interested in would retire every question they deleted across twenty-two
-    // sections. Editing an existing form — one question, or re-uploading its own workbook — is its
-    // author's or a content admin's (`assert_may_edit_form`, 22 Oct 2026), and the web offers that
-    // form's Download .xlsx and Re-upload on /questionnaire/builder (`mayEditQuestionnaire`), so this
-    // route stays admin-only: what is left here is creating a NEW form from a workbook.
-    path: "/questionnaire/workbooks",
-    can: isAdmin,
-    gate: "require_admin",
-    title: "Admin access required",
-    message:
-      "Workbook upload is for admins only. Edit your own forms in the Builder."
-  },
-  {
     // The page now holds two things with two different owners, so the ROUTE is admin and the halves
     // gate themselves. Key VALUES stay master-admin (every /secrets route is require_master_admin,
     // and the page renders ApiKeysPanel only for them); RANKING the transcription providers is

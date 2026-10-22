@@ -2,7 +2,7 @@
 
 import { useParams } from "next/navigation";
 
-import { useV2Redirect } from "@/components/questionnaire/V2Redirect";
+import { useV2Redirect } from "@/components/questionnaires/V2Redirect";
 import { RecordView } from "@/components/records/RecordView";
 
 /** One interview, read-only. A click on its row lands here; its Update button opens the edit form. */

@@ -96,6 +96,7 @@ enum AnswerOrigin {
   MACHINE_SUGGESTED
   MACHINE_SUGGESTED_EDITED
   PREFILL
+  WORKBOOK
 }
 
 enum AnswerAttribution {
@@ -272,6 +273,7 @@ model QuestionnaireAnswerRevision {
   actorId              String
   /// The answer note (A20).
   note                 String?
+  richText             String?
   createdAt            DateTime          @default(now())
 
   answer QuestionnaireAnswer @relation(fields: [answerId], references: [id], onDelete: Cascade)

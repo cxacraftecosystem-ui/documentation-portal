@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ClipboardList, Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { useAuth } from "@/components/AuthProvider";
+import { useAdminView } from "@/components/AdminViewProvider";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
 import { OpenableRow, RecordTitleLink } from "@/components/records/OpenableRow";
@@ -12,10 +12,10 @@ import { SearchInput } from "@/components/SearchInput";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { formatDate } from "@/lib/format";
-import { canManageQuestionnaire } from "@/lib/permissions";
-import { questionnaireApi, type Session } from "@/lib/questionnaireApi";
-import { coverageCell, modeLabel, sessionMatches } from "@/lib/questionnaireView";
-import { qs } from "@/lib/strings/qs";
+import { questionnaireApi, type Session } from "@/lib/questionnaire/api";
+import { coverageCell, modeLabel, sessionMatches } from "@/lib/questionnaire/view";
+import { qs } from "@/lib/questionnaire/qs";
+import { FORMS_HREF } from "@/lib/questionnairePortal";
 
 /**
  * The sessions list (DESIGN §4.8): generated titles with the note underneath, artisans and mode,
@@ -23,7 +23,9 @@ import { qs } from "@/lib/strings/qs";
  * runs on the server over title, note and legacyTitle; the page says when the list is capped.
  */
 export function SessionsList() {
-  const { user } = useAuth();
+  // The Deleted list and Restore are the content admins' (owner decision 3).
+  const { canDeleteRecords } = useAdminView();
+  const [deleted, setDeleted] = useState(false);
   const [items, setItems] = useState<Session[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [capped, setCapped] = useState(false);
@@ -35,7 +37,8 @@ export function SessionsList() {
     const mine = (generation.current += 1);
     setError(null);
     try {
-      const page = await questionnaireApi.listSessions({ search: query || undefined, cursor: after ?? undefined });
+      const params = { search: query || undefined, cursor: after ?? undefined };
+      const page = deleted ? await questionnaireApi.deletedSessions(params) : await questionnaireApi.listSessions(params);
       if (mine !== generation.current) return;
       setItems((prev) => (after && prev ? [...prev, ...page.items] : page.items));
       setCursor(page.nextCursor);
@@ -43,7 +46,7 @@ export function SessionsList() {
     } catch {
       if (mine === generation.current) setError(qs("listLoadError"));
     }
-  }, []);
+  }, [deleted]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(search, null), 250);
@@ -66,11 +69,13 @@ export function SessionsList() {
             <Link className="field-button-secondary" href="/questionnaire/coverage">
               {qs("coverageTitle")}
             </Link>
-            {/* The builder edits the instrument: managers only (audit H15). */}
-            {canManageQuestionnaire(user) ? (
-              <Link className="field-button-secondary" href="/questionnaire/builder">
-                {qs("builder")}
-              </Link>
+            <Link className="field-button-secondary" href={FORMS_HREF}>
+              {qs("formsTitle")}
+            </Link>
+            {canDeleteRecords ? (
+              <button type="button" className="field-button-secondary" aria-pressed={deleted} onClick={() => setDeleted(!deleted)} data-deleted-toggle>
+                {deleted ? qs("sessionsTitle") : qs("deletedSessions")}
+              </button>
             ) : null}
             <Link className="field-button" href="/questionnaire/sessions/new">
               <Plus className="h-4 w-4" aria-hidden />
@@ -125,6 +130,13 @@ export function SessionsList() {
                           {p.name}
                         </span>
                       ))}
+                      {(s.respondents ?? [])
+                        .filter((r) => !r.artisanId)
+                        .map((r) => (
+                          <span key={r.id} className="rounded-full border border-line-200 px-2 py-0.5 text-xs text-ink-700" data-guest-chip>
+                            {r.name} · {qs("guestBadge")}
+                          </span>
+                        ))}
                     </div>
                     <p className="mt-1 text-xs text-ink-500">{modeLabel(s)}</p>
                   </td>
@@ -132,7 +144,21 @@ export function SessionsList() {
                   <td className="p-3 align-top">{s.researchers.map((r) => r.name).join(", ")}</td>
                   <td className="p-3 align-top">{coverageCell(s)}</td>
                   <td className="p-3 align-top">
-                    <StatusBadge status={s.status} />
+                    {deleted ? (
+                      <div className="grid gap-1">
+                        <span className="text-xs text-ink-500">{qs("deletedOn", { date: formatDate(s.deletedAt ?? null) })}</span>
+                        <button
+                          type="button"
+                          className="field-button-secondary"
+                          data-restore-session={s.id}
+                          onClick={() => void questionnaireApi.restoreSession(s.id).then(() => load(search, null))}
+                        >
+                          {qs("restore")}
+                        </button>
+                      </div>
+                    ) : (
+                      <StatusBadge status={s.status} />
+                    )}
                   </td>
                 </OpenableRow>
               ))}

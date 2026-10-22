@@ -13,7 +13,7 @@ import { CONTRACT } from "./questionnaire-contract-fixture";
  * the screens' grid, and X-Client-Time / X-App-Version on every request (the proxy forwards both).
  */
 
-const API = readFileSync(join(__dirname, "..", "lib", "questionnaireApi.ts"), "utf8");
+const API = readFileSync(join(__dirname, "..", "lib", "questionnaire", "api.ts"), "utf8");
 
 test("contract version and error codes", () => {
   expect(CONTRACT_VERSION).toBe(CONTRACT.contractVersion);
@@ -44,10 +44,10 @@ test("every contract route has a client call", () => {
 test("the contract grid reads into the screens' grid", () => {
   const view = toGridView(CONTRACT.examples.CoverageGrid as CoverageGrid);
   expect(view.sections).toEqual([{ id: "secD", code: "D", title: "Process", questions: undefined }]);
-  expect(view.cells).toEqual([{ artisanId: "a1", targetKey: "S:secD", state: "PARTIAL", count: 1, partial: { done: 4, of: 10 } }]);
+  expect(view.cells).toEqual([expect.objectContaining({ artisanId: "a1", targetKey: "S:secD", state: "PARTIAL", count: 1, partial: { done: 4, of: 10 } })]);
 });
 
-test("X-Client-Time, X-App-Version and the clock offset", () => {
+test("@qf:B17 X-Client-Time, X-App-Version and the clock offset", () => {
   const api = readFileSync(join(__dirname, "..", "lib", "api.ts"), "utf8");
   expect(api).toContain('headers.set("X-Client-Time", new Date(sentAt).toISOString());');
   expect(api).toContain('headers.set("X-App-Version", APP_VERSION);');

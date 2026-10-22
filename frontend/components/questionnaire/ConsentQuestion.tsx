@@ -3,9 +3,9 @@
 import { useState } from "react";
 
 import { ButtonRow } from "@/components/ui/ButtonRow";
-import { shortName } from "@/lib/coverageCache";
-import { mintKey, questionnaireApi, type ConsentRecord } from "@/lib/questionnaireApi";
-import { qs } from "@/lib/strings/qs";
+import { shortName } from "@/lib/questionnaire/coverageCache";
+import { mintKey, questionnaireApi, type ConsentRecord } from "@/lib/questionnaire/api";
+import { qs } from "@/lib/questionnaire/qs";
 
 /**
  * The consent notice (DESIGN §3.11), inline under the start sheet's artisan field, on the artisan

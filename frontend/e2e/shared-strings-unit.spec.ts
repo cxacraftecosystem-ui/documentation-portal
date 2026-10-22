@@ -31,7 +31,7 @@ test("shared/ matches its manifest: a verbatim copy, never edited here", () => {
   for (const [name, digest] of Object.entries(manifest.sha256)) expect(sha(join(ROOT, "shared", name)), name).toBe(digest);
 });
 
-test("the generated strings module holds every shared key with the shared words", () => {
+test("@qf:B37 the generated strings module holds every shared key with the shared words", () => {
   const shared = (JSON.parse(readFileSync(join(ROOT, "shared", "strings", "questionnaire.json"), "utf8")) as { strings: Record<string, string> }).strings;
   expect(Object.keys(questionnaireStrings).sort()).toEqual(Object.keys(shared).sort());
   for (const [key, text] of Object.entries(shared)) {

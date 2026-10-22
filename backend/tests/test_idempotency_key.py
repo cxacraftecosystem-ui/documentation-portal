@@ -182,8 +182,11 @@ def test_routes_outside_the_create_list_are_never_stored():
     assert store.rows == {}
     for path in ("/api/auth/login", "/api/datasets/token", "/api/secrets/OPENAI", "/api/me/ai-keys", "/api/two-factor/enable"):
         assert not idempotency.is_create_route(path)
-    for path in ("/api/crafts", "/api/crafts/", "/api/questionnaire/interviews", "/api/data-access/comments"):
+    for path in ("/api/crafts", "/api/crafts/", "/api/questionnaire/interviews", "/api/data-access/comments",
+                 "/api/questionnaires", "/api/questionnaires/q1/reuse", "/api/questionnaires/bundles/import"):
         assert idempotency.is_create_route(path)
+    for path in ("/api/questionnaires/q1/upload", "/api/questionnaires/q1/restore", "/api/questionnaires/upload"):
+        assert not idempotency.is_create_route(path)
 
 
 def test_a_first_request_killed_mid_way_is_taken_over():

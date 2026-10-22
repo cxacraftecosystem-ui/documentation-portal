@@ -1,8 +1,8 @@
 "use client";
 
-import type { Recording } from "@/lib/questionnaireApi";
-import { transcriptView } from "@/lib/questionnaireView";
-import { qs } from "@/lib/strings/qs";
+import type { Recording } from "@/lib/questionnaire/api";
+import { transcriptView } from "@/lib/questionnaire/view";
+import { qs } from "@/lib/questionnaire/qs";
 
 const TONE: Record<string, string> = {
   neutral: "text-ink-500",

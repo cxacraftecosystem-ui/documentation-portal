@@ -202,3 +202,32 @@ def test_an_answer_belongs_to_exactly_one_owner() -> None:
     assert SessionCreate.model_validate({**session, "respondents": [{"name": "Ravi"}]}).participants == []
     with pytest.raises(ValidationError):
         SessionCreate.model_validate(session)
+
+
+# ── decision C8: canonical plain text, optional rich text ───────────────────────────────────────
+def test_rich_text_flattens_with_designer_portal_rules() -> None:
+    from app.questionnaire import richtext
+
+    doc = {"blocks": [
+        {"kind": "HEADING", "level": 2, "spans": [{"text": "Tools"}]},
+        {"kind": "PARAGRAPH", "spans": [{"text": "Mostly "}, {"text": "chisels", "marks": ["BOLD"]}]},
+        {"kind": "BULLET_ITEM", "spans": ["Teak"]},
+        {"kind": "ORDERED_ITEM", "spans": ["Carve"]},
+        {"kind": "ORDERED_ITEM", "spans": ["Print"]},
+        {"kind": "TABLE", "rows": [[["Block"], ["Wood"]], [["Dye"], ["Indigo"]]]},
+        {"kind": "IMAGE", "spans": ["The stall"]},
+    ]}
+    assert richtext.to_plain(doc) == "Tools\nMostly chisels\n• Teak\n1. Carve\n2. Print\nBlock | Wood\nDye | Indigo\nThe stall"
+    assert richtext.to_plain("Plain prose") == "Plain prose"
+
+
+def test_an_answer_keeps_its_text_and_flattens_a_document_sent_alone() -> None:
+    from app.questionnaire import richtext
+
+    doc = {"blocks": [{"kind": "PARAGRAPH", "spans": ["Indigo"]}]}
+    text, rich = richtext.normalise("", doc)
+    assert text == "Indigo" and rich == '{"blocks":[{"kind":"PARAGRAPH","spans":["Indigo"]}]}'
+    text, rich = richtext.normalise("Typed by hand", doc)
+    assert text == "Typed by hand" and rich is not None, "the client's text is canonical when it sends one"
+    assert richtext.normalise("x", "not a document") == ("x", None)
+    assert richtext.normalise("", None) == ("", None)

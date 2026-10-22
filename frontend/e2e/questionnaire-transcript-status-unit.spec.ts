@@ -17,7 +17,7 @@ import { CONTRACT } from "./questionnaire-contract-fixture";
 
 const rec = CONTRACT.examples.Recording as Recording;
 
-test("paused: neutral, Retry disabled with the reason", () => {
+test("@qf:B34 paused: neutral, Retry disabled with the reason", () => {
   const view = transcriptView(rec, true);
   expect(view).toEqual({ label: "Transcription paused", tone: "neutral", retryEnabled: false, retryReason: "Transcription is paused.", offerConsent: false });
   // Even a failed job cannot be retried while paused.

@@ -547,7 +547,6 @@ every one of these routes is reachable by typing the URL.
 | `/settings/api-keys` | `isAdmin` (key **values** are master-admin inside the page) | `require_admin` / `require_master_admin` |
 | `/settings/tasks` | `canAssignTasks` | `require_admin` |
 | `/admin/access-roster` | `canManageAccessRoster` | `require_admin` |
-| `/questionnaire/workbooks` | `isAdmin` | `require_admin` |
 | `/review` | `canReview` | `require_reviewer` |
 | `/data` | `canDownloadDataset` | `require_dataset_downloader` |
 | `/artisans/new`, `/products/new`, `/tools/new` | `canCreateRecords` | `require_record_creator` |
@@ -557,15 +556,13 @@ Matching is by path segment and the **longest** rule wins, so `/artisans/new` ca
 `/artisans`. Admin-view is deliberately not consulted — it is a display preference, not a permission,
 and must never lock an admin out of a URL the API would serve.
 
-`/questionnaire/workbooks` is the one row where the longest-match rule is load-bearing rather than
-convenient. `/questionnaire` itself is **open to every signed-in user** — a crowdsource volunteer
-answering an interview is what the app is for — and is deliberately absent from this table. Only the
-workbook leaf is admin-gated, because uploading one spreadsheet re-states the whole instrument and
-everything absent from the file is removed by rule. Editing a form, one question or a whole
-re-upload, is its author's or a content admin's (`assert_may_edit_form`, 22 Oct 2026), and the web
-offers that form's own Download .xlsx and Re-upload on `/questionnaire/builder` to exactly those
-accounts, so the workbook leaf stays admin-gated for creating a NEW form from a workbook. See §1.1's
-note below for why those gates are not the same KIND of predicate.
+`/questionnaire` and the forms library `/questionnaires` are **open to every signed-in user** and
+absent from this table: a crowdsource volunteer answering a session is what the app is for, and the
+library shows each account only the controls the server will accept (each form carries `can`). Its
+writes are gated on the server: creating a form, a workbook upload, reuse and bundles are
+`require_questionnaire_manager`; changing or deleting a form is its author's or a content admin's
+(`assert_may_edit_form`); sharing, the default form, type defaults and bindings are admin acts; and
+restoring a deleted form is a content admin's. `/questionnaire/workbooks` redirects to the library.
 
 `ROUTE_REDIRECTS` handles the different case where a page *has* an ordinary-user twin: a researcher
 opening `/workshop-access/manage` is sent to `/workshop-access/request`, because a padlock would be

@@ -107,7 +107,7 @@ class QuestionnaireContractTest {
     @Test fun errorCodes() {
         val body = decodes(QErrorBody.serializer(), """{"detail": {"code": "STALE_VERSION", "message": "Changed on another device.", "current": {}, "diff": {}, "count": 0}}""")
         assertEquals(QErrorCodes.STALE_VERSION, body.detail!!.code)
-        assertEquals(16, QErrorCodes.ALL.size)
+        assertEquals(18, QErrorCodes.ALL.size)
     }
 
     /** The shared contract's examples, once the BACKEND stream's first commit is merged in. */
