@@ -917,6 +917,9 @@ jobs:
       REVIEW_SQL_TEST_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"
       RECORD_COMPLETENESS_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository"
       QV2_BACKFILL_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository_backfill"
+      # An EMPTY database: tests/test_questionnaire_unify_backfill.py migrates it in stages itself
+      # (today's production schema, then the U0 release, then prisma/deferred).
+      QUESTIONNAIRE_UNIFY_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/field_repository_unify"
 
     steps:
       - name: Checkout
@@ -956,8 +959,27 @@ jobs:
           # Through the service container's own psql, so the runner image needs no client.
           docker exec "${{ job.services.postgres.id }}" \
             psql -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE field_repository_backfill'
+          docker exec "${{ job.services.postgres.id }}"             psql -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE field_repository_unify'
           python -m prisma migrate deploy --schema prisma/schema.prisma
           DATABASE_URL="$QV2_BACKFILL_DATABASE_URL" python -m prisma migrate deploy --schema prisma/schema.prisma
+
+      - name: The other portal, for the shared-file parity tests
+        # The same clone as the "Backend tests" job: without it every sibling-parity test skips.
+        working-directory: .
+        env:
+          PEER: cxacraftecosystem-ui/designer-portal
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          ref=main
+          if [ "$BRANCH" != "main" ] && git ls-remote --exit-code --heads "https://github.com/$PEER.git" "$BRANCH" >/dev/null; then
+            ref="$BRANCH"
+          fi
+          dest="$(dirname "$GITHUB_WORKSPACE")/${PEER#*/}"
+          rm -rf "$dest"
+          git clone --quiet --depth 1 --branch "$ref" "https://github.com/$PEER.git" "$dest"
+          { echo "CROSS_PORTAL_PEER_REPO=$dest"; echo "SIBLING_REPO=$dest"; echo "DESIGNER_PORTAL_DIR=$dest"; } >> "$GITHUB_ENV"
+          echo "Shared files are compared with $PEER@$ref ($(git -C "$dest" rev-parse --short HEAD))."
 
       - name: Run the suite against the database
         # The whole suite, as in job 1: a selection is a list that goes stale. `-rs` here, unlike job
@@ -1120,6 +1142,77 @@ jobs:
   # is what deploy-backend.yml pipes over ssh to release the API with no downtime; the test runs it
   # against stubbed systemctl, nginx and curl and fails if nginx is ever left pointing at a port
   # nothing serves. shellcheck is on the runner image. Not a branch-protection gate; seconds to run.
+  questionnaire-parity:
+    # UNIFY_2026-10-21.md section 5.3: the questionnaire is one package, one schema fragment and one
+    # feature registry in both portals. This job runs only those guards, against a checkout of the
+    # other portal (the branch of the same name when a cross-repo stream pushed one, else main), and
+    # FAILS when one of them skips. The same job runs in designer-portal.
+    name: Questionnaire parity (both portals)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      PYTHONUTF8: "1"
+      DATABASE_URL: "postgresql://ci:ci@ci.invalid:5432/no_such_database"
+      JWT_SECRET: "ci-placeholder-not-a-secret-0123456789abcdef"
+      AWS_ACCESS_KEY_ID: "ci-placeholder"
+      AWS_SECRET_ACCESS_KEY: "ci-placeholder"
+      AWS_S3_BUCKET: "ci-placeholder"
+      MASTER_ADMIN_EMAIL: "ci@example.invalid"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14.8"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.lock
+            backend/pyproject.toml
+
+      - name: Install the backend from the lock
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock
+          pip install --no-deps -e .
+
+      - name: Generate the Prisma client
+        run: python -m prisma generate --schema prisma/schema.prisma
+
+      - name: The other portal, for the shared-file parity tests
+        # The same clone as the "Backend tests" job: without it every sibling-parity test skips.
+        working-directory: .
+        env:
+          PEER: cxacraftecosystem-ui/designer-portal
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          ref=main
+          if [ "$BRANCH" != "main" ] && git ls-remote --exit-code --heads "https://github.com/$PEER.git" "$BRANCH" >/dev/null; then
+            ref="$BRANCH"
+          fi
+          dest="$(dirname "$GITHUB_WORKSPACE")/${PEER#*/}"
+          rm -rf "$dest"
+          git clone --quiet --depth 1 --branch "$ref" "https://github.com/$PEER.git" "$dest"
+          { echo "CROSS_PORTAL_PEER_REPO=$dest"; echo "SIBLING_REPO=$dest"; echo "DESIGNER_PORTAL_DIR=$dest"; } >> "$GITHUB_ENV"
+          echo "Shared files are compared with $PEER@$ref ($(git -C "$dest" rev-parse --short HEAD))."
+
+      - name: The manifest, the schema fragment and the feature registry, in both portals
+        run: |
+          set -uo pipefail
+          status=0
+          python -m pytest -rs tests/test_questionnaire_parity.py tests/test_questionnaire_schema_parity.py             tests/test_questionnaire_feature_parity.py | tee parity.log || status=1
+          if grep -q '^SKIPPED' parity.log; then
+            echo "::error::a questionnaire parity check skipped; every one must run against the other portal here."
+            exit 1
+          fi
+          exit "$status"
+
   deploy-scripts:
     name: Deploy scripts
     runs-on: ubuntu-26.04
