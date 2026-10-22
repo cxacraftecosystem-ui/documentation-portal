@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { loadQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
-import { questionnaireApi } from "@/lib/questionnaireApi";
-import { readDismissed, visibleInbox, type Inbox } from "@/lib/questionnaireInbox";
+import { questionnaireApi } from "@/lib/questionnaire/api";
+import { readDismissed, visibleInbox, type Inbox } from "@/lib/questionnaire/inbox";
 
 /** Five minutes: inbox items wait a day before they badge, so a fast poll would buy nothing. */
 const REFRESH_MS = 5 * 60_000;

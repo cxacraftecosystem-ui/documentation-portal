@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { CONFIG_FALLBACK, questionnaireApi, type QuestionnaireConfig } from "@/lib/questionnaireApi";
+import { CONFIG_FALLBACK, questionnaireApi, type QuestionnaireConfig } from "@/lib/questionnaire/api";
 
 let cached: QuestionnaireConfig | null = null;
 let inflight: Promise<QuestionnaireConfig> | null = null;

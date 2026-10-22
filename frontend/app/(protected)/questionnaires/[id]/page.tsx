@@ -18,7 +18,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { useConfirm } from "@/components/dialogs";
 import { PageHeader } from "@/components/PageHeader";
-import { QuestionnaireAdminEditor } from "@/components/questionnaire/InstrumentBuilder";
+import { QuestionnaireAdminEditor } from "@/components/questionnaires/InstrumentBuilder";
 import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
 import { FormBindingsCard } from "@/components/questionnaires/FormBindingsCard";
 import { ReuseFormDialog } from "@/components/questionnaires/FormDialogs";

@@ -80,7 +80,7 @@ test("a questionnaire is edited by its author or a content admin, and no other m
 });
 
 test("the builder's edit controls are drawn only for the form's author or a content admin", () => {
-  const builder = read("components/questionnaire/InstrumentBuilder.tsx");
+  const builder = read("components/questionnaires/InstrumentBuilder.tsx");
   // The editor defaults to read-only, and the read-only branch returns before any edit control.
   expect(builder).toContain("mayEdit = false,");
   const guard = builder.indexOf("if (!mayEdit) {");
@@ -95,7 +95,7 @@ test("the builder's edit controls are drawn only for the form's author or a cont
     expect(builder.indexOf(write), write).toBeGreaterThan(guard);
   }
 
-  const screen = read("components/questionnaire/BuilderScreen.tsx");
+  const screen = read("components/questionnaires/BuilderScreen.tsx");
   // Opening the builder is still a manager's; editing the selected form is its author's or an admin's.
   expect(screen).toContain("const allowed = canManageQuestionnaire(user);");
   expect(screen).toContain("const mayEdit = mayEditQuestionnaire(user, selected?.createdById);");
@@ -119,12 +119,12 @@ test("the builder's edit controls are drawn only for the form's author or a cont
 });
 
 test("the builder draws Delete, Remove, switch-off and Restore for the author or a content admin", () => {
-  const builder = read("components/questionnaire/InstrumentBuilder.tsx");
+  const builder = read("components/questionnaires/InstrumentBuilder.tsx");
   expect(builder).not.toContain("canDeleteRecords");
   expect(builder).toContain("onRemove={mayDelete ? () => removeQuestion(question) : undefined}");
   expect(builder).toContain("disabled={section.isActive && !mayDelete}");
   expect(builder).toContain("disabled={question.isActive && !mayDeactivate}");
-  const screen = read("components/questionnaire/BuilderScreen.tsx");
+  const screen = read("components/questionnaires/BuilderScreen.tsx");
   expect(screen).toContain("const mayDelete = mayDeleteQuestionnaire(user, selected?.createdById);");
   expect(screen).toContain("mayDeleteQuestionnaire(user, instrument.createdById)");
   expect(screen).toContain("mayDelete && !selected.isDefault ? (");
@@ -178,7 +178,7 @@ test("files, sessions, takes and questionnaire structure are deleted by content 
   const page = read("app/(protected)/questionnaire/page.tsx");
   // The builder moved to its own module so /questionnaire/builder renders it alone (audit H15).
   // A section or a question is removed by the form's author or a content admin (22 Oct 2026).
-  expect(read("components/questionnaire/InstrumentBuilder.tsx")).toContain("onRemove={mayDelete ? () => removeQuestion(question) : undefined}");
+  expect(read("components/questionnaires/InstrumentBuilder.tsx")).toContain("onRemove={mayDelete ? () => removeQuestion(question) : undefined}");
   expect(page).toContain("editing && isContentAdmin(user) ? await offerMergeOnConflict(err, editing.id) : false");
 });
 

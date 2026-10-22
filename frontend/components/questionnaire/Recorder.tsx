@@ -4,9 +4,9 @@ import { Mic, Pause, Play, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { ButtonRow } from "@/components/ui/ButtonRow";
-import { mintKey } from "@/lib/questionnaireApi";
-import { assembleTake, pickRecorderMime, recorderStore, TIMESLICE_MS, type TakeDraft } from "@/lib/recorderStore";
-import { qs } from "@/lib/strings/qs";
+import { mintKey } from "@/lib/questionnaire/api";
+import { assembleTake, pickRecorderMime, recorderStore, TIMESLICE_MS, type TakeDraft } from "@/lib/questionnaire/recorderStore";
+import { qs } from "@/lib/questionnaire/qs";
 
 export type FinishedTake = {
   takeKey: string;

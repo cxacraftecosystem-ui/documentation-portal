@@ -10,7 +10,7 @@ import { DownloadCsvButton } from "@/components/DownloadCsvButton";
 import { EmptyState } from "@/components/EmptyState";
 import { Markdown } from "@/components/Markdown";
 import { PageHeader } from "@/components/PageHeader";
-import { useV2Redirect } from "@/components/questionnaire/V2Redirect";
+import { useV2Redirect } from "@/components/questionnaires/V2Redirect";
 import { OpenableBlock } from "@/components/records/OpenableRow";
 import { StatusBadge } from "@/components/StatusBadge";
 import {

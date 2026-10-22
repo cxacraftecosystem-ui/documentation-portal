@@ -19,7 +19,8 @@ const form: StartSheetState = {
   place: "Bagru, Jaipur",
   languageCode: "hi",
   languageOther: "",
-  note: "Under the neem tree"
+  note: "Under the neem tree",
+  guestName: ""
 };
 const SHEET = readFileSync(join(__dirname, "..", "components", "questionnaire", "SessionStartSheet.tsx"), "utf8");
 

@@ -89,6 +89,8 @@ def answer_out(row: dict[str, Any] | None) -> dict[str, Any] | None:
         "id": str(row["id"]), "version": int(row["version"]), "text": row.get("text") or "",
         "origin": row.get("origin") or "TYPED", "attribution": row.get("attribution") or "INDIVIDUAL",
         "pinned": bool(row.get("pinned")), "sourceRecordingId": row.get("sourceRecordingId"),
+        # Who wrote it (the lock's "Answered by", P15) and the answer note (A20), when the read has them.
+        "actorId": str(row["actorId"]) if row.get("actorId") else None, "note": row.get("note"),
     }
 
 
@@ -116,9 +118,9 @@ async def answers_for(client: Any, *, artisan_ids: list[str] | None = None, sess
         params.append(session_id)
         where.append(f'EXISTS (SELECT 1 FROM "QuestionnaireAnswerRevision" x WHERE x."answerId" = a."id" AND x."sessionId" = ${len(params)})')
     return await client.query_raw(
-        'SELECT a."id", a."artisanId", a."questionLineageId", a."version", a."pinned", rv."text", rv."origin"::text AS origin, '
+        'SELECT a."id", a."artisanId", a."respondentId", a."questionLineageId", a."version", a."pinned", rv."text", rv."origin"::text AS origin, '
         'rv."attribution"::text AS attribution, rv."sourceRecordingId", rv."sessionId", rv."status"::text AS status, '
-        'rv."sourceTranscriptHash", rv."askedQuestionId", rv."languageCode" '
+        'rv."sourceTranscriptHash", rv."askedQuestionId", rv."languageCode", rv."note", rv."actorId" '
         'FROM "QuestionnaireAnswer" a JOIN "QuestionnaireAnswerRevision" rv ON rv."id" = a."currentRevisionId" '
         # A soft-deleted session hides the answers it holds (owner decision 3; live.LIVE_SESSION_SQL).
         'JOIN "QuestionnaireInterview" si ON si."id" = rv."sessionId" AND si."deletedAt" IS NULL '

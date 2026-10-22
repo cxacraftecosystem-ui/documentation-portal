@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 
 import { Toggle } from "@/components/ui/Toggle";
-import type { Session } from "@/lib/questionnaireApi";
-import { modeLabel } from "@/lib/questionnaireView";
-import { qs } from "@/lib/strings/qs";
+import type { Session } from "@/lib/questionnaire/api";
+import { modeLabel } from "@/lib/questionnaire/view";
+import { qs } from "@/lib/questionnaire/qs";
+import { encodeQr, qrSvgPath } from "@/lib/qrEncode";
 
 /**
  * Title (generated), note underneath, the participant strip with Present/Away per artisan, the join
@@ -28,18 +29,15 @@ export function SessionHeader({
   onRemove?: (artisanId: string) => void;
   onAddArtisan?: () => void;
 }) {
-  const [qr, setQr] = useState<string | null>(null);
-  useEffect(() => {
-    if (!session.joinQr) return;
-    let cancelled = false;
-    void import("qrcode").then((mod) =>
-      mod.default.toDataURL(session.joinQr!, { margin: 1, width: 160 }).then((url) => {
-        if (!cancelled) setQr(url);
-      })
-    );
-    return () => {
-      cancelled = true;
-    };
+  // The join QR, drawn as an SVG by the repository's own encoder (lib/qrEncode.ts, shared by both
+  // portals): no QR package, and nothing to wait for.
+  const qr = useMemo(() => {
+    if (!session.joinQr) return null;
+    try {
+      return qrSvgPath(encodeQr(session.joinQr, "M"));
+    } catch {
+      return null;
+    }
   }, [session.joinQr]);
 
   return (
@@ -58,9 +56,17 @@ export function SessionHeader({
           {pendingTakes > 0 ? <p className="mt-1 text-xs text-purple-700">{qs("takesUploading", { count: pendingTakes })}</p> : null}
         </div>
         <div className="flex items-start gap-3">
-          {/* A data: URL drawn once; next/image has nothing to optimise here. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          {qr ? <img src={qr} alt={session.joinCode ? qs("joinCode", { code: session.joinCode }) : ""} className="h-20 w-20 rounded-md border border-line-200 bg-white" /> : null}
+          {qr ? (
+            <svg
+              viewBox={`0 0 ${qr.extent} ${qr.extent}`}
+              role="img"
+              aria-label={session.joinCode ? qs("joinCode", { code: session.joinCode }) : qs("joinCode", { code: "" })}
+              className="h-20 w-20 rounded-md border border-line-200 bg-white"
+              data-join-qr
+            >
+              <path d={qr.path} fill="#000" shapeRendering="crispEdges" />
+            </svg>
+          ) : null}
           {onFinish && session.state === "OPEN" ? (
             <button type="button" className="field-button" onClick={onFinish}>
               {qs("finish")}

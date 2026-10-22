@@ -12,7 +12,8 @@ import { sessionTitle } from "@/lib/naming";
 import type { Answer, AnswerResult, Recording, Snapshot } from "@/lib/questionnaireApi";
 import { appendStep, existingSessionUnit, type ClipStep } from "@/lib/questionnaireQueue";
 import { consentSubject, isLegacyTake, pickedFileMeta, takeSubjects } from "@/lib/questionnaireView";
-import { mergeStartLists, searchCachedArtisans, titleWorkshop } from "@/lib/startSheetCache";
+import { mergeStartLists, searchCachedArtisans } from "@/lib/startSheetCache";
+import { portalWorkshop, titleWorkshop, type WorkshopRow } from "@/lib/questionnairePortal";
 import { CONTRACT } from "./questionnaire-contract-fixture";
 
 /**
@@ -244,14 +245,15 @@ test("Low: the read view prints each answer with its question and artisan, in se
 test("Low: the title preview carries the workshop's locality and craft, as the server titles it", () => {
   const golden = JSON.parse(read("..", "shared", "session-title.json")) as { golden: { case: string; title: string }[] };
   const individual = golden.golden.find((g) => g.case === "Individual")!;
-  const workshop = { place: "Bagru workshop", location: { village: "Bagru", district: "Jaipur", state: "Rajasthan" }, crafts: [{ craft: { name: "Hand block printing" } }] };
+  const row = { id: "w1", title: "Bagru", date: "2026-07-01", place: "Bagru workshop", location: { village: "Bagru", district: "Jaipur", state: "Rajasthan" }, crafts: [{ craft: { name: "Hand block printing" } }] } as unknown as WorkshopRow;
+  const workshop = portalWorkshop(row);
   expect(titleWorkshop(workshop)).toEqual({ locality: "Bagru", district: "Jaipur", state: "Rajasthan", craft: "Hand block printing" });
   const title = sessionTitle(
     titlePreviewInput({ sessionDate: "2026-07-01", place: "", workshop, artisans: [{ name: "Giriraj Prasad Chhipa", craft: { name: "Hand Block Printing" } }] })
   );
   expect(title).toBe(individual.title);
   // Two crafts at the workshop: no craft from the workshop, as on the server.
-  expect(titleWorkshop({ ...workshop, crafts: [{ craft: { name: "Dokra" } }, { craft: { name: "Terracotta" } }] })?.craft).toBeNull();
+  expect(titleWorkshop(portalWorkshop({ ...row, crafts: [{ craft: { name: "Dokra" } }, { craft: { name: "Terracotta" } }] } as unknown as WorkshopRow))?.craft).toBeNull();
 });
 
 test("Low: a picked file is dated the session day, and a name with no extension still uploads", () => {

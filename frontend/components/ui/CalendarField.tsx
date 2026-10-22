@@ -16,17 +16,35 @@
  */
 
 import { X } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import { DateField, type DateFieldProps } from "@/components/forms/DateTimeField";
+import { RequiredMark } from "@/components/ui/RequiredMark";
 import { cn } from "@/lib/utils";
 
 export type CalendarFieldProps = DateFieldProps & {
   /** Offer a Clear button while a date is set (default on; off for a required field). */
   clearable?: boolean;
+  /** A visible label drawn above the field as a sibling `<label htmlFor>` (designer-portal's shape). */
+  label?: string;
 };
 
-export function CalendarField({ clearable, value, defaultValue, onChange, className, ...rest }: CalendarFieldProps) {
+export function CalendarField({ label, ...props }: CalendarFieldProps) {
+  const generated = useId();
+  if (!label) return <CalendarControl {...props} />;
+  const id = props.id ?? `calendar-${generated}`;
+  return (
+    <div className="grid min-w-0 gap-1.5">
+      <label htmlFor={id} className="field-label">
+        {label}
+        <RequiredMark when={props.required} />
+      </label>
+      <CalendarControl {...props} id={id} />
+    </div>
+  );
+}
+
+function CalendarControl({ clearable, value, defaultValue, onChange, className, ...rest }: Omit<CalendarFieldProps, "label">) {
   const controlled = value !== undefined;
   const [inner, setInner] = useState(defaultValue ?? "");
   const iso = controlled ? value : inner;

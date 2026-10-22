@@ -23,14 +23,21 @@ test("@qf:B20 a group answer is one GROUP_SHARED item per artisan; an existing a
     lineageId: "lin_d3",
     text: "Chisel",
     forWhom: "__all__",
-    participants: [{ artisanId: "a1" }, { artisanId: "a2" }, { artisanId: "a3" }],
+    subjects: ["a1", "a2", "a3"].map((artisanId) => ({ key: `A:${artisanId}`, artisanId, respondentId: null })),
     existing: [{ id: "ans1", version: 2, text: "old", origin: "TYPED", attribution: "INDIVIDUAL", pinned: false, sourceRecordingId: null, artisanId: "a1" }]
   });
   expect(items).toHaveLength(3);
   expect(items.every((i) => i.attribution === "GROUP_SHARED")).toBe(true);
   expect(items[0].baseVersion).toBe(2);
   expect(items[1]).not.toHaveProperty("baseVersion");
-  const one = answerItems({ sessionId: "s1", lineageId: "lin_d3", text: "x", forWhom: "a2", participants: [{ artisanId: "a1" }, { artisanId: "a2" }], existing: [] });
+  const one = answerItems({
+    sessionId: "s1",
+    lineageId: "lin_d3",
+    text: "x",
+    forWhom: "A:a2",
+    subjects: ["a1", "a2"].map((artisanId) => ({ key: `A:${artisanId}`, artisanId, respondentId: null })),
+    existing: []
+  });
   expect(one).toEqual([expect.objectContaining({ artisanId: "a2", attribution: "INDIVIDUAL" })]);
 });
 

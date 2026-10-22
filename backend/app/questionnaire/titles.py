@@ -35,6 +35,25 @@ async def workshop_fields(client: Any, workshop_id: str | None) -> dict[str, Any
     return _workshop_shape(rows[0])
 
 
+#: A design workshop (designer-portal) as the title's workshop half: its cluster (else its venue) is
+#: the locality, with its district, state and craft (UNIFY B3: "the title port gives DR's Place and
+#: Craft from the design workshop"). A table documentation-portal does not have is never read there:
+#: its sessions carry no designWorkshopId.
+_DESIGN_WORKSHOP_SQL = (
+    'SELECT d."id", COALESCE(NULLIF(btrim(d."clusterName"), \'\'), NULLIF(btrim(d."venue"), \'\')) AS "village", '
+    'd."district", d."state", d."venue" AS "place", '
+    'CASE WHEN d."craftName" IS NULL OR btrim(d."craftName") = \'\' THEN NULL ELSE ARRAY[d."craftName"] END AS crafts '
+    'FROM "DesignWorkshop" d WHERE d."id" = ANY($1::text[])'
+)
+
+
+async def design_workshop_fields(client: Any, design_workshop_ids: list[str]) -> dict[str, dict[str, Any]]:
+    ids = sorted({str(i) for i in design_workshop_ids if i})
+    if not ids:
+        return {}
+    return {str(r["id"]): _workshop_shape(r) for r in await client.query_raw(_DESIGN_WORKSHOP_SQL, ids)}
+
+
 async def participant_people(client: Any, session_id: str) -> list[naming.Person]:
     rows = await client.query_raw(
         'SELECT a."name", a."localName", c."name" AS craft FROM "QuestionnaireInterviewArtisan" qa '
@@ -47,13 +66,16 @@ async def participant_people(client: Any, session_id: str) -> list[naming.Person
 
 async def title_input(client: Any, session_id: str) -> naming.TitleInput:
     rows = await client.query_raw(
-        'SELECT "sessionDate", "place", "workshopId" FROM "QuestionnaireInterview" WHERE "id" = $1', session_id
+        'SELECT "sessionDate", "place", "workshopId", "designWorkshopId" FROM "QuestionnaireInterview" WHERE "id" = $1', session_id
     )
     row = rows[0] if rows else {}
+    workshop = await workshop_fields(client, row.get("workshopId"))
+    if workshop is None and row.get("designWorkshopId"):
+        workshop = (await design_workshop_fields(client, [row["designWorkshopId"]])).get(str(row["designWorkshopId"]))
     return naming.TitleInput(
         sessionDate=as_date(row.get("sessionDate")),
         place=row.get("place"),
-        workshop=await workshop_fields(client, row.get("workshopId")),
+        workshop=workshop,
         participants=await participant_people(client, session_id),
     )
 
@@ -79,7 +101,7 @@ async def title_inputs(client: Any, session_ids: list[str]) -> dict[str, naming.
     if not sids:
         return {}
     rows = await client.query_raw(
-        'SELECT "id", "sessionDate", "place", "workshopId" FROM "QuestionnaireInterview" WHERE "id" = ANY($1::text[])', sids
+        'SELECT "id", "sessionDate", "place", "workshopId", "designWorkshopId" FROM "QuestionnaireInterview" WHERE "id" = ANY($1::text[])', sids
     )
     by_session = {str(r["id"]): r for r in rows}
     wids = sorted({str(r["workshopId"]) for r in rows if r.get("workshopId")})
@@ -93,6 +115,7 @@ async def title_inputs(client: Any, session_ids: list[str]) -> dict[str, naming.
             wids,
         ):
             workshops[str(w["id"])] = _workshop_shape(w)
+    design = await design_workshop_fields(client, [str(r["designWorkshopId"]) for r in rows if r.get("designWorkshopId") and not r.get("workshopId")])
     people: dict[str, list[naming.Person]] = {sid: [] for sid in sids}
     for r in await client.query_raw(
         'SELECT qa."interviewId" AS sid, a."name", a."localName", c."name" AS craft FROM "QuestionnaireInterviewArtisan" qa '
@@ -105,10 +128,11 @@ async def title_inputs(client: Any, session_ids: list[str]) -> dict[str, naming.
     for sid in sids:
         row = by_session.get(sid, {})
         wid = row.get("workshopId")
+        dwid = row.get("designWorkshopId")
         out[sid] = naming.TitleInput(
             sessionDate=as_date(row.get("sessionDate")),
             place=row.get("place"),
-            workshop=workshops.get(str(wid)) if wid else None,
+            workshop=workshops.get(str(wid)) if wid else design.get(str(dwid)) if dwid else None,
             participants=people[sid],
         )
     return out
