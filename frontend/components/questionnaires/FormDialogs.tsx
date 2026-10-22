@@ -282,7 +282,7 @@ export function OpenBundleDialog({
         )
       }
     >
-      <div className="grid gap-4">
+      <div className="grid gap-4" data-prompt={prompt ? "P17" : undefined}>
         {error ? <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
         {prompt ? (
           <p className="text-sm leading-6 text-ink-700" data-testid="bundle-summary">
@@ -297,6 +297,7 @@ export function OpenBundleDialog({
               type="file"
               className="sr-only"
               accept=".frwq,.dpwq,application/gzip,application/json"
+              data-bundle-input
               onChange={(event) => void choose(event.target.files?.[0] ?? null)}
             />
           </label>

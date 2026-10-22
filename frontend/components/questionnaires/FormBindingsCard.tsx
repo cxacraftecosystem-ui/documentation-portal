@@ -67,7 +67,7 @@ export function FormBindingsCard({
   const options = workshops.map((w) => ({ value: w.id, label: w.title }));
 
   return (
-    <section className="panel grid gap-3 p-4" aria-labelledby="bindings-heading">
+    <section className="panel grid gap-3 p-4" aria-labelledby="bindings-heading" data-form-bindings>
       <h2 id="bindings-heading" className="flex items-center gap-2 font-display text-lg font-bold text-ink-900">
         <Link2 className="h-4 w-4" aria-hidden /> Workshops
       </h2>

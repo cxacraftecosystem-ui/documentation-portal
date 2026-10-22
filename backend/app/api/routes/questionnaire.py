@@ -1760,6 +1760,9 @@ async def set_completion_cell(
             where={"artisanId": payload.artisanId, "sectionId": payload.sectionId}
         )
         return {"cleared": True}
+    # The shared web client names "Marked complete" MARKED_COMPLETE; the stored token is COMPLETED.
+    if payload.status == "MARKED_COMPLETE":
+        payload = payload.model_copy(update={"status": "COMPLETED"})
     if payload.status not in COMPLETION_STATUSES:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,

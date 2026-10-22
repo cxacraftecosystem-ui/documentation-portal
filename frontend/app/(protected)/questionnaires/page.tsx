@@ -158,6 +158,7 @@ export default function QuestionnairesLibraryPage() {
 
       <section className="panel mb-5 grid gap-4 p-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div data-forms-tabs>
           <SegmentedChoice
             label="Forms"
             value={tab}
@@ -167,6 +168,7 @@ export default function QuestionnairesLibraryPage() {
               setScope(next as FormScope);
             }}
           />
+          </div>
           <div className="grid gap-3 sm:grid-cols-2 md:w-[28rem]">
             {tab === "workshop" ? (
               <SearchableSelect
