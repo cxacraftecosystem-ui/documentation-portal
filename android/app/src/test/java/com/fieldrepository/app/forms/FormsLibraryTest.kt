@@ -76,7 +76,7 @@ class FormsLibraryTest {
         assertEquals(listOf("f4"), FormLibrary.tab(all, FormTab.DELETED, "p1").map { it.id })
         assertTrue(FormActions.of(admin, gone, local = false).restore)
         assertFalse(FormActions.of(professor, gone, local = false).restore)
-        assertEquals("Admins can restore it from Deleted.", com.fieldrepository.app.data.FormsCopy.P16_BODY)
+        assertEquals("Admins can restore it from Deleted.", FormsCopy.P16_BODY)
 
         val server = FakeServer()
         server.on("DELETE /questionnaires/f1", "{}")
