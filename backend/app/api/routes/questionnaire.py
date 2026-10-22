@@ -3873,8 +3873,8 @@ async def update_questionnaire(
 ) -> dict[str, Any]:
     """Rename, re-describe, set the kind, reorder or RETIRE an instrument: its author or a content
     admin (owner, 22 Oct 2026); every other questionnaire manager is refused 403. ``isShared`` (share
-    with everyone) is an admin act (UNIFY 2.3 rule 6). Bringing back a DELETED form is a content
-    admin's (``POST /{id}/restore``); a merely retired one comes back to its author too.
+    with everyone) is an admin act (UNIFY 2.3 rule 6). ``isActive: true`` brings a deleted form back,
+    as ``POST /{id}/restore`` does: its author or a content admin.
 
     Retiring is the two-check route. An instrument that is the DEFAULT cannot be retired, because
     the default is where every client that names no instrument lands and retiring it would drop
@@ -3898,7 +3898,7 @@ async def update_questionnaire(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=questionnaire_authoring.ADMIN_ACT_REFUSAL)
         data["isShared"] = bool(sharing)
     if data.get("isActive") is True and get_value(row, "deletedAt") is not None:
-        if not questionnaire_authoring.may_restore_form(user):
+        if not questionnaire_library.may_restore(user, row):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=questionnaire_library.RESTORE_REFUSAL)
         data["deletedAt"] = None
         data["deletedById"] = None
@@ -3978,7 +3978,7 @@ async def delete_questionnaire(
 
 @instruments_router.post("/{questionnaire_id}/restore")
 async def restore_questionnaire(questionnaire_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """Bring a deleted form back, with everything recorded on it: content admins (UNIFY U8)."""
+    """Bring a deleted form back, with everything recorded on it: its author or a content admin."""
     return await questionnaire_library.restore(questionnaire_id, user)
 
 

@@ -14,7 +14,9 @@ Who may do what (owner, 21 and 22 Oct 2026):
 * change a form (title, description, kind, its sections and questions, re-upload, delete): its author
   or a content admin (``authoring.may_change_form``);
 * share with everyone, the default form, type defaults, bindings: admins (``authoring.may_admin_act``);
-* restore a deleted form: content admins;
+* restore a deleted form: its author or a content admin (the coordinator's ruling of 22 Oct for
+  Field Repository; the shared ``authoring.may_restore_form`` still names content admins only, and
+  designer-portal is asked to widen it so both portals hold one rule);
 * create, reuse or import a bundle: questionnaire managers (Professor and above), who become the
   author.
 """
@@ -41,8 +43,12 @@ BUNDLE_LIMITS = {"maxSections": 200, "maxQuestionsPerSection": 500, "maxTextChar
 PORTAL = "documentation-portal"
 
 #: The refusals, worded for the screen.
-DELETED_LIST_REFUSAL = "Only an admin can see deleted questionnaires."
-RESTORE_REFUSAL = "Only an admin can restore a questionnaire."
+RESTORE_REFUSAL = "Only the questionnaire's author or an admin can restore it."
+
+
+def may_restore(user: Any, form: Any) -> bool:
+    """Bring a deleted form back: its author or a content admin."""
+    return authoring.may_restore_form(user) or (form is not None and authoring.is_form_author(form, user))
 
 
 def _get(obj: Any, name: str) -> Any:
@@ -100,7 +106,7 @@ def form_payload(row: Any, counts: dict[str, dict[str, int]] | None = None, user
         payload["can"] = {
             "edit": not deleted and authoring.may_change_form(user, row),
             "delete": not deleted and authoring.may_change_form(user, row),
-            "restore": deleted and authoring.may_restore_form(user),
+            "restore": deleted and may_restore(user, row),
             "share": not deleted and authoring.may_admin_act(user),
             "bind": not deleted and authoring.may_admin_act(user),
             "setDefault": not deleted and authoring.may_admin_act(user),
@@ -132,7 +138,7 @@ async def list_forms(
     * ``mine``: forms this account wrote;
     * ``shared``: forms shared with everyone;
     * ``workshop``: forms bound to ``workshopId`` (or to any workshop when none is named);
-    * ``deleted``: soft-deleted forms, content admins only.
+    * ``deleted``: soft-deleted forms: every one for a content admin, your own for an author.
     """
     if scope is not None and scope not in SCOPES:
         fail("VALIDATION_FAILED", f"scope is one of {', '.join(SCOPES)}.")
@@ -144,9 +150,10 @@ async def list_forms(
         return f"${len(params)}"
 
     if scope == "deleted":
-        if not authoring.is_content_admin(user):
-            fail("FORBIDDEN", DELETED_LIST_REFUSAL)
         where.append('q."deletedAt" IS NOT NULL')
+        if not authoring.is_content_admin(user):
+            me = p(_uid(user) or "")
+            where.append(f'(q."ownerId" = {me} OR (q."ownerId" IS NULL AND q."createdById" = {me}))')
     else:
         if scope is not None:
             where.append('q."deletedAt" IS NULL')
@@ -188,10 +195,10 @@ async def require_form(questionnaire_id: str, *, allow_deleted: bool = False) ->
 
 # ── restore (owner decision 3, amended 22 Oct; the soft delete is the route's) ─────────────────
 async def restore(questionnaire_id: str, user: Any) -> dict[str, Any]:
-    """Content admins bring a deleted form back, with everything recorded on it."""
-    if not authoring.may_restore_form(user):
-        fail("FORBIDDEN", RESTORE_REFUSAL)
+    """Its author or a content admin brings a deleted form back, with everything recorded on it."""
     row = await require_form(questionnaire_id, allow_deleted=True)
+    if not may_restore(user, row):
+        fail("FORBIDDEN", RESTORE_REFUSAL)
     if _get(row, "deletedAt") is None and _get(row, "isActive"):
         counts = await counts_for([questionnaire_id])
         return form_payload(row, counts, user)

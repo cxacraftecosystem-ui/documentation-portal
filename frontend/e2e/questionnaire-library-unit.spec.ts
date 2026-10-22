@@ -54,8 +54,9 @@ function recorder() {
   return { calls, client: libraryClient(fetcher) };
 }
 
-test("@qf:D3 the tabs: Mine first for a form author, Deleted only for content admins", () => {
-  expect(libraryTabs(person("PROFESSOR")).map((t) => t.label)).toEqual(["Mine", "Shared", "Workshop"]);
+test("@qf:D3 the tabs: Mine first for a form author; Deleted for authors and content admins", () => {
+  expect(libraryTabs(person("PROFESSOR")).map((t) => t.label)).toEqual(["Mine", "Shared", "Workshop", "Deleted"]);
+  expect(libraryTabs(person("RESEARCHER")).map((t) => t.label)).toEqual(["Mine", "Shared", "Workshop"]);
   expect(libraryTabs(person("ADMIN")).map((t) => t.id)).toEqual(["mine", "shared", "workshop", "deleted"]);
   expect(libraryTabs(person("MINISTRY_ADMIN")).map((t) => t.id)).toContain("deleted");
   expect(defaultTab(person("PROFESSOR"))).toBe("mine");

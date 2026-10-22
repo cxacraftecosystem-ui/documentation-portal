@@ -165,7 +165,7 @@ test("an admin sets a workshop type's default form", async () => {
   expect((await admin.typeDefaults()).defaults.find((d) => d.workshopType === "OTHER")).toBeUndefined();
 });
 
-test("@qf:A13 the author deletes a form; an admin's Deleted tab restores it", async () => {
+test("@qf:A13 the author deletes a form and restores it from Deleted; an admin sees every deleted form", async () => {
   const s = seed();
   const prof = libraryClient(stackFetch(s.tokens.prof));
   const admin = libraryClient(stackFetch(s.tokens.admin));
@@ -174,12 +174,16 @@ test("@qf:A13 the author deletes a form; an admin's Deleted tab restores it", as
   const gone = await prof.remove(copy.id);
   expect(gone.deletedAt).toBeTruthy();
   expect(ids(await prof.list("mine"))).not.toContain(copy.id);
-  expect((await refused(prof.list("deleted"))).status).toBe(403);
+  expect(ids(await prof.list("deleted"))).toContain(copy.id);
+  expect(ids(await lead.list("deleted"))).not.toContain(copy.id);
   expect(ids(await admin.list("deleted"))).toContain(copy.id);
   const deleted = await refused(lead.get(copy.id));
   expect(deleted.status).toBe(410);
   expect(code(deleted)).toBe("FORM_DELETED");
-  expect((await refused(prof.restore(copy.id))).status).toBe(403);
+  expect((await refused(lead.restore(copy.id))).status).toBe(403);
+  expect((await prof.restore(copy.id)).deletedAt).toBeNull();
+  // An admin may restore anyone's.
+  await prof.remove(copy.id);
   expect((await admin.restore(copy.id)).deletedAt).toBeNull();
   expect(ids(await prof.list("mine"))).toContain(copy.id);
 });

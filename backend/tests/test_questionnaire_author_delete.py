@@ -99,15 +99,19 @@ def test_the_author_or_an_admin_deletes_and_restores_the_form_and_nobody_else(mo
             await _refused(lambda: questionnaire.update_questionnaire(ids.q, QuestionnaireUpdate(isActive=False), other))
             assert await _active(client, "Questionnaire", ids.q)
 
-            # The author deletes it softly; restoring a DELETED form is a content admin's (UNIFY U8).
+            # The author deletes it softly and restores it; another manager may do neither.
             await questionnaire.delete_questionnaire(ids.q, ids.prof)
             assert not await _active(client, "Questionnaire", ids.q)
             gone = await client.query_raw('SELECT "deletedAt", "deletedById" FROM "Questionnaire" WHERE "id" = $1', ids.q)
             assert gone[0]["deletedAt"] is not None and gone[0]["deletedById"] == ids.prof.id
-            await _refused(lambda: questionnaire.update_questionnaire(ids.q, QuestionnaireUpdate(isActive=True), ids.prof))
-            await _refused(lambda: questionnaire.restore_questionnaire(ids.q, ids.prof))
-            back = await questionnaire.restore_questionnaire(ids.q, ids.admin)
+            await _refused(lambda: questionnaire.update_questionnaire(ids.q, QuestionnaireUpdate(isActive=True), other))
+            await _refused(lambda: questionnaire.restore_questionnaire(ids.q, other))
+            back = await questionnaire.restore_questionnaire(ids.q, ids.prof)
             assert back["deletedAt"] is None and back["isActive"] is True
+            assert await _active(client, "Questionnaire", ids.q)
+            # And through the PATCH, as Android sends it.
+            await questionnaire.delete_questionnaire(ids.q, ids.prof)
+            await questionnaire.update_questionnaire(ids.q, QuestionnaireUpdate(isActive=True), ids.prof)
             assert await _active(client, "Questionnaire", ids.q)
 
             # A content admin retires it through the PATCH and restores it.

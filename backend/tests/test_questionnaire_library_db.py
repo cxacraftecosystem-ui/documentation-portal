@@ -76,10 +76,8 @@ def test_scopes_sharing_kind_and_the_deleted_list(monkeypatch) -> None:
             )
             assert ids.q in {f["id"] for f in await lib.list_forms(ids.lead, scope="workshop", workshop_id=ids.workshop)}
 
-            # The deleted list is a content admin's.
-            with pytest.raises(HTTPException) as hidden:
-                await lib.list_forms(ids.prof, scope="deleted")
-            assert hidden.value.status_code == 403
+            # The deleted list: every deleted form for a content admin, only your own for an author.
+            assert await lib.list_forms(ids.prof, scope="deleted") == []
             listed = await lib.list_forms(ids.admin, scope="workshop", workshop_id=ids.workshop)
             assert listed[0]["can"]["share"] is True and listed[0]["can"]["restore"] is False
         finally:
@@ -102,6 +100,8 @@ def test_the_soft_delete_hides_the_form_and_a_content_admin_restores_it(monkeypa
             assert gone["deletedAt"] and gone["isActive"] is False
             assert ids.q not in {f["id"] for f in await lib.list_forms(ids.prof, scope="mine")}
             assert ids.q in {f["id"] for f in await lib.list_forms(ids.admin, scope="deleted")}
+            assert ids.q in {f["id"] for f in await lib.list_forms(ids.prof, scope="deleted")}
+            assert ids.q not in {f["id"] for f in await lib.list_forms(ids.lead, scope="deleted")}
             # The author still opens it (to see it is deleted); anyone else is told it was deleted.
             assert (await questionnaire.get_questionnaire(ids.q, ids.prof))["deletedAt"]
             with pytest.raises(HTTPException) as deleted:
@@ -111,9 +111,9 @@ def test_the_soft_delete_hides_the_form_and_a_content_admin_restores_it(monkeypa
                 await lib.reuse(ids.q, ids.prof)
             assert _code(reuse) == "FORM_DELETED"
             with pytest.raises(HTTPException) as refused:
-                await lib.restore(ids.q, ids.prof)
+                await lib.restore(ids.q, ids.lead)
             assert refused.value.status_code == 403
-            back = await lib.restore(ids.q, ids.admin)
+            back = await lib.restore(ids.q, ids.prof)
             assert back["deletedAt"] is None and back["isActive"] is True
             assert ids.q in {f["id"] for f in await lib.list_forms(ids.prof, scope="mine")}
         finally:

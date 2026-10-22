@@ -9,7 +9,7 @@
  *
  * - a form is changed and deleted by its AUTHOR or a CONTENT ADMIN;
  * - sharing with everyone, the default form, type defaults and bindings are ADMIN acts;
- * - a deleted form is restored by a content admin, from the Deleted tab;
+ * - a deleted form is restored by its author or a content admin, from the Deleted tab;
  * - creating, reusing and opening a bundle are a questionnaire manager's (Professor and above).
  *
  * The server sends `can` on every form it lists, so the screens draw exactly what it will accept.
@@ -114,14 +114,14 @@ export type AnnexureDoc = {
 
 export type LibraryTab = { id: FormScope; label: string };
 
-/** Mine · Shared · Workshop, and Deleted for content admins (UNIFY 4.2). */
+/** Mine · Shared · Workshop, and Deleted for content admins (every deleted form) and form authors (their own). */
 export function libraryTabs(user: User | null | undefined): LibraryTab[] {
   const tabs: LibraryTab[] = [
     { id: "mine", label: "Mine" },
     { id: "shared", label: "Shared" },
     { id: "workshop", label: "Workshop" }
   ];
-  if (isContentAdmin(user)) tabs.push({ id: "deleted", label: "Deleted" });
+  if (isContentAdmin(user) || canManageQuestionnaire(user)) tabs.push({ id: "deleted", label: "Deleted" });
   return tabs;
 }
 
