@@ -283,4 +283,7 @@
     <string name="q_no_bound_forms">No forms on this workshop yet.</string>
     <string name="q_a_colleague">A colleague</string>
     <string name="q_a_field_repository_colleague">A Field Repository colleague</string>
+    <string name="q_corpus_title">Corpus</string>
+    <string name="q_corpus_answers">Answers (CSV)</string>
+    <string name="q_corpus_recordings">Recordings (CSV)</string>
 </resources>
