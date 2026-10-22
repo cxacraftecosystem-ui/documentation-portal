@@ -382,4 +382,4 @@ fun workbookPartOf(bytes: ByteArray, name: String): MultipartBody.Part =
 
 /** The server's sentence when it gave one, else [fallback]. */
 fun errorText(error: Throwable, fallback: String): String =
-    (error as? retrofit2.HttpException)?.let { com.fieldrepository.app.data.apiDetail(it) } ?: fallback
+    (error as? retrofit2.HttpException)?.let { apiDetail(it) } ?: fallback
