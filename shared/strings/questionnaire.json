@@ -319,6 +319,21 @@
     "authoringAddSection": "Add section",
     "authoringAddQuestion": "Add question",
     "authoringSectionTitle": "Section title",
-    "authoringQuestionPrompt": "Question"
+    "authoringQuestionPrompt": "Question",
+    "workshopTypeDesign": "Design and prototype workshops",
+    "workshopTypeOther": "Other workshops",
+    "formsEmptyMine": "You haven't made a form yet.",
+    "formsEmptyShared": "No forms are shared yet.",
+    "formsEmptyWorkshop": "No forms are bound to this workshop.",
+    "formsEmptyDeleted": "Nothing deleted.",
+    "libraryTryAgain": "That didn't work. Try again.",
+    "formDeletedNotice": "This form was deleted.",
+    "bundleNewerVersion": "This file was made by a newer version of the app. Update, then open it again.",
+    "bundleTooLarge": "This bundle is too large.",
+    "bundleNotABundle": "This file isn't a questionnaire bundle.",
+    "downloadDidNotStart": "The download didn't start. Try again.",
+    "sourceHandedOver": "Handed over",
+    "offlineSavedCopy": "Offline · saved copy.",
+    "offlineSavedCopyFrom": "Offline · saved copy from {when}."
   }
 }

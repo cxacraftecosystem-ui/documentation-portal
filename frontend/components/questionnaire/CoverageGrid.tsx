@@ -30,7 +30,7 @@ export function cellMark(cell: Pick<CoverageGridCell, "state" | "count" | "parti
       return { mark: "◎", label: qs("onThisDevice"), tone: "text-ink-500" };
     case "NEEDS_DECISION":
       return { mark: "⚠", label: qs("needsDecision"), tone: "text-amber-800" };
-    case "MARKED_COMPLETE":
+    case "COMPLETED":
       return { mark: "✓", label: qs("stateMarkedComplete"), tone: "text-success-600" };
     case "NEEDS_REDO":
       return { mark: "↻", label: qs("stateNeedsRedo"), tone: "text-amber-800" };
@@ -43,7 +43,7 @@ export function cellMark(cell: Pick<CoverageGridCell, "state" | "count" | "parti
 export function rowSummary(grid: Grid, sectionId: string, artisanIds: string[]): { covered: number; of: number; decision: boolean } {
   const cells = grid.cells.filter((c) => c.targetKey === `S:${sectionId}` && artisanIds.includes(c.artisanId));
   return {
-    covered: cells.filter((c) => c.state === "RECORDED" || c.state === "PARTIAL" || c.state === "UPLOADING" || c.state === "ON_DEVICE" || c.state === "MARKED_COMPLETE").length,
+    covered: cells.filter((c) => c.state === "RECORDED" || c.state === "PARTIAL" || c.state === "UPLOADING" || c.state === "ON_DEVICE" || c.state === "COMPLETED").length,
     of: artisanIds.length,
     decision: cells.some((c) => c.state === "NEEDS_DECISION")
   };

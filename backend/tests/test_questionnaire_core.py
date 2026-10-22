@@ -42,6 +42,8 @@ def test_the_author_and_only_the_author_changes_their_form(role: str) -> None:
     assert not authoring.may_change_form(user("me", role), theirs)
     assert not authoring.may_change_form(user("me", role), {"ownerId": None}), "no recorded author: content admins only"
     assert not authoring.may_restore_form(user("me", role))
+    assert authoring.may_restore_form(user("me", role), mine), "the author restores their own form"
+    assert not authoring.may_restore_form(user("me", role), theirs)
     assert not authoring.may_delete_session(user("me", role)), "sessions: content admins only, the author included"
     assert not authoring.may_delete_recording(user("me", role))
     assert not authoring.may_admin_act(user("me", role)), "sharing, defaults and bindings stay admin acts"
@@ -235,3 +237,16 @@ def test_an_answer_keeps_its_text_and_flattens_a_document_sent_alone() -> None:
     assert text == "Typed by hand" and rich is not None, "the client's text is canonical when it sends one"
     assert richtext.normalise("x", "not a document") == ("x", None)
     assert richtext.normalise("", None) == ("", None)
+
+
+# ── the section override: one vocabulary end to end (U3's report, 22 Oct 2026) ─────────────────
+def test_the_override_is_the_shared_status_and_the_old_alias_is_read_as_completed() -> None:
+    from app.questionnaire import kinds
+
+    shared = json.loads((SHARED / "enums.json").read_text(encoding="utf-8"))["enums"]["SectionStatus"]
+    assert list(kinds.SECTION_STATUS_LABELS) == shared == ["COMPLETED", "NEEDS_REVIEW", "NEEDS_REDO"]
+    assert kinds.normalise_section_status("MARKED_COMPLETE") == "COMPLETED"
+    assert kinds.normalise_section_status("needs_redo") == "NEEDS_REDO"
+    assert kinds.normalise_section_status(None) is None and kinds.normalise_section_status(" ") is None
+    with pytest.raises(ValueError):
+        kinds.normalise_section_status("DONE")

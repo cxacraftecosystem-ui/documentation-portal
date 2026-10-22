@@ -334,18 +334,26 @@ export type FormStructure = {
 
 /** `GET /questionnaire/annexure`: the forms bound to a workshop grouped by kind, with live sittings (A12). */
 export type Annexure = {
+  /** The scope: a Field Repository workshop or a designer-portal design workshop (the other is null). */
+  workshopId?: string | null;
   designWorkshopId: string | null;
+  workshopTitle?: string | null;
   groups: {
     kind: string | null;
     label: string;
+    /** The report stage this kind is filed under on this portal. */
+    stage?: string | null;
     forms: {
       questionnaireId: string;
       title: string;
       kind: string | null;
       version: number;
+      sessionCount?: number;
       questionCount: number;
       answeredTotal: number;
       emptySittings: number;
+      /** Each question with every live session's current answer (one shape in both portals). */
+      sections?: { code: string; title: string; questions: { displayCode: string; prompt: string; answers: { subject: string; text: string }[] }[] }[];
       sittings: {
         id: string;
         label: string;
@@ -370,13 +378,25 @@ export type CoverageState =
   | "UPLOADING"
   | "ON_DEVICE"
   | "NEEDS_DECISION"
-  | "MARKED_COMPLETE"
+  | "COMPLETED"
   | "NEEDS_REVIEW"
   | "NEEDS_REDO";
 
-/** The admin override per section and subject (owner, amendment 2 point 1: three states). */
-export type SectionOverride = "MARKED_COMPLETE" | "NEEDS_REVIEW" | "NEEDS_REDO";
-export const SECTION_OVERRIDES: readonly SectionOverride[] = ["MARKED_COMPLETE", "NEEDS_REVIEW", "NEEDS_REDO"];
+/**
+ * The admin override per section and subject (owner, amendment 2 point 1: three states), in the
+ * shared `SectionStatus` vocabulary the servers store: COMPLETED ("Marked complete"), NEEDS_REVIEW,
+ * NEEDS_REDO. An older server's or client's `MARKED_COMPLETE` is read as COMPLETED.
+ */
+export type SectionOverride = "COMPLETED" | "NEEDS_REVIEW" | "NEEDS_REDO";
+export const SECTION_OVERRIDES: readonly SectionOverride[] = ["COMPLETED", "NEEDS_REVIEW", "NEEDS_REDO"];
+const SECTION_OVERRIDE_ALIASES: Record<string, SectionOverride> = { MARKED_COMPLETE: "COMPLETED" };
+
+/** A stored override token as the screens read it, the old alias included; anything else is none. */
+export function readSectionOverride(value: string | null | undefined): SectionOverride | null {
+  if (!value) return null;
+  const token = SECTION_OVERRIDE_ALIASES[value] ?? value;
+  return SECTION_OVERRIDES.includes(token as SectionOverride) ? (token as SectionOverride) : null;
+}
 
 /** Where a covered cell's coverage comes from: a recording (preferred), or a typed answer only (✎). */
 export type CoverageSource = "RECORDED" | "TYPED";
@@ -446,7 +466,7 @@ export function toGridView(grid: CoverageGrid | null | undefined, questions: Rec
         ...s.cells.map((c) => ({ ...c, column: c.artisanId })),
         ...(s.guestCells ?? []).map((c) => ({ ...c, column: guestColumn(c.respondentId) }))
       ].map((c) => {
-        const override = SECTION_OVERRIDES.includes(c.override as SectionOverride) ? (c.override as SectionOverride) : null;
+        const override = readSectionOverride(c.override);
         return {
           artisanId: c.column,
           targetKey: `S:${s.sectionId}`,
