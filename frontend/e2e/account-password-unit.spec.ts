@@ -133,7 +133,7 @@ test("Settings offers set-a-password to an account without one", () => {
   expect(card).toContain("Set a password");
   expect(card).toContain("asksToConfirmSignIn");
   // The provider sign-in is run again on the card itself; nobody is sent to sign out.
-  expect(card).toContain("GoogleConfirmButton");
+  expect(card).toContain("<GoogleSignInButton");
   expect(card).toContain("REAUTH_STATE_PREFIX");
   expect(card).not.toContain("Sign out and sign in again");
   expect(read("app", "(protected)", "settings", "page.tsx")).toContain("<ChangePasswordCard />");

@@ -20,6 +20,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, Eye, EyeOff, KeyRound } from "lucide-react";
 
 import { useAuth } from "@/components/AuthProvider";
+import { GoogleSignInButton } from "@/components/GoogleSignInButton";
 import { OtpCodeInput } from "@/components/ui/OtpCodeInput";
 import { Toggle } from "@/components/ui/Toggle";
 import { isCompleteCode } from "@/lib/otp";
@@ -68,57 +69,6 @@ const CHANGED_HERE_ONLY = "Password changed. Other devices are signed out.";
 const CHANGED = "Password changed.";
 const TWO_FACTOR_CODE_MISSING = "Enter the code from your authenticator app to set a password.";
 const FIRST_SET = "Password set.";
-
-/**
- * Google's own button, drawn into this card. Its answer is an ID token, kept as the confirmation; it
- * signs nobody in. The script is the one the sign-in page loads, and is loaded once.
- */
-function GoogleConfirmButton({ clientId, onCredential }: { clientId: string; onCredential: (token: string) => void }) {
-  const host = useRef<HTMLDivElement | null>(null);
-  const answer = useRef(onCredential);
-  useEffect(() => {
-    answer.current = onCredential;
-  }, [onCredential]);
-
-  useEffect(() => {
-    let live = true;
-    const draw = () => {
-      if (!live || !host.current || !window.google) return;
-      window.google.accounts.id.initialize({
-        client_id: clientId,
-        callback: (response) => answer.current(response.credential)
-      });
-      host.current.replaceChildren();
-      window.google.accounts.id.renderButton(host.current, {
-        theme: "outline",
-        size: "large",
-        shape: "rectangular",
-        text: "continue_with",
-        width: Math.round(Math.min(320, Math.max(200, host.current.offsetWidth || 260)))
-      });
-    };
-    if (window.google) {
-      draw();
-    } else {
-      const existing = document.querySelector<HTMLScriptElement>('script[src="https://accounts.google.com/gsi/client"]');
-      if (existing) {
-        existing.addEventListener("load", draw, { once: true });
-      } else {
-        const script = document.createElement("script");
-        script.src = "https://accounts.google.com/gsi/client";
-        script.async = true;
-        script.defer = true;
-        script.onload = draw;
-        document.body.appendChild(script);
-      }
-    }
-    return () => {
-      live = false;
-    };
-  }, [clientId]);
-
-  return <div ref={host} className="min-h-10 max-w-xs" />;
-}
 
 export function ChangePasswordCard() {
   const { user, refreshMe } = useAuth();
@@ -299,15 +249,21 @@ export function ChangePasswordCard() {
             ) : (
               <>
                 <p className="text-sm text-ink-700">{confirmPrompt(wanted)}</p>
-                <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                <div className="mt-2.5 grid gap-2">
                   {showGoogle && googleClientId ? (
-                    <GoogleConfirmButton clientId={googleClientId} onCredential={confirmWithGoogle} />
+                    // Google's own button, drawn visibly; its answer is an ID token, kept as the
+                    // confirmation. It signs nobody in.
+                    <GoogleSignInButton
+                      clientId={googleClientId}
+                      onCredential={confirmWithGoogle}
+                      onLoadError={() => setError("Couldn't reach Google. Check your connection and try again.")}
+                    />
                   ) : null}
                   {shownOidc.map((provider) => (
                     <button
                       key={provider.id}
                       type="button"
-                      className="field-button-secondary"
+                      className="field-button-secondary w-full"
                       disabled={leaving}
                       onClick={() => void confirmWithOidc(provider)}
                     >
