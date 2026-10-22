@@ -83,7 +83,6 @@ import { languageOptions } from "@/lib/standardValues";
 import { QuestionnaireAdminEditor } from "@/components/questionnaires/InstrumentBuilder";
 import { SessionsList } from "@/components/questionnaire/SessionsList";
 import { FormSessionsCard } from "@/components/questionnaires/FormSessionsCard";
-import { QuestionnaireFixTray } from "@/components/questionnaires/QuestionnaireFixTray";
 import { useOnline } from "@/components/questionnaires/useOnline";
 import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
 
@@ -364,7 +363,6 @@ export default function QuestionnairePage() {
     return (
       <>
         <SessionsList />
-        <QuestionnaireFixTray />
         {isContentAdmin(user) ? (
           <div className="mt-5">
             <FormSessionsCard questionnaireId={null} canSeeDeleted deletedOnly online={online} />

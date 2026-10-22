@@ -1802,7 +1802,7 @@
       "status": {
         "dr-web": "tagged",
         "dr-android": "tagged",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2742,7 +2742,7 @@
       "status": {
         "dr-web": "tagged",
         "dr-android": "tagged",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2781,7 +2781,7 @@
       "status": {
         "dr-web": "tagged",
         "dr-android": "tagged",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {

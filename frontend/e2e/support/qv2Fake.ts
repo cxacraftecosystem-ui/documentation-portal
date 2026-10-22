@@ -220,6 +220,8 @@ export class QuestionnaireFake {
     return this.calls.filter((c) => c.method === method && (typeof path === "string" ? c.path === path : path.test(c.path)));
   }
 
+  /** B24: question lineage -> artisan column it is prefilled from (none by default). */
+  prefill: Record<string, string> = {};
   /** Artisan consent answers the fake gives (`GET /artisans/{id}/consent`). */
   consent: Record<string, string> = { a2: "REFUSED" };
   /** The open session `GET /questionnaire/sessions/open-match` reports, when set. */
@@ -344,7 +346,17 @@ export class QuestionnaireFake {
       };
     }
     m = one(/^\/questionnaire\/forms\/([^/]+)\/structure$/);
-    if (m) return { status: 200, json: FORM };
+    if (m)
+      return {
+        status: 200,
+        json: {
+          ...FORM,
+          sections: FORM.sections.map((sec) => ({
+            ...sec,
+            questions: sec.questions.map((q) => ({ ...q, artisanField: this.prefill[q.lineageId] ?? q.artisanField }))
+          }))
+        }
+      };
     m = one(/^\/questionnaire\/forms\/([^/]+)\/bindings$/);
     if (m && method === "GET") return { status: 200, json: { questionnaireId: m[1], bindings: this.bindings } };
     if (m && method === "PUT") {

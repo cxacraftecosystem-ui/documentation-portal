@@ -264,6 +264,46 @@ test("a form's page: an admin keeps it bound and sets a workshop type's default"
   expect(fake.calledWith("PUT", "/questionnaire/type-defaults")[0].body).toEqual({ workshopType: "DESIGN_PROTOTYPE", questionnaireId: "f1" });
 });
 
+test("@qf:C9 the start sheet takes the device's location beside the typed place", async ({ page, context }) => {
+  const fake = new QuestionnaireFake();
+  await context.grantPermissions(["geolocation"]);
+  await context.setGeolocation({ latitude: 26.82, longitude: 75.55, accuracy: 12 });
+  await open(page, fake, "/questionnaire/sessions/new?artisanId=a1");
+  const sheet = page.locator("[data-start-sheet]");
+  await sheet.getByRole("button", { name: "Use my location" }).click();
+  await expect(sheet.locator("[data-device-location='saved']")).toContainText("Location saved (within 12 m)");
+  await sheet.getByRole("button", { name: "Start session" }).click();
+  await expect.poll(() => fake.calledWith("POST", "/questionnaire/sessions").length).toBe(1);
+  expect(fake.calledWith("POST", "/questionnaire/sessions")[0].body).toMatchObject({ workshopId: "w1", location: { latitude: 26.82, longitude: 75.55, accuracy: 12 } });
+});
+
+test("@qf:B24 a question mapped to an artisan column is prefilled from the artisan's record", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  fake.prefill = { l2: "craft" };
+  await open(page, fake, "/questionnaire/sessions/s-1");
+  await expect.poll(() => fake.calledWith("PUT", "/questionnaire/answers").length).toBe(1);
+  const items = (fake.calledWith("PUT", "/questionnaire/answers")[0].body as { items: Record<string, unknown>[] }).items;
+  expect(items).toEqual([expect.objectContaining({ artisanId: "a1", questionLineageId: "l2", text: "Hand Block Printing", origin: "PREFILL" })]);
+});
+
+test("@qf:C8 a formatted answer is written as the document and its plain text", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  await open(page, fake, "/questionnaire/sessions/s-1");
+  await page.getByRole("button", { name: "A", exact: true }).click();
+  await page.getByRole("switch", { name: "Type answers" }).click();
+  const box = page.locator("[data-answer-box='l2'] [role=textbox]");
+  await box.click();
+  await page.keyboard.type("Indigo");
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.press("ControlOrMeta+B");
+  await box.blur();
+  await expect.poll(() => fake.calledWith("PUT", "/questionnaire/answers").length).toBeGreaterThan(0);
+  const item = (fake.calledWith("PUT", "/questionnaire/answers").at(-1)!.body as { items: Record<string, unknown>[] }).items[0];
+  expect(item.text).toBe("Indigo");
+  expect(String(item.richText)).toContain("BOLD");
+  expect(String(item.richText)).toContain("Indigo");
+});
+
 test("@qf:B12 workshop coverage reads the workshop", async ({ page }) => {
   const fake = new QuestionnaireFake();
   await open(page, fake, "/questionnaire/coverage");

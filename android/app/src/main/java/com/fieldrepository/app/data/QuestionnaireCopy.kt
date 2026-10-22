@@ -23,6 +23,8 @@ object QuestionnaireCopy {
         "continueAnotherDay" to "Continue another day",
         "deleteSessionTitle" to "Delete this session?",
         "restore" to "Restore",
+        "outboxSendAgain" to "Send again",
+        "outboxDiscardTitle" to "Discard this?",
         "sessionsTitle" to "Sessions",
         "newSession" to "New session",
         "startSession" to "Start session",
@@ -208,6 +210,8 @@ object QuestionnaireCopy {
         "session.continue" to "continueAnotherDay",
         "session.deleteTitle" to "deleteSessionTitle",
         "take.restore" to "restore",
+        "tray.sendAgain" to "outboxSendAgain",
+        "tray.discardTitle" to "outboxDiscardTitle",
         "sessions.title" to "sessionsTitle",
         "sessions.new" to "newSession",
         "sessions.empty" to "noSessionsYet",
@@ -383,7 +387,6 @@ object QuestionnaireCopy {
         "error.changedElsewhere" to "This session changed on another device. It has been reloaded.",
         // The outbox fix tray (audit H20).
         "tray.title" to "Not sent",
-        "tray.sendAgain" to "Send again",
         "tray.notAllowed" to "The server won't take this answer from you.",
         "tray.theirs" to "On the server",
         "tray.mine" to "On this phone",
@@ -392,7 +395,6 @@ object QuestionnaireCopy {
         "tray.participant" to "A change to who was there",
         "tray.answers" to "Typed answers",
         "tray.finish" to "Finishing the session",
-        "tray.discardTitle" to "Discard this?",
         // Session actions.
         "session.more" to "More",
         "session.edit" to "Edit session",
