@@ -135,6 +135,16 @@ def test_the_backfill_binds_every_workshop_and_shares_every_instrument(tmp_path:
     code, moved = _check(capfd)
     assert code == 0 and moved["primaryBindings"] == 4 and moved["failures"] == 0
 
+    async def create_bound(client):  # a workshop CREATED with a questionnaire is bound too
+        await client.execute_raw("INSERT INTO \"Workshop\" (\"id\", \"title\", \"date\", \"place\", \"createdById\", \"questionnaireId\", \"updatedAt\") "
+                                 "VALUES ('w5', 'Five', '2026-06-23', 'Bagru', 'u2', 'q2', now())")
+        rows = await client.query_raw("SELECT \"questionnaireId\", \"isPrimary\" FROM \"QuestionnaireBinding\" WHERE \"workshopId\" = 'w5'")
+        return [(r["questionnaireId"], r["isPrimary"]) for r in rows]
+
+    assert _db(create_bound) == [("q2", True)]
+    code, created = _check(capfd)
+    assert code == 0 and created["primaryBindings"] == 5 and created["failures"] == 0
+
     folder = BACKEND / "prisma" / "deferred"  # empty once the switch-on commit moved them in
     deferred = sorted(p.name for p in folder.iterdir() if p.is_dir()) if folder.is_dir() else []
     _deploy(tmp_path, _migrations() + deferred)
