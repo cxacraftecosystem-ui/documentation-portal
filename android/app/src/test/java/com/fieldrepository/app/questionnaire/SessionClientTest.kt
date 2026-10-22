@@ -85,4 +85,17 @@ class SessionClientTest {
         assertEquals("Giriraj", items.single().text)
         assertTrue(ApiClient.json.encodeToString(com.fieldrepository.app.data.QAnswersPut.serializer(), com.fieldrepository.app.data.QAnswersPut(items)).contains(""""origin":"PREFILL""""))
     }
+
+    @QFeature("B3")
+    @Test fun `The session title is generated from the date, place and people, and never sent`() {
+        val one = mapOf("a1" to ArtisanDto(id = "a1", name = "Giriraj Prasad", place = "Bagru", status = "APPROVED"))
+        val form = com.fieldrepository.app.ui.questionnaire.StartForm(questionnaireId = "f1", date = java.time.LocalDate.of(2026, 7, 1), artisanIds = listOf("a1"), place = "Bagru")
+        val title = form.titlePreview(null, one)
+        assertTrue(title, title.startsWith("Interview_2026-07-01_Bagru"))
+        assertTrue(title, title.contains("Giriraj"))
+        val two = one + ("a2" to ArtisanDto(id = "a2", name = "Meena", place = "Bagru", status = "APPROVED"))
+        assertTrue(form.copy(artisanIds = listOf("a1", "a2")).titlePreview(null, two).startsWith("Group-Interview_2026-07-01"))
+        val body = ApiClient.json.encodeToString(com.fieldrepository.app.data.QSessionCreate.serializer(), form.toCreate("k1", "u1", java.time.Instant.parse("2026-07-01T05:00:00Z")))
+        assertTrue("the server generates the title; the app never sends one", !body.contains("title"))
+    }
 }

@@ -1,6 +1,5 @@
 package com.fieldrepository.app.data
 
-import com.fieldrepository.app.questionnaire.QFeature
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -170,7 +169,6 @@ class NamingTest {
         }
     }
 
-    @QFeature("B3")
     @Test
     fun titlesMatchTheGoldenTable() {
         for (row in golden()["titles"]!!.jsonArray) {
