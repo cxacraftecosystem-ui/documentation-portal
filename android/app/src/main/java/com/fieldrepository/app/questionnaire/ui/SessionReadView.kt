@@ -123,6 +123,7 @@ fun SessionReadView(
                     d.place?.ifBlank { null },
                     d.languageCode?.let { SharedLanguages.labels[it] ?: it }?.let { if (it == "Other") d.languageOther ?: it else it }
                 ).forEach { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.body) }
+                LocalSessionReaders.current?.invoke(sessionId, attempt)
                 HorizontalDivider(color = MaterialTheme.field.hairline)
                 val ins = instrument
                 val live = d.recordings.filter { it.removedAt == null }
