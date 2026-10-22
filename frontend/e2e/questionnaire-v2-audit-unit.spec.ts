@@ -47,7 +47,7 @@ test("H15: the Builder is the builder alone, for managers, with the page's Back"
   const page = read("app", "(protected)", "questionnaire", "builder", "page.tsx");
   expect(page).toContain("<BuilderScreen />");
   expect(page).not.toContain("QuestionnairePage");
-  const screen = read("components", "questionnaire", "BuilderScreen.tsx");
+  const screen = read("components", "questionnaires", "BuilderScreen.tsx");
   expect(screen).toContain("const allowed = canManageQuestionnaire(user);");
   expect(screen).toContain("<RestrictedPanel");
   expect(screen).toContain("<QuestionnaireAdminEditor");
