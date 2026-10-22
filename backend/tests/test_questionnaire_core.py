@@ -169,7 +169,11 @@ def test_the_unify_vocabularies_match_the_shared_json() -> None:
     assert enums["SubjectKeyPrefix"] == list(subjects.PREFIXES)
     assert enums["FormResolution"] == list(bindings.ORDER)
     assert enums["WorkshopType"] == list(bindings.WORKSHOP_TYPES)
-    assert set(shared["pending"]["errorCodes"]["add"]) == set(common.UNIFY_MESSAGES) == set(common.UNIFY_STATUS)
+    pending = shared["pending"].get("errorCodes", {}).get("add", [])
+    assert set(pending) == set(common.UNIFY_MESSAGES) == set(common.UNIFY_STATUS)
+    contract = json.loads((SHARED / "questionnaire-contract.json").read_text(encoding="utf-8"))
+    assert set(contract["errorCodes"]) == set(common.MESSAGES) == set(common.STATUS), "the frozen list is what the server serves"
+    assert {"ANSWER_LOCKED", "RESPONDENT_HAS_ROWS"} <= set(contract["errorCodes"]), "every client shows them now"
     assert not set(common.UNIFY_MESSAGES) & set(common.MESSAGES), "a pending code is already in the frozen list"
 
 

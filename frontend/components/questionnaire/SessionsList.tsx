@@ -14,6 +14,7 @@ import { ButtonRow } from "@/components/ui/ButtonRow";
 import { formatDate } from "@/lib/format";
 import { questionnaireApi, type Session } from "@/lib/questionnaire/api";
 import { coverageCell, modeLabel, sessionMatches } from "@/lib/questionnaire/view";
+import { OutboxTray } from "@/components/questionnaire/OutboxTray";
 import { qs } from "@/lib/questionnaire/qs";
 import { FORMS_HREF } from "@/lib/questionnairePortal";
 
@@ -84,6 +85,7 @@ export function SessionsList() {
           </>
         }
       />
+      <OutboxTray />
       <div className="mb-4">
         <SearchInput value={search} onChange={setSearch} placeholder={qs("searchSessions")} />
       </div>

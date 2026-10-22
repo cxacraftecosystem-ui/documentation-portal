@@ -329,6 +329,28 @@
     {
       "input": {
         "portal": "DesignWorkshop",
+        "entity": "Questionnaire",
+        "date": "2026-10-22T04:30:00Z",
+        "subject": "2nd Craft Toolkit",
+        "what": "Handoff",
+        "ext": "dpwq"
+      },
+      "name": "DesignWorkshop_Questionnaire_2026-10-22_2nd-Craft-Toolkit_Handoff.dpwq"
+    },
+    {
+      "input": {
+        "portal": "FieldRepository",
+        "entity": "Questionnaire",
+        "date": "2026-10-22T04:30:00Z",
+        "subject": "2nd Craft Toolkit",
+        "what": "Handoff",
+        "ext": "frwq"
+      },
+      "name": "FieldRepository_Questionnaire_2026-10-22_2nd-Craft-Toolkit_Handoff.frwq"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
         "entity": "Annual-Plan",
         "what": "Pro-Forma",
         "ext": "xlsx"

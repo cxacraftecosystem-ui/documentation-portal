@@ -35,6 +35,7 @@ import {
   withTakes
 } from "@/lib/questionnaire/coverageCache";
 import { sha256Hex } from "@/lib/questionnaire/hashFile";
+import { prefillItems } from "@/lib/questionnaire/prefill";
 import {
   contractError,
   mintKey,
@@ -52,6 +53,7 @@ import { prompts, shortDate, type P2Input, type PromptSpec } from "@/lib/questio
 import { clipUploadState, sessionUnitKey, type ClipStep, type SessionUnit } from "@/lib/questionnaire/queue";
 import { consentSubject, pickedFileMeta, rosterArtisans, takesFor, takeSubjects } from "@/lib/questionnaire/view";
 import { assembleTake, recorderStore, recoverable, recoveredMinutes, type TakeChunk, type TakeDraft } from "@/lib/questionnaire/recorderStore";
+import { OutboxTray } from "@/components/questionnaire/OutboxTray";
 import { qs } from "@/lib/questionnaire/qs";
 import { artisanFilter } from "@/lib/questionnairePortal";
 import type { Artisan } from "@/lib/types";
@@ -251,6 +253,36 @@ export function SessionWorkspace({ id }: { id: string }) {
   useEffect(() => {
     void checkRecovery();
   }, [checkRecovery]);
+
+  // B24: questions mapped to an artisan column start with that artisan's value (origin PREFILL),
+  // written once per open by a researcher of the session; never over an answer somebody wrote.
+  const prefilledFor = useRef<string | null>(null);
+  const userId = user?.id ?? null;
+  useEffect(() => {
+    if (!detail || detail.version === 0 || prefilledFor.current === detail.id) return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+    if (!userId || !detail.researchers.some((r) => r.userId === userId)) return;
+    const mapped = Object.values(questions).flat().filter((q) => q.artisanField);
+    if (!mapped.length) return;
+    prefilledFor.current = detail.id;
+    const answered = new Set(detail.answers.filter((a) => a.artisanId).map((a) => `${a.artisanId}|${a.questionLineageId}`));
+    void Promise.all(detail.participants.map((p) => questionnaireApi.artisan(p.artisanId).catch(() => null))).then(async (rows) => {
+      const items = prefillItems({
+        sessionId: detail.id,
+        questions: mapped,
+        artisans: rows.filter((r): r is NonNullable<typeof r> => r !== null),
+        answered,
+        context: { sessionDate: detail.sessionDate, interviewer: detail.researchers.find((r) => r.role === "LEAD")?.name ?? null }
+      });
+      if (!items.length) return;
+      try {
+        await questionnaireApi.putAnswers(items);
+        void load();
+      } catch {
+        // Nothing is lost: the next open offers the same values again.
+      }
+    });
+  }, [detail, questions, userId, load]);
 
   const pendingCount = queue.pendingClips.length;
   // A take in progress, or waiting for "Answered by", is unsaved work too (audit, leave guard).
@@ -624,6 +656,7 @@ export function SessionWorkspace({ id }: { id: string }) {
 
   return (
     <div className="grid gap-4" data-session-workspace>
+      <OutboxTray sessionId={session.id} />
       <SessionHeader
         session={session}
         pendingTakes={pendingCount}

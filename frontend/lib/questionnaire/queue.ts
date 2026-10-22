@@ -339,6 +339,80 @@ export function resolveAnswerConflict(
   });
 }
 
+// ── the fix tray (UNIFY B39) ─────────────────────────────────────────────────────────────────────
+
+/** A step the researcher has to act on: refused (FAILED) or holding answers for P9. */
+export type TrayItem = {
+  unitId: string;
+  stepKey: string;
+  step: Step;
+  /** `failed`: refused and parked; `conflict`: answers changed by someone else. */
+  state: "failed" | "conflict";
+};
+
+/** Everything in the outbox that waits for a person rather than for a connection. */
+export function trayItems(units: SessionUnit[]): TrayItem[] {
+  return units.flatMap((unit) =>
+    unit.steps.flatMap((step): TrayItem[] => {
+      if (step.status === "DONE") return [];
+      if (step.kind === "answers" && step.error === "CONFLICT") return [{ unitId: unit.id, stepKey: stepKey(step), step, state: "conflict" }];
+      if (step.status === "FAILED") return [{ unitId: unit.id, stepKey: stepKey(step), step, state: "failed" }];
+      return [];
+    })
+  );
+}
+
+/** "Send again": a refused step goes back to waiting, its error and attempts cleared. */
+export function sendStepAgain(store: QueueStore, unitId: string, key: string): Promise<SessionUnit | null> {
+  return mutateUnit(store, unitId, (current) => {
+    if (!current) return null;
+    for (const step of current.steps) {
+      if (stepKey(step) !== key || step.status !== "FAILED") continue;
+      step.status = "PENDING";
+      step.error = undefined;
+      if (step.kind === "clip") step.attempts = 0;
+    }
+    return current;
+  });
+}
+
+/**
+ * "Discard": the step is dropped from the outbox. A session that never reached the server takes
+ * its whole unit with it (nothing after it can land); a clip's bytes are deleted too.
+ */
+export function discardStep(store: QueueStore, unitId: string, key: string): Promise<SessionUnit | null> {
+  return mutateUnit(store, unitId, (current) => {
+    if (!current) return null;
+    const step = current.steps.find((s) => stepKey(s) === key);
+    if (!step) return current;
+    if (step.kind === "session" && !current.sessionId) {
+      for (const s of current.steps) if (s.kind === "clip") void store.deleteBlob(s.blobKey).catch(() => undefined);
+      return null;
+    }
+    if (step.kind === "clip") void store.deleteBlob(step.blobKey).catch(() => undefined);
+    const steps = current.steps.filter((s) => stepKey(s) !== key);
+    return steps.some((s) => s.status !== "DONE") ? { ...current, steps } : null;
+  });
+}
+
+/**
+ * "Send without the conflicting answers": the answers someone else changed are dropped from the
+ * step (theirs stand) and the rest go up. A step left with nothing to send is done.
+ */
+export function sendWithoutConflicts(store: QueueStore, unitId: string, key: string): Promise<SessionUnit | null> {
+  return mutateUnit(store, unitId, (current) => {
+    if (!current) return null;
+    const step = current.steps.find((s): s is AnswersStep => s.kind === "answers" && stepKey(s) === key);
+    if (!step) return current;
+    const held = step.conflicts ?? [];
+    step.items = step.items.filter((item) => !held.some((r) => sameItem(r, item)));
+    step.conflicts = undefined;
+    step.error = undefined;
+    step.status = step.items.length ? "PENDING" : "DONE";
+    return current.steps.every((s) => s.status === "DONE") ? null : current;
+  });
+}
+
 // ── the runner ───────────────────────────────────────────────────────────────────────────────────
 
 function describe(error: unknown): string {

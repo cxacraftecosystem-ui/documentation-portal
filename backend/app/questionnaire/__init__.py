@@ -32,5 +32,8 @@ Modules:
 * ``recordings`` presign, resume, complete, patch, decide, primary, remove, restore, history;
 * ``answers``    per-item answer writes (artisans and guests), prefill, proposals, revisions;
 * ``schemas``    the contract's request and response models;
-* ``inbox``, ``record``, ``corpus``, ``merge``, ``review``, ``legacy_resolver``, ``shims_fr``.
+* ``readers``    what tasks, completeness, stage counts, exports and the annexure read (C10);
+* ``richtext``   an answer's optional rich text and its canonical plain text (C8);
+* ``structure``  a form's sections and questions for the session screens;
+* ``inbox``, ``record``, ``corpus``, ``merge``, ``review``, ``legacy_resolver``, ``shims_fr``, ``shims_dr``.
 """
