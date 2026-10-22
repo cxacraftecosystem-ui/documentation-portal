@@ -29,6 +29,7 @@ URL = os.environ.get("QUESTIONNAIRE_UNIFY_DATABASE_URL", "").strip()
 U0 = "20261107090000_questionnaire_unify_additive"
 SPEC = importlib.util.spec_from_file_location("questionnaire_unify_check", BACKEND / "scripts" / "questionnaire_unify_check.py")
 check = importlib.util.module_from_spec(SPEC)
+sys.modules["questionnaire_unify_check"] = check
 SPEC.loader.exec_module(check)
 
 pytestmark = pytest.mark.skipif(
@@ -72,12 +73,12 @@ def _db(fn):
     return asyncio.run(go())
 
 
-def _check(capsys) -> tuple[int, dict]:
+def _check(capfd) -> tuple[int, dict]:
     try:
         code = check.main(["--database-url", URL, "--allow-host", urlsplit(URL).hostname])
     except SystemExit as exc:
         code = int(exc.code or 0)
-    out = capsys.readouterr().out
+    out = capfd.readouterr().out
     match = re.search(r"^\{\n.*?^\}$", out, re.MULTILINE | re.DOTALL)
     assert match and "nothing was written" in out, out
     return code, json.loads(match.group(0))
@@ -94,7 +95,7 @@ SEED = [
 ]
 
 
-def test_the_backfill_binds_every_workshop_and_shares_every_instrument(tmp_path: Path, capsys) -> None:
+def test_the_backfill_binds_every_workshop_and_shares_every_instrument(tmp_path: Path, capfd) -> None:
     _deploy(tmp_path, _migrations(before=U0))
 
     async def seed(client):
@@ -102,11 +103,11 @@ def test_the_backfill_binds_every_workshop_and_shares_every_instrument(tmp_path:
             await client.execute_raw(sql)
 
     _db(seed)
-    code, before = _check(capsys)
+    code, before = _check(capfd)
     assert code == 0 and before == {"u0": False, "instruments": 2, "boundWorkshops": 3, "bindingsToCreate": 3, "instrumentsToShare": 2, "failures": 0}
 
     _deploy(tmp_path, _migrations())
-    code, after = _check(capsys)
+    code, after = _check(capfd)
     assert code == 0, after
     assert (after["instrumentsShared"], after["instrumentsOwnerIsCreator"], after["primaryBindings"]) == (2, 2, 3)
     assert after["boundWithoutPrimary"] == after["primaryDisagreesWithMirror"] == after["workshopsWithTwoPrimaries"] == 0
@@ -126,7 +127,7 @@ def test_the_backfill_binds_every_workshop_and_shares_every_instrument(tmp_path:
         return [(r["id"], r["questionnaireId"]) for r in await client.query_raw('SELECT "id", "questionnaireId" FROM "Workshop" ORDER BY "id"')]
 
     assert _db(rebind) == [("w1", "q2"), ("w2", "q1"), ("w3", "q2"), ("w4", "q1")]
-    code, moved = _check(capsys)
+    code, moved = _check(capfd)
     assert code == 0 and moved["primaryBindings"] == 4 and moved["failures"] == 0
 
     deferred = sorted(p.name for p in (BACKEND / "prisma" / "deferred").iterdir() if p.is_dir())
