@@ -9,15 +9,15 @@ from fastapi.responses import JSONResponse
 from prisma.errors import UniqueViolationError
 from pydantic import ValidationError
 
-from app.schemas.questionnaire_v2 import CompleteRequest as V2CompleteRequest
-from app.schemas.questionnaire_v2 import MultipartCreateRequest as V2MultipartCreateRequest
-from app.schemas.questionnaire_v2 import PresignRequest as V2PresignRequest
+from app.questionnaire.schemas import CompleteRequest as V2CompleteRequest
+from app.questionnaire.schemas import MultipartCreateRequest as V2MultipartCreateRequest
+from app.questionnaire.schemas import PresignRequest as V2PresignRequest
 from app.services import consent_gate
-from app.services.questionnaire_v2 import recordings as v2_recordings
-from app.services.questionnaire_v2 import common as v2_common
-from app.services.questionnaire_v2 import shims as v2_shims
+from app.questionnaire import recordings as v2_recordings
+from app.questionnaire import common as v2_common
+from app.questionnaire import shims_fr as v2_shims
 from app.services import transcription_enqueue as transcription
-from app.services.questionnaire_v2.live import live_media_where
+from app.questionnaire.live import live_media_where
 
 from app.core.config import get_settings
 from app.core.db import db
@@ -218,7 +218,7 @@ def _old(model: Any, body: dict[str, Any]) -> Any:
 
 async def _v2(model: Any, body: dict[str, Any]) -> Any:
     from app.api.routes.questionnaire_v2 import v2_enabled
-    from app.services.questionnaire_v2.common import fail
+    from app.questionnaire.common import fail
 
     if not v2_enabled():
         fail("NOT_FOUND")
@@ -839,7 +839,7 @@ async def refine_media_transcript(
     # a refusal recorded after the attestation still stops them.
     verdict = await consent_gate.verdict(media_id)
     if verdict != consent_gate.ALLOW:
-        from app.services.questionnaire_v2.common import fail
+        from app.questionnaire.common import fail
 
         fail("CONSENT_REFUSED" if verdict == consent_gate.REFUSED else "CONSENT_NOT_RECORDED")
     transcript = getattr(media, "transcriptText", None)

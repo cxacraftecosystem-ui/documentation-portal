@@ -8,13 +8,13 @@ pytestmark = needs_db
 
 
 def _put(*items):
-    from app.schemas.questionnaire_v2 import AnswersPut
+    from app.questionnaire.schemas import AnswersPut
 
     return AnswersPut.model_validate({"items": list(items)})
 
 
 def test_put_answers_is_per_item_and_never_fails_as_a_whole(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import answers, sessions
+    from app.questionnaire import answers, sessions
 
     async def go() -> None:
         client = await connect()
@@ -35,6 +35,9 @@ def test_put_answers_is_per_item_and_never_fails_as_a_whole(monkeypatch) -> None
         await client.execute_raw('UPDATE "QuestionnaireAnswer" SET "pinned" = true WHERE "artisanId" = $1 AND "questionLineageId" = $2', a, d1)
         pinned = await answers.put_answers(_put(item(a, d1, "Files", baseVersion=1)), ids.lead)
         assert pinned["results"][0]["status"] == "FORBIDDEN"
+        # The answer lock (owner, 21 Oct 2026): someone else's text is changed by its author, the
+        # session's LEAD or an admin, so the Professor edits the pinned answer as a lead here.
+        await sessions.add_researcher(client, s["id"], ids.prof.id, "LEAD")
         prof = await answers.put_answers(_put(item(a, d1, "Files", baseVersion=1)), ids.prof)
         assert prof["results"][0]["status"] == "SAVED" and prof["results"][0]["answer"]["version"] == 2
         revisions = await client.query_raw(
@@ -48,7 +51,7 @@ def test_put_answers_is_per_item_and_never_fails_as_a_whole(monkeypatch) -> None
 
 
 def test_prefill_never_overwrites_a_person(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import answers, sessions
+    from app.questionnaire import answers, sessions
 
     async def go() -> None:
         client = await connect()
@@ -73,7 +76,7 @@ def test_prefill_never_overwrites_a_person(monkeypatch) -> None:
 
 
 def test_proposals_for_an_unnamed_group_take_write_drafts_never_answers(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import answers, sessions
+    from app.questionnaire import answers, sessions
 
     async def go() -> None:
         client = await connect()

@@ -15,7 +15,7 @@ import { LIST_PAGE_CEILING } from "@/components/data/cappedList";
 import { readInbox } from "@/components/questionnaire/useInboxCount";
 import { SearchableMultiSelect, SearchableSelect } from "@/components/ui/SearchableSelect";
 import { ApiError, listResource } from "@/lib/api";
-import { questionnaireApi, type Recording, type Session, type SessionDetail } from "@/lib/questionnaireApi";
+import { questionnaireApi, type Recording, type Session, type SessionDetail } from "@/lib/questionnaire/api";
 import {
   artisanReadDue,
   artisanReadOnInboxReload,
@@ -38,8 +38,8 @@ import {
   type InboxSectionKey,
   type InboxSetDates,
   type InboxToFile
-} from "@/lib/questionnaireInbox";
-import { qs, type QsKey } from "@/lib/strings/qs";
+} from "@/lib/questionnaire/inbox";
+import { qs, type QsKey } from "@/lib/questionnaire/qs";
 import type { Artisan } from "@/lib/types";
 
 export const INBOX_TITLES: Record<InboxSectionKey, QsKey> = {

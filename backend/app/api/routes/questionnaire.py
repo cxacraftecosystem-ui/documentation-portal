@@ -59,6 +59,7 @@ from app.schemas.questionnaire import (
     QuestionnaireQuestionReorder,
     QuestionnaireQuestionUpdate,
     QuestionnaireResponseInput,
+    QuestionnaireReuse,
     QuestionnaireSectionCreate,
     QuestionnaireSectionReorder,
     QuestionnaireSectionUpdate,
@@ -69,12 +70,14 @@ from app.services.questionnaire_instruments import (
     require_questionnaire,
     resolve_questionnaire_id,
 )
-from app.services import answer_drafts, cross_portal_codes
+from app.services import answer_drafts, cross_portal_codes, questionnaire_library
 from app.services import completeness as completeness_module
-from app.services.questionnaire_v2 import shims as v2_shims
-from app.services.questionnaire_v2 import sessions as v2_sessions
-from app.services.questionnaire_v2.common import fail as v2_fail
-from app.services.questionnaire_v2.locks import lock_key
+from app.questionnaire import authoring as questionnaire_authoring
+from app.questionnaire import kinds as questionnaire_kinds
+from app.questionnaire import shims_fr as v2_shims
+from app.questionnaire import sessions as v2_sessions
+from app.questionnaire.common import fail as v2_fail
+from app.questionnaire.locks import lock_key
 from app.services.concurrency import gather_reads
 from app.services.pagination import normalize_pagination, page_payload
 from app.services.record_filters import (
@@ -365,8 +368,8 @@ def is_form_author(form: Any, user: Any) -> bool:
     A form with no recorded author (the seeded default, or one made before the column existed) has
     no author, so only a content admin deletes from it.
     """
-    author = get_value(form, "createdById")
-    return bool(author) and author == get_value(user, "id")
+    # The one rule, shared with designer-portal (app/questionnaire/authoring.py).
+    return questionnaire_authoring.is_form_author(form, user)
 
 
 async def assert_may_delete_from_form(questionnaire_id: str | None, user: Any) -> None:
@@ -390,7 +393,7 @@ async def may_change_form(questionnaire_id: str | None, user: Any) -> bool:
     if is_content_admin(user):
         return True
     form = await db.questionnaire.find_unique(where={"id": questionnaire_id}) if questionnaire_id else None
-    return form is not None and is_form_author(form, user)
+    return questionnaire_authoring.may_change_form(user, form)
 
 
 async def assert_may_edit_form(questionnaire_id: str | None, user: Any) -> None:
@@ -1365,7 +1368,7 @@ async def create_interview(
                 ),
             )
 
-    # QUESTIONNAIRE V2 ON: the old-build shim (services/questionnaire_v2/shims). Every create makes a
+    # QUESTIONNAIRE V2 ON: the old-build shim (app/questionnaire/shims_fr). Every create makes a
     # NEW session (a session is a dated event; no fold), the typed title is kept as legacyTitle and
     # the title is generated. Same request and response shapes; never a new error code — after the
     # cutoff an old build's create gets 503 + Retry-After, which it treats as transient.
@@ -1757,6 +1760,9 @@ async def set_completion_cell(
             where={"artisanId": payload.artisanId, "sectionId": payload.sectionId}
         )
         return {"cleared": True}
+    # The shared web client names "Marked complete" MARKED_COMPLETE; the stored token is COMPLETED.
+    if payload.status == "MARKED_COMPLETE":
+        payload = payload.model_copy(update={"status": "COMPLETED"})
     if payload.status not in COMPLETION_STATUSES:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1838,7 +1844,7 @@ async def update_interview(
         # Artisan changes become participant changes (a participant with takes is kept), responses
         # become answers on the frozen-table-free path v2 reads, and the generated title follows.
         await v2_shims.patch_interview_shim(interview, payload, current_user)
-        from app.services.questionnaire_v2 import titles as v2_titles
+        from app.questionnaire import titles as v2_titles
 
         await v2_titles.regenerate_title(db, interview_id)
     # Re-read the row itself (the PATCH may have changed its columns), but graft the six relations on
@@ -2440,106 +2446,50 @@ async def _has_v2_data(interview_id: str) -> bool:
 # that since it was written.
 
 
-def _instrument_payload(row: Any, counts: dict[str, dict[str, int]]) -> dict[str, Any]:
-    tally = counts.get(row.id, {})
-    return {
-        "id": row.id,
-        "title": row.title,
-        "description": row.description,
-        "isActive": row.isActive,
-        "isDefault": row.isDefault,
-        "sortOrder": row.sortOrder,
-        "sectionCount": tally.get("sections", 0),
-        "questionCount": tally.get("questions", 0),
-        "workshopCount": tally.get("workshops", 0),
-        "createdAt": public_encode(row.createdAt),
-        # The AUTHOR, so a client can draw the form's Delete, Retire and Remove for them as well as
-        # for a content admin (owner, 22 Oct 2026). Null on a form with no recorded author.
-        "createdById": get_value(row, "createdById"),
-    }
+def _instrument_payload(row: Any, counts: dict[str, dict[str, int]], user: Any = None) -> dict[str, Any]:
+    """One instrument on the wire: ``services/questionnaire_library.form_payload``, which also names
+    the AUTHOR (``createdById`` and the unified ``ownerId``), ``isShared``, ``kind`` and the soft
+    delete, and with ``user`` what that account may do with it."""
+    return questionnaire_library.form_payload(row, counts, user)
 
 
 @instruments_router.get("")
 async def list_questionnaires(
-    _: Any = Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
     activeOnly: bool = True,
+    scope: str | None = None,
+    workshopId: str | None = None,
+    kind: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Every instrument, with the three counts a picker needs to describe one.
-
-    FOUR STATEMENTS, in one gathered wave, whatever the instrument count — the same budget rule the
-    consolidated document is built to (services/questionnaire_consolidation.QUERY_COUNT). Counting
-    per instrument would be 1 + 3N sequential cross-region round trips to answer a question about a
-    list of two rows; reading the three child tables whole and tallying in Python is one wave.
-    Revisit that when an instrument's sections outgrow a page, not before.
-    """
-    where: dict[str, Any] = {"isActive": True} if activeOnly else {}
-    rows, sections, questions, workshops = await gather_reads(
-        db.questionnaire.find_many(where=where, order=[{"sortOrder": "asc"}, {"createdAt": "asc"}]),
-        db.questionnairesection.find_many(where={"isActive": True}),
-        db.questionnairequestion.find_many(where={"isActive": True}),
-        db.workshop.find_many(),
+    """Every instrument, with the counts a picker needs (one statement for the rows, one for the
+    counts). With no ``scope`` the list is what every client has always read; the forms library asks
+    for ``mine``, ``shared``, ``workshop`` (optionally one ``workshopId``) or, for content admins,
+    ``deleted`` (UNIFY 4.1), optionally narrowed to one ``kind`` (or ``none``)."""
+    return await questionnaire_library.list_forms(
+        current_user, scope=scope, workshop_id=workshopId, kind=kind, active_only=activeOnly
     )
-    counts: dict[str, dict[str, int]] = {}
-    for bucket, collection in (("sections", sections), ("questions", questions), ("workshops", workshops)):
-        for item in collection:
-            key = get_value(item, "questionnaireId")
-            if key:
-                counts.setdefault(key, {}).setdefault(bucket, 0)
-                counts[key][bucket] += 1
-    return [_instrument_payload(row, counts) for row in rows]
 
 
 # ==================================================================================================
 # THE WORKBOOK: DOWNLOADING THE INSTRUMENT AS A SPREADSHEET, AND UPLOADING ONE BACK
 # ==================================================================================================
 #
-# WHO MAY PRESS IT (owner, 22 Oct 2026)
+# WHO MAY PRESS IT (UNIFY 4.1, owner 22 Oct 2026)
 # --------------------------------------------------------------------------------------------
 #
-# A NEW form from a workbook (the pro-forma, the question set, `POST /questionnaires/upload`) is
-# `require_admin`. An EXISTING form's own workbook (`GET /{id}/xlsx`, `POST /{id}/upload`) is
-# `require_form_editor`: its author or a content admin, Ministry Admin included — the same people who
-# edit it one question at a time (`assert_may_edit_form`). The history below is why a NEW form from a
-# file is not opened to every questionnaire manager.
+# A NEW form from a workbook, the pro-forma and a form's question set are any questionnaire
+# manager's (Professor and above): whoever uploads becomes the form's author. An EXISTING form's own
+# workbook (`GET /{id}/xlsx`, `POST /{id}/upload`) is `require_form_editor`: its author or a content
+# admin, the people who edit it one question at a time (`assert_may_edit_form`). A re-upload states
+# the whole form, and what the file leaves out is retired when it has evidence; that is why the
+# re-upload is held to the form's editors and not opened wider.
 #
-# AN UPLOAD IS NOT A ONE-QUESTION ACT. One spreadsheet re-states the WHOLE instrument, and everything the
-# workbook does not mention is removed by rule — so a professor who downloads the questionnaire,
-# deletes the rows they are not interested in, and uploads the file has retired every question they
-# deleted, across twenty-two sections, against interviews already recorded by forty researchers. The
-# edit rule below makes that safe in the sense that nothing is LOST; it does not make it small. The
-# blast radius of one press is the difference, and `require_admin` (deps.py:396) is where this
-# repository puts acts with that radius — the same place `set_default_questionnaire` already sits.
-#
-# Widening the NEW-form routes to `require_questionnaire_manager` would hand the whole-instrument
-# press to every grant-holder; tests/test_permission_matrix.py asserts both halves.
-#
-# NO ANSWER CROSSES THIS BOUNDARY, IN EITHER DIRECTION
+# ANSWERS
 # --------------------------------------------------------------------------------------------
 #
-# The download half calls `build_questionnaire_workbook` with `entry_labels=[]`, so the workbook
-# carries one EMPTY Answer/Notes pair and no value in it. The upload half PARSES answer columns — it
-# must, or a workbook carrying them would be silently truncated — counts them, reports the count and
-# stores none. That is a narrowing of the module this was ported from, and the reason is the shape of
-# an answer here: a `QuestionnaireResponse` hangs off a `QuestionnaireInterview`, which names its
-# artisans through `QuestionnaireInterviewArtisan`, carries a location, carries a `RecordStatus` a
-# reviewer acts on, and is unique on (questionnaireId, artisanSetKey). A spreadsheet column headed
-# "Answer" supplies none of those, so importing one means inventing an interview, inventing its
-# artisan set, and recording the uploading ADMIN as the person who sat with the artisan.
-#
-# WEB ONLY, DELIBERATELY
-# --------------------------------------------------------------------------------------------
-#
-# There is no Android surface for any of this and none is planned. The app has exactly one
-# `@Multipart` endpoint out of ~190 routes (`FieldRepositoryApi.kt:283-286`, `analyzeMeasurement`)
-# and it sends a photo; every file picker it has is `GetContent()` with an image or audio filter, so
-# a workbook door would need a `MultipartBody.Part` builder, a `ContentResolver` read of a document
-# URI and a size check before the read, none of which exists. A half-registered admin tile that opens
-# nothing — `AdminHubEntry` is a private enum at `MainActivity.kt:8563` whose members are dispatched
-# by hand — is worse than no tile. And the act does not belong on a phone: typing eighty-one
-# questions into a spreadsheet happens in Excel on a laptop, and the file an admin uploads is the one
-# they just edited there. What the phone DOES get is `helpText` and `isRequired` on the question DTO
-# and two lines rendering them on the answering screen, because a column an admin fills in that the
-# primary client silently ignores is the defect this whole change exists to avoid.
+# A NEW form's hand-filled answers are imported as UPLOAD sessions (see `upload_questionnaire`).
+# A re-upload never writes answers: its answer columns are counted and reported, because the
+# sittings they came from already exist on the platform.
 
 # A questionnaire is a page of typing, not a media file. Generous enough for a two-thousand-question
 # instrument with help text on every row, and low enough that this endpoint cannot be used to push a
@@ -2783,15 +2733,15 @@ async def create_from_parsed(
     description: str | None = None,
     source_filename: str | None = None,
     created_by_id: str | None = None,
+    answers_imported: bool = False,
 ) -> tuple[str, dict[str, Any]]:
     """Store a freshly parsed workbook as a NEW questionnaire. Returns ``(id, report)``.
 
-    NO ANSWER IS WRITTEN, AND THERE IS ONE BRANCH HERE RATHER THAN TWO. The module this was ported
-    from has a second branch that IMPORTS the answers when the workbook was hand-filled rather than
-    downloaded. There is no such branch here and there must not be one: the question is not whose
-    answers they are, it is what an answer IS in this database. It is a `QuestionnaireResponse` on a
-    `QuestionnaireInterview` that names artisans, carries a location and has a review status a
-    reviewer acts on. An import has none of those to give it, so it would have to invent all three.
+    NO ANSWER IS WRITTEN HERE. A hand-filled pro-forma's answers are imported by the upload route
+    AFTER this returns, as UPLOAD sessions with a guest respondent per answer column and origin
+    WORKBOOK (``questionnaire_library.import_workbook_answers``, UNIFY U7): a v2 session carries a
+    date, a lead researcher and a respondent, so nothing has to be invented. ``answers_imported``
+    says that will happen, so the answers are not reported as skipped.
     """
     rows = await db.questionnaire.find_many(order={"sortOrder": "desc"}, take=1)
     wanted_title = (title or parsed.title or "Untitled questionnaire").strip()
@@ -2853,7 +2803,10 @@ async def create_from_parsed(
             )
             report["created"] += 1
 
-    _note_skipped_answers(parsed, report)
+    # ``answers_imported``: the route imports this workbook's answers as UPLOAD sessions once the
+    # questions exist (UNIFY U7), so they are not reported as skipped.
+    if not answers_imported:
+        _note_skipped_answers(parsed, report)
     await cross_portal_codes.reconcile_question_codes(db, questionnaire_id=questionnaire.id)
     return questionnaire.id, report
 
@@ -3644,7 +3597,7 @@ def _parse_or_422(content: bytes, filename: str | None) -> ParsedQuestionnaire:
 
 
 @instruments_router.get("/pro-forma")
-async def download_pro_forma(_: Any = Depends(require_admin)) -> Response:
+async def download_pro_forma(_: Any = Depends(require_questionnaire_manager)) -> Response:
     """The blank .xlsx the questionnaire is built in.
 
     DECLARED ABOVE ``GET /{questionnaire_id}`` IN THIS FILE, AND THAT ORDER IS LOAD-BEARING. A path
@@ -3686,7 +3639,7 @@ async def download_questionnaire_workbook(
 
 @instruments_router.get("/{questionnaire_id}/question-set.xlsx")
 async def download_question_set(
-    questionnaire_id: str, _: Any = Depends(require_admin)
+    questionnaire_id: str, _: Any = Depends(require_questionnaire_manager)
 ) -> Response:
     """The same questions with the Question IDs blank — a NEW instrument, not an edit of this one.
 
@@ -3714,27 +3667,34 @@ async def upload_questionnaire(
     file: UploadFile = File(...),
     title: str | None = Form(default=None),
     description: str | None = Form(default=None),
-    current_user: Any = Depends(require_admin),
+    kind: str | None = Form(default=None),
+    workshopId: str | None = Form(default=None),
+    importAnswers: bool = Form(default=True),
+    current_user: Any = Depends(require_questionnaire_manager),
 ) -> dict[str, Any]:
-    """Create a questionnaire from a filled-in pro-forma.
+    """Create a questionnaire from a filled-in pro-forma: any questionnaire manager, who becomes its
+    author (UNIFY 4.1: "authors, not admin only").
 
-    ``title`` AND ``description`` ARE FORM FIELDS ON THE SAME MULTIPART BODY AS THE FILE, NOT QUERY
-    PARAMETERS. Left as bare ``str | None = None`` defaults FastAPI reads them as query parameters,
-    and a client that posts them in the body has them silently ignored — an untitled questionnaire,
-    with a 201 saying it went fine. ``Form(default=None)`` is what makes them body fields; there is
-    no pydantic model on a multipart route to carry the declaration instead.
+    ``title``, ``description``, ``kind`` and ``workshopId`` are FORM FIELDS on the multipart body (a
+    bare default would read them from the query string and drop them silently).
 
-    ``request`` IS NOT A PARAMETER ANY CLIENT SENDS. FastAPI fills it from the connection, so it
-    changes nothing about this route's contract. It is here only so `_read_workbook_upload` can read
-    the declared ``Content-Length`` and refuse an oversized workbook before copying it into the heap.
+    HAND-FILLED ANSWERS ARE IMPORTED AS UPLOAD SESSIONS (UNIFY U7, A2): each answer column becomes
+    one session on the new form, its heading the session's guest respondent, every filled cell an
+    answer with origin WORKBOOK, on ``workshopId`` when one is named. A workbook that came OUT of
+    the platform (a Questionnaire ID on its Details sheet, or Question IDs filled in) never imports
+    its answers: they belong to sessions that already exist, and the report says so.
 
-    THE RESPONSE CARRIES ``report.problems``, AND THAT LIST IS THE FEATURE. An admin who uploads
-    eighty-one questions and is shown seventy-nine, with no way to find out which two are missing or
-    why, does not trust the import again — and every likely cause (a merged cell, a formula Excel
-    never calculated, "maybe" typed in the Required column) is invisible from the result.
+    ``report.problems`` is the feature: every row the import could not take, with its Excel row.
     """
     content = await _read_workbook_upload(file, request)
     parsed = _parse_or_422(content, file.filename)
+    try:
+        wanted_kind = questionnaire_kinds.coerce_kind(kind)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    if workshopId:
+        await require_record(db.workshop, workshopId)
+    hand_filled = bool(importAnswers) and parsed.hasAnswers and _came_out_of_the_platform(parsed) is None
     try:
         questionnaire_id, report = await create_from_parsed(
             parsed,
@@ -3742,9 +3702,32 @@ async def upload_questionnaire(
             description=description,
             source_filename=file.filename,
             created_by_id=get_value(current_user, "id"),
+            answers_imported=hand_filled,
         )
     except QuestionnaireWorkbookError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    await db.questionnaire.update(
+        where={"id": questionnaire_id}, data={"ownerId": get_value(current_user, "id"), "kind": wanted_kind}
+    )
+    report["answersImported"] = 0
+    report["sessionsCreated"] = 0
+    if hand_filled:
+        imported = await questionnaire_library.import_workbook_answers(
+            questionnaire_id, parsed, current_user, workshop_id=workshopId
+        )
+        report["answersImported"] = imported["answers"]
+        report["sessionsCreated"] = imported["sessions"]
+        if imported["answers"]:
+            sittings = imported["sessions"]
+            report["provenance"] = {
+                "action": "answersImported",
+                "sourceQuestionnaireId": None,
+                "answersSkipped": 0,
+                "reason": (
+                    f"{imported['answers']} answer{'s' if imported['answers'] != 1 else ''} imported as "
+                    f"{sittings} uploaded session{'s' if sittings != 1 else ''}."
+                ),
+            }
     form = await load_workbook_form(questionnaire_id)
     return public_encode({"questionnaire": form, "report": report})
 
@@ -3799,14 +3782,48 @@ async def reupload_questionnaire(
     return public_encode({"questionnaire": form, "report": report})
 
 
+@instruments_router.post("/bundles/import", status_code=status.HTTP_201_CREATED)
+async def import_questionnaire_bundle(
+    request: Request,
+    response: Response,
+    current_user: Any = Depends(require_questionnaire_manager),
+) -> dict[str, Any]:
+    """Open a handoff bundle (``.frwq`` or ``.dpwq``; UNIFY A10): a new form of your own, sections
+    and questions only. The body is the bundle file (multipart ``file``) or its JSON. Importing the
+    same bundle again returns the first copy with 200 rather than 201. A bundle from a newer build is
+    ``BUNDLE_VERSION``."""
+    limit = questionnaire_library.BUNDLE_LIMITS["maxUncompressedBytes"]
+    if request.headers.get("content-type", "").startswith("multipart/"):
+        form = await request.form()
+        upload = form.get("file")
+        if upload is None or not hasattr(upload, "read"):
+            v2_fail("VALIDATION_FAILED", "Choose a bundle file.")
+        raw = await upload.read(limit + 1)
+    else:
+        raw = await request.body()
+    if len(raw) > limit:
+        v2_fail("VALIDATION_FAILED", "This bundle is too large.")
+    document = questionnaire_library.read_bundle_bytes(raw)
+    payload, created = await questionnaire_library.import_bundle(document, current_user)
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return {"questionnaire": payload, "created": created}
+
+
 @instruments_router.get("/{questionnaire_id}")
 async def get_questionnaire(
     questionnaire_id: str,
-    _: Any = Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """One instrument and its whole structure, active sections included, for the builder."""
+    """One instrument and its whole structure, active sections included, for the builder and the
+    form detail. A deleted form is shown to its author and the content admins (for Restore);
+    anyone else gets ``FORM_DELETED``."""
     row = await require_questionnaire(questionnaire_id)
-    payload = _instrument_payload(row, {})
+    if get_value(row, "deletedAt") is not None and not (
+        is_content_admin(current_user) or is_form_author(row, current_user)
+    ):
+        v2_fail("FORM_DELETED")
+    payload = _instrument_payload(row, {}, current_user)
     payload["sections"] = await section_payloads(questionnaire_id, active_only=False)
     payload["sectionCount"] = len(payload["sections"])
     payload["questionCount"] = sum(len(s["questions"]) for s in payload["sections"])
@@ -3819,11 +3836,16 @@ async def create_questionnaire(
     current_user: Any = Depends(require_questionnaire_manager),
 ) -> dict[str, Any]:
     """Create an empty instrument: `require_questionnaire_manager`. Whoever creates it is its author
-    (``createdById``), and from then on edits it alongside the content admins (owner, 22 Oct 2026)."""
+    (``createdById`` and ``ownerId``), and from then on edits it alongside the content admins (owner,
+    22 Oct 2026). It is private (not shared) until an admin shares it."""
     sort_order = payload.sortOrder
     if sort_order is None:
         rows = await db.questionnaire.find_many(order={"sortOrder": "desc"}, take=1)
         sort_order = (rows[0].sortOrder if rows else 0) + 1
+    try:
+        kind = questionnaire_kinds.coerce_kind(payload.kind)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     try:
         created = await db.questionnaire.create(
             data={
@@ -3832,6 +3854,8 @@ async def create_questionnaire(
                 "isActive": payload.isActive,
                 "sortOrder": sort_order,
                 "createdById": get_value(current_user, "id"),
+                "ownerId": get_value(current_user, "id"),
+                "kind": kind,
                 # `isDefault` is NOT settable here and is not in the schema either. A new instrument
                 # is never the default; making one is a separate admin act on a separate route.
             }
@@ -3841,7 +3865,7 @@ async def create_questionnaire(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"A questionnaire titled “{payload.title.strip()}” already exists.",
         ) from exc
-    return _instrument_payload(created, {})
+    return _instrument_payload(created, {}, current_user)
 
 
 @instruments_router.patch("/{questionnaire_id}")
@@ -3850,8 +3874,10 @@ async def update_questionnaire(
     payload: QuestionnaireUpdate,
     user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Rename, re-describe, reorder or RETIRE an instrument: its author or a content admin (owner,
-    22 Oct 2026); every other questionnaire manager is refused 403.
+    """Rename, re-describe, set the kind, reorder or RETIRE an instrument: its author or a content
+    admin (owner, 22 Oct 2026); every other questionnaire manager is refused 403. ``isShared`` (share
+    with everyone) is an admin act (UNIFY 2.3 rule 6). ``isActive: true`` brings a deleted form back,
+    as ``POST /{id}/restore`` does: its author or a content admin.
 
     Retiring is the two-check route. An instrument that is the DEFAULT cannot be retired, because
     the default is where every client that names no instrument lands and retiring it would drop
@@ -3861,8 +3887,24 @@ async def update_questionnaire(
     """
     row = await require_questionnaire(questionnaire_id)
     data = clean_data(payload.model_dump(exclude_unset=True))
-    if data.get("isActive") is not False and not (is_content_admin(user) or is_form_author(row, user)):
+    if "kind" in payload.model_fields_set:
+        try:
+            data["kind"] = questionnaire_kinds.coerce_kind(payload.kind)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    sharing = data.pop("isShared", None)
+    editing = bool({k for k in data if k != "isActive"}) or data.get("isActive") is True
+    if editing and not (is_content_admin(user) or is_form_author(row, user)):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=FORM_EDIT_REFUSAL)
+    if sharing is not None:
+        if not questionnaire_authoring.may_admin_act(user):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=questionnaire_authoring.ADMIN_ACT_REFUSAL)
+        data["isShared"] = bool(sharing)
+    if data.get("isActive") is True and get_value(row, "deletedAt") is not None:
+        if not questionnaire_library.may_restore(user, row):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=questionnaire_library.RESTORE_REFUSAL)
+        data["deletedAt"] = None
+        data["deletedById"] = None
     if "title" in data:
         data["title"] = data["title"].strip()
     if data.get("isActive") is False:
@@ -3892,7 +3934,7 @@ async def update_questionnaire(
                 ),
             )
     if not data:
-        return _instrument_payload(row, {})
+        return _instrument_payload(row, {}, user)
     try:
         updated = await db.questionnaire.update(where={"id": questionnaire_id}, data=data)
     except UniqueViolationError as exc:
@@ -3900,7 +3942,7 @@ async def update_questionnaire(
             status_code=status.HTTP_409_CONFLICT,
             detail="A questionnaire with that title already exists.",
         ) from exc
-    return _instrument_payload(updated, {})
+    return _instrument_payload(updated, {}, user)
 
 
 @instruments_router.delete("/{questionnaire_id}")
@@ -3908,14 +3950,67 @@ async def delete_questionnaire(
     questionnaire_id: str,
     user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Delete an instrument — a SOFT delete (``isActive = false``). Its author or a content admin
-    (owner, 2026-10-20, amended 2026-10-22); the check is the PATCH's own retire check below.
-
-    Its sessions and answers stay, and ``PATCH {isActive: true}`` restores it. The same two refusals
-    as retiring through the PATCH above: the default instrument (422) and one a workshop is bound to
-    (409).
+    """Delete an instrument: the restorable SOFT delete (``deletedAt``, and ``isActive`` false so
+    every older reader drops it). Its author or a content admin (owner, 2026-10-20, amended
+    2026-10-22). Its sessions and answers stay; content admins restore it (``POST /{id}/restore``).
+    The default instrument (422) and one a workshop is bound to (409) are refused with the fix named.
     """
-    return await update_questionnaire(questionnaire_id, QuestionnaireUpdate(isActive=False), user)
+    row = await require_questionnaire(questionnaire_id)
+    if not (is_content_admin(user) or is_form_author(row, user)):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=FORM_DELETE_REFUSAL)
+    if get_value(row, "deletedAt") is not None:
+        return _instrument_payload(row, {}, user)
+    if row.isDefault:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="This is the default questionnaire. Choose another default first.",
+        )
+    bound = await db.workshop.find_many(where={"questionnaireId": questionnaire_id})
+    if bound:
+        titles = sorted(get_value(w, "title") or w.id for w in bound)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Unbind it from {', '.join(titles)} first.",
+        )
+    updated = await db.questionnaire.update(
+        where={"id": questionnaire_id},
+        data={"isActive": False, "deletedAt": datetime.now(UTC), "deletedById": get_value(user, "id")},
+    )
+    return _instrument_payload(updated, {}, user)
+
+
+@instruments_router.post("/{questionnaire_id}/restore")
+async def restore_questionnaire(questionnaire_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Bring a deleted form back, with everything recorded on it: its author or a content admin."""
+    return await questionnaire_library.restore(questionnaire_id, user)
+
+
+@instruments_router.post("/{questionnaire_id}/reuse", status_code=status.HTTP_201_CREATED)
+async def reuse_questionnaire(
+    questionnaire_id: str,
+    payload: QuestionnaireReuse,
+    current_user: Any = Depends(require_questionnaire_manager),
+) -> dict[str, Any]:
+    """A new form of your own from this one's questions (UNIFY A5): sections and questions only."""
+    return await questionnaire_library.reuse(
+        questionnaire_id, current_user, title=payload.title, description=payload.description,
+        kind=payload.kind, keep_kind="kind" not in payload.model_fields_set,
+    )
+
+
+@instruments_router.get("/{questionnaire_id}/bundle")
+async def download_questionnaire_bundle(
+    questionnaire_id: str, _: Any = Depends(require_questionnaire_manager)
+) -> Response:
+    """This form as a handoff bundle (``.frwq``; UNIFY A10): gzipped JSON with no ids, owner or
+    author in it (shared/questionnaire-bundle.json), for another researcher to open."""
+    document = await questionnaire_library.bundle_document(questionnaire_id)
+    filename = questionnaire_library.bundle_filename(document["form"]["title"])
+    return Response(
+        content=questionnaire_library.bundle_bytes(document),
+        media_type="application/gzip",
+        headers={"Content-Disposition": naming.content_disposition(filename)},
+    )
 
 
 @instruments_router.put("/{questionnaire_id}/default")

@@ -77,11 +77,13 @@ import { artisanStatedSource } from "@/components/forms/statedPrefill";
 import { artisanPrefill, automaticInterviewTitle } from "@/lib/questionArtisanFields";
 import { applyTranscripts, TRANSCRIPT_SOURCE, transcriptAnswerText, transcriptOffer } from "@/lib/transcriptAnswer";
 import { Badge } from "@/components/ui/Badge";
-import { AnswerDraftsPanel, isMachineSuggested, MachineSuggestedBadge } from "@/components/questionnaire/AnswerDraftsPanel";
+import { AnswerDraftsPanel, isMachineSuggested, MachineSuggestedBadge } from "@/components/questionnaires/AnswerDraftsPanel";
 import { phoneOf } from "@/lib/standardValues";
 import { languageOptions } from "@/lib/standardValues";
-import { QuestionnaireAdminEditor } from "@/components/questionnaire/InstrumentBuilder";
+import { QuestionnaireAdminEditor } from "@/components/questionnaires/InstrumentBuilder";
 import { SessionsList } from "@/components/questionnaire/SessionsList";
+import { FormSessionsCard } from "@/components/questionnaires/FormSessionsCard";
+import { useOnline } from "@/components/questionnaires/useOnline";
 import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
 
 /**
@@ -353,8 +355,22 @@ export default function QuestionnairePage() {
   // below, which still owns the instrument builder. With v2 off (or no config route), nothing changes.
   const config = useQuestionnaireConfig();
   const pathname = usePathname();
+  const { user } = useAuth();
+  const online = useOnline();
   if (config === null) return <div className="panel p-4 text-sm text-ink-500">Loading...</div>;
-  if (config.v2Enabled && !pathname.startsWith("/questionnaire/builder")) return <SessionsList />;
+  if (config.v2Enabled && !pathname.startsWith("/questionnaire/builder")) {
+    // The Deleted card under the list (UNIFY U8): a deleted session is restorable by content admins.
+    return (
+      <>
+        <SessionsList />
+        {isContentAdmin(user) ? (
+          <div className="mt-5">
+            <FormSessionsCard questionnaireId={null} canSeeDeleted deletedOnly online={online} />
+          </div>
+        ) : null}
+      </>
+    );
+  }
   return (
     <UploadsProvider>
       {/* Next 16: `useEditDeepLink` reads useSearchParams, which must sit inside a Suspense boundary. */}

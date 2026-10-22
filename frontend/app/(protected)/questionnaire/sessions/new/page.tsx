@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { SessionStartSheet } from "@/components/questionnaire/SessionStartSheet";
 import { qs } from "@/lib/strings/qs";
 
-/** The start sheet (DESIGN §4.2). `?artisanId=` (repeatable) preselects from the artisan record. */
+/** The start sheet (DESIGN §4.2). `?artisanId=` (repeatable) preselects from the artisan record; `?questionnaireId=` the form. */
 export default function NewSessionPage() {
   return (
     <>
@@ -22,5 +22,12 @@ export default function NewSessionPage() {
 
 function Body() {
   const params = useSearchParams();
-  return <SessionStartSheet initialArtisanIds={params.getAll("artisanId").filter(Boolean)} />;
+  // `?questionnaireId=` comes from a form's Start session (the library); `?workshopId=` from a workshop.
+  return (
+    <SessionStartSheet
+      initialArtisanIds={params.getAll("artisanId").filter(Boolean)}
+      initialQuestionnaireId={params.get("questionnaireId")}
+      initialWorkshopId={params.get("workshopId")}
+    />
+  );
 }

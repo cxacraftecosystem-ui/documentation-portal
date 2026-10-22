@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 
 import { consentDescription, consentStatusLine, SHARED_FIELDS_FALLBACK } from "@/components/forms/SharingConsentToggle";
-import { isMachineSuggested, MACHINE_SUGGESTED_LABEL } from "@/components/questionnaire/AnswerDraftsPanel";
+import { isMachineSuggested, MACHINE_SUGGESTED_LABEL } from "@/components/questionnaires/AnswerDraftsPanel";
 
 /**
  * C27 and C28 on the web: the sharing switch's status line, the machine-suggested label, and both
@@ -40,7 +40,7 @@ test("each feature is drawn only behind its server flag", () => {
   expect(toggle).toContain("description={consentDescription(sharedFields)}");
   expect(toggle).toContain("if (!enabled || !consent) return null;");
   expect(toggle).toContain('label="Share with the Designer Portal"');
-  const drafts = readFileSync(join(__dirname, "../components/questionnaire/AnswerDraftsPanel.tsx"), "utf8");
+  const drafts = readFileSync(join(__dirname, "../components/questionnaires/AnswerDraftsPanel.tsx"), "utf8");
   expect(drafts).toContain('"/questionnaire/answer-drafts/status"');
   expect(drafts).toContain("if (!enabled || !list) return null;");
   expect(drafts).toContain("answer.mayDraft === false");

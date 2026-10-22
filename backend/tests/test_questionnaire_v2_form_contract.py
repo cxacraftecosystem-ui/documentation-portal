@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app.schemas.questionnaire_v2 import NOTE_MAX, SessionCreate
+from app.questionnaire.schemas import NOTE_MAX, SessionCreate
 
 ROOT = Path(__file__).resolve().parents[2]
 FORM = json.loads((ROOT / "shared" / "questionnaire-form-contract.json").read_text(encoding="utf-8"))

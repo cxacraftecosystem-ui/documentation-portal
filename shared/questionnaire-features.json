@@ -1,0 +1,2990 @@
+{
+  "contract": "questionnaire-features",
+  "version": 1,
+  "source": "C:/dev/IIT/docs/questionnaire/UNIFY_2026-10-21.md section 1 (A, B, C) and owner amendment 2 of 22 Oct 2026 (D)",
+  "enforcedBy": "backend/tests/test_questionnaire_feature_parity.py, identical in both portals",
+  "rules": [
+    "clients: 'required', or {'na': 'ministry-admin-authoring'} for dr-android only.",
+    "status per client: 'tagged' (its marker exists: a Playwright test titled '@qf:<id>' under frontend/e2e, or '@QFeature(\"<id>\")' under android/app/src/{test,androidTest}) or 'planned' (the stream named in 'stream' builds it). A marker found on a 'planned' client fails: mark it tagged.",
+    "server per portal: 'built' means every 'api' route of that portal is mounted (checked in that portal's CI); 'planned' is built by U1 (DR) or U3 (FR).",
+    "unifiedRelease false: 'planned' is allowed. U5 sets it true in the commit that cuts the unified release and switches QUESTIONNAIRE_V2 on in designer-portal; from then on every required client must be 'tagged' and every server 'built', in both portals.",
+    "A portal whose Settings default for QUESTIONNAIRE_V2 (questionnaire_v2) is true is held to the same rule for its own clients, and a feature with a 'flag' (a Settings field) whose default is true is held to it in every client."
+  ],
+  "unifiedRelease": false,
+  "clients": {
+    "dr-web": "designer-portal",
+    "dr-android": "designer-portal",
+    "fr-web": "documentation-portal",
+    "fr-android": "documentation-portal"
+  },
+  "features": [
+    {
+      "id": "A1",
+      "name": "Download the workbook pro-forma",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaires/pro-forma"
+        ],
+        "documentation-portal": [
+          "GET /questionnaires/pro-forma"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "exists questionnaires/page.tsx:199",
+        "dr-android": "exists QuestionnaireInterchangeUi.kt:82",
+        "fr-web": "exists, admin only (U3 opens to authors)",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "A2",
+      "name": "Build a form from an uploaded workbook, importing hand-filled answers",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaires/upload"
+        ],
+        "documentation-portal": [
+          "POST /questionnaires/upload"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "exists UploadDialog.tsx",
+        "dr-android": "exists WorkshopRepository.kt:4189",
+        "fr-web": "exists, admin only, no answer import",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "A3",
+      "name": "Workbook export: full workbook and question set",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaires/{id}/xlsx",
+          "GET /questionnaires/{id}/question-set.xlsx"
+        ],
+        "documentation-portal": [
+          "GET /questionnaires/{id}/xlsx",
+          "GET /questionnaires/{id}/question-set.xlsx"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "exists",
+        "dr-android": "exists",
+        "fr-web": "exists, admin only",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "A4",
+      "name": "Re-upload as an edit (keep-old-wording rule, evidence, one transaction)",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaires/{id}/upload"
+        ],
+        "documentation-portal": [
+          "POST /questionnaires/{id}/upload"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "exists UploadDialog.tsx",
+        "dr-android": "exists WorkshopRepository.kt:4212",
+        "fr-web": "partial (FR audit H7)",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "A5",
+      "name": "Reuse a form as a template",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaires/{id}/reuse"
+        ],
+        "documentation-portal": [
+          "POST /questionnaires/{id}/reuse"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "exists ReuseDialog.tsx",
+        "dr-android": "exists QuestionnaireReuseUi.kt:90",
+        "fr-web": "missing",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "A6",
+      "name": "Author your own form: create, sections, questions, supersede on reword, retire",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaires",
+          "POST /questionnaires/{id}/sections",
+          "PATCH /questionnaires/{id}/questions/{id}"
+        ],
+        "documentation-portal": [
+          "POST /questionnaires",
+          "POST /questionnaire/sections",
+          "PATCH /questionnaire/questions/{id}"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "exists",
+        "dr-android": "exists (partial: DR audit M12)",
+        "fr-web": "exists, builder (partial: FR audit M16)",
+        "fr-android": "exists, sections and questions (partial)"
+      }
+    },
+    {
+      "id": "A7",
+      "name": "Share a form with all designers or researchers (admin)",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "PATCH /questionnaires/{id}"
+        ],
+        "documentation-portal": [
+          "PATCH /questionnaires/{id}",
+          "GET /questionnaires"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": {
+          "na": "ministry-admin-authoring"
+        },
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "na",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "exists questionnaires/[id]/page.tsx:625",
+        "dr-android": "badge only; the toggle is ministry/admin authoring (web-only)",
+        "fr-web": "missing",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "A8",
+      "name": "Form kinds and the annexure grouped by kind",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [],
+        "documentation-portal": [
+          "PATCH /questionnaires/{id}",
+          "GET /questionnaire/annexure"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "exists lib/questionnaireForms.ts:150",
+        "dr-android": "exists QuestionnaireKinds.kt:33",
+        "fr-web": "missing",
+        "fr-android": "missing"
+      },
+      "note": "Vocabulary: app/questionnaire/kinds.py and shared/questionnaire-kinds.json (U0)."
+    },
+    {
+      "id": "A9",
+      "name": "Several forms per workshop, one primary (bindings)",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaire/forms/{id}/bindings",
+          "PUT /questionnaire/forms/{id}/bindings"
+        ],
+        "documentation-portal": [
+          "GET /questionnaire/forms/{id}/bindings",
+          "PUT /questionnaire/forms/{id}/bindings"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "exists (attach)",
+        "dr-android": "exists (partial: M12)",
+        "fr-web": "missing",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "A10",
+      "name": "Phone-to-phone handoff of a form bundle (.dpwq / .frwq)",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaires/{id}/bundle",
+          "POST /questionnaires/bundles/import"
+        ],
+        "documentation-portal": [
+          "GET /questionnaires/{id}/bundle",
+          "POST /questionnaires/bundles/import"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "missing",
+        "dr-android": "exists QuestionnaireBundle.kt:219 (partial: M13)",
+        "fr-web": "missing",
+        "fr-android": "missing"
+      },
+      "note": "Format: shared/questionnaire-bundle.json (U0)."
+    },
+    {
+      "id": "A11",
+      "name": "Answer locks: answers by others are read-only",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "PUT /questionnaire/answers"
+        ],
+        "documentation-portal": [
+          "PUT /questionnaire/answers"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "missing (DR audit M5)",
+        "dr-android": "exists QuestionnaireAnswerScreen.kt:132",
+        "fr-web": "missing",
+        "fr-android": "missing"
+      },
+      "note": "Server rule app/questionnaire/answer_lock.py: FORBIDDEN with code ANSWER_LOCKED per item (older clients read the FORBIDDEN they know)."
+    },
+    {
+      "id": "A12",
+      "name": "Report annexure: bound forms grouped by kind, with answers",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaire/annexure"
+        ],
+        "documentation-portal": [
+          "GET /questionnaire/annexure"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "exists (server report)",
+        "dr-android": "exists offline (partial: M16)",
+        "fr-web": "missing",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "A13",
+      "name": "Soft delete and restore of forms (author or content admin)",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "DELETE /questionnaires/{id}",
+          "POST /questionnaires/{id}/restore"
+        ],
+        "documentation-portal": [
+          "DELETE /questionnaires/{id}",
+          "POST /questionnaires/{id}/restore"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "exists DeletedQuestionnairesCard.tsx",
+        "dr-android": "missing (DR audit L9)",
+        "fr-web": "delete only, no Restore",
+        "fr-android": "missing"
+      },
+      "note": "Author rule: app/questionnaire/authoring.py (owner amendment 22 Oct)."
+    },
+    {
+      "id": "A14",
+      "name": "Soft delete and restore of sessions (content admin)",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "DELETE /questionnaire/sessions/{id}",
+          "POST /questionnaire/sessions/{id}/restore"
+        ],
+        "documentation-portal": [
+          "DELETE /questionnaire/sessions/{id}",
+          "POST /questionnaire/sessions/{id}/restore",
+          "GET /questionnaire/sessions"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "exists DeletedSittings.tsx (forms)",
+        "dr-android": "missing",
+        "fr-web": "missing",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "A15",
+      "name": "Offline form authoring with temporary ids",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [],
+        "documentation-portal": [
+          "POST /questionnaires",
+          "POST /questionnaire/sections",
+          "POST /questionnaire/questions"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "missing",
+        "dr-android": "exists QuestionnaireAuthoring.kt (partial: M12)",
+        "fr-web": "missing",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "A16",
+      "name": "Read a form offline (owner-stamped cache)",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [],
+        "documentation-portal": [
+          "GET /questionnaires",
+          "GET /questionnaires/{id}"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "exists questionnaireFormCache.ts",
+        "dr-android": "exists (partial: M15)",
+        "fr-web": "missing",
+        "fr-android": "coverage only"
+      }
+    },
+    {
+      "id": "A17",
+      "name": "Edit a respondent's name and notes (retract personal data)",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "PATCH /questionnaire/sessions/{id}/respondents/{id}"
+        ],
+        "documentation-portal": [
+          "PATCH /questionnaire/sessions/{id}/respondents/{id}"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "missing (DR audit L8)",
+        "dr-android": "exists (sittings)",
+        "fr-web": "missing",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "A18",
+      "name": "A respondent who is not an artisan (guest or self)",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaire/sessions/{id}/respondents",
+          "POST /questionnaire/respondents/{id}/register"
+        ],
+        "documentation-portal": [
+          "POST /questionnaire/sessions/{id}/respondents",
+          "POST /questionnaire/respondents/{id}/register",
+          "PUT /questionnaire/answers"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "exists (sittings)",
+        "dr-android": "exists (sittings)",
+        "fr-web": "missing",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "A19",
+      "name": "Required questions: Finish reports the count, never blocks",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaire/sessions/{id}"
+        ],
+        "documentation-portal": [
+          "POST /questionnaire/sessions/{id}/finish"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "marked, not enforced (L7)",
+        "dr-android": "marked",
+        "fr-web": "missing",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "A20",
+      "name": "Answer notes",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "PUT /questionnaire/answers"
+        ],
+        "documentation-portal": [
+          "PUT /questionnaire/answers"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "exists (forms)",
+        "dr-android": "exists (forms)",
+        "fr-web": "missing",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "B1",
+      "name": "A session is a dated event; create is idempotent on clientKey",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaire/sessions"
+        ],
+        "documentation-portal": [
+          "POST /questionnaire/sessions"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists SessionStartSheet.tsx",
+        "fr-android": "exists SessionStartSheet.kt"
+      }
+    },
+    {
+      "id": "B2",
+      "name": "Open-match check (P1)",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaire/sessions/open-match"
+        ],
+        "documentation-portal": [
+          "GET /questionnaire/sessions/open-match"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists",
+        "fr-android": "exists"
+      }
+    },
+    {
+      "id": "B3",
+      "name": "Generated titles, note and legacyTitle",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaire/sessions"
+        ],
+        "documentation-portal": [
+          "POST /questionnaire/sessions"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists (preview partial)",
+        "fr-android": "exists Naming.kt"
+      }
+    },
+    {
+      "id": "B4",
+      "name": "Join code (online) and QR",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaire/sessions/join",
+          "POST /questionnaire/sessions/join-by-key"
+        ],
+        "documentation-portal": [
+          "POST /questionnaire/sessions/join",
+          "POST /questionnaire/sessions/join-by-key"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists (code, QR online)",
+        "fr-android": "exists (QR offline)"
+      },
+      "note": "Web joins online only (owner decision)."
+    },
+    {
+      "id": "B5",
+      "name": "Participants: present/away, add artisan, remove with detach (P10)",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaire/sessions/{id}/participants",
+          "PATCH /questionnaire/sessions/{id}/participants/{id}",
+          "DELETE /questionnaire/sessions/{id}/participants/{id}"
+        ],
+        "documentation-portal": [
+          "POST /questionnaire/sessions/{id}/participants",
+          "PATCH /questionnaire/sessions/{id}/participants/{id}",
+          "DELETE /questionnaire/sessions/{id}/participants/{id}"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists (partial: M22)",
+        "fr-android": "present/away (remove missing)"
+      }
+    },
+    {
+      "id": "B6",
+      "name": "Researchers, add researcher",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaire/sessions/{id}/researchers"
+        ],
+        "documentation-portal": [
+          "POST /questionnaire/sessions/{id}/researchers"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "B7",
+      "name": "Finish, and the nightly close of stale sessions",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaire/sessions/{id}/finish"
+        ],
+        "documentation-portal": [
+          "POST /questionnaire/sessions/{id}/finish"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists (partial: H16)",
+        "fr-android": "exists (partial: C2)"
+      }
+    },
+    {
+      "id": "B8",
+      "name": "Continue another day",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaire/sessions/continue"
+        ],
+        "documentation-portal": [
+          "POST /questionnaire/sessions/continue"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists",
+        "fr-android": "exists (partial: M23)"
+      }
+    },
+    {
+      "id": "B9",
+      "name": "Session edit, merge, delete",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "PATCH /questionnaire/sessions/{id}",
+          "POST /questionnaire/sessions/{id}/merge-into/{id}",
+          "DELETE /questionnaire/sessions/{id}"
+        ],
+        "documentation-portal": [
+          "PATCH /questionnaire/sessions/{id}",
+          "POST /questionnaire/sessions/{id}/merge-into/{id}",
+          "DELETE /questionnaire/sessions/{id}"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "B10",
+      "name": "Recordings as typed takes: targets, subjects, Answered by",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "PATCH /questionnaire/recordings/{id}",
+          "POST /media/complete"
+        ],
+        "documentation-portal": [
+          "PATCH /questionnaire/recordings/{id}",
+          "POST /media/complete"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists (partial: M22)",
+        "fr-android": "exists RecorderControl.kt"
+      }
+    },
+    {
+      "id": "B11",
+      "name": "Coverage: check, grid, snapshot, the Already recorded prompt (P2)",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaire/coverage/check",
+          "GET /questionnaire/coverage",
+          "GET /questionnaire/coverage/snapshot"
+        ],
+        "documentation-portal": [
+          "POST /questionnaire/coverage/check",
+          "GET /questionnaire/coverage",
+          "GET /questionnaire/coverage/snapshot"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists (partial: M2-M4)",
+        "fr-android": "exists AlreadyRecordedSheet.kt"
+      }
+    },
+    {
+      "id": "B12",
+      "name": "Workshop coverage page",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaire/coverage"
+        ],
+        "documentation-portal": [
+          "GET /questionnaire/coverage"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists WorkshopCoverage.tsx",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "B13",
+      "name": "Admin override per section (Marked complete, Needs review, Needs redo)",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "PUT /questionnaire/completion"
+        ],
+        "documentation-portal": [
+          "PUT /questionnaire/completion"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "display only",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "B14",
+      "name": "Recording dedup: client sha, server verification (P5)",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "POST /media/presign",
+          "POST /media/complete"
+        ],
+        "documentation-portal": [
+          "POST /questionnaire/coverage/check",
+          "POST /media/presign"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists (partial: M9)",
+        "fr-android": "exists Remuxer.kt (partial: M23)"
+      }
+    },
+    {
+      "id": "B15",
+      "name": "Crash-safe recording and P13 recovery",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [],
+        "documentation-portal": []
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists Recorder.tsx (partial)",
+        "fr-android": "exists RecordingService.kt"
+      }
+    },
+    {
+      "id": "B16",
+      "name": "Resumable multipart upload, server-minted names, upload intents",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "POST /media/multipart/create",
+          "GET /media/uploads/{id}"
+        ],
+        "documentation-portal": [
+          "POST /media/presign",
+          "POST /media/multipart/create",
+          "POST /media/multipart/complete",
+          "GET /media/uploads/{id}"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists (partial: C3-C5)",
+        "fr-android": "exists SessionOutbox.kt (partial: C1, C2)"
+      }
+    },
+    {
+      "id": "B17",
+      "name": "Clock correction (X-Client-Time)",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [],
+        "documentation-portal": [
+          "POST /media/complete"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists (partial: M5)",
+        "fr-android": "exists ClientClock.kt"
+      }
+    },
+    {
+      "id": "B18",
+      "name": "Take sheet: replace, Part 2, decide, make primary, restore, retry transcription",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaire/recordings/{id}/decide",
+          "POST /questionnaire/recordings/{id}/make-primary",
+          "POST /questionnaire/recordings/{id}/restore",
+          "POST /questionnaire/recordings/{id}/transcribe"
+        ],
+        "documentation-portal": [
+          "POST /questionnaire/recordings/{id}/decide",
+          "POST /questionnaire/recordings/{id}/make-primary",
+          "POST /questionnaire/recordings/{id}/restore",
+          "POST /questionnaire/recordings/{id}/transcribe",
+          "DELETE /questionnaire/recordings/{id}"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists TakeSheet.tsx (partial: H13)",
+        "fr-android": "exists TakeSheet.kt (partial)"
+      }
+    },
+    {
+      "id": "B19",
+      "name": "Canonical answers per respondent per lineage, per-item PUT /answers (P8, P9)",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "PUT /questionnaire/answers"
+        ],
+        "documentation-portal": [
+          "PUT /questionnaire/answers"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists AnswerBox.tsx (partial: H18)",
+        "fr-android": "exists (partial: H19)"
+      }
+    },
+    {
+      "id": "B20",
+      "name": "Group answers (Answer for: All 3)",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "PUT /questionnaire/answers"
+        ],
+        "documentation-portal": [
+          "PUT /questionnaire/answers"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "B21",
+      "name": "Answer revisions, with a History view",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaire/answers/{id}/revisions"
+        ],
+        "documentation-portal": [
+          "GET /questionnaire/answers/{id}/revisions"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "missing",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "B22",
+      "name": "Use as answer: a take's transcript proposed as the answer",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaire/recordings/{id}/answer-proposals"
+        ],
+        "documentation-portal": [
+          "POST /questionnaire/recordings/{id}/answer-proposals"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "legacy only",
+        "fr-android": "legacy only"
+      }
+    },
+    {
+      "id": "B23",
+      "name": "AI drafts as section-take proposals",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaire/recordings/{id}/answer-proposals"
+        ],
+        "documentation-portal": [
+          "POST /questionnaire/recordings/{id}/answer-proposals"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "legacy only",
+        "fr-android": "legacy only"
+      }
+    },
+    {
+      "id": "B24",
+      "name": "Prefill from artisan fields",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [],
+        "documentation-portal": [
+          "PUT /questionnaire/answers"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists",
+        "fr-android": "exists"
+      }
+    },
+    {
+      "id": "B25",
+      "name": "Inbox: to file, needs a decision, dates, who was there, empty session",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaire/inbox",
+          "POST /questionnaire/recordings/{id}/file",
+          "POST /questionnaire/media/{id}/not-needed"
+        ],
+        "documentation-portal": [
+          "GET /questionnaire/inbox"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists InboxList.tsx (partial)",
+        "fr-android": "exists InboxScreen.kt (partial)"
+      }
+    },
+    {
+      "id": "B26",
+      "name": "Artisan record: timeline, by question, CSV",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "GET /artisans/{id}/record",
+          "GET /artisans/{id}/record.csv"
+        ],
+        "documentation-portal": [
+          "GET /artisans/{id}/record",
+          "GET /artisans/{id}/record.csv"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists",
+        "fr-android": "exists (CSV missing)"
+      }
+    },
+    {
+      "id": "B27",
+      "name": "Read view and review: approve blockers and the cascade",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "POST /review/{type}/{id}/approve"
+        ],
+        "documentation-portal": [
+          "POST /review/{type}/{id}/approve"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists SessionReadView.tsx",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "B28",
+      "name": "Sessions list: search, filters, paging",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaire/sessions"
+        ],
+        "documentation-portal": [
+          "GET /questionnaire/sessions"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists",
+        "fr-android": "exists (first page only)"
+      }
+    },
+    {
+      "id": "B29",
+      "name": "Corpus export of answers and recordings (admin)",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaire/corpus.csv",
+          "GET /questionnaire/corpus.jsonl"
+        ],
+        "documentation-portal": [
+          "GET /questionnaire/corpus.jsonl",
+          "GET /questionnaire/corpus.csv"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": {
+          "na": "ministry-admin-authoring"
+        },
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "na",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "missing (no UI)",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "B30",
+      "name": "Default workshop: the most recent one you may record in",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [],
+        "documentation-portal": []
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists WorkshopSelect.tsx:55",
+        "fr-android": "exists WorkshopOptions.kt:130"
+      }
+    },
+    {
+      "id": "B31",
+      "name": "Form-to-workshop binding as the start-sheet default",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaire/form-for",
+          "PUT /questionnaire/forms/{id}/bindings"
+        ],
+        "documentation-portal": [
+          "GET /questionnaire/form-for"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "attach only",
+        "dr-android": "attach only",
+        "fr-web": "exists (admin)",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "B32",
+      "name": "Default instrument (isDefault) when nothing is bound",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "PUT /questionnaires/{id}/default",
+          "GET /questionnaire/form-for"
+        ],
+        "documentation-portal": [
+          "PUT /questionnaires/{id}/default",
+          "GET /questionnaire/form-for"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": {
+          "na": "ministry-admin-authoring"
+        },
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "na",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists (admin)",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "B33",
+      "name": "Per-artisan consent at the start sheet and on a take (opt-out gate)",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "GET /artisans/{id}/consent",
+          "POST /artisans/{id}/consent"
+        ],
+        "documentation-portal": [
+          "GET /artisans/{id}/consent",
+          "POST /artisans/{id}/consent"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "partial (artisan form)",
+        "dr-android": "partial",
+        "fr-web": "exists ConsentQuestion.tsx",
+        "fr-android": "exists ConsentQuestion.kt"
+      }
+    },
+    {
+      "id": "B34",
+      "name": "Transcription through the shared package, paused",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaire/recordings/{id}/transcribe"
+        ],
+        "documentation-portal": [
+          "POST /questionnaire/recordings/{id}/transcribe"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "global form only",
+        "dr-android": "global form only",
+        "fr-web": "exists",
+        "fr-android": "exists"
+      }
+    },
+    {
+      "id": "B35",
+      "name": "Version telemetry and the old-build cutoff on versionCode (P14)",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "GET /admin/app-versions"
+        ],
+        "documentation-portal": [
+          "GET /questionnaire/config"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "partial (C7, H22)",
+        "fr-android": "partial (C7)"
+      }
+    },
+    {
+      "id": "B36",
+      "name": "QUESTIONNAIRE_V2 flag and GET /questionnaire/config",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaire/config"
+        ],
+        "documentation-portal": [
+          "GET /questionnaire/config"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists",
+        "fr-android": "exists"
+      }
+    },
+    {
+      "id": "B37",
+      "name": "Shared string table shared/strings/questionnaire.json",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [],
+        "documentation-portal": []
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists (partial)",
+        "fr-android": "exists (partial)"
+      }
+    },
+    {
+      "id": "B38",
+      "name": "Ordered session outbox",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [],
+        "documentation-portal": []
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "exists questionnaireQueue.ts",
+        "fr-android": "exists SessionOutbox.kt"
+      }
+    },
+    {
+      "id": "B39",
+      "name": "Outbox fix tray: Send again, Discard, send without the conflicting answers",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [],
+        "documentation-portal": []
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "partial OutboxBanner.tsx",
+        "dr-android": "exists (partial: H4)",
+        "fr-web": "missing",
+        "fr-android": "missing (H20)"
+      }
+    },
+    {
+      "id": "B40",
+      "name": "Recording history and Removed takes",
+      "source": "matrix",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaire/recordings/removed",
+          "GET /questionnaire/recordings/{id}/events"
+        ],
+        "documentation-portal": [
+          "GET /questionnaire/recordings/removed",
+          "GET /questionnaire/recordings/{id}/events"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "fr-web": "missing",
+        "fr-android": "missing"
+      }
+    },
+    {
+      "id": "C1",
+      "name": "Voice notes per question or section (takes with targets)",
+      "source": "matrix 1.3",
+      "api": {
+        "designer-portal": [
+          "POST /media/complete"
+        ],
+        "documentation-portal": []
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "global form",
+        "dr-android": "global form"
+      },
+      "note": "Served by B10, B16."
+    },
+    {
+      "id": "C2",
+      "name": "Instant transcript into the answer box (Use as answer)",
+      "source": "matrix 1.3",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaire/recordings/{id}/answer-proposals"
+        ],
+        "documentation-portal": []
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "global form",
+        "dr-android": "global form"
+      },
+      "note": "Served by B22."
+    },
+    {
+      "id": "C3",
+      "name": "AI drafts (section-take proposals)",
+      "source": "matrix 1.3",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaire/recordings/{id}/answer-proposals"
+        ],
+        "documentation-portal": []
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "global form",
+        "dr-android": "global form"
+      },
+      "note": "Served by B23."
+    },
+    {
+      "id": "C4",
+      "name": "Consent (shared gate plus DR workshop dictation consent)",
+      "source": "matrix 1.3",
+      "api": {
+        "designer-portal": [
+          "GET /artisans/{id}/consent"
+        ],
+        "documentation-portal": []
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "global form",
+        "dr-android": "global form"
+      },
+      "note": "Served by B33."
+    },
+    {
+      "id": "C5",
+      "name": "Completion matrix and admin override (coverage grid plus section status)",
+      "source": "matrix 1.3",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaire/coverage",
+          "PUT /questionnaire/completion"
+        ],
+        "documentation-portal": []
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "global form",
+        "dr-android": "global form"
+      },
+      "note": "Served by B11, B13."
+    },
+    {
+      "id": "C6",
+      "name": "Consolidated per-artisan view and CSV (artisan record)",
+      "source": "matrix 1.3",
+      "api": {
+        "designer-portal": [
+          "GET /artisans/{id}/record",
+          "GET /artisans/{id}/record.csv"
+        ],
+        "documentation-portal": []
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "global form",
+        "dr-android": "global form"
+      },
+      "note": "Served by B26."
+    },
+    {
+      "id": "C7",
+      "name": "Interview merge (session merge)",
+      "source": "matrix 1.3",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaire/sessions/{id}/merge-into/{id}"
+        ],
+        "documentation-portal": []
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "global form",
+        "dr-android": "global form"
+      },
+      "note": "Served by B9."
+    },
+    {
+      "id": "C8",
+      "name": "Rich-text answers in the DR text format",
+      "source": "matrix 1.3",
+      "api": {
+        "designer-portal": [
+          "PUT /questionnaire/answers"
+        ],
+        "documentation-portal": [
+          "PUT /questionnaire/answers"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "global form",
+        "dr-android": "global form"
+      },
+      "note": "Served by B19.",
+      "decision": "C8 (coordinator, 22 Oct 2026): answers keep canonical plain text plus optional richText in designer-portal's stored format; the server flattens a document sent alone."
+    },
+    {
+      "id": "C9",
+      "name": "Interview location from GPS (session place)",
+      "source": "matrix 1.3",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaire/sessions"
+        ],
+        "documentation-portal": []
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "global form",
+        "dr-android": "global form"
+      },
+      "note": "Served by B1."
+    },
+    {
+      "id": "C10",
+      "name": "Readers (tasks, completeness, stage counts, export) read takes and answers",
+      "source": "matrix 1.3",
+      "api": {
+        "designer-portal": [],
+        "documentation-portal": []
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U1",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {
+        "dr-web": "global form readers"
+      }
+    },
+    {
+      "id": "D1",
+      "name": "Section override keeps three states: Marked complete, Needs review, Needs redo",
+      "source": "owner amendment 2, point 1",
+      "api": {
+        "designer-portal": [
+          "PUT /questionnaire/completion"
+        ],
+        "documentation-portal": [
+          "PUT /questionnaire/completion"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {},
+      "note": "Vocabulary: app/questionnaire/kinds.py SECTION_STATUSES; DR rows keep their values."
+    },
+    {
+      "id": "D2",
+      "name": "A default form per workshop type, and the four-step form resolution",
+      "source": "owner amendment 2, point 2",
+      "api": {
+        "designer-portal": [
+          "PUT /questionnaire/type-defaults",
+          "GET /questionnaire/form-for"
+        ],
+        "documentation-portal": [
+          "PUT /questionnaire/type-defaults",
+          "GET /questionnaire/form-for"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": {
+          "na": "ministry-admin-authoring"
+        },
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "na",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {},
+      "note": "Setting a type default is admin authoring (DR web only); every client offers the resolved form. app/questionnaire/bindings.py."
+    },
+    {
+      "id": "D3",
+      "name": "Users create their own forms and may use them in any session",
+      "source": "owner amendment 2, point 3",
+      "api": {
+        "designer-portal": [
+          "POST /questionnaires"
+        ],
+        "documentation-portal": [
+          "POST /questionnaires"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {}
+    },
+    {
+      "id": "D4",
+      "name": "Typed or recorded, either counts; recording preferred (coverage source per cell)",
+      "source": "owner amendment 2, point 4",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaire/coverage"
+        ],
+        "documentation-portal": [
+          "GET /questionnaire/coverage",
+          "POST /questionnaire/coverage/check",
+          "GET /artisans/{id}/record.csv"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "U1",
+        "dr-android": "U2",
+        "fr-web": "U3",
+        "fr-android": "U4"
+      },
+      "today": {},
+      "note": "Cells carry source RECORDED or TYPED and addRecording; the Already recorded prompt ignores typed answers."
+    }
+  ]
+}

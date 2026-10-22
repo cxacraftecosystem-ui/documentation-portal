@@ -36,7 +36,7 @@ test("chunks reassemble in index order with the header first, duplicates dropped
   expect(blob.type).toBe("audio/webm");
 });
 
-test("an unfinished draft with chunks is offered by P13, with its length", () => {
+test("@qf:B15 an unfinished draft with chunks is offered by P13, with its length", () => {
   const chunks = [
     { takeKey: "t1", index: 0, blob: new Blob(["x"]), at: draft.startedAt },
     { takeKey: "t1", index: 1, blob: new Blob(["y"]), at: draft.startedAt + 12 * 60_000 }

@@ -43,7 +43,7 @@ const BACKEND_INBOX = {
   counts: { total: 7, olderThan24h: 3 }
 };
 
-test("every inbox row the backend sends gets a readable label", () => {
+test("@qf:B25 every inbox row the backend sends gets a readable label", () => {
   const inbox = normaliseInbox(BACKEND_INBOX);
   expect(inboxLabel("toFile", inbox.toFile[0])).toBe("f-sec-1718.webm · 23 Jun");
   expect(inboxLabel("needsDecision", inbox.needsDecision[0])).toBe("Takes for Giriraj Prasad, 7 Jul 10:42");
@@ -187,7 +187,7 @@ test("H13, H14: Keep one, Part 2 and File it happen in the inbox, never by a lin
   // Keep one removes the other take: drawn for content admins only, as the server refuses anyone else.
   expect(list).toContain("{other && canDeleteRecords ? (");
   expect(list).toContain("{choosing && canDeleteRecords && self && other ? (");
-  const api = readFileSync(join(__dirname, "..", "lib", "questionnaireApi.ts"), "utf8");
+  const api = readFileSync(join(__dirname, "..", "lib", "questionnaire", "api.ts"), "utf8");
   expect(api).toContain("`${Q}/media/${encodeURIComponent(mediaId)}/file`");
   expect(api).toContain("`${Q}/media/${encodeURIComponent(mediaId)}/not-needed`");
 });

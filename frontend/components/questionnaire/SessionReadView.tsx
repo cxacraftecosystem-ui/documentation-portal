@@ -14,13 +14,13 @@ import { ButtonRow } from "@/components/ui/ButtonRow";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
 import { apiFetch } from "@/lib/api";
 import { formatDate } from "@/lib/format";
-import { languageLabel } from "@/lib/languages";
+import { languageLabel } from "@/lib/questionnaire/languages";
 import { canReview } from "@/lib/permissions";
-import { questionnaireApi, toGridView, type Answer, type GridQuestion, type GridView, type Recording, type SessionDetail } from "@/lib/questionnaireApi";
+import { questionnaireApi, toGridView, type Answer, type GridQuestion, type GridView, type Recording, type SessionDetail } from "@/lib/questionnaire/api";
 import { loadInstrumentQuestions } from "@/components/questionnaire/instrumentQuestions";
-import { reviewRequest } from "@/lib/questionnaireInbox";
-import { approveBlock, modeLabel, reviewFlags, targetLabel } from "@/lib/questionnaireView";
-import { qs } from "@/lib/strings/qs";
+import { reviewRequest } from "@/lib/questionnaire/inbox";
+import { approveBlock, modeLabel, reviewFlags, targetLabel } from "@/lib/questionnaire/view";
+import { qs } from "@/lib/questionnaire/qs";
 
 /** Recordings grouped by section in instrument order; whole-session takes last. */
 export function groupBySection(detail: { recordings: Recording[]; grid: GridView }): { key: string; label: string; recordings: Recording[] }[] {

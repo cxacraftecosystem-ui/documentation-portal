@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from app.schemas.questionnaire_v2 import CONTRACT_MODELS
-from app.services.questionnaire_v2.common import MESSAGES, STATUS
+from app.questionnaire.schemas import CONTRACT_MODELS
+from app.questionnaire.common import MESSAGES, STATUS
 
 CONTRACT = json.loads((Path(__file__).resolve().parents[2] / "shared" / "questionnaire-contract.json").read_text(encoding="utf-8"))
 
@@ -44,7 +44,7 @@ def test_error_codes_are_the_closed_list_and_upper_snake() -> None:
 
 def test_the_session_example_carries_no_typed_title_input() -> None:
     assert "title" not in CONTRACT["examples"]["SessionCreate"] and "title" not in CONTRACT["examples"]["SessionPatch"]
-    from app.schemas.questionnaire_v2 import SessionCreate
+    from app.questionnaire.schemas import SessionCreate
 
     with pytest.raises(Exception):
         SessionCreate.model_validate({**CONTRACT["examples"]["SessionCreate"], "title": "section F"})

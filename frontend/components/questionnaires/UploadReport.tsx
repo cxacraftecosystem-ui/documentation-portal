@@ -44,7 +44,10 @@ function tallies(report: QWorkbookReport): Array<{ label: string; value: number 
     // Printed as its own count rather than folded into the provenance sentence below, because a
     // number an admin can compare against what they saw in Excel is what turns "the app decided
     // something" into "the app decided this much".
-    { label: "answers in the file, not imported", value: report.answersSkipped ?? 0 }
+    { label: "answers in the file, not imported", value: report.answersSkipped ?? 0 },
+    // A hand-filled pro-forma's answers land as uploaded sessions (UNIFY U7).
+    { label: "answers imported", value: report.answersImported ?? 0 },
+    { label: "uploaded sessions", value: report.sessionsCreated ?? 0 }
   ].filter((entry) => entry.value > 0);
 }
 
@@ -69,6 +72,15 @@ function skinFor(provenance: QWorkbookProvenance): {
   title: string;
   icon: React.ReactNode;
 } {
+  if (provenance.action === "answersImported") {
+    return {
+      box: "border-line-200 bg-surface-50",
+      heading: "text-ink-900",
+      body: "text-ink-700",
+      title: "Answers imported",
+      icon: <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success-600" aria-hidden />
+    };
+  }
   if (provenance.action === "answersNotImported") {
     return {
       box: "border-amber-500/30 bg-amber-100",

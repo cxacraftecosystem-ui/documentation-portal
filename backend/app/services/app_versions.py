@@ -5,7 +5,7 @@ build. That needs a measurement, and this is it: a pure-ASGI middleware notes, f
 request, the account, the platform and the build NUMBER the client sends, and the last time it was
 seen. ``GET /api/admin/app-versions`` reads it back.
 
-THE HEADER CONTRACT, the same on every request from both clients (``services/questionnaire_v2/shims``
+THE HEADER CONTRACT, the same on every request from both clients (``app/questionnaire/shims_fr``
 compares the same headers for the cutoff):
 
 * ``X-App-Platform``: ``android`` or ``web``;
@@ -56,7 +56,7 @@ def _header(scope: dict[str, Any], name: bytes) -> str:
 
 def build_of(scope: dict[str, Any]) -> tuple[str, int, str | None] | None:
     """``(platform, versionCode, versionName)`` for this request, or None when it is not an app."""
-    from app.services.questionnaire_v2.shims import client_build
+    from app.questionnaire.shims_fr import client_build
 
     headers = {
         "x-app-platform": _header(scope, b"x-app-platform"),

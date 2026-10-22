@@ -1,0 +1,22 @@
+{
+  "contract": "questionnaire-bundle",
+  "version": 2,
+  "source": "C:/dev/IIT/docs/questionnaire/UNIFY_2026-10-21.md A10 and section 4.1; designer-portal android data/QuestionnaireBundle.kt (v1)",
+  "rule": "A phone-to-phone handoff file: gzipped UTF-8 JSON, built and read with no connection. A received bundle is untrusted input, so the format has no field that could name or overwrite an existing row: no ids, no owner, no author. Importing always creates, and is idempotent on bundleId (plus Idempotency-Key on the server).",
+  "extensions": {"designer-portal": ".dpwq", "documentation-portal": ".frwq"},
+  "readers": "Both portals read both extensions.",
+  "fileName": "{Prefix}_Questionnaire_{YYYY-MM-DD}_{Form-Title}_Handoff.{ext} (the naming skill's helpers; Prefix DesignWorkshop or FieldRepository)",
+  "limits": {"maxSections": 200, "maxQuestionsPerSection": 500, "maxTextChars": 4000, "maxUncompressedBytes": 5242880},
+  "envelope": {
+    "v": "2 (an importer refuses a higher major version with BUNDLE_VERSION)",
+    "bundleId": "random 128-bit hex, minted when the file is built",
+    "createdAt": "ISO 8601 with offset",
+    "portal": "designer-portal | documentation-portal (informational)",
+    "form": {"title": "string, required", "description": "string or null", "kind": "QuestionnaireKind or null"},
+    "sections": [{"code": "string, unique in the bundle", "title": "string", "sortOrder": "int"}],
+    "questions": [{"sectionCode": "a section code above", "prompt": "string", "helpText": "string or null", "isRequired": "bool", "artisanField": "ArtisanFieldKey or null", "questionCode": "string or null", "sortOrder": "int"}],
+    "sessions": "optional, reserved for a later version; v2 importers ignore it",
+    "answers": "optional, reserved for a later version; v2 importers ignore it"
+  },
+  "v1": "designer-portal Android's first format (no 'v' 2, no bundleId): still read; its questions map field for field."
+}

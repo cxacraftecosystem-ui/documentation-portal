@@ -1,0 +1,42 @@
+{
+  "contract": "questionnaire-web-imports",
+  "version": 1,
+  "source": "C:/dev/IIT/docs/questionnaire/UNIFY_2026-10-21.md section 2.4 (Web)",
+  "rule": "frontend/lib/questionnaire/** and frontend/components/questionnaire/** are byte-identical in both portals. A file there may import only another file of the two trees, the packages listed in 'packages', the portal module 'portal' (each portal keeps its own copy, answering what differs), and the app modules in 'modules', which both portals carry with the same exports. frontend/e2e/questionnaire-web-imports-unit.spec.ts fails on anything else.",
+  "trees": [
+    "@/lib/questionnaire/",
+    "@/components/questionnaire/"
+  ],
+  "portal": "@/lib/questionnairePortal",
+  "packages": [
+    "react",
+    "next/navigation",
+    "next/link",
+    "lucide-react"
+  ],
+  "modules": [
+    "@/lib/api",
+    "@/lib/types",
+    "@/lib/naming",
+    "@/lib/format",
+    "@/lib/permissions",
+    "@/lib/qrEncode",
+    "@/components/AuthProvider",
+    "@/components/AdminViewProvider",
+    "@/components/PageHeader",
+    "@/components/EmptyState",
+    "@/components/SearchInput",
+    "@/components/StatusBadge",
+    "@/components/UnsavedChangesGuard",
+    "@/components/data/cappedList",
+    "@/components/dialogs/FieldDialog",
+    "@/components/dialogs/ConfirmDialog",
+    "@/components/records/OpenableRow",
+    "@/components/ui/AudioPlayer",
+    "@/components/ui/ButtonRow",
+    "@/components/ui/CalendarField",
+    "@/components/ui/SearchableSelect",
+    "@/components/ui/SegmentedChoice",
+    "@/components/ui/Toggle"
+  ]
+}

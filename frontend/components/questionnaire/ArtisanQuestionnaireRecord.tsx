@@ -11,11 +11,11 @@ import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionna
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
-import { shortName } from "@/lib/coverageCache";
-import { questionnaireApi, type ArtisanRecord, type Recording } from "@/lib/questionnaireApi";
-import { shortDate } from "@/lib/questionnairePrompts";
-import { artisanTimeline, isLegacyTake, modeLabel, subjectRoleFor, targetLabel } from "@/lib/questionnaireView";
-import { qs } from "@/lib/strings/qs";
+import { shortName } from "@/lib/questionnaire/coverageCache";
+import { questionnaireApi, type ArtisanRecord, type Recording } from "@/lib/questionnaire/api";
+import { shortDate } from "@/lib/questionnaire/prompts";
+import { artisanTimeline, isLegacyTake, modeLabel, subjectRoleFor, targetLabel } from "@/lib/questionnaire/view";
+import { qs } from "@/lib/questionnaire/qs";
 
 function TakeLine({ recording, artisanId, paused }: { recording: Recording; artisanId: string; paused: boolean }) {
   const present = subjectRoleFor(recording, artisanId) === "PRESENT";

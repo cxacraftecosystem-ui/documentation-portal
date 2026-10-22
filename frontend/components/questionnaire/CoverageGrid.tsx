@@ -1,16 +1,27 @@
 "use client";
 
-import type { CoverageGridCell, GridView as Grid } from "@/lib/questionnaireApi";
-import { qs } from "@/lib/strings/qs";
+import type { CoverageGridCell, GridView as Grid } from "@/lib/questionnaire/api";
+import { qs } from "@/lib/questionnaire/qs";
 
-/** The mark for a cell (DESIGN §3.2); always paired with a worded label for assistive tech. */
-export function cellMark(cell: Pick<CoverageGridCell, "state" | "count" | "partial"> | null): { mark: string; label: string; tone: string } {
+/**
+ * The mark for a cell (DESIGN §3.2); always paired with a worded label for assistive tech. Typed or
+ * recorded, either counts, and recordings are preferred (owner, amendment 2 point 4): a cell covered
+ * only by typed answers reads ✎ "Typed", lighter, with "Add a recording?" in its label.
+ */
+export function cellMark(cell: Pick<CoverageGridCell, "state" | "count" | "partial" | "source" | "addRecording"> | null): { mark: string; label: string; tone: string } {
   if (!cell) return { mark: "○", label: qs("stateNotRecorded"), tone: "text-ink-300" };
+  const typedOnly = cell.source === "TYPED" && (cell.state === "PARTIAL" || cell.state === "RECORDED");
+  if (typedOnly) {
+    const of = cell.partial ? ` ${cell.partial.done}/${cell.partial.of}` : "";
+    return { mark: `✎${of}`, label: `${qs("stateTyped")}${cell.addRecording ? ` · ${qs("addRecordingPrompt")}` : ""}`, tone: "text-purple-400" };
+  }
   switch (cell.state) {
     case "RECORDED":
       return { mark: cell.count >= 2 ? `●${cell.count}` : "●", label: qs("stateRecorded"), tone: "text-purple-700" };
     case "PARTIAL":
       return { mark: `◐ ${cell.partial ? `${cell.partial.done}/${cell.partial.of}` : ""}`.trim(), label: qs("statePartial"), tone: "text-purple-700" };
+    case "NEEDS_REVIEW":
+      return { mark: "?", label: qs("stateNeedsReview"), tone: "text-amber-800" };
     case "VIA_SECTION":
       return { mark: "◌", label: qs("stateViaSection"), tone: "text-purple-400" };
     case "UPLOADING":
@@ -19,7 +30,7 @@ export function cellMark(cell: Pick<CoverageGridCell, "state" | "count" | "parti
       return { mark: "◎", label: qs("onThisDevice"), tone: "text-ink-500" };
     case "NEEDS_DECISION":
       return { mark: "⚠", label: qs("needsDecision"), tone: "text-amber-800" };
-    case "MARKED_COMPLETE":
+    case "COMPLETED":
       return { mark: "✓", label: qs("stateMarkedComplete"), tone: "text-success-600" };
     case "NEEDS_REDO":
       return { mark: "↻", label: qs("stateNeedsRedo"), tone: "text-amber-800" };
@@ -32,7 +43,7 @@ export function cellMark(cell: Pick<CoverageGridCell, "state" | "count" | "parti
 export function rowSummary(grid: Grid, sectionId: string, artisanIds: string[]): { covered: number; of: number; decision: boolean } {
   const cells = grid.cells.filter((c) => c.targetKey === `S:${sectionId}` && artisanIds.includes(c.artisanId));
   return {
-    covered: cells.filter((c) => c.state === "RECORDED" || c.state === "PARTIAL" || c.state === "UPLOADING" || c.state === "ON_DEVICE").length,
+    covered: cells.filter((c) => c.state === "RECORDED" || c.state === "PARTIAL" || c.state === "UPLOADING" || c.state === "ON_DEVICE" || c.state === "COMPLETED").length,
     of: artisanIds.length,
     decision: cells.some((c) => c.state === "NEEDS_DECISION")
   };

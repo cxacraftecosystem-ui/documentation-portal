@@ -8,8 +8,8 @@ pytestmark = needs_db
 
 
 def test_a_session_merge_moves_everything_and_leaves_each_artisans_takes_unchanged(monkeypatch) -> None:
-    from app.schemas.questionnaire_v2 import AnswersPut
-    from app.services.questionnaire_v2 import answers, coverage, sessions
+    from app.questionnaire.schemas import AnswersPut
+    from app.questionnaire import answers, coverage, sessions
 
     async def go() -> None:
         client = await connect()
@@ -39,10 +39,10 @@ def test_a_session_merge_moves_everything_and_leaves_each_artisans_takes_unchang
 
 
 def test_an_artisan_merge_moves_subjects_answers_and_consent_with_the_clash_rule(monkeypatch) -> None:
-    from app.schemas.questionnaire_v2 import AnswersPut
+    from app.questionnaire.schemas import AnswersPut
     from app.services import consent_gate
-    from app.services.questionnaire_v2 import answers, sessions
-    from app.services.questionnaire_v2.merge import merge_artisan_rows
+    from app.questionnaire import answers, sessions
+    from app.questionnaire.merge import merge_artisan_rows
 
     async def go() -> None:
         client = await connect()

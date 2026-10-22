@@ -24,7 +24,7 @@ test("P5 copy for the three cases", () => {
   expect(prompts.p5({ name: "G", date: "7 Jul", case: "OTHER" }).buttons.map((b) => b.label)).toEqual(["OK"]);
 });
 
-test("a picked file is hashed and checked first; an identical one returns before anything is queued", () => {
+test("@qf:B14 a picked file is hashed and checked first; an identical one returns before anything is queued", () => {
   const ws = readFileSync(join(__dirname, "..", "components", "questionnaire", "SessionWorkspace.tsx"), "utf8");
   const begin = ws.slice(ws.indexOf("async function begin("), ws.indexOf("function ackedOf("));
   expect(begin).toContain("const sha = pending.file ? await sha256Hex(pending.file) : null;");

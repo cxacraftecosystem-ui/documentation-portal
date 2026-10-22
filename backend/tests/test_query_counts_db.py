@@ -24,7 +24,7 @@ pytestmark = needs_db
 
 
 def _put(*items: Any) -> Any:
-    from app.schemas.questionnaire_v2 import AnswersPut
+    from app.questionnaire.schemas import AnswersPut
 
     return AnswersPut.model_validate({"items": list(items)})
 
@@ -42,7 +42,7 @@ async def _world(monkeypatch: Any, **seed_args: Any) -> tuple[Any, SimpleNamespa
 async def _session_with_takes(monkeypatch: Any, takes: int) -> int:
     from app.api.routes import questionnaire_v2 as routes
     from app.services import consent_gate
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire import sessions
 
     client, ids = await _world(monkeypatch, artisans=3)
     try:
@@ -76,15 +76,16 @@ def test_a_sessions_recordings_cost_the_same_reads_however_many_there_are(monkey
     small = run(_session_with_takes(monkeypatch, 2))
     large = run(_session_with_takes(monkeypatch, 8))
     report("sessions_get", takes2=small, takes8=large)
-    # 27 since release 0.0.2 merged the v2 audit fixes: one more fixed read, whatever the number of takes.
-    assert small == large == 27, (small, large)
+    # 27 since release 0.0.2 (the v2 audit fixes), + the typed-answer read of coverage (owner amendment 2,
+    # point 4) + the session's guest respondents.
+    assert small == large == 29, (small, large)
 
 
 # ── one artisan's record (GET /artisans/{id}/record) ──────────────────────────────────────────
 
 
 async def _record_over_sessions(monkeypatch: Any, sittings: int) -> int:
-    from app.services.questionnaire_v2 import record, sessions
+    from app.questionnaire import record, sessions
 
     client, ids = await _world(monkeypatch, artisans=2)
     try:
@@ -110,15 +111,15 @@ def test_an_artisans_record_reads_every_session_at_once(monkeypatch) -> None:
     small = run(_record_over_sessions(monkeypatch, 1))
     large = run(_record_over_sessions(monkeypatch, 4))
     report("artisan_record", sessions1=small, sessions4=large)
-    # 33 since release 0.0.2 merged the v2 audit fixes: one more fixed read, whatever the number of sessions.
-    assert small == large == 33, (small, large)
+    # 33 since release 0.0.2 (the v2 audit fixes), + the typed-answer read of coverage (owner amendment 2).
+    assert small == large == 34, (small, large)
 
 
 # ── the corpus feed (GET /questionnaire/v2/corpus.jsonl) ──────────────────────────────────────
 
 
 async def _corpus_over_artisans(monkeypatch: Any, people: int) -> int:
-    from app.services.questionnaire_v2 import answers, corpus, sessions
+    from app.questionnaire import answers, corpus, sessions
 
     client, ids = await _world(monkeypatch, artisans=people)
     try:
@@ -153,7 +154,7 @@ def test_the_corpus_feed_reads_primaries_and_consent_once_for_everyone(monkeypat
 
 
 async def _save_answers(monkeypatch: Any, count: int) -> tuple[int, int]:
-    from app.services.questionnaire_v2 import answers, sessions
+    from app.questionnaire import answers, sessions
 
     client, ids = await _world(monkeypatch, artisans=1, sections={"F": 8})
     try:
@@ -190,7 +191,7 @@ def test_a_stale_batch_read_never_misreports_unchanged_or_conflict(monkeypatch) 
     item is reached. A write the client based on the newest version must still save, and an item
     that matches only the stale snapshot must come back CONFLICT with the real current answer, not
     UNCHANGED."""
-    from app.services.questionnaire_v2 import answers, sessions
+    from app.questionnaire import answers, sessions
 
     async def go() -> None:
         client, ids = await _world(monkeypatch, artisans=1, sections={"F": 3})
@@ -227,7 +228,7 @@ def test_a_stale_batch_read_never_misreports_unchanged_or_conflict(monkeypatch) 
 
 
 async def _old_build_responses(monkeypatch: Any, count: int) -> int:
-    from app.services.questionnaire_v2 import sessions, shims
+    from app.questionnaire import sessions, shims_fr as shims
 
     client, ids = await _world(monkeypatch, artisans=2, sections={"F": 8})
     try:
@@ -257,7 +258,7 @@ def test_old_build_responses_read_their_questions_and_answers_once(monkeypatch) 
 
 
 async def _proposals(monkeypatch: Any, questions: int) -> int:
-    from app.services.questionnaire_v2 import answers, sessions
+    from app.questionnaire import answers, sessions
 
     client, ids = await _world(monkeypatch, artisans=2, sections={"F": 8})
     try:
@@ -565,7 +566,7 @@ def test_batched_consent_verdicts_match_asking_one_recording_at_a_time(monkeypat
     its artisan, its interview, its product (the product's artisan) and its tool (the tool's
     ToolArtisan links)."""
     from app.services import consent_gate
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire import sessions
 
     async def go() -> None:
         client, ids = await _world(monkeypatch, artisans=3)

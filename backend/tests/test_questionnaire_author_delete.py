@@ -99,9 +99,18 @@ def test_the_author_or_an_admin_deletes_and_restores_the_form_and_nobody_else(mo
             await _refused(lambda: questionnaire.update_questionnaire(ids.q, QuestionnaireUpdate(isActive=False), other))
             assert await _active(client, "Questionnaire", ids.q)
 
-            # The author deletes it softly and restores it.
+            # The author deletes it softly and restores it; another manager may do neither.
             await questionnaire.delete_questionnaire(ids.q, ids.prof)
             assert not await _active(client, "Questionnaire", ids.q)
+            gone = await client.query_raw('SELECT "deletedAt", "deletedById" FROM "Questionnaire" WHERE "id" = $1', ids.q)
+            assert gone[0]["deletedAt"] is not None and gone[0]["deletedById"] == ids.prof.id
+            await _refused(lambda: questionnaire.update_questionnaire(ids.q, QuestionnaireUpdate(isActive=True), other))
+            await _refused(lambda: questionnaire.restore_questionnaire(ids.q, other))
+            back = await questionnaire.restore_questionnaire(ids.q, ids.prof)
+            assert back["deletedAt"] is None and back["isActive"] is True
+            assert await _active(client, "Questionnaire", ids.q)
+            # And through the PATCH, as Android sends it.
+            await questionnaire.delete_questionnaire(ids.q, ids.prof)
             await questionnaire.update_questionnaire(ids.q, QuestionnaireUpdate(isActive=True), ids.prof)
             assert await _active(client, "Questionnaire", ids.q)
 
@@ -224,7 +233,7 @@ def test_a_form_with_no_recorded_author_is_deleted_from_by_a_content_admin_alone
 
 @needs_db
 def test_a_session_on_the_authors_form_is_still_deleted_by_a_content_admin_alone(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire import sessions
 
     async def go() -> None:
         client, ids, _other = await _setup(monkeypatch)

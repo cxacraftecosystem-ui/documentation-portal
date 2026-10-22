@@ -17,24 +17,31 @@ test("P9 copy and buttons", () => {
   expect(p9.buttons.map((b) => b.label)).toEqual(["Keep theirs", "Keep mine"]);
 });
 
-test("a group answer is one GROUP_SHARED item per artisan; an existing answer carries its version", () => {
+test("@qf:B20 a group answer is one GROUP_SHARED item per artisan; an existing answer carries its version", () => {
   const items = answerItems({
     sessionId: "s1",
     lineageId: "lin_d3",
     text: "Chisel",
     forWhom: "__all__",
-    participants: [{ artisanId: "a1" }, { artisanId: "a2" }, { artisanId: "a3" }],
+    subjects: ["a1", "a2", "a3"].map((artisanId) => ({ key: `A:${artisanId}`, artisanId, respondentId: null })),
     existing: [{ id: "ans1", version: 2, text: "old", origin: "TYPED", attribution: "INDIVIDUAL", pinned: false, sourceRecordingId: null, artisanId: "a1" }]
   });
   expect(items).toHaveLength(3);
   expect(items.every((i) => i.attribution === "GROUP_SHARED")).toBe(true);
   expect(items[0].baseVersion).toBe(2);
   expect(items[1]).not.toHaveProperty("baseVersion");
-  const one = answerItems({ sessionId: "s1", lineageId: "lin_d3", text: "x", forWhom: "a2", participants: [{ artisanId: "a1" }, { artisanId: "a2" }], existing: [] });
+  const one = answerItems({
+    sessionId: "s1",
+    lineageId: "lin_d3",
+    text: "x",
+    forWhom: "A:a2",
+    subjects: ["a1", "a2"].map((artisanId) => ({ key: `A:${artisanId}`, artisanId, respondentId: null })),
+    existing: []
+  });
   expect(one).toEqual([expect.objectContaining({ artisanId: "a2", attribution: "INDIVIDUAL" })]);
 });
 
-test("Approve is held with the reason; the flags line", () => {
+test("@qf:B27 Approve is held with the reason; the flags line", () => {
   expect(approveBlock({ participants: 1, liveRecordings: 2, answers: 0, needsDecision: 1 })).toBe("Decide on 1 take first.");
   expect(approveBlock({ participants: 0, liveRecordings: 2, answers: 0, needsDecision: 0 })).toBe("Add who was there first.");
   expect(approveBlock({ participants: 2, liveRecordings: 0, answers: 0, needsDecision: 0 })).toBe("Nothing recorded or answered yet.");

@@ -36,7 +36,7 @@ from app.core.db import connect_db, disconnect_db, ensure_db_connected
 from app.services import artisan_duplicates
 from app.services.email_outbox import process_next_email_jobs
 from app.services.media_queue import process_next_media_jobs, queue_work_due
-from app.services.questionnaire_v2.sessions import maybe_close_stale_sessions
+from app.questionnaire.sessions import maybe_close_stale_sessions
 from app.services.workshop_auto_map import maybe_run_nightly_auto_map
 from app.services.weekly_digest import run_weekly_digests
 from app.services.search_indexer import (

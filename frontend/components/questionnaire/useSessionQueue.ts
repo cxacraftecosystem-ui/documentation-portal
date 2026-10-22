@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 import { loadQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
-import { questionnaireApi, type Recording, type Session } from "@/lib/questionnaireApi";
+import { questionnaireApi, type Recording, type Session } from "@/lib/questionnaire/api";
 import {
   answerConflicts,
+  discardStep,
   enqueueStep,
   existingSessionUnit,
   fetchTransport,
@@ -14,11 +15,13 @@ import {
   mutateUnit,
   resolveAnswerConflict,
   runUnit,
+  sendStepAgain,
+  sendWithoutConflicts,
   sessionUnitKey,
   type QueueStore,
   type SessionUnit,
   type Step
-} from "@/lib/questionnaireQueue";
+} from "@/lib/questionnaire/queue";
 
 /**
  * The page-side driver of `lib/questionnaireQueue`: one store for the tab, one drain at a time,
@@ -164,9 +167,25 @@ export async function enqueueUnit(unit: SessionUnit) {
 }
 
 /** P9 for an answer held in the outbox (audit H18). */
-export async function resolveQueuedAnswer(unitId: string, key: string, target: { artisanId: string; questionLineageId: string }, choice: "mine" | "theirs") {
+export async function resolveQueuedAnswer(
+  unitId: string,
+  key: string,
+  target: { artisanId?: string | null; respondentId?: string | null; questionLineageId: string },
+  choice: "mine" | "theirs"
+) {
   await resolveAnswerConflict(getStore(), unitId, key, target, choice);
   await refresh();
+  void drainQueue();
+}
+
+/** The fix tray (UNIFY B39): send a refused step again, discard it, or send the answers that are not in conflict. */
+export async function trayAct(unitId: string, key: string, act: "again" | "discard" | "without") {
+  const s = getStore();
+  if (act === "again") await sendStepAgain(s, unitId, key);
+  else if (act === "discard") await discardStep(s, unitId, key);
+  else await sendWithoutConflicts(s, unitId, key);
+  await refresh();
+  retryDelay = null;
   void drainQueue();
 }
 

@@ -21,7 +21,9 @@ from app.api.routes.data_browser import (
     workshop_reaches_artisan,
 )
 from app.core.db import db
-from app.services.questionnaire_v2.live import live_media_where
+from app.questionnaire.live import live_media_where
+from app.core.config import get_settings
+from app.services import questionnaire_library, questionnaire_readers
 from app.core.deps import can_download_dataset, get_current_user
 from app.services import answer_drafts
 from app.services.access import owner_download_scope
@@ -346,6 +348,10 @@ async def dataset_manifest(
             code = getattr(q, "sectionCode", "") if q else ""
             text = answer_drafts.marked_answer(r.answerText, getattr(r, "answerOrigin", None))
             answers.append(f"[{code}] {prompt}\n  -> {text}\n")
+        for a in v2_answers.get(interview.id, []):
+            owner = f" ({a['owner']})" if a.get("owner") else ""
+            code = a.get("displayCode") or a.get("sectionCode") or ""
+            answers.append(f"[{code}] {a['prompt']}{owner}\n  -> {a['text']}\n")
         add_text(base, "answers.txt", _details("interview", interview) + "\n\n" + "".join(answers))
         add_media(base, "questionnaire", interview.id)
 
@@ -367,10 +373,21 @@ async def dataset_manifest(
         if tool.workshopId and tool.artisanId:
             tools_by_slot.setdefault((tool.workshopId, tool.artisanId), []).append(tool)
 
+    workshops_with_sessions = {getattr(it, "workshopId", None) for it in interviews}
+    # The shared questionnaire's answers for these sessions (UNIFY C10; empty, no query, while v2 is off).
+    v2_answers = await questionnaire_readers.session_answers([i.id for i in interviews], client=db) if get_settings().questionnaire_v2 else {}
     for ws in workshops:
         wbase = _uniq(f"Workshops/{_seg(ws.title, ws.id)}", used_dirs)
         add_text(wbase, "details.txt", _details("workshop", ws))
         add_media(wbase, "workshop", ws.id)
+        # THE QUESTIONNAIRE ANNEXURE (UNIFY A12): the workshop's forms grouped by kind with their
+        # answers from live sessions. Only on the whole-repository export: it names every
+        # researcher's answers in the workshop, which an owner-scoped download is not entitled to.
+        # v2 answers exist only while QUESTIONNAIRE_V2 is on, and only where the workshop has sessions.
+        if scope is None and get_settings().questionnaire_v2 and ws.id in workshops_with_sessions:
+            annexure = await questionnaire_library.annexure(ws.id, client=db)
+            if annexure["groups"]:
+                add_text(wbase, "Questionnaire annexure.txt", questionnaire_library.annexure_text(annexure))
         # Which artisans this workshop contains. A workshop reaches its artisans three ways —
         # WorkshopArtisan, Artisan.workshopId, and WorkshopCraft -> Artisan.craftId — and this
         # counted route 1 alone. On the live repository route 1 is EMPTY (artisans reach their

@@ -14,7 +14,7 @@ def _code(exc: pytest.ExceptionInfo) -> str:
 
 
 def test_two_sessions_with_the_same_artisans_are_two_rows_and_a_repeated_client_key_is_the_same_row(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire import sessions
 
     async def go() -> None:
         client = await connect()
@@ -36,8 +36,8 @@ def test_two_sessions_with_the_same_artisans_are_two_rows_and_a_repeated_client_
 
 
 def test_the_title_is_generated_from_the_fields_and_follows_every_change(monkeypatch) -> None:
-    from app.schemas.questionnaire_v2 import ParticipantPatch, SessionPatch
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire.schemas import ParticipantPatch, SessionPatch
+    from app.questionnaire import sessions
 
     async def go() -> None:
         client = await connect()
@@ -94,7 +94,7 @@ def test_a_client_title_is_refused_with_title_is_generated(monkeypatch) -> None:
 
 
 def test_open_match_finds_a_same_day_overlapping_session_by_any_researcher(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire import sessions
 
     async def go() -> None:
         client = await connect()
@@ -116,8 +116,8 @@ def test_open_match_finds_a_same_day_overlapping_session_by_any_researcher(monke
 
 
 def test_join_code_merge_continue_and_the_delete_and_participant_refusals(monkeypatch) -> None:
-    from app.schemas.questionnaire_v2 import ContinueRequest
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire.schemas import ContinueRequest
+    from app.questionnaire import sessions
     from qv2_fixtures import record_take, t
 
     async def go() -> None:
@@ -133,9 +133,13 @@ def test_join_code_merge_continue_and_the_delete_and_participant_refusals(monkey
             await sessions.join("ZZZZZZ", ids.other)
         assert _code(unknown) == "JOIN_CODE_UNKNOWN"
         await record_take(client, ids, b["id"], ids.other, targets=[{"sectionId": ids.sections["D"]}], at=t(1))
-        with pytest.raises(HTTPException) as has:
-            await sessions.delete_session(b["id"], ids.admin)
-        assert _code(has) == "HAS_RECORDINGS" and has.value.detail["count"] == 1
+        # A session with recordings is soft-deleted and restorable (owner decision 3, 21 Oct 2026),
+        # no longer refused with HAS_RECORDINGS.
+        await sessions.delete_session(b["id"], ids.admin)
+        with pytest.raises(HTTPException) as hidden:
+            await sessions.session_payload(client, b["id"])
+        assert _code(hidden) == "SESSION_UNKNOWN"
+        await sessions.restore_session(b["id"], ids.admin)
         with pytest.raises(HTTPException) as takes:
             await sessions.remove_participant(b["id"], ids.artisans[1], False, ids.other)
         assert _code(takes) == "PARTICIPANT_HAS_TAKES" and takes.value.detail["count"] == 1
@@ -164,7 +168,7 @@ def test_join_code_merge_continue_and_the_delete_and_participant_refusals(monkey
 
 
 def test_a_volunteer_cannot_start_a_session_but_records_into_one_they_are_on(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire import sessions
     from qv2_fixtures import record_take, t
 
     async def go() -> None:
@@ -187,7 +191,7 @@ def test_a_volunteer_cannot_start_a_session_but_records_into_one_they_are_on(mon
 def test_a_scanned_qr_never_takes_the_session_from_its_lead(monkeypatch) -> None:
     """Audit 2026-10-20: a scanner's create (Android's offline join) used to become the session, and
     the lead's own create then returned it without adding the lead, so every queued edit was a 403."""
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire import sessions
 
     async def go() -> None:
         client = await connect()
@@ -234,7 +238,7 @@ def test_a_scanned_qr_never_takes_the_session_from_its_lead(monkeypatch) -> None
 
 
 def test_an_empty_session_with_an_upload_on_its_way_is_not_deleted(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire import sessions
 
     async def go() -> None:
         client = await connect()

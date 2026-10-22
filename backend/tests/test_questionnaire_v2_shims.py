@@ -9,7 +9,7 @@ import pytest
 from fastapi import HTTPException
 from qv2_fixtures import connect, needs_db, no_outside_calls, patch_db, run, seed, settings_v2
 
-from app.services.questionnaire_v2 import legacy_resolver
+from app.questionnaire import legacy_resolver
 
 
 def _questions():
@@ -65,7 +65,7 @@ def test_an_old_build_after_the_cutoff_gets_a_transient_503_never_a_new_code(mon
     """Audit C7: the cutoff compares the build NUMBER (X-App-Version-Code), per platform. The version
     name was reset to 0.0.1, so a name compare would refuse the new build or let every old one in."""
     from app.core.config import get_settings
-    from app.services.questionnaire_v2 import shims
+    from app.questionnaire import shims_fr as shims
 
     monkeypatch.setattr(get_settings(), "questionnaire_min_android_version_code_for_create", 30, raising=False)
     monkeypatch.setattr(get_settings(), "questionnaire_min_web_version_code_for_create", None, raising=False)
@@ -129,7 +129,7 @@ def test_an_old_create_makes_a_session_with_no_fold_and_keeps_its_typed_title(mo
 
 @needs_db
 def test_an_old_clip_complete_becomes_a_recording_through_the_resolver(monkeypatch) -> None:
-    from app.services.questionnaire_v2 import sessions, shims
+    from app.questionnaire import sessions, shims_fr as shims
     from qv2_fixtures import session_create
 
     settings_v2(monkeypatch, True)

@@ -5,7 +5,7 @@ from __future__ import annotations
 ENUMS_VERSION = 1
 LANGUAGES_VERSION = 1
 
-AnswerOrigin: tuple[str, ...] = ("TYPED", "TRANSCRIPT", "MACHINE_SUGGESTED", "MACHINE_SUGGESTED_EDITED", "PREFILL")
+AnswerOrigin: tuple[str, ...] = ("TYPED", "TRANSCRIPT", "MACHINE_SUGGESTED", "MACHINE_SUGGESTED_EDITED", "PREFILL", "WORKBOOK")
 AnswerAttribution: tuple[str, ...] = ("INDIVIDUAL", "GROUP_SHARED")
 AnswerPutStatus: tuple[str, ...] = ("SAVED", "UNCHANGED", "CONFLICT", "FORBIDDEN")
 SectionStatus: tuple[str, ...] = ("COMPLETED", "NEEDS_REVIEW", "NEEDS_REDO")

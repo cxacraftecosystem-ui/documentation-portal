@@ -121,6 +121,18 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/tools", label: "Record tool", icon: Wrench, group: "Record", can: canCreateRecords, gate: "require_record_creator" },
   // Answering an interview is open to everyone — volunteers contribute answers and media.
   { href: "/questionnaire", label: "Take interview", icon: ClipboardList, group: "Record", can: everyone, gate: "get_current_user" },
+  // THE FORMS LIBRARY (UNIFY U3): your forms, shared forms and each workshop's forms, with the
+  // workbook, reuse and bundles. Open to every record creator; writing a form is a questionnaire
+  // manager's and the page draws those controls from the server's `can`. Designer-portal's entry
+  // carries the same label.
+  {
+    href: "/questionnaires",
+    label: "My questionnaires",
+    icon: FileSpreadsheet,
+    group: "Record",
+    can: canCreateRecords,
+    gate: "get_current_user (writes: require_questionnaire_manager)"
+  },
   { href: "/media", label: "Upload media", icon: ImageIcon, group: "Record", can: everyone, gate: "get_current_user" },
   { href: "/crafts", label: "Add craft", icon: Brush, group: "Record", can: canManageCrafts, gate: "require_craft_manager" },
   { href: "/workshops", label: "Record workshop", icon: Users, group: "Record", can: canManageWorkshops, gate: "require_workshop_manager" },
@@ -165,21 +177,6 @@ export const NAV_ITEMS: NavItem[] = [
   // ADMIN_CHROME_ROUTES deliberately leaves /review open while admin view is off. Flagging it here
   // too removed the link from an admin who still had the route — an open page with no way to reach it.
   { href: "/review", label: "Review", icon: Eye, group: "Browse", can: canReview, gate: "require_reviewer" },
-  // THE DOOR THE INSTRUMENT ITSELF COMES IN THROUGH, and the reason it is in the Admin group rather
-  // than beside "Take interview" in Record: uploading a workbook re-states the WHOLE questionnaire,
-  // and everything absent from the file is removed by rule. "Take interview" answers it; this
-  // rewrites it. `adminSurface` so an admin browsing with admin view off does not see a door they
-  // have deliberately hidden from themselves — and `can: isAdmin` FIRST, so the toggle can only
-  // ever subtract from what the API would already allow.
-  {
-    href: "/questionnaire/workbooks",
-    label: "Questionnaire workbooks",
-    icon: FileSpreadsheet,
-    group: "Admin",
-    can: isAdmin,
-    gate: "require_admin",
-    adminSurface: true
-  },
   { href: "/admin", label: "Settings hub", icon: SlidersHorizontal, group: "Admin", can: isAdmin, gate: "require_admin", adminSurface: true },
   // The sign-in gate's admin side, and the only nav entry in this app that carries a count. It sits
   // directly above "Manage users" because the two answer one question from opposite ends: /users is

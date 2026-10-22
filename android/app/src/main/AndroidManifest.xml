@@ -92,6 +92,16 @@
                     android:host="field-repository.vercel.app"
                     android:path="/set-password" />
             </intent-filter>
+            <!-- A FORM ANOTHER PHONE SENT (questionnaire handoff, UNIFY A10): Field Repository's .frwq
+                 and designer-portal's .dpwq, by their own MIME types only, so this app is never offered
+                 for every gzip on the phone. Other providers' files open through "Open bundle". -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/vnd.fieldrepository.questionnaire+gzip" />
+                <data android:mimeType="application/vnd.designprototype.questionnaire+gzip" />
+            </intent-filter>
         </activity>
         <!-- MICROSOFT AND YAHOO SIGN-IN: where the browser tab hands the authorization code back.
              AppAuth declares this receiver itself for `${appAuthRedirectScheme}`; it is declared
@@ -119,7 +129,7 @@
             android:exported="false"
             android:foregroundServiceType="microphone" />
         <service
-            android:name=".recording.LegacyRecordingService"
+            android:name=".legacyrecording.LegacyRecordingService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
     </application>

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { AlreadyRecordedDialog, type P2Choice } from "@/components/questionnaire/AlreadyRecordedDialog";
-import { AnswerBox } from "@/components/questionnaire/AnswerBox";
+import { AnswerBox, sessionSubjects, type AnswerProposal } from "@/components/questionnaire/AnswerBox";
 import { ConsentQuestion } from "@/components/questionnaire/ConsentQuestion";
 import { CoverageGrid } from "@/components/questionnaire/CoverageGrid";
 import { PromptDialog } from "@/components/questionnaire/Prompts";
@@ -20,7 +20,8 @@ import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { Toggle } from "@/components/ui/Toggle";
 import { ApiError, clockOffset, listResource } from "@/lib/api";
-import { loadInstrumentQuestions } from "@/components/questionnaire/instrumentQuestions";
+import { loadInstrumentQuestions, requiredUnanswered, type InstrumentQuestion, type InstrumentSection } from "@/components/questionnaire/instrumentQuestions";
+import { SessionActions } from "@/components/questionnaire/SessionActions";
 import {
   offlineCheck,
   overlayFromUnits,
@@ -32,8 +33,9 @@ import {
   shortName,
   takesFromRecordings,
   withTakes
-} from "@/lib/coverageCache";
-import { sha256Hex } from "@/lib/hashFile";
+} from "@/lib/questionnaire/coverageCache";
+import { sha256Hex } from "@/lib/questionnaire/hashFile";
+import { prefillItems } from "@/lib/questionnaire/prefill";
 import {
   contractError,
   mintKey,
@@ -46,13 +48,15 @@ import {
   type RepeatReason,
   type Session,
   type SessionDetail
-} from "@/lib/questionnaireApi";
-import { prompts, shortDate, type P2Input, type PromptSpec } from "@/lib/questionnairePrompts";
-import { clipUploadState, sessionUnitKey, type ClipStep, type SessionUnit } from "@/lib/questionnaireQueue";
-import { consentSubject, pickedFileMeta, takesFor, takeSubjects } from "@/lib/questionnaireView";
-import { assembleTake, recorderStore, recoverable, recoveredMinutes, type TakeChunk, type TakeDraft } from "@/lib/recorderStore";
-import { qs } from "@/lib/strings/qs";
-import type { Artisan, QuestionnaireSection } from "@/lib/types";
+} from "@/lib/questionnaire/api";
+import { prompts, shortDate, type P2Input, type PromptSpec } from "@/lib/questionnaire/prompts";
+import { clipUploadState, sessionUnitKey, type ClipStep, type SessionUnit } from "@/lib/questionnaire/queue";
+import { consentSubject, pickedFileMeta, rosterArtisans, takesFor, takeSubjects } from "@/lib/questionnaire/view";
+import { assembleTake, recorderStore, recoverable, recoveredMinutes, type TakeChunk, type TakeDraft } from "@/lib/questionnaire/recorderStore";
+import { OutboxTray } from "@/components/questionnaire/OutboxTray";
+import { qs } from "@/lib/questionnaire/qs";
+import { artisanFilter } from "@/lib/questionnairePortal";
+import type { Artisan } from "@/lib/types";
 
 type Target = { sectionId: string } | { questionLineageId: string };
 /** What a Record press or file pick is for; the roster is snapshotted at the press (DESIGN §3.4). */
@@ -68,7 +72,7 @@ type TakeContext = {
   source: string;
 };
 
-function localSession(body: import("@/lib/questionnaireApi").SessionCreate, title: string): Session {
+function localSession(body: import("@/lib/questionnaire/api").SessionCreate, title: string): Session {
   return {
     id: body.clientKey,
     clientKey: body.clientKey,
@@ -78,7 +82,7 @@ function localSession(body: import("@/lib/questionnaireApi").SessionCreate, titl
     legacyTitle: null,
     questionnaire: { id: body.questionnaireId, title: "" },
     workshop: body.workshopId ? { id: body.workshopId, name: "" } : null,
-    designWorkshopId: null,
+    designWorkshopId: body.designWorkshopId ?? null,
     sessionDate: body.sessionDate,
     sessionDateEstimated: false,
     startedAt: body.startedAt,
@@ -99,11 +103,12 @@ function localSession(body: import("@/lib/questionnaireApi").SessionCreate, titl
     status: "DRAFT",
     submittedAt: null,
     reviewReasons: [],
-    counts: { sections: 0, takes: 0, needsDecision: 0 }
+    counts: { sections: 0, takes: 0, needsDecision: 0 },
+    respondents: (body.respondents ?? []).map((r, i) => ({ id: `local-${i}`, sessionId: body.clientKey, name: r.name, kind: r.kind, notes: r.notes ?? null, userId: null }))
   };
 }
 
-function gridFromSections(sections: QuestionnaireSection[], byId: Record<string, GridQuestion[]>): Grid {
+function gridFromSections(sections: InstrumentSection[], byId: Record<string, GridQuestion[]>): Grid {
   return { sections: sections.map((s) => ({ id: s.id, code: s.code, title: s.title, questions: byId[s.id] })), cells: [] };
 }
 
@@ -146,6 +151,10 @@ export function SessionWorkspace({ id }: { id: string }) {
   const [p7, setP7] = useState<{ run: () => void; position: number; target: string } | null>(null);
   const [p10, setP10] = useState<{ artisanId: string; name: string; count: number } | null>(null);
   const [adding, setAdding] = useState(false);
+  // The form's questions with their required marks (A19), and the transcripts offered as answers (B22).
+  const [questions, setQuestions] = useState<Record<string, InstrumentQuestion[]>>({});
+  const [proposals, setProposals] = useState<Record<string, AnswerProposal>>({});
+  const [proposalNote, setProposalNote] = useState<string | null>(null);
   const queue = useSessionQueue(detail ?? id);
   const unitsRef = useRef<SessionUnit[]>(queue.units);
   useEffect(() => {
@@ -163,7 +172,9 @@ export function SessionWorkspace({ id }: { id: string }) {
       setGrid(toGridView(d.grid));
       void loadInstrumentQuestions(d.questionnaire.id)
         .then((q) => {
-          if (mine === generation.current) setGrid(toGridView(d.grid, q.byId));
+          if (mine !== generation.current) return;
+          setGrid(toGridView(d.grid, q.byId));
+          setQuestions(q.byId);
         })
         .catch(() => undefined);
     } catch (error) {
@@ -179,6 +190,7 @@ export function SessionWorkspace({ id }: { id: string }) {
         try {
           const q = await loadInstrumentQuestions(first.body.questionnaireId);
           setGrid(gridFromSections(q.sections, q.byId));
+          setQuestions(q.byId);
         } catch {
           setGrid({ sections: [], cells: [] });
         }
@@ -242,6 +254,36 @@ export function SessionWorkspace({ id }: { id: string }) {
     void checkRecovery();
   }, [checkRecovery]);
 
+  // B24: questions mapped to an artisan column start with that artisan's value (origin PREFILL),
+  // written once per open by a researcher of the session; never over an answer somebody wrote.
+  const prefilledFor = useRef<string | null>(null);
+  const userId = user?.id ?? null;
+  useEffect(() => {
+    if (!detail || detail.version === 0 || prefilledFor.current === detail.id) return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+    if (!userId || !detail.researchers.some((r) => r.userId === userId)) return;
+    const mapped = Object.values(questions).flat().filter((q) => q.artisanField);
+    if (!mapped.length) return;
+    prefilledFor.current = detail.id;
+    const answered = new Set(detail.answers.filter((a) => a.artisanId).map((a) => `${a.artisanId}|${a.questionLineageId}`));
+    void Promise.all(detail.participants.map((p) => questionnaireApi.artisan(p.artisanId).catch(() => null))).then(async (rows) => {
+      const items = prefillItems({
+        sessionId: detail.id,
+        questions: mapped,
+        artisans: rows.filter((r): r is NonNullable<typeof r> => r !== null),
+        answered,
+        context: { sessionDate: detail.sessionDate, interviewer: detail.researchers.find((r) => r.role === "LEAD")?.name ?? null }
+      });
+      if (!items.length) return;
+      try {
+        await questionnaireApi.putAnswers(items);
+        void load();
+      } catch {
+        // Nothing is lost: the next open offers the same values again.
+      }
+    });
+  }, [detail, questions, userId, load]);
+
   const pendingCount = queue.pendingClips.length;
   // A take in progress, or waiting for "Answered by", is unsaved work too (audit, leave guard).
   const inHand = recording !== null || answering !== null ? 1 : 0;
@@ -263,12 +305,15 @@ export function SessionWorkspace({ id }: { id: string }) {
     for (const step of queue.pendingClips as ClipStep[]) {
       for (const subject of step.recording.subjects) {
         if (subject.role !== "ANSWERED") continue;
+        // The grid column: the artisan's id, or `R:<id>` for a guest on the take.
+        const column = subject.artisanId ?? (subject.respondentId ? `R:${subject.respondentId}` : null);
+        if (!column) continue;
         for (const t of step.recording.targets) {
           const key = "sectionId" in t ? sectionKey(t.sectionId) : null;
           if (!key) continue;
-          const existing = cells.findIndex((c) => c.artisanId === subject.artisanId && c.targetKey === key);
+          const existing = cells.findIndex((c) => c.artisanId === column && c.targetKey === key);
           const state = queue.online ? "UPLOADING" : "ON_DEVICE";
-          if (existing < 0) cells.push({ artisanId: subject.artisanId, targetKey: key, state, count: 1 });
+          if (existing < 0) cells.push({ artisanId: column, targetKey: key, state, count: 1 });
           else if (cells[existing].state === "NOT_RECORDED") cells[existing] = { ...cells[existing], state };
         }
       }
@@ -292,8 +337,18 @@ export function SessionWorkspace({ id }: { id: string }) {
 
   const session = detail;
   const unitSession = { id: session.id, clientKey: session.clientKey };
-  const roster = session.participants.filter((p) => !p.leftAt).map((p) => p.artisanId);
-  const names = Object.fromEntries(session.participants.map((p) => [p.artisanId, p.name]));
+  const guests = (session.respondents ?? []).filter((r) => !r.artisanId);
+  // The people in the room at a press: present artisans, then guests (`R:<id>`, owner decision 1).
+  const roster = [...session.participants.filter((p) => !p.leftAt).map((p) => p.artisanId), ...guests.map((g) => `R:${g.id}`)];
+  const names: Record<string, string> = Object.fromEntries([
+    ...session.participants.map((p) => [p.artisanId, p.name] as const),
+    ...guests.map((g) => [`R:${g.id}`, g.name] as const)
+  ]);
+  const subjects = sessionSubjects(session);
+  const me = user?.id ?? null;
+  // A LEAD researcher of the session, or an admin, may change anyone's answer (the lock, U9).
+  const mayOverride = Boolean(user && (canDeleteRecords || session.researchers.some((r) => r.userId === user.id && r.role === "LEAD")));
+  const unanswered = requiredUnanswered(questions, detail.answers.map((a) => ({ ...a, text: a.text ?? "" })), subjects.map((s) => s.key), detail.recordings);
   const sectionOf = (lineageId: string) => shownGrid.sections.find((s) => s.questions?.some((q) => q.lineageId === lineageId))?.id ?? null;
   const sectionOfTargets = (targets: Target[]) => {
     const t = targets[0];
@@ -315,7 +370,7 @@ export function SessionWorkspace({ id }: { id: string }) {
    * own takes and the outbox laid over it (audit M4). A failed check is never read as "not covered".
    */
   async function check(pending: Pending, sha: string | null): Promise<CoverageCheckResponse> {
-    const request = { questionnaireId: session.questionnaire.id, artisanIds: pending.roster, targets: pending.targets, sessionId: session.id, contentSha256: sha };
+    const request = { questionnaireId: session.questionnaire.id, artisanIds: rosterArtisans(pending.roster), targets: pending.targets, sessionId: session.id, contentSha256: sha };
     if (navigator.onLine !== false) {
       try {
         return await questionnaireApi.checkCoverage(request);
@@ -503,7 +558,7 @@ export function SessionWorkspace({ id }: { id: string }) {
         sizeBytes: take.blob.size,
         contentType: take.mimeType.split(";")[0] || "audio/webm",
         extension: take.extension,
-        presign: { contentSha256: sha, targets: context.pending.targets, subjectArtisanIds: roster, deviceCapturedAt: take.deviceCapturedAt, clockOffsetMs: offset?.offsetMs ?? null },
+        presign: { contentSha256: sha, targets: context.pending.targets, subjectArtisanIds: rosterArtisans(roster), deviceCapturedAt: take.deviceCapturedAt, clockOffsetMs: offset?.offsetMs ?? null },
         recording: {
           targets: context.pending.targets,
           subjects: takeSubjects(roster, answered, context.reasons),
@@ -555,6 +610,34 @@ export function SessionWorkspace({ id }: { id: string }) {
 
   const press = (targets: Target[], label: string, code: string, file?: File) => void begin({ targets, label, code, file, roster });
 
+  /**
+   * "Use as answer" (B22, C2) and AI drafts (B23, C3): a take's transcript, and drafts where the
+   * switch is on, proposed per question. Offered in the answer box, never imposed; P8 still asks
+   * before a take-made answer is replaced. The server sends only what consent allows.
+   */
+  async function offerAnswers(recording: Recording) {
+    setProposalNote(null);
+    try {
+      const { proposals: found } = await questionnaireApi.answerProposals(recording.id);
+      const next = { ...proposals };
+      for (const p of found) {
+        next[p.questionLineageId] = {
+          text: p.text,
+          origin: p.origin,
+          sourceRecordingId: recording.id,
+          subjectKeys: p.artisanIds ? p.artisanIds.map((a) => `A:${a}`) : null
+        };
+      }
+      setProposals(next);
+      setTypeAnswers(true);
+      setProposalNote(found.length ? qs("proposalsReady", { count: found.length }) : qs("noProposals"));
+      const first = found[0] ? sectionOf(found[0].questionLineageId) : null;
+      if (first) setActiveSection(first);
+    } catch (error) {
+      setProposalNote(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   const sheetSection = sheet ? shownGrid.sections.find((s) => s.id === sheet.sectionId) ?? null : null;
   const sheetRecordings = sheet
     ? detail.recordings.filter(
@@ -573,6 +656,7 @@ export function SessionWorkspace({ id }: { id: string }) {
 
   return (
     <div className="grid gap-4" data-session-workspace>
+      <OutboxTray sessionId={session.id} />
       <SessionHeader
         session={session}
         pendingTakes={pendingCount}
@@ -595,7 +679,17 @@ export function SessionWorkspace({ id }: { id: string }) {
         onAddArtisan={session.state === "OPEN" ? () => setAdding(!adding) : undefined}
       />
 
-      {adding ? <AddArtisan exclude={session.participants.map((p) => p.artisanId)} onPick={(a) => void addArtisan(a)} /> : null}
+      {adding ? (
+        <AddArtisan exclude={session.participants.map((p) => p.artisanId)} scope={session.designWorkshopId ?? session.workshop?.id ?? null} onPick={(a) => void addArtisan(a)} />
+      ) : null}
+
+      {session.version > 0 ? <SessionActions session={session} onChanged={() => void load()} /> : null}
+
+      {proposalNote ? (
+        <p role="status" className="panel p-3 text-sm text-ink-700" data-proposal-note>
+          {proposalNote}
+        </p>
+      ) : null}
 
       {myClips.filter((s) => s.error === "MISSING_FILE").map((s) => (
         <p key={s.clientClipKey} role="status" className="panel border-error-600/30 p-3 text-sm text-error-600">
@@ -749,7 +843,7 @@ export function SessionWorkspace({ id }: { id: string }) {
         {shownGrid.sections.length ? (
           <CoverageGrid
             grid={shownGrid}
-            artisans={session.participants.map((p) => ({ id: p.artisanId, name: p.name }))}
+            artisans={[...session.participants.map((p) => ({ id: p.artisanId, name: p.name })), ...guests.map((g) => ({ id: `R:${g.id}`, name: g.name }))]}
             activeSectionId={activeSection}
             onOpen={(sectionId, artisanId) => setSheet({ sectionId, artisanId })}
           />
@@ -782,6 +876,11 @@ export function SessionWorkspace({ id }: { id: string }) {
                   <p className="text-sm text-ink-900">
                     <span className="mr-2 font-semibold">{q.displayCode}</span>
                     {q.prompt}
+                    {questions[activeGridSection.id]?.find((x) => x.lineageId === q.lineageId)?.required ? (
+                      <span className="ml-1 text-error-600" aria-label={qs("required")}>
+                        *
+                      </span>
+                    ) : null}
                   </p>
                   <button type="button" className="field-button-secondary" onClick={() => press([{ questionLineageId: q.lineageId }], q.displayCode, q.displayCode)}>
                     {qs("record")}
@@ -789,12 +888,17 @@ export function SessionWorkspace({ id }: { id: string }) {
                 </div>
                 {typeAnswers ? (
                   <AnswerBox
+                    key={`${q.lineageId}:${proposals[q.lineageId]?.sourceRecordingId ?? ""}`}
                     session={session}
                     lineageId={q.lineageId}
                     code={q.displayCode}
-                    participants={session.participants.filter((p) => !p.leftAt)}
+                    subjects={subjects}
                     answers={detail.answers.filter((a) => a.questionLineageId === q.lineageId)}
                     recordings={detail.recordings}
+                    me={me}
+                    mayOverride={mayOverride}
+                    proposal={proposals[q.lineageId] ?? null}
+                    required={Boolean(questions[activeGridSection.id]?.find((x) => x.lineageId === q.lineageId)?.required)}
                   />
                 ) : null}
               </li>
@@ -821,6 +925,21 @@ export function SessionWorkspace({ id }: { id: string }) {
             press([{ sectionId: sheetSection.id }], `Section ${sheetSection.code}`, sheetSection.code, file);
           }}
           onRemove={canDeleteRecords ? (r) => setRemoveTake(r) : undefined}
+          onUseAsAnswer={(r) => {
+            setSheet(null);
+            void offerAnswers(r);
+          }}
+          sessionId={session.version > 0 ? session.id : undefined}
+          onChanged={() => void load()}
+          override={shownGrid.cells.find((c) => c.targetKey === `S:${sheetSection.id}` && c.artisanId === sheet.artisanId)?.override ?? null}
+          onOverride={
+            canDeleteRecords && sheet.artisanId && !sheet.artisanId.startsWith("R:")
+              ? async (status) => {
+                  await questionnaireApi.setSectionOverride({ artisanId: sheet.artisanId!, sectionId: sheetSection.id, status });
+                  void load();
+                }
+              : undefined
+          }
           onRecordConsent={(r) => {
             // The artisan who refused, not simply the first one on the take (audit M22).
             const artisanId = consentSubject(r, session.participants);
@@ -890,7 +1009,7 @@ export function SessionWorkspace({ id }: { id: string }) {
 
       {conflict && queue.unit ? (
         <PromptDialog
-          spec={conflictSpec(conflict.result, shortName(names[conflict.item.artisanId] ?? ""), labelOf(questionKey(conflict.item.questionLineageId)))}
+          spec={conflictSpec(conflict.result, shortName(names[conflict.item.artisanId ?? `R:${conflict.item.respondentId ?? ""}`] ?? ""), labelOf(questionKey(conflict.item.questionLineageId)))}
           open
           onChoose={(choice) => {
             if (choice !== "mine" && choice !== "theirs") return;
@@ -916,7 +1035,7 @@ export function SessionWorkspace({ id }: { id: string }) {
 
       {finishOpen ? (
         <PromptDialog
-          spec={prompts.finish({ sections: session.counts.sections, artisans: session.participantCount, pending: pendingCount })}
+          spec={withRequired(prompts.finish({ sections: session.counts.sections, artisans: session.participantCount, pending: pendingCount }), unanswered)}
           open
           onChoose={async (choice) => {
             setFinishOpen(false);
@@ -947,7 +1066,7 @@ export function SessionWorkspace({ id }: { id: string }) {
  * it, "Giriraj already has an answer. Keep · Replace" when one simply exists, and a pinned answer's
  * refusal with OK (which drops the typed text).
  */
-export function conflictSpec(result: import("@/lib/questionnaireApi").AnswerResult, name: string, code: string): PromptSpec {
+export function conflictSpec(result: import("@/lib/questionnaire/api").AnswerResult, name: string, code: string): PromptSpec {
   const current = result.current;
   if (result.status === "FORBIDDEN") {
     return { id: "ANSWER_PINNED", title: qs("answerPinned", { name, code }), body: current?.text ?? "", buttons: [{ id: "theirs", label: qs("ok"), tone: "primary" }], dismiss: null };
@@ -974,14 +1093,20 @@ export function conflictSpec(result: import("@/lib/questionnaireApi").AnswerResu
   };
 }
 
-/** "+ Add artisan": artisans searched on the server, the session's own left out. */
-function AddArtisan({ exclude, onPick }: { exclude: string[]; onPick: (artisan: { id: string; name: string }) => void }) {
+/** A19 on Finish: "3 required questions unanswered" under the summary, never blocking. */
+export function withRequired(spec: PromptSpec, unanswered: number): PromptSpec {
+  if (unanswered <= 0) return spec;
+  return { ...spec, body: `${spec.body} ${qs("requiredUnanswered", { count: unanswered })}`.trim() };
+}
+
+/** "+ Add artisan": artisans searched on the server (the session's workshop first), its own left out. */
+function AddArtisan({ exclude, scope, onPick }: { exclude: string[]; scope: string | null; onPick: (artisan: { id: string; name: string }) => void }) {
   const [search, setSearch] = useState("");
   const [artisans, setArtisans] = useState<Artisan[]>([]);
   useEffect(() => {
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      void listResource<Artisan>("/artisans", { pageSize: 80, search: search || undefined })
+      void listResource<Artisan>("/artisans", { pageSize: 80, search: search || undefined, ...(search ? {} : artisanFilter(scope)) })
         .then((page) => {
           if (!cancelled) setArtisans(page.items ?? []);
         })
@@ -991,7 +1116,7 @@ function AddArtisan({ exclude, onPick }: { exclude: string[]; onPick: (artisan: 
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [search]);
+  }, [search, scope]);
   const options = artisans.filter((a) => !exclude.includes(a.id)).map((a) => ({ value: a.id, label: a.place ? `${a.name} · ${a.place}` : a.name }));
   return (
     <div className="panel grid gap-1 p-4" data-add-artisan>

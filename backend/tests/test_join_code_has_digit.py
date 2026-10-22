@@ -1,6 +1,6 @@
 """Every session join code carries a digit, so the top-bar scanner never takes a word for one."""
 
-from app.services.questionnaire_v2.common import JOIN_ALPHABET, JOIN_CODE_LENGTH, new_join_code
+from app.questionnaire.common import JOIN_ALPHABET, JOIN_CODE_LENGTH, new_join_code
 
 
 def test_every_join_code_has_a_digit_and_keeps_the_alphabet():

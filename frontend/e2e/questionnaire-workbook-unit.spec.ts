@@ -4,31 +4,19 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 
 /**
- * THE FOUR-TABLE RULE, AND THE FACT THAT NOTHING ELSE ENFORCES IT.
+ * THE WORKBOOK'S REGISTRATIONS, NOW THAT IT LIVES IN THE FORMS LIBRARY (UNIFY U3).
  *
- * `/questionnaire/workbooks` is the door the craft-toolkit instrument itself comes in through: one
- * spreadsheet re-states the WHOLE questionnaire and everything absent from the file is removed by
- * rule. Adding that page to this app is not one edit, it is FIVE — the route, and then four
- * hand-maintained tables that live in four different files and know nothing about each other:
+ * The pro-forma, a new form from a workbook and each form's own workbook moved from the admin-only
+ * `/questionnaire/workbooks` into `/questionnaires`, which every record creator opens and which draws
+ * each control from the server's `can`. So the registrations changed shape, and each is checked here
+ * because none of them is checked by a type:
  *
- *   1. `ROUTE_GUARDS` (lib/permissions.ts) — `AppShell` (components/AppShell.tsx:46-47) looks the
- *      pathname up here and refuses to render the page at all for a user who fails `can`. A route
- *      MISSING from this table is not locked: the page renders for a field contributor who typed the
- *      URL, fires its loads, and collects a 403 per request — a screen of red error boxes where the
- *      honest answer was one sentence saying who this is for.
- *   2. `NAV_ITEMS` (components/DynamicIslandNav.tsx) — the only menu in the app. Missing here, the
- *      page exists and is reachable by typing its URL and by nothing else.
- *   3. `ADMIN_CHROME_ROUTES` (components/AdminViewProvider.tsx) — the admin-view toggle's half.
- *      `adminSurface: true` on the nav entry REMOVES THE LINK when an admin browses with admin view
- *      off; this table is what puts an explanation on the page behind it. Register one without the
- *      other and an admin who hid their own admin chrome finds a page they cannot navigate to and,
- *      if they bookmarked it, one that opens normally and says nothing about why the menu forgot it.
- *   4. The settings-hub tile (app/(protected)/admin/page.tsx) — the grid an admin actually browses.
- *
- * NONE OF THOSE FOUR IS CHECKED BY A TYPE. They are four arrays of object literals; omitting an
- * entry compiles, renders, and produces a different half-working page in each case. The workbook
- * lane's own handoff said so in as many words — THE FOUR-TABLE RULE HAS NO MECHANICAL GUARD WITHOUT
- * THIS FILE — so this is that guard.
+ *   1. `ROUTE_GUARDS` (lib/permissions.ts) has NO row for the library or the old workbook route:
+ *      both are open pages, and the server gates every write.
+ *   2. `NAV_ITEMS` (components/DynamicIslandNav.tsx) carries "My questionnaires" in Record.
+ *   3. `ADMIN_CHROME_ROUTES` (components/AdminViewProvider.tsx) no longer lists the workbook leaf.
+ *   4. The settings-hub tile (app/(protected)/admin/page.tsx) opens the library.
+ *   5. `/questionnaire/workbooks` and `/questionnaire/workbooks/[id]` redirect into it.
  *
  * ── WHY THIS SPEC NEVER OPENS A BROWSER ────────────────────────────────────────────────────────
  *
@@ -53,8 +41,12 @@ const ADMIN_PAGE = read("app", "(protected)", "admin", "page.tsx");
 const WORKBOOK_API = read("components", "questionnaires", "workbookApi.ts");
 const UPLOAD_REPORT = read("components", "questionnaires", "UploadReport.tsx");
 const WORKBOOKS_PAGE = read("app", "(protected)", "questionnaire", "workbooks", "page.tsx");
+const WORKBOOK_PAGE = read("app", "(protected)", "questionnaire", "workbooks", "[id]", "page.tsx");
+const LIBRARY_PAGE = read("app", "(protected)", "questionnaires", "page.tsx");
+const FORM_PAGE = read("app", "(protected)", "questionnaires", "[id]", "page.tsx");
 
-const ROUTE = "/questionnaire/workbooks";
+const ROUTE = "/questionnaires";
+const OLD_ROUTE = "/questionnaire/workbooks";
 
 /**
  * The source with its comments removed — and on THIS subject that is the difference between a test
@@ -120,73 +112,60 @@ function functionBody(source: string, name: string, nextName: string): string {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 1. The four tables
+ * 1. The registrations
  * ──────────────────────────────────────────────────────────────────────────── */
 
-test("the workbook route is guarded, so a non-admin who types the URL is told who it is for", () => {
-  // Comments stripped FIRST: `lib/permissions.ts` discusses /questionnaire and its tiers at length
-  // around this entry, and a guard asserted against prose is a guard that can be deleted while the
-  // paragraph explaining it stays behind to keep the test green.
+test("neither the library nor the old workbook route is locked by a client guard", () => {
   const guards = codeOnly(PERMISSIONS);
   expect(guards, "ROUTE_GUARDS must still be the exported table AppShell reads").toMatch(
     /export const ROUTE_GUARDS: RouteGuard\[\] = \[/
   );
-  const entry = entryAt(guards, `path: "${ROUTE}"`);
-  // `isAdmin` and not `canManageQuestionnaire`: one workbook re-states the whole instrument and
-  // everything absent from it is removed by rule, so a professor who deleted the rows they were not
-  // interested in would retire every question they deleted across twenty-two sections. Adding ONE
-  // question stays at questionnaire-manager, on /questionnaire.
-  expect(entry, "the workbook route is admin-only").toMatch(/can: isAdmin/);
-  expect(entry, "and it names the backend dependency it mirrors").toMatch(/gate: "require_admin"/);
-  // A guard with no message renders an empty lock panel — refusing without saying anything, which is
-  // the failure the table's `title`/`message` columns exist to prevent.
-  expect(entry, "the lock panel has a heading").toMatch(/title: "/);
-  expect(entry, "and a sentence under it").toMatch(/message:/);
+  expect(guards).not.toContain(`path: "${OLD_ROUTE}"`);
+  expect(guards).not.toContain(`path: "${ROUTE}"`);
 });
 
-test("the workbook route has a way in, and it is flagged as admin chrome in the menu", () => {
+test("the library has a way in from the menu, in Record, for every record creator", () => {
   const nav = codeOnly(NAV);
   const entry = entryAt(nav, `href: "${ROUTE}"`);
-  expect(entry, "an admin browsing with admin view OFF must not see a door they hid from themselves").toMatch(
-    /adminSurface: true/
-  );
-  // `can` FIRST and `adminSurface` second, in that order of authority: the toggle is a preference and
-  // may only ever SUBTRACT from what the API would already allow. A nav entry carrying the flag and
-  // no `can` would be a link shown to everyone whenever admin view happened to be on.
-  expect(entry, "the toggle can only narrow a check that already exists").toMatch(/can: isAdmin/);
-  expect(entry, "it mirrors require_admin on the server").toMatch(/gate: "require_admin"/);
-  // Admin, not Record. "Take interview" ANSWERS the questionnaire; this REWRITES it, and the two do
-  // not belong next to each other in a menu a researcher uses in a workshop.
-  expect(entry, "it belongs in the Admin group, never beside Take interview").toMatch(/group: "Admin"/);
-  expect(entry, "and it is labelled").toMatch(/label: "Questionnaire workbooks"/);
+  expect(entry).toMatch(/label: "My questionnaires"/);
+  expect(entry).toMatch(/group: "Record"/);
+  expect(entry).toMatch(/can: canCreateRecords/);
+  expect(entry, "an open page is not admin chrome").not.toMatch(/adminSurface/);
+  expect(nav, "the admin-only workbook entry is gone").not.toContain(`href: "${OLD_ROUTE}"`);
 });
 
-test("hiding admin chrome explains this page rather than making it vanish", () => {
+test("the old workbook leaf is no longer admin chrome", () => {
   const chrome = codeOnly(ADMIN_VIEW);
   expect(chrome, "ADMIN_CHROME_ROUTES must still be the exported table AppShell reads").toMatch(
     /export const ADMIN_CHROME_ROUTES: AdminChromeRoute\[\] = \[/
   );
-  const entry = entryAt(chrome, `path: "${ROUTE}"`);
-  expect(entry, "the lock panel names the page").toMatch(/label: "Questionnaire workbooks"/);
-  expect(entry, "and says what is behind the switch rather than only refusing").toMatch(/blurb: "/);
-  // THE LEAF AND NOT THE PREFIX. `/questionnaire` itself is open to every signed-in user — a
-  // volunteer answering an interview is the whole point of the app — and `adminChromeRouteFor`
-  // matches a path AND everything nested beneath it. Registering `/questionnaire` here would hide
-  // the interview form from every admin who turned their own toggle off.
-  expect(chrome, "/questionnaire itself is not admin chrome and must never be listed").not.toMatch(
-    /path: "\/questionnaire",/
-  );
+  expect(chrome).not.toContain(`path: "${OLD_ROUTE}"`);
+  expect(chrome, "/questionnaire itself is not admin chrome and must never be listed").not.toMatch(/path: "\/questionnaire",/);
 });
 
-test("the settings hub has a tile for it, because that is the grid an admin actually browses", () => {
+test("the settings hub's tile opens the library", () => {
   const hub = codeOnly(ADMIN_PAGE);
   const entry = entryAt(hub, `href: "${ROUTE}"`);
   expect(entry, "the tile needs an icon or it reads as a gap in the grid").toMatch(/icon: /);
-  // The tile's own label and blurb are read backwards from the href, so the assertion has to look
-  // above it as well: `entryAt` starts at the href, and label/description are written before it.
   const hubEntry = hub.slice(Math.max(0, hub.indexOf(`href: "${ROUTE}"`) - 600), hub.indexOf(`href: "${ROUTE}"`));
-  expect(hubEntry, "the tile is named").toMatch(/label: "Questionnaire workbooks"/);
+  expect(hubEntry, "the tile is named").toMatch(/label: "My questionnaires"/);
   expect(hubEntry, "and says what it does").toMatch(/description: "/);
+});
+
+test("old workbook links land in the library", () => {
+  expect(codeOnly(WORKBOOKS_PAGE)).toContain('router.replace("/questionnaires")');
+  expect(codeOnly(WORKBOOK_PAGE)).toContain("router.replace(`/questionnaires/${encodeURIComponent(params.id)}`)");
+});
+
+test("the library offers the workbook to form authors, and a form's own workbook to its editors", () => {
+  const library = codeOnly(LIBRARY_PAGE);
+  expect(library).toContain("const author = canManageQuestionnaire(user);");
+  expect(library).toContain("downloadProForma()");
+  expect(library).toContain('onClick={() => setDialog("upload")}');
+  const form = codeOnly(FORM_PAGE);
+  expect(form).toContain("{can.edit ? (");
+  expect(form).toContain("downloadQuestionnaireWorkbook(form.id)");
+  expect(form).toContain("downloadQuestionSet(form.id)");
 });
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -231,8 +210,9 @@ test("no workbook call may be queued for replay, because a File cannot survive t
   expect(api, "nor reach saveOrQueue by any other spelling").not.toMatch(/saveOrQueue/);
   // And the screen that calls it must not queue on its behalf either — the module being clean is no
   // defence if the page wraps the call.
-  const page = codeOnly(WORKBOOKS_PAGE);
-  expect(page, "the workbooks page must not queue an upload").not.toMatch(/saveOrQueue|@\/lib\/offline/);
+  for (const page of [codeOnly(LIBRARY_PAGE), codeOnly(FORM_PAGE)]) {
+    expect(page, "the library must not queue an upload").not.toMatch(/saveOrQueue|@\/lib\/offline/);
+  }
 });
 
 /* ────────────────────────────────────────────────────────────────────────────

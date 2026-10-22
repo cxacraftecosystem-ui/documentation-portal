@@ -1,8 +1,8 @@
 package com.fieldrepository.app.recording
 
-import com.fieldrepository.app.data.QCompleteSubject
-import com.fieldrepository.app.data.QTargetRef
-import com.fieldrepository.app.data.writeFileAtomically
+import com.fieldrepository.app.questionnaire.data.QCompleteSubject
+import com.fieldrepository.app.questionnaire.data.QTargetRef
+import com.fieldrepository.app.questionnaire.data.writeFileAtomically
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File

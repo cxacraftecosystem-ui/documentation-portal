@@ -259,6 +259,7 @@ enum AnswerOrigin {
   MACHINE_SUGGESTED
   MACHINE_SUGGESTED_EDITED
   PREFILL
+  WORKBOOK
 }
 
 enum AnswerAttribution {
@@ -271,6 +272,20 @@ enum SectionStatus {
   COMPLETED
   NEEDS_REVIEW
   NEEDS_REDO
+}
+
+/// UNIFY U6: a guest respondent is a named person who is not a registered artisan (GUEST), or the
+/// signed-in designer or researcher answering their own form (SELF).
+enum RespondentKind {
+  GUEST
+  SELF
+}
+
+/// UNIFY U7: where a session came from.
+enum SessionSource {
+  APP
+  UPLOAD
+  HANDOFF
 }
 
 enum MediaProcessingJobStatus {
@@ -1846,6 +1861,17 @@ model Questionnaire {
   sourceFilename String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  /// UNIFY U4 (migration 20261107090000_questionnaire_unify_additive): the form's author (backfilled
+  /// from createdById), shared with everyone, its kind (app/questionnaire/kinds.py), and the
+  /// restorable soft delete. The same five columns as designer-portal's Questionnaire.
+  ownerId     String?
+  isShared    Boolean  @default(false)
+  kind        String?
+  deletedAt   DateTime?
+  deletedById String?
+  /// The handoff bundle (`.frwq` / `.dpwq`) this form was imported from, so importing the same file
+  /// twice returns the first copy (shared/questionnaire-bundle.json; idempotent per importer).
+  importedBundleId String?
 
   createdBy  User?                    @relation("QuestionnaireInstrumentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   sections   QuestionnaireSection[]
@@ -1855,6 +1881,9 @@ model Questionnaire {
 
   @@unique([title])
   @@index([isActive, sortOrder])
+  @@index([ownerId])
+  @@index([deletedAt])
+  @@unique([importedBundleId, ownerId])
 }
 
 model QuestionnaireSection {
@@ -2107,6 +2136,11 @@ model QuestionnaireInterview {
   /// (DESIGN 3.10; audit M13). The session stays APPROVED; this puts it back in the review queue,
   /// and approving it again clears it.
   pendingChangesAt DateTime?
+  /// UNIFY U8: the restorable soft delete (content admins; owner decision 3) and where the sitting
+  /// came from (U7).
+  deletedAt       DateTime?
+  deletedById     String?
+  source          SessionSource  @default(APP)
 
   createdBy User                             @relation("QuestionnaireCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   location  Location?                        @relation(fields: [locationId], references: [id], onDelete: SetNull)
@@ -2132,6 +2166,7 @@ model QuestionnaireInterview {
   @@index([questionnaireId, createdAt])
   @@index([status, submittedAt])
   @@index([pendingChangesAt])
+  @@index([deletedAt])
 }
 
 model QuestionnaireInterviewArtisan {
@@ -2258,10 +2293,12 @@ model QuestionnaireRecordingEvent {
   @@index([recordingId, at])
 }
 
-/// One canonical answer per artisan per question lineage. Every change is a revision.
+/// One canonical answer per artisan (or guest respondent) per question lineage. Every change is a
+/// revision. Exactly one of artisanId and respondentId is set (CHECK QuestionnaireAnswer_one_owner).
 model QuestionnaireAnswer {
   id                String  @id @default(cuid())
-  artisanId         String
+  artisanId         String?
+  respondentId      String?
   questionnaireId   String
   questionLineageId String
   currentRevisionId String?
@@ -2273,6 +2310,7 @@ model QuestionnaireAnswer {
   revisions QuestionnaireAnswerRevision[]
 
   @@unique([artisanId, questionLineageId])
+  @@unique([respondentId, questionLineageId])
   @@index([questionnaireId])
 }
 
@@ -2294,6 +2332,9 @@ model QuestionnaireAnswerRevision {
   sourceFieldValue     String?
   status               RecordStatus      @default(PENDING)
   actorId              String
+  /// The answer note (A20).
+  note                 String?
+  richText             String?
   createdAt            DateTime          @default(now())
 
   answer QuestionnaireAnswer @relation(fields: [answerId], references: [id], onDelete: Cascade)
@@ -2317,6 +2358,66 @@ model QuestionnaireTakeDraft {
   createdAt         DateTime @default(now())
 
   @@unique([recordingId, questionLineageId, artisanId], map: "QuestionnaireTakeDraft_recording_lineage_artisan_key")
+}
+
+/// UNIFY U6: a guest respondent of one session (app/questionnaire/respondents.py). artisanId is set
+/// when the guest is registered as an artisan, after their rows moved to that artisan.
+model QuestionnaireRespondent {
+  id           String         @id @default(cuid())
+  sessionId    String
+  name         String
+  kind         RespondentKind @default(GUEST)
+  userId       String?
+  notes        String?
+  artisanId    String?
+  registeredAt DateTime?
+  createdById  String
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([sessionId])
+  @@index([artisanId])
+}
+
+/// UNIFY U6: a guest respondent on a take, beside the artisan subjects (subject key R:<respondentId>).
+model QuestionnaireRecordingRespondent {
+  recordingId  String
+  respondentId String
+  role         SubjectRole
+  named        Boolean       @default(false)
+  repeatReason RepeatReason?
+  flag         TakeFlag?
+
+  @@id([recordingId, respondentId])
+  @@index([respondentId])
+}
+
+/// UNIFY U5: a form bound to a Workshop or a DesignWorkshop (exactly one; CHECK), several per
+/// workshop, at most one primary per workshop (partial unique indexes in the migration).
+model QuestionnaireBinding {
+  id               String   @id @default(cuid())
+  questionnaireId  String
+  workshopId       String?
+  designWorkshopId String?
+  isPrimary        Boolean  @default(false)
+  createdById      String?
+  createdAt        DateTime @default(now())
+
+  @@unique([questionnaireId, workshopId])
+  @@unique([questionnaireId, designWorkshopId])
+  @@index([workshopId])
+  @@index([designWorkshopId])
+}
+
+/// Owner, amendment 2 of 22 Oct 2026: an admin's default form for one workshop type (Workshop) or
+/// design-workshop kind (DesignWorkshop.workshopKind); exactly one of the two (CHECK), one per type.
+model QuestionnaireTypeDefault {
+  id                 String        @id @default(cuid())
+  questionnaireId    String
+  workshopType       WorkshopType? @unique
+  designWorkshopKind String?       @unique
+  setById            String
+  setAt              DateTime      @default(now())
 }
 
 /// QUESTIONNAIRE V2 (M1). A presign the server knows about: written at presign, closed by /complete.

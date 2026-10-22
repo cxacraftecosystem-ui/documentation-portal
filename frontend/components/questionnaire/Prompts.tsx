@@ -2,7 +2,7 @@
 
 import { FieldDialog } from "@/components/dialogs/FieldDialog";
 import { ButtonRow } from "@/components/ui/ButtonRow";
-import { DISMISSED, type PromptButton, type PromptSpec } from "@/lib/questionnairePrompts";
+import { DISMISSED, type PromptButton, type PromptSpec } from "@/lib/questionnaire/prompts";
 
 /** The class each prompt button wears, by tone. */
 export function promptButtonClass(tone: PromptButton["tone"]): string {

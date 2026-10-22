@@ -529,7 +529,7 @@ async def _process_job(job: Any, settings: Settings) -> None:
     if job.jobType == SHA_VERIFY:
         # Questionnaire v2: hash the stored object (streamed, never held whole) and apply the
         # identical-bytes rules. Calls no outside service.
-        from app.services.questionnaire_v2 import recordings as v2_recordings
+        from app.questionnaire import recordings as v2_recordings
 
         result = await v2_recordings.verify_sha(media.id)
         await _complete_job(job.id, result)

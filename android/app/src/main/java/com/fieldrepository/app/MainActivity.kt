@@ -594,9 +594,11 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Locale
 import com.fieldrepository.app.ui.FieldCircularProgressIndicator
-import com.fieldrepository.app.data.QuestionnaireV2
-import com.fieldrepository.app.ui.questionnaire.ArtisanQuestionnaireRecord
-import com.fieldrepository.app.ui.questionnaire.QuestionnaireV2Nav
+import com.fieldrepository.app.questionnaire.data.QuestionnaireV2
+import com.fieldrepository.app.questionnaire.portal.FieldArtisanQuestionnaireRecord
+import com.fieldrepository.app.questionnaire.portal.FieldQuestionnaireHome
+import com.fieldrepository.app.questionnaire.portal.questionnaireViewportHeight
+import com.fieldrepository.app.questionnaire.ui.QuestionnaireV2Nav
 import com.fieldrepository.app.ui.FieldScanControls
 import com.fieldrepository.app.ui.TopBarScanSheet
 import com.fieldrepository.app.ui.fieldScanServices
@@ -604,10 +606,6 @@ import com.fieldrepository.app.ui.runFieldScanAction
 import com.fieldrepository.app.data.ScanCopy
 import com.fieldrepository.app.data.ScanTarget
 import com.fieldrepository.app.data.dispatchScan
-import com.fieldrepository.app.ui.questionnaire.QuestionnaireV2Screen
-import com.fieldrepository.app.ui.questionnaire.QuestionnaireEntry
-import com.fieldrepository.app.ui.questionnaire.questionnaireEntry
-import com.fieldrepository.app.ui.questionnaire.openAppDownloadPage
 
 class MainActivity : ComponentActivity() {
     /**
@@ -636,6 +634,7 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         takePasswordLink(intent)
         LocalAlerts.takeTap(intent)
+        com.fieldrepository.app.forms.FormBundleInbox.take(applicationContext, intent)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -655,6 +654,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         takePasswordLink(intent, restored = savedInstanceState != null)
         if (savedInstanceState == null) LocalAlerts.takeTap(intent)
+        // A form another phone sent (.frwq / .dpwq): the questionnaire screen asks P17.
+        if (savedInstanceState == null) com.fieldrepository.app.forms.FormBundleInbox.take(applicationContext, intent)
         val tokenStore = TokenStore(applicationContext)
         val repository = FieldRepository(ApiClient.create(tokenStore, OutboxSyncWorker.readCacheDir(applicationContext)), tokenStore)
         com.fieldrepository.app.data.PreviewCache.install(java.io.File(applicationContext.noBackupFilesDir, "media-previews")) {
@@ -1918,6 +1919,10 @@ private fun HomeScreen(
         if (questionnaireV2Request != null) screen = screenFor(EntryMode.QUESTIONNAIRE)
     }
     // "Continue with…" on an artisan's record opened a session on the server: go to it.
+    val receivedFormBundle by com.fieldrepository.app.forms.FormBundleInbox.pending.collectAsState()
+    LaunchedEffect(receivedFormBundle) {
+        if (receivedFormBundle != null) screen = screenFor(EntryMode.QUESTIONNAIRE)
+    }
     val questionnaireV2Session by QuestionnaireV2Nav.openServerSession.collectAsState()
     LaunchedEffect(questionnaireV2Session) {
         if (questionnaireV2Session != null) screen = screenFor(EntryMode.QUESTIONNAIRE)
@@ -2787,35 +2792,15 @@ private fun HomeScreen(
                 // Until then, and for the builder (overflow menu), the screen below is unchanged.
                 val v2Context = LocalContext.current
                 val v2Config by remember { QuestionnaireV2.get(v2Context) }.config.collectAsState()
-                var questionnaireBuilder by remember { mutableStateOf(false) }
-                val v2Prefill by QuestionnaireV2Nav.pending.collectAsState()
-                // A content admin may edit any form, so reaches the builder too (owner, 22 Oct 2026).
-                val canBuild = isQuestionnaireManager || canDelete
-                val entry = questionnaireEntry(v2Config?.v2Enabled == true, questionnaireBuilder, canBuild)
-                if (entry == QuestionnaireEntry.V2_BUILDER) {
-                    // Audit H15 (21 Oct 2026): Builder used to reopen the whole legacy capture form
-                    // inside v2, for everyone, with no way back. It is the builder alone, for
-                    // questionnaire managers, with Back to the sessions.
-                    BackHandler { questionnaireBuilder = false }
-                    QuestionnaireV2Builder(
-                        repository = repository,
-                        user = user,
-                        onBack = { questionnaireBuilder = false },
-                        onError = { showMessage(it) }
-                    )
-                } else if (entry == QuestionnaireEntry.V2_SESSIONS) {
-                    QuestionnaireV2Screen(
-                        repository = repository,
+                // UNIFY 4.2: the shared questionnaire home (designer-portal's shared tree, synced) with
+                // this app's forms library on its Forms tab, admin authoring included (owner decision 5).
+                if (v2Config?.v2Enabled == true) {
+                    FieldQuestionnaireHome(
                         artisans = artisans,
-                        meId = user?.id,
-                        prefillArtisanIds = listOfNotNull(v2Prefill),
-                        canBuild = canBuild,
-                        canMakePrimary = roleRank(user?.role) >= RANK_PROFESSOR,
-                        onOpenBuilder = { questionnaireBuilder = true },
-                        onUpdateApp = { openAppDownloadPage(v2Context) },
-                        onError = { showMessage(it) }
+                        user = user,
+                        onError = { showMessage(it) },
+                        modifier = Modifier.fillMaxWidth().height(questionnaireViewportHeight())
                     )
-                    LaunchedEffect(v2Prefill) { if (v2Prefill != null) QuestionnaireV2Nav.pending.value = null }
                 } else QuestionnaireForm(
                     repository = repository,
                     sections = sections,
@@ -5815,8 +5800,8 @@ private fun AudioClipRecorder(
         runCatching {
             val file = createAppFile(context, "question-audio-", ".m4a")
             val started = createAudioRecorder(context, file).also { it.start() }
-            com.fieldrepository.app.recording.LegacyTake.begin(com.fieldrepository.app.recording.LegacyTake.Media(started), file)
-            com.fieldrepository.app.recording.LegacyRecordingService.start(context)
+            com.fieldrepository.app.legacyrecording.LegacyTake.begin(com.fieldrepository.app.legacyrecording.LegacyTake.Media(started), file)
+            com.fieldrepository.app.legacyrecording.LegacyRecordingService.start(context)
             recorder = started
             recordingFile = file
             phase = RecPhase.RECORDING
@@ -5826,8 +5811,8 @@ private fun AudioClipRecorder(
     /** Stop the take and attach it. Also the dispose path: a collapse or Back keeps the take. */
     fun finaliseTake(): Boolean {
         if (recorder == null) return false
-        val file = com.fieldrepository.app.recording.LegacyTake.finalise()
-        com.fieldrepository.app.recording.LegacyRecordingService.stop(context)
+        val file = com.fieldrepository.app.legacyrecording.LegacyTake.finalise()
+        com.fieldrepository.app.legacyrecording.LegacyRecordingService.stop(context)
         recorder = null
         recordingFile = null
         if (file != null) addClip(uriForFile(context, file))
@@ -5855,7 +5840,7 @@ private fun AudioClipRecorder(
             RecPhase.RECORDING -> {
                 ActionRow {
                     OutlinedButton(
-                        onClick = { runCatching { com.fieldrepository.app.recording.LegacyTake.pause(); phase = RecPhase.PAUSED }.onFailure { onError(it.apiErrorMessage("Unable to pause")) } },
+                        onClick = { runCatching { com.fieldrepository.app.legacyrecording.LegacyTake.pause(); phase = RecPhase.PAUSED }.onFailure { onError(it.apiErrorMessage("Unable to pause")) } },
                         contentPadding = pad
                     ) {
                         Icon(Icons.Filled.Pause, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -5871,7 +5856,7 @@ private fun AudioClipRecorder(
             RecPhase.PAUSED -> {
                 ActionRow {
                     OutlinedButton(
-                        onClick = { runCatching { com.fieldrepository.app.recording.LegacyTake.resume(); phase = RecPhase.RECORDING }.onFailure { onError(it.apiErrorMessage("Unable to resume")) } },
+                        onClick = { runCatching { com.fieldrepository.app.legacyrecording.LegacyTake.resume(); phase = RecPhase.RECORDING }.onFailure { onError(it.apiErrorMessage("Unable to resume")) } },
                         contentPadding = pad
                     ) { Text("Resume ●", maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelLarge) }
                     OutlinedButton(onClick = { stopAndSave() }, contentPadding = pad) {
@@ -5943,21 +5928,21 @@ private fun AudioClipRecorder(
  */
 /**
  * Start a take of [file] held up by the microphone foreground service (the legacy recorder's
- * [com.fieldrepository.app.recording.LegacyTake]): a locked screen, an app switch or the system
+ * [com.fieldrepository.app.legacyrecording.LegacyTake]): a locked screen, an app switch or the system
  * reclaiming memory no longer kills it or leaves an unplayable file. Returns the recorder for the
  * level meter only; Pause, Stop and every exit go through [stopHeldTake].
  */
 private fun startHeldTake(context: Context, file: File): MediaRecorder {
     val started = createAudioRecorder(context, file).also { it.start() }
-    com.fieldrepository.app.recording.LegacyTake.begin(com.fieldrepository.app.recording.LegacyTake.Media(started), file)
-    com.fieldrepository.app.recording.LegacyRecordingService.start(context)
+    com.fieldrepository.app.legacyrecording.LegacyTake.begin(com.fieldrepository.app.legacyrecording.LegacyTake.Media(started), file)
+    com.fieldrepository.app.legacyrecording.LegacyRecordingService.start(context)
     return started
 }
 
 /** Stop the held take and release the service: the file to attach, or null when it held no audio. */
 private fun stopHeldTake(context: Context): File? {
-    val file = com.fieldrepository.app.recording.LegacyTake.finalise()
-    com.fieldrepository.app.recording.LegacyRecordingService.stop(context)
+    val file = com.fieldrepository.app.legacyrecording.LegacyTake.finalise()
+    com.fieldrepository.app.legacyrecording.LegacyRecordingService.stop(context)
     return file
 }
 
@@ -11166,14 +11151,10 @@ private fun ArtisanQuestionnaireData(repository: FieldRepository, artisanId: Str
     if (v2Config?.v2Enabled == true) {
         var artisanName by remember(artisanId) { mutableStateOf("") }
         LaunchedEffect(artisanId) { runCatching { repository.artisan(artisanId) }.onSuccess { artisanName = it.name } }
-        ArtisanQuestionnaireRecord(
-            v2 = v2, artisanId = artisanId, artisanName = artisanName,
-            onContinueWith = { QuestionnaireV2Nav.pending.value = it },
-            onStartSession = { QuestionnaireV2Nav.pending.value = it },
-            // "Continue with…" opened a session on the server: the questionnaire screen opens it.
-            onOpenSession = { QuestionnaireV2Nav.openServerSession.value = it },
-            onMessage = { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show() }
-        )
+        // "Continue with…" opened a session on the server: the questionnaire screen opens it.
+        FieldArtisanQuestionnaireRecord(artisanId, artisanName) {
+            android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show()
+        }
         return
     }
     var data by remember(artisanId) { mutableStateOf<ArtisanQuestionnaireDto?>(null) }

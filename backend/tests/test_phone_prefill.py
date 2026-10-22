@@ -3,7 +3,7 @@ stored apart and shown as ``+91 98765 43210``; an empty phone prefills nothing."
 
 from types import SimpleNamespace
 
-from app.services.questionnaire_v2.answers import format_phone, prefill_value, split_phone
+from app.questionnaire.answers import format_phone, prefill_value, split_phone
 
 
 def test_country_code_and_digits_prefill_the_display_form() -> None:

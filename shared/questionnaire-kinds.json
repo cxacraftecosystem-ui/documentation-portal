@@ -1,0 +1,17 @@
+{
+  "contract": "questionnaire-kinds",
+  "version": 1,
+  "source": "designer-portal app/services/questionnaire_kinds.py (owner, 2026-08-30), now app/questionnaire/kinds.py in both portals",
+  "enforcedBy": "backend/tests/test_questionnaire_core.py, identical in both portals",
+  "notStatedLabel": "Kind not stated",
+  "kinds": {
+    "WORKSHOP_INTERVIEW": {
+      "label": "Workshop interview",
+      "stage": {"designer-portal": "EXISTING_PRODUCTS_BASELINE", "documentation-portal": "WORKSHOP_EXPORT_ANNEXURE"}
+    },
+    "MARKET_SURVEY": {
+      "label": "Market survey",
+      "stage": {"designer-portal": "MARKET_SURVEY_CAPTURE", "documentation-portal": "WORKSHOP_EXPORT_ANNEXURE"}
+    }
+  }
+}

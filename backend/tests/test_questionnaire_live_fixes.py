@@ -77,7 +77,7 @@ async def _legacy_create(ids: SimpleNamespace, artisans: list[str], user: Any, *
 
 
 def test_m19_the_live_filter_applies_with_the_flag_off(monkeypatch) -> None:
-    from app.services.questionnaire_v2.live import live_media_where
+    from app.questionnaire.live import live_media_where
 
     settings_v2(monkeypatch, False)
     assert live_media_where() == {"removedAt": None}
@@ -186,7 +186,7 @@ def test_h6_a_legacy_merge_with_v2_data_goes_through_the_v2_merge(monkeypatch) -
     from app.api import router as api_router_module
     from app.api.routes import questionnaire
     from app.core import deps
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire import sessions
 
     async def go() -> None:
         client = await connect()
@@ -234,7 +234,7 @@ def test_h6_a_legacy_merge_with_v2_data_goes_through_the_v2_merge(monkeypatch) -
 @needs_db
 def test_h7_a_question_with_only_a_take_survives_a_re_upload_that_leaves_it_out(monkeypatch) -> None:
     from app.api.routes import questionnaire
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire import sessions
     from app.services.questionnaire_xlsx import ParsedQuestion, ParsedQuestionnaire, ParsedSection
 
     settings_v2(monkeypatch, False)
@@ -306,7 +306,7 @@ def test_h3_the_corpus_routes_need_dataset_download_access() -> None:
 @needs_db
 def test_h3_a_volunteer_cannot_download_a_take_or_an_artisan_record_csv(monkeypatch) -> None:
     from app.api.routes import questionnaire_v2
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire import sessions
 
     settings_v2(monkeypatch, True)
 
@@ -360,7 +360,7 @@ def test_m8_the_consent_gate_reads_the_ledger_only(monkeypatch) -> None:
 @needs_db
 def test_m20_use_transcripts_follows_the_recording_target_not_the_caption_number(monkeypatch) -> None:
     from app.api.routes import questionnaire
-    from app.services.questionnaire_v2 import sessions
+    from app.questionnaire import sessions
 
     settings_v2(monkeypatch, False)
 

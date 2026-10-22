@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { CONFIG_FALLBACK, questionnaireApi, type QuestionnaireConfig } from "@/lib/questionnaireApi";
+import { CONFIG_FALLBACK, questionnaireApi, type QuestionnaireConfig } from "@/lib/questionnaire/api";
 
 let cached: QuestionnaireConfig | null = null;
 let inflight: Promise<QuestionnaireConfig> | null = null;
@@ -27,7 +27,13 @@ export function loadQuestionnaireConfig(): Promise<QuestionnaireConfig> {
 export function useQuestionnaireConfig(): QuestionnaireConfig | null {
   const [config, setConfig] = useState<QuestionnaireConfig | null>(cached);
   useEffect(() => {
-    if (cached) return;
+    // The answer may have landed between this render and this effect (another screen asked): take
+    // it now, or this one stays `null` for good.
+    if (cached) {
+      const known = cached;
+      setConfig((current) => current ?? known);
+      return;
+    }
     let cancelled = false;
     void loadQuestionnaireConfig().then((value) => {
       if (!cancelled) setConfig(value);

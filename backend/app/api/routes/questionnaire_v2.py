@@ -2,7 +2,7 @@
 
 ``/api/questionnaire/...`` (sessions, coverage, recordings, answers, inbox, corpus, config) and
 ``/api/artisans/{id}/consent|record``. The media routes (presign, multipart, uploads, complete,
-download) live in ``routes/media.py`` and call ``services/questionnaire_v2/recordings.py``.
+download) live in ``routes/media.py`` and call ``app/questionnaire/recordings.py``.
 
 EVERY v2 ROUTE ANSWERS 404 WHILE ``QUESTIONNAIRE_V2`` IS FALSE, except ``GET /config`` (which says
 so) and the consent routes (consent gates outside sends whatever screens a client draws). Bodies are
@@ -21,11 +21,11 @@ from pydantic import BaseModel, ValidationError
 from app.services import transcription_enqueue as transcription
 from app.core.config import get_settings
 from app.core.deps import get_current_user, require_dataset_downloader
-from app.schemas import questionnaire_v2 as S
+from app.questionnaire import schemas as S
 from app.services import consent_gate
-from app.services.questionnaire_v2 import answers, corpus, coverage, inbox, record, recordings, sessions
-from app.services.questionnaire_v2.common import fail, iso
-from app.services.questionnaire_v2.recordings import MULTIPART_THRESHOLD, PART_SIZE
+from app.questionnaire import answers, authoring, bindings, corpus, coverage, inbox, record, recordings, respondents, sessions
+from app.questionnaire.common import fail, iso
+from app.questionnaire.recordings import MULTIPART_THRESHOLD, PART_SIZE
 
 CONTRACT_VERSION = 1
 
@@ -101,11 +101,15 @@ async def sessions_create(request: Request, user: Any = Depends(get_current_user
 async def sessions_list(
     workshopId: str | None = None, questionnaireId: str | None = None, artisanId: str | None = None,
     researcherId: str | None = None, dateFrom: str | None = None, dateTo: str | None = None, search: str | None = None,
-    cursor: str | None = None, limit: int = Query(20, ge=1, le=100), _: Any = Depends(get_current_user),
+    cursor: str | None = None, limit: int = Query(20, ge=1, le=100), deleted: bool = False,
+    user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
+    # The Deleted list (soft-deleted sessions, owner decision 3) is the content admins'.
+    if deleted and not authoring.may_list_deleted_sessions(user):
+        fail("FORBIDDEN", "Only an admin can see deleted sessions.")
     return await sessions.list_sessions(
         workshopId=workshopId, questionnaireId=questionnaireId, artisanId=artisanId, researcherId=researcherId,
-        dateFrom=dateFrom, dateTo=dateTo, search=search, cursor=cursor, limit=limit,
+        dateFrom=dateFrom, dateTo=dateTo, search=search, cursor=cursor, limit=limit, deleted=deleted,
     )
 
 
@@ -135,7 +139,11 @@ async def sessions_get(session_id: str, user: Any = Depends(get_current_user)) -
     rows = await recordings.recording_rows(db, session_id=session_id)
     recs = await recordings.serialize_recordings(db, rows, user)
     participant_ids = [p["artisanId"] for p in session["participants"]]
-    grid = await coverage.grid(session["questionnaire"]["id"], artisan_ids=participant_ids, client=db) if participant_ids else None
+    guest_ids = [r["id"] for r in session.get("respondents", []) if not r.get("artisanId")]
+    grid = (
+        await coverage.grid(session["questionnaire"]["id"], artisan_ids=participant_ids, client=db, respondent_ids=guest_ids)
+        if participant_ids or guest_ids else None
+    )
     session_answers = await answers.answers_for(db, session_id=session_id)
     return {
         **session,
@@ -159,6 +167,118 @@ async def sessions_patch(session_id: str, request: Request, user: Any = Depends(
 async def sessions_delete(session_id: str, user: Any = Depends(get_current_user)) -> Response:
     await sessions.delete_session(session_id, user)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/sessions/{session_id}/restore", dependencies=V2)
+async def sessions_restore(session_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return await sessions.restore_session(session_id, user)
+
+
+# ── guest respondents (owner decision 1; UNIFY U6, A17, A18) ───────────────────────────────────
+@router.post("/sessions/{session_id}/respondents", dependencies=V2)
+async def sessions_add_respondents(session_id: str, request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    payload = await parse(request, S.RespondentsAdd)
+    return {"respondents": await respondents.add(session_id, payload.respondents, user)}
+
+
+@router.patch("/sessions/{session_id}/respondents/{respondent_id}", dependencies=V2)
+async def sessions_patch_respondent(
+    session_id: str, respondent_id: str, request: Request, user: Any = Depends(get_current_user)
+) -> dict[str, Any]:
+    payload = await parse(request, S.RespondentPatch)
+    return await respondents.patch(session_id, respondent_id, payload, user)
+
+
+@router.delete("/sessions/{session_id}/respondents/{respondent_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=V2)
+async def sessions_remove_respondent(session_id: str, respondent_id: str, user: Any = Depends(get_current_user)) -> Response:
+    await respondents.remove(session_id, respondent_id, user)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/respondents/{respondent_id}/register", dependencies=V2)
+async def respondents_register(respondent_id: str, request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    payload = await parse(request, S.RespondentRegister)
+    return await respondents.register(respondent_id, payload.artisanId, user)
+
+
+# ── the start sheet's form, bindings and type defaults (UNIFY U5; owner amendment 2) ───────────
+@router.get("/form-for", dependencies=V2)
+async def form_for(
+    workshopId: str | None = None, designWorkshopId: str | None = None, questionnaireId: str | None = None,
+    _: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    return await bindings.resolve_for_workshop(workshop_id=workshopId, design_workshop_id=designWorkshopId, explicit=questionnaireId)
+
+
+@router.get("/forms/{questionnaire_id}/structure", dependencies=V2)
+async def form_structure_get(questionnaire_id: str, includeRetired: bool = False, _: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """A form's sections and questions as the shared session screens read them (UNIFY 4.2)."""
+    from app.questionnaire import structure
+
+    return await structure.form_structure(questionnaire_id, include_retired=includeRetired)
+
+
+@router.get("/forms/{questionnaire_id}/bindings", dependencies=V2)
+async def form_bindings_get(questionnaire_id: str, _: Any = Depends(get_current_user)) -> dict[str, Any]:
+    from app.core.db import db
+
+    return {"questionnaireId": questionnaire_id, "bindings": await bindings.bindings_of_form(db, questionnaire_id)}
+
+
+@router.put("/forms/{questionnaire_id}/bindings", dependencies=V2)
+async def form_bindings_put(questionnaire_id: str, request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    payload = await parse(request, S.BindingsPut)
+    return {"questionnaireId": questionnaire_id, "bindings": await bindings.set_bindings(questionnaire_id, payload.bindings, user)}
+
+
+@router.get("/type-defaults", dependencies=V2)
+async def type_defaults_get(_: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Each workshop type's default form (owner, amendment 2 point 2), for the library's admin card."""
+    from app.core.db import db
+
+    rows = await db.query_raw(
+        'SELECT d."questionnaireId", d."workshopType"::text AS "workshopType", d."designWorkshopKind", d."setAt", q."title" '
+        'FROM "QuestionnaireTypeDefault" d JOIN "Questionnaire" q ON q."id" = d."questionnaireId" '
+        'WHERE q."deletedAt" IS NULL ORDER BY d."workshopType", d."designWorkshopKind"'
+    )
+    return {
+        "workshopTypes": list(bindings.WORKSHOP_TYPES),
+        "defaults": [
+            {"questionnaireId": r["questionnaireId"], "title": r["title"], "workshopType": r.get("workshopType"),
+             "designWorkshopKind": r.get("designWorkshopKind"), "setAt": iso(r.get("setAt"))}
+            for r in rows
+        ],
+    }
+
+
+@router.get("/annexure", dependencies=V2)
+async def annexure_get(
+    workshopId: str, format: str = Query("json", pattern="^(json|txt)$"), user: Any = Depends(get_current_user),
+) -> Any:
+    """The workshop's questionnaire annexure, grouped by kind, live sessions only (UNIFY A12): what
+    the workshop export prints. Answers in it are research data, so it is for questionnaire managers
+    and dataset downloaders."""
+    from app.core.deps import can_download_dataset, can_manage_questionnaire
+    from app.services import questionnaire_library
+    from app.services.naming import content_disposition
+
+    if not (can_manage_questionnaire(user) or can_download_dataset(user)):
+        fail("FORBIDDEN", "You need questionnaire or dataset access to read the annexure.")
+    doc = await questionnaire_library.annexure(workshopId)
+    if format == "txt":
+        return Response(
+            questionnaire_library.annexure_text(doc), media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": content_disposition(questionnaire_library.annexure_filename(doc.get("workshopTitle")))},
+        )
+    return doc
+
+
+@router.put("/type-defaults", dependencies=V2)
+async def type_default_put(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    payload = await parse(request, S.TypeDefaultPut)
+    return await bindings.set_type_default(
+        payload.questionnaireId, user, workshop_type=payload.workshopType, design_workshop_kind=payload.designWorkshopKind
+    )
 
 
 @router.post("/sessions/{session_id}/participants", dependencies=V2)
@@ -348,6 +468,16 @@ async def assert_may_download_recording(recording_id: str, user: Any) -> None:
 async def answers_put(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
     payload = await parse(request, S.AnswersPut)
     return await answers.put_answers(payload, user)
+
+
+@router.get("/answers/{answer_id}/revisions", dependencies=V2)
+async def answers_revisions(answer_id: str, _: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return await answers.answer_revisions(answer_id)
+
+
+@router.get("/recordings/{recording_id}/events", dependencies=V2)
+async def recordings_events(recording_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    return await recordings.recording_events(recording_id, user)
 
 
 @router.get("/inbox", dependencies=V2)
