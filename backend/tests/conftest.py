@@ -19,6 +19,11 @@ if not os.environ.get("AADHAAR_FINGERPRINT_KEY"):
 
 import pytest  # noqa: E402 - after the sys.path line above, which this import does not need
 
+# QUESTIONNAIRE_V2 defaults ON since the unified switch-on (U5), and the suite was written while it
+# defaulted off; every Settings this run builds starts from off (a test of a v2 path turns it on
+# itself; see the fixture at the foot of this file). Set before anything here builds Settings.
+os.environ.setdefault("QUESTIONNAIRE_V2", "false")
+
 
 @pytest.fixture(autouse=True)
 def _fresh_account_credential_budget():
@@ -39,4 +44,22 @@ def _fresh_aadhaar_legacy_answer():
     from app.services.aadhaar_fingerprint import reset_legacy_pending
 
     reset_legacy_pending()
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _questionnaire_v2_off_unless_a_test_turns_it_on(monkeypatch: pytest.MonkeyPatch):
+    """QUESTIONNAIRE_V2 defaults ON since the unified switch-on (UNIFY_2026-10-21.md 5.2, U5), but the
+    suite was written while it defaulted off: every test of a v2 path switches it on itself
+    (``monkeypatch.setattr(get_settings(), "questionnaire_v2", True)``), and the tests of the old
+    routes describe what runs while it is off, which is still the switch's other position. Each test
+    starts from off, as before the switch; the default itself is asserted by the wiring tests."""
+    try:
+        from app.core.config import get_settings
+
+        settings = get_settings()
+    except Exception:  # noqa: BLE001 - no settings in this run: nothing to pin
+        yield
+        return
+    monkeypatch.setattr(settings, "questionnaire_v2", False)
     yield
