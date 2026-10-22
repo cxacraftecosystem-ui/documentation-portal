@@ -47,15 +47,15 @@ async function evidence(info: TestInfo, name: string, body: string, contentType:
   await info.attach(name, { body, contentType });
 }
 
-test("tapping Continue with Google opens Google's sign-in window", async ({ page, context, hasTouch, browserName }, info) => {
-  // A TABLET'S CPU, NOT A RUNNER'S. The live failure is a race between the person's first tap and
-  // React taking over the server-rendered page; on a fast runner hydration usually wins and hides
-  // it. Chromium can be slowed down to tablet speed, so it is, and the race is lost the way a real
-  // tablet loses it. WebKit has no equivalent switch.
-  if (browserName === "chromium") {
-    const cdp = await context.newCDPSession(page);
-    await cdp.send("Emulation.setCPUThrottlingRate", { rate: 6 });
-  }
+test("tapping Continue with Google opens Google's sign-in window", async ({ page, context, hasTouch }, info) => {
+  // A TABLET'S CONNECTION, NOT A RUNNER'S. The live failure is a race between the person's first
+  // tap and React taking over the server-rendered page; on a runner the scripts arrive at once and
+  // hydration usually wins, which hides it. Holding the page's scripts back for a moment loses the
+  // race the way a tablet on a mobile connection loses it, on every engine.
+  await page.route("**/_next/static/chunks/**", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
+    await route.continue();
+  });
 
   const consoleLines: string[] = [];
   page.on("console", (message) => consoleLines.push(`[${message.type()}] ${message.text()}`));
