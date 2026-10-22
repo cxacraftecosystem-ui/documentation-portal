@@ -56,7 +56,7 @@ async def main(out_path: str) -> None:
             "artisans": ids.artisans,
             "rebuiltSessionId": str(rebuilt["id"]),
             "tokens": {"lead": create_access_token(ids.lead.id), "other": create_access_token(ids.other.id),
-                       "admin": create_access_token(ids.admin.id)},
+                       "admin": create_access_token(ids.admin.id), "prof": create_access_token(ids.prof.id)},
         }
     finally:
         await db.disconnect()

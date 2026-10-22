@@ -110,13 +110,12 @@ test("the builder's edit controls are drawn only for the form's author or a cont
   const page = read("app/(protected)/questionnaire/page.tsx");
   expect(page).toContain("mayEdit={mayEditQuestionnaire(user, instruments.find((instrument) => instrument.id === questionnaireId)?.createdById)}");
 
-  // The admin workbook pages: re-uploading over a form follows the same rule, never the manager grant.
-  const list = read("app/(protected)/questionnaire/workbooks/page.tsx");
-  expect(list).toContain("{mayEditQuestionnaire(user, instrument.createdById) ? (");
-  expect(list).not.toContain("canManageQuestionnaire");
-  const one = read("app/(protected)/questionnaire/workbooks/[id]/page.tsx");
-  expect(one).toContain("const mayUpdate = permitted && mayEditQuestionnaire(user, instrument?.createdById);");
-  expect(one).not.toContain("canManageQuestionnaire");
+  // The forms library (UNIFY U3): a form's own workbook and its re-upload are drawn from the server's
+  // `can.edit` (its author or a content admin), never from the manager grant.
+  const one = read("app/(protected)/questionnaires/[id]/page.tsx");
+  expect(one).toContain("{can.edit ? (\n                <button");
+  expect(one).toContain("downloadQuestionnaireWorkbook(form.id)");
+  expect(one).toContain("{can.edit ? (\n        <WorkbookUploadDialog");
 });
 
 test("the builder draws Delete, Remove, switch-off and Restore for the author or a content admin", () => {
@@ -183,8 +182,11 @@ test("files, sessions, takes and questionnaire structure are deleted by content 
   expect(page).toContain("editing && isContentAdmin(user) ? await offerMergeOnConflict(err, editing.id) : false");
 });
 
-test("an instrument's Delete retires it, for a content admin", () => {
-  const page = read("app/(protected)/questionnaire/workbooks/[id]/page.tsx");
-  expect(page).toContain("const mayDelete = permitted && isContentAdmin(user);");
-  expect(page).toContain("apiFetch(`/questionnaires/${encodeURIComponent(target.id)}`, { method: \"DELETE\" })");
+test("a form's Delete is its author's or a content admin's, and its Restore a content admin's", () => {
+  const page = read("app/(protected)/questionnaires/[id]/page.tsx");
+  expect(page).toContain("{can.delete ? (");
+  expect(page).toContain("await library.remove(form.id);");
+  expect(page).toContain("can.restore ? (");
+  const lib = read("lib/questionnaireLibrary.ts");
+  expect(lib).toContain('remove: (id: string) => apiFetch<LibraryForm>(`${FORMS}/${encodeURIComponent(id)}`, { method: "DELETE" })');
 });

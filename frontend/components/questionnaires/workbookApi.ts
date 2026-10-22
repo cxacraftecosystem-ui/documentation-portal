@@ -57,6 +57,9 @@ export type QWorkbookReport = {
   removed: number;
   unchanged: number;
   answersSkipped: number;
+  /** A new form's hand-filled answers, imported as uploaded sessions (UNIFY U7). */
+  answersImported?: number;
+  sessionsCreated?: number;
   assignedTasksAffected: number;
   provenance: QWorkbookProvenance | null;
   versionBefore: number;
@@ -135,7 +138,7 @@ export function fileNameFromDisposition(header: string | null): string | null {
   }
 }
 
-/** The blank workbook the questionnaire is typed into. */
+/** The blank workbook a form is typed into: any form author (UNIFY 4.1). */
 export function downloadProForma() {
   return fetchWorkbook("/questionnaires/pro-forma", exportFilename("Questionnaire", "Pro-Forma", "xlsx", { dated: false }));
 }
@@ -174,11 +177,17 @@ export function downloadQuestionSet(id: string) {
  * (lib/api.ts:168) precisely so the browser can write the multipart boundary into the header itself;
  * setting one by hand produces a body the server cannot parse and a 422 with no useful detail.
  */
-export function uploadQuestionnaire(file: File, options?: { title?: string | null; description?: string | null }) {
+export function uploadQuestionnaire(
+  file: File,
+  options?: { title?: string | null; description?: string | null; kind?: string | null; workshopId?: string | null }
+) {
   const body = new FormData();
   body.append("file", file);
   if (options?.title) body.append("title", options.title);
   if (options?.description) body.append("description", options.description);
+  // The form's kind, and the workshop its imported answers belong to (UNIFY U7).
+  if (options?.kind) body.append("kind", options.kind);
+  if (options?.workshopId) body.append("workshopId", options.workshopId);
   return apiFetch<QWorkbookUploadResult>("/questionnaires/upload", { method: "POST", body });
 }
 

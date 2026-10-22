@@ -1100,7 +1100,7 @@ jobs:
           npm install --global npm@12
           npm ci
 
-      - name: The web outbox against the stack
+      - name: The web outbox and the forms library against the stack
         working-directory: frontend
         env:
           QV2_STACK_API: "http://127.0.0.1:8000"
@@ -1108,7 +1108,8 @@ jobs:
           set -uo pipefail
           export QV2_STACK_SEED="$RUNNER_TEMP/qv2-seed.json"
           status=0
-          npx playwright test e2e/questionnaire-v2-stack.spec.ts || status=$?
+          # The outbox, then the forms library (UNIFY U3), against the same seeded stack.
+          npx playwright test e2e/questionnaire-v2-stack.spec.ts e2e/questionnaire-library-stack.spec.ts || status=$?
           if [ "$status" -ne 0 ]; then
             echo "--- API log (last 200 lines) ---"
             tail -n 200 "$RUNNER_TEMP/api.log"

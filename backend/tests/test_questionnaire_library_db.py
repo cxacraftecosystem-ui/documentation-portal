@@ -240,10 +240,6 @@ def test_the_annexure_groups_by_kind_and_reads_live_sessions_only(monkeypatch) -
         try:
             await client.execute_raw('UPDATE "Questionnaire" SET "kind" = $2 WHERE "id" = $1', ids.q, "WORKSHOP_INTERVIEW")
             survey = await lib.reuse(ids.q, ids.prof, title=f"Survey {ids.tag}", kind="MARKET_SURVEY")
-            await client.execute_raw(
-                'INSERT INTO "QuestionnaireBinding" ("id", "questionnaireId", "workshopId", "isPrimary") VALUES ($1, $2, $3, false)',
-                f"bs{ids.tag}", survey["id"], ids.workshop,
-            )
             live, _ = await sessions.create_session(session_create(ids, ids.artisans[:1]), ids.lead)
             gone, _ = await sessions.create_session(session_create(ids, ids.artisans[1:2]), ids.lead)
             d1 = ids.questions["D1"]
@@ -252,6 +248,11 @@ def test_the_annexure_groups_by_kind_and_reads_live_sessions_only(monkeypatch) -
                 {"artisanId": ids.artisans[1], "questionLineageId": d1, "text": "Madder", "sessionId": gone["id"]},
             ]}), ids.lead)
             await sessions.delete_session(gone["id"], ids.admin)
+            # The survey is bound to the workshop but has no sessions there: it is printed, empty.
+            await client.execute_raw(
+                'INSERT INTO "QuestionnaireBinding" ("id", "questionnaireId", "workshopId", "isPrimary") VALUES ($1, $2, $3, false)',
+                f"bs{ids.tag}", survey["id"], ids.workshop,
+            )
             doc = await lib.annexure(ids.workshop)
             assert [g["kind"] for g in doc["groups"]] == ["WORKSHOP_INTERVIEW", "MARKET_SURVEY"]
             interview = doc["groups"][0]["forms"][0]

@@ -570,7 +570,7 @@ def test_nobody_below_a_questionnaire_manager_reaches_a_workbook_route(
     assert api.tripwire.touched is False
 
 
-@pytest.mark.parametrize("role", ("PROFESSOR", "MINISTRY_ADMIN", "ADMIN", "MASTER_ADMIN"))
+@pytest.mark.parametrize("role", ("PROFESSOR", "ADMIN", "MASTER_ADMIN"))
 def test_a_form_author_reaches_the_workbook_upload_handler(api: _Api, role: str) -> None:
     outcome = api.as_(_user(role)).call("POST", "/questionnaires/upload")
 
@@ -598,12 +598,12 @@ def test_the_pro_forma_path_is_not_swallowed_by_an_id_route(api: _Api) -> None:
     assert api.tripwire.touched is False
 
 
-def test_a_ministry_admin_creates_from_a_workbook_and_edits_and_reuploads_any_form(
+def test_a_ministry_admin_edits_and_reuploads_any_form_but_does_not_author_new_ones(
     api: _Api,
 ) -> None:
-    """A Ministry Admin ranks above Professor, so creating from a workbook is theirs, and as a content
-    admin they edit every form and re-upload its workbook, whoever wrote it."""
-    assert api.as_(_user("MINISTRY_ADMIN")).call("POST", "/questionnaires/upload").status_code == 422
+    """`can_manage_questionnaire` does not cover a Ministry Admin, so a new form from a workbook is
+    not theirs; as a content admin they edit every form and re-upload its workbook, whoever wrote it."""
+    assert api.as_(_user("MINISTRY_ADMIN")).call("POST", "/questionnaires/upload").refused
 
     api.tripwire.reset()
     ministry = _authored_by_u1(api).as_(_user("MINISTRY_ADMIN", "u2"))
