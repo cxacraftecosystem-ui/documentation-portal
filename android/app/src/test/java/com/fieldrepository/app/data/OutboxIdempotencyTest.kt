@@ -1,5 +1,6 @@
 package com.fieldrepository.app.data
 
+import com.fieldrepository.app.questionnaire.QFeature
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -33,6 +34,7 @@ class OutboxIdempotencyTest {
         override suspend fun put(url: String, headers: Map<String, String>, file: java.io.File, offset: Long, length: Long, contentType: String) = inner.put(url, headers, file, offset, length, contentType)
     }
 
+    @QFeature("B1")
     @Test
     fun `retries reuse the key and the frozen body`() = runBlocking {
         val outbox = SessionOutbox(InMemorySessionUnitStore(), clock = { Instant.parse("2026-07-01T10:00:00Z") })

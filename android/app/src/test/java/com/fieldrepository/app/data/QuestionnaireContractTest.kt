@@ -1,5 +1,6 @@
 package com.fieldrepository.app.data
 
+import com.fieldrepository.app.questionnaire.QFeature
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonObject
@@ -18,6 +19,7 @@ class QuestionnaireContractTest {
 
     private fun <T> decodes(serializer: KSerializer<T>, text: String): T = json.decodeFromString(serializer, text)
 
+    @QFeature("B36")
     @Test fun config() {
         val c = decodes(QConfig.serializer(), """{"contractVersion": 1, "v2Enabled": true, "transcriptionPaused": true, "noteMaxChars": 80,
             "multipartThresholdBytes": 5242880, "partSizeBytes": 8388608, "snapshotPollSeconds": 60, "joinCodeLength": 6, "minAppVersionForCreate": null}""")

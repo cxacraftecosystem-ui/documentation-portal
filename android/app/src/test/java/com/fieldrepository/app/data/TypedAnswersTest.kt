@@ -1,5 +1,6 @@
 package com.fieldrepository.app.data
 
+import com.fieldrepository.app.questionnaire.QFeature
 import com.fieldrepository.app.ui.questionnaire.AnswerModel
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -47,6 +48,8 @@ class TypedAnswersTest {
         assertTrue(outbox.unit("c")!!.failedSteps.isEmpty())
     }
 
+    @QFeature("B19")
+    @QFeature("B20")
     @Test fun `a save carries the version of the answer it replaces`() {
         val current = listOf(QAnswer(id = "x", version = 3, text = "Teak", artisanId = "a1", questionLineageId = "lin1"))
         val one = AnswerModel.items("Sal", setOf("a1"), "lin1", "s1", current).single()

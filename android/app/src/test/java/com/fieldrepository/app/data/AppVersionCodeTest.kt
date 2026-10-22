@@ -1,5 +1,6 @@
 package com.fieldrepository.app.data
 
+import com.fieldrepository.app.questionnaire.QFeature
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
@@ -31,6 +32,7 @@ class AppVersionCodeTest {
         assertEquals("0.0.1", seen!!.header(ClientClock.APP_VERSION_HEADER))
     }
 
+    @QFeature("B35")
     @Test fun `the P14 banner compares versionCodes, never names`() {
         // A name minimum that once stopped old builds no longer shows the banner on a new build.
         assertFalse(QConfig(minAppVersionForCreate = "0.0.22").updateRequired(versionCode = 27))

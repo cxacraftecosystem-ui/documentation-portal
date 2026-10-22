@@ -1,5 +1,6 @@
 package com.fieldrepository.app.ui
 
+import com.fieldrepository.app.questionnaire.QFeature
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -30,6 +31,7 @@ class QuestionnaireV2UiTest {
     @get:Rule
     val compose = createComposeRule()
 
+    @QFeature("B39")
     @Test
     fun theFixTrayOffersSendAgainDiscardAndP9() {
         val sent = mutableListOf<String>()
@@ -76,6 +78,7 @@ class QuestionnaireV2UiTest {
         assertEquals(KeepOneChoice.THIS, chosen)
     }
 
+    @QFeature("B18")
     @Test
     fun aRemovedTakeIsRestoredFromShowRemoved() {
         var restored: String? = null

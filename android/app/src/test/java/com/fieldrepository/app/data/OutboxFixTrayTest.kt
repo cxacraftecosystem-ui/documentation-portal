@@ -1,5 +1,6 @@
 package com.fieldrepository.app.data
 
+import com.fieldrepository.app.questionnaire.QFeature
 import com.fieldrepository.app.ui.questionnaire.OutboxTrayModel
 import kotlinx.coroutines.runBlocking
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -31,6 +32,7 @@ class OutboxFixTrayTest {
         QSessionCreate(clientKey = key, questionnaireId = "q", sessionDate = "2026-07-01", startedAt = t0.toString(), participants = listOf(QArtisanRef("a1"))), "u1"
     )
 
+    @QFeature("B39")
     @Test fun `a refused take is a tray row - Send again resends it, Discard deletes it and its file`() = runBlocking {
         val outbox = SessionOutbox(InMemorySessionUnitStore(), clock = { t0 })
         session(outbox, "c-1")

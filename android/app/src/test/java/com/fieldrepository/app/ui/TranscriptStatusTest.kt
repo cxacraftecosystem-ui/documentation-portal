@@ -1,5 +1,6 @@
 package com.fieldrepository.app.ui
 
+import com.fieldrepository.app.questionnaire.QFeature
 import com.fieldrepository.app.data.QConsentVerdict
 import com.fieldrepository.app.data.QRecording
 import com.fieldrepository.app.data.QTranscript
@@ -48,6 +49,7 @@ class TranscriptStatusTest {
      * for a transcription, and only through [TranscriptStatus]'s line, whose Retry is disabled while
      * transcription is paused (above). Any other caller is a control that could start one.
      */
+    @QFeature("B34")
     @Test
     fun `only the take's Retry can ask for a transcription, and never while paused`() {
         val dir = repoFile("app/src/main/java/com/fieldrepository/app/ui/questionnaire/QuestionnairePrompts.kt").parentFile

@@ -98,6 +98,32 @@ object GuestRoster {
         )
 }
 
+/** B24: prefill from the artisan's record (`artisanField`, origin PREFILL). The server fills the value it holds. */
+object PrefillModel {
+    const val LABEL = "Fill from artisan records"
+
+    /** Items for every mapped question an artisan has no answer to yet; nothing that would overwrite. */
+    fun items(form: QForm?, artisanIds: List<String>, sessionId: String, answers: List<QAnswer>, valueOf: (String, String) -> String?): List<com.fieldrepository.app.data.QAnswerItem> {
+        form ?: return emptyList()
+        val mapped = form.sections.filter { it.isActive }.flatMap { it.questions }.filter { it.isActive && it.retiredAt == null && it.supersededById == null && !it.artisanField.isNullOrBlank() }
+        return artisanIds.flatMap { a ->
+            mapped.mapNotNull { q ->
+                val lineage = q.lineageId ?: q.id
+                if (answers.any { it.artisanId == a && it.questionLineageId == lineage && it.text.isNotBlank() }) return@mapNotNull null
+                com.fieldrepository.app.data.QAnswerItem(a, lineage, valueOf(a, q.artisanField!!).orEmpty(), origin = "PREFILL", sessionId = sessionId)
+            }
+        }
+    }
+
+    /** What this phone already knows; the server replaces it with its own copy of the record. */
+    fun localValue(artisan: com.fieldrepository.app.data.ArtisanDto, field: String): String? = when (field) {
+        "name" -> artisan.name
+        "place" -> artisan.place
+        "craft" -> artisan.craft?.name
+        else -> null
+    }?.ifBlank { null }
+}
+
 object RequiredModel {
     /**
      * A19, offline: the required questions (by lineage) that [subjects] have neither answered in text

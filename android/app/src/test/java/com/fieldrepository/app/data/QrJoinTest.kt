@@ -1,5 +1,6 @@
 package com.fieldrepository.app.data
 
+import com.fieldrepository.app.questionnaire.QFeature
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -41,6 +42,7 @@ class QrJoinTest {
         assertNull(JoinQr.normaliseCode("K7Q2"))
     }
 
+    @QFeature("B4")
     @Test
     fun `two phones with one clientKey resolve to one session`() = runBlocking {
         val server = FakeSessionTransport()

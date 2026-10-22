@@ -1,5 +1,6 @@
 package com.fieldrepository.app.data
 
+import com.fieldrepository.app.questionnaire.QFeature
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -24,6 +25,7 @@ class OutboxOrderTest {
         startedAt = t0.toString(), participants = participants.map { QArtisanRef(it) }
     )
 
+    @QFeature("B38")
     @Test
     fun `offline session replays in order and every step once`() = runBlocking {
         val outbox = SessionOutbox(InMemorySessionUnitStore(), clock = { t0 })
@@ -97,6 +99,7 @@ class OutboxOrderTest {
         assertEquals(1, slow.maxInFlight)
     }
 
+    @QFeature("B16")
     @Test
     fun `a multipart upload resumes from the stored ETags after a drop`() = runBlocking {
         val dir = tmp.newFolder()
@@ -119,6 +122,7 @@ class OutboxOrderTest {
         assertEquals(5000L, server.bytesPut)
     }
 
+    @QFeature("B7")
     @Test
     fun `finish waits for every take and answer`() = runBlocking {
         val dir = tmp.newFolder()
@@ -140,6 +144,8 @@ class OutboxOrderTest {
         assertTrue(server.calls.isEmpty())
     }
 
+    @QFeature("B10")
+    @QFeature("C1")
     @Test
     fun `the answered-by chips make an unticked artisan PRESENT, never deleted`() = runBlocking {
         val dir = tmp.newFolder()

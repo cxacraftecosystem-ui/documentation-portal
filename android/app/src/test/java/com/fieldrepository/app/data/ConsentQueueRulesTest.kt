@@ -1,5 +1,6 @@
 package com.fieldrepository.app.data
 
+import com.fieldrepository.app.questionnaire.QFeature
 import com.fieldrepository.app.ui.questionnaire.joinCodeUnknown
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
@@ -18,6 +19,8 @@ import java.io.IOException
 class ConsentQueueRulesTest {
     private fun http(code: Int) = HttpException(Response.error<Any>(code, "{}".toResponseBody(null)))
 
+    @QFeature("B33")
+    @QFeature("C4")
     @Test
     fun aQueuedConsentWaitsOnAnythingARetryCanChange() {
         assertTrue("no signal", consentRetryable(IOException("offline")))

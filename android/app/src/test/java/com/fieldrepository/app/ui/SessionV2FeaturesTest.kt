@@ -1,5 +1,6 @@
 package com.fieldrepository.app.ui
 
+import com.fieldrepository.app.questionnaire.QFeature
 import com.fieldrepository.app.data.ApiClient
 import com.fieldrepository.app.data.ArtisanCreateRequest
 import com.fieldrepository.app.data.FakeSessionTransport
@@ -50,6 +51,7 @@ class SessionV2FeaturesTest {
         assertEquals(QuestionnaireEntry.LEGACY_FORM, questionnaireEntry(v2Enabled = false, builderOpen = false, canBuild = true))
     }
 
+    @QFeature("C9")
     @Test fun `Edit session sends only what changed, on top of the version it read`() {
         val before = SessionEdit.of("2026-07-01", "FIRST_SITTING", "Bagru", "hi", null, "Under the neem")
         val patch = before.copy(place = "Bagru, Jaipur", note = "Under the neem").patch(version = 3, before = before)
@@ -83,6 +85,7 @@ class SessionV2FeaturesTest {
         assertFalse(outbox.editPendingSession("c", edit::applyTo))
     }
 
+    @QFeature("B5")
     @Test fun `P10 counts the artisan's live takes, and Change consent asks the one who refused`() {
         val detail = QSessionDetail(
             id = "s1",
@@ -98,11 +101,13 @@ class SessionV2FeaturesTest {
         assertEquals("a2", ParticipantModel.refusingSubject(detail.recordings[0], detail))
     }
 
+    @QFeature("B8")
     @Test fun `Continue another day with one artisan is always one session`() {
         assertEquals("ONE", QContinueRequest.of("s1", listOf("a1"), "EACH", "2026-07-02").split)
         assertEquals("EACH", QContinueRequest.of("s1", listOf("a1", "a2"), "EACH", "2026-07-02").split)
     }
 
+    @QFeature("B28")
     @Test fun `the next page joins the list without repeating a session`() {
         val first = listOf(serverRow(QSession(id = "s1", clientKey = "c1")))
         val rows = appendPage(first, listOf(QSession(id = "s1", clientKey = "c1"), QSession(id = "s2")))
@@ -128,6 +133,8 @@ class SessionV2FeaturesTest {
         assertNull(QuestionnaireExport.dispositionFileName(null))
     }
 
+    @QFeature("B26")
+    @QFeature("C6")
     @Test fun `the CSV route is the server's`() {
         val method = com.fieldrepository.app.data.QuestionnaireApi::class.java.methods.single { it.name == "artisanRecordCsv" }
         assertEquals("artisans/{id}/record.csv", method.getAnnotation(retrofit2.http.GET::class.java)!!.value)

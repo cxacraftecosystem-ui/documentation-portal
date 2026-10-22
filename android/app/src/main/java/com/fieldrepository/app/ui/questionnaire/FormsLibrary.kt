@@ -317,8 +317,12 @@ fun workbookPart(context: Context, uri: Uri): MultipartBody.Part {
     val name = runCatching {
         context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
     }.getOrNull() ?: "workbook.xlsx"
-    return MultipartBody.Part.createFormData("file", Naming.asciiLeaf(name, "workbook.xlsx"), bytes.toRequestBody(XLSX_MIME.toMediaTypeOrNull()))
+    return workbookPartOf(bytes, name)
 }
+
+/** The multipart `file` part the workbook routes read: the picked bytes under an ASCII leaf of their name. */
+fun workbookPartOf(bytes: ByteArray, name: String): MultipartBody.Part =
+    MultipartBody.Part.createFormData("file", Naming.asciiLeaf(name, "workbook.xlsx"), bytes.toRequestBody(XLSX_MIME.toMediaTypeOrNull()))
 
 /** The server's sentence when it gave one, else [fallback]. */
 fun errorText(error: Throwable, fallback: String): String =

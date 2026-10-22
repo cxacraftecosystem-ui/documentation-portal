@@ -194,7 +194,8 @@ jobs:
           working-directory: android
           # The top-bar scanner's device test first (REQUIREMENTS_2026-10-20 §6.3: the header's scan
           # button opens the sheet and a typed session code starts the session), on a clean display,
-          # then the smoke script, then the map, content-admin and questionnaire v2 UI tests against the same debug APK. Only those classes:
+          # then the smoke script, then the map, content-admin and questionnaire v2 UI tests against the same debug APK, then every
+          # class under androidTest/questionnaire (the forms library and unified session screens). Only those:
           # the recording tests need a signed-in session. `am instrument` exits 0 on a failed test, so
           # their summary line is what decides.
           script: |
@@ -204,6 +205,7 @@ jobs:
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" install -r -t "$RUNNER_TEMP/app-debug.apk"
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" install -r -t "$RUNNER_TEMP/app-debug-androidTest.apk"
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e class com.fieldrepository.app.ui.CoverageMapUiTest,com.fieldrepository.app.ui.ContentAdminDeleteUiTest,com.fieldrepository.app.ui.QuestionnaireV2UiTest com.fieldrepository.app.test/androidx.test.runner.AndroidJUnitRunner > "$SMOKE_OUT/map-ui-test.txt" 2>&1; cat "$SMOKE_OUT/map-ui-test.txt"; grep -q "^OK (" "$SMOKE_OUT/map-ui-test.txt"
+            "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e package com.fieldrepository.app.questionnaire com.fieldrepository.app.test/androidx.test.runner.AndroidJUnitRunner > "$SMOKE_OUT/questionnaire-ui-test.txt" 2>&1; cat "$SMOKE_OUT/questionnaire-ui-test.txt"; grep -q "^OK (" "$SMOKE_OUT/questionnaire-ui-test.txt"
 
       - name: Upload the smoke results
         # `always()`: a red run is exactly when the screenshots and the logcat are worth reading.

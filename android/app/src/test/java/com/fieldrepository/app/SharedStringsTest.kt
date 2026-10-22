@@ -1,5 +1,6 @@
 package com.fieldrepository.app
 
+import com.fieldrepository.app.questionnaire.QFeature
 import com.fieldrepository.app.data.QuestionnaireCopy
 import com.fieldrepository.app.data.SessionOutbox
 import kotlinx.serialization.json.Json
@@ -27,6 +28,7 @@ class SharedStringsTest {
         (root["strings"] as JsonObject).mapValues { it.value.jsonPrimitive.content }
     }
 
+    @QFeature("B37")
     @Test
     fun `every shared sentence the app holds is the table's, character for character`() {
         val differ = QuestionnaireCopy.shared.filter { (key, text) -> table[key] != text }

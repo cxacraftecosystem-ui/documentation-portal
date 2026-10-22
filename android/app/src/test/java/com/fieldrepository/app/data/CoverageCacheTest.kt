@@ -1,5 +1,6 @@
 package com.fieldrepository.app.data
 
+import com.fieldrepository.app.questionnaire.QFeature
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -45,6 +46,7 @@ class CoverageCacheTest {
          "suggestedReason":"RE_INTERVIEW"}
     """.trimIndent()
 
+    @QFeature("B11")
     @Test
     fun `offline check matches the server's response`() {
         val request = QCoverageCheckRequest("q_ctw3", listOf("a1", "a2", "a3"), listOf(QTargetRef(sectionId = "secD")), "s1")

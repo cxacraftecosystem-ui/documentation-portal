@@ -1,5 +1,6 @@
 package com.fieldrepository.app.ui
 
+import com.fieldrepository.app.questionnaire.QFeature
 import com.fieldrepository.app.data.ApiClient
 import com.fieldrepository.app.data.QDecideRequest
 import com.fieldrepository.app.data.QFileMediaRequest
@@ -51,6 +52,7 @@ class InboxActionsTest {
         assertNull(otherTakeOf("r4", null, takes))
     }
 
+    @QFeature("B18")
     @Test fun `Part 2 makes the later take the continuation of the earlier one`() {
         val early = take("r1", "2026-07-07T10:42:00Z")
         val late = take("r2", "2026-07-07T10:44:00Z")
@@ -63,6 +65,7 @@ class InboxActionsTest {
         assertEquals("r2", body["otherRecordingId"]!!.jsonPrimitive.content)
     }
 
+    @QFeature("B25")
     @Test fun `File it preselects the candidate and sends session, target and who answered`() {
         val row = toFileRow(obj("""{"mediaId":"m1","name":"f.webm","date":"2026-06-23T05:00:00Z","sessionId":null,"candidate":{"sessionId":"s9","targetKey":"Q:lin3"}}"""))
         assertEquals("m1", row.mediaId)

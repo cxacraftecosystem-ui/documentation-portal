@@ -180,6 +180,8 @@ fun SessionWorkspace(
     var takeHistoryOpen by remember { mutableStateOf(false) }
     var editingGuest by remember { mutableStateOf<GuestModel?>(null) }
     var requiredLeft by remember { mutableIntStateOf(0) }
+    // The form itself (required flags, artisan-field mappings), from the server or the owner-stamped copy.
+    var formDetail by remember { mutableStateOf<com.fieldrepository.app.data.QForm?>(null) }
     // Takes removed in this visit, so "Show removed" can restore them (the session lists live takes only).
     val removedHere = remember { mutableStateListOf<QRecording>() }
     val lastAnswered = remember { mutableStateMapOf<String, Set<String>>() }
@@ -304,6 +306,13 @@ fun SessionWorkspace(
         }
     }
     val guests = GuestRoster.of(unit, detail)
+    LaunchedEffect(unit?.questionnaireId) {
+        val qid = unit?.questionnaireId ?: detail?.questionnaire?.id ?: return@LaunchedEffect
+        formDetail = runCatching { v2.forms.form(qid) }.getOrNull()?.also { f -> meId?.let { v2.formCache.putDetail(it, f) } } ?: v2.formCache.detail(meId, qid)
+    }
+    val prefillItems = PrefillModel.items(formDetail, participantIds, unit?.sessionId ?: clientKey, answers) { id, field ->
+        artisans.firstOrNull { it.id == id }?.let { a -> PrefillModel.localValue(a, field) }
+    }
 
     fun startRecording(req: RecordRequest, reasons: Map<String, String>, acked: List<String>, continuationOf: String? = null, replaces: String? = null) {
         val u = unit ?: return
@@ -442,6 +451,11 @@ fun SessionWorkspace(
                         DropdownMenuItem(text = { Text(com.fieldrepository.app.data.FormsCopy.RESEARCHERS) }, onClick = { menu = false; researchersOpen = true })
                     }
                     if (!locked) DropdownMenuItem(text = { Text("+ " + com.fieldrepository.app.data.FormsCopy.SOMEONE_ELSE) }, onClick = { menu = false; editingGuest = GuestModel("", "", null, null) })
+                    // B24: questions mapped to an artisan field, filled from each artisan's record (PREFILL never overwrites typed words).
+                    if (!locked && prefillItems.isNotEmpty()) DropdownMenuItem(text = { Text(PrefillModel.LABEL) }, onClick = {
+                        menu = false
+                        withUnit { key -> v2.outbox.addAnswers(key, QAnswersPut(prefillItems)) }
+                    })
                 }
             }
         }
@@ -881,7 +895,7 @@ fun SessionWorkspace(
         // A19: reported, never blocking.
         LaunchedEffect(Unit) {
             val qid = unit?.questionnaireId ?: detail?.questionnaire?.id
-            val form = qid?.let { id -> runCatching { v2.forms.form(id) }.getOrNull() ?: v2.formCache.detail(meId, id) }
+            val form = formDetail ?: qid?.let { id -> runCatching { v2.forms.form(id) }.getOrNull() ?: v2.formCache.detail(meId, id) }
             requiredLeft = RequiredModel.unanswered(form, participantIds, answers, known)
         }
         FinishSessionPrompt(sections, participantIds.size, pendingCount, onDismiss = { finishing = false }, extra = com.fieldrepository.app.data.RequiredQuestions.line(com.fieldrepository.app.data.QRequiredUnanswered(requiredLeft))) {
