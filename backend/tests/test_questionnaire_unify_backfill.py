@@ -135,7 +135,8 @@ def test_the_backfill_binds_every_workshop_and_shares_every_instrument(tmp_path:
     code, moved = _check(capfd)
     assert code == 0 and moved["primaryBindings"] == 4 and moved["failures"] == 0
 
-    deferred = sorted(p.name for p in (BACKEND / "prisma" / "deferred").iterdir() if p.is_dir())
+    folder = BACKEND / "prisma" / "deferred"  # empty once the switch-on commit moved them in
+    deferred = sorted(p.name for p in folder.iterdir() if p.is_dir()) if folder.is_dir() else []
     _deploy(tmp_path, _migrations() + deferred)
 
     async def titles(client):
