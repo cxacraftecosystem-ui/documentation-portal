@@ -41,7 +41,7 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
         "fr-web": "tagged",
         "fr-android": "planned"
@@ -125,7 +125,7 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
         "fr-web": "tagged",
         "fr-android": "planned"
@@ -252,7 +252,7 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
         "fr-web": "tagged",
         "fr-android": "planned"
@@ -296,7 +296,7 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "na",
         "fr-web": "tagged",
         "fr-android": "planned"
@@ -913,7 +913,7 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
         "fr-web": "tagged",
         "fr-android": "planned"
@@ -1896,7 +1896,9 @@
       "name": "Read view and review: approve blockers and the cascade",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "POST /review/{type}/{id}/approve"
+        ],
         "documentation-portal": [
           "POST /review/{type}/{id}/approve"
         ]
@@ -1912,7 +1914,7 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
         "fr-web": "tagged",
         "fr-android": "planned"
@@ -1994,7 +1996,7 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "na",
         "fr-web": "tagged",
         "fr-android": "planned"
@@ -2154,7 +2156,7 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
         "fr-web": "tagged",
         "fr-android": "planned"
@@ -2574,7 +2576,7 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
         "fr-web": "planned",
         "fr-android": "planned"
@@ -2690,7 +2692,7 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
         "fr-web": "planned",
         "fr-android": "planned"
@@ -2712,8 +2714,12 @@
       "name": "Rich-text answers in the DR text format",
       "source": "matrix 1.3",
       "api": {
-        "designer-portal": [],
-        "documentation-portal": []
+        "designer-portal": [
+          "PUT /questionnaire/answers"
+        ],
+        "documentation-portal": [
+          "PUT /questionnaire/answers"
+        ]
       },
       "server": {
         "designer-portal": "built",
@@ -2741,7 +2747,8 @@
         "dr-web": "global form",
         "dr-android": "global form"
       },
-      "note": "Served by B19."
+      "note": "Served by B19.",
+      "decision": "C8 (coordinator, 22 Oct 2026): answers keep canonical plain text plus optional richText in designer-portal's stored format; the server flattens a document sent alone."
     },
     {
       "id": "C9",

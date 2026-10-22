@@ -641,6 +641,9 @@ class AnswerItem(Strict):
     baseVersion: int | None = Field(default=None, ge=1)
     #: The answer note (A20), kept on the revision.
     note: str | None = Field(default=None, max_length=2000)
+    #: Decision C8: the answer as a rich-text document (designer-portal's stored format), beside the
+    #: canonical plain ``text``. Sent alone (``text`` empty), it is flattened into the text.
+    richText: dict[str, Any] | list[Any] | str | None = None
 
     _origin = field_validator("origin")(_one_of(V.AnswerOrigin))
     _attr = field_validator("attribution")(_one_of(V.AnswerAttribution))

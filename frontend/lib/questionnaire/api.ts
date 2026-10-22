@@ -262,10 +262,16 @@ export type Answer = {
   /** A guest's answer (owner decision 1). */
   respondentId?: string | null;
   questionLineageId?: string;
-  /** Who wrote the current revision: the lock's "Answered by" (P15). */
+  /** Who wrote the current revision: the lock's "Answered by" (P15), before an edit is refused. */
   actorId?: string | null;
+  actorName?: string | null;
   /** The answer note (A20). */
   note?: string | null;
+  /**
+   * Decision C8: the answer as a rich-text document (designer-portal's stored format, as JSON), beside
+   * the canonical plain `text`. A client without an editor shows `text`.
+   */
+  richText?: string | null;
 };
 
 /** Whose answer: an artisan's, or a guest respondent's (exactly one). */
@@ -562,6 +568,8 @@ export type AnswerItem = {
   baseVersion?: number;
   /** The answer note (A20). */
   note?: string | null;
+  /** Decision C8: the document an editor wrote; sent alone, the server flattens it into `text`. */
+  richText?: unknown;
 };
 export type AnswerResult = {
   artisanId: string | null;

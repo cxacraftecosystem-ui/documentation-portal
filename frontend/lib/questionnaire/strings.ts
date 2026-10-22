@@ -283,6 +283,9 @@ export const questionnaireStrings = {
   noBoundForms: "No forms on this workshop yet.",
   aColleague: "A colleague",
   aFieldRepositoryColleague: "A Field Repository colleague",
+  corpusTitle: "Corpus",
+  corpusAnswers: "Answers (CSV)",
+  corpusRecordings: "Recordings (CSV)",
 } as const;
 
 export type QuestionnaireStringKey = keyof typeof questionnaireStrings;
