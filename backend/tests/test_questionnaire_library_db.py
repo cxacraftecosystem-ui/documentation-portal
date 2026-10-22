@@ -143,6 +143,11 @@ def test_reuse_copies_the_questions_and_nothing_else(monkeypatch) -> None:
             assert int(sittings[0]["n"]) == 0
             again = await lib.reuse(ids.q, ids.prof, kind=None, keep_kind=False)
             assert again["title"].endswith("(copy) (2)") and again["kind"] is None
+            # The copy reads through the shared screens' structure route like any form.
+            from app.api.routes import questionnaire_v2
+
+            shape = await questionnaire_v2.form_structure_get(copy["id"], False, ids.prof)
+            assert [s["code"] for s in shape["sections"]] == ["B", "D", "F"]
         finally:
             await client.disconnect()
 

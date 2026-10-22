@@ -210,6 +210,14 @@ async def form_for(
     return await bindings.resolve_for_workshop(workshop_id=workshopId, design_workshop_id=designWorkshopId, explicit=questionnaireId)
 
 
+@router.get("/forms/{questionnaire_id}/structure", dependencies=V2)
+async def form_structure_get(questionnaire_id: str, includeRetired: bool = False, _: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """A form's sections and questions as the shared session screens read them (UNIFY 4.2)."""
+    from app.questionnaire import structure
+
+    return await structure.form_structure(questionnaire_id, include_retired=includeRetired)
+
+
 @router.get("/forms/{questionnaire_id}/bindings", dependencies=V2)
 async def form_bindings_get(questionnaire_id: str, _: Any = Depends(get_current_user)) -> dict[str, Any]:
     from app.core.db import db
