@@ -419,6 +419,12 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
 
         language_label = payload.languageOther if payload.languageCode == "other" else shared_vocab.LANGUAGE_LABELS.get(payload.languageCode)
     interview_date = datetime(session_date.year, session_date.month, session_date.day, 12, 0, tzinfo=IST) if session_date else None
+    # UNIFY C9: the start sheet's GPS fix becomes a Location row, linked once; an edit never sends one.
+    location_id = None
+    if getattr(payload, "location", None) is not None:
+        from app.questionnaire.ports import attach_location
+
+        location_id = (await attach_location({"location": payload.location.model_dump(exclude_none=True)})).get("locationId")
     tx_owner = db if client is not None else default_db
     for _attempt in range(5):
         session_id = None
@@ -447,6 +453,7 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
                         "source": getattr(payload, "source", None) or "APP",
                         "status": data["status"],
                         "createdById": user.id,
+                        **({"locationId": location_id} if location_id else {}),
                         **({"extraMetadata": _json(data["extraMetadata"])} if data["extraMetadata"] else {}),
                     }
                 )

@@ -3,9 +3,9 @@
   "sha256": {
     "enums.json": "20863d2c35dd848f6826700d36d40a1d8b0ab09476e73d872726b53ea92bd82c",
     "languages.json": "56a13533539e0d5a12185df650b0afeba7eb42c25cb4c4029277601b7be67dd6",
-    "questionnaire-contract.json": "23f4065c85338c12a67ffdc288e6db2b4114d98f20282dfca6c97248d1cec3e0",
+    "questionnaire-contract.json": "3ffdeeda4637de0e4ef3e41a48197b6cf9c99377036563c9498a63d7b096b8dc",
     "questionnaire-form-contract.json": "ee277fa83168e72f98a0ec8f79416ea6e448eb9a6cd7b93b9cc285e89bea38e7",
     "session-title.json": "5680934cd02d48224930a33bd3d3ef3c0c33dbfd965d534243142dd6359157c0",
-    "strings/questionnaire.json": "fc2936dd9dea2c7b5921b133402048c0cd2bd62da9a34b448014aa89b963e2f3"
+    "strings/questionnaire.json": "12b09ca93c85f7634a1589ab7149b04f130dfdcc395047ba2438097fbf1a9f8e"
   }
 }

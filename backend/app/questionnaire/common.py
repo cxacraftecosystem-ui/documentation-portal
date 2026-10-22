@@ -31,6 +31,10 @@ MESSAGES = {
     # Joined the frozen list with the first client that shows them (Field Repository web, U3).
     "FORM_DELETED": "This questionnaire was deleted.",
     "BUNDLE_VERSION": "This bundle was made by a newer version of the app.",
+    # Joined the frozen list once every client showed them (22 Oct 2026: DR web and Android, FR web
+    # and Android): the answer lock (U9, P15) and a respondent who still has answers or takes.
+    "ANSWER_LOCKED": "Only the person who answered, a lead or an admin can change this answer.",
+    "RESPONDENT_HAS_ROWS": "This respondent has answers or takes.",
 }
 STATUS = {
     "VALIDATION_FAILED": 422, "NOT_FOUND": 404, "FORBIDDEN": 403, "STALE_VERSION": 409,
@@ -38,18 +42,15 @@ STATUS = {
     "TITLE_IS_GENERATED": 422, "TARGET_OUTSIDE_INSTRUMENT": 422, "JOIN_CODE_UNKNOWN": 404,
     "MERGE_INSTRUMENT_MISMATCH": 409, "SESSION_UNKNOWN": 404, "TRANSCRIPTION_PAUSED": 409,
     "CONSENT_REFUSED": 409, "CONSENT_NOT_RECORDED": 409, "APPROVE_BLOCKED": 409,
-    "FORM_DELETED": 410, "BUNDLE_VERSION": 422,
+    "FORM_DELETED": 410, "BUNDLE_VERSION": 422, "ANSWER_LOCKED": 409, "RESPONDENT_HAS_ROWS": 409,
 }
 
 #: The unification's codes (UNIFY section 2.2), served now and NOT YET in the frozen contract's closed
 #: list (``shared/questionnaire-contract.json``), which every client checks itself against: each one
 #: joins that list in the stream that teaches the clients to show it (U1-U4), and moves up into
 #: MESSAGES/STATUS then. ``shared/questionnaire-enums.json`` lists them as ``pendingErrorCodes``.
-UNIFY_MESSAGES = {
-    "ANSWER_LOCKED": "Only the person who answered, a lead or an admin can change this answer.",
-    "RESPONDENT_HAS_ROWS": "This respondent has answers or takes.",
-}
-UNIFY_STATUS = {"ANSWER_LOCKED": 409, "RESPONDENT_HAS_ROWS": 409}
+UNIFY_MESSAGES: dict[str, str] = {}
+UNIFY_STATUS: dict[str, int] = {}
 
 
 def fail(code: str, message: str | None = None, **extra: Any) -> NoReturn:

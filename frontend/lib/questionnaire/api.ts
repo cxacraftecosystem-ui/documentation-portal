@@ -122,7 +122,12 @@ export type SessionCreate = {
   researchers?: { userId: string; role: string }[];
   /** Guests answering without an artisan record (owner decision 1); participants may then be empty. */
   respondents?: { name: string; kind: RespondentKind; notes?: string | null }[];
+  /** C9: the device's fix when the session started, beside the typed place. Never sent on an edit. */
+  location?: SessionLocation | null;
 };
+
+/** Where the device was when a session started (C9); stored as a Location row on the server. */
+export type SessionLocation = { latitude: number; longitude: number; accuracy?: number | null; altitude?: number | null };
 
 export type RespondentKind = "GUEST" | "SELF";
 /** A guest respondent: a named person who is not a registered artisan, or the signed-in user (SELF). */
@@ -782,6 +787,8 @@ export function questionnaireClient(fetchJson: JsonFetcher) {
     /** "Not needed" on a clip in "To file", stored on the server so every device agrees (audit M22). */
     dismissClip: (mediaId: string) => fetchJson<void>(`${Q}/media/${encodeURIComponent(mediaId)}/not-needed`, json("POST", {})),
 
+    /** The artisan's record, for prefill from its columns (B24). */
+    artisan: (artisanId: string) => fetchJson<Record<string, unknown> & { id: string }>(`/artisans/${encodeURIComponent(artisanId)}`),
     getConsent: (artisanId: string) => fetchJson<ConsentRecord>(`/artisans/${encodeURIComponent(artisanId)}/consent`),
     postConsent: (artisanId: string, body: ConsentPost) =>
       fetchJson<ConsentRecord>(`/artisans/${encodeURIComponent(artisanId)}/consent`, json("POST", body, body.clientKey)),

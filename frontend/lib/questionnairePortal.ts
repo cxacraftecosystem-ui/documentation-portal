@@ -158,3 +158,9 @@ export async function searchPeople(search: string): Promise<{ id: string; name: 
 export async function coverageScope(workshopId: string): Promise<{ workshopId?: string; artisanIds?: string[] }> {
   return { workshopId };
 }
+
+/**
+ * The answer box's editor (decision C8): this portal's rich-text editor, sending the canonical plain
+ * text with the document beside it; see `AnswerTextEditor`.
+ */
+export { AnswerTextEditor, answerEditorValue, answerParts } from "@/components/questionnaires/AnswerTextEditor";

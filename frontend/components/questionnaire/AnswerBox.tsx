@@ -24,6 +24,7 @@ import { prompts, shortDate } from "@/lib/questionnaire/prompts";
 import { heldAnswerResults, isPermanent, type AnswersStep } from "@/lib/questionnaire/queue";
 import { answersFromTakes } from "@/lib/questionnaire/view";
 import { qs } from "@/lib/questionnaire/qs";
+import { AnswerTextEditor, answerEditorValue, answerParts } from "@/lib/questionnairePortal";
 
 const ALL = "__all__";
 
@@ -51,6 +52,8 @@ export function answerItems(input: {
   sessionId: string;
   lineageId: string;
   text: string;
+  /** Decision C8: the editor's document, beside the canonical plain `text`; null when it is prose. */
+  richText?: string | null;
   note?: string | null;
   forWhom: string;
   subjects: Pick<AnswerSubject, "key" | "artisanId" | "respondentId">[];
@@ -66,6 +69,7 @@ export function answerItems(input: {
       ...(subject.artisanId ? { artisanId: subject.artisanId } : { respondentId: subject.respondentId }),
       questionLineageId: input.lineageId,
       text: input.text,
+      ...(input.richText ? { richText: input.richText } : {}),
       origin: input.origin ?? "TYPED",
       attribution: group ? "GROUP_SHARED" : "INDIVIDUAL",
       sessionId: input.sessionId,
@@ -155,7 +159,15 @@ export function AnswerBox({
   const current = (key: string) => existing.find((a) => ownerKey(a) === key) ?? null;
   const focus = forWhom === ALL ? (subjects.length === 1 ? subjects[0].key : null) : forWhom;
   const focused = focus ? current(focus) : (existing[0] ?? null);
-  const [text, setText] = useState(() => focused?.text ?? "");
+  // The editor's stored value: prose, or a rich-text document (C8). `plain` is the canonical text.
+  const [text, setTextState] = useState(() => answerEditorValue(focused));
+  const [editorKey, setEditorKey] = useState(0);
+  /** Sets the box from outside the editor (a subject switch, "Use as answer"): the editor re-seeds. */
+  const setText = (value: string) => {
+    setTextState(value);
+    setEditorKey((k) => k + 1);
+  };
+  const plain = answerParts(text).text;
   const [note, setNote] = useState(() => focused?.note ?? "");
   const [noteOpen, setNoteOpen] = useState(Boolean(focused?.note));
   const [origin, setOrigin] = useState<{ origin: AnswerOrigin; sourceRecordingId: string | null } | null>(null);
@@ -184,7 +196,7 @@ export function AnswerBox({
   function pick(next: string) {
     setForWhom(next);
     const a = next === ALL ? null : current(next);
-    setText(a?.text ?? "");
+    setText(answerEditorValue(a));
     setNote(a?.note ?? "");
     setNoteOpen(Boolean(a?.note));
     setSaved(null);
@@ -197,7 +209,8 @@ export function AnswerBox({
     const items = answerItems({
       sessionId: session.id,
       lineageId,
-      text,
+      text: plain,
+      richText: answerParts(text).richText,
       note: noteOpen ? note.trim() || null : undefined,
       forWhom,
       subjects: open,
@@ -205,11 +218,11 @@ export function AnswerBox({
       origin: origin?.origin,
       sourceRecordingId: origin?.sourceRecordingId ?? null
     }).filter((i) => !skip.has(ownerKey(i)));
-    if (!items.length || !text.trim()) return;
+    if (!items.length || !plain.trim()) return;
     const fromTakes = answersFromTakes(
       existing.filter((a) => a.artisanId).map((a) => ({ artisanId: a.artisanId ?? undefined, text: a.text, sourceRecordingId: a.sourceRecordingId })),
       items.filter((i) => i.artisanId).map((i) => i.artisanId as string),
-      text
+      plain
     ).filter((a) => !approved.has(`A:${a.artisanId}`));
     if (fromTakes.length && !origin) {
       setP8(fromTakes);
@@ -267,7 +280,7 @@ export function AnswerBox({
     ...subjects.map((s) => ({ value: s.key, label: s.name }))
   ];
   const p8Take = p8[0] ? recordings.find((r) => r.id === p8[0].sourceRecordingId) : undefined;
-  const offer = proposal && proposal.text.trim() && proposal.text.trim() !== text.trim() && !locked ? proposal : null;
+  const offer = proposal && proposal.text.trim() && proposal.text.trim() !== plain.trim() && !locked ? proposal : null;
 
   return (
     <div className="mt-2 grid gap-2" data-answer-box={lineageId}>
@@ -277,23 +290,26 @@ export function AnswerBox({
           <SearchableSelect value={forWhom} onChange={pick} options={options} ariaLabel={qs("answerFor")} advanceOnSelect={false} />
         </div>
       ) : null}
-      <textarea
-        className="field-input min-h-20"
-        aria-label={required ? `${code} *` : code}
-        aria-required={required || undefined}
+      <AnswerTextEditor
+        key={`${forWhom}|${editorKey}`}
         value={text}
+        ariaLabel={required ? `${code} *` : code}
+        required={required}
         readOnly={locked}
-        aria-readonly={locked || undefined}
-        data-locked={locked || undefined}
-        onChange={(e) => {
-          setText(e.target.value);
+        onChange={(value) => {
+          setTextState(value);
           setOrigin(null);
           setSaved(null);
           setConfirmed(new Set());
           setSkipped(new Set());
         }}
-        onBlur={() => void (locked ? undefined : save())}
+        onCommit={() => void (locked ? undefined : save())}
       />
+      {focused?.origin === "PREFILL" && plain === (focused.text ?? "") ? (
+        <p className="text-xs text-ink-500" data-prefilled>
+          {qs("prefilledFromRecord")}
+        </p>
+      ) : null}
       {locked ? (
         <p className="text-xs text-ink-500" data-p15>
           {qs("p15Locked", { name: shortName(lockedByName) })}
@@ -391,7 +407,7 @@ export function AnswerBox({
             if (choice === "replace") approved.add(key);
             else {
               skip.add(key);
-              if (forWhom !== ALL) setText(current(key)?.text ?? text);
+              if (forWhom !== ALL) setText(current(key) ? answerEditorValue(current(key)) : text);
             }
             setConfirmed(approved);
             setSkipped(skip);

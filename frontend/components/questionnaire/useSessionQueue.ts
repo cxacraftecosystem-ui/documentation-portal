@@ -6,6 +6,7 @@ import { loadQuestionnaireConfig } from "@/components/questionnaire/useQuestionn
 import { questionnaireApi, type Recording, type Session } from "@/lib/questionnaire/api";
 import {
   answerConflicts,
+  discardStep,
   enqueueStep,
   existingSessionUnit,
   fetchTransport,
@@ -14,6 +15,8 @@ import {
   mutateUnit,
   resolveAnswerConflict,
   runUnit,
+  sendStepAgain,
+  sendWithoutConflicts,
   sessionUnitKey,
   type QueueStore,
   type SessionUnit,
@@ -172,6 +175,17 @@ export async function resolveQueuedAnswer(
 ) {
   await resolveAnswerConflict(getStore(), unitId, key, target, choice);
   await refresh();
+  void drainQueue();
+}
+
+/** The fix tray (UNIFY B39): send a refused step again, discard it, or send the answers that are not in conflict. */
+export async function trayAct(unitId: string, key: string, act: "again" | "discard" | "without") {
+  const s = getStore();
+  if (act === "again") await sendStepAgain(s, unitId, key);
+  else if (act === "discard") await discardStep(s, unitId, key);
+  else await sendWithoutConflicts(s, unitId, key);
+  await refresh();
+  retryDelay = null;
   void drainQueue();
 }
 
