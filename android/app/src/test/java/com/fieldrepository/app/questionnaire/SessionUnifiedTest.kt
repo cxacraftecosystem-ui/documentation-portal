@@ -270,7 +270,7 @@ class SessionUnifiedTest {
     }
 
     @QFeature("D4")
-    @Test fun `Typed or recorded both count; a recording is shown first and a typed-only cell asks for one`() {
+    @Test fun `Typed or recorded both count, a recording is shown first and a typed-only cell asks for one`() {
         val grid = ApiClient.json.decodeFromString(QGrid.serializer(), gridJson)
         val (recorded, typed) = grid.sections[0].cells
         assertEquals("●", CoverageMarks.mark(recorded))

@@ -51,7 +51,7 @@ class FormsLibraryTest {
     private val all = listOf(mine, shared, bound, gone)
 
     @QFeature("D3")
-    @Test fun `Professors and the questionnaire grant create their own forms; researchers do not`() {
+    @Test fun `Professors and the questionnaire grant create their own forms, researchers do not`() {
         assertTrue(FormRights.mayCreate(professor))
         assertTrue(FormRights.mayCreate(researcher.copy(canManageQuestionnaire = true)))
         assertFalse(FormRights.mayCreate(researcher))
