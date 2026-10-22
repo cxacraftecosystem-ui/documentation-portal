@@ -226,6 +226,9 @@ test("@qf:A14 a form's deleted sessions, restored by a content admin", () => {
   expect(lib).toContain("`/questionnaire/sessions/${encodeURIComponent(sessionId)}/restore`, { method: \"POST\" }");
   expect(card).toContain("await formSessions.restore(row.id);");
   expect(FORM_PAGE).toContain("canSeeDeleted={isContentAdmin(user)}");
+  // And every deleted session, under the sessions list, for content admins.
+  const sessionsPage = read("app", "(protected)", "questionnaire", "page.tsx");
+  expect(sessionsPage).toContain("<FormSessionsCard questionnaireId={null} canSeeDeleted deletedOnly online={online} />");
   expect(sourceLabel("UPLOAD")).toBe("Uploaded");
   expect(sourceLabel("APP")).toBeNull();
 });

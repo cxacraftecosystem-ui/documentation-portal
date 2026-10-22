@@ -33,5 +33,6 @@ test("@qf:B28 the list shows the generated title with the note under it, and sea
 
 test("@qf:B36 /questionnaire is the sessions list only when v2 is on", () => {
   const page = readFileSync(join(__dirname, "..", "app", "(protected)", "questionnaire", "page.tsx"), "utf8");
-  expect(page).toContain('if (config.v2Enabled && !pathname.startsWith("/questionnaire/builder")) return <SessionsList />;');
+  expect(page).toContain('if (config.v2Enabled && !pathname.startsWith("/questionnaire/builder")) {');
+  expect(page).toContain("<SessionsList />");
 });

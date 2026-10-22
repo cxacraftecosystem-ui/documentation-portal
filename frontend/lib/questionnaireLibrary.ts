@@ -368,9 +368,9 @@ export type FormSession = {
 };
 
 export const formSessions = {
-  list: (questionnaireId: string, deleted = false) =>
+  list: (questionnaireId: string | null, deleted = false) =>
     apiFetch<{ items: FormSession[]; nextCursor: string | null }>(
-      `/questionnaire/sessions${buildQuery({ questionnaireId, deleted: deleted ? "true" : undefined, limit: 50 })}`
+      `/questionnaire/sessions${buildQuery({ questionnaireId: questionnaireId ?? undefined, deleted: deleted ? "true" : undefined, limit: 50 })}`
     ),
   restore: (sessionId: string) => apiFetch<unknown>(`/questionnaire/sessions/${encodeURIComponent(sessionId)}/restore`, { method: "POST" })
 };

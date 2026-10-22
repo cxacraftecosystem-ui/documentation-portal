@@ -2,7 +2,8 @@
 
 /**
  * The sessions recorded on one form, and — for content admins — the deleted ones with Restore
- * (UNIFY U8, A14: a session delete is a restorable soft delete, content admins only).
+ * (UNIFY U8, A14: a session delete is a restorable soft delete, content admins only). With
+ * `deletedOnly` and no form it is the sessions list's Deleted card: every deleted session.
  */
 
 import { RotateCcw } from "lucide-react";
@@ -18,14 +19,16 @@ import { NEEDS_CONNECTION } from "@/components/questionnaires/useOnline";
 export function FormSessionsCard({
   questionnaireId,
   canSeeDeleted,
-  online
+  online,
+  deletedOnly = false
 }: {
-  questionnaireId: string;
+  questionnaireId: string | null;
   canSeeDeleted: boolean;
   online: boolean;
+  deletedOnly?: boolean;
 }) {
   const { toast } = useToast();
-  const [view, setView] = useState<"live" | "deleted">("live");
+  const [view, setView] = useState<"live" | "deleted">(deletedOnly ? "deleted" : "live");
   const [rows, setRows] = useState<FormSession[] | null>(null);
   const [more, setMore] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -62,9 +65,9 @@ export function FormSessionsCard({
     <section className="panel grid gap-3 p-4" aria-labelledby="sessions-heading">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 id="sessions-heading" className="font-display text-lg font-bold text-ink-900">
-          Sessions
+          {deletedOnly ? "Deleted sessions" : "Sessions"}
         </h2>
-        {canSeeDeleted ? (
+        {canSeeDeleted && !deletedOnly ? (
           <SegmentedChoice
             label="Sessions"
             value={view}
