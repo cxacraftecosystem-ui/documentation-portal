@@ -1,6 +1,6 @@
 package com.fieldrepository.app.ui
 
-import com.fieldrepository.app.ui.questionnaire.SESSION_LANGUAGES
+import com.fieldrepository.app.questionnaire.ui.SESSION_LANGUAGES
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray

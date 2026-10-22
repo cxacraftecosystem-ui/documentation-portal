@@ -204,8 +204,9 @@ jobs:
             mkdir -p "$SMOKE_OUT"
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" install -r -t "$RUNNER_TEMP/app-debug.apk"
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" install -r -t "$RUNNER_TEMP/app-debug-androidTest.apk"
-            "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e class com.fieldrepository.app.ui.CoverageMapUiTest,com.fieldrepository.app.ui.ContentAdminDeleteUiTest,com.fieldrepository.app.ui.QuestionnaireV2UiTest com.fieldrepository.app.test/androidx.test.runner.AndroidJUnitRunner > "$SMOKE_OUT/map-ui-test.txt" 2>&1; cat "$SMOKE_OUT/map-ui-test.txt"; grep -q "^OK (" "$SMOKE_OUT/map-ui-test.txt"
+            "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e class com.fieldrepository.app.ui.CoverageMapUiTest,com.fieldrepository.app.ui.ContentAdminDeleteUiTest com.fieldrepository.app.test/androidx.test.runner.AndroidJUnitRunner > "$SMOKE_OUT/map-ui-test.txt" 2>&1; cat "$SMOKE_OUT/map-ui-test.txt"; grep -q "^OK (" "$SMOKE_OUT/map-ui-test.txt"
             "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e package com.fieldrepository.app.questionnaire com.fieldrepository.app.test/androidx.test.runner.AndroidJUnitRunner > "$SMOKE_OUT/questionnaire-ui-test.txt" 2>&1; cat "$SMOKE_OUT/questionnaire-ui-test.txt"; grep -q "^OK (" "$SMOKE_OUT/questionnaire-ui-test.txt"
+            "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/platform-tools/adb" shell am instrument -w -e package com.fieldrepository.app.forms com.fieldrepository.app.test/androidx.test.runner.AndroidJUnitRunner > "$SMOKE_OUT/forms-ui-test.txt" 2>&1; cat "$SMOKE_OUT/forms-ui-test.txt"; grep -q "^OK (" "$SMOKE_OUT/forms-ui-test.txt"
 
       - name: Upload the smoke results
         # `always()`: a red run is exactly when the screenshots and the logcat are worth reading.

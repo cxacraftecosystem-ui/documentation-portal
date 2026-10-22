@@ -1,5 +1,6 @@
 package com.fieldrepository.app.data
 
+import com.fieldrepository.app.questionnaire.data.QuestionnaireSync
 import android.content.Context
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -45,19 +46,14 @@ class OutboxSyncWorker(appContext: Context, params: WorkerParameters) : Coroutin
         val userId = tokenStore.getUser()?.id
         // Questionnaire v2: older-format entries drain through the shims first, then the
         // per-session queue runs (data/QuestionnaireV2.kt, DESIGN §6.1.6).
-        val v2 = QuestionnaireV2.get(context)
         val outcome = try {
-            QuestionnaireSync.pass(
-                legacyDrain = { runCatching { repository.syncOutbox(context) } },
-                legacyQuestionnaireWaiting = {
-                    QuestionnaireSync.legacyQuestionnaireEntries(OfflineOutbox.all(context).replayableBy(userId))
-                },
-                v2 = {
-                    runCatching { v2.flushConsents() }
-                    // Forms first (form, section, question), so a session on a new form finds it (A15).
-                    val forms = v2.formOutbox.sync(v2.formTransport, userId)
-                    val sessions = v2.outbox.sync(v2.transport, userId)
-                    SessionOutbox.PassResult(forms.sent + sessions.sent, forms.failed + sessions.failed, forms.remaining + sessions.remaining)
+            // The shared questionnaire's pass: this app's outbox first, then its forms written offline
+            // (A15: form, section, question, so a session on a new form finds it), then the sessions.
+            QuestionnaireSync.run(
+                context,
+                legacyDrain = {
+                    runCatching { repository.syncOutbox(context) }
+                    runCatching { com.fieldrepository.app.forms.FormsV2.get(context).sync() }
                 },
                 serverAnswering = { !ServerReachability.unreachable.value }
             )

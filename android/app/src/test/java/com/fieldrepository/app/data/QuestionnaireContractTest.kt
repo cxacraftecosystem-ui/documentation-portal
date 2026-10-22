@@ -1,5 +1,6 @@
 package com.fieldrepository.app.data
 
+import com.fieldrepository.app.questionnaire.data.*
 import com.fieldrepository.app.questionnaire.QFeature
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.builtins.serializer

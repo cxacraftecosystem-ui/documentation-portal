@@ -1,8 +1,8 @@
 package com.fieldrepository.app
 
 import com.fieldrepository.app.questionnaire.QFeature
-import com.fieldrepository.app.data.QuestionnaireCopy
-import com.fieldrepository.app.data.SessionOutbox
+import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
+import com.fieldrepository.app.questionnaire.data.SessionOutbox
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive

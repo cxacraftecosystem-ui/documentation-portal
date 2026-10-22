@@ -129,7 +129,7 @@
             android:exported="false"
             android:foregroundServiceType="microphone" />
         <service
-            android:name=".recording.LegacyRecordingService"
+            android:name=".legacyrecording.LegacyRecordingService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
     </application>

@@ -24,12 +24,12 @@ run() {
 }
 
 echo "== recording service"
-run -e class "$PKG.recording.RecordingServiceDeviceTest"
+run -e class "$PKG.recordingdevice.RecordingServiceDeviceTest"
 
 echo "== kill mid-take: phase 1"
 # am instrument ends by killing the app process; force-stop makes sure the service is gone too.
-run -e class "$PKG.recording.RecordingKillDeviceTest" -e killPhase 1
+run -e class "$PKG.recordingdevice.RecordingKillDeviceTest" -e killPhase 1
 "$ADB" shell am force-stop "$PKG"
 echo "== kill mid-take: phase 2"
-run -e class "$PKG.recording.RecordingKillDeviceTest" -e killPhase 2
+run -e class "$PKG.recordingdevice.RecordingKillDeviceTest" -e killPhase 2
 echo "device tests passed"

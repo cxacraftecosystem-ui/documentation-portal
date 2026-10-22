@@ -1,6 +1,5 @@
 package com.fieldrepository.app.recording
 
-import com.fieldrepository.app.questionnaire.QFeature
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -19,7 +18,6 @@ class RecoveryScannerTest {
         return RecordingDraft(key, "c-1", "q", adts.absolutePath, "2026-07-01T10:0${key.last()}:00Z", label = "Section D", queued = queued)
     }
 
-    @QFeature("B15")
     @Test
     fun `a cut-short take is offered, the running and queued ones are not`() {
         val drafts = listOf(draft("k1", 64_000), draft("k2", 64_000), draft("k3", 64_000, queued = true), draft("k4", 0))

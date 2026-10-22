@@ -1,5 +1,6 @@
 package com.fieldrepository.app.data
 
+import com.fieldrepository.app.questionnaire.data.*
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -22,7 +23,7 @@ class LegacyOutboxDrainTest {
         var queue = listOf(legacy("questionnaire"), legacy("artisan"))
         val outcome = QuestionnaireSync.pass(
             legacyDrain = { order += "legacy"; queue = emptyList() },
-            legacyQuestionnaireWaiting = { QuestionnaireSync.legacyQuestionnaireEntries(queue) },
+            legacyQuestionnaireWaiting = { com.fieldrepository.app.questionnaire.portal.QuestionnairePortal.legacyQuestionnaireEntries(queue) },
             v2 = { order += "v2"; SessionOutbox.PassResult(1, 0, 0) }
         )
         assertEquals(listOf("legacy", "v2"), order)
@@ -34,7 +35,7 @@ class LegacyOutboxDrainTest {
         var ran = false
         val outcome = QuestionnaireSync.pass(
             legacyDrain = { /* no signal: nothing drained */ },
-            legacyQuestionnaireWaiting = { QuestionnaireSync.legacyQuestionnaireEntries(listOf(legacy("questionnaire"))) },
+            legacyQuestionnaireWaiting = { com.fieldrepository.app.questionnaire.portal.QuestionnairePortal.legacyQuestionnaireEntries(listOf(legacy("questionnaire"))) },
             v2 = { ran = true; SessionOutbox.PassResult(0, 0, 0) }
         )
         assertFalse(ran)
@@ -43,14 +44,14 @@ class LegacyOutboxDrainTest {
 
     @Test
     fun `refused legacy entries and other record types never hold the new queue`() {
-        assertEquals(0, QuestionnaireSync.legacyQuestionnaireEntries(listOf(legacy("questionnaire", failure = "refused"), legacy("product"))))
-        assertEquals(1, QuestionnaireSync.legacyQuestionnaireEntries(listOf(legacy("questionnaireinterview"))))
+        assertEquals(0, com.fieldrepository.app.questionnaire.portal.QuestionnairePortal.legacyQuestionnaireEntries(listOf(legacy("questionnaire", failure = "refused"), legacy("product"))))
+        assertEquals(1, com.fieldrepository.app.questionnaire.portal.QuestionnairePortal.legacyQuestionnaireEntries(listOf(legacy("questionnaireinterview"))))
     }
 
     @Test
     fun `an entry an older build wrote still decodes`() {
         val old = """{"id":"x","type":"questionnaire","payloadJson":"{}","label":"Interview","createdAt":"2026-09-01T00:00:00Z"}"""
         val entry = ApiClient.json.decodeFromString(PendingEntry.serializer(), old)
-        assertEquals(1, QuestionnaireSync.legacyQuestionnaireEntries(listOf(entry)))
+        assertEquals(1, com.fieldrepository.app.questionnaire.portal.QuestionnairePortal.legacyQuestionnaireEntries(listOf(entry)))
     }
 }

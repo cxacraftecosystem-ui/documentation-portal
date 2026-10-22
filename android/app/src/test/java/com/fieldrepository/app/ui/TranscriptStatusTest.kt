@@ -1,11 +1,11 @@
 package com.fieldrepository.app.ui
 
 import com.fieldrepository.app.questionnaire.QFeature
-import com.fieldrepository.app.data.QConsentVerdict
-import com.fieldrepository.app.data.QRecording
-import com.fieldrepository.app.data.QTranscript
-import com.fieldrepository.app.ui.questionnaire.TranscriptStatus
-import com.fieldrepository.app.ui.questionnaire.TranscriptTone
+import com.fieldrepository.app.questionnaire.data.QConsentVerdict
+import com.fieldrepository.app.questionnaire.data.QRecording
+import com.fieldrepository.app.questionnaire.data.QTranscript
+import com.fieldrepository.app.questionnaire.ui.TranscriptStatus
+import com.fieldrepository.app.questionnaire.ui.TranscriptTone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
