@@ -223,6 +223,48 @@ async def form_bindings_put(questionnaire_id: str, request: Request, user: Any =
     return {"questionnaireId": questionnaire_id, "bindings": await bindings.set_bindings(questionnaire_id, payload.bindings, user)}
 
 
+@router.get("/type-defaults", dependencies=V2)
+async def type_defaults_get(_: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Each workshop type's default form (owner, amendment 2 point 2), for the library's admin card."""
+    from app.core.db import db
+
+    rows = await db.query_raw(
+        'SELECT d."questionnaireId", d."workshopType"::text AS "workshopType", d."designWorkshopKind", d."setAt", q."title" '
+        'FROM "QuestionnaireTypeDefault" d JOIN "Questionnaire" q ON q."id" = d."questionnaireId" '
+        'WHERE q."deletedAt" IS NULL ORDER BY d."workshopType", d."designWorkshopKind"'
+    )
+    return {
+        "workshopTypes": list(bindings.WORKSHOP_TYPES),
+        "defaults": [
+            {"questionnaireId": r["questionnaireId"], "title": r["title"], "workshopType": r.get("workshopType"),
+             "designWorkshopKind": r.get("designWorkshopKind"), "setAt": iso(r.get("setAt"))}
+            for r in rows
+        ],
+    }
+
+
+@router.get("/annexure", dependencies=V2)
+async def annexure_get(
+    workshopId: str, format: str = Query("json", pattern="^(json|txt)$"), user: Any = Depends(get_current_user),
+) -> Any:
+    """The workshop's questionnaire annexure, grouped by kind, live sessions only (UNIFY A12): what
+    the workshop export prints. Answers in it are research data, so it is for questionnaire managers
+    and dataset downloaders."""
+    from app.core.deps import can_download_dataset, can_manage_questionnaire
+    from app.services import questionnaire_library
+    from app.services.naming import content_disposition
+
+    if not (can_manage_questionnaire(user) or can_download_dataset(user)):
+        fail("FORBIDDEN", "You need questionnaire or dataset access to read the annexure.")
+    doc = await questionnaire_library.annexure(workshopId)
+    if format == "txt":
+        return Response(
+            questionnaire_library.annexure_text(doc), media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": content_disposition(questionnaire_library.annexure_filename(doc.get("workshopTitle")))},
+        )
+    return doc
+
+
 @router.put("/type-defaults", dependencies=V2)
 async def type_default_put(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
     payload = await parse(request, S.TypeDefaultPut)

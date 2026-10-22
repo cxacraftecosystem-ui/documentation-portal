@@ -28,6 +28,9 @@ MESSAGES = {
     "CONSENT_REFUSED": "Consent to send this recording outside was refused.",
     "CONSENT_NOT_RECORDED": "Waiting for consent to transcribe.",
     "APPROVE_BLOCKED": "This session can't be approved yet.",
+    # Joined the frozen list with the first client that shows them (Field Repository web, U3).
+    "FORM_DELETED": "This questionnaire was deleted.",
+    "BUNDLE_VERSION": "This bundle was made by a newer version of the app.",
 }
 STATUS = {
     "VALIDATION_FAILED": 422, "NOT_FOUND": 404, "FORBIDDEN": 403, "STALE_VERSION": 409,
@@ -35,6 +38,7 @@ STATUS = {
     "TITLE_IS_GENERATED": 422, "TARGET_OUTSIDE_INSTRUMENT": 422, "JOIN_CODE_UNKNOWN": 404,
     "MERGE_INSTRUMENT_MISMATCH": 409, "SESSION_UNKNOWN": 404, "TRANSCRIPTION_PAUSED": 409,
     "CONSENT_REFUSED": 409, "CONSENT_NOT_RECORDED": 409, "APPROVE_BLOCKED": 409,
+    "FORM_DELETED": 410, "BUNDLE_VERSION": 422,
 }
 
 #: The unification's codes (UNIFY section 2.2), served now and NOT YET in the frozen contract's closed
@@ -44,10 +48,8 @@ STATUS = {
 UNIFY_MESSAGES = {
     "ANSWER_LOCKED": "Only the person who answered, a lead or an admin can change this answer.",
     "RESPONDENT_HAS_ROWS": "This respondent has answers or takes.",
-    "FORM_DELETED": "This questionnaire was deleted.",
-    "BUNDLE_VERSION": "This bundle was made by a newer version of the app.",
 }
-UNIFY_STATUS = {"ANSWER_LOCKED": 409, "RESPONDENT_HAS_ROWS": 409, "FORM_DELETED": 410, "BUNDLE_VERSION": 422}
+UNIFY_STATUS = {"ANSWER_LOCKED": 409, "RESPONDENT_HAS_ROWS": 409}
 
 
 def fail(code: str, message: str | None = None, **extra: Any) -> NoReturn:

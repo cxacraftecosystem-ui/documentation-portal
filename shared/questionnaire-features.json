@@ -192,11 +192,13 @@
         "designer-portal": [
           "POST /questionnaires/{id}/reuse"
         ],
-        "documentation-portal": []
+        "documentation-portal": [
+          "POST /questionnaires/{id}/reuse"
+        ]
       },
       "server": {
         "designer-portal": "built",
-        "documentation-portal": "planned"
+        "documentation-portal": "built"
       },
       "clients": {
         "dr-web": "required",
@@ -276,11 +278,14 @@
         "designer-portal": [
           "PATCH /questionnaires/{id}"
         ],
-        "documentation-portal": []
+        "documentation-portal": [
+          "PATCH /questionnaires/{id}",
+          "GET /questionnaires"
+        ]
       },
       "server": {
         "designer-portal": "built",
-        "documentation-portal": "planned"
+        "documentation-portal": "built"
       },
       "clients": {
         "dr-web": "required",
@@ -315,11 +320,14 @@
       "source": "matrix",
       "api": {
         "designer-portal": [],
-        "documentation-portal": []
+        "documentation-portal": [
+          "PATCH /questionnaires/{id}",
+          "GET /questionnaire/annexure"
+        ]
       },
       "server": {
         "designer-portal": "built",
-        "documentation-portal": "planned"
+        "documentation-portal": "built"
       },
       "clients": {
         "dr-web": "required",
@@ -393,11 +401,14 @@
       "source": "matrix",
       "api": {
         "designer-portal": [],
-        "documentation-portal": []
+        "documentation-portal": [
+          "GET /questionnaires/{id}/bundle",
+          "POST /questionnaires/bundles/import"
+        ]
       },
       "server": {
         "designer-portal": "planned",
-        "documentation-portal": "planned"
+        "documentation-portal": "built"
       },
       "clients": {
         "dr-web": "required",
@@ -471,11 +482,13 @@
       "source": "matrix",
       "api": {
         "designer-portal": [],
-        "documentation-portal": []
+        "documentation-portal": [
+          "GET /questionnaire/annexure"
+        ]
       },
       "server": {
         "designer-portal": "built",
-        "documentation-portal": "planned"
+        "documentation-portal": "built"
       },
       "clients": {
         "dr-web": "required",
@@ -512,7 +525,8 @@
           "POST /questionnaires/{id}/restore"
         ],
         "documentation-portal": [
-          "DELETE /questionnaires/{id}"
+          "DELETE /questionnaires/{id}",
+          "POST /questionnaires/{id}/restore"
         ]
       },
       "server": {

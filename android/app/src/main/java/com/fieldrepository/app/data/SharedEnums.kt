@@ -6,7 +6,8 @@ enum class AnswerOrigin(val wire: String) {
     TRANSCRIPT("TRANSCRIPT"),
     MACHINE_SUGGESTED("MACHINE_SUGGESTED"),
     MACHINE_SUGGESTED_EDITED("MACHINE_SUGGESTED_EDITED"),
-    PREFILL("PREFILL");
+    PREFILL("PREFILL"),
+    WORKBOOK("WORKBOOK");
 
     companion object {
         fun fromWire(value: String?): AnswerOrigin? = entries.firstOrNull { it.wire == value }

@@ -43,7 +43,9 @@ export type ErrorCode =
   | "TRANSCRIPTION_PAUSED"
   | "CONSENT_REFUSED"
   | "CONSENT_NOT_RECORDED"
-  | "APPROVE_BLOCKED";
+  | "APPROVE_BLOCKED"
+  | "FORM_DELETED"
+  | "BUNDLE_VERSION";
 
 export type ContractErrorDetail = {
   code: ErrorCode;

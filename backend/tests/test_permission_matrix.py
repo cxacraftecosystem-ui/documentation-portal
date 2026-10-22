@@ -542,22 +542,13 @@ def test_the_admin_narrowing_did_not_leak_onto_the_authors_section_builder(api: 
     assert outcome.reached, outcome
 
 
-# --- The questionnaire WORKBOOK: a NEW form from a workbook is admin only -------------------------
+# --- The questionnaire WORKBOOK: a NEW form from a workbook is a questionnaire manager's -----------
 #
-# (Re-uploading over an EXISTING form, and downloading that form's own workbook to edit it, are the
-# form's author's or a content admin's since 22 Oct 2026: `AUTHOR_OR_ADMIN_EDITS` below.)
-#
-# Two tiers on one subject, which is new in this codebase and is the thing most likely to be
-# "harmonised" by a later change. Both directions are asserted: widening the workbook routes hands
-# the whole-instrument press to every questionnaire grant-holder, and narrowing the builder takes the
-# section editor away from the professors who use it today.
-#
-# AND THE TWO GATES ARE DIFFERENT KINDS OF PREDICATE, which is what the director ranks below are
-# doing in this file. `is_admin` (deps.py:59-60) is SET MEMBERSHIP over {"MASTER_ADMIN", "ADMIN"};
-# `can_manage_questionnaire` (deps.py:67-70) is a RANK FLOOR at PROFESSOR. A rank inserted between 40
-# and 50 therefore gains the editor automatically and is refused the workbook automatically —
-# MINISTRY_ADMIN included, despite the name. Deliberate, documented in docs/PERMISSIONS.md §1.1, and
-# asserted both ways here so that changing it has to be a decision rather than a side effect.
+# UNIFY 4.1 (owner, 22 Oct 2026): the pro-forma, a form's question set and creating a NEW form from a
+# workbook are open to the people who author forms (`require_questionnaire_manager`: Professor and
+# above, or the `canManageQuestionnaire` grant), not to admins alone; whoever uploads becomes the
+# author. Re-uploading over an EXISTING form, and downloading that form's own workbook to edit it,
+# stay the form's author's or a content admin's (`AUTHOR_OR_ADMIN_EDITS` below).
 
 WORKBOOK_ROUTES = [
     ("GET", "/questionnaires/pro-forma"),
@@ -565,24 +556,12 @@ WORKBOOK_ROUTES = [
     ("POST", "/questionnaires/upload"),
 ]
 
-# The four ladder roles below ADMIN, plus the three the role workstream inserts between PROFESSOR and
-# ADMIN. Listing the three now means this file goes red the day they land if anybody widens the set
-# literal in `is_admin` without saying so. A role absent from ROLE_RANK ranks 0 (deps.py:52), which
-# is refused by both gates, so these rows pass today and stay meaningful tomorrow.
-BELOW_ADMIN = (
-    "CROWDSOURCE_VOLUNTEER",
-    "FIELD_CONTRIBUTOR",
-    "RESEARCHER",
-    "PROFESSOR",
-    "ASSISTANT_DIRECTOR",
-    "REGIONAL_DIRECTOR",
-    "MINISTRY_ADMIN",
-)
+BELOW_QUESTIONNAIRE_MANAGER = ("CROWDSOURCE_VOLUNTEER", "FIELD_CONTRIBUTOR", "RESEARCHER")
 
 
 @pytest.mark.parametrize("method,path", WORKBOOK_ROUTES)
-@pytest.mark.parametrize("role", BELOW_ADMIN)
-def test_nobody_below_admin_reaches_a_questionnaire_workbook_route(
+@pytest.mark.parametrize("role", BELOW_QUESTIONNAIRE_MANAGER)
+def test_nobody_below_a_questionnaire_manager_reaches_a_workbook_route(
     api: _Api, method: str, path: str, role: str
 ) -> None:
     outcome = api.as_(_user(role)).call(method, path)
@@ -591,39 +570,27 @@ def test_nobody_below_admin_reaches_a_questionnaire_workbook_route(
     assert api.tripwire.touched is False
 
 
-@pytest.mark.parametrize("method,path", WORKBOOK_ROUTES)
-def test_the_questionnaire_grant_does_not_open_the_workbook_door(
-    api: _Api, method: str, path: str
-) -> None:
-    """`canManageQuestionnaire` is Professor-tier and opens the SECTION EDITOR. It must not open
-    this: one spreadsheet re-states the whole instrument, and everything absent from it is removed by
-    rule."""
-    outcome = api.as_(_user("PROFESSOR", canManageQuestionnaire=True)).call(method, path)
-
-    assert outcome.refused, outcome
-    assert api.tripwire.touched is False
-
-
-@pytest.mark.parametrize("role", ("ADMIN", "MASTER_ADMIN"))
-def test_an_admin_reaches_the_workbook_upload_handler(api: _Api, role: str) -> None:
+@pytest.mark.parametrize("role", ("PROFESSOR", "MINISTRY_ADMIN", "ADMIN", "MASTER_ADMIN"))
+def test_a_form_author_reaches_the_workbook_upload_handler(api: _Api, role: str) -> None:
     outcome = api.as_(_user(role)).call("POST", "/questionnaires/upload")
 
     # A multipart route with no file is a 422 from FastAPI's own body validation, which runs AFTER
-    # the dependencies and therefore BEFORE the handler body — so the tripwire is the wrong
-    # instrument here and the assertion is that the gate did not answer 403.
+    # the dependencies: the gate did not answer 403.
     assert outcome.status_code == 422, outcome
+
+
+def test_the_questionnaire_grant_opens_the_workbook_door(api: _Api) -> None:
+    """The grant makes a researcher a form author, so the pro-forma and a new upload are theirs."""
+    granted = api.as_(_user("RESEARCHER", canManageQuestionnaire=True))
+    assert granted.call("GET", "/questionnaires/pro-forma").status_code == 200
+    assert granted.call("POST", "/questionnaires/upload").status_code == 422
 
 
 def test_the_pro_forma_path_is_not_swallowed_by_an_id_route(api: _Api) -> None:
     """ROUTE ORDER, PINNED. `/questionnaires/pro-forma` is a literal segment sharing a prefix with
     `/questionnaires/{questionnaire_id}`, and `[^/]+` matches "pro-forma" happily. Declared below the
-    id route, this answers 404 "Record not found" — which reads as a broken database, not as a
-    routing problem, and would send somebody looking in Prisma. The pro-forma touches no database at
-    all, so a 200 carrying an .xlsx is proof the literal route won.
-
-    Requires the content-type guard in `_Api.call`: this is the only route in this file that answers
-    a non-JSON body, and without that guard this test ERRORS on `response.json()` instead of
-    asserting anything."""
+    id route, this answers 404 "Record not found". The pro-forma touches no database at all, so a 200
+    carrying an .xlsx is proof the literal route won."""
     outcome = api.as_(_user("ADMIN")).call("GET", "/questionnaires/pro-forma")
 
     assert outcome.status_code == 200, outcome
@@ -631,20 +598,16 @@ def test_the_pro_forma_path_is_not_swallowed_by_an_id_route(api: _Api) -> None:
     assert api.tripwire.touched is False
 
 
-def test_a_ministry_admin_is_refused_a_new_workbook_but_edits_and_reuploads_any_form(
+def test_a_ministry_admin_creates_from_a_workbook_and_edits_and_reuploads_any_form(
     api: _Api,
 ) -> None:
-    """THE ASYMMETRY, WRITTEN DOWN AS A TEST because it is the one a reader will meet as a bug.
-
-    `is_admin` is set membership over {"MASTER_ADMIN", "ADMIN"}, so a Ministry Admin cannot create a
-    NEW form from a workbook. A Ministry Admin is a content admin (``CONTENT_ADMIN_ROLES``), so since
-    22 Oct 2026 they edit every form and re-upload its workbook, whoever wrote it."""
-    assert api.as_(_user("MINISTRY_ADMIN")).call("POST", "/questionnaires/upload").refused
+    """A Ministry Admin ranks above Professor, so creating from a workbook is theirs, and as a content
+    admin they edit every form and re-upload its workbook, whoever wrote it."""
+    assert api.as_(_user("MINISTRY_ADMIN")).call("POST", "/questionnaires/upload").status_code == 422
 
     api.tripwire.reset()
     ministry = _authored_by_u1(api).as_(_user("MINISTRY_ADMIN", "u2"))
     assert ministry.call("POST", "/questionnaire/sections", {"questionnaireId": "f1", "code": "Z", "title": "T"}).reached
-    # A multipart route with no file: the gate passed, so FastAPI's body validation answers 422.
     assert ministry.call("POST", "/questionnaires/f1/upload").status_code == 422
 
 

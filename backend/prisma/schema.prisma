@@ -259,6 +259,7 @@ enum AnswerOrigin {
   MACHINE_SUGGESTED
   MACHINE_SUGGESTED_EDITED
   PREFILL
+  WORKBOOK
 }
 
 enum AnswerAttribution {
@@ -1868,6 +1869,9 @@ model Questionnaire {
   kind        String?
   deletedAt   DateTime?
   deletedById String?
+  /// The handoff bundle (`.frwq` / `.dpwq`) this form was imported from, so importing the same file
+  /// twice returns the first copy (shared/questionnaire-bundle.json; idempotent per importer).
+  importedBundleId String?
 
   createdBy  User?                    @relation("QuestionnaireInstrumentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   sections   QuestionnaireSection[]
@@ -1879,6 +1883,7 @@ model Questionnaire {
   @@index([isActive, sortOrder])
   @@index([ownerId])
   @@index([deletedAt])
+  @@unique([importedBundleId, ownerId])
 }
 
 model QuestionnaireSection {
