@@ -56,7 +56,8 @@ test("H15: the Builder is the builder alone, for managers, with the page's Back"
   expect(screen).not.toContain("back={false}");
   expect(screen).not.toMatch(/<form[\s\S]*onSubmit=\{submit\}/);
   const list = read("components", "questionnaire", "SessionsList.tsx");
-  expect(list).toMatch(/\{canManageQuestionnaire\(user\) \? \(\s*<Link className="field-button-secondary" href="\/questionnaire\/builder">/);
+  // The sessions list now opens the forms library, where a form's builder lives (UNIFY U3).
+  expect(list).toContain('<Link className="field-button-secondary" href={FORMS_HREF}>');
 });
 
 test("H17: a stopped take's draft stays open until the outbox holds it", () => {
@@ -150,7 +151,7 @@ test("M4: the start sheet starts with no signal from the lists last read, and co
   ] as Snapshot["takes"];
   expect(coveredSectionsOffline(takes, "a1", sections), "D by all its questions; E only PRESENT").toBe(1);
   const sheet = read("components", "questionnaire", "SessionStartSheet.tsx");
-  expect(sheet).toContain(".catch(() => held.workshops as unknown as Workshop[])");
+  expect(sheet).toContain(".catch(() => held.workshops)");
   expect(sheet).toContain(".catch(() => held.instruments)");
   expect(sheet).toContain("searchCachedArtisans(readStartLists().artisans, search, workshopId)");
   expect(sheet).toContain("coverageLine(coverage, coverageAge)");
