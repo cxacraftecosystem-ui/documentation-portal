@@ -188,5 +188,5 @@ test("a form's Delete is its author's or a content admin's, and its Restore a co
   expect(page).toContain("await library.remove(form.id);");
   expect(page).toContain("can.restore ? (");
   const lib = read("lib/questionnaireLibrary.ts");
-  expect(lib).toContain('remove: (id: string) => apiFetch<LibraryForm>(`${FORMS}/${encodeURIComponent(id)}`, { method: "DELETE" })');
+  expect(lib).toContain('remove: (id: string) => fetchJson<LibraryForm>(`${FORMS}/${encodeURIComponent(id)}`, { method: "DELETE" })');
 });

@@ -191,7 +191,7 @@ test("@qf:A10 a handoff bundle: read in the browser, P17, and imported once", as
   expect(calls[0]).toMatchObject({ method: "POST", path: "/questionnaires/bundles/import", body: v2 });
   expect(calls[0].headers.get("Idempotency-Key")).toBeTruthy();
   expect(DIALOGS).toContain("{prompt.buttons[0]}");
-  expect(DIALOGS).toContain("{prompt.buttons[1]}");
+  expect(DIALOGS).toContain('{busy ? "Adding…" : prompt.buttons[1]}');
   expect(FORM_PAGE).toContain("saveDownload(await downloads.bundle(form.id))");
 });
 
