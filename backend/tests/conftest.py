@@ -19,6 +19,11 @@ if not os.environ.get("AADHAAR_FINGERPRINT_KEY"):
 
 import pytest  # noqa: E402 - after the sys.path line above, which this import does not need
 
+# QUESTIONNAIRE_V2 defaults ON since the unified switch-on (U5), and the suite was written while it
+# defaulted off; every Settings this run builds starts from off (a test of a v2 path turns it on
+# itself; see the fixture at the foot of this file). Set before anything here builds Settings.
+os.environ.setdefault("QUESTIONNAIRE_V2", "false")
+
 
 @pytest.fixture(autouse=True)
 def _fresh_account_credential_budget():
