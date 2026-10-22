@@ -1,12 +1,12 @@
 package com.fieldrepository.app.ui
 
-import com.fieldrepository.app.data.QCompleteSubject
-import com.fieldrepository.app.data.QInbox
-import com.fieldrepository.app.data.SessionOutbox
-import com.fieldrepository.app.ui.questionnaire.HeaderParticipant
-import com.fieldrepository.app.ui.questionnaire.answerForIds
-import com.fieldrepository.app.ui.questionnaire.answerForOptions
-import com.fieldrepository.app.ui.questionnaire.inboxSections
+import com.fieldrepository.app.questionnaire.data.QCompleteSubject
+import com.fieldrepository.app.questionnaire.data.QInbox
+import com.fieldrepository.app.questionnaire.data.SessionOutbox
+import com.fieldrepository.app.questionnaire.ui.HeaderParticipant
+import com.fieldrepository.app.questionnaire.ui.answerForIds
+import com.fieldrepository.app.questionnaire.ui.answerForOptions
+import com.fieldrepository.app.questionnaire.ui.inboxSections
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals

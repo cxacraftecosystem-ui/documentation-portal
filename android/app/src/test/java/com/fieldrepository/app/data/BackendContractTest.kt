@@ -1,8 +1,9 @@
 package com.fieldrepository.app.data
 
-import com.fieldrepository.app.ui.questionnaire.decisionRow
-import com.fieldrepository.app.ui.questionnaire.joinFailureKey
-import com.fieldrepository.app.ui.questionnaire.replaceRemovesEarlier
+import com.fieldrepository.app.questionnaire.data.*
+import com.fieldrepository.app.questionnaire.ui.decisionRow
+import com.fieldrepository.app.questionnaire.ui.joinFailureKey
+import com.fieldrepository.app.questionnaire.ui.replaceRemovesEarlier
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -141,6 +142,6 @@ class BackendContractTest {
     @Test fun `a researcher's replace keeps both takes, so only a content admin is asked P7`() {
         assertFalse(replaceRemovesEarlier(isContentAdmin = false))
         assertTrue(replaceRemovesEarlier(isContentAdmin = true))
-        assertTrue(File("src/main/java/com/fieldrepository/app/ui/questionnaire/SessionWorkspace.kt").readText().contains("replaceRemovesEarlier(mayDelete)"))
+        assertTrue(File("src/main/java/com/fieldrepository/app/questionnaire/ui/SessionWorkspace.kt").readText().contains("replaceRemovesEarlier(mayDelete)"))
     }
 }

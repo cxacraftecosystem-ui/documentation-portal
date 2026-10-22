@@ -51,13 +51,13 @@ import androidx.core.content.ContextCompat
 import com.fieldrepository.app.data.ArtisanCardCode
 import com.fieldrepository.app.data.ArtisanCardResolution
 import com.fieldrepository.app.data.FieldRepository
-import com.fieldrepository.app.data.JoinQr
+import com.fieldrepository.app.questionnaire.data.JoinQr
 import com.fieldrepository.app.data.OfflineOutbox
 import com.fieldrepository.app.data.cardWaitingToSync
 import com.fieldrepository.app.data.OutboxSyncWorker
-import com.fieldrepository.app.data.QJoinRequest
-import com.fieldrepository.app.data.QuestionnaireCopy
-import com.fieldrepository.app.data.QuestionnaireV2
+import com.fieldrepository.app.questionnaire.data.QJoinRequest
+import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
+import com.fieldrepository.app.questionnaire.data.QuestionnaireV2
 import com.fieldrepository.app.data.ScanAction
 import com.fieldrepository.app.data.ScanCardAnswer
 import com.fieldrepository.app.data.ScanCardKind
@@ -69,7 +69,7 @@ import com.fieldrepository.app.data.ScanPortal
 import com.fieldrepository.app.data.ScanRecordAnswer
 import com.fieldrepository.app.data.ScanServices
 import com.fieldrepository.app.data.ScanTarget
-import com.fieldrepository.app.ui.questionnaire.LiveQrScanner
+import com.fieldrepository.app.questionnaire.portal.LiveQrScanner
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

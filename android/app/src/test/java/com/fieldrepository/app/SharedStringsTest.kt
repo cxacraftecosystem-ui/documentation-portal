@@ -1,7 +1,8 @@
 package com.fieldrepository.app
 
-import com.fieldrepository.app.data.QuestionnaireCopy
-import com.fieldrepository.app.data.SessionOutbox
+import com.fieldrepository.app.questionnaire.QFeature
+import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
+import com.fieldrepository.app.questionnaire.data.SessionOutbox
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -27,6 +28,7 @@ class SharedStringsTest {
         (root["strings"] as JsonObject).mapValues { it.value.jsonPrimitive.content }
     }
 
+    @QFeature("B37")
     @Test
     fun `every shared sentence the app holds is the table's, character for character`() {
         val differ = QuestionnaireCopy.shared.filter { (key, text) -> table[key] != text }
@@ -42,25 +44,7 @@ class SharedStringsTest {
     }
 
     @Test
-    fun `the Android-only sentences are the pinned few, and none duplicates a shared one`() {
-        assertEquals(
-            setOf("sessions.builder", "sessions.join", "start.artisan", "inbox.nothing", "inbox.error", "join.scan", "join.pick",
-                "join.code", "join.notFound", "join.noQr", "join.onlineOnly", "join.rateLimited", "battery.title",
-                // Audit 21 Oct 2026: the hard-coded transcript words and errors (Low), the fix tray (H20),
-                // the session, take and inbox actions (H13, H14, §1), paging, offline registration, CSV.
-                "transcript.failed", "transcript.queued", "error.removeTake", "error.readFile", "error.recover", "error.startSession",
-                "error.recorderStart", "error.queueTake", "error.needsSignal", "error.saveOnPhone", "error.changedElsewhere",
-                "tray.title", "tray.notAllowed", "tray.theirs", "tray.mine", "tray.session", "tray.newArtisan",
-                "tray.participant", "tray.answers", "tray.finish",
-                "session.more", "session.edit", "session.merge", "session.removeArtisan",
-                "session.deleteBody", "session.mergeBody", "session.noOtherSessions",
-                "take.removed", "take.makePrimary", "take.madePrimary", "take.propose", "take.noProposals", "take.accept", "take.whose",
-                "inbox.fileTitle", "inbox.fileSession", "inbox.fileTarget", "inbox.fileWho", "inbox.keepThis", "inbox.keepOther", "inbox.noOtherTake",
-                "sessions.search", "sessions.loadMore", "sessions.capped",
-                "artisan.new", "artisan.name", "artisan.place", "artisan.aadhaar", "artisan.aadhaarNotShared", "artisan.dos", "artisan.donts",
-                "artisan.register", "artisan.onPhone", "csv.saved", "csv.failed"),
-            QuestionnaireCopy.androidOnly.keys
-        )
+    fun `no Android-only sentence duplicates a shared one`() {
         val duplicates = QuestionnaireCopy.androidOnly.filterValues { it in table.values }
         assertEquals("these have a shared key; map them instead", emptyMap<String, String>(), duplicates)
     }

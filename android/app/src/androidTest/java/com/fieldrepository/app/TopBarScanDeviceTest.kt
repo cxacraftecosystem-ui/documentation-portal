@@ -16,7 +16,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.fieldrepository.app.data.ApiClient
 import com.fieldrepository.app.data.FieldRepository
 import com.fieldrepository.app.data.FieldRepositoryApi
-import com.fieldrepository.app.data.QuestionnaireV2
+import com.fieldrepository.app.questionnaire.data.QuestionnaireV2
 import com.fieldrepository.app.data.ScanAction
 import com.fieldrepository.app.data.ScanServices
 import com.fieldrepository.app.data.ScanTarget

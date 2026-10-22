@@ -239,7 +239,24 @@ def tables(client: Any, unified: bool) -> SimpleNamespace:
     tables (legacy, before the migration's apply)."""
     if unified:
         return SimpleNamespace(sections=_Sections(client), questions=_Questions(client), unified=True)
-    return SimpleNamespace(sections=client.questionnaireformsection, questions=client.questionnaireformquestion, unified=False)
+    return _Legacy(client)
+
+
+class _Legacy:
+    """The old form tables, looked up only when used (a caller that never touches them never needs them)."""
+
+    unified = False
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    @property
+    def sections(self) -> Any:
+        return self._client.questionnaireformsection
+
+    @property
+    def questions(self) -> Any:
+        return self._client.questionnaireformquestion
 
 
 async def unified_form_ids(form_ids: list[str], client: Any = None) -> set[str]:

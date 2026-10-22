@@ -303,7 +303,9 @@ def test_question_writes_reconcile_or_stamp_the_code():
     assert "reconcile_question_codes(" in src
     if IS_DESIGNER_PORTAL:
         forms = _src("app/api/routes/questionnaire_forms.py")
-        assert forms.count("reconcile_form_question_codes(") >= 8
+        # Every write reconciles through one helper, on whichever tables hold the form (UNIFY U5).
+        assert forms.count("_reconcile_codes(") >= 8
+        assert "reconcile_form_question_codes(" in forms and "reconcile_question_codes(" in forms
 
 
 # ──────────────────────────────────────────────────────────────────────────────────────────────

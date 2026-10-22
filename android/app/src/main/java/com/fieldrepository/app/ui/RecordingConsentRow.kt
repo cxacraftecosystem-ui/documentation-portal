@@ -13,9 +13,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.fieldrepository.app.data.QConsentGet
-import com.fieldrepository.app.data.QuestionnaireCopy
-import com.fieldrepository.app.data.QuestionnaireV2
+import com.fieldrepository.app.questionnaire.data.QConsentGet
+import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
+import com.fieldrepository.app.questionnaire.data.QuestionnaireV2
 import com.fieldrepository.app.data.RecordingConsentCopy
 import com.fieldrepository.app.data.consentDay
 import kotlinx.coroutines.launch

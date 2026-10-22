@@ -509,11 +509,17 @@ async def assert_instrument_allowed(
         return
     if form.get("isShared") or form.get("isDefault") or (form.get("ownerId") and str(form["ownerId"]) == str(getattr(user, "id", ""))):
         return
-    bound = await bindings.bindings_for_workshop(db, workshop_id=workshop_id, design_workshop_id=design_workshop_id)
-    if any(str(b.questionnaireId) == str(questionnaire_id) for b in bound):
-        return
+    bound = [str(b.questionnaireId) for b in
+             await bindings.bindings_for_workshop(db, workshop_id=workshop_id, design_workshop_id=design_workshop_id)]
+    if workshop_id:
+        # A Field Repository workshop's own form column (the legacy single form) binds it as well.
+        legacy = await db.query_raw('SELECT "questionnaireId" FROM "Workshop" WHERE "id" = $1', workshop_id)
+        if legacy and legacy[0].get("questionnaireId"):
+            bound.append(str(legacy[0]["questionnaireId"]))
     type_default = await bindings.type_default_for(db, workshop_id=workshop_id, design_workshop_id=design_workshop_id)
-    if type_default and str(type_default) == str(questionnaire_id):
+    if not bound and not type_default:
+        return  # nothing is bound to this workshop: the start sheet offers the picker
+    if str(questionnaire_id) in bound or (type_default and str(type_default) == str(questionnaire_id)):
         return
     fail("VALIDATION_FAILED", "This workshop uses a different questionnaire.", fields={"questionnaireId": [questionnaire_id]})
 
