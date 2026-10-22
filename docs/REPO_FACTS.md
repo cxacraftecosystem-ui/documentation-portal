@@ -122,7 +122,7 @@ no key is skipped wherever it sits.
 |---|---|---|---|
 | Backend unit (`backend/tests/`) | 169 | 2229 `def test_` | `python -m pytest -q` from `backend/` |
 | Web end-to-end (`frontend/e2e/`) | 118 | 1250 `test(` | Playwright, `frontend/playwright.config.ts` |
-| Android unit (`android/app/src/test/`) | 150 | 1282 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
+| Android unit (`android/app/src/test/`) | 150 | 1283 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
 | Android instrumented | 9 | 36 `@Test` | not run in CI |
 
 The backend case count is `def test_` occurrences; pytest reports a larger number because
