@@ -39,6 +39,7 @@ MODULES = (
     "workshop_access",   # may this user submit into this workshop
     "records",           # attach_location
     "answer_drafts",     # AI answer drafting
+    "codes",             # cross-portal question codes
 )
 
 REQUIRED = (
@@ -129,6 +130,8 @@ transcription = _Module("transcription")
 workshop_access = _Module("workshop_access")
 records = _Module("records")
 answer_drafts = _Module("answer_drafts")
+#: Cross-portal question codes (``reconcile_question_codes``), the same module in both portals.
+codes = _Module("codes")
 
 
 async def enforce_workshop_submission(*args: Any, **kwargs: Any) -> Any:

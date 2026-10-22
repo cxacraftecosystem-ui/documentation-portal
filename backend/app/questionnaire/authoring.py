@@ -88,8 +88,10 @@ may_edit_form = may_change_form
 may_delete_form = may_change_form
 
 
-def may_restore_form(user: Any) -> bool:
-    return is_content_admin(user)
+def may_restore_form(user: Any, form: Any = None) -> bool:
+    """Bring a deleted form back: its author or a content admin (owner, 22 Oct 2026; one rule in
+    both portals). Without the form only a content admin qualifies."""
+    return is_content_admin(user) or (form is not None and is_form_author(form, user))
 
 
 def may_delete_session(user: Any) -> bool:

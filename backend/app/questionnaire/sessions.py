@@ -403,7 +403,8 @@ async def create_session(payload: Any, user: Any, *, client: Any = None, origin:
     await _assert_exists(db, "Questionnaire", [payload.questionnaireId], "questionnaireId")
     await _assert_exists(db, "Workshop", [payload.workshopId] if payload.workshopId else [], "workshopId")
     if check_instrument:
-        await assert_instrument_allowed(db, payload.questionnaireId, payload.workshopId, user)
+        await assert_instrument_allowed(db, payload.questionnaireId, payload.workshopId, user,
+                                        design_workshop_id=getattr(payload, "designWorkshopId", None))
     await _assert_exists(db, "Artisan", artisan_ids, "artisanIds")
     await _assert_exists(db, "User", [r.userId for r in payload.researchers], "researchers")
     check = await enforce_workshop_submission(user, payload.workshopId) if payload.workshopId else None
@@ -487,21 +488,34 @@ async def _by_client_key(db: Any, client_key: str) -> str | None:
     return str(final["id"]) if final else str(rows[0]["id"])
 
 
-async def assert_instrument_allowed(db: Any, questionnaire_id: str, workshop_id: str | None, user: Any) -> None:
-    """A session is never started on a retired instrument, nor on another instrument than its
-    workshop is bound to unless the caller manages questionnaires (the legacy create's rule; audit
-    M16)."""
+async def assert_instrument_allowed(
+    db: Any, questionnaire_id: str, workshop_id: str | None, user: Any, *, design_workshop_id: str | None = None,
+) -> None:
+    """A session is never started on a retired or deleted form. Filed under a workshop, a caller who
+    does not manage questionnaires may use (decision 4 and owner amendment 2): any form BOUND to that
+    workshop, the workshop kind's type default, the global default, and their own or a shared form.
+    A questionnaire manager may use any live form."""
+    from app.questionnaire import bindings
     from app.questionnaire.ports import can_manage_questionnaire
 
-    rows = await db.query_raw('SELECT "isActive" FROM "Questionnaire" WHERE "id" = $1', questionnaire_id)
-    if rows and not rows[0].get("isActive"):
+    rows = await db.query_raw(
+        'SELECT "isActive", "deletedAt", "ownerId", "isShared", "isDefault" FROM "Questionnaire" WHERE "id" = $1', questionnaire_id
+    )
+    form = rows[0] if rows else None
+    if form is not None and (not form.get("isActive") or form.get("deletedAt") is not None):
         fail("VALIDATION_FAILED", "That questionnaire is retired. Pick the workshop's questionnaire.",
              fields={"questionnaireId": [questionnaire_id]})
-    if workshop_id:
-        bound = await db.query_raw('SELECT "questionnaireId" FROM "Workshop" WHERE "id" = $1', workshop_id)
-        bound_id = bound[0].get("questionnaireId") if bound else None
-        if bound_id and str(bound_id) != str(questionnaire_id) and not can_manage_questionnaire(user):
-            fail("VALIDATION_FAILED", "This workshop uses a different questionnaire.", fields={"questionnaireId": [questionnaire_id]})
+    if not (workshop_id or design_workshop_id) or form is None or can_manage_questionnaire(user):
+        return
+    if form.get("isShared") or form.get("isDefault") or (form.get("ownerId") and str(form["ownerId"]) == str(getattr(user, "id", ""))):
+        return
+    bound = await bindings.bindings_for_workshop(db, workshop_id=workshop_id, design_workshop_id=design_workshop_id)
+    if any(str(b.questionnaireId) == str(questionnaire_id) for b in bound):
+        return
+    type_default = await bindings.type_default_for(db, workshop_id=workshop_id, design_workshop_id=design_workshop_id)
+    if type_default and str(type_default) == str(questionnaire_id):
+        return
+    fail("VALIDATION_FAILED", "This workshop uses a different questionnaire.", fields={"questionnaireId": [questionnaire_id]})
 
 
 def _json(value: Any) -> Any:

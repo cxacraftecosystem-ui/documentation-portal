@@ -1,5 +1,7 @@
 package com.fieldrepository.app.data
 
+import com.fieldrepository.app.questionnaire.data.*
+import com.fieldrepository.app.questionnaire.QFeature
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonObject
@@ -18,6 +20,7 @@ class QuestionnaireContractTest {
 
     private fun <T> decodes(serializer: KSerializer<T>, text: String): T = json.decodeFromString(serializer, text)
 
+    @QFeature("B36")
     @Test fun config() {
         val c = decodes(QConfig.serializer(), """{"contractVersion": 1, "v2Enabled": true, "transcriptionPaused": true, "noteMaxChars": 80,
             "multipartThresholdBytes": 5242880, "partSizeBytes": 8388608, "snapshotPollSeconds": 60, "joinCodeLength": 6, "minAppVersionForCreate": null}""")
@@ -115,6 +118,8 @@ class QuestionnaireContractTest {
         val root = json.parseToJsonElement(file.readText()).jsonObject
         (root["errorCodes"] ?: root["error"]?.jsonObject?.get("errorCodes"))?.let { codes ->
             val listed = json.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(String.serializer()), codes)
+            // The contract's closed list and the app's known set are the same set: the unified codes
+            // (ANSWER_LOCKED, RESPONDENT_HAS_ROWS, FORM_DELETED, BUNDLE_VERSION) are in the contract now.
             assertEquals(listed.toSet(), QErrorCodes.ALL.toSet())
         }
         (root["Session"] as? JsonObject)?.let { json.decodeFromJsonElement(QSession.serializer(), it) }

@@ -1,5 +1,6 @@
 package com.fieldrepository.app.data
 
+import com.fieldrepository.app.questionnaire.data.QConsentGet
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

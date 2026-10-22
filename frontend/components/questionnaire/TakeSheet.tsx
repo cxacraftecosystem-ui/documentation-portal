@@ -33,7 +33,7 @@ export function canOfferAnswers(recording: Recording): boolean {
 
 const OVERRIDE_KEY: Record<SectionOverride | "", "overrideNone" | "stateMarkedComplete" | "stateNeedsReview" | "stateNeedsRedo"> = {
   "": "overrideNone",
-  MARKED_COMPLETE: "stateMarkedComplete",
+  COMPLETED: "stateMarkedComplete",
   NEEDS_REVIEW: "stateNeedsReview",
   NEEDS_REDO: "stateNeedsRedo"
 };
@@ -117,7 +117,7 @@ export function TakeSheet({
           <SegmentedChoice
             label={qs("sectionOverride")}
             value={override ?? ""}
-            options={(["", "MARKED_COMPLETE", "NEEDS_REVIEW", "NEEDS_REDO"] as const).map((v) => ({ value: v, label: qs(OVERRIDE_KEY[v]) }))}
+            options={(["", "COMPLETED", "NEEDS_REVIEW", "NEEDS_REDO"] as const).map((v) => ({ value: v, label: qs(OVERRIDE_KEY[v]) }))}
             onChange={(v) => void act(() => onOverride((v || null) as SectionOverride | null))}
           />
         </div>

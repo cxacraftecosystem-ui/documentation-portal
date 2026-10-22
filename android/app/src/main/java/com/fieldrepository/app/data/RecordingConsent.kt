@@ -1,5 +1,9 @@
 package com.fieldrepository.app.data
 
+import com.fieldrepository.app.questionnaire.data.QConsentGet
+import com.fieldrepository.app.questionnaire.data.QConsentPost
+import com.fieldrepository.app.questionnaire.data.QuestionnaireApi
+import com.fieldrepository.app.questionnaire.data.SessionOutbox
 import android.content.Context
 
 /**

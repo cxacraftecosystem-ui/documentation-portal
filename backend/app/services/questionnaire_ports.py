@@ -21,6 +21,7 @@ _MODULES = {
     "workshop_access": "app.services.workshop_access",
     "records": "app.services.records",
     "answer_drafts": "app.services.answer_drafts",
+    "codes": "app.services.cross_portal_codes",
 }
 
 

@@ -316,4 +316,19 @@
     <string name="q_authoring_add_question">Add question</string>
     <string name="q_authoring_section_title">Section title</string>
     <string name="q_authoring_question_prompt">Question</string>
+    <string name="q_workshop_type_design">Design and prototype workshops</string>
+    <string name="q_workshop_type_other">Other workshops</string>
+    <string name="q_forms_empty_mine">You haven\'t made a form yet.</string>
+    <string name="q_forms_empty_shared">No forms are shared yet.</string>
+    <string name="q_forms_empty_workshop">No forms are bound to this workshop.</string>
+    <string name="q_forms_empty_deleted">Nothing deleted.</string>
+    <string name="q_library_try_again">That didn\'t work. Try again.</string>
+    <string name="q_form_deleted_notice">This form was deleted.</string>
+    <string name="q_bundle_newer_version">This file was made by a newer version of the app. Update, then open it again.</string>
+    <string name="q_bundle_too_large">This bundle is too large.</string>
+    <string name="q_bundle_not_abundle">This file isn\'t a questionnaire bundle.</string>
+    <string name="q_download_did_not_start">The download didn\'t start. Try again.</string>
+    <string name="q_source_handed_over">Handed over</string>
+    <string name="q_offline_saved_copy">Offline · saved copy.</string>
+    <string name="q_offline_saved_copy_from">Offline · saved copy from %1$s.</string>
 </resources>

@@ -22,9 +22,8 @@ import androidx.core.content.ContextCompat
 import com.fieldrepository.app.MainActivity
 import com.fieldrepository.app.R
 import com.fieldrepository.app.data.AppScope
-import com.fieldrepository.app.data.OutboxSyncWorker
-import com.fieldrepository.app.data.QuestionnaireCopy
-import com.fieldrepository.app.data.QuestionnaireV2
+import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
+import com.fieldrepository.app.questionnaire.data.QuestionnaireV2
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -135,7 +134,7 @@ class RecordingService : Service() {
                 _state.value = State.Finished(queued, reason)
                 // A group take waits for the workspace's "Answered by" chips (§3.4), which send it;
                 // a solo take, or one whose workspace is gone, goes now.
-                if (queued.subjects.size <= 1 || reason == "leave" || reason == "destroyed") OutboxSyncWorker.schedule(app)
+                if (queued.subjects.size <= 1 || reason == "leave" || reason == "destroyed") QuestionnaireV2.get(app).requestSync()
             }.onFailure {
                 // Never swallowed (audit C2): the draft stays on the phone unqueued, so P13 offers it
                 // back, and the workspace says so now.

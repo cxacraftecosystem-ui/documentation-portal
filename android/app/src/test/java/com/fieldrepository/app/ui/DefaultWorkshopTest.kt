@@ -1,5 +1,6 @@
 package com.fieldrepository.app.ui
 
+import com.fieldrepository.app.questionnaire.QFeature
 import com.fieldrepository.app.data.WorkshopDetailDto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -18,6 +19,7 @@ class DefaultWorkshopTest {
     private fun ws(id: String, startDate: String?, canRecord: Boolean? = null, createdAt: String = "2026-01-01T00:00:00.000Z") =
         WorkshopDetailDto(id = id, title = id, startDate = startDate, date = startDate ?: "2026-01-01T00:00:00.000Z", createdAt = createdAt, canRecord = canRecord)
 
+    @QFeature("B30")
     @Test
     fun picksTheMostRecentByTheDayItRanNotListOrder() {
         val list = listOf(ws("older", "2026-09-14T00:00:00.000Z"), ws("recent", "2026-10-12T00:00:00.000Z"), ws("oldest", "2026-08-01T00:00:00.000Z"))

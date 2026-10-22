@@ -38,6 +38,22 @@ SECTION_STATUS_LABELS: dict[str, str] = {
     "NEEDS_REVIEW": "Needs review",
     "NEEDS_REDO": "Needs redo",
 }
+
+#: What older clients sent for "Marked complete" before the vocabulary was one end to end (U3's
+#: report, 22 Oct 2026): accepted on write and stored as the canonical token, never sent back.
+SECTION_STATUS_ALIASES: dict[str, str] = {"MARKED_COMPLETE": "COMPLETED"}
+
+
+def normalise_section_status(value: str | None) -> str | None:
+    """The canonical override token for ``value`` (an alias is mapped), or None when ``value`` is
+    empty. Anything else is a ``ValueError`` naming the three states."""
+    if value is None or not str(value).strip():
+        return None
+    token = str(value).strip().upper()
+    token = SECTION_STATUS_ALIASES.get(token, token)
+    if token not in SECTION_STATUS_LABELS:
+        raise ValueError(f"status must be one of {', '.join(SECTION_STATUS_LABELS)} or null")
+    return token
 SECTION_STATUSES: tuple[str, ...] = tuple(SECTION_STATUS_LABELS)
 
 
@@ -73,6 +89,7 @@ def coerce_kind(value: str | None) -> str | None:
 
 def coerce_section_status(value: str | None) -> str:
     token = (value or "").strip().upper()
+    token = SECTION_STATUS_ALIASES.get(token, token)
     if token not in SECTION_STATUS_LABELS:
         raise ValueError(f"'{value}' is not a section status. Use one of: {', '.join(SECTION_STATUSES)}.")
     return token

@@ -1,10 +1,11 @@
 package com.fieldrepository.app.ui
 
-import com.fieldrepository.app.data.QConsentVerdict
-import com.fieldrepository.app.data.QRecording
-import com.fieldrepository.app.data.QTranscript
-import com.fieldrepository.app.ui.questionnaire.TranscriptStatus
-import com.fieldrepository.app.ui.questionnaire.TranscriptTone
+import com.fieldrepository.app.questionnaire.QFeature
+import com.fieldrepository.app.questionnaire.data.QConsentVerdict
+import com.fieldrepository.app.questionnaire.data.QRecording
+import com.fieldrepository.app.questionnaire.data.QTranscript
+import com.fieldrepository.app.questionnaire.ui.TranscriptStatus
+import com.fieldrepository.app.questionnaire.ui.TranscriptTone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -48,9 +49,10 @@ class TranscriptStatusTest {
      * for a transcription, and only through [TranscriptStatus]'s line, whose Retry is disabled while
      * transcription is paused (above). Any other caller is a control that could start one.
      */
+    @QFeature("B34")
     @Test
     fun `only the take's Retry can ask for a transcription, and never while paused`() {
-        val dir = repoFile("app/src/main/java/com/fieldrepository/app/ui/questionnaire/QuestionnairePrompts.kt").parentFile
+        val dir = repoFile("app/src/main/java/com/fieldrepository/app/questionnaire/ui/QuestionnairePrompts.kt").parentFile
         val callers = dir.listFiles { f -> f.extension == "kt" }!!.filter { it.readText().contains(".transcribe(") }
         assertEquals(listOf("SessionWorkspace.kt"), callers.map { it.name })
         val lines = callers.single().readLines().filter { it.contains(".transcribe(") }
