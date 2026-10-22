@@ -172,7 +172,10 @@ export function AnswerBox({
   const researcherName = (id: string | null | undefined) =>
     session.researchers.find((r) => r.userId === id)?.name ?? (id && id === me ? qs("you") : qs("someoneElse"));
   const locked = focus ? answerLocked(current(focus), me, mayOverride) : subjects.every((s) => answerLocked(current(s.key), me, mayOverride));
-  const lockedBy = focus ? current(focus)?.actorId : existing.find((a) => answerLocked(a, me, mayOverride))?.actorId;
+  const lockedAnswer = focus ? current(focus) : existing.find((a) => answerLocked(a, me, mayOverride));
+  const lockedBy = lockedAnswer?.actorId;
+  // The server names who wrote it (`actorName`); a researcher of the session is named from the roster.
+  const lockedByName = session.researchers.find((r) => r.userId === lockedBy)?.name ?? lockedAnswer?.actorName ?? researcherName(lockedBy);
 
   async function keep(step: AnswersStep) {
     await enqueue({ id: session.id, clientKey: session.clientKey }, step);
@@ -293,7 +296,7 @@ export function AnswerBox({
       />
       {locked ? (
         <p className="text-xs text-ink-500" data-p15>
-          {qs("p15Locked", { name: shortName(researcherName(lockedBy)) })}
+          {qs("p15Locked", { name: shortName(lockedByName) })}
         </p>
       ) : null}
       {lockedFor.length ? (
