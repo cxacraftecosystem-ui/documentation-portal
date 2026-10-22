@@ -235,7 +235,7 @@ test("@qf:B16 a multipart upload resumes from the server's parts and never re-se
 });
 
 test("the client never names an uploaded file: the object key comes from presign", () => {
-  const source = readFileSync(join(__dirname, "..", "lib", "questionnaireQueue.ts"), "utf8");
+  const source = readFileSync(join(__dirname, "..", "lib", "questionnaire", "queue.ts"), "utf8");
   expect(source).toContain("step.objectKey = signed.objectKey");
   expect(source).not.toMatch(/recordingFilename|renameMediaFile|mediaFileName/);
 });
