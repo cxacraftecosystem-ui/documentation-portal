@@ -48,10 +48,11 @@ async function evidence(info: TestInfo, name: string, body: string, contentType:
 }
 
 test("tapping Continue with Google opens Google's sign-in window", async ({ page, context, hasTouch }, info) => {
-  // A TABLET'S CONNECTION, NOT A RUNNER'S. The live failure is a race between the person's first
-  // tap and React taking over the server-rendered page; on a runner the scripts arrive at once and
-  // hydration usually wins, which hides it. Holding the page's scripts back for a moment loses the
-  // race the way a tablet on a mobile connection loses it, on every engine.
+  // A TABLET'S CONNECTION, NOT A RUNNER'S. The page's scripts are held back for a moment, so the
+  // terms box is ticked while the page is still server HTML, the way a person on a slow tablet
+  // ticks it. One live run (2026-10-22, Galaxy Tab profile) lost that tick to the page coming alive
+  // and left every button under it refusing; the assertion after the Google frame renders is the
+  // guard. A build that is not live yet must not take the tick at all.
   await page.route("**/_next/static/chunks/**", async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 2_500));
     await route.continue();
