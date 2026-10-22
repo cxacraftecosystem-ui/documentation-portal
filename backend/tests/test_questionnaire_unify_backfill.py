@@ -102,19 +102,24 @@ def test_the_backfill_binds_every_workshop_and_shares_every_instrument(tmp_path:
         for sql in SEED:
             await client.execute_raw(sql)
 
+    async def instruments(client):  # the migrations seed the standard instrument(s) themselves
+        return int((await client.query_raw('SELECT count(*) AS n FROM "Questionnaire"'))[0]["n"])
+
+    base = _db(instruments)
     _db(seed)
     code, before = _check(capfd)
-    assert code == 0 and before == {"u0": False, "instruments": 2, "boundWorkshops": 3, "bindingsToCreate": 3, "instrumentsToShare": 2, "failures": 0}
+    assert code == 0 and before == {"u0": False, "instruments": base + 2, "boundWorkshops": 3, "bindingsToCreate": 3,
+                                    "instrumentsToShare": base + 2, "failures": 0}
 
     _deploy(tmp_path, _migrations())
     code, after = _check(capfd)
     assert code == 0, after
-    assert (after["instrumentsShared"], after["instrumentsOwnerIsCreator"], after["primaryBindings"]) == (2, 2, 3)
+    assert (after["instrumentsShared"], after["instrumentsOwnerIsCreator"], after["primaryBindings"]) == (base + 2, base + 2, 3)
     assert after["boundWithoutPrimary"] == after["primaryDisagreesWithMirror"] == after["workshopsWithTwoPrimaries"] == 0
 
     async def bindings(client):
         rows = await client.query_raw('SELECT "questionnaireId", "workshopId", "isPrimary" FROM "QuestionnaireBinding" ORDER BY "workshopId"')
-        owners = await client.query_raw('SELECT "id", "ownerId" FROM "Questionnaire" ORDER BY "id"')
+        owners = await client.query_raw('SELECT "id", "ownerId" FROM "Questionnaire" WHERE "id" = ANY($1::text[]) ORDER BY "id"', ["q1", "q2"])
         return [(r["questionnaireId"], r["workshopId"], r["isPrimary"]) for r in rows], [(o["id"], o["ownerId"]) for o in owners]
 
     rows, owners = _db(bindings)
