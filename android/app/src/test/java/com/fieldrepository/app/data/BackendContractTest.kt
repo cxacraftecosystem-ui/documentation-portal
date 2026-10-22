@@ -142,6 +142,6 @@ class BackendContractTest {
     @Test fun `a researcher's replace keeps both takes, so only a content admin is asked P7`() {
         assertFalse(replaceRemovesEarlier(isContentAdmin = false))
         assertTrue(replaceRemovesEarlier(isContentAdmin = true))
-        assertTrue(File("src/main/java/com/fieldrepository/app/ui/questionnaire/SessionWorkspace.kt").readText().contains("replaceRemovesEarlier(mayDelete)"))
+        assertTrue(File("src/main/java/com/fieldrepository/app/questionnaire/ui/SessionWorkspace.kt").readText().contains("replaceRemovesEarlier(mayDelete)"))
     }
 }

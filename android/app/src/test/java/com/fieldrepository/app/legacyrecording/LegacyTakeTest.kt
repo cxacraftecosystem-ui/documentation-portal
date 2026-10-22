@@ -84,7 +84,7 @@ class LegacyTakeTest {
         val manifest = File("src/main/AndroidManifest.xml").readText().replace("\r\n", "\n")
         assertTrue(
             manifest.contains(
-                "android:name=\".recording.LegacyRecordingService\"\n            android:exported=\"false\"\n            android:foregroundServiceType=\"microphone\""
+                "android:name=\".legacyrecording.LegacyRecordingService\"\n            android:exported=\"false\"\n            android:foregroundServiceType=\"microphone\""
             )
         )
         assertTrue(manifest.contains("android.permission.FOREGROUND_SERVICE_MICROPHONE"))

@@ -52,7 +52,7 @@ class TranscriptStatusTest {
     @QFeature("B34")
     @Test
     fun `only the take's Retry can ask for a transcription, and never while paused`() {
-        val dir = repoFile("app/src/main/java/com/fieldrepository/app/ui/questionnaire/QuestionnairePrompts.kt").parentFile
+        val dir = repoFile("app/src/main/java/com/fieldrepository/app/questionnaire/ui/QuestionnairePrompts.kt").parentFile
         val callers = dir.listFiles { f -> f.extension == "kt" }!!.filter { it.readText().contains(".transcribe(") }
         assertEquals(listOf("SessionWorkspace.kt"), callers.map { it.name })
         val lines = callers.single().readLines().filter { it.contains(".transcribe(") }
