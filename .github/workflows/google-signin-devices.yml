@@ -1,0 +1,140 @@
+name: Google sign-in on devices
+
+# ─── DOES "CONTINUE WITH GOOGLE" OPEN GOOGLE'S WINDOW ON A TABLET, A PHONE AND A DESKTOP? ──
+#
+# Reported 2026-10-22: on a tablet the button highlighted on a tap and no sign-in window opened.
+# `frontend/e2e/google-signin-devices.spec.ts` taps the button with real touch input on an iPad
+# (WebKit), a Galaxy Tab (Chromium), a phone of each and a desktop, and asserts a window on
+# accounts.google.com opens. Nobody signs in.
+#
+#   live    the production site, as it is right now
+#   branch  a production build of the pushed commit, served by `next start` on the runner
+#
+# The branch build needs the Google client id. It is a NEXT_PUBLIC_ value — compiled into the
+# bundle every visitor downloads — so it is read out of the live bundle rather than kept as a secret,
+# and never printed. Google renders the button on any origin; an origin the client does not list is
+# refused INSIDE the window, which still proves the window opened.
+#
+# Not a merge gate: it depends on Google answering a runner. Run it by hand with
+#     gh workflow run "Google sign-in on devices" --ref <branch> -f target=live|branch|both
+
+on:
+  push:
+    paths:
+      - "frontend/app/login/**"
+      - "frontend/components/GoogleSignInButton.tsx"
+      - "frontend/components/settings/ChangePasswordCard.tsx"
+      - "frontend/lib/googleIdentity.ts"
+      - "frontend/next.config.ts"
+      - "frontend/e2e/google-signin-devices.spec.ts"
+      - "frontend/playwright.google.config.ts"
+      - ".github/workflows/google-signin-devices.yml"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "live, branch or both"
+        required: false
+        default: both
+
+permissions:
+  contents: read
+
+concurrency:
+  group: google-signin-devices-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LIVE_URL: https://field-repository.vercel.app
+
+jobs:
+  devices:
+    name: Google sign-in (${{ matrix.target }})
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [live, branch]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Decide whether this target runs
+        id: wanted
+        working-directory: .
+        env:
+          ASKED: ${{ github.event.inputs.target || 'both' }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          if [ "$ASKED" = "both" ] || [ "$ASKED" = "$TARGET" ]; then echo "run=1" >> "$GITHUB_OUTPUT"; else echo "run=0" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Checkout
+        if: steps.wanted.outputs.run == '1'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        if: steps.wanted.outputs.run == '1'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: frontend/package.json
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install npm 12
+        if: steps.wanted.outputs.run == '1'
+        run: npm install --global npm@12 && npm --version
+
+      - name: Install
+        if: steps.wanted.outputs.run == '1'
+        run: npm ci
+
+      - name: Install Chromium and WebKit
+        if: steps.wanted.outputs.run == '1'
+        run: npx playwright install --with-deps chromium webkit
+
+      - name: Read the Google client id out of the live bundle
+        if: steps.wanted.outputs.run == '1' && matrix.target == 'branch'
+        run: |
+          set -euo pipefail
+          html="$(curl -fsSL "$LIVE_URL/login")"
+          id=""
+          for chunk in $(printf '%s' "$html" | grep -oE '/_next/static/chunks/[^"]+\.js' | sort -u); do
+            id="$(curl -fsSL "$LIVE_URL$chunk" | grep -oE '[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com' | head -n 1 || true)"
+            [ -n "$id" ] && break
+          done
+          [ -n "$id" ] || { echo "::error::no Google client id found in the live bundle"; exit 1; }
+          echo "NEXT_PUBLIC_GOOGLE_CLIENT_ID=$id" >> "$GITHUB_ENV"
+          echo "client id found (${#id} characters)"
+
+      - name: Build and serve the branch
+        if: steps.wanted.outputs.run == '1' && matrix.target == 'branch'
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: |
+          set -euo pipefail
+          npm run build
+          nohup npx next start --port 3000 > next.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -fsS -o /dev/null http://localhost:3000/login; then break; fi
+            sleep 2
+          done
+          curl -fsS -o /dev/null http://localhost:3000/login || { cat next.log; exit 1; }
+
+      - name: Tap the button on every device profile
+        if: steps.wanted.outputs.run == '1'
+        env:
+          E2E_BASE_URL: ${{ matrix.target == 'live' && env.LIVE_URL || 'http://localhost:3000' }}
+          E2E_SHOT_DIR: test-results/google-signin-${{ matrix.target }}
+        run: npx playwright test -c playwright.google.config.ts
+
+      - name: Keep the evidence
+        if: always() && steps.wanted.outputs.run == '1'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: google-signin-${{ matrix.target }}
+          path: |
+            frontend/test-results
+            frontend/playwright-report
+          if-no-files-found: ignore
