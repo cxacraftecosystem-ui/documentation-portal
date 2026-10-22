@@ -877,7 +877,7 @@ jobs:
     name: Backend database tests
     runs-on: ubuntu-26.04
     # A hung query against a service container would otherwise burn the six-hour default.
-    timeout-minutes: 30
+    timeout-minutes: 45  # 30 until 22 Oct 2026; the unify backfill test migrates its own database three times
     defaults:
       run:
         working-directory: backend
