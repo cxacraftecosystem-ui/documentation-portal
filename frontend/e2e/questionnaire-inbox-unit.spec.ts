@@ -43,7 +43,7 @@ const BACKEND_INBOX = {
   counts: { total: 7, olderThan24h: 3 }
 };
 
-test("every inbox row the backend sends gets a readable label", () => {
+test("@qf:B25 every inbox row the backend sends gets a readable label", () => {
   const inbox = normaliseInbox(BACKEND_INBOX);
   expect(inboxLabel("toFile", inbox.toFile[0])).toBe("f-sec-1718.webm · 23 Jun");
   expect(inboxLabel("needsDecision", inbox.needsDecision[0])).toBe("Takes for Giriraj Prasad, 7 Jul 10:42");

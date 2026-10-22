@@ -34,7 +34,7 @@ function stubApi(reply: (sent: Sent) => Response): { sent: Sent[]; restore: () =
   return { sent, restore: () => (globalThis.fetch = original) };
 }
 
-test("a typed session code joins through POST /sessions/join and opens the session", async () => {
+test("@qf:B4 a typed session code joins through POST /sessions/join and opens the session", async () => {
   const outcome = await dispatchScan("ab3-k9z", scanServices());
   expect(outcome.kind).toBe("JOIN_SESSION");
   expect(outcome.title).toBe(SCAN_COPY.session);

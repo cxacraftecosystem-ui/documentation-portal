@@ -47,7 +47,7 @@ test("the contract grid reads into the screens' grid", () => {
   expect(view.cells).toEqual([{ artisanId: "a1", targetKey: "S:secD", state: "PARTIAL", count: 1, partial: { done: 4, of: 10 } }]);
 });
 
-test("X-Client-Time, X-App-Version and the clock offset", () => {
+test("@qf:B17 X-Client-Time, X-App-Version and the clock offset", () => {
   const api = readFileSync(join(__dirname, "..", "lib", "api.ts"), "utf8");
   expect(api).toContain('headers.set("X-Client-Time", new Date(sentAt).toISOString());');
   expect(api).toContain('headers.set("X-App-Version", APP_VERSION);');

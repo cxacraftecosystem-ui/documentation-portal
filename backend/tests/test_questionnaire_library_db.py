@@ -141,7 +141,7 @@ def test_reuse_copies_the_questions_and_nothing_else(monkeypatch) -> None:
             assert copy["ownerId"] == ids.prof.id
             sittings = await client.query_raw('SELECT count(*) AS n FROM "QuestionnaireInterview" WHERE "questionnaireId" = $1', copy["id"])
             assert int(sittings[0]["n"]) == 0
-            again = await lib.reuse(ids.q, ids.prof, kind=None)
+            again = await lib.reuse(ids.q, ids.prof, kind=None, keep_kind=False)
             assert again["title"].endswith("(copy) (2)") and again["kind"] is None
         finally:
             await client.disconnect()

@@ -2454,7 +2454,7 @@ def _instrument_payload(row: Any, counts: dict[str, dict[str, int]], user: Any =
 async def list_questionnaires(
     current_user: Any = Depends(get_current_user),
     activeOnly: bool = True,
-    scope: str | None = Query(default=None, pattern="^(mine|shared|workshop|deleted)$"),
+    scope: str | None = None,
     workshopId: str | None = None,
     kind: str | None = None,
 ) -> list[dict[str, Any]]:

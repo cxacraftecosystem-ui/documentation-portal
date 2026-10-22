@@ -121,7 +121,7 @@ function clip(key: string, size = 1000): ClipStep {
 const OPTS = { multipartThresholdBytes: 5 * 1024 * 1024, partSizeBytes: 8 * 1024 * 1024 };
 const body = { ...(CONTRACT.examples.SessionCreate as object), clientKey: "c-1" } as Parameters<typeof newSessionUnit>[0];
 
-test("offline start → add participant → 3 takes → answers: sent in order, each once", async () => {
+test("@qf:B38 offline start → add participant → 3 takes → answers: sent in order, each once", async () => {
   const store = memoryQueueStore();
   let unit = newSessionUnit(body);
   unit = appendStep(unit, clip("k1"));
@@ -214,7 +214,7 @@ test("at most 3 clips at once, 1 on a slow link", async () => {
   }
 });
 
-test("a multipart upload resumes from the server's parts and never re-sends one", async () => {
+test("@qf:B16 a multipart upload resumes from the server's parts and never re-sends one", async () => {
   const store = memoryQueueStore();
   const size = 20 * 1024 * 1024; // three 8 MiB parts
   let unit = { ...newSessionUnit(body), sessionId: "s1", steps: [] as ClipStep[] } as ReturnType<typeof newSessionUnit>;
@@ -327,7 +327,7 @@ const conflict = (version: number): AnswerResult => ({
 });
 const typed = { artisanId: "a1", questionLineageId: "lin_d3", text: "Mostly chisels.", origin: "TYPED", attribution: "INDIVIDUAL", sourceRecordingId: null } as Omit<AnswerItem, "sessionId">;
 
-test("H18: an answer that conflicts is kept for P9, never marked done and dropped", async () => {
+test("@qf:B19 H18: an answer that conflicts is kept for P9, never marked done and dropped", async () => {
   for (const choice of ["mine", "theirs"] as const) {
     const store = memoryQueueStore();
     const base = { ...newSessionUnit(body), sessionId: "s1", steps: [] } as ReturnType<typeof newSessionUnit>;

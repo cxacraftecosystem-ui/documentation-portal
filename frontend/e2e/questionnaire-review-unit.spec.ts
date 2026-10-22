@@ -17,7 +17,7 @@ test("P9 copy and buttons", () => {
   expect(p9.buttons.map((b) => b.label)).toEqual(["Keep theirs", "Keep mine"]);
 });
 
-test("a group answer is one GROUP_SHARED item per artisan; an existing answer carries its version", () => {
+test("@qf:B20 a group answer is one GROUP_SHARED item per artisan; an existing answer carries its version", () => {
   const items = answerItems({
     sessionId: "s1",
     lineageId: "lin_d3",
@@ -34,7 +34,7 @@ test("a group answer is one GROUP_SHARED item per artisan; an existing answer ca
   expect(one).toEqual([expect.objectContaining({ artisanId: "a2", attribution: "INDIVIDUAL" })]);
 });
 
-test("Approve is held with the reason; the flags line", () => {
+test("@qf:B27 Approve is held with the reason; the flags line", () => {
   expect(approveBlock({ participants: 1, liveRecordings: 2, answers: 0, needsDecision: 1 })).toBe("Decide on 1 take first.");
   expect(approveBlock({ participants: 0, liveRecordings: 2, answers: 0, needsDecision: 0 })).toBe("Add who was there first.");
   expect(approveBlock({ participants: 2, liveRecordings: 0, answers: 0, needsDecision: 0 })).toBe("Nothing recorded or answered yet.");

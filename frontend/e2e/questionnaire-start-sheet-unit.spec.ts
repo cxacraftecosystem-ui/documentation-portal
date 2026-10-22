@@ -53,7 +53,7 @@ test("the coverage line for 1, 3 and 8 artisans", () => {
   expect(coverageLine([{ name: "Giriraj", covered: 9, total: 24 }], "2 h ago")).toBe("Giriraj has 9 of 24 sections · Checked 2 h ago");
 });
 
-test("P1 on an open match: exact copy, two buttons on one line", () => {
+test("@qf:B2 P1 on an open match: exact copy, two buttons on one line", () => {
   const p1 = prompts.p1({ researcher: "Nandini", artisans: "Giriraj and Meena", time: "10:12" });
   expect(p1.title).toBe("Session already open");
   expect(p1.body).toBe("Nandini started one with Giriraj and Meena at 10:12.");
@@ -61,7 +61,7 @@ test("P1 on an open match: exact copy, two buttons on one line", () => {
   expect(SHEET).toContain(".openMatch(");
 });
 
-test("no screen asks for a title: the create body has none, and the preview is the generated one", () => {
+test("@qf:B1 @qf:B3 no screen asks for a title: the create body has none, and the preview is the generated one", () => {
   const created = sessionCreateBody(form, "c-1", new Date("2026-07-01T12:54:00Z"));
   expect(created).not.toHaveProperty("title");
   expect(created.note).toBe("Under the neem tree");
@@ -73,7 +73,7 @@ test("no screen asks for a title: the create body has none, and the preview is t
   expect(SHEET).toContain("sessionTitle(");
 });
 
-test("consent is asked inline and never blocks Start", () => {
+test("@qf:B33 consent is asked inline and never blocks Start", () => {
   expect(SHEET).toContain("<ConsentQuestion");
   expect(startBlocked.toString()).not.toMatch(/consent/i);
 });

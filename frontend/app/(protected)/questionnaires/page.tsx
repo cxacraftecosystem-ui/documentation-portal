@@ -11,7 +11,7 @@
 
 import { ClipboardList, Download, FilePlus2, FileSpreadsheet, FileUp, Package, RotateCcw } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { EmptyState } from "@/components/EmptyState";
@@ -66,7 +66,7 @@ export default function QuestionnairesLibraryPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [dialog, setDialog] = useState<"new" | "upload" | "bundle" | null>(null);
   const [report, setReport] = useState<QWorkbookReport | null>(null);
-  const generation = useRef(0);
+  const [reload, setReload] = useState(0);
   const tab = scope ?? defaultTab(user);
 
   useEffect(() => {
@@ -82,25 +82,28 @@ export default function QuestionnairesLibraryPage() {
     };
   }, [user]);
 
-  const load = useCallback(async () => {
-    const mine = (generation.current += 1);
-    try {
-      const rows = await library.list(tab, { workshopId: tab === "workshop" ? workshopId || null : null, kind: kind || null });
-      if (mine !== generation.current) return;
-      setForms(rows);
-      setError(null);
-    } catch (err) {
-      if (mine === generation.current) {
-        setForms([]);
-        setError(libraryError(err, "Couldn't load the forms."));
-      }
-    }
-  }, [tab, workshopId, kind]);
-
+  // A late answer for an earlier tab or filter is dropped by the `cancelled` flag.
   useEffect(() => {
     if (!user) return;
-    void load();
-  }, [user, load]);
+    let cancelled = false;
+    library
+      .list(tab, { workshopId: tab === "workshop" ? workshopId || null : null, kind: kind || null })
+      .then((rows) => {
+        if (cancelled) return;
+        setForms(rows);
+        setError(null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setForms([]);
+        setError(libraryError(err, "Couldn't load the forms."));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, tab, workshopId, kind, reload]);
+
+  const load = () => setReload((n) => n + 1);
 
   async function run(key: string, work: () => Promise<void>) {
     setBusy(key);
@@ -244,7 +247,7 @@ export default function QuestionnairesLibraryPage() {
                                 run(form.id, async () => {
                                   await library.restore(form.id);
                                   toast({ tone: "success", title: "Restored", description: form.title });
-                                  await load();
+                                  load();
                                 })
                               }
                             >
@@ -282,7 +285,7 @@ export default function QuestionnairesLibraryPage() {
           setDialog(null);
           setReport(result.report);
           setScope("mine");
-          void load();
+          load();
         }}
       />
     </>
