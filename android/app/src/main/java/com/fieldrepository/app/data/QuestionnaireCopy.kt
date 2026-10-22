@@ -201,6 +201,10 @@ object QuestionnaireCopy {
 
     /** The keys the screens use, each pointing at its shared key. */
     val sharedKeyOf: Map<String, String> = linkedMapOf(
+        // These three joined the shared table with designer-portal's web (U1, 22 Oct 2026).
+        "session.continue" to "continueAnotherDay",
+        "session.deleteTitle" to "deleteSessionTitle",
+        "take.restore" to "restore",
         "sessions.title" to "sessionsTitle",
         "sessions.new" to "newSession",
         "sessions.empty" to "noSessionsYet",
@@ -389,15 +393,12 @@ object QuestionnaireCopy {
         // Session actions.
         "session.more" to "More",
         "session.edit" to "Edit session",
-        "session.continue" to "Continue another day",
         "session.merge" to "Merge into another session",
         "session.removeArtisan" to "Remove an artisan",
-        "session.deleteTitle" to "Delete this session?",
         "session.deleteBody" to "This can't be undone.",
         "session.mergeBody" to "Its takes and answers move into the session you pick. This can't be undone.",
         "session.noOtherSessions" to "No other session on this questionnaire.",
         // Takes.
-        "take.restore" to "Restore",
         "take.removed" to "Removed",
         "take.makePrimary" to "Make main take",
         "take.madePrimary" to "This is now the main take.",

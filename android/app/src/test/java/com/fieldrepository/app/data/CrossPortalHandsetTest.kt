@@ -81,7 +81,7 @@ class CrossPortalHandsetTest {
         assertTrue(consent.contains(SharingConsentCopy.LABEL))
         assertTrue(consent.contains(SharingConsentCopy.SHARED_FIELDS_FALLBACK))
         assertTrue(consent.contains("The artisan agrees designers may look up their"))
-        val drafts = File(root, "frontend/components/questionnaire/AnswerDraftsPanel.tsx").readText()
+        val drafts = File(root, "frontend/components/questionnaires/AnswerDraftsPanel.tsx").readText()
         for (phrase in listOf(AnswerDrafts.LABEL, AnswerDrafts.ACCEPT, AnswerDrafts.DRAFT, AnswerDrafts.PASTE, AnswerDrafts.NOTHING_FOUND)) {
             assertTrue("web lacks: $phrase", drafts.contains(phrase))
         }
