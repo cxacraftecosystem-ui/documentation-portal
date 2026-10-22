@@ -58,13 +58,38 @@ test("a form's Start session opens the start sheet on that form", async ({ page 
   await expect.poll(() => fake.calledWith("GET", "/questionnaire/form-for").some((c) => c.query.get("questionnaireId") === "f2")).toBe(true);
 });
 
-test("@qf:D4 @qf:C5 the grid marks recorded and typed cells, with Add a recording?", async ({ page }) => {
+test("@qf:D4 @qf:C5 @qf:B13 @qf:D1 the grid marks recorded, typed and overridden cells, and an admin sets an override", async ({ page }) => {
   const fake = new QuestionnaireFake();
   await open(page, fake, "/questionnaire/sessions/s-1");
   const grid = page.locator("[data-coverage-grid]");
   await expect(grid.getByRole("button", { name: "A Giriraj Prasad Chhipa: Recorded" })).toHaveText("●");
   await expect(grid.getByRole("button", { name: "A Shopper at Johari Bazaar: Typed · Add a recording?" })).toHaveText("✎ 1/2");
   await expect(grid.getByRole("button", { name: "B Giriraj Prasad Chhipa: Needs review" })).toHaveText("?");
+  await grid.getByRole("button", { name: "B Giriraj Prasad Chhipa: Needs review" }).click();
+  await page.locator("[data-section-override]").getByRole("button", { name: "Marked complete" }).click();
+  await expect.poll(() => fake.calledWith("PUT", "/questionnaire/completion").length).toBe(1);
+  expect(fake.calledWith("PUT", "/questionnaire/completion")[0].body).toMatchObject({ artisanId: "a1", sectionId: "s2" });
+});
+
+test("@qf:C7 a content admin merges one sitting into another session", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  await open(page, fake, "/questionnaire/sessions/s-1");
+  await page.locator("[data-session-actions]").getByRole("button", { name: "Merge into…" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.locator("[data-searchable-select]").first().click();
+  await page.getByRole("option", { name: "Interview_2026-10-21_Bagru_Second-Sitting" }).click();
+  await dialog.getByRole("button", { name: "Merge", exact: true }).click();
+  await expect.poll(() => fake.calledWith("POST", "/questionnaire/sessions/s-1/merge-into/s-2").length).toBe(1);
+  await expect(page).toHaveURL(/\/questionnaire\/sessions\/s-2$/);
+});
+
+test("@qf:B33 @qf:C4 a refused artisan's consent shows on the start sheet and can be switched back on", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  await open(page, fake, "/questionnaire/sessions/new?artisanId=a2");
+  await expect(page.locator("[data-start-sheet]")).toContainText("Recordings of Meena are not sent to outside services: consent was refused.");
+  await page.getByRole("button", { name: "Switch back on" }).click();
+  await expect.poll(() => fake.calledWith("POST", "/artisans/a2/consent").length).toBe(1);
+  expect(fake.calledWith("POST", "/artisans/a2/consent")[0].body).toMatchObject({ state: "GRANTED" });
 });
 
 test("@qf:A11 @qf:A20 @qf:B21 someone else's answer is locked with who answered; a group answer and its note save", async ({ page }) => {
