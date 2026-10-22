@@ -59,12 +59,18 @@ object OutboxTrayModel {
                     TrayRow(
                         stepId = step.id, kind = step.kind,
                         title = listOf(codeOf(c.questionLineageId), QuestionnaireCopy.firstName(nameOf(unit.resolve(c.artisanId)))).filter { it.isNotBlank() }.joinToString(" · "),
-                        reason = if (forbidden) QuestionnaireCopy.s("tray.notAllowed") else c.current?.text.orEmpty(),
+                        reason = when {
+                            // P15: the answer lock (U9) names whose answer it is.
+                            forbidden && c.code == "ANSWER_LOCKED" -> com.fieldrepository.app.data.FormsCopy.p15(c.current?.actorName)
+                            forbidden -> QuestionnaireCopy.s("tray.notAllowed")
+                            else -> c.current?.text.orEmpty()
+                        },
                         conflict = c.takeUnless { forbidden }, mine = typed?.text, sendAgain = false
                     )
                 }
             }
             StepKind.SESSION -> listOf(TrayRow(step.id, step.kind, QuestionnaireCopy.s("tray.session"), reason))
+            StepKind.GUEST_ANSWERS -> listOf(TrayRow(step.id, step.kind, QuestionnaireCopy.s("tray.answers"), reason))
             StepKind.ARTISAN -> listOf(TrayRow(step.id, step.kind, QuestionnaireCopy.s("tray.newArtisan"), reason))
             StepKind.PARTICIPANT -> listOf(
                 TrayRow(step.id, step.kind, listOfNotNull(QuestionnaireCopy.s("tray.participant"), step.participant?.artisanId?.let { QuestionnaireCopy.firstName(nameOf(unit.resolve(it))) }?.ifBlank { null }).joinToString(" · "), reason)

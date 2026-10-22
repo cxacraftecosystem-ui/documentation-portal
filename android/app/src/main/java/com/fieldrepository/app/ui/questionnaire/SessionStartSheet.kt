@@ -75,9 +75,11 @@ data class StartForm(
     val place: String = "",
     val languageCode: String = "",
     val languageOther: String = "",
-    val note: String = ""
+    val note: String = "",
+    /** "Someone else": guest respondents by name (owner decision 1). A session may have only guests. */
+    val guests: List<String> = emptyList()
 ) {
-    val canStart: Boolean get() = questionnaireId.isNotBlank() && date != null && artisanIds.isNotEmpty()
+    val canStart: Boolean get() = questionnaireId.isNotBlank() && date != null && (artisanIds.isNotEmpty() || guests.any { it.isNotBlank() })
 
     /** Pick [w]: its bound instrument, and its place when none is typed yet. */
     fun withWorkshop(w: WorkshopDetailDto): StartForm = copy(
@@ -109,8 +111,12 @@ data class StartForm(
         languageOther = languageOther.ifBlank { null }?.takeIf { languageCode == "other" },
         note = note.trim().take(80).ifBlank { null },
         participants = artisanIds.map { QArtisanRef(it) },
-        researchers = listOfNotNull(me?.let { QResearcherRef(it, "LEAD") })
+        researchers = listOfNotNull(me?.let { QResearcherRef(it, "LEAD") }),
+        respondents = guests.map { it.trim() }.filter { it.isNotBlank() }.map { com.fieldrepository.app.data.QRespondentInput(name = it.take(120)) }
     )
+
+    /** The guests' local keys, in the order [toCreate] lists them; the outbox maps them to server ids. */
+    fun guestKeys(): List<Pair<String, String>> = guests.map { it.trim() }.filter { it.isNotBlank() }.map { "guest-" + SessionOutbox.newKey() to it.take(120) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -143,6 +149,19 @@ fun SessionStartSheet(
     var starting by remember { mutableStateOf(false) }
     val workshop = workshops.firstOrNull { it.id == form.workshopId }
     var workshopTouched by remember { mutableStateOf(false) }
+    var formTouched by remember { mutableStateOf(false) }
+    var addingGuest by remember { mutableStateOf(false) }
+    var resolved by remember { mutableStateOf<com.fieldrepository.app.data.QFormFor?>(null) }
+
+    // B31, B32, D2: the workshop's primary binding, its only binding, its type's default, the global
+    // default, in that order, from the server; offline, the cached default. A pick is never replaced.
+    LaunchedEffect(form.workshopId) {
+        val r = runCatching { v2.forms.formFor(form.workshopId.ifBlank { null }) }.getOrNull()
+        resolved = r
+        if (formTouched) return@LaunchedEffect
+        val live = questionnaires.filter { it.isActive }.map { com.fieldrepository.app.data.QForm(id = it.id, title = it.title, isDefault = it.isDefault) }
+        com.fieldrepository.app.data.FormResolution.pick(null, r, live)?.let { form = form.copy(questionnaireId = it) }
+    }
 
     // The most recent workshop the researcher may record in is the default, from the cached list
     // when offline; it stays changeable, and a pick already made is never replaced.
@@ -163,7 +182,9 @@ fun SessionStartSheet(
             val locals = registered.filter { (id, _) -> id in form.artisanIds }.map { (id, a) ->
                 id to ApiClient.json.encodeToString(ArtisanCreateRequest.serializer(), a.request(form.workshopId))
             }
-            runCatching { v2.outbox.startSession(form.toCreate(key, meId, Instant.now()), meId, localArtisans = locals) }
+            val guests = form.guestKeys()
+            val body = form.copy(guests = guests.map { it.second }).toCreate(key, meId, Instant.now())
+            runCatching { v2.outbox.startSession(body, meId, localArtisans = locals, guests = guests) }
                 .onSuccess {
                     registered.filter { (id, _) -> id in form.artisanIds }.forEach { (id, a) -> v2.rememberLocalArtisan(id, a.name.trim()) }
                     OutboxSyncWorker.schedule(v2App(v2)); onStarted(key)
@@ -190,12 +211,15 @@ fun SessionStartSheet(
                 val w = workshops.firstOrNull { it.id == id }
                 form = if (w != null) form.withWorkshop(w) else form.copy(workshopId = id)
             }
+            val bound = resolved?.bound.orEmpty().map { it.questionnaireId }.toSet()
             SearchableSelectField(
                 label = QuestionnaireCopy.s("start.instrument"),
-                options = questionnaires.filter { it.isActive }.map { SelectOption(it.id, it.title) },
+                // The workshop's own forms first ("For this workshop"); any form the researcher can see stays pickable.
+                options = questionnaires.filter { it.isActive }.sortedBy { if (it.id in bound) 0 else 1 }
+                    .map { SelectOption(it.id, it.title, if (it.id in bound) "For this workshop" else null) },
                 selectedValue = form.questionnaireId,
                 includeNone = false
-            ) { form = form.copy(questionnaireId = it) }
+            ) { formTouched = true; form = form.copy(questionnaireId = it) }
             CalendarField(label = QuestionnaireCopy.s("start.date"), value = form.date, onValueChange = { form = form.copy(date = it) }, clearable = false)
             SegmentedChoice(
                 label = QuestionnaireCopy.s("start.mode"),
@@ -220,7 +244,15 @@ fun SessionStartSheet(
                     searchable = true
                 ) { form = form.copy(artisanIds = listOf(it)) }
             }
-            TextButton(onClick = { registering = true }) { Text(QuestionnaireCopy.s("artisan.new")) }
+            ActionRow(Modifier.fillMaxWidth()) {
+                TextButton(onClick = { registering = true }) { Text(QuestionnaireCopy.s("artisan.new")) }
+                TextButton(onClick = { addingGuest = true }) { Text("+ " + com.fieldrepository.app.data.FormsCopy.SOMEONE_ELSE) }
+            }
+            if (form.guests.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                form.guests.forEach { g ->
+                    FilterChip(selected = true, onClick = { form = form.copy(guests = form.guests - g) }, label = { Text("$g ×") })
+                }
+            }
             coverageLine(v2, form, byId, questionnaires.firstOrNull { it.id == form.questionnaireId }?.sectionCount)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted) }
             // Consent is assumed by default: a notice with Switch off for no answer, Switch back on after a refusal.
             form.artisanIds.filter { consent.containsKey(it) && consent[it] in setOf(null, "NOT_RECORDED", "REFUSED") }.take(3).forEach { id ->
@@ -270,6 +302,7 @@ fun SessionStartSheet(
                 Button(enabled = form.canStart && !starting, onClick = {
                     starting = true
                     scope.launch {
+                        if (form.artisanIds.isEmpty()) { create(); return@launch }
                         val match = runCatching {
                             v2.api.openMatch(form.questionnaireId, form.workshopId.ifBlank { null }, form.artisanIds.joinToString(","), form.date.toString()).items.firstOrNull()
                         }.getOrNull()
@@ -278,6 +311,11 @@ fun SessionStartSheet(
                 }) { Text(QuestionnaireCopy.s("start.submit")) }
             }
         }
+    }
+
+    if (addingGuest) GuestNameDialog(onDismiss = { addingGuest = false }) { name ->
+        addingGuest = false
+        if (name.isNotBlank()) form = form.copy(guests = form.guests + name.trim())
     }
 
     if (registering) RegisterArtisanDialog(onDismiss = { registering = false }) { artisan ->

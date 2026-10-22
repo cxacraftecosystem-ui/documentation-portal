@@ -80,6 +80,7 @@ class QuestionnaireTransport(
     }
     override suspend fun complete(idempotencyKey: String, body: QCompleteRequest): QRecording = call { api.complete(idempotencyKey, body) }
     override suspend fun putAnswers(body: QAnswersPut): QAnswersPutResponse = call { api.putAnswers(body) }
+    override suspend fun putGuestAnswers(body: QGuestAnswersPut): QAnswersPutResponse = call { api.putGuestAnswers(body) }
     override suspend fun finish(sessionId: String) {
         call { api.finish(sessionId) }
     }

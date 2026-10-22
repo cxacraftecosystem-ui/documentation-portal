@@ -52,7 +52,13 @@ class OutboxSyncWorker(appContext: Context, params: WorkerParameters) : Coroutin
                 legacyQuestionnaireWaiting = {
                     QuestionnaireSync.legacyQuestionnaireEntries(OfflineOutbox.all(context).replayableBy(userId))
                 },
-                v2 = { runCatching { v2.flushConsents() }; v2.outbox.sync(v2.transport, userId) },
+                v2 = {
+                    runCatching { v2.flushConsents() }
+                    // Forms first (form, section, question), so a session on a new form finds it (A15).
+                    val forms = v2.formOutbox.sync(v2.formTransport, userId)
+                    val sessions = v2.outbox.sync(v2.transport, userId)
+                    SessionOutbox.PassResult(forms.sent + sessions.sent, forms.failed + sessions.failed, forms.remaining + sessions.remaining)
+                },
                 serverAnswering = { !ServerReachability.unreachable.value }
             )
         } catch (cancelled: kotlinx.coroutines.CancellationException) {

@@ -73,6 +73,21 @@ private sealed interface QRoute {
     data class Workspace(val clientKey: String) : QRoute
     data object Inbox : QRoute
     data object Join : QRoute
+    data object Deleted : QRoute
+    data object Coverage : QRoute
+}
+
+/** The home's two halves (UNIFY 4.2): Sessions | Forms, one FAB matching the tab. */
+enum class QuestionnaireTab(val label: String) { SESSIONS(com.fieldrepository.app.data.FormsCopy.SESSIONS), FORMS(com.fieldrepository.app.data.FormsCopy.FORMS) }
+
+/** The sessions list's overflow menu for this viewer (Join, Builder, Workshop coverage, Deleted sessions). */
+internal fun sessionsMenu(canBuild: Boolean, user: com.fieldrepository.app.data.UserDto?): List<String> =
+    sessionsMenu(canBuild) + listOfNotNull("sessions.coverage", "sessions.deleted".takeIf { com.fieldrepository.app.data.FormRights.mayDeleteSession(user) })
+
+internal fun menuLabel(key: String): String = when (key) {
+    "sessions.coverage" -> com.fieldrepository.app.data.FormsCopy.COVERAGE
+    "sessions.deleted" -> com.fieldrepository.app.data.FormsCopy.DELETED_SESSIONS
+    else -> QuestionnaireCopy.s(key)
 }
 
 /** One row of the sessions list: a server session, or one still only on this phone. */
@@ -144,7 +159,11 @@ fun QuestionnaireV2Screen(
     canMakePrimary: Boolean = false,
     onOpenBuilder: () -> Unit,
     onUpdateApp: () -> Unit,
-    onError: (String) -> Unit
+    onError: (String) -> Unit,
+    /** The viewer: forms library rights, the answer lock, review (UNIFY U4). */
+    user: com.fieldrepository.app.data.UserDto? = null,
+    /** The workshop team, for "Add researcher". */
+    loadTeam: suspend (workshopId: String) -> List<Pair<String, String>> = { emptyList() }
 ) {
     val context = LocalContext.current
     val v2 = remember { QuestionnaireV2.get(context) }
@@ -176,6 +195,18 @@ fun QuestionnaireV2Screen(
     var unsent by remember { mutableStateOf<List<String>>(emptyList()) }
     val names = remember(artisans) { artisans.associate { it.id to it.name } + v2.localArtisanNames() }
     val config by v2.config.collectAsState()
+    var tab by remember { mutableStateOf(QuestionnaireTab.SESSIONS) }
+    var team by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    // A form another phone sent opens the Forms tab, where P17 asks.
+    val receivedForm by com.fieldrepository.app.data.FormBundleInbox.pending.collectAsState()
+    LaunchedEffect(receivedForm) { if (receivedForm != null) { tab = QuestionnaireTab.FORMS; route = QRoute.List } }
+    val homeHeader: @Composable () -> Unit = {
+        com.fieldrepository.app.ui.SegmentedChoice(
+            label = QuestionnaireCopy.s("sessions.title") + " · " + com.fieldrepository.app.data.FormsCopy.FORMS,
+            options = QuestionnaireTab.entries.map { com.fieldrepository.app.ui.SelectOption(it.name, it.label) },
+            selectedValue = tab.name
+        ) { tab = QuestionnaireTab.valueOf(it) }
+    }
 
     LaunchedEffect(Unit) {
         runCatching { repository.questionnaires() }.onSuccess { questionnaires = it }
@@ -213,6 +244,7 @@ fun QuestionnaireV2Screen(
         val unit = v2.outbox.unit(clientKey)
         val qid = unit?.questionnaireId ?: return
         instrument = loadInstrument(qid)
+        team = unit?.workshopId?.let { runCatching { loadTeam(it) }.getOrNull() }.orEmpty()
         route = QRoute.Workspace(clientKey)
     }
 
@@ -244,7 +276,12 @@ fun QuestionnaireV2Screen(
 
     Box(Modifier.fillMaxSize()) {
         when (val r = route) {
-            QRoute.List -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            QRoute.List -> if (tab == QuestionnaireTab.FORMS) FormsScreen(
+                user = user, workshops = workshops, header = homeHeader,
+                onOpenSession = { id -> tab = QuestionnaireTab.SESSIONS; scope.launch { openServerId(id) } },
+                onError = onError
+            ) else Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                homeHeader()
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(QuestionnaireCopy.s("sessions.title"), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
                     BadgedBox(badge = { if (inboxCount > 0) Badge { Text("$inboxCount") } }) {
@@ -253,10 +290,15 @@ fun QuestionnaireV2Screen(
                     Box {
                         IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = QuestionnaireCopy.s("session.more")) }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            sessionsMenu(canBuild).forEach { key ->
-                                DropdownMenuItem(text = { Text(QuestionnaireCopy.s(key)) }, onClick = {
+                            sessionsMenu(canBuild, user).forEach { key ->
+                                DropdownMenuItem(text = { Text(menuLabel(key)) }, onClick = {
                                     menu = false
-                                    if (key == "sessions.builder") onOpenBuilder() else route = QRoute.Join
+                                    when (key) {
+                                        "sessions.builder" -> onOpenBuilder()
+                                        "sessions.coverage" -> route = QRoute.Coverage
+                                        "sessions.deleted" -> route = QRoute.Deleted
+                                        else -> route = QRoute.Join
+                                    }
                                 })
                             }
                         }
@@ -303,7 +345,13 @@ fun QuestionnaireV2Screen(
                 canMakePrimary = canMakePrimary,
                 onBack = { route = QRoute.List; refresh++ },
                 onOpenSession = { session -> scope.launch { openServer(session) } },
-                onError = onError
+                onError = onError,
+                user = user, team = team
+            )
+            QRoute.Deleted -> DeletedSessionsScreen(v2, onBack = { route = QRoute.List; refresh++ }, onError = onError)
+            QRoute.Coverage -> WorkshopCoverageScreen(
+                v2, user, workshops, questionnaires.filter { it.isActive }.map { it.id to it.title },
+                onBack = { route = QRoute.List }, onError = onError
             )
             QRoute.Inbox -> Column {
                 TextButton(onClick = { route = QRoute.List; refresh++ }) { Text("‹ " + QuestionnaireCopy.s("sessions.title")) }
@@ -317,7 +365,7 @@ fun QuestionnaireV2Screen(
                 JoinScanner(v2, meId, onJoined = { key -> scope.launch { openUnit(key) } }, onError = onError)
             }
         }
-        if (route == QRoute.List) {
+        if (route == QRoute.List && tab == QuestionnaireTab.SESSIONS) {
             ExtendedFloatingActionButton(
                 onClick = { starting = true },
                 icon = { Icon(Icons.Filled.Add, contentDescription = null) },

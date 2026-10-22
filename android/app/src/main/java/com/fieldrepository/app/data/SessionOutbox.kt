@@ -46,6 +46,8 @@ object StepKind {
     const val ANSWERS = "ANSWERS"
     /** Finish, queued last so every take and answer lands before the session closes. */
     const val FINISH = "FINISH"
+    /** Typed answers of a session's guest respondents (owner decision 1; UNIFY U6, A18). */
+    const val GUEST_ANSWERS = "GUEST_ANSWERS"
 }
 
 object StepState {
@@ -133,7 +135,13 @@ data class SessionUnit(
      * second save typed before the first one synced was based on the version before it; it is sent on
      * top of this phone's own first save instead, so it is not a conflict with itself (audit H19).
      */
-    val savedAnswerVersions: Map<String, Int> = emptyMap()
+    val savedAnswerVersions: Map<String, Int> = emptyMap(),
+    /**
+     * Guest respondents named on this phone (owner decision 1): local key to name, in the order the
+     * session create lists them. Once the session lands each key maps to its server respondent in
+     * [artisanIds], the same table offline artisans use, so [resolve] answers for both.
+     */
+    val guests: Map<String, String> = emptyMap()
 ) {
     fun resolve(artisanId: String): String = artisanIds[artisanId] ?: artisanId
 
@@ -155,7 +163,7 @@ data class SessionUnit(
         StepKind.ARTISAN -> 0
         StepKind.SESSION -> 1
         StepKind.PARTICIPANT, StepKind.CLIP -> 2
-        StepKind.ANSWERS -> 3
+        StepKind.ANSWERS, StepKind.GUEST_ANSWERS -> 3
         else -> 4
     }
 }
@@ -221,6 +229,9 @@ interface SessionTransport {
     suspend fun complete(idempotencyKey: String, body: QCompleteRequest): QRecording
     suspend fun putAnswers(body: QAnswersPut): QAnswersPutResponse
     suspend fun finish(sessionId: String)
+    /** Guest answers go to the same `PUT /answers`, keyed by `respondentId`. */
+    suspend fun putGuestAnswers(body: QGuestAnswersPut): QAnswersPutResponse =
+        throw PermanentStepFailure("This build can't send guest answers.")
 }
 
 /** A refusal that no retry will change (4xx other than 408/429). */
@@ -239,6 +250,11 @@ class MissingSessionUnit(clientKey: String) : IllegalStateException("No queued s
 
 class SessionOutbox(
     private val store: SessionUnitStore,
+    /**
+     * A form written on this phone has a local id until its create lands (A15): the session create
+     * waits for the real id (null) and is sent with it. Server ids pass through unchanged.
+     */
+    private val resolveFormId: suspend (String) -> String? = { it },
     private val clock: () -> Instant = Instant::now,
     private val multipartThresholdBytes: Long = 5L * 1024 * 1024,
     private val defaultPartSize: Long = 8L * 1024 * 1024,
@@ -275,6 +291,21 @@ class SessionOutbox(
         fun newKey(): String = UUID.randomUUID().toString()
 
         fun answerKey(artisanId: String, questionLineageId: String) = "$artisanId|$questionLineageId"
+
+        /**
+         * The server's respondents for this phone's guest keys: matched by name, in order, so two
+         * guests with one name still map one to one. A guest the server did not return stays local.
+         */
+        fun matchGuests(guests: Map<String, String>, respondents: List<QRespondent>): Map<String, String> {
+            val left = respondents.filter { it.artisanId == null }.toMutableList()
+            val out = LinkedHashMap<String, String>()
+            for ((key, name) in guests) {
+                val hit = left.firstOrNull { it.name.trim().equals(name.trim(), ignoreCase = true) } ?: continue
+                left.remove(hit)
+                out[key] = hit.id
+            }
+            return out
+        }
     }
 
     /** Two passes over one queue would send every step twice. */
@@ -291,14 +322,21 @@ class SessionOutbox(
 
     // ── Enqueue (frozen bodies, keys minted once) ────────────────────────────────────────────
 
-    suspend fun startSession(body: QSessionCreate, ownerUserId: String?, localArtisans: List<Pair<String, String>> = emptyList()): SessionUnit {
+    suspend fun startSession(
+        body: QSessionCreate,
+        ownerUserId: String?,
+        localArtisans: List<Pair<String, String>> = emptyList(),
+        /** Guest respondents: local key to name; their names are in [body]'s `respondents` in this order. */
+        guests: List<Pair<String, String>> = emptyList()
+    ): SessionUnit {
         val now = clock().toString()
         val steps = localArtisans.map { (localId, artisanBody) ->
             SessionStep(newKey(), StepKind.ARTISAN, now, newKey(), bodyJson = artisanBody, localArtisanId = localId)
         } + SessionStep(newKey(), StepKind.SESSION, now, newKey(), bodyJson = outboxJson.encodeToString(QSessionCreate.serializer(), body))
         val unit = SessionUnit(
             clientKey = body.clientKey, ownerUserId = ownerUserId, createdAt = now,
-            questionnaireId = body.questionnaireId, workshopId = body.workshopId, steps = steps
+            questionnaireId = body.questionnaireId, workshopId = body.workshopId, steps = steps,
+            guests = guests.toMap()
         )
         store.write(unit)
         return unit
@@ -383,6 +421,16 @@ class SessionOutbox(
 
     suspend fun addAnswers(clientKey: String, body: QAnswersPut) = mutate(clientKey) { unit ->
         unit.copy(steps = unit.steps + SessionStep(newKey(), StepKind.ANSWERS, clock().toString(), newKey(), bodyJson = outboxJson.encodeToString(QAnswersPut.serializer(), body)))
+    }
+
+    /** Typed answers for guest respondents, in order with the session's other answers. */
+    suspend fun addGuestAnswers(clientKey: String, body: QGuestAnswersPut) = mutate(clientKey) { unit ->
+        unit.copy(steps = unit.steps + SessionStep(newKey(), StepKind.GUEST_ANSWERS, clock().toString(), newKey(), bodyJson = outboxJson.encodeToString(QGuestAnswersPut.serializer(), body)))
+    }
+
+    /** A guest added once the session is on the server: their server id joins the id table. */
+    suspend fun rememberGuest(clientKey: String, localKey: String, name: String, respondentId: String?) = mutate(clientKey) { unit ->
+        unit.copy(guests = unit.guests + (localKey to name), artisanIds = if (respondentId != null) unit.artisanIds + (localKey to respondentId) else unit.artisanIds)
     }
 
     suspend fun finishSession(clientKey: String) = mutate(clientKey) { unit ->
@@ -557,10 +605,16 @@ class SessionOutbox(
                 }
                 StepKind.SESSION -> {
                     val frozen = outboxJson.decodeFromString(QSessionCreate.serializer(), step.bodyJson!!)
-                    val body = frozen.copy(participants = frozen.participants.map { QArtisanRef(unit.resolve(it.artisanId)) })
+                    // A form still only on this phone: the session waits for its create to land (A15).
+                    val formId = resolveFormId(frozen.questionnaireId) ?: return false
+                    val body = frozen.copy(questionnaireId = formId, participants = frozen.participants.map { QArtisanRef(unit.resolve(it.artisanId)) })
                     val session = transport.createSession(step.idempotencyKey, body)
+                    val guestIds = matchGuests(unit.guests, session.respondents)
                     mutate(clientKey) { u ->
-                        u.copy(sessionId = session.id, steps = u.steps.map { if (it.id == stepId) it.copy(state = StepState.DONE, resultId = session.id) else it })
+                        u.copy(
+                            sessionId = session.id, questionnaireId = formId, artisanIds = u.artisanIds + guestIds,
+                            steps = u.steps.map { if (it.id == stepId) it.copy(state = StepState.DONE, resultId = session.id) else it }
+                        )
                     }
                 }
                 StepKind.PARTICIPANT -> {
@@ -602,6 +656,29 @@ class SessionOutbox(
                             failureCode = if (conflicts.all { c -> c.status == "FORBIDDEN" }) "FORBIDDEN" else "CONFLICT",
                             conflicts = conflicts,
                             bodyJson = outboxJson.encodeToString(QAnswersPut.serializer(), QAnswersPut(frozen.items.filter { item -> conflicts.any { c -> c.questionLineageId == item.questionLineageId && c.artisanId == unit.resolve(item.artisanId) } }))
+                        )
+                    }
+                }
+                StepKind.GUEST_ANSWERS -> {
+                    val sessionId = unit.sessionId ?: return false
+                    val frozen = outboxJson.decodeFromString(QGuestAnswersPut.serializer(), step.bodyJson!!)
+                    // A guest whose server id is not known yet (added on this phone): wait for it.
+                    if (frozen.items.any { it.respondentId in unit.guests && unit.artisanIds[it.respondentId] == null }) return false
+                    val body = QGuestAnswersPut(frozen.items.map {
+                        it.copy(respondentId = unit.resolve(it.respondentId), sessionId = if (it.sessionId.isBlank() || it.sessionId == unit.clientKey) sessionId else it.sessionId)
+                    })
+                    val response = transport.putGuestAnswers(body)
+                    val refused = response.results.filter { it.status == "CONFLICT" || it.status == "FORBIDDEN" }
+                    updateStep(clientKey, stepId) {
+                        if (refused.isEmpty()) it.copy(state = StepState.DONE)
+                        else it.copy(
+                            state = StepState.FAILED,
+                            failure = if (refused.any { r -> r.code == "ANSWER_LOCKED" }) FormsCopy.p15(null) else QuestionnaireCopy.s("tray.notAllowed"),
+                            failureCode = refused.first().code ?: refused.first().status,
+                            bodyJson = outboxJson.encodeToString(
+                                QGuestAnswersPut.serializer(),
+                                QGuestAnswersPut(frozen.items.filter { item -> refused.any { r -> r.questionLineageId == item.questionLineageId && r.respondentId == unit.resolve(item.respondentId) } })
+                            )
                         )
                     }
                 }

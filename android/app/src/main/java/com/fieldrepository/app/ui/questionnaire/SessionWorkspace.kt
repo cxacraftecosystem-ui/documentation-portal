@@ -41,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -130,7 +131,11 @@ fun SessionWorkspace(
     canMakePrimary: Boolean = false,
     onBack: () -> Unit,
     onOpenSession: (QSession) -> Unit = {},
-    onError: (String) -> Unit
+    onError: (String) -> Unit,
+    /** The viewer: the answer lock, review, researchers (UNIFY U4). */
+    user: com.fieldrepository.app.data.UserDto? = null,
+    /** Who may be added as a researcher: the session's workshop team (user id to name). */
+    team: List<Pair<String, String>> = emptyList()
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -167,6 +172,14 @@ fun SessionWorkspace(
     var proposals by remember { mutableStateOf<Pair<String, List<QProposal>>?>(null) }
     var discard by remember { mutableStateOf<PendingDiscard?>(null) }
     var deleteHint by remember { mutableStateOf<String?>(null) }
+    var reading by remember { mutableStateOf(false) }
+    var researchersOpen by remember { mutableStateOf(false) }
+    var history by remember { mutableStateOf<List<com.fieldrepository.app.data.QRevision>?>(null) }
+    var historyOpen by remember { mutableStateOf(false) }
+    var takeHistory by remember { mutableStateOf<List<com.fieldrepository.app.data.QRecordingEvent>?>(null) }
+    var takeHistoryOpen by remember { mutableStateOf(false) }
+    var editingGuest by remember { mutableStateOf<GuestModel?>(null) }
+    var requiredLeft by remember { mutableIntStateOf(0) }
     // Takes removed in this visit, so "Show removed" can restore them (the session lists live takes only).
     val removedHere = remember { mutableStateListOf<QRecording>() }
     val lastAnswered = remember { mutableStateMapOf<String, Set<String>>() }
@@ -276,6 +289,21 @@ fun SessionWorkspace(
     val pendingCount = unit?.uploadingClips?.size ?: 0
     val trayRows = unit?.let { u -> OutboxTrayModel.rows(u, participantName) { lineage -> instrument?.question(lineage)?.displayCode ?: lineage } }.orEmpty()
     val serverSessionId = unit?.sessionId ?: detail?.id
+    // The one answer-lock rule (U9): the server's per-item ANSWER_LOCKED, and the author when it says.
+    val isLead = detail?.researchers.orEmpty().any { it.userId == meId && it.role == "LEAD" }
+    val contentAdmin = com.fieldrepository.app.ui.FieldPermissions.isContentAdmin(user)
+    val serverLocked = unit?.failedSteps.orEmpty().flatMap { it.conflicts }.filter { com.fieldrepository.app.data.AnswerLock.isLockedResult(it) }
+    val lockLine: (String, Set<String>) -> String? = { lineage, ids ->
+        ids.firstNotNullOfOrNull { id ->
+            val a = AnswerModel.current(answers, id, lineage)
+            when {
+                a != null && com.fieldrepository.app.data.AnswerLock.locked(a.text, a.origin, a.actorId, meId, isLead, contentAdmin) -> com.fieldrepository.app.data.AnswerLock.message(a.actorName)
+                serverLocked.any { it.questionLineageId == lineage && it.artisanId == id } -> com.fieldrepository.app.data.AnswerLock.message(serverLocked.first { it.questionLineageId == lineage && it.artisanId == id }.current?.actorName)
+                else -> null
+            }
+        }
+    }
+    val guests = GuestRoster.of(unit, detail)
 
     fun startRecording(req: RecordRequest, reasons: Map<String, String>, acked: List<String>, continuationOf: String? = null, replaces: String? = null) {
         val u = unit ?: return
@@ -409,6 +437,11 @@ fun SessionWorkspace(
                         DropdownMenuItem(text = { Text(QuestionnaireCopy.s("session.merge")) }, onClick = { menu = false; merging = true })
                         DropdownMenuItem(text = { Text(QuestionnaireCopy.s("session.delete")) }, onClick = { menu = false; deleting = true })
                     }
+                    if (detail != null) {
+                        DropdownMenuItem(text = { Text(com.fieldrepository.app.data.FormsCopy.READ_VIEW) }, onClick = { menu = false; reading = true })
+                        DropdownMenuItem(text = { Text(com.fieldrepository.app.data.FormsCopy.RESEARCHERS) }, onClick = { menu = false; researchersOpen = true })
+                    }
+                    if (!locked) DropdownMenuItem(text = { Text("+ " + com.fieldrepository.app.data.FormsCopy.SOMEONE_ELSE) }, onClick = { menu = false; editingGuest = GuestModel("", "", null, null) })
                 }
             }
         }
@@ -472,9 +505,24 @@ fun SessionWorkspace(
                         nameOf = participantName,
                         onRecord = { requestRecord(RecordRequest(QTargetRef(questionLineageId = q.lineageId), q.displayCode, q.displayCode)) },
                         onOpenTakes = { takeSheet = section.id to null },
-                        onSaveAnswer = { text, forIds -> saveAnswer(q, text, forIds) }
+                        onSaveAnswer = { text, forIds -> saveAnswer(q, text, forIds) },
+                        lockLine = { ids -> lockLine(q.lineageId, ids) },
+                        answerOf = { id -> AnswerModel.current(answers, id, q.lineageId) },
+                        onHistory = { a ->
+                            history = null; historyOpen = true
+                            scope.launch { history = runCatching { v2.forms.revisions(a.id).revisions }.getOrElse { onError(QuestionnaireCopy.s("error.needsSignal")); emptyList() } }
+                        }
                     )
                 }
+                GuestsPanel(
+                    guests = guests, questions = section.questions,
+                    answerOf = { g, lineage -> GuestRoster.answer(unit, detail, g, lineage) },
+                    locked = locked, online = com.fieldrepository.app.data.ConnectivityObserver.isOnline(context),
+                    onSave = { g, q, text, note ->
+                        withUnit { key -> v2.outbox.addGuestAnswers(key, guestAnswers(GuestRoster.item(g, q.lineageId, text, unit?.sessionId ?: clientKey, note, answers))) }
+                    },
+                    onEdit = { editingGuest = it }
+                )
             }
         }
         if (!locked) TextButton(onClick = { requestRecord(RecordRequest(null, QuestionnaireCopy.s("record.wholeSession"), "")) }) {
@@ -742,7 +790,8 @@ fun SessionWorkspace(
     if (deleting && serverSessionId != null) {
         QuestionnairePrompt(
             title = QuestionnaireCopy.s("session.deleteTitle"),
-            body = deleteHint ?: QuestionnaireCopy.s("session.deleteBody"),
+            // A restorable soft delete for content admins (owner decision 3).
+            body = deleteHint ?: com.fieldrepository.app.data.FormsCopy.SESSION_DELETE_BODY,
             buttons = listOf(
                 PromptButton(QuestionnaireCopy.s("session.cancel")) { deleting = false; deleteHint = null },
                 PromptButton(QuestionnaireCopy.s("session.delete"), primary = true, destructive = true) {
@@ -783,6 +832,44 @@ fun SessionWorkspace(
             onDismiss = { discard = null }
         )
     }
+    if (historyOpen) AnswerHistoryDialog(history, onDismiss = { historyOpen = false })
+    if (takeHistoryOpen) RecordingHistoryDialog(takeHistory, onDismiss = { takeHistoryOpen = false })
+    val d = detail
+    if (researchersOpen && d != null) ResearchersDialog(v2, d, team, onDismiss = { researchersOpen = false }, onAdded = { researchersOpen = false; scope.launch { reload() } }, onError = onError)
+    editingGuest?.let { g ->
+        GuestDialog(initialName = g.name, initialNotes = g.notes.orEmpty(), title = if (g.key.isBlank()) com.fieldrepository.app.data.FormsCopy.SOMEONE_ELSE else com.fieldrepository.app.data.FormsCopy.EDIT_RESPONDENT,
+            withNotes = g.key.isNotBlank(), onDismiss = { editingGuest = null }) { name, notes ->
+            editingGuest = null
+            val sid = serverSessionId
+            if (g.key.isBlank()) {
+                // A new guest: on the server at once when it can, else named on this phone until the session lands.
+                val localKey = "guest-" + SessionOutbox.newKey()
+                withUnit { key ->
+                    val created = sid?.let { runCatching { v2.forms.addRespondents(it, com.fieldrepository.app.data.QRespondentsAdd(listOf(com.fieldrepository.app.data.QRespondentInput(name)))).respondents.firstOrNull() }.getOrNull() }
+                    if (sid != null && created == null) { onError(QuestionnaireCopy.s("error.needsSignal")); return@withUnit }
+                    if (sid == null && !v2.outbox.editPendingSession(key) { it.copy(respondents = it.respondents + com.fieldrepository.app.data.QRespondentInput(name)) }) return@withUnit
+                    v2.outbox.rememberGuest(key, localKey, name, created?.id)
+                }
+            } else if (sid != null) online { saveRespondent(v2, sid, g, name, notes) }
+        }
+    }
+    if (reading && d != null) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { reading = false }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+            androidx.compose.material3.Surface(Modifier.fillMaxWidth()) {
+                SessionReadView(
+                    lines = ReadViewModel.lines(instrument, d), title = d.title, status = d.status,
+                    mayApprove = com.fieldrepository.app.data.FormRights.mayReview(user),
+                    onApprove = {
+                        online {
+                            v2.forms.approveSession(SessionOutbox.newKey(), d.id)
+                            reading = false
+                        }
+                    },
+                    onBack = { reading = false }
+                )
+            }
+        }
+    }
     if (leaving) LeaveSessionPrompt(pendingCount.coerceAtLeast(1), onStay = { leaving = false }) {
         leaving = false
         val s = RecordingService.state.value
@@ -791,7 +878,13 @@ fun SessionWorkspace(
     }
     if (finishing) {
         val sections = known.filter { it.sessionId == unit?.sessionId || it.sessionId == clientKey }.map { it.targetKey }.distinct().count { it.startsWith("S:") }
-        FinishSessionPrompt(sections, participantIds.size, pendingCount, onDismiss = { finishing = false }) {
+        // A19: reported, never blocking.
+        LaunchedEffect(Unit) {
+            val qid = unit?.questionnaireId ?: detail?.questionnaire?.id
+            val form = qid?.let { id -> runCatching { v2.forms.form(id) }.getOrNull() ?: v2.formCache.detail(meId, id) }
+            requiredLeft = RequiredModel.unanswered(form, participantIds, answers, known)
+        }
+        FinishSessionPrompt(sections, participantIds.size, pendingCount, onDismiss = { finishing = false }, extra = com.fieldrepository.app.data.RequiredQuestions.line(com.fieldrepository.app.data.QRequiredUnanswered(requiredLeft))) {
             finishing = false
             val s = RecordingService.state.value
             if (s is RecordingService.State.Recording && s.draft.sessionKey == clientKey) RecordingService.stop(context)
@@ -873,7 +966,11 @@ private fun QuestionBlock(
     nameOf: (String) -> String,
     onRecord: () -> Unit,
     onOpenTakes: () -> Unit,
-    onSaveAnswer: (text: String, forArtisanIds: Set<String>) -> Unit
+    onSaveAnswer: (text: String, forArtisanIds: Set<String>) -> Unit,
+    /** P15 when the answer this save would replace is someone else's (the answer lock, U9). */
+    lockLine: (Set<String>) -> String? = { null },
+    answerOf: (String) -> com.fieldrepository.app.data.QAnswer? = { null },
+    onHistory: (com.fieldrepository.app.data.QAnswer) -> Unit = {}
 ) {
     var answerFor by remember(question.lineageId) { mutableStateOf(ALL_ARTISANS) }
     // The box opens on the answer it would replace (audit H19: a saved answer used to vanish).
@@ -885,11 +982,18 @@ private fun QuestionBlock(
             .joinToString(" · ") { (p, m) -> "${QuestionnaireCopy.firstName(p.name)} ${m.glyph}" }
         if (line.isNotBlank()) TextButton(onClick = onOpenTakes) { Text(line, style = MaterialTheme.typography.bodySmall) }
         answerLines.forEach { a ->
-            Text(
-                listOfNotNull(QuestionnaireCopy.firstName(nameOf(a.artisanId)) + ": " + a.text, a.badge).joinToString(" · "),
-                style = MaterialTheme.typography.bodySmall,
-                color = if (a.onPhone) MaterialTheme.field.muted else MaterialTheme.field.body
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    listOfNotNull(QuestionnaireCopy.firstName(nameOf(a.artisanId)) + ": " + a.text, a.badge).joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (a.onPhone) MaterialTheme.field.muted else MaterialTheme.field.body,
+                    modifier = Modifier.weight(1f)
+                )
+                // B21: every answer's earlier versions, with who wrote each.
+                answerOf(a.artisanId)?.takeIf { !a.onPhone && it.id.isNotBlank() }?.let { stored ->
+                    TextButton(onClick = { onHistory(stored) }) { Text(com.fieldrepository.app.data.FormsCopy.HISTORY, style = MaterialTheme.typography.labelSmall) }
+                }
+            }
         }
         if (!locked) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onRecord) { Text(QuestionnaireCopy.s("workspace.record")) }
@@ -902,11 +1006,15 @@ private fun QuestionBlock(
                 includeNone = false,
                 onSelect = { answerFor = it }
             )
-            OutlinedTextField(value = answer, onValueChange = { answer = it }, modifier = Modifier.fillMaxWidth())
             val ids = answerForIds(roster, answerFor)
-            if (answer.isNotBlank() && answer.trim() != currentText(ids)) PromptButtons(listOf(PromptButton(QuestionnaireCopy.s("save"), primary = true) {
-                onSaveAnswer(answer.trim(), ids)
-            }))
+            val lockedBy = lockLine(ids)
+            if (lockedBy != null) LockedAnswerNote(lockedBy)
+            else {
+                OutlinedTextField(value = answer, onValueChange = { answer = it }, modifier = Modifier.fillMaxWidth())
+                if (answer.isNotBlank() && answer.trim() != currentText(ids)) PromptButtons(listOf(PromptButton(QuestionnaireCopy.s("save"), primary = true) {
+                    onSaveAnswer(answer.trim(), ids)
+                }))
+            }
         }
     }
 }

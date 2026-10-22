@@ -26,8 +26,19 @@ class QuestionnaireV2 private constructor(context: Context) {
     // The sync pass reads upload state, which must never come from a stale copy: no read cache here.
     private val liveApi: QuestionnaireApi = ApiClient.retrofit(tokenStore).create(QuestionnaireApi::class.java)
     private val legacyApi: FieldRepositoryApi = ApiClient.create(tokenStore)
+    /** The forms library, the builder and the session routes the workspace added (UNIFY U4). */
+    val forms: QuestionnaireFormsApi = ApiClient.retrofit(tokenStore, OutboxSyncWorker.readCacheDir(app)).create(QuestionnaireFormsApi::class.java)
+    private val liveForms: QuestionnaireFormsApi = ApiClient.retrofit(tokenStore).create(QuestionnaireFormsApi::class.java)
+    /** Forms, sections and questions written with no signal (A15); they land before any session. */
+    val formOutbox = FormAuthoringOutbox(FileFormQueueStore(File(app.filesDir, "questionnaire-forms-outbox.json")))
+    val formTransport: FormTransport = ApiFormTransport(liveForms)
+    /** The owner-stamped library cache (A16). */
+    val formCache = FormLibraryCache(File(app.noBackupFilesDir, "questionnaire-forms.json"))
     // A landed take's draft record goes with its audio (audit M23: uploaded audio was never deleted).
-    val outbox = SessionOutbox(FileSessionUnitStore(File(app.filesDir, "questionnaire-outbox"))) { clipKey ->
+    val outbox = SessionOutbox(
+        FileSessionUnitStore(File(app.filesDir, "questionnaire-outbox")),
+        resolveFormId = { formOutbox.resolveFormId(it) }
+    ) { clipKey ->
         RecordingDrafts.read(app.filesDir, clipKey)?.let { RecordingDrafts.delete(app.filesDir, it, keepAudio = false) }
     }
     val coverage = CoverageCache(File(app.noBackupFilesDir, "questionnaire-coverage"))

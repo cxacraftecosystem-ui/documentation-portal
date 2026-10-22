@@ -114,7 +114,9 @@ data class QSessionCreate(
     val languageOther: String? = null,
     val note: String? = null,
     @EncodeDefault val participants: List<QArtisanRef> = emptyList(),
-    @EncodeDefault val researchers: List<QResearcherRef> = emptyList()
+    @EncodeDefault val researchers: List<QResearcherRef> = emptyList(),
+    /** Guest respondents (owner decision 1): a session may have only these. Left out when empty. */
+    val respondents: List<QRespondentInput> = emptyList()
 )
 
 @Serializable
@@ -182,7 +184,8 @@ data class QSession(
     val status: String = "PENDING",
     val submittedAt: String? = null,
     val reviewReasons: List<String> = emptyList(),
-    val counts: QSessionCounts = QSessionCounts()
+    val counts: QSessionCounts = QSessionCounts(),
+    val respondents: List<QRespondent> = emptyList()
 )
 
 @Serializable
@@ -209,7 +212,8 @@ data class QSessionDetail(
     val counts: QSessionCounts = QSessionCounts(),
     val recordings: List<QRecording> = emptyList(),
     val answers: List<QAnswer> = emptyList(),
-    val grid: JsonElement? = null
+    val grid: JsonElement? = null,
+    val respondents: List<QRespondent> = emptyList()
 )
 
 @Serializable
@@ -468,7 +472,14 @@ data class QAnswer(
     val pinned: Boolean = false,
     val sourceRecordingId: String? = null,
     val artisanId: String? = null,
-    val questionLineageId: String? = null
+    val questionLineageId: String? = null,
+    /** The guest respondent this answer belongs to, when it is not an artisan's. */
+    val respondentId: String? = null,
+    /** Who wrote the current text, when the server says (the answer lock, U9). */
+    val actorId: String? = null,
+    val actorName: String? = null,
+    /** The answer note (A20). */
+    val note: String? = null
 )
 
 @Serializable
@@ -480,19 +491,41 @@ data class QAnswerItem(
     @EncodeDefault val attribution: String = "INDIVIDUAL",
     val sessionId: String,
     val sourceRecordingId: String? = null,
-    val baseVersion: Int? = null
+    val baseVersion: Int? = null,
+    /** The answer note (A20); left out when there is none. */
+    val note: String? = null
 )
 
 @Serializable
 data class QAnswersPut(val items: List<QAnswerItem>)
 
+/** One guest respondent's answer: the same item with `respondentId` in place of `artisanId`. */
+@Serializable
+data class QGuestAnswerItem(
+    val respondentId: String,
+    val questionLineageId: String,
+    val text: String,
+    @EncodeDefault val origin: String = "TYPED",
+    @EncodeDefault val attribution: String = "INDIVIDUAL",
+    val sessionId: String,
+    val baseVersion: Int? = null,
+    val note: String? = null
+)
+
+@Serializable
+data class QGuestAnswersPut(val items: List<QGuestAnswerItem>)
+
 @Serializable
 data class QAnswerResult(
-    val artisanId: String,
+    /** Empty for a guest's item (the server sends null; see [respondentId]). */
+    val artisanId: String = "",
     val questionLineageId: String,
     val status: String,
     val answer: QAnswer? = null,
-    val current: QAnswer? = null
+    val current: QAnswer? = null,
+    /** `ANSWER_LOCKED` on an item the answer lock refused (status FORBIDDEN). */
+    val code: String? = null,
+    val respondentId: String? = null
 )
 
 @Serializable

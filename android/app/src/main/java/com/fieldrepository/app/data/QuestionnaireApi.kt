@@ -168,6 +168,9 @@ interface QuestionnaireApi {
     @PUT("questionnaire/answers")
     suspend fun putAnswers(@Body body: QAnswersPut): QAnswersPutResponse
 
+    @PUT("questionnaire/answers")
+    suspend fun putGuestAnswers(@Body body: QGuestAnswersPut): QAnswersPutResponse
+
     @GET("artisans/{id}/consent")
     suspend fun consent(@Path("id") artisanId: String): QConsentGet
 

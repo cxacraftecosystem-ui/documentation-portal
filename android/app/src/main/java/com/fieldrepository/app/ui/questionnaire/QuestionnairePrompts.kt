@@ -146,10 +146,11 @@ fun LeaveSessionPrompt(pending: Int, onStay: () -> Unit, onLeave: () -> Unit) {
 }
 
 @Composable
-fun FinishSessionPrompt(sections: Int, artisans: Int, uploading: Int, onDismiss: () -> Unit, onFinish: () -> Unit) {
+fun FinishSessionPrompt(sections: Int, artisans: Int, uploading: Int, onDismiss: () -> Unit, extra: String? = null, onFinish: () -> Unit) {
     QuestionnairePrompt(
         title = QuestionnaireCopy.s("finish.title"),
-        body = QuestionnaireCopy.finishBody(sections, artisans, uploading),
+        // A19: "3 required questions unanswered" is said, never a block.
+        body = listOfNotNull(QuestionnaireCopy.finishBody(sections, artisans, uploading), extra?.let { "$it." }).joinToString(" "),
         buttons = listOf(PromptButton(QuestionnaireCopy.s("finish.button"), primary = true, onClick = onFinish)),
         onDismiss = onDismiss
     )

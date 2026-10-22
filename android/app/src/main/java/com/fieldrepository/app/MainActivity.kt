@@ -636,6 +636,7 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         takePasswordLink(intent)
         LocalAlerts.takeTap(intent)
+        com.fieldrepository.app.data.FormBundleInbox.take(applicationContext, intent)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -655,6 +656,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         takePasswordLink(intent, restored = savedInstanceState != null)
         if (savedInstanceState == null) LocalAlerts.takeTap(intent)
+        // A form another phone sent (.frwq / .dpwq): the questionnaire screen asks P17.
+        if (savedInstanceState == null) com.fieldrepository.app.data.FormBundleInbox.take(applicationContext, intent)
         val tokenStore = TokenStore(applicationContext)
         val repository = FieldRepository(ApiClient.create(tokenStore, OutboxSyncWorker.readCacheDir(applicationContext)), tokenStore)
         com.fieldrepository.app.data.PreviewCache.install(java.io.File(applicationContext.noBackupFilesDir, "media-previews")) {
@@ -1918,6 +1921,10 @@ private fun HomeScreen(
         if (questionnaireV2Request != null) screen = screenFor(EntryMode.QUESTIONNAIRE)
     }
     // "Continue with…" on an artisan's record opened a session on the server: go to it.
+    val receivedFormBundle by com.fieldrepository.app.data.FormBundleInbox.pending.collectAsState()
+    LaunchedEffect(receivedFormBundle) {
+        if (receivedFormBundle != null) screen = screenFor(EntryMode.QUESTIONNAIRE)
+    }
     val questionnaireV2Session by QuestionnaireV2Nav.openServerSession.collectAsState()
     LaunchedEffect(questionnaireV2Session) {
         if (questionnaireV2Session != null) screen = screenFor(EntryMode.QUESTIONNAIRE)
@@ -2813,7 +2820,12 @@ private fun HomeScreen(
                         canMakePrimary = roleRank(user?.role) >= RANK_PROFESSOR,
                         onOpenBuilder = { questionnaireBuilder = true },
                         onUpdateApp = { openAppDownloadPage(v2Context) },
-                        onError = { showMessage(it) }
+                        onError = { showMessage(it) },
+                        user = user,
+                        loadTeam = { workshopId ->
+                            repository.workshopAssignments(workshopId).filter { it.status == "GRANTED" }
+                                .mapNotNull { a -> a.user?.let { u -> u.id to u.name } }
+                        }
                     )
                     LaunchedEffect(v2Prefill) { if (v2Prefill != null) QuestionnaireV2Nav.pending.value = null }
                 } else QuestionnaireForm(

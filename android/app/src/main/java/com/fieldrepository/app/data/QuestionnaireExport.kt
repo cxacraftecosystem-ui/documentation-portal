@@ -38,7 +38,18 @@ object QuestionnaireExport {
         return withContext(Dispatchers.IO) { saveToDownloads(context, bytes, name, "text/csv") }
     }
 
-    private fun saveToDownloads(context: Context, bytes: ByteArray, name: String, mimeType: String): String {
+    /**
+     * Any server-named download (a workbook, the pro-forma, a corpus file): the name comes from
+     * `Content-Disposition`, else [fallbackName] from the naming helper. Returns where it landed.
+     */
+    suspend fun saveResponse(context: Context, response: retrofit2.Response<okhttp3.ResponseBody>, mimeType: String, fallbackName: String? = null): String {
+        if (!response.isSuccessful) throw retrofit2.HttpException(response)
+        val name = dispositionFileName(response.headers()["Content-Disposition"]) ?: fallbackName ?: throw IllegalStateException("The server sent no file name.")
+        val bytes = withContext(Dispatchers.IO) { response.body()?.bytes() } ?: throw IllegalStateException("The download didn't finish.")
+        return withContext(Dispatchers.IO) { saveToDownloads(context, bytes, name, mimeType) }
+    }
+
+    fun saveToDownloads(context: Context, bytes: ByteArray, name: String, mimeType: String): String {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, name)
