@@ -381,3 +381,74 @@ export function sourceLabel(source: string | null | undefined): string | null {
   if (source === "HANDOFF") return "Handed over";
   return null;
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * The offline copy (A16): the forms this account last read, stamped with the account
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+export const FORMS_CACHE_KEY = "field_repo_forms_cache";
+
+type FormsCache = { owner: string; at: string; lists: Record<string, LibraryForm[]>; forms: Record<string, LibraryFormDetail> };
+type KeyStore = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+
+function browserStore(): KeyStore | null {
+  try {
+    return typeof window === "undefined" ? null : window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/** The copy held for `owner`, or null. A copy another account left on this browser is dropped, never shown. */
+export function readFormsCache(owner: string | null | undefined, store: KeyStore | null = browserStore()): FormsCache | null {
+  if (!owner || !store) return null;
+  try {
+    const raw = store.getItem(FORMS_CACHE_KEY);
+    if (!raw) return null;
+    const held = JSON.parse(raw) as FormsCache;
+    if (held.owner !== owner) {
+      store.removeItem(FORMS_CACHE_KEY);
+      return null;
+    }
+    return held;
+  } catch {
+    return null;
+  }
+}
+
+export function writeFormsCache(
+  owner: string | null | undefined,
+  patch: { list?: { key: string; forms: LibraryForm[] }; form?: LibraryFormDetail },
+  store: KeyStore | null = browserStore(),
+  now: Date = new Date()
+): void {
+  if (!owner || !store) return;
+  const held = readFormsCache(owner, store) ?? { owner, at: now.toISOString(), lists: {}, forms: {} };
+  if (patch.list) held.lists[patch.list.key] = patch.list.forms;
+  if (patch.form) held.forms[patch.form.id] = patch.form;
+  held.at = now.toISOString();
+  try {
+    store.setItem(FORMS_CACHE_KEY, JSON.stringify(held));
+  } catch {
+    // A full store keeps the older copy; the screen still has what it just read.
+  }
+}
+
+/** The cache key of one tab and filter. */
+export function listCacheKey(scope: FormScope, options: { workshopId?: string | null; kind?: string | null } = {}): string {
+  return [scope, options.workshopId ?? "", options.kind ?? ""].join("|");
+}
+
+/** A failure that means "no connection" rather than a refusal: the place to read the saved copy. */
+export function isOffline(error: unknown): boolean {
+  if (error instanceof ApiError) return error.status === 0 || error.status === 502 || error.status === 503 || error.status === 504;
+  return error instanceof TypeError;
+}
+
+/** "Offline · saved copy from 22 Oct, 10:12." */
+export function savedCopyLine(at: string | null | undefined): string {
+  if (!at) return "Offline · saved copy.";
+  const when = new Date(at);
+  if (Number.isNaN(when.getTime())) return "Offline · saved copy.";
+  return `Offline · saved copy from ${when.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }).replace("Sept", "Sep")}.`;
+}

@@ -17,7 +17,7 @@ import { listResource } from "@/lib/api";
 import { agoLabel, coveredSectionsOffline, coverageLine, overlayFromUnits, readSnapshot, withTakes, type ArtisanCoverage } from "@/lib/questionnaire/coverageCache";
 import { LANGUAGES } from "@/lib/questionnaire/languages";
 import { sessionTitle } from "@/lib/naming";
-import { mintKey, questionnaireApi, SESSION_PURPOSES, type FormFor, type OpenMatchItem, type Session, type SessionCreate, type SessionPurpose } from "@/lib/questionnaire/api";
+import { mintKey, questionnaireApi, SESSION_PURPOSES, type FormFor, type OpenMatchItem, type Session, type SessionCreate, type SessionLocation, type SessionPurpose } from "@/lib/questionnaire/api";
 import { prompts } from "@/lib/questionnaire/prompts";
 import { newSessionUnit } from "@/lib/questionnaire/queue";
 import { readStartLists, searchCachedArtisans, titleWorkshop, trimArtisan, trimWorkshop, writeStartLists } from "@/lib/questionnaire/startSheetCache";
@@ -48,6 +48,8 @@ export type StartSheetState = {
   artisanIds: string[];
   purpose: SessionPurpose;
   place: string;
+  /** C9: the device's fix, taken with "Use my location"; optional, never asked for on an edit. */
+  location?: SessionLocation | null;
   languageCode: string;
   languageOther: string;
   note: string;
@@ -86,6 +88,7 @@ export function sessionCreateBody(form: StartSheetState, clientKey: string, now 
     startedAt: now.toISOString(),
     purpose: form.purpose,
     place: form.place.trim() || null,
+    ...(form.location ? { location: form.location } : {}),
     languageCode: form.languageCode || null,
     languageOther: form.languageCode === "other" ? form.languageOther.trim() || null : null,
     note: note || null,
@@ -530,6 +533,7 @@ export function SessionStartSheet({
             {qs("fieldPlace")}
           </label>
           <input id={ids.place} className="field-input" value={form.place} onChange={(e) => set("place", e.target.value)} autoComplete="off" />
+          <DeviceLocation value={form.location ?? null} onChange={(location) => set("location", location)} />
         </div>
         <div className="grid gap-1">
           <label htmlFor={ids.language} className="field-label">
@@ -614,4 +618,55 @@ function mergeById<T extends { id: string }>(a: T[], b: T[]): T[] {
   const seen = new Map<string, T>();
   for (const x of [...a, ...b]) seen.set(x.id, x);
   return [...seen.values()];
+}
+
+/**
+ * C9: "Use my location" — the device's fix, kept with the session as a Location beside the typed
+ * place. Asked only here, at the start; an edit never captures one (DR audit H1). A browser that
+ * cannot or will not answer says so, and the typed place still stands.
+ */
+export function DeviceLocation({ value, onChange }: { value: SessionLocation | null; onChange: (location: SessionLocation | null) => void }) {
+  const [state, setState] = useState<"idle" | "finding" | "unavailable">("idle");
+  if (value) {
+    return (
+      <p className="flex flex-wrap items-center gap-2 text-xs text-ink-600" data-device-location="saved">
+        <span>{qs("locationCaptured", { metres: Math.max(1, Math.round(value.accuracy ?? 0)) })}</span>
+        <button type="button" className="font-medium text-purple-700 underline dark:text-purple-300" onClick={() => onChange(null)}>
+          {qs("locationRemove")}
+        </button>
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs" data-device-location={state}>
+      <button
+        type="button"
+        className="field-button-secondary"
+        disabled={state === "finding"}
+        onClick={() => {
+          if (typeof navigator === "undefined" || !navigator.geolocation) {
+            setState("unavailable");
+            return;
+          }
+          setState("finding");
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              setState("idle");
+              onChange({
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                accuracy: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null,
+                altitude: position.coords.altitude ?? null
+              });
+            },
+            () => setState("unavailable"),
+            { enableHighAccuracy: true, timeout: 20_000, maximumAge: 60_000 }
+          );
+        }}
+      >
+        {state === "finding" ? qs("locationFinding") : qs("useMyLocation")}
+      </button>
+      {state === "unavailable" ? <span className="text-ink-600">{qs("locationUnavailable")}</span> : null}
+    </div>
+  );
 }

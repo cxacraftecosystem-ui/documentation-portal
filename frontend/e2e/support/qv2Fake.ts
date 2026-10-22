@@ -158,7 +158,7 @@ export class QuestionnaireFake {
   calls: Call[] = [];
   v2 = true;
   role = ME.role;
-  sessions: Json[] = [session("s-1")];
+  sessions: Json[] = [session("s-1"), session("s-2", { title: "Interview_2026-10-21_Bagru_Second-Sitting", respondents: [] })];
   deleted: Json[] = [session("s-gone", { title: "Interview_2026-10-20_Bagru_Deleted", deletedAt: "2026-10-21T10:00:00Z" })];
   answers: Json[] = [
     // Priya's typed answer for Giriraj: locked to the lead? No: the lead may change it. Locked to others.
@@ -219,6 +219,13 @@ export class QuestionnaireFake {
   calledWith(method: string, path: string | RegExp): Call[] {
     return this.calls.filter((c) => c.method === method && (typeof path === "string" ? c.path === path : path.test(c.path)));
   }
+
+  /** B24: question lineage -> artisan column it is prefilled from (none by default). */
+  prefill: Record<string, string> = {};
+  /** Artisan consent answers the fake gives (`GET /artisans/{id}/consent`). */
+  consent: Record<string, string> = { a2: "REFUSED" };
+  /** The open session `GET /questionnaire/sessions/open-match` reports, when set. */
+  openMatch: Json | null = null;
 
   private answer(method: string, path: string, query: URLSearchParams, body: Json | null): { status: number; json?: unknown } | null {
     const one = (re: RegExp) => re.exec(path);
@@ -302,7 +309,8 @@ export class QuestionnaireFake {
       };
     if (path === "/artisans" && method === "GET") return { status: 200, json: { items: ARTISANS, total: ARTISANS.length, page: 1, pageSize: 80, pages: 1 } };
     m = one(/^\/artisans\/([^/]+)\/consent$/);
-    if (m) return { status: 200, json: { artisanId: m[1], purpose: "EXTERNAL_PROCESSING", state: "NOT_RECORDED", basis: null, source: null, recordedAt: null } };
+    if (m && method === "POST") this.consent[m[1]] = String((body as Json).state);
+    if (m) return { status: method === "POST" ? 201 : 200, json: { artisanId: m[1], purpose: "EXTERNAL_PROCESSING", state: this.consent[m[1]] ?? "NOT_RECORDED", basis: null, source: null, recordedAt: null } };
     if (path === "/users/directory") return { status: 200, json: [{ id: "u-third", name: "Ravi Kumar", email: "ravi@example.org", role: "DESIGNER" }] };
 
     // ── sessions ───────────────────────────────────────────────────────────────────────────────
@@ -325,6 +333,7 @@ export class QuestionnaireFake {
       this.sessions.unshift(created);
       return { status: 201, json: created };
     }
+    if (path === "/questionnaire/sessions/open-match") return { status: 200, json: { items: this.openMatch ? [this.openMatch] : [] } };
     if (path === "/questionnaire/form-for") {
       return {
         status: 200,
@@ -337,7 +346,17 @@ export class QuestionnaireFake {
       };
     }
     m = one(/^\/questionnaire\/forms\/([^/]+)\/structure$/);
-    if (m) return { status: 200, json: FORM };
+    if (m)
+      return {
+        status: 200,
+        json: {
+          ...FORM,
+          sections: FORM.sections.map((sec) => ({
+            ...sec,
+            questions: sec.questions.map((q) => ({ ...q, artisanField: this.prefill[q.lineageId] ?? q.artisanField }))
+          }))
+        }
+      };
     m = one(/^\/questionnaire\/forms\/([^/]+)\/bindings$/);
     if (m && method === "GET") return { status: 200, json: { questionnaireId: m[1], bindings: this.bindings } };
     if (m && method === "PUT") {

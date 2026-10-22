@@ -42,7 +42,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -82,8 +82,8 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
-        "dr-android": "planned",
+        "dr-web": "tagged",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -126,7 +126,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -166,8 +166,8 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
-        "dr-android": "planned",
+        "dr-web": "tagged",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -207,8 +207,8 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
-        "dr-android": "planned",
+        "dr-web": "tagged",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -253,7 +253,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -337,7 +337,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -381,7 +381,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -421,7 +421,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -463,7 +463,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -505,7 +505,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -548,7 +548,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -593,7 +593,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -616,11 +616,15 @@
       "source": "matrix",
       "api": {
         "designer-portal": [],
-        "documentation-portal": []
+        "documentation-portal": [
+          "POST /questionnaires",
+          "POST /questionnaire/sections",
+          "POST /questionnaire/questions"
+        ]
       },
       "server": {
         "designer-portal": "built",
-        "documentation-portal": "planned"
+        "documentation-portal": "built"
       },
       "clients": {
         "dr-web": "required",
@@ -629,9 +633,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
-        "dr-android": "planned",
-        "fr-web": "planned",
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -653,11 +657,14 @@
       "source": "matrix",
       "api": {
         "designer-portal": [],
-        "documentation-portal": []
+        "documentation-portal": [
+          "GET /questionnaires",
+          "GET /questionnaires/{id}"
+        ]
       },
       "server": {
         "designer-portal": "built",
-        "documentation-portal": "planned"
+        "documentation-portal": "built"
       },
       "clients": {
         "dr-web": "required",
@@ -666,9 +673,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
-        "dr-android": "planned",
-        "fr-web": "planned",
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -708,7 +715,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -752,7 +759,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -793,7 +800,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -834,7 +841,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -875,7 +882,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -914,7 +921,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -953,7 +960,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -994,7 +1001,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -1038,8 +1045,8 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
-        "fr-web": "planned",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1077,7 +1084,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -1116,7 +1123,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -1155,7 +1162,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -1198,7 +1205,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -1239,8 +1246,8 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
-        "fr-web": "planned",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1282,7 +1289,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -1321,7 +1328,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -1360,8 +1367,8 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
-        "fr-web": "planned",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1401,7 +1408,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -1435,8 +1442,8 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
-        "dr-android": "planned",
+        "dr-web": "tagged",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -1479,7 +1486,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -1516,7 +1523,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -1562,7 +1569,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -1601,7 +1608,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -1640,7 +1647,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -1679,7 +1686,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -1718,7 +1725,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -1757,7 +1764,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -1793,9 +1800,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
-        "dr-android": "planned",
-        "fr-web": "planned",
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1835,7 +1842,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -1876,7 +1883,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -1915,7 +1922,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -1954,7 +1961,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -2032,7 +2039,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -2072,7 +2079,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -2095,6 +2102,7 @@
       "source": "matrix",
       "api": {
         "designer-portal": [
+          "PUT /questionnaires/{id}/default",
           "GET /questionnaire/form-for"
         ],
         "documentation-portal": [
@@ -2115,7 +2123,7 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "na",
         "fr-web": "tagged",
         "fr-android": "planned"
@@ -2157,7 +2165,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -2198,7 +2206,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -2239,8 +2247,8 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
-        "fr-web": "planned",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2278,7 +2286,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -2312,8 +2320,8 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
-        "dr-android": "planned",
+        "dr-web": "tagged",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -2348,7 +2356,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -2382,9 +2390,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
-        "dr-android": "planned",
-        "fr-web": "planned",
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2426,7 +2434,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -2463,8 +2471,8 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
-        "fr-web": "planned",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2501,7 +2509,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -2539,7 +2547,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -2577,8 +2585,8 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
-        "fr-web": "planned",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2616,7 +2624,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -2655,8 +2663,8 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
-        "fr-web": "planned",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2693,8 +2701,8 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
-        "fr-web": "planned",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2732,9 +2740,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
-        "dr-android": "planned",
-        "fr-web": "planned",
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2771,9 +2779,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
-        "dr-android": "planned",
-        "fr-web": "planned",
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2798,7 +2806,7 @@
       },
       "server": {
         "designer-portal": "built",
-        "documentation-portal": "planned"
+        "documentation-portal": "built"
       },
       "clients": {
         "dr-web": "required",
@@ -2807,9 +2815,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2846,8 +2854,8 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
-        "fr-web": "planned",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2924,7 +2932,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },
@@ -2962,7 +2970,7 @@
       },
       "status": {
         "dr-web": "tagged",
-        "dr-android": "planned",
+        "dr-android": "tagged",
         "fr-web": "tagged",
         "fr-android": "planned"
       },

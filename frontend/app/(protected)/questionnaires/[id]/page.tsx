@@ -20,6 +20,7 @@ import { useConfirm } from "@/components/dialogs";
 import { PageHeader } from "@/components/PageHeader";
 import { QuestionnaireAdminEditor } from "@/components/questionnaires/InstrumentBuilder";
 import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
+import { DraftFormPanel } from "@/components/questionnaires/DraftFormPanel";
 import { FormBindingsCard } from "@/components/questionnaires/FormBindingsCard";
 import { ReuseFormDialog } from "@/components/questionnaires/FormDialogs";
 import { FormSessionsCard } from "@/components/questionnaires/FormSessionsCard";
@@ -41,20 +42,29 @@ import { canDownloadDataset, canManageQuestionnaire, isContentAdmin } from "@/li
 import {
   downloads,
   formSummary,
+  isOffline,
   kindLabel,
   kindOptions,
   library,
   libraryError,
   P16,
+  readFormsCache,
   saveDownload,
+  savedCopyLine,
+  writeFormsCache,
   type LibraryFormDetail
 } from "@/lib/questionnaireLibrary";
+import { isDraftId } from "@/lib/questionnaireDraftForms";
 import type { QuestionnaireSection } from "@/lib/types";
 import { loadWorkshopList } from "@/lib/workshopList";
 
 export default function QuestionnaireFormPage() {
   const params = useParams<{ id: string }>();
-  const id = params.id;
+  // A form written offline lives on this device until it is sent (A15).
+  return isDraftId(params.id) ? <DraftFormPanel id={params.id} /> : <QuestionnaireFormView id={params.id} />;
+}
+
+function QuestionnaireFormView({ id }: { id: string }) {
   const router = useRouter();
   const { user } = useAuth();
   const confirm = useConfirm();
@@ -72,19 +82,33 @@ export default function QuestionnaireFormPage() {
   const [reusing, setReusing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [report, setReport] = useState<QWorkbookReport | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
 
+  const owner = user?.id ?? null;
   const load = useCallback(async () => {
     try {
       const detail = await library.get(id);
       setForm(detail);
+      setSaved(null);
       setError(null);
+      writeFormsCache(owner, { form: detail });
       const rows = await apiFetch<QuestionnaireSection[]>(`/questionnaire/sections${buildQuery({ questionnaireId: id })}`);
       setSections(rows);
       setRevision((n) => n + 1);
     } catch (err) {
+      // Offline (A16): the copy this account last read of this form, read-only.
+      const held = isOffline(err) ? readFormsCache(owner) : null;
+      const copy = held?.forms[id];
+      if (copy) {
+        setForm({ ...copy, can: { edit: false, delete: false, restore: false, share: false, bind: false, setDefault: false } });
+        setSections(copy.sections as unknown as QuestionnaireSection[]);
+        setSaved(held.at);
+        setRevision((n) => n + 1);
+        return;
+      }
       setError(libraryError(err, "Couldn't load this form."));
     }
-  }, [id]);
+  }, [id, owner]);
 
   useEffect(() => {
     void load();
@@ -194,6 +218,11 @@ export default function QuestionnaireFormPage() {
       {report ? <UploadReport report={report} className="mb-5" /> : null}
 
       <div className="grid gap-5">
+        {saved ? (
+          <p className="text-sm text-ink-500" data-saved-copy>
+            {savedCopyLine(saved)}
+          </p>
+        ) : null}
         {form.description ? <p className="text-sm leading-6 text-ink-700">{form.description}</p> : null}
 
         {!deleted && (can.edit || can.share || can.setDefault) ? (

@@ -13,6 +13,7 @@ import { useRef, useState } from "react";
 import { FieldDialog } from "@/components/dialogs";
 import { Field, TextArea, TextInput } from "@/components/FormControls";
 import { FieldBlock } from "@/components/tasks/TaskPrimitives";
+import { newDraft } from "@/lib/questionnaireDraftForms";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import {
   decodeBundleBytes,
@@ -29,11 +30,16 @@ import {
 export function NewFormDialog({
   open,
   onClose,
-  onCreated
+  onCreated,
+  online = true,
+  owner = null
 }: {
   open: boolean;
   onClose: () => void;
-  onCreated: (form: LibraryForm) => void;
+  onCreated: (form: Pick<LibraryForm, "id">) => void;
+  /** Offline, the form is written on this device and sent later (A15). */
+  online?: boolean;
+  owner?: string | null;
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -55,6 +61,14 @@ export function NewFormDialog({
     setBusy(true);
     setError(null);
     try {
+      if (!online && owner) {
+        const draft = newDraft(owner, { title, description: description.trim() || null, kind: kind || null });
+        setTitle("");
+        setDescription("");
+        setKind("");
+        onCreated({ id: draft.tempId });
+        return;
+      }
       const form = await library.create({ title: title.trim(), description: description.trim() || null, kind: kind || null });
       setTitle("");
       setDescription("");

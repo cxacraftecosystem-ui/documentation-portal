@@ -18,7 +18,7 @@ const rec = CONTRACT.examples.Recording as Recording;
 
 const r = (id: string, capturedAt: string, over: Partial<Recording> = {}): Recording => ({ ...rec, id, capturedAt, ...over });
 
-test("@qf:B26 sessions newest first; takes by capturedAt; estimated in the uncertain band; removed hidden", () => {
+test("@qf:B26 @qf:C6 sessions newest first; takes by capturedAt; estimated in the uncertain band; removed hidden", () => {
   const solo: RecordSession = {
     session: { ...session, id: "s-solo", sessionDate: "2026-06-21" },
     recordings: [r("t2", "2026-06-21T10:54:00Z"), r("t1", "2026-06-21T10:39:00Z"), r("gone", "2026-06-21T11:00:00Z", { removedAt: "2026-06-22T00:00:00Z" })],

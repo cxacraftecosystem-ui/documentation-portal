@@ -50,8 +50,8 @@ class SharedStringsTest {
                 // the session, take and inbox actions (H13, H14, §1), paging, offline registration, CSV.
                 "transcript.failed", "transcript.queued", "error.removeTake", "error.readFile", "error.recover", "error.startSession",
                 "error.recorderStart", "error.queueTake", "error.needsSignal", "error.saveOnPhone", "error.changedElsewhere",
-                "tray.title", "tray.sendAgain", "tray.notAllowed", "tray.theirs", "tray.mine", "tray.session", "tray.newArtisan",
-                "tray.participant", "tray.answers", "tray.finish", "tray.discardTitle",
+                "tray.title", "tray.notAllowed", "tray.theirs", "tray.mine", "tray.session", "tray.newArtisan",
+                "tray.participant", "tray.answers", "tray.finish",
                 "session.more", "session.edit", "session.merge", "session.removeArtisan",
                 "session.deleteBody", "session.mergeBody", "session.noOtherSessions",
                 "take.removed", "take.makePrimary", "take.madePrimary", "take.propose", "take.noProposals", "take.accept", "take.whose",

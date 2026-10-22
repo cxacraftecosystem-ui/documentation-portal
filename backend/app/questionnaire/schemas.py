@@ -137,6 +137,17 @@ class TypeDefaultPut(Strict):
         return self
 
 
+class SessionLocation(Strict):
+    """Where the device was when the session started (UNIFY C9): stored as a ``Location`` row and
+    linked by ``locationId``. Captured on the start sheet only, never on an edit (DR audit H1)."""
+
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    accuracy: float | None = Field(default=None, ge=0)
+    altitude: float | None = None
+    placeName: str | None = Field(default=None, max_length=200)
+
+
 class SessionCreate(Strict):
     clientKey: str = Field(min_length=1, max_length=128)
     questionnaireId: str = Field(min_length=1)
@@ -154,6 +165,8 @@ class SessionCreate(Strict):
     #: Guests answering without an artisan record; participants may then be empty (UNIFY 4.1).
     respondents: list[RespondentInput] = Field(default_factory=list, max_length=50)
     source: str = "APP"
+    #: The device's fix when the session started (UNIFY C9), beside the typed ``place``. Optional.
+    location: SessionLocation | None = None
 
     _purpose = field_validator("purpose")(_one_of(V.SessionPurpose))
     _lang = field_validator("languageCode")(_language)

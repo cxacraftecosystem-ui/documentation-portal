@@ -58,13 +58,38 @@ test("a form's Start session opens the start sheet on that form", async ({ page 
   await expect.poll(() => fake.calledWith("GET", "/questionnaire/form-for").some((c) => c.query.get("questionnaireId") === "f2")).toBe(true);
 });
 
-test("@qf:D4 @qf:C5 the grid marks recorded and typed cells, with Add a recording?", async ({ page }) => {
+test("@qf:D4 @qf:C5 @qf:B13 @qf:D1 the grid marks recorded, typed and overridden cells, and an admin sets an override", async ({ page }) => {
   const fake = new QuestionnaireFake();
   await open(page, fake, "/questionnaire/sessions/s-1");
   const grid = page.locator("[data-coverage-grid]");
   await expect(grid.getByRole("button", { name: "A Giriraj Prasad Chhipa: Recorded" })).toHaveText("●");
   await expect(grid.getByRole("button", { name: "A Shopper at Johari Bazaar: Typed · Add a recording?" })).toHaveText("✎ 1/2");
   await expect(grid.getByRole("button", { name: "B Giriraj Prasad Chhipa: Needs review" })).toHaveText("?");
+  await grid.getByRole("button", { name: "B Giriraj Prasad Chhipa: Needs review" }).click();
+  await page.locator("[data-section-override]").getByRole("button", { name: "Marked complete" }).click();
+  await expect.poll(() => fake.calledWith("PUT", "/questionnaire/completion").length).toBe(1);
+  expect(fake.calledWith("PUT", "/questionnaire/completion")[0].body).toMatchObject({ artisanId: "a1", sectionId: "s2" });
+});
+
+test("@qf:C7 a content admin merges one sitting into another session", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  await open(page, fake, "/questionnaire/sessions/s-1");
+  await page.locator("[data-session-actions]").getByRole("button", { name: "Merge into…" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.locator("[data-searchable-select]").first().click();
+  await page.getByRole("option", { name: "Interview_2026-10-21_Bagru_Second-Sitting" }).click();
+  await dialog.getByRole("button", { name: "Merge", exact: true }).click();
+  await expect.poll(() => fake.calledWith("POST", "/questionnaire/sessions/s-1/merge-into/s-2").length).toBe(1);
+  await expect(page).toHaveURL(/\/questionnaire\/sessions\/s-2$/);
+});
+
+test("@qf:B33 @qf:C4 a refused artisan's consent shows on the start sheet and can be switched back on", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  await open(page, fake, "/questionnaire/sessions/new?artisanId=a2");
+  await expect(page.locator("[data-start-sheet]")).toContainText("Recordings of Meena are not sent to outside services: consent was refused.");
+  await page.getByRole("button", { name: "Switch back on" }).click();
+  await expect.poll(() => fake.calledWith("POST", "/artisans/a2/consent").length).toBe(1);
+  expect(fake.calledWith("POST", "/artisans/a2/consent")[0].body).toMatchObject({ state: "GRANTED" });
 });
 
 test("@qf:A11 @qf:A20 @qf:B21 someone else's answer is locked with who answered; a group answer and its note save", async ({ page }) => {
@@ -80,7 +105,7 @@ test("@qf:A11 @qf:A20 @qf:B21 someone else's answer is locked with who answered;
   const a1 = page.locator("[data-answer-box='l1']");
   await a1.locator("[data-searchable-select]").first().click();
   await page.getByRole("option", { name: "Giriraj Prasad Chhipa" }).click();
-  await expect(a1.locator("textarea")).toHaveAttribute("readonly", "");
+  await expect(a1.locator("[role=textbox]")).toHaveAttribute("aria-readonly", "true");
   await expect(a1.locator("[data-p15]")).toHaveText("Answered by Priya. Only they or a lead can change it.");
   await a1.locator("[data-history]").click();
   await expect(page.locator("[data-answer-history]")).toContainText("Wooden blocks");
@@ -89,8 +114,8 @@ test("@qf:A11 @qf:A20 @qf:B21 someone else's answer is locked with who answered;
   const a2 = page.locator("[data-answer-box='l2']");
   await a2.getByRole("button", { name: "Add a note" }).click();
   await a2.locator("[data-answer-note]").fill("Asked twice");
-  await a2.locator("textarea").fill("Carved locally");
-  await a2.locator("textarea").blur();
+  await a2.locator("[role=textbox]").fill("Carved locally");
+  await a2.locator("[role=textbox]").blur();
   await expect.poll(() => fake.calledWith("PUT", "/questionnaire/answers").length).toBeGreaterThan(0);
   const items = (fake.calledWith("PUT", "/questionnaire/answers").at(-1)!.body as { items: Record<string, unknown>[] }).items;
   expect(items).toEqual([
@@ -115,8 +140,8 @@ test("@qf:B22 @qf:C2 @qf:B23 @qf:C3 @qf:B18 @qf:B40 a take's transcript is offer
   const a2 = page.locator("[data-answer-box='l2']");
   await expect(a2.locator("[data-use-as-answer]")).toContainText("My uncle carves them in Pethapur.");
   await a2.locator("[data-use-as-answer]").getByRole("button", { name: "Use as answer" }).click();
-  await a2.locator("textarea").focus();
-  await a2.locator("textarea").blur();
+  await a2.locator("[role=textbox]").focus();
+  await a2.locator("[role=textbox]").blur();
   await expect.poll(() => fake.calledWith("PUT", "/questionnaire/answers").length).toBeGreaterThan(0);
   const items = (fake.calledWith("PUT", "/questionnaire/answers").at(-1)!.body as { items: Record<string, unknown>[] }).items;
   expect(items[0]).toMatchObject({ questionLineageId: "l2", text: "My uncle carves them in Pethapur.", origin: "TRANSCRIPT", sourceRecordingId: "rec-1" });
@@ -237,6 +262,46 @@ test("a form's page: an admin keeps it bound and sets a workshop type's default"
   await page.getByRole("option", { name: "2nd Craft Toolkit" }).click();
   await expect.poll(() => fake.calledWith("PUT", "/questionnaire/type-defaults").length).toBe(1);
   expect(fake.calledWith("PUT", "/questionnaire/type-defaults")[0].body).toEqual({ workshopType: "DESIGN_PROTOTYPE", questionnaireId: "f1" });
+});
+
+test("@qf:C9 the start sheet takes the device's location beside the typed place", async ({ page, context }) => {
+  const fake = new QuestionnaireFake();
+  await context.grantPermissions(["geolocation"]);
+  await context.setGeolocation({ latitude: 26.82, longitude: 75.55, accuracy: 12 });
+  await open(page, fake, "/questionnaire/sessions/new?artisanId=a1");
+  const sheet = page.locator("[data-start-sheet]");
+  await sheet.getByRole("button", { name: "Use my location" }).click();
+  await expect(sheet.locator("[data-device-location='saved']")).toContainText("Location saved (within 12 m)");
+  await sheet.getByRole("button", { name: "Start session" }).click();
+  await expect.poll(() => fake.calledWith("POST", "/questionnaire/sessions").length).toBe(1);
+  expect(fake.calledWith("POST", "/questionnaire/sessions")[0].body).toMatchObject({ workshopId: "w1", location: { latitude: 26.82, longitude: 75.55, accuracy: 12 } });
+});
+
+test("@qf:B24 a question mapped to an artisan column is prefilled from the artisan's record", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  fake.prefill = { l2: "craft" };
+  await open(page, fake, "/questionnaire/sessions/s-1");
+  await expect.poll(() => fake.calledWith("PUT", "/questionnaire/answers").length).toBe(1);
+  const items = (fake.calledWith("PUT", "/questionnaire/answers")[0].body as { items: Record<string, unknown>[] }).items;
+  expect(items).toEqual([expect.objectContaining({ artisanId: "a1", questionLineageId: "l2", text: "Hand Block Printing", origin: "PREFILL" })]);
+});
+
+test("@qf:C8 a formatted answer is written as the document and its plain text", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  await open(page, fake, "/questionnaire/sessions/s-1");
+  await page.getByRole("button", { name: "A", exact: true }).click();
+  await page.getByRole("switch", { name: "Type answers" }).click();
+  const box = page.locator("[data-answer-box='l2'] [role=textbox]");
+  await box.click();
+  await page.keyboard.type("Indigo");
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.press("ControlOrMeta+B");
+  await box.blur();
+  await expect.poll(() => fake.calledWith("PUT", "/questionnaire/answers").length).toBeGreaterThan(0);
+  const item = (fake.calledWith("PUT", "/questionnaire/answers").at(-1)!.body as { items: Record<string, unknown>[] }).items[0];
+  expect(item.text).toBe("Indigo");
+  expect(String(item.richText)).toContain("BOLD");
+  expect(String(item.richText)).toContain("Indigo");
 });
 
 test("@qf:B12 workshop coverage reads the workshop", async ({ page }) => {

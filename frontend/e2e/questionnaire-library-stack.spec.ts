@@ -259,3 +259,11 @@ test("@qf:B29 the corpus is a dataset downloader's", async () => {
   });
   expect(researcher.status).toBe(403);
 });
+
+test("@qf:C10 the dataset export carries a session's answers and the workshop's annexure", async () => {
+  const s = seed();
+  const manifest = await stackFetch(s.tokens.admin)<{ files: { path: string; content?: string }[] }>("/export/dataset");
+  const texts = manifest.files.filter((f) => typeof f.content === "string").map((f) => f.content as string);
+  expect(texts.some((t) => t.includes("Indigo from the annexure test."))).toBe(true);
+  expect(manifest.files.some((f) => f.path.endsWith("Questionnaire annexure.txt"))).toBe(true);
+});

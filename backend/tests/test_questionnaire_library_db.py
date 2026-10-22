@@ -272,3 +272,34 @@ def test_the_annexure_groups_by_kind_and_reads_live_sessions_only(monkeypatch) -
             await client.disconnect()
 
     run(go())
+
+
+def test_the_readers_count_a_sessions_answers_and_takes_c10(monkeypatch) -> None:
+    """UNIFY C10: task progress, record completeness and the export read v2 answers, live sessions only."""
+    from qv2_fixtures import settings_v2
+
+    from app.questionnaire import answers, sessions
+    from app.questionnaire.schemas import AnswersPut
+    from app.services import completeness, questionnaire_readers
+
+    async def go() -> None:
+        client, ids = await _world(monkeypatch)
+        settings_v2(monkeypatch, True)
+        try:
+            s, _ = await sessions.create_session(session_create(ids, ids.artisans[:1]), ids.lead)
+            await answers.put_answers(AnswersPut.model_validate({"items": [
+                {"artisanId": ids.artisans[0], "questionLineageId": ids.questions["D1"], "text": "Teak", "sessionId": s["id"]},
+            ]}), ids.lead)
+            counts = await completeness.counts_for("interview", [s["id"]], client=client)
+            assert counts[s["id"]].get("answers", 0) >= 1
+            pairs = await questionnaire_readers.covered_pairs(ids.lead.id, [ids.sections["D"]], workshop_id=ids.workshop, client=client)
+            assert (f"A:{ids.artisans[0]}", ids.sections["D"]) in pairs
+            printed = await questionnaire_readers.session_answers([s["id"]], client=client)
+            assert [a["text"] for a in printed[s["id"]]] == ["Teak"]
+            await sessions.delete_session(s["id"], ids.admin)
+            assert await questionnaire_readers.session_answers([s["id"]], client=client) == {}
+            assert await questionnaire_readers.answer_counts([s["id"]], client=client) == {}
+        finally:
+            await client.disconnect()
+
+    run(go())

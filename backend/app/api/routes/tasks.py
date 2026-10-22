@@ -583,6 +583,15 @@ async def _count_sections(
         for link in links:
             if not scope or link.artisanId in scope:
                 pairs.add((link.artisanId, section_id))
+    # The shared questionnaire's sessions (UNIFY C10): this person's takes and typed answers, live
+    # sessions only. Typed or recorded, either counts. Empty, with no query, while v2 is off. A
+    # guest (R:) covers a section but never an artisan's pair.
+    from app.services import questionnaire_readers
+
+    for subject_key, section_id in await questionnaire_readers.covered_pairs(assignee_id, section_ids, workshop_id=workshop_id):
+        plain_sections.add(section_id)
+        if subject_key.startswith("A:") and (not scope or subject_key[2:] in scope):
+            pairs.add((subject_key[2:], section_id))
     return len(pairs), len(plain_sections), len(unlinked)
 
 

@@ -44,15 +44,7 @@
       "OTHER"
     ]
   },
-  "pending": {
-    "errorCodes": {
-      "add": [
-        "ANSWER_LOCKED",
-        "RESPONDENT_HAS_ROWS"
-      ],
-      "stream": "U1-U4, into shared/questionnaire-contract.json errorCodes"
-    }
-  },
+  "pending": {},
   "labels": {
     "QuestionnaireKind": {
       "WORKSHOP_INTERVIEW": "Workshop interview",

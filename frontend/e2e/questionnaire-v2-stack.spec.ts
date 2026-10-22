@@ -127,14 +127,14 @@ async function newSession(api: ReturnType<typeof questionnaireClient>, s: Seed, 
   });
 }
 
-test("the stack is v2 and answers the web's headers", async () => {
+test("@qf:B35 the stack is v2 and answers the web's headers", async () => {
   const api = questionnaireClient(stackFetch(seed().tokens.lead));
   const config = await api.config();
   expect(config.v2Enabled).toBe(true);
   expect(config.multipartThresholdBytes).toBeGreaterThan(0);
 });
 
-test("C3 + C4: a large take on a rebuilt session (no clientKey) uploads through multipart and lands", async () => {
+test("@qf:B10 @qf:C1 C3 + C4: a large take on a rebuilt session (no clientKey) uploads through multipart and lands", async () => {
   const s = seed();
   const api = questionnaireClient(stackFetch(s.tokens.lead));
   const session = await api.getSession(s.rebuiltSessionId);
@@ -158,6 +158,20 @@ test("C3 + C4: a large take on a rebuilt session (no clientKey) uploads through 
   expect(after.recordings.map((r) => r.clientClipKey)).toContain(step.clientClipKey);
   expect((await api.uploadState(step.clientClipKey)).closed).toBe(true);
   expect(store.units.size).toBe(0);
+});
+
+test("@qf:B5 participants: an artisan is added, marked away and back, and removed", async () => {
+  const s = seed();
+  const api = questionnaireClient(stackFetch(s.tokens.lead));
+  const session = await newSession(api, s, s.artisans[0]);
+  const added = await api.addParticipant(session.id, s.artisans[1]);
+  expect(added.participants.map((p) => p.artisanId).sort()).toEqual([s.artisans[0], s.artisans[1]].sort());
+  const away = await api.patchParticipant(session.id, s.artisans[1], { leftAt: new Date().toISOString() });
+  expect(away.participants.find((p) => p.artisanId === s.artisans[1])?.leftAt).toBeTruthy();
+  const back = await api.patchParticipant(session.id, s.artisans[1], { leftAt: null });
+  expect(back.participants.find((p) => p.artisanId === s.artisans[1])?.leftAt ?? null).toBeNull();
+  const removed = await api.removeParticipant(session.id, s.artisans[1]);
+  expect(removed.participants.map((p) => p.artisanId)).toEqual([s.artisans[0]]);
 });
 
 test("C5: a take queued while another is uploading lands too", async () => {
