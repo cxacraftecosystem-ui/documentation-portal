@@ -47,7 +47,16 @@ async function evidence(info: TestInfo, name: string, body: string, contentType:
   await info.attach(name, { body, contentType });
 }
 
-test("tapping Continue with Google opens Google's sign-in window", async ({ page, context, hasTouch }, info) => {
+test("tapping Continue with Google opens Google's sign-in window", async ({ page, context, hasTouch, browserName }, info) => {
+  // A TABLET'S CPU, NOT A RUNNER'S. The live failure is a race between the person's first tap and
+  // React taking over the server-rendered page; on a fast runner hydration usually wins and hides
+  // it. Chromium can be slowed down to tablet speed, so it is, and the race is lost the way a real
+  // tablet loses it. WebKit has no equivalent switch.
+  if (browserName === "chromium") {
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Emulation.setCPUThrottlingRate", { rate: 6 });
+  }
+
   const consoleLines: string[] = [];
   page.on("console", (message) => consoleLines.push(`[${message.type()}] ${message.text()}`));
   page.on("pageerror", (error) => consoleLines.push(`[pageerror] ${error.message}`));
@@ -60,6 +69,7 @@ test("tapping Continue with Google opens Google's sign-in window", async ({ page
   const headers = Object.fromEntries(HEADERS_OF_INTEREST.map((name) => [name, all[name] ?? null]));
   await evidence(info, "login-headers.json", JSON.stringify({ url: response?.url(), status: response?.status(), headers }, null, 2), "application/json");
 
+  // Ticked as soon as the box is in the document: on a tablet that is before the page is live.
   const agree = page.locator(AGREE_BOX);
   if ((await agree.count()) > 0) {
     // The terms gate: until the box is ticked the button is shown, greyed and out of reach. Only a
@@ -71,6 +81,12 @@ test("tapping Continue with Google opens Google's sign-in window", async ({ page
   }
 
   await expect(page.locator(GOOGLE_FRAME), "Google's button frame never rendered").toHaveCount(1, { timeout: 30_000 });
+  if ((await agree.count()) > 0) {
+    // The tick was made as early as a person could make it. It must still be there now that the
+    // page is live, or every button under it is still refusing.
+    await page.waitForLoadState("load");
+    await expect(agree, "the terms tick was undone while the page loaded").toBeChecked();
+  }
   const button = visibleGoogleButton(page);
   await expect(button).toBeVisible();
   await button.scrollIntoViewIfNeeded();
