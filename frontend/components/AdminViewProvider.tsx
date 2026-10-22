@@ -179,17 +179,6 @@ export const ADMIN_CHROME_ROUTES: AdminChromeRoute[] = [
       "Who may sign in."
   },
   {
-    // MORE SPECIFIC THAN NOTHING ABOVE IT, deliberately: /questionnaire is open to every signed-in
-    // user and is NOT chrome, so only this leaf is listed. Hiding the settings hub hides tools;
-    // hiding this hides the only door the instrument itself comes in through, and an admin who
-    // turned the toggle off should be told that is what they are not looking at rather than meeting
-    // a 403 or an empty page.
-    path: "/questionnaire/workbooks",
-    label: "Questionnaire workbooks",
-    blurb: "Excel editing of the questionnaire.",
-    alternative: { href: "/questionnaire", label: "Go to the questionnaire" }
-  },
-  {
     // Professor+ by role, so this rule can only ever fire for an ADMIN — a professor has no toggle
     // and `adminChromeVisible` returns true for them, which is what keeps them out of this branch.
     path: "/users",

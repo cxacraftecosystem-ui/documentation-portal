@@ -7,9 +7,9 @@ import { promptButtonClass } from "@/components/questionnaire/Prompts";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SearchableSelect, type SelectOption } from "@/components/ui/SearchableSelect";
 import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
-import { REPEAT_REASONS, type RepeatReason } from "@/lib/questionnaireApi";
-import { alreadyRecorded, REASON_LABEL, type P2Input } from "@/lib/questionnairePrompts";
-import { qs } from "@/lib/strings/qs";
+import { REPEAT_REASONS, type RepeatReason } from "@/lib/questionnaire/api";
+import { alreadyRecorded, REASON_LABEL, type P2Input } from "@/lib/questionnaire/prompts";
+import { qs } from "@/lib/questionnaire/qs";
 
 export type P2Choice =
   | { kind: "cancel" }

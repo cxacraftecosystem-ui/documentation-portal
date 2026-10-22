@@ -8,8 +8,8 @@ import { ButtonRow } from "@/components/ui/ButtonRow";
 import { CalendarField } from "@/components/ui/CalendarField";
 import { SearchableMultiSelect } from "@/components/ui/SearchableSelect";
 import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
-import { questionnaireApi, type RecordSession } from "@/lib/questionnaireApi";
-import { qs } from "@/lib/strings/qs";
+import { questionnaireApi, type RecordSession } from "@/lib/questionnaire/api";
+import { qs } from "@/lib/questionnaire/qs";
 
 function todayLocal(): string {
   const d = new Date();

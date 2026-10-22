@@ -41,9 +41,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -84,7 +84,7 @@
       "status": {
         "dr-web": "planned",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -125,9 +125,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -168,7 +168,7 @@
       "status": {
         "dr-web": "planned",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -192,11 +192,13 @@
         "designer-portal": [
           "POST /questionnaires/{id}/reuse"
         ],
-        "documentation-portal": []
+        "documentation-portal": [
+          "POST /questionnaires/{id}/reuse"
+        ]
       },
       "server": {
         "designer-portal": "built",
-        "documentation-portal": "planned"
+        "documentation-portal": "built"
       },
       "clients": {
         "dr-web": "required",
@@ -207,7 +209,7 @@
       "status": {
         "dr-web": "planned",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -250,9 +252,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -276,11 +278,14 @@
         "designer-portal": [
           "PATCH /questionnaires/{id}"
         ],
-        "documentation-portal": []
+        "documentation-portal": [
+          "PATCH /questionnaires/{id}",
+          "GET /questionnaires"
+        ]
       },
       "server": {
         "designer-portal": "built",
-        "documentation-portal": "planned"
+        "documentation-portal": "built"
       },
       "clients": {
         "dr-web": "required",
@@ -291,9 +296,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "na",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -315,11 +320,14 @@
       "source": "matrix",
       "api": {
         "designer-portal": [],
-        "documentation-portal": []
+        "documentation-portal": [
+          "PATCH /questionnaires/{id}",
+          "GET /questionnaire/annexure"
+        ]
       },
       "server": {
         "designer-portal": "built",
-        "documentation-portal": "planned"
+        "documentation-portal": "built"
       },
       "clients": {
         "dr-web": "required",
@@ -328,9 +336,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -352,14 +360,17 @@
       "name": "Several forms per workshop, one primary (bindings)",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "GET /questionnaire/forms/{id}/bindings",
+          "PUT /questionnaire/forms/{id}/bindings"
+        ],
         "documentation-portal": [
           "GET /questionnaire/forms/{id}/bindings",
           "PUT /questionnaire/forms/{id}/bindings"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -369,9 +380,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -393,11 +404,14 @@
       "source": "matrix",
       "api": {
         "designer-portal": [],
-        "documentation-portal": []
+        "documentation-portal": [
+          "GET /questionnaires/{id}/bundle",
+          "POST /questionnaires/bundles/import"
+        ]
       },
       "server": {
         "designer-portal": "planned",
-        "documentation-portal": "planned"
+        "documentation-portal": "built"
       },
       "clients": {
         "dr-web": "required",
@@ -406,9 +420,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -430,13 +444,15 @@
       "name": "Answer locks: answers by others are read-only",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "PUT /questionnaire/answers"
+        ],
         "documentation-portal": [
           "PUT /questionnaire/answers"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -446,9 +462,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -470,12 +486,16 @@
       "name": "Report annexure: bound forms grouped by kind, with answers",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
-        "documentation-portal": []
+        "designer-portal": [
+          "GET /questionnaire/annexure"
+        ],
+        "documentation-portal": [
+          "GET /questionnaire/annexure"
+        ]
       },
       "server": {
         "designer-portal": "built",
-        "documentation-portal": "planned"
+        "documentation-portal": "built"
       },
       "clients": {
         "dr-web": "required",
@@ -484,9 +504,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -512,7 +532,8 @@
           "POST /questionnaires/{id}/restore"
         ],
         "documentation-portal": [
-          "DELETE /questionnaires/{id}"
+          "DELETE /questionnaires/{id}",
+          "POST /questionnaires/{id}/restore"
         ]
       },
       "server": {
@@ -526,9 +547,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -550,7 +571,10 @@
       "name": "Soft delete and restore of sessions (content admin)",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "DELETE /questionnaire/sessions/{id}",
+          "POST /questionnaire/sessions/{id}/restore"
+        ],
         "documentation-portal": [
           "DELETE /questionnaire/sessions/{id}",
           "POST /questionnaire/sessions/{id}/restore",
@@ -558,7 +582,7 @@
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -568,9 +592,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -595,7 +619,7 @@
         "documentation-portal": []
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "planned"
       },
       "clients": {
@@ -632,7 +656,7 @@
         "documentation-portal": []
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "planned"
       },
       "clients": {
@@ -665,13 +689,15 @@
       "name": "Edit a respondent's name and notes (retract personal data)",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "PATCH /questionnaire/sessions/{id}/respondents/{id}"
+        ],
         "documentation-portal": [
           "PATCH /questionnaire/sessions/{id}/respondents/{id}"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -681,9 +707,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -704,7 +730,10 @@
       "name": "A respondent who is not an artisan (guest or self)",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "POST /questionnaire/sessions/{id}/respondents",
+          "POST /questionnaire/respondents/{id}/register"
+        ],
         "documentation-portal": [
           "POST /questionnaire/sessions/{id}/respondents",
           "POST /questionnaire/respondents/{id}/register",
@@ -712,7 +741,7 @@
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -722,9 +751,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -745,13 +774,15 @@
       "name": "Required questions: Finish reports the count, never blocks",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "GET /questionnaire/sessions/{id}"
+        ],
         "documentation-portal": [
           "POST /questionnaire/sessions/{id}/finish"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -761,9 +792,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -784,13 +815,15 @@
       "name": "Answer notes",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "PUT /questionnaire/answers"
+        ],
         "documentation-portal": [
           "PUT /questionnaire/answers"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -800,9 +833,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -823,13 +856,15 @@
       "name": "A session is a dated event; create is idempotent on clientKey",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "POST /questionnaire/sessions"
+        ],
         "documentation-portal": [
           "POST /questionnaire/sessions"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -839,9 +874,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -860,13 +895,15 @@
       "name": "Open-match check (P1)",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "GET /questionnaire/sessions/open-match"
+        ],
         "documentation-portal": [
           "GET /questionnaire/sessions/open-match"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -876,9 +913,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -897,13 +934,15 @@
       "name": "Generated titles, note and legacyTitle",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "POST /questionnaire/sessions"
+        ],
         "documentation-portal": [
           "POST /questionnaire/sessions"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -913,9 +952,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -934,14 +973,17 @@
       "name": "Join code (online) and QR",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "POST /questionnaire/sessions/join",
+          "POST /questionnaire/sessions/join-by-key"
+        ],
         "documentation-portal": [
           "POST /questionnaire/sessions/join",
           "POST /questionnaire/sessions/join-by-key"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -951,9 +993,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -973,7 +1015,11 @@
       "name": "Participants: present/away, add artisan, remove with detach (P10)",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "POST /questionnaire/sessions/{id}/participants",
+          "PATCH /questionnaire/sessions/{id}/participants/{id}",
+          "DELETE /questionnaire/sessions/{id}/participants/{id}"
+        ],
         "documentation-portal": [
           "POST /questionnaire/sessions/{id}/participants",
           "PATCH /questionnaire/sessions/{id}/participants/{id}",
@@ -981,7 +1027,7 @@
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -991,7 +1037,7 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
         "fr-web": "planned",
         "fr-android": "planned"
@@ -1012,13 +1058,15 @@
       "name": "Researchers, add researcher",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "POST /questionnaire/sessions/{id}/researchers"
+        ],
         "documentation-portal": [
           "POST /questionnaire/sessions/{id}/researchers"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1028,9 +1076,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1049,13 +1097,15 @@
       "name": "Finish, and the nightly close of stale sessions",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "POST /questionnaire/sessions/{id}/finish"
+        ],
         "documentation-portal": [
           "POST /questionnaire/sessions/{id}/finish"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1065,9 +1115,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1086,13 +1136,15 @@
       "name": "Continue another day",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "POST /questionnaire/sessions/continue"
+        ],
         "documentation-portal": [
           "POST /questionnaire/sessions/continue"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1102,9 +1154,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1123,7 +1175,11 @@
       "name": "Session edit, merge, delete",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "PATCH /questionnaire/sessions/{id}",
+          "POST /questionnaire/sessions/{id}/merge-into/{id}",
+          "DELETE /questionnaire/sessions/{id}"
+        ],
         "documentation-portal": [
           "PATCH /questionnaire/sessions/{id}",
           "POST /questionnaire/sessions/{id}/merge-into/{id}",
@@ -1131,7 +1187,7 @@
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1141,9 +1197,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1162,14 +1218,17 @@
       "name": "Recordings as typed takes: targets, subjects, Answered by",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "PATCH /questionnaire/recordings/{id}",
+          "POST /media/complete"
+        ],
         "documentation-portal": [
           "PATCH /questionnaire/recordings/{id}",
           "POST /media/complete"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1179,7 +1238,7 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
         "fr-web": "planned",
         "fr-android": "planned"
@@ -1200,7 +1259,11 @@
       "name": "Coverage: check, grid, snapshot, the Already recorded prompt (P2)",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "POST /questionnaire/coverage/check",
+          "GET /questionnaire/coverage",
+          "GET /questionnaire/coverage/snapshot"
+        ],
         "documentation-portal": [
           "POST /questionnaire/coverage/check",
           "GET /questionnaire/coverage",
@@ -1208,7 +1271,7 @@
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1218,9 +1281,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1239,13 +1302,15 @@
       "name": "Workshop coverage page",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "GET /questionnaire/coverage"
+        ],
         "documentation-portal": [
           "GET /questionnaire/coverage"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1255,9 +1320,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1276,13 +1341,15 @@
       "name": "Admin override per section (Marked complete, Needs review, Needs redo)",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "PUT /questionnaire/completion"
+        ],
         "documentation-portal": [
           "PUT /questionnaire/completion"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1292,7 +1359,7 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
         "fr-web": "planned",
         "fr-android": "planned"
@@ -1313,14 +1380,17 @@
       "name": "Recording dedup: client sha, server verification (P5)",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "POST /media/presign",
+          "POST /media/complete"
+        ],
         "documentation-portal": [
           "POST /questionnaire/coverage/check",
           "POST /media/presign"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1330,9 +1400,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1355,7 +1425,7 @@
         "documentation-portal": []
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1367,7 +1437,7 @@
       "status": {
         "dr-web": "planned",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1386,7 +1456,10 @@
       "name": "Resumable multipart upload, server-minted names, upload intents",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "POST /media/multipart/create",
+          "GET /media/uploads/{id}"
+        ],
         "documentation-portal": [
           "POST /media/presign",
           "POST /media/multipart/create",
@@ -1395,7 +1468,7 @@
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1405,9 +1478,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1432,7 +1505,7 @@
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1442,9 +1515,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1463,7 +1536,12 @@
       "name": "Take sheet: replace, Part 2, decide, make primary, restore, retry transcription",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "POST /questionnaire/recordings/{id}/decide",
+          "POST /questionnaire/recordings/{id}/make-primary",
+          "POST /questionnaire/recordings/{id}/restore",
+          "POST /questionnaire/recordings/{id}/transcribe"
+        ],
         "documentation-portal": [
           "POST /questionnaire/recordings/{id}/decide",
           "POST /questionnaire/recordings/{id}/make-primary",
@@ -1473,7 +1551,7 @@
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1483,9 +1561,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1504,13 +1582,15 @@
       "name": "Canonical answers per respondent per lineage, per-item PUT /answers (P8, P9)",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "PUT /questionnaire/answers"
+        ],
         "documentation-portal": [
           "PUT /questionnaire/answers"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1520,9 +1600,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1541,13 +1621,15 @@
       "name": "Group answers (Answer for: All 3)",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "PUT /questionnaire/answers"
+        ],
         "documentation-portal": [
           "PUT /questionnaire/answers"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1557,9 +1639,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1578,13 +1660,15 @@
       "name": "Answer revisions, with a History view",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "GET /questionnaire/answers/{id}/revisions"
+        ],
         "documentation-portal": [
           "GET /questionnaire/answers/{id}/revisions"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1594,9 +1678,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1615,13 +1699,15 @@
       "name": "Use as answer: a take's transcript proposed as the answer",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "POST /questionnaire/recordings/{id}/answer-proposals"
+        ],
         "documentation-portal": [
           "POST /questionnaire/recordings/{id}/answer-proposals"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1631,9 +1717,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1652,13 +1738,15 @@
       "name": "AI drafts as section-take proposals",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "POST /questionnaire/recordings/{id}/answer-proposals"
+        ],
         "documentation-portal": [
           "POST /questionnaire/recordings/{id}/answer-proposals"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1668,9 +1756,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1695,7 +1783,7 @@
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1726,13 +1814,17 @@
       "name": "Inbox: to file, needs a decision, dates, who was there, empty session",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "GET /questionnaire/inbox",
+          "POST /questionnaire/recordings/{id}/file",
+          "POST /questionnaire/media/{id}/not-needed"
+        ],
         "documentation-portal": [
           "GET /questionnaire/inbox"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1742,9 +1834,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1763,14 +1855,17 @@
       "name": "Artisan record: timeline, by question, CSV",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "GET /artisans/{id}/record",
+          "GET /artisans/{id}/record.csv"
+        ],
         "documentation-portal": [
           "GET /artisans/{id}/record",
           "GET /artisans/{id}/record.csv"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1780,9 +1875,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1801,13 +1896,15 @@
       "name": "Read view and review: approve blockers and the cascade",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "POST /review/{type}/{id}/approve"
+        ],
         "documentation-portal": [
           "POST /review/{type}/{id}/approve"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1817,9 +1914,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1838,13 +1935,15 @@
       "name": "Sessions list: search, filters, paging",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "GET /questionnaire/sessions"
+        ],
         "documentation-portal": [
           "GET /questionnaire/sessions"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1854,9 +1953,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1875,14 +1974,17 @@
       "name": "Corpus export of answers and recordings (admin)",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "GET /questionnaire/corpus.csv",
+          "GET /questionnaire/corpus.jsonl"
+        ],
         "documentation-portal": [
           "GET /questionnaire/corpus.jsonl",
           "GET /questionnaire/corpus.csv"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1894,9 +1996,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "na",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1919,7 +2021,7 @@
         "documentation-portal": []
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1929,9 +2031,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1950,13 +2052,16 @@
       "name": "Form-to-workshop binding as the start-sheet default",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "GET /questionnaire/form-for",
+          "PUT /questionnaire/forms/{id}/bindings"
+        ],
         "documentation-portal": [
           "GET /questionnaire/form-for"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -1966,9 +2071,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -1989,14 +2094,16 @@
       "name": "Default instrument (isDefault) when nothing is bound",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "GET /questionnaire/form-for"
+        ],
         "documentation-portal": [
           "PUT /questionnaires/{id}/default",
           "GET /questionnaire/form-for"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -2010,7 +2117,7 @@
       "status": {
         "dr-web": "planned",
         "dr-android": "na",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2029,14 +2136,17 @@
       "name": "Per-artisan consent at the start sheet and on a take (opt-out gate)",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "GET /artisans/{id}/consent",
+          "POST /artisans/{id}/consent"
+        ],
         "documentation-portal": [
           "GET /artisans/{id}/consent",
           "POST /artisans/{id}/consent"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -2046,9 +2156,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2069,13 +2179,15 @@
       "name": "Transcription through the shared package, paused",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "POST /questionnaire/recordings/{id}/transcribe"
+        ],
         "documentation-portal": [
           "POST /questionnaire/recordings/{id}/transcribe"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -2085,9 +2197,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2108,13 +2220,15 @@
       "name": "Version telemetry and the old-build cutoff on versionCode (P14)",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "GET /admin/app-versions"
+        ],
         "documentation-portal": [
           "GET /questionnaire/config"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -2124,7 +2238,7 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
         "fr-web": "planned",
         "fr-android": "planned"
@@ -2145,13 +2259,15 @@
       "name": "QUESTIONNAIRE_V2 flag and GET /questionnaire/config",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "GET /questionnaire/config"
+        ],
         "documentation-portal": [
           "GET /questionnaire/config"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -2161,9 +2277,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2186,7 +2302,7 @@
         "documentation-portal": []
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -2198,7 +2314,7 @@
       "status": {
         "dr-web": "planned",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2221,7 +2337,7 @@
         "documentation-portal": []
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -2231,9 +2347,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2256,7 +2372,7 @@
         "documentation-portal": []
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -2289,14 +2405,17 @@
       "name": "Recording history and Removed takes",
       "source": "matrix",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "GET /questionnaire/recordings/removed",
+          "GET /questionnaire/recordings/{id}/events"
+        ],
         "documentation-portal": [
           "GET /questionnaire/recordings/removed",
           "GET /questionnaire/recordings/{id}/events"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -2306,9 +2425,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2327,11 +2446,13 @@
       "name": "Voice notes per question or section (takes with targets)",
       "source": "matrix 1.3",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "POST /media/complete"
+        ],
         "documentation-portal": []
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -2341,7 +2462,7 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
         "fr-web": "planned",
         "fr-android": "planned"
@@ -2363,11 +2484,13 @@
       "name": "Instant transcript into the answer box (Use as answer)",
       "source": "matrix 1.3",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "POST /questionnaire/recordings/{id}/answer-proposals"
+        ],
         "documentation-portal": []
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -2377,9 +2500,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2399,11 +2522,13 @@
       "name": "AI drafts (section-take proposals)",
       "source": "matrix 1.3",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "POST /questionnaire/recordings/{id}/answer-proposals"
+        ],
         "documentation-portal": []
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -2413,9 +2538,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2435,11 +2560,13 @@
       "name": "Consent (shared gate plus DR workshop dictation consent)",
       "source": "matrix 1.3",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "GET /artisans/{id}/consent"
+        ],
         "documentation-portal": []
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -2449,7 +2576,7 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
         "fr-web": "planned",
         "fr-android": "planned"
@@ -2471,11 +2598,14 @@
       "name": "Completion matrix and admin override (coverage grid plus section status)",
       "source": "matrix 1.3",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "GET /questionnaire/coverage",
+          "PUT /questionnaire/completion"
+        ],
         "documentation-portal": []
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -2485,9 +2615,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2507,11 +2637,14 @@
       "name": "Consolidated per-artisan view and CSV (artisan record)",
       "source": "matrix 1.3",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "GET /artisans/{id}/record",
+          "GET /artisans/{id}/record.csv"
+        ],
         "documentation-portal": []
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -2521,7 +2654,7 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
         "fr-web": "planned",
         "fr-android": "planned"
@@ -2543,11 +2676,13 @@
       "name": "Interview merge (session merge)",
       "source": "matrix 1.3",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "POST /questionnaire/sessions/{id}/merge-into/{id}"
+        ],
         "documentation-portal": []
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -2557,7 +2692,7 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
         "fr-web": "planned",
         "fr-android": "planned"
@@ -2579,11 +2714,15 @@
       "name": "Rich-text answers in the DR text format",
       "source": "matrix 1.3",
       "api": {
-        "designer-portal": [],
-        "documentation-portal": []
+        "designer-portal": [
+          "PUT /questionnaire/answers"
+        ],
+        "documentation-portal": [
+          "PUT /questionnaire/answers"
+        ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -2608,18 +2747,21 @@
         "dr-web": "global form",
         "dr-android": "global form"
       },
-      "note": "Served by B19."
+      "note": "Served by B19.",
+      "decision": "C8 (coordinator, 22 Oct 2026): answers keep canonical plain text plus optional richText in designer-portal's stored format; the server flattens a document sent alone."
     },
     {
       "id": "C9",
       "name": "Interview location from GPS (session place)",
       "source": "matrix 1.3",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "POST /questionnaire/sessions"
+        ],
         "documentation-portal": []
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -2655,7 +2797,7 @@
         "documentation-portal": []
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "planned"
       },
       "clients": {
@@ -2685,13 +2827,15 @@
       "name": "Section override keeps three states: Marked complete, Needs review, Needs redo",
       "source": "owner amendment 2, point 1",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "PUT /questionnaire/completion"
+        ],
         "documentation-portal": [
           "PUT /questionnaire/completion"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -2701,7 +2845,7 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
         "fr-web": "planned",
         "fr-android": "planned"
@@ -2720,14 +2864,17 @@
       "name": "A default form per workshop type, and the four-step form resolution",
       "source": "owner amendment 2, point 2",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "PUT /questionnaire/type-defaults",
+          "GET /questionnaire/form-for"
+        ],
         "documentation-portal": [
           "PUT /questionnaire/type-defaults",
           "GET /questionnaire/form-for"
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -2739,9 +2886,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "na",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2776,9 +2923,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {
@@ -2794,7 +2941,9 @@
       "name": "Typed or recorded, either counts; recording preferred (coverage source per cell)",
       "source": "owner amendment 2, point 4",
       "api": {
-        "designer-portal": [],
+        "designer-portal": [
+          "GET /questionnaire/coverage"
+        ],
         "documentation-portal": [
           "GET /questionnaire/coverage",
           "POST /questionnaire/coverage/check",
@@ -2802,7 +2951,7 @@
         ]
       },
       "server": {
-        "designer-portal": "planned",
+        "designer-portal": "built",
         "documentation-portal": "built"
       },
       "clients": {
@@ -2812,9 +2961,9 @@
         "fr-android": "required"
       },
       "status": {
-        "dr-web": "planned",
+        "dr-web": "tagged",
         "dr-android": "planned",
-        "fr-web": "planned",
+        "fr-web": "tagged",
         "fr-android": "planned"
       },
       "stream": {

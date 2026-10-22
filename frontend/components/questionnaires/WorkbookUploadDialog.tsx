@@ -27,6 +27,8 @@ import { FileSpreadsheet, Upload } from "lucide-react";
 import { FieldDialog } from "@/components/dialogs";
 import { Field, TextArea, TextInput } from "@/components/FormControls";
 import { FieldBlock } from "@/components/tasks/TaskPrimitives";
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
+import { kindOptions } from "@/lib/questionnaireLibrary";
 import {
   reuploadQuestionnaire,
   uploadQuestionnaire,
@@ -38,7 +40,8 @@ export function WorkbookUploadDialog({
   onClose,
   onUploaded,
   questionnaireId,
-  questionnaireTitle
+  questionnaireTitle,
+  workshops = []
 }: {
   open: boolean;
   onClose: () => void;
@@ -47,10 +50,14 @@ export function WorkbookUploadDialog({
   questionnaireId?: string;
   /** Named in the heading so an admin can see WHICH instrument they are about to overwrite. */
   questionnaireTitle?: string;
+  /** The workshops a new form's imported answers may belong to (create only). */
+  workshops?: { id: string; title: string }[];
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [kind, setKind] = useState("");
+  const [workshopId, setWorkshopId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -60,6 +67,8 @@ export function WorkbookUploadDialog({
     setFile(null);
     setTitle("");
     setDescription("");
+    setKind("");
+    setWorkshopId("");
     setError(null);
     // The DOM input holds the chosen file independently of React state, so clearing only the state
     // leaves the browser reporting the previous file name and re-choosing THE SAME file fires no
@@ -82,7 +91,9 @@ export function WorkbookUploadDialog({
         ? await reuploadQuestionnaire(questionnaireId, file, { title: title.trim() || undefined })
         : await uploadQuestionnaire(file, {
             title: title.trim() || undefined,
-            description: description.trim() || undefined
+            description: description.trim() || undefined,
+            kind: kind || undefined,
+            workshopId: workshopId || undefined
           });
       reset();
       onUploaded(result);
@@ -140,7 +151,7 @@ export function WorkbookUploadDialog({
           </p>
         ) : (
           <div className="rounded-md border border-line-200 bg-surface-50 px-3 py-2 text-sm leading-6 text-ink-700">
-            <p>Answers in the file are counted, not saved.</p>
+            <p>Each answer column becomes an uploaded session.</p>
           </div>
         )}
 
@@ -174,6 +185,27 @@ export function WorkbookUploadDialog({
             }
           />
         </Field>
+
+        {editing ? null : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FieldBlock label="Kind">
+              <SearchableSelect value={kind} onChange={setKind} options={kindOptions()} ariaLabel="Kind" advanceOnSelect={false} />
+            </FieldBlock>
+            <FieldBlock label="Workshop for the answers">
+              <SearchableSelect
+                value={workshopId}
+                onChange={setWorkshopId}
+                options={workshops.map((workshop) => ({ value: workshop.id, label: workshop.title }))}
+                placeholder="None"
+                emptyLabel="No workshops"
+                ariaLabel="Workshop for the answers"
+                searchable
+                clearable
+                advanceOnSelect={false}
+              />
+            </FieldBlock>
+          </div>
+        )}
 
         {editing ? null : (
           <Field label="Description">

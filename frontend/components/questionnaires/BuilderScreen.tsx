@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { deleteConfirm, useConfirm } from "@/components/dialogs";
 import { PageHeader } from "@/components/PageHeader";
-import { QuestionnaireAdminEditor } from "@/components/questionnaire/InstrumentBuilder";
+import { QuestionnaireAdminEditor } from "@/components/questionnaires/InstrumentBuilder";
 import { UploadReport } from "@/components/questionnaires/UploadReport";
 import { WorkbookUploadDialog } from "@/components/questionnaires/WorkbookUploadDialog";
 import { downloadQuestionnaireWorkbook, saveWorkbook, type QWorkbookReport } from "@/components/questionnaires/workbookApi";

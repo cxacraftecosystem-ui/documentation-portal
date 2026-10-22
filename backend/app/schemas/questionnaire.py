@@ -18,6 +18,8 @@ class QuestionnaireCreate(APIModel):
     description: str | None = Field(default=None, max_length=2000)
     sortOrder: int | None = Field(default=None, ge=1)
     isActive: bool = True
+    #: ``QuestionnaireKind`` (app/questionnaire/kinds.py) or null for "not stated".
+    kind: str | None = Field(default=None, max_length=40)
 
 
 class QuestionnaireUpdate(APIModel):
@@ -25,11 +27,24 @@ class QuestionnaireUpdate(APIModel):
     description: str | None = Field(default=None, max_length=2000)
     sortOrder: int | None = Field(default=None, ge=1)
     isActive: bool | None = None
+    #: The form's kind: its author's or a content admin's, like the title. Null clears it.
+    kind: str | None = Field(default=None, max_length=40)
+    #: Share with everyone: an ADMIN act (UNIFY 2.3 rule 6), refused 403 to anyone else.
+    isShared: bool | None = None
     # `isDefault` is DELIBERATELY ABSENT. Choosing the default instrument is an admin act with a
     # route of its own (PUT /questionnaires/{id}/default, require_admin), while renaming an
     # instrument is its author's or a content admin's (assert_may_edit_form). Accepting the flag
     # here would hand the narrower power to the wider tier, silently, through a field. APIModel is
     # extra="forbid", so a client that sends it gets a 422 rather than being quietly ignored.
+
+
+class QuestionnaireReuse(APIModel):
+    """POST /questionnaires/{id}/reuse: a new form of your own with this one's questions. The kind
+    is the source's unless ``kind`` is sent (null clears it)."""
+
+    title: str | None = Field(default=None, max_length=220)
+    description: str | None = Field(default=None, max_length=2000)
+    kind: str | None = Field(default=None, max_length=40)
 
 
 class QuestionnaireDefaultUpdate(APIModel):

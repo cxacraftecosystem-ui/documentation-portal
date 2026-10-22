@@ -275,13 +275,11 @@ test.describe("the lists are wired to it", () => {
     expect(view).toContain("{updating && mayUpdate ? (");
   });
 
-  test("a questionnaire on the workbooks list opens its sections and questions read-only", () => {
-    const list = read("app", "(protected)", "questionnaire", "workbooks", "page.tsx");
+  test("a questionnaire in the forms library opens its sections and questions", () => {
+    const list = read("app", "(protected)", "questionnaires", "page.tsx");
     expect(list).toContain("<OpenableBlock");
-    expect(list).toContain("href={`/questionnaire/workbooks/${encodeURIComponent(instrument.id)}`}");
-    // Its Re-upload is the form's author's or a content admin's (22 Oct 2026).
-    expect(list).toContain("{mayEditQuestionnaire(user, instrument.createdById) ? (");
-    expect(existsSync(join(__dirname, "..", "app", "(protected)", "questionnaire", "workbooks", "[id]", "page.tsx"))).toBe(true);
+    expect(list).toContain("href={`/questionnaires/${encodeURIComponent(form.id)}`}");
+    expect(existsSync(join(__dirname, "..", "app", "(protected)", "questionnaires", "[id]", "page.tsx"))).toBe(true);
   });
 
   test("a recovered recording's row opens its preview, as a media row does", () => {

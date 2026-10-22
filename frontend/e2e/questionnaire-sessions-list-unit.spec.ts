@@ -20,7 +20,7 @@ test("mode and coverage cells", () => {
   expect(LIST).not.toMatch(/answers\b/);
 });
 
-test("the list shows the generated title with the note under it, and search matches the legacy title", () => {
+test("@qf:B28 the list shows the generated title with the note under it, and search matches the legacy title", () => {
   expect(LIST).toContain("{s.title}");
   expect(LIST).toContain("{s.note ? ");
   expect(LIST).not.toContain("legacyTitle}");
@@ -31,7 +31,8 @@ test("the list shows the generated title with the note under it, and search matc
   expect(sessionMatches(legacy, "nothing")).toBe(false);
 });
 
-test("/questionnaire is the sessions list only when v2 is on", () => {
+test("@qf:B36 /questionnaire is the sessions list only when v2 is on", () => {
   const page = readFileSync(join(__dirname, "..", "app", "(protected)", "questionnaire", "page.tsx"), "utf8");
-  expect(page).toContain('if (config.v2Enabled && !pathname.startsWith("/questionnaire/builder")) return <SessionsList />;');
+  expect(page).toContain('if (config.v2Enabled && !pathname.startsWith("/questionnaire/builder")) {');
+  expect(page).toContain("<SessionsList />");
 });

@@ -27,7 +27,7 @@ const take = (over: Partial<CoverageTake> = {}): CoverageTake => ({
 const names = { a1: "Giriraj Prasad Chhipa", a2: "Meena Pal", a3: "Ravi Kumar" };
 const WS = readFileSync(join(__dirname, "..", "components", "questionnaire", "SessionWorkspace.tsx"), "utf8");
 
-test("the contract's check response renders P2 for a group: summary, rows, first-take line", () => {
+test("@qf:B11 the contract's check response renders P2 for a group: summary, rows, first-take line", () => {
   const base = CONTRACT.examples.CoverageCheckResponse as CoverageCheckResponse;
   // The contract's answer for Giriraj, with Meena on her first take beside him.
   const check: CoverageCheckResponse = {

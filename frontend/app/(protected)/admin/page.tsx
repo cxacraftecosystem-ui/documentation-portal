@@ -203,9 +203,9 @@ export default function AdminHubPage() {
       // It sits after Task assignment because the two are read together: an admin who has just
       // switched a section off with an upload is told, in the report, how many assigned tasks still
       // name it, and the next thing they open is the board.
-      label: "Questionnaire workbooks",
-      description: "Edit the questionnaire in Excel.",
-      href: "/questionnaire/workbooks",
+      label: "My questionnaires",
+      description: "Forms, workbooks and bundles.",
+      href: "/questionnaires",
       icon: FileSpreadsheet
     },
     {

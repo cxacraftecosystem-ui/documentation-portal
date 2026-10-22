@@ -5,7 +5,7 @@
   "generatedBy": "scripts/generate_shared.py writes backend/app/shared_vocab.py, frontend/lib/shared/enums.ts and android/app/src/main/java/com/fieldrepository/app/data/SharedEnums.kt from this file",
   "rule": "Values are the merged platform's names (UPPER_SNAKE, except ArtisanFieldKey, which is spelled as in shared/artisan-form-contract.json, and LinkedRecordType, which is lowercase). Both portals keep these lists identical. Adding a value is a contract change: bump `version` and regenerate.",
   "enums": {
-    "AnswerOrigin": ["TYPED", "TRANSCRIPT", "MACHINE_SUGGESTED", "MACHINE_SUGGESTED_EDITED", "PREFILL"],
+    "AnswerOrigin": ["TYPED", "TRANSCRIPT", "MACHINE_SUGGESTED", "MACHINE_SUGGESTED_EDITED", "PREFILL", "WORKBOOK"],
     "AnswerAttribution": ["INDIVIDUAL", "GROUP_SHARED"],
     "AnswerPutStatus": ["SAVED", "UNCHANGED", "CONFLICT", "FORBIDDEN"],
     "SectionStatus": ["COMPLETED", "NEEDS_REVIEW", "NEEDS_REDO"],

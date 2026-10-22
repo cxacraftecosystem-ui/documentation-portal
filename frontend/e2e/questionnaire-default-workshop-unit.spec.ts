@@ -25,7 +25,7 @@ function ws(id: string, startDate: string | null, extra: Partial<Workshop> = {})
   } as Workshop;
 }
 
-test("picks the most recent workshop by the day it ran, not the order it arrived in", () => {
+test("@qf:B30 picks the most recent workshop by the day it ran, not the order it arrived in", () => {
   const list = [ws("older", "2026-09-14T00:00:00.000Z"), ws("recent", "2026-10-12T00:00:00.000Z"), ws("oldest", "2026-08-01T00:00:00.000Z")];
   expect(mostRecentRecordableWorkshop(list, NOW)?.id).toBe("recent");
 });
