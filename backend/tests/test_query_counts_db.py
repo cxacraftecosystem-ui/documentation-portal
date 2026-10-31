@@ -77,8 +77,9 @@ def test_a_sessions_recordings_cost_the_same_reads_however_many_there_are(monkey
     large = run(_session_with_takes(monkeypatch, 8))
     report("sessions_get", takes2=small, takes8=large)
     # 27 since release 0.0.2 (the v2 audit fixes), + the typed-answer read of coverage (owner amendment 2,
-    # point 4) + the session's guest respondents.
-    assert small == large == 29, (small, large)
+    # point 4) + the session's guest respondents, + the one read of the sessions behind the takes' chips
+    # (owner, 31 Oct 2026; app/questionnaire/chips.py).
+    assert small == large == 30, (small, large)
 
 
 # ── one artisan's record (GET /artisans/{id}/record) ──────────────────────────────────────────
@@ -111,8 +112,9 @@ def test_an_artisans_record_reads_every_session_at_once(monkeypatch) -> None:
     small = run(_record_over_sessions(monkeypatch, 1))
     large = run(_record_over_sessions(monkeypatch, 4))
     report("artisan_record", sessions1=small, sessions4=large)
-    # 33 since release 0.0.2 (the v2 audit fixes), + the typed-answer read of coverage (owner amendment 2).
-    assert small == large == 34, (small, large)
+    # 33 since release 0.0.2 (the v2 audit fixes), + the typed-answer read of coverage (owner amendment 2),
+    # + the one read of the sessions behind the takes' chips (owner, 31 Oct 2026).
+    assert small == large == 35, (small, large)
 
 
 # ── the corpus feed (GET /questionnaire/v2/corpus.jsonl) ──────────────────────────────────────
@@ -286,7 +288,8 @@ def test_proposals_write_every_draft_and_read_existing_answers_once(monkeypatch)
     small = run(_proposals(monkeypatch, 1))
     large = run(_proposals(monkeypatch, 5))
     report("proposals", questions1=small, questions5=large)
-    assert small == large == 13, (small, large)
+    # + the one read of the session behind the take's chips (owner, 31 Oct 2026).
+    assert small == large == 14, (small, large)
 
 
 # ── the designer portal's match call (POST /cross-portal/peer/artisans/match) ────────────────
