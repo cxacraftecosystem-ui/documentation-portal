@@ -4,6 +4,9 @@ import android.content.Context
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getBoundsInRoot
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -143,8 +146,9 @@ class TranscriptReadingUiTest {
         compose.onNodeWithTag("timeline.mark.t2").performTouchInput { down(center) }
         compose.mainClock.advanceTimeBy(1_000)
         compose.onNodeWithTag("timeline.bubble").assertIsDisplayed()
-        compose.onNodeWithText("Giriraj").assertExists()
-        compose.onNodeWithText("मिट्टी और गोंद").assertExists()
+        val inBubble = hasAnyAncestor(hasTestTag("timeline.bubble"))
+        compose.onNode(hasText("Giriraj") and inBubble).assertIsDisplayed()
+        compose.onNode(hasText("मिट्टी और गोंद") and inBubble).assertIsDisplayed()
         compose.onNodeWithTag("timeline.bubble.english").assertIsDisplayed()
         compose.onNodeWithTag("timeline.mark.t2").performTouchInput { up() }
         compose.onNodeWithTag("timeline.bubble").assertDoesNotExist()
