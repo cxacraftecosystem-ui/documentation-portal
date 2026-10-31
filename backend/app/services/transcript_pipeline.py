@@ -751,7 +751,7 @@ async def previews(markdown_by_id: dict[str, str | None], *, client: Any = None)
     stored markdown.
     """
     shown = [mid for mid, text in markdown_by_id.items() if text is not None]
-    out: dict[str, dict[str, Any] | None] = {mid: None for mid in markdown_by_id}
+    out: dict[str, dict[str, Any] | None] = dict.fromkeys(markdown_by_id)
     if not shown:
         return out
     turns_by, speakers_by = await transcript_store.opening_turns(shown, limit=preview.PREVIEW_LINES, client=client)
