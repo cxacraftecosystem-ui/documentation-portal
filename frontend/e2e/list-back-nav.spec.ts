@@ -56,22 +56,41 @@ const visible = (locator: Locator) => locator.filter({ visible: true }).first();
 const scrollY = (page: Page) => page.evaluate(() => Math.round(window.scrollY));
 const row = (page: Page, n: number) => visible(page.getByText(new RegExp(`${rowName(n)}\\b`)));
 
-/** Bring row `n` into view, let the list note the position, and return it. */
+/** Centre an element in the window (clear of the fixed header and the bottom island), then press it. */
+async function press(locator: Locator) {
+  await locator.evaluate((element) => element.scrollIntoView({ block: "center" }));
+  await locator.click();
+}
+
+/** The pager's Next: the LAST visible one, since a form above a list can carry a "Next" of its own. */
+const next = (page: Page) => page.getByRole("button", { name: "Next", exact: true }).filter({ visible: true }).last();
+
+/** Row `n`'s link: what opens the record. */
+const link = (page: Page, n: number) => visible(page.getByRole("link", { name: new RegExp(`${rowName(n)}\\b`) }));
+
+/** Centre row `n`'s link, let the list note the position, and return it (the link is then pressed where it stands). */
 async function settleOn(page: Page, n: number): Promise<number> {
-  await row(page, n).scrollIntoViewIfNeeded();
-  await page.evaluate(() => window.scrollBy(0, 40));
+  await link(page, n).evaluate((element) => element.scrollIntoView({ block: "center" }));
   await page.waitForTimeout(400);
   return scrollY(page);
 }
 
+/**
+ * The scroll is back where it was — or as far down as this page can now go, when the page drawn on
+ * return is a little shorter (a one-off notice the first visit showed): the window cannot scroll
+ * past its end, and that is the right place to be.
+ */
 async function expectScrollBack(page: Page, saved: number) {
-  await expect.poll(() => scrollY(page), { timeout: 10_000 }).toBeGreaterThanOrEqual(saved - 4);
+  const reachable = () => page.evaluate((want) => Math.min(want, Math.round(document.documentElement.scrollHeight - window.innerHeight)), saved);
+  await expect.poll(async () => (await scrollY(page)) >= (await reachable()) - 4, { timeout: 10_000 }).toBe(true);
   await expect.poll(() => scrollY(page), { timeout: 10_000 }).toBeLessThanOrEqual(saved + 4);
 }
 
 for (const viewport of VIEWPORTS) {
   test.describe(viewport.name, () => {
     test.use(viewport.use);
+    // A press that cannot land fails in seconds with its reason, never as the 90 s test timeout.
+    test.use({ actionTimeout: 20_000 });
 
     for (const list of PAGED) {
       test(`${list.name}: Back from a record lands on the same page, search and row`, async ({ page }) => {
@@ -84,12 +103,12 @@ for (const viewport of VIEWPORTS) {
         // The search is applied (and written to the URL) after its debounce; page 2 comes after that.
         await expect(page).toHaveURL(/[?&]search=Record\b/);
         await expect(row(page, 1)).toBeVisible();
-        await visible(page.getByRole("button", { name: "Next", exact: true })).click();
+        await press(next(page));
         await expect(row(page, 21)).toBeVisible();
         await expect(page).toHaveURL(/[?&]page=2\b/);
 
         const saved = await settleOn(page, 34);
-        await visible(page.getByRole("link", { name: new RegExp(`${rowName(34)}\\b`) })).click();
+        await link(page, 34).click();
         await expect(page).not.toHaveURL(new RegExp(`${list.route}(\\?|$)`));
 
         await page.goBack();
@@ -112,11 +131,11 @@ for (const viewport of VIEWPORTS) {
         await box.fill("Record");
         await expect(page).toHaveURL(/[?&]q=Record\b/);
         await expect(row(page, 1)).toBeVisible();
-        await visible(page.getByRole("button", { name: "Show more", exact: true })).click();
+        await press(visible(page.getByRole("button", { name: "Show more", exact: true })));
         await expect(row(page, 30)).toBeVisible();
 
         const saved = await settleOn(page, 30);
-        await visible(page.getByRole("link", { name: new RegExp(`${rowName(30)}\\b`) })).click();
+        await link(page, 30).click();
         await expect(page).toHaveURL(/\/questionnaire\/sessions\/s-30\/view/);
 
         await page.goBack();
@@ -135,19 +154,20 @@ for (const viewport of VIEWPORTS) {
       await box.fill("Record");
       await box.press("Enter");
       await expect(row(page, 1)).toBeVisible();
-      await visible(page.getByRole("button", { name: "Next", exact: true })).click();
+      await press(next(page));
       await expect(row(page, 21)).toBeVisible();
       await expect(page).toHaveURL(/[?&]page=2\b/);
 
       const saved = await settleOn(page, 34);
-      await visible(page.getByRole("link", { name: new RegExp(`${rowName(34)}\\b`) })).click();
+      await link(page, 34).click();
       await expect(page).toHaveURL(/\/artisans\/artisans-34/);
 
       await page.goBack();
       await expect(page).toHaveURL(/[?&]q=Record\b/);
       await expect(page).toHaveURL(/[?&]page=2\b/);
       await expect(row(page, 21)).toBeVisible({ timeout: 30_000 });
-      await expect(row(page, 1)).toHaveCount(0);
+      // Rows 01-05 are also the Recordings group the search page draws for the same words.
+      await expect(row(page, 10)).toHaveCount(0);
       await expect(page.getByPlaceholder(/^Search (repository|records)$/)).toHaveValue("Record");
       await expectScrollBack(page, saved);
     });

@@ -137,12 +137,15 @@ for (const viewport of VIEWPORTS) {
       expect(await short.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
       const full = name.locator("[data-artisan-full-name]");
       await expect(full).toBeHidden();
-      await name.hover();
+      // A pointer that hovers shows it on hover; a touch screen has no hover, so a tap (focus) does.
+      if (viewport.name === "desktop") await name.hover();
+      else await name.tap();
       await expect(full).toBeVisible();
       await expect(full).toHaveText(LONG_NAME);
       const size = (locator: ReturnType<Page["locator"]>) => locator.evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
       expect(await size(full)).toBeGreaterThan(await size(short));
-      await page.mouse.move(1, 1);
+      if (viewport.name === "desktop") await page.mouse.move(1, 1);
+      else await name.evaluate((element: HTMLElement) => element.blur());
       await expect(full).toBeHidden();
       await name.focus();
       await expect(full).toBeVisible();

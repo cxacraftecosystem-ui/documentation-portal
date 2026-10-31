@@ -292,7 +292,6 @@ export function useListMemory(key: string, state: Omit<ListMemory, "scrollY">, r
       window.removeEventListener("scroll", onScroll);
       if (frame) cancelAnimationFrame(frame);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
   // Once, after the first page of rows is drawn: put the reader back where they were.
