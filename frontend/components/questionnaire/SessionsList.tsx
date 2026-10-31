@@ -1,45 +1,53 @@
 "use client";
 
 import Link from "next/link";
-import { ClipboardList, Plus } from "lucide-react";
+import { AudioLines, ClipboardList, Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useAdminView } from "@/components/AdminViewProvider";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
 import { OpenableRow, RecordTitleLink } from "@/components/records/OpenableRow";
-import { SearchInput } from "@/components/SearchInput";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { formatDate } from "@/lib/format";
 import { questionnaireApi, type Session } from "@/lib/questionnaire/api";
-import { coverageCell, modeLabel, sessionMatches } from "@/lib/questionnaire/view";
+import { coverageCell, modeLabel } from "@/lib/questionnaire/view";
+import { chipToggler, FilterBar } from "@/components/questionnaire/FilterBar";
 import { OutboxTray } from "@/components/questionnaire/OutboxTray";
+import { RecordingChips } from "@/components/questionnaire/RecordingChips";
+import { useUrlFilters } from "@/components/questionnaire/useUrlFilters";
+import { cleanFilters, type FilterKey, type Filters } from "@/lib/questionnaire/filters";
 import { qs } from "@/lib/questionnaire/qs";
 import { FORMS_HREF } from "@/lib/questionnairePortal";
 
 /**
  * The sessions list (DESIGN §4.8): generated titles with the note underneath, artisans and mode,
  * instrument, researchers, coverage ("6 sections · 9 takes", never "0 answers") and status. Search
- * runs on the server over title, note and legacyTitle; the page says when the list is capped.
+ * and every filter run on the server (`FilterBar`, kept in the URL); each row carries the session's
+ * chips, and tapping one filters by it. The page says when the list is capped.
+ *
+ * `fixed` pins filters a host screen owns (a form's own sessions pin its questionnaire); `embedded`
+ * drops the page header so the list sits inside that screen.
  */
-export function SessionsList() {
+export function SessionsList({ fixed, embedded = false }: { fixed?: Filters; embedded?: boolean } = {}) {
   // The Deleted list and Restore are the content admins' (owner decision 3).
   const { canDeleteRecords } = useAdminView();
   const [deleted, setDeleted] = useState(false);
   const [items, setItems] = useState<Session[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [capped, setCapped] = useState(false);
-  const [search, setSearch] = useState("");
+  const { filters, setFilters, ready } = useUrlFilters();
   const [error, setError] = useState<string | null>(null);
   const generation = useRef(0);
+  const fixedKey = JSON.stringify(fixed ?? {});
+  const hidden = Object.keys(fixed ?? {}) as FilterKey[];
 
-  const load = useCallback(async (query: string, after: string | null) => {
+  const load = useCallback(async (current: Filters, after: string | null) => {
     const mine = (generation.current += 1);
     setError(null);
     try {
-      const params = { search: query || undefined, cursor: after ?? undefined };
-      const page = deleted ? await questionnaireApi.deletedSessions(params) : await questionnaireApi.listSessions(params);
+      const page = await questionnaireApi.sessions(cleanFilters({ ...current, ...(JSON.parse(fixedKey) as Filters) }), { cursor: after, deleted });
       if (mine !== generation.current) return;
       setItems((prev) => (after && prev ? [...prev, ...page.items] : page.items));
       setCursor(page.nextCursor);
@@ -47,18 +55,18 @@ export function SessionsList() {
     } catch {
       if (mine === generation.current) setError(qs("listLoadError"));
     }
-  }, [deleted]);
+  }, [deleted, fixedKey]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void load(search, null), 250);
-    return () => window.clearTimeout(timer);
-  }, [search, load]);
+    if (ready) void load(filters, null);
+  }, [ready, filters, load]);
 
-  const shown = (items ?? []).filter((s) => sessionMatches(s, search));
+  const shown = items ?? [];
+  const onChip = chipToggler(filters, setFilters);
 
   return (
     <>
-      <PageHeader
+      {embedded ? null : <PageHeader
         title={qs("sessionsTitle")}
         description={qs("listDescription")}
         icon={<ClipboardList className="h-5 w-5" aria-hidden />}
@@ -66,6 +74,10 @@ export function SessionsList() {
           <>
             <Link className="field-button-secondary" href="/questionnaire/inbox">
               {qs("inboxTitle")}
+            </Link>
+            <Link className="field-button-secondary" href="/questionnaire/recordings" data-recordings-link>
+              <AudioLines className="h-4 w-4" aria-hidden />
+              {qs("recordingsTitle")}
             </Link>
             <Link className="field-button-secondary" href="/questionnaire/coverage">
               {qs("coverageTitle")}
@@ -84,16 +96,14 @@ export function SessionsList() {
             </Link>
           </>
         }
-      />
-      <OutboxTray />
-      <div className="mb-4">
-        <SearchInput value={search} onChange={setSearch} placeholder={qs("searchSessions")} />
-      </div>
+      />}
+      {embedded ? null : <OutboxTray />}
+      <FilterBar filters={filters} onChange={setFilters} placeholder={qs("filterSearchSessions")} hide={hidden} />
       {error ? (
         <div className="panel grid gap-3 p-4 text-center">
           <p className="text-sm text-ink-700">{error}</p>
           <ButtonRow>
-            <button type="button" className="field-button" onClick={() => void load(search, null)}>
+            <button type="button" className="field-button" onClick={() => void load(filters, null)}>
               {qs("tryAgain")}
             </button>
           </ButtonRow>
@@ -101,7 +111,7 @@ export function SessionsList() {
       ) : items === null ? (
         <div className="panel p-4 text-sm text-ink-500">{qs("loading")}</div>
       ) : shown.length === 0 ? (
-        <EmptyState title={qs("noSessionsYet")} />
+        <EmptyState title={Object.keys(cleanFilters({ ...filters })).length ? qs("filterNoMatches") : qs("noSessionsYet")} />
       ) : (
         <div className="panel overflow-x-auto">
           <table className="w-full text-sm" data-sessions-list>
@@ -124,6 +134,7 @@ export function SessionsList() {
                     </RecordTitleLink>
                     {s.note ? <p className="text-xs text-ink-500">{s.note}</p> : null}
                     <p className="text-xs text-ink-500">{formatDate(s.sessionDate)}</p>
+                    <RecordingChips chips={s.chips} variant="session" people={false} onChip={onChip} filters={filters} className="mt-1.5" />
                   </td>
                   <td className="p-3 align-top">
                     <div className="flex flex-wrap gap-1">
@@ -153,7 +164,7 @@ export function SessionsList() {
                           type="button"
                           className="field-button-secondary"
                           data-restore-session={s.id}
-                          onClick={() => void questionnaireApi.restoreSession(s.id).then(() => load(search, null))}
+                          onClick={() => void questionnaireApi.restoreSession(s.id).then(() => load(filters, null))}
                         >
                           {qs("restore")}
                         </button>
@@ -171,7 +182,7 @@ export function SessionsList() {
       {capped ? <p className="mt-2 text-sm text-ink-500">{qs("listCapped", { count: items?.length ?? 0 })}</p> : null}
       {cursor ? (
         <ButtonRow className="mt-4">
-          <button type="button" className="field-button-secondary" onClick={() => void load(search, cursor)}>
+          <button type="button" className="field-button-secondary" onClick={() => void load(filters, cursor)}>
             {qs("showMore")}
           </button>
         </ButtonRow>

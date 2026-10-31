@@ -108,9 +108,51 @@ function session(id: string, over: Json = {}): Json {
     respondents: [{ id: "r1", sessionId: id, name: "Shopper at Johari Bazaar", kind: "GUEST", notes: null, userId: null, artisanId: null }],
     source: "APP",
     deletedAt: null,
+    chips: sessionChips(over),
     ...over
   };
 }
+
+/** A session's chips as the server sends them (owner, 31 Oct 2026). */
+function sessionChips(over: Json = {}): Json {
+  return {
+    session: { id: "s-1", title: "Interview_2026-10-22_Bagru" },
+    questionnaire: { id: FORM.questionnaireId, title: FORM.title, kind: FORM.kind },
+    targets: [],
+    artisans: [{ id: "a1", name: "Giriraj Prasad Chhipa", role: "ANSWERED" }],
+    respondents: [],
+    sessionDate: String(over.sessionDate ?? "2026-10-22"),
+    sessionDateEstimated: false,
+    capturedOn: null,
+    captureEstimated: false,
+    workshop: { id: WORKSHOP.id, name: WORKSHOP.title, type: "FIELD" },
+    languageCode: "hi",
+    durationMs: null,
+    researcher: null,
+    source: String(over.source ?? "APP")
+  };
+}
+
+/** A take's chips: Section A · Tools, Giriraj answering and Meena present, 22 Oct, Bagru. */
+function recordingChips(): Json {
+  return {
+    ...sessionChips(),
+    targets: [{ kind: "SECTION", sectionId: "s1", sectionCode: "A", sectionTitle: "Tools" }],
+    artisans: [
+      { id: "a1", name: "Giriraj Prasad Chhipa", role: "ANSWERED" },
+      { id: "a2", name: "Meena Devi", role: "PRESENT" }
+    ],
+    durationMs: 92000,
+    researcher: { id: ME.id, name: ME.name }
+  };
+}
+
+/** The shared filters as the server reads them: repeatable, comma-separated (filters.py). */
+function many(query: URLSearchParams, key: string): string[] {
+  return query.getAll(key).flatMap((v) => v.split(",")).filter(Boolean);
+}
+
+const SHARED_FILTER_KEYS = ["sectionId", "questionLineageId", "artisanId", "researcherId", "dateFrom", "dateTo", "source", "transcript", "languageCode", "q"];
 
 function recording(id: string, over: Json = {}): Json {
   return {
@@ -137,6 +179,7 @@ function recording(id: string, over: Json = {}): Json {
     downloadName: "FieldRepository_Interview_2026-10-22_Bagru_Recording_A.m4a",
     transcript: { status: "COMPLETED", paused: false, text: "We use wooden blocks carved in Pethapur.", language: "hi" },
     consent: { verdict: "ALLOW", source: null },
+    chips: recordingChips(),
     ...over
   };
 }
@@ -251,7 +294,9 @@ export class QuestionnaireFake {
         : scope === "shared" ? all.filter((f) => f.isShared)
         : scope === "workshop" ? all.filter((f) => this.bindings.length && f.id === "f1")
         : all;
-      return { status: 200, json: items };
+      // A shared filter keeps the forms with a matching session: here, only f1 has sessions.
+      const narrowed = SHARED_FILTER_KEYS.some((k) => query.has(k));
+      return { status: 200, json: narrowed ? items.filter((f) => f.id === "f1") : items };
     }
     if (path === "/questionnaires/bundles/import" && method === "POST") {
       const b = body as { form?: { title?: string; kind?: string } };
@@ -316,8 +361,18 @@ export class QuestionnaireFake {
     // ── sessions ───────────────────────────────────────────────────────────────────────────────
     if (path === "/questionnaire/sessions" && method === "GET") {
       const items = query.get("deleted") === "true" ? this.deleted : this.sessions;
-      const search = (query.get("search") ?? "").toLowerCase();
-      return { status: 200, json: { items: items.filter((s) => !search || String(s.title).toLowerCase().includes(search)), nextCursor: null, capped: false } };
+      const search = (query.get("q") ?? query.get("search") ?? "").toLowerCase();
+      const artisans = many(query, "artisanId");
+      const sources = many(query, "source");
+      const forms = many(query, "questionnaireId");
+      const kept = items.filter((s) => {
+        if (search && !String(s.title).toLowerCase().includes(search)) return false;
+        if (artisans.length && !(s.participants as { artisanId: string }[]).some((p) => artisans.includes(p.artisanId))) return false;
+        if (sources.length && !sources.includes(String(s.source))) return false;
+        if (forms.length && !forms.includes(String((s.questionnaire as Json).id))) return false;
+        return true;
+      });
+      return { status: 200, json: { items: kept, nextCursor: null, capped: false } };
     }
     if (path === "/questionnaire/sessions" && method === "POST") {
       const id = `s-new${this.sessions.length + 1}`;
@@ -442,6 +497,46 @@ export class QuestionnaireFake {
         status: 200,
         json: { proposals: [{ questionLineageId: "l2", artisanIds: ["a1"], text: "My uncle carves them in Pethapur.", origin: "TRANSCRIPT", existing: [] }] }
       };
+    if (path === "/questionnaire/recordings" && method === "GET") {
+      const search = (query.get("q") ?? "").toLowerCase();
+      const artisans = many(query, "artisanId");
+      const sections = many(query, "sectionId");
+      const workshops = many(query, "workshopId");
+      const live = this.recordings.filter((r) => !r.removedAt).filter((r) => {
+        const chips = r.chips as Json & { artisans: { id: string }[]; targets: { sectionId: string }[]; workshop: { id: string } | null };
+        if (search && !`${String((r.transcript as Json).text)} ${String(r.downloadName)}`.toLowerCase().includes(search)) return false;
+        if (artisans.length && !chips.artisans.some((a) => artisans.includes(a.id))) return false;
+        if (sections.length && !chips.targets.some((t) => sections.includes(t.sectionId))) return false;
+        if (workshops.length && !(chips.workshop && workshops.includes(chips.workshop.id))) return false;
+        return true;
+      });
+      return { status: 200, json: { items: live, nextCursor: null } };
+    }
+    if (path === "/questionnaire/filters")
+      return {
+        status: 200,
+        json: {
+          kinds: ["WORKSHOP_INTERVIEW", "MARKET_SURVEY", "NONE"], sources: ["APP", "UPLOAD", "HANDOFF"], transcript: ["HAS", "NONE", "PENDING", "FAILED"],
+          questionnaires: [{ id: "f1", label: FORM.title, kind: FORM.kind, count: 2 }],
+          sections: FORM.sections.map((sec) => ({ id: sec.id, label: `${sec.code} · ${sec.title}`, code: sec.code, title: sec.title, questionnaireId: "f1" })),
+          questions: [],
+          artisans: ARTISANS.map((a) => ({ id: a.id, label: a.name, count: 1 })),
+          researchers: [{ id: ME.id, label: ME.name, count: 2 }],
+          workshops: [{ id: WORKSHOP.id, label: WORKSHOP.title, type: "FIELD", count: 2 }],
+          languages: [{ id: "hi", label: "hi", count: 2 }]
+        }
+      };
+    if (path === "/media" && method === "GET") {
+      const artisans = many(query, "artisanId");
+      const take = {
+        id: "m-rec-1", originalFilename: "FieldRepository_Interview_2026-10-22_Bagru_Recording_A.m4a", mediaType: "AUDIO", mimeType: "audio/mp4", sizeBytes: 1000,
+        status: "PENDING", caption: null, linkedRecordType: "questionnaire_session", linkedRecordId: "s-1", questionnaireInterviewId: "s-1",
+        uploadedById: ME.id, createdAt: "2026-10-22T05:10:00Z", transcriptText: null, transcriptStatus: "COMPLETED",
+        questionnaireChips: recordingChips()
+      };
+      const items = artisans.length && !artisans.includes("a1") ? [] : [take];
+      return { status: 200, json: { items, total: items.length, page: 1, pageSize: 20, pages: 1 } };
+    }
     if (path === "/questionnaire/recordings/removed") return { status: 200, json: { items: this.recordings.filter((r) => r.removedAt) } };
     m = one(/^\/questionnaire\/recordings\/([^/]+)\/restore$/);
     if (m) {

@@ -1,3 +1,4 @@
+import type { RecordingChips } from "@/lib/questionnaire/chips";
 import type { CompletenessBlock } from "@/lib/completenessCore";
 
 export type UserRole =
@@ -374,6 +375,8 @@ export type WorkshopSubmissionCheck = {
 
 export type MediaFile = {
   id: string;
+  /** A questionnaire take's chips (owner, 31 Oct 2026); absent on any other file. */
+  questionnaireChips?: RecordingChips | null;
   originalFilename: string;
   mediaType: MediaType;
   mimeType: string;

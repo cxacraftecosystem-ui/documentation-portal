@@ -318,3 +318,91 @@ test("@qf:B12 workshop coverage reads the workshop", async ({ page }) => {
   await expect(page.locator("[data-coverage-grid]")).toBeVisible();
   await expect.poll(() => fake.calledWith("GET", "/questionnaire/coverage").some((c) => c.query.get("workshopId") === "w1")).toBe(true);
 });
+
+// ── Recording chips and the shared filters (owner, 31 Oct 2026) ───────────────────────────────
+
+test("@qf:E3 @qf:E6 the sessions list searches and filters on the server and keeps both in the URL", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  await open(page, fake, "/questionnaire");
+  const list = page.locator("[data-sessions-list]");
+  await expect(list).toContainText("Hand-Block-Printing_s-1");
+  await page.locator("[data-filter-bar]").getByRole("searchbox").fill("s-1");
+  await expect.poll(() => fake.calledWith("GET", "/questionnaire/sessions").some((c) => c.query.get("q") === "s-1")).toBe(true);
+  await expect(page).toHaveURL(/[?&]q=s-1/);
+  await page.locator("[data-filters-toggle]").click();
+  await page.locator("[data-filter-pill='transcript=HAS']").click();
+  await expect.poll(() => fake.calledWith("GET", "/questionnaire/sessions").some((c) => c.query.get("transcript") === "HAS")).toBe(true);
+  fake.calls.length = 0;
+  await page.reload();
+  await expect(page.locator("[data-filter-bar]").getByRole("searchbox")).toHaveValue("s-1");
+  await expect(page.locator("[data-active-filter='transcript=HAS']")).toBeVisible();
+  await expect.poll(() => fake.calledWith("GET", "/questionnaire/sessions").some((c) => c.query.get("transcript") === "HAS" && c.query.get("q") === "s-1")).toBe(true);
+  await list.locator("[data-chip-filter='workshopId=w1']").first().click();
+  await expect(page).toHaveURL(/workshopId=w1/);
+});
+
+test("@qf:E1 @qf:E2 @qf:E5 @qf:E6 the recordings list shows each take's chips, a tap filters by one, and Back keeps it", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  await open(page, fake, "/questionnaire/recordings");
+  const row = page.locator("[data-recording-row='rec-1']");
+  const chips = row.locator("[data-recording-chips]");
+  await expect(chips).toContainText("A · Tools");
+  await expect(chips).toContainText("2nd Craft Toolkit");
+  await expect(chips).toContainText("Meena Devi · present");
+  await expect(chips).toContainText("22 Oct 2026");
+  await expect(chips).toContainText("Bagru block printing 2026");
+  await expect(chips).toContainText("1:32");
+  await chips.locator("[data-chip-filter='workshopId=w1']").click();
+  await expect.poll(() => fake.calledWith("GET", "/questionnaire/recordings").some((c) => c.query.get("workshopId") === "w1")).toBe(true);
+  await expect(page.locator("[data-active-filter='workshopId=w1']")).toContainText("Bagru block printing 2026");
+  await page.locator("[data-filter-bar]").getByRole("searchbox").fill("Pethapur");
+  await expect.poll(() => fake.calledWith("GET", "/questionnaire/recordings").some((c) => c.query.get("q") === "Pethapur" && c.query.get("workshopId") === "w1")).toBe(true);
+  await row.getByRole("link").first().click();
+  await expect(page).toHaveURL(/\/questionnaire\/sessions\/s-1\/view/);
+  await page.goBack();
+  await expect(page).toHaveURL(/workshopId=w1/);
+  await expect(page.locator("[data-active-filter='workshopId=w1']")).toBeVisible();
+});
+
+test("@qf:E1 @qf:E2 a take's chips show on the take sheet and the read view, and lead to the recordings list", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  await open(page, fake, "/questionnaire/sessions/s-1");
+  await page.locator("[data-coverage-grid]").getByRole("button", { name: "A Giriraj Prasad Chhipa: Recorded" }).click();
+  await expect(page.locator("[data-take-row='rec-1'] [data-recording-chips]")).toContainText("A · Tools");
+  await page.goto("/questionnaire/sessions/s-1/view");
+  const chips = page.locator("[data-recording-chips]").first();
+  await expect(chips).toContainText("Giriraj Prasad Chhipa");
+  await chips.locator("[data-chip-filter='sectionId=s1']").click();
+  await expect(page).toHaveURL(/\/questionnaire\/recordings\?sectionId=s1$/);
+  await expect.poll(() => fake.calledWith("GET", "/questionnaire/recordings").some((c) => c.query.get("sectionId") === "s1")).toBe(true);
+  await expect(page.locator("[data-active-filter='sectionId=s1']")).toContainText("A · Tools");
+});
+
+test("@qf:E4 the forms library and a form's own sessions narrow by the shared filters", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  await open(page, fake, "/questionnaires?artisanId=a1");
+  await expect.poll(() => fake.calledWith("GET", "/questionnaires").some((c) => c.query.get("artisanId") === "a1")).toBe(true);
+  await expect(page.locator("[data-active-filter='artisanId=a1']")).toContainText("Giriraj Prasad Chhipa");
+  await page.locator("[data-filter-bar]").getByRole("searchbox").fill("dyes");
+  await expect.poll(() => fake.calledWith("GET", "/questionnaires").some((c) => c.query.get("q") === "dyes" && c.query.get("artisanId") === "a1")).toBe(true);
+  await page.goto("/questionnaires/f1");
+  const list = page.locator("[data-form-session-list]");
+  await expect(list).toContainText("Hand-Block-Printing_s-1");
+  await page.locator("[data-filters-toggle]").click();
+  await page.locator("[data-filter-pill='source=UPLOAD']").click();
+  await expect
+    .poll(() => fake.calledWith("GET", "/questionnaire/sessions").some((c) => c.query.get("questionnaireId") === "f1" && c.query.get("source") === "UPLOAD"))
+    .toBe(true);
+  await expect(page).toHaveURL(/\/questionnaires\/f1\?source=UPLOAD/);
+});
+
+test("@qf:E5 the media list carries a take's chips and takes the questionnaire filters", async ({ page }) => {
+  const fake = new QuestionnaireFake();
+  await open(page, fake, "/media?sectionId=s1");
+  await expect.poll(() => fake.calledWith("GET", "/media").some((c) => c.query.get("sectionId") === "s1")).toBe(true);
+  const chips = page.locator("[data-recording-chips]:visible").first();
+  await expect(chips).toContainText("A · Tools");
+  await chips.locator("[data-chip-filter='artisanId=a1']").click();
+  await expect.poll(() => fake.calledWith("GET", "/media").some((c) => c.query.get("artisanId") === "a1" && c.query.get("sectionId") === "s1")).toBe(true);
+  await expect(page).toHaveURL(/artisanId=a1/);
+});
