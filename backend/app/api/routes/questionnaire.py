@@ -2481,6 +2481,43 @@ async def list_questionnaires(
     )
 
 
+@instruments_router.get("/options")
+async def questionnaire_options(
+    designWorkshopId: str | None = None,
+    current_user: Any = Depends(get_current_user),
+) -> list[dict[str, Any]]:
+    """Every live form a session can start on, as the shared handset start sheet reads it.
+
+    THE SAME ROUTE, AND THE SAME ROW KEYS, AS THE DESIGNER PORTAL'S ``GET /questionnaires/options``.
+    The questionnaire tree on Android is shared between the portals and asks both servers this one
+    path (``QuestionnaireApi.formOptions``). Until this route existed here, Field Repository answered
+    it from ``/{questionnaire_id}`` with ``"options"`` as the id — a 404 — so the handset's start
+    sheet decoded nothing and offered no form at all. Declared above ``/{questionnaire_id}`` for that
+    reason: FastAPI matches in declaration order.
+
+    ``designWorkshopId`` is accepted so one client can call both portals with one signature; a form
+    here binds to workshops through ``QuestionnaireBinding``, not one column, so the row's own
+    ``designWorkshopId`` is always null and nothing is ever ``attachedElsewhere``.
+    """
+    forms = await questionnaire_library.list_forms(current_user, active_only=True)
+    return [
+        {
+            "id": form["id"],
+            "title": form["title"],
+            "version": form["version"],
+            "designWorkshopId": None,
+            "isShared": form["isShared"],
+            "kind": form["kind"],
+            "kindLabel": form["kindLabel"],
+            "isDefault": form["isDefault"],
+            "sectionCount": form["sectionCount"],
+            "attachedElsewhere": False,
+        }
+        for form in forms
+        if form.get("deletedAt") is None
+    ]
+
+
 # ==================================================================================================
 # THE WORKBOOK: DOWNLOADING THE INSTRUMENT AS A SPREADSHEET, AND UPLOADING ONE BACK
 # ==================================================================================================

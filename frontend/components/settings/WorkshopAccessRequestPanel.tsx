@@ -23,6 +23,7 @@ import { Dropdown, MultiSelectDropdown } from "@/components/ui/Dropdown";
 import { useToast } from "@/components/ui/Toast";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
+import { readRequestableAnswer, requestableCeilingSentence } from "@/lib/requestableWorkshops";
 
 /**
  * "Request workshop access" — the ONE panel on /settings that everybody sees, whatever their role.
@@ -59,6 +60,8 @@ export function WorkshopAccessRequestPanel() {
   // null = still loading. Distinguished from [] so the picker can say "loading" rather than the far
   // more discouraging "no workshops to ask about" while the fetch is in flight.
   const [workshops, setWorkshops] = useState<RequestableWorkshop[] | null>(null);
+  /** The server read past its cap and found more: the picker states the ceiling under itself. */
+  const [workshopsTruncated, setWorkshopsTruncated] = useState(false);
   const [mine, setMine] = useState<WorkshopAccessRow[] | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [level, setLevel] = useState<WorkshopAccessLevel>(DEFAULT_ACCESS_LEVEL);
@@ -77,13 +80,18 @@ export function WorkshopAccessRequestPanel() {
 
   const loadWorkshops = useCallback(async () => {
     try {
-      const rows = await apiFetch<RequestableWorkshop[]>("/workshops/requestable");
-      setWorkshops(sortWorkshopsByOccurrence(rows));
+      // An ENVELOPE, `{items, truncated}` — see `lib/requestableWorkshops.ts` for why every reader
+      // of this route goes through the one parser (the designer portal's panel sorted the envelope
+      // itself and threw "e is not iterable" in production).
+      const answer = readRequestableAnswer<RequestableWorkshop>(await apiFetch<unknown>("/workshops/requestable"));
+      setWorkshops(sortWorkshopsByOccurrence(answer.items));
+      setWorkshopsTruncated(answer.truncated);
     } catch (err) {
       // Surfaced rather than swallowed: an empty picker that is empty because the call failed reads
       // exactly like an empty picker that is empty because there is nothing to ask about.
       setError(err instanceof Error ? err.message : "Unable to load the workshops you can ask about");
       setWorkshops([]);
+      setWorkshopsTruncated(false);
     }
   }, []);
 
@@ -93,6 +101,9 @@ export function WorkshopAccessRequestPanel() {
   }, [loadMine, loadWorkshops]);
 
   const options = useMemo(() => requestableOptions(workshops ?? []), [workshops]);
+  // The flag and no total: the route reads one row past its cap rather than counting, so the
+  // sentence states the ceiling and never a number it was not given.
+  const ceilingNote = requestableCeilingSentence(options.length, workshopsTruncated);
 
   // What is already settled, said once under the picker. Both counts are things a user would
   // otherwise discover only by asking and being told nothing happened.
@@ -172,6 +183,7 @@ export function WorkshopAccessRequestPanel() {
                 values={selected}
               />
             </Field>
+            {ceilingNote ? <p className="text-xs leading-5 text-ink-500">{ceilingNote}</p> : null}
             {standingNote ? <p className="text-xs leading-5 text-ink-500">{standingNote}</p> : null}
           </div>
           <Field label="Access level you need">

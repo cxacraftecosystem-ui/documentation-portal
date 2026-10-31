@@ -141,4 +141,41 @@ class OutboxFixTrayTest {
         assertEquals(StepState.PENDING, after.state)
         assertNull(after.failure); assertNull(after.failureCode); assertEquals(0, after.attempts)
     }
+
+    /**
+     * A refusal is final until a person acts: the next sync (every screen that opens drains the
+     * outbox) must not send the refused step again, or each re-send replaces the server's reason in
+     * the tray. Send again sends it exactly once. The web queue (`lib/questionnaire/queue.ts`) had
+     * this wrong and now agrees; `questionnaire-queue-refused-unit.spec.ts` is its half.
+     */
+    @Test fun `a refused step is not re-sent by the next sync, keeps its reason, and Send again sends it once`() = runBlocking {
+        val outbox = SessionOutbox(InMemorySessionUnitStore(), clock = { t0 })
+        session(outbox, "c-5")
+        val fake = FakeSessionTransport()
+        var refuse = true
+        var adds = 0
+        val server = object : SessionTransport by fake {
+            override suspend fun addParticipant(idempotencyKey: String, sessionId: String, artisanId: String) {
+                adds++
+                if (refuse) throw PermanentStepFailure("That artisan was removed.", QErrorCodes.NOT_FOUND)
+            }
+        }
+        outbox.addParticipantChange("c-5", ParticipantChange("a2", ParticipantChange.ADD, "2026-07-01T10:05:00Z"))
+        outbox.sync(server, "u1")
+        assertEquals(1, adds)
+        val refused = outbox.unit("c-5")!!.failedSteps.single()
+        assertEquals("That artisan was removed.", refused.failure)
+
+        outbox.sync(server, "u1")
+        outbox.sync(server, "u1")
+        assertEquals("a refused step waits for Send again or Discard", 1, adds)
+        assertEquals("That artisan was removed.", outbox.unit("c-5")!!.failedSteps.single().failure)
+
+        refuse = false
+        outbox.retryStep("c-5", refused.id)
+        outbox.sync(server, "u1")
+        outbox.sync(server, "u1")
+        assertEquals("Send again sends it once", 2, adds)
+        assertTrue(outbox.unit("c-5")?.failedSteps.orEmpty().isEmpty())
+    }
 }

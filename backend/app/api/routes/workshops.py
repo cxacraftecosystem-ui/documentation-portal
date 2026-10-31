@@ -458,7 +458,7 @@ async def list_access_levels(_: Any = Depends(get_current_user)) -> list[dict[st
 async def list_requestable_workshops(
     current_user: Any = Depends(get_current_user),
     limit: int = Query(WORKSHOP_REQUEST_MAX, ge=1, le=WORKSHOP_REQUEST_MAX),
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """Every workshop the caller could ASK about, with what they already hold on each.
 
     This exists because ``GET /workshops`` was the wrong list to build a request picker from, in a way
@@ -493,11 +493,23 @@ async def list_requestable_workshops(
     Capped at ``WORKSHOP_REQUEST_MAX`` — the same limit ``POST /access-requests`` puts on one call —
     so everything offered here can be selected in one submission. Ordered by when the workshop
     HAPPENED, most recent first, matching ``list_workshops`` so the truncation drops the oldest.
+
+    THE RESPONSE IS AN ENVELOPE, ``{"items": [...], "truncated": bool}``, the same contract the
+    designer portal's route answers (the portals will merge, and one picker must read both). A bare
+    array cannot tell "every workshop" from "every workshop up to the cap", so the picker could not
+    state its own ceiling. ``truncated`` is exact, not guessed: one row is read past ``limit`` and
+    trimmed back off, so a repository of exactly ``limit`` workshops reports ``False`` honestly with
+    no second COUNT. Every web reader decodes it through
+    ``frontend/lib/requestableWorkshops.ts::readRequestableAnswer``, and
+    ``tests/test_requestable_contract.py`` pins the shape on both sides of the wire.
     """
     uid = get_value(current_user, "id")
+    # ONE ROW PAST THE CAP, TRIMMED — see the envelope paragraph above.
     workshops = await db.workshop.find_many(
-        take=limit, order=[{"startDate": "desc"}, {"date": "desc"}, {"createdAt": "desc"}]
+        take=limit + 1, order=[{"startDate": "desc"}, {"date": "desc"}, {"createdAt": "desc"}]
     )
+    truncated = len(workshops) > limit
+    workshops = workshops[:limit]
     ids = [w.id for w in workshops]
     # One query for every candidate's assignment rows rather than one per workshop: the caller's own
     # row and the curation test both come out of the same set. Deliberately NOT narrowed to
@@ -526,7 +538,7 @@ async def list_requestable_workshops(
                 "restricted": workshop_is_curated(workshop_rows),
             }
         )
-    return public_encode(items)
+    return {"items": public_encode(items), "truncated": truncated}
 
 
 @router.post("/access-requests", status_code=status.HTTP_201_CREATED)
