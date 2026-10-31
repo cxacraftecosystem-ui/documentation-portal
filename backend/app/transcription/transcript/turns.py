@@ -17,6 +17,7 @@ segment, with no words and no low-confidence spans.
 from __future__ import annotations
 
 import math
+import re
 import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
@@ -332,10 +333,19 @@ def turns_from_text(text: str, *, detected: str | None = None, duration_ms: int 
         body = " ".join(paragraph.split())
         if not body:
             continue
+        speaker = None
+        label = _LABEL.match(body)
+        if label:  # the diarized markdown both portals store: **Speaker 1:** ...
+            speaker, body = label.group(1).strip(), body[label.end() :].strip()
+            if not body:
+                continue
         turns.append(
-            Turn(len(turns), None, 0, int(duration_ms or 0), turn_language(body, detected), body)
+            Turn(len(turns), speaker, 0, int(duration_ms or 0), turn_language(body, detected), body)
         )
     return turns
+
+
+_LABEL = re.compile(r"^\*\*([^*]{1,60}?):\*\*\s*")
 
 
 def languages_by_share(turns: list[Any]) -> list[str]:

@@ -269,6 +269,30 @@ def test_the_pipeline_end_to_end_on_a_real_database(wired: Any) -> None:
     _run(scenario)
 
 
+def test_a_transcript_made_before_the_pipeline_gets_its_turns_on_first_read(wired: Any) -> None:
+    from app.core.db import db
+    from app.services import transcript_pipeline as pipeline
+
+    async def scenario() -> None:
+        seed = await _seed()
+        try:
+            media = await db.mediafile.update(
+                where={"id": seed["media"].id},
+                data={"transcriptText": "**Speaker 1:** आप कैसे हैं?\n\n**Speaker 2:** Fine, thank you.",
+                      "transcriptStatus": "COMPLETED", "transcriptProvider": "deepgram"},
+            )
+            view = await pipeline.build_view(media, seed["researcher"])
+            assert [t["speakerKey"] for t in view["turns"]] == ["Speaker 1", "Speaker 2"]
+            assert [t["translation"]["status"] for t in view["turns"]] == ["PENDING", "ALREADY_ENGLISH"]
+            assert view["status"] == "READY" and view["version"] == 1
+            again = await pipeline.build_view(media, seed["researcher"])
+            assert again["version"] == 1, "made once, then read"
+        finally:
+            await _cleanup(seed)
+
+    _run(scenario)
+
+
 def test_the_budget_alerts_then_pauses_transcription_once(wired: Any) -> None:
     from app.core.db import db
     from app.services import transcript_pipeline as pipeline, transcript_store

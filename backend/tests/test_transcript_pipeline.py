@@ -131,6 +131,8 @@ def test_turns_without_words_come_from_segments_or_paragraphs() -> None:
     assert len(segs) == 1 and segs[0].text == "नमस्ते जी" and segs[0].words == [] and segs[0].language == "hi"
     paragraphs = turns_from_text("One.\n\nदो।", detected=None, duration_ms=5000)
     assert [p.language for p in paragraphs] == ["en", "hi"] and all(p.start_ms == 0 for p in paragraphs)
+    labelled = turns_from_text("**Speaker 1:** नमस्ते जी\n\n**Speaker 2:** Hello there", detected="hin")
+    assert [(t.speaker_key, t.text) for t in labelled] == [("Speaker 1", "नमस्ते जी"), ("Speaker 2", "Hello there")]
 
 
 def test_language_codes_read_as_the_portals_short_codes() -> None:

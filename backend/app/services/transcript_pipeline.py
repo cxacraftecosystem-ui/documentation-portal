@@ -157,7 +157,9 @@ async def store_transcription(media: Any, result: dict[str, Any], *, keyterm_cou
         version = await transcript_store.create_version(
             media_id,
             turns,
-            stt_provider="cache" if result.get("cacheHit") else result.get("provider"),
+            stt_provider=result.get("provider") if result.get("model") is None else (
+                "cache" if result.get("cacheHit") else result.get("provider")
+            ),
             stt_model=result.get("model"),
             detected=short_language(result.get("languageCode")),
             duration_ms=int(duration) if duration else None,
@@ -169,6 +171,32 @@ async def store_transcription(media: Any, result: dict[str, Any], *, keyterm_cou
     except Exception as exc:  # noqa: BLE001 - see the docstring
         logger.warning("could not store the turns of media %s (%s)", media_id, type(exc).__name__)
         return None
+
+
+async def ensure_version(media: Any) -> Any | None:
+    """The current version, made from the stored transcript when a recording was transcribed before
+    the pipeline existed (its segments, else the raw original, else the transcript text). Local
+    only: nothing is sent anywhere. None when there is no transcript."""
+    media_id = str(_value(media, "id"))
+    version = await transcript_store.current_version(media_id)
+    if version is not None:
+        return version
+    text = str(_value(media, "transcriptText") or "").strip()
+    if not text:
+        return None
+    raw = str(_value(media, "transcriptSummary") or "").strip()
+    original = raw if raw and raw != text and _value(media, "transcriptEditedAt") is None else text
+    segments = _value(media, "transcriptSegments")
+    result = {
+        "status": "COMPLETED",
+        "text": original,
+        "segments": segments if isinstance(segments, list) and _value(media, "transcriptEditedAt") is None else None,
+        "provider": _value(media, "transcriptProvider"),
+        "model": None,
+        "languageCode": _value(media, "transcriptLanguage"),
+        "cacheHit": True,  # no new speech-to-text cost: the transcript was paid for long ago
+    }
+    return await store_transcription(media, result)
 
 
 # --- 2. Translation and insights (the TRANSCRIPT_INSIGHTS job) --------------------------------
@@ -281,7 +309,7 @@ async def generate(media: Any, *, user_id: str | None) -> dict[str, Any]:
     """
     media_id = str(_value(media, "id"))
     try:
-        version = await transcript_store.current_version(media_id)
+        version = await ensure_version(media)
     except Exception as exc:  # noqa: BLE001 - no readable turns: the old path, exactly as before
         logger.warning("turns of media %s unreadable (%s); summarising the text", media_id, type(exc).__name__)
         version = None
@@ -581,7 +609,7 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
     version = (
         await transcript_store.version_number(media_id, version_number)
         if version_number is not None
-        else await transcript_store.current_version(media_id)
+        else await ensure_version(media)
     )
     turn_rows = await transcript_store.turns_of(version.id) if version is not None else []
     speakers = await transcript_store.speakers_of(media_id)
@@ -668,7 +696,7 @@ async def summary_items(media_rows: list[Any]) -> list[dict[str, Any]]:
 
 async def render_doc(media: Any) -> tuple[render.RenderDoc, dict[str, Any]]:
     media_id = str(_value(media, "id"))
-    version = await transcript_store.current_version(media_id)
+    version = await ensure_version(media)
     if version is None:
         raise PipelineRefused("NOT_READY", "This recording has no transcript yet.")
     rows = await transcript_store.turns_of(version.id)
