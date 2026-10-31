@@ -214,16 +214,16 @@ class _Parts:
         if self.factory is None:
             return None
         source = self.audio.source_path
-        if source is None:
-            import tempfile
-
-            with tempfile.NamedTemporaryFile(
-                prefix="transcription_source_", delete=False
-            ) as handle:
-                handle.write(self.audio.content or b"")
-            source = self._spill = handle.name
-        self.cutter = self.factory()
         try:
+            if source is None:
+                from app.transcription import workdir
+
+                # The working directory (D37), never the system temp: sized, swept on start.
+                with workdir.named_file(prefix="transcription_source_") as handle:
+                    self._spill = handle.name
+                    handle.write(self.audio.content or b"")
+                source = self._spill
+            self.cutter = self.factory()
             self.plans = self.cutter.prepare(source)
         except Exception as exc:  # noqa: BLE001 - ffmpeg missing or unreadable audio: no parts
             logger.warning("transcription: could not prepare parts (%s)", type(exc).__name__)

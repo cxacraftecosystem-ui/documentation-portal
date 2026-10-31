@@ -26,7 +26,7 @@ from uuid import uuid4
 from app.core.config import get_settings
 from app.core.db import db
 from app.services import app_settings, managed_secrets, transcript_portal
-from app.transcription import isolation
+from app.transcription import isolation, workdir
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +114,7 @@ async def process(media: Any) -> dict[str, Any]:
         return {"status": "SKIPPED", "reason": "no-key"}
     leaf = str(fresh.objectKey).rsplit("/", 1)[-1]
     suffix = "." + leaf.rsplit(".", 1)[-1] if "." in leaf else ""
-    path = await asyncio.to_thread(s3.download_to_temp, fresh.objectKey, suffix=suffix)
+    path = await workdir.owned(s3.download_to_temp, fresh.objectKey, suffix=suffix)
     try:
         result = await asyncio.to_thread(
             isolation.isolate, path, fresh.originalFilename or leaf, fresh.mimeType or "audio/mpeg", key=key
