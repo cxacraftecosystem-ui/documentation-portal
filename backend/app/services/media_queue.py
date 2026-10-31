@@ -331,7 +331,6 @@ async def process_next_media_jobs(
     held_back: list[str] = []
     if not allow_transcription:
         held_back.append(TRANSCRIPTION)
-        held_back.append(AUDIO_ISOLATION)
     if (
         skip_insights
         or not transcript_insights.enabled()
@@ -1001,6 +1000,10 @@ async def _process_isolation_job(job: Any, media: Any) -> None:
     """ElevenLabs Voice Isolator on one transcribed recording (0.0.5; off unless switched on)."""
     from app.transcription import isolation
 
+    # It sends the recording to ElevenLabs, so the owner's pause holds it like a transcription.
+    if transcription_paused(await load_app_settings()):
+        await _hold_insights_job(job, "Transcription is paused.", 900)
+        return
     try:
         result = await audio_isolation.process(media)
     except isolation.IsolationError as exc:

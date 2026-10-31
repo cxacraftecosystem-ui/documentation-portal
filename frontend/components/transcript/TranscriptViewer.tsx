@@ -88,8 +88,9 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
   /** Voice Isolator (0.0.5): the cleaned copy plays unless the reader asks for the recording as made. */
   const [original, setOriginal] = useState(false);
   const cleanedAudio = Boolean(transcript?.audio.cleaned && transcript.audio.originalUrl);
+  // A cleaned copy wins over the mount's own URL for the file: that URL is the recording as made.
   const audio = useTranscriptAudio(
-    audioUrl ?? (original && cleanedAudio ? transcript?.audio.originalUrl : transcript?.audio.url) ?? null
+    (cleanedAudio ? (original ? transcript?.audio.originalUrl : transcript?.audio.url) : (audioUrl ?? transcript?.audio.url)) ?? null
   );
   const [sampleKey, setSampleKey] = useState<string | null>(null);
   const playSample = useCallback(

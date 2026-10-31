@@ -169,7 +169,10 @@ fun TranscriptScreen(
             val view = s.loaded.view
             // Voice Isolator (0.0.5): the cleaned copy unless the reader ticks "the original recording".
             var playingOriginal by remember(view.mediaId) { mutableStateOf(false) }
-            val uri = audio ?: (if (playingOriginal && view.audio.cleaned) view.audio.originalUrl else view.audio.url)?.let(Uri::parse)
+            // A cleaned copy wins over the mount's own URI for the file: that URI is the recording as made.
+            val cleaned = view.audio.cleaned && view.audio.url != null && view.audio.originalUrl != null
+            val uri = if (cleaned) (if (playingOriginal) view.audio.originalUrl else view.audio.url)?.let(Uri::parse)
+            else audio ?: view.audio.url?.let(Uri::parse)
             val playback = rememberTranscriptPlayback(uri)
             val host = remember(view, s.loaded.offline) {
                 RepositoryHost(context, repo, view, s.loaded.offline, acceptDraft, scope,
@@ -180,7 +183,7 @@ fun TranscriptScreen(
                 view, playback, host,
                 offline = s.loaded.offline, waitingEdits = s.loaded.waitingEdits, failures = s.failures, headerExtra = headerExtra,
                 playingOriginal = playingOriginal,
-                onPlayOriginal = if (audio == null && view.audio.cleaned && view.audio.originalUrl != null) { on -> playingOriginal = on } else null,
+                onPlayOriginal = if (cleaned) { on -> playingOriginal = on } else null,
             )
         }
     }
