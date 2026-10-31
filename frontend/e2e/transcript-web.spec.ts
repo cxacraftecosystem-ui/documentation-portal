@@ -1,5 +1,6 @@
 import { devices, expect, test, type Page } from "@playwright/test";
 
+import type { Transcript } from "../lib/transcript/contract";
 import { FIXTURES, MEDIA_ID, TranscriptFake } from "./support/transcriptFake";
 
 /**
@@ -214,6 +215,23 @@ test.describe("desktop actions", () => {
     await expect(row).toContainText("Out of date");
     await row.locator('[data-retranslate="turn_b"]').click();
     await expect(row).toContainText("Re-translated:");
+  });
+
+  test("a read-only reader is told once and offered no edit, speaker or re-translate control", async ({ page }) => {
+    const fake = new TranscriptFake();
+    const message = "Read-only: part of a workshop you oversee.";
+    const view = fake.view as unknown as Transcript;
+    view.readOnly = { code: "HELD_POST", message };
+    view.permissions = { ...view.permissions, edit: false, retry: false, autodraft: false, mapSpeakers: false };
+    view.turns[1].translation.status = "STALE";
+    const viewer = await open(page, fake);
+    await expect(viewer.locator('[data-transcript-read-only="HELD_POST"]')).toHaveText(message);
+    await expect(viewer.getByText(message)).toHaveCount(1);
+    await expect(viewer.getByRole("button", { name: "Edit Giriraj at 00:00:09" })).toHaveCount(0);
+    await expect(viewer.getByTestId("speakers-open")).toHaveCount(0);
+    await viewer.locator('[data-tab="english"]').click();
+    await expect(viewer.locator('[data-retranslate="turn_b"]')).toHaveCount(0);
+    await expect(viewer.getByTestId("ask-open")).toBeVisible();
   });
 
   test("a quote card previews and downloads", async ({ page }) => {

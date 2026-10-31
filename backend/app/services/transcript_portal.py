@@ -5,7 +5,8 @@ own access rules and consent gate. The shared pipeline (``services/transcript_pi
 routes (``api/routes/transcripts.py``) call only the functions below.
 
 * reading is open to every signed-in account, as transcripts are in this repository;
-* editing follows ``POST /media/{id}/transcript``: the uploader or a content admin;
+* editing follows ``POST /media/{id}/transcript``: the uploader or a content admin; the view says
+  so up front (``readOnly``) by the same rule the writes refuse by;
 * consent is the one consent store (``recording_consent.gate``), re-read immediately before every
   send; a store that cannot be read refuses.
 """
@@ -38,14 +39,38 @@ async def readable_ids(rows: list[Any], viewer: Any) -> set[str]:
     return {str(getattr(row, "id", "")) for row in rows if getattr(row, "id", None)} if viewer else set()
 
 
-async def guard_write(user: Any, media: Any) -> None:
+#: Why a reader may not change this transcript, by ``readOnlyReason`` code (shared contract). The
+#: words are the 403 every transcript write already answers with. This portal has no workshop
+#: posts, so ``HELD_POST`` never arises here.
+READ_ONLY_MESSAGES: dict[str, str] = {
+    "NOT_EDITOR": "Only the uploader or an admin can change this transcript.",
+}
+
+
+async def _write_refusal(user: Any, media: Any) -> tuple[str, Any] | None:
+    """``(code, the 403's detail)`` when ``user`` may not change this transcript; None when they may.
+
+    THE ONE RULE. :func:`guard_write` refuses every transcript write by it and :func:`read_only`
+    tells the view by it, so the controls a client draws can never disagree with the server.
+    """
     if not may_edit(user, media):
+        return "NOT_EDITOR", {"code": "FORBIDDEN", "message": READ_ONLY_MESSAGES["NOT_EDITOR"]}
+    return None
+
+
+async def read_only(user: Any, media: Any) -> dict[str, str] | None:
+    """``{code, message}`` when ``user`` may read this transcript but not change it; None when they may."""
+    refusal = await _write_refusal(user, media)
+    return None if refusal is None else {"code": refusal[0], "message": READ_ONLY_MESSAGES[refusal[0]]}
+
+
+async def guard_write(user: Any, media: Any) -> None:
+    """Raises 403 when ``user`` may not change this recording's transcript."""
+    refusal = await _write_refusal(user, media)
+    if refusal is not None:
         from fastapi import HTTPException, status  # here: the queue worker never loads FastAPI
 
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"code": "FORBIDDEN", "message": "Only the uploader or an admin can change this transcript."},
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=refusal[1])
 
 
 async def may_send(media: Any) -> tuple[bool, str | None]:

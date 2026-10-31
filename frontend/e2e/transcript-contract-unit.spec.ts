@@ -35,7 +35,7 @@ test("the web's strings are the shared file, byte for byte", () => {
 test("the example carries every field the viewer reads", () => {
   const keys: (keyof Transcript)[] = [
     "mediaId", "title", "status", "queueReason", "statusMessage", "version", "languages", "durationMs", "speakerCount", "badges",
-    "speakers", "turns", "summary", "quotes", "cost", "audio", "permissions", "revision", "updatedAt"
+    "speakers", "turns", "summary", "quotes", "cost", "audio", "permissions", "readOnly", "revision", "updatedAt"
   ];
   for (const key of keys) expect(VIEW, key).toHaveProperty(key);
   const turnKeys: (keyof TranscriptTurn)[] = [

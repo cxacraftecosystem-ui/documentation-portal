@@ -90,6 +90,7 @@
       "cost": "{sttUsd: number, translationUsd: number, totalUsd: number}|null  admins only, else null",
       "audio": "{url: string|null, durationMs: int|null}  url is the existing signed media url",
       "permissions": "{edit: bool, retry: bool, transcribeNow: bool, ask: bool, autodraft: bool, quoteCard: bool, mapSpeakers: bool}",
+      "readOnly": "{code: 'NOT_EDITOR'|'HELD_POST', message: string}|null  why this reader may read but not change it (edit, speakers, re-translate, retry, auto-draft), by the same rule every write refuses by; null when they may. Clients show the message once and offer none of those controls",
       "revision": "int  bumps on every edit or speaker change; send back as baseRevision",
       "updatedAt": "ISO-8601"
     },
@@ -172,6 +173,7 @@
       "cost": null,
       "audio": {"url": null, "durationMs": 1524000},
       "permissions": {"edit": true, "retry": true, "transcribeNow": false, "ask": true, "autodraft": false, "quoteCard": true, "mapSpeakers": true},
+      "readOnly": null,
       "revision": 3,
       "updatedAt": "2026-10-31T10:00:00Z"
     },

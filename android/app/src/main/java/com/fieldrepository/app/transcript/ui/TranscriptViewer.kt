@@ -280,6 +280,10 @@ private fun TranscriptHeader(
         }
         extra?.invoke()
         TranscriptUiText.statusLine(view)?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted) }
+        // Read-only for this reader: said once, and no edit, speaker or re-translate control is drawn.
+        view.readOnly?.message?.takeIf { it.isNotBlank() }?.let {
+            Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted, modifier = Modifier.testTag("transcript.readOnly"))
+        }
         if (waitingEdits > 0) Text(TranscriptUiText.waiting(waitingEdits), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
         failures.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
         val action = when {

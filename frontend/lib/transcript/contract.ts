@@ -103,6 +103,8 @@ export type Transcript = {
   cost: { sttUsd: number; translationUsd: number; totalUsd: number } | null;
   audio: { url: string | null; durationMs: number | null };
   permissions: TranscriptPermissions;
+  /** Why this reader may read but not change it (edit, speakers, re-translate, retry, auto-draft); null when they may. */
+  readOnly: { code: "NOT_EDITOR" | "HELD_POST"; message: string } | null;
   /** Bumps on every edit or speaker change; sent back as baseRevision. */
   revision: number;
   updatedAt: string;

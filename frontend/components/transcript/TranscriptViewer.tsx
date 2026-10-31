@@ -257,6 +257,11 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
           ) : null}
         </div>
         {note ? <p className="text-sm text-ink-700">{note}</p> : null}
+        {transcript.readOnly ? (
+          <p className="text-sm text-ink-500" data-transcript-read-only={transcript.readOnly.code}>
+            {transcript.readOnly.message}
+          </p>
+        ) : null}
         <dl className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-ink-500" data-transcript-facts>
           {transcript.languages.length ? (
             <div className="flex gap-1">
