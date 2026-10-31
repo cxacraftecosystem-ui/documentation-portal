@@ -164,6 +164,31 @@ class RecordingFiltersTest {
         assertEquals(3, options.artisans.single().count)
     }
 
+    @QFeature("E5")
+    @Test fun `a media list sends the questionnaire filters and keeps its own search and upload days`() {
+        val f = QuestionnaireFilters().withQ("loom").applyChip(ChipFilter("date", "2026-10-22"))
+            .with("artisanId", listOf("a1", "a2")).with("source", listOf("UPLOAD"))
+        assertEquals(mapOf("artisanId" to "a1,a2", "source" to "UPLOAD"), f.mediaParams())
+        assertFalse("a day on a media list is its upload day, not the session's", f.appliesToMedia(ChipFilter("date", "2026-10-22")))
+        assertTrue(f.appliesToMedia(ChipFilter("artisanId", "a3")))
+        assertTrue(FilterField.DATES !in FilterField.MEDIA && FilterField.SECTION in FilterField.MEDIA)
+    }
+
+    @QFeature("E5")
+    @Test fun `the app search reads a take as what it answers, and opens the list on its form`() {
+        val take = QuestionnairePortal.json.decodeFromString(
+            QRecording.serializer(),
+            """{"id":"r9","chips":{"session":{"id":"s1","title":"Interview_2026-07-07"},"questionnaire":{"id":"f2","title":"Market survey"},"targets":[{"kind":"QUESTION","questionLineageId":"q1","displayCode":"F1","sectionTitle":"Tools"}]}}"""
+        )
+        val bare = QuestionnairePortal.json.decodeFromString(QRecording.serializer(), """{"id":"r8"}""")
+        val hits = RecordingSearch.hits(listOf(take, bare), " loom ")
+        assertEquals(listOf("F1 · Tools", "Whole session"), hits.map { it.title })
+        assertEquals("Interview_2026-07-07", hits.first().subtitle)
+        assertEquals("q=loom&questionnaireId=f2", hits.first().filters.toQuery())
+        assertEquals("Market survey", hits.first().filters.labels["f2"])
+        assertEquals("q=loom", hits.last().filters.toQuery())
+    }
+
     private class MemoryPrefs : SharedPreferences {
         val map = HashMap<String, Any?>()
         override fun getAll(): MutableMap<String, *> = map

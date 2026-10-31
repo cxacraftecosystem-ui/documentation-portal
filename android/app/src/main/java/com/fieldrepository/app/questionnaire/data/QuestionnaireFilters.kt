@@ -45,6 +45,9 @@ data class QuestionnaireFilters(
     val activeCount: Int get() = KEYS.count { it != "q" && it != "dateTo" && get(it).isNotEmpty() } +
         (if (dateFrom == null && dateTo != null) 1 else 0)
 
+    /** On a media list a day chip is no filter (its dates are the upload day); every other chip is. */
+    fun appliesToMedia(filter: ChipFilter): Boolean = filter.key != ChipRules.DATE
+
     /** Whether the chip's filter is already applied (the chip then reads as active). */
     fun isActive(filter: ChipFilter): Boolean =
         if (filter.key == ChipRules.DATE) dateFrom == filter.value && dateTo == filter.value else filter.value in get(filter.key)
@@ -67,6 +70,12 @@ data class QuestionnaireFilters(
         val list = get(key)
         if (list.isEmpty()) null else "$key=" + list.joinToString(",", transform = ::encode)
     }.joinToString("&")
+
+    /**
+     * What a media list sends (`GET /media`): every filter but the text and the dates, which a
+     * media list reads as its own search box and its upload day.
+     */
+    fun mediaParams(): Map<String, String> = without("q", "dateFrom", "dateTo").toParams()
 
     /** The same, as Retrofit's `@QueryMap(encoded = true)` takes it. */
     fun toParams(): Map<String, String> = KEYS.mapNotNull { key ->

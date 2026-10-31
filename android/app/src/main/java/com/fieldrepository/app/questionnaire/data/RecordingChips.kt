@@ -125,3 +125,23 @@ object ChipRules {
     /** The label a filter value is shown with in the active pills, from the chip it came from. */
     fun labels(chips: QChips?): Map<String, String> = display(chips).mapNotNull { c -> c.filter?.let { it.value to c.label } }.toMap()
 }
+
+/** A take found by the app's search: what its row says, its chips, and the list a tap opens. */
+data class RecordingHit(val id: String, val title: String, val subtitle: String?, val chips: QChips?, val filters: QuestionnaireFilters)
+
+/**
+ * The app search's Recordings group (owner, 31 Oct 2026), from `GET /questionnaire/recordings?q=`:
+ * each take reads as what it answers ("A · Materials", "F1 · Tools", "Whole session") over its
+ * session's title, with its chips; a tap opens the recordings list searched for the same words, on
+ * the take's form, where the take is.
+ */
+object RecordingSearch {
+    fun hits(takes: List<QRecording>, query: String): List<RecordingHit> = takes.map { r ->
+        val c = r.chips
+        val title = c?.targets?.firstOrNull()?.let(ChipRules::targetLabel) ?: QuestionnaireCopy.t("chipWholeSession")
+        val filters = QuestionnaireFilters().withQ(query.trim()).let { f ->
+            c?.questionnaire?.let { q -> f.with("questionnaireId", listOf(q.id), mapOf(q.id to q.title)) } ?: f
+        }
+        RecordingHit(r.id, title, c?.session?.title?.ifBlank { null }, c, filters)
+    }
+}

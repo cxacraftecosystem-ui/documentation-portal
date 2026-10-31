@@ -201,6 +201,10 @@ class QuestionnaireV2 private constructor(context: Context) {
             { if (cursor != null) throw it else Paged(offlineRows.recordings(filters), null, true) }
         )
 
+    /** The app search's takes for [query]: the server's, or with no signal this account's kept ones. */
+    suspend fun searchRecordings(query: String, limit: Int = 10): List<RecordingHit> =
+        RecordingSearch.hits(recordingsPage(QuestionnaireFilters().withQ(query), limit = limit).items.take(limit), query)
+
     /** One filter's values for a searchable select; null with no signal. */
     suspend fun filterOptions(facet: String, q: String, questionnaireIds: List<String>): QFilterOptions? = runCatching {
         api.filterOptions(field = facet, q = q.trim().ifBlank { null }, questionnaireId = questionnaireIds.joinToString(",").ifBlank { null })

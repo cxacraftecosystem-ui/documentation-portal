@@ -69,6 +69,8 @@ enum class FilterField(val key: String, val facet: String?, val labelKey: String
         val ALL = entries.toList()
         /** The forms library: a form's own fields, and who and where its sessions were. */
         val FORMS = listOf(ARTISANS, RESEARCHER, WORKSHOP, DATES, KIND, SOURCE, TRANSCRIPT, LANGUAGE)
+        /** A media list: everything but the dates, which on a media list are the upload day (its own). */
+        val MEDIA = ALL - DATES
     }
 }
 
@@ -115,6 +117,7 @@ internal fun activePills(filters: QuestionnaireFilters, fixed: Set<String>): Lis
  *   facet name, the typed text and the forms chosen; null with no signal.
  * @param fixed filter keys this screen sets itself and does not show (a form's sessions fix its form).
  * @param offline shows "Offline: filtering what is on this device." under the bar.
+ * @param showSearch false where the host keeps its own search box (the media lists).
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -126,7 +129,8 @@ fun FilterBar(
     modifier: Modifier = Modifier,
     fields: List<FilterField> = FilterField.ALL,
     fixed: Set<String> = emptySet(),
-    offline: Boolean = false
+    offline: Boolean = false,
+    showSearch: Boolean = true
 ) {
     var sheet by remember { mutableStateOf(false) }
     var text by remember(filters.q) { mutableStateOf(filters.q) }
@@ -136,7 +140,7 @@ fun FilterBar(
         onChange(filters.withQ(text))
     }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
+        if (showSearch) OutlinedTextField(
             value = text, onValueChange = { text = it }, singleLine = true,
             label = { Text(searchHint) }, modifier = Modifier.fillMaxWidth().testTag("filter-search")
         )
