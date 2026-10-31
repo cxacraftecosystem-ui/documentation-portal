@@ -9,6 +9,7 @@ import { takeRow } from "@/components/questionnaire/TakeSheet";
 import { TranscriptStatus } from "@/components/questionnaire/TranscriptStatus";
 import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
+import { TranscriptViewer } from "@/components/transcript/TranscriptViewer";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
 import { shortName } from "@/lib/questionnaire/coverageCache";
@@ -31,7 +32,12 @@ function TakeLine({ recording, artisanId, paused }: { recording: Recording; arti
         {isLegacyTake(recording) ? ` · ${qs("legacyRecord")}` : ""}
       </p>
       <TranscriptStatus recording={recording} paused={paused} />
-      <AudioPlayer src={questionnaireApi.downloadHref(recording.id)} />
+      <TranscriptViewer
+        mediaId={recording.mediaFileId}
+        audioUrl={questionnaireApi.downloadHref(recording.id)}
+        initiallyOpen={false}
+        fallback={<AudioPlayer src={questionnaireApi.downloadHref(recording.id)} />}
+      />
     </li>
   );
 }

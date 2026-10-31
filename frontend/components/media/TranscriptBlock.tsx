@@ -4,6 +4,7 @@ import { Bot, Loader2, Pencil } from "lucide-react";
 
 import { Markdown } from "@/components/Markdown";
 import { TranscriptInsights } from "@/components/media/TranscriptInsights";
+import { TranscriptViewer } from "@/components/transcript/TranscriptViewer";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
 import { formatDateTime } from "@/lib/format";
 import type { MediaFile } from "@/lib/types";
@@ -81,7 +82,18 @@ export function EditedFlag({ edited, at }: { edited?: boolean; at?: string | nul
  * - On failure / unavailable, shows the reason so it never silently disappears.
  * Renders nothing for non-audio media with no transcript data.
  */
+/**
+ * An audio recording opens the shared transcript viewer (`components/transcript/`, both portals):
+ * turns, copy, downloads, karaoke. A recording with no structured transcript yet (stored before the
+ * turn store, or a deployment without it) draws the stored text and states below, unchanged.
+ */
 export function TranscriptBlock({ media }: { media: MediaFile }) {
+  const isAudio = media.mediaType === "AUDIO" || (media.mimeType ?? "").toLowerCase().startsWith("audio/");
+  if (!isAudio) return <LegacyTranscriptBlock media={media} />;
+  return <TranscriptViewer mediaId={media.id} audioUrl={media.url} fallback={<LegacyTranscriptBlock media={media} />} />;
+}
+
+function LegacyTranscriptBlock({ media }: { media: MediaFile }) {
   const status = (media.transcriptStatus ?? "").toUpperCase();
   const isAudio = media.mediaType === "AUDIO" || (media.mimeType ?? "").toLowerCase().startsWith("audio/");
   const hasText = !!media.transcriptText && media.transcriptText.trim().length > 0;

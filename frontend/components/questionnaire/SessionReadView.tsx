@@ -12,6 +12,7 @@ import { takeRow } from "@/components/questionnaire/TakeSheet";
 import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
+import { TranscriptViewer } from "@/components/transcript/TranscriptViewer";
 import { apiFetch } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { languageLabel } from "@/lib/questionnaire/languages";
@@ -192,7 +193,12 @@ export function SessionReadView({ id }: { id: string }) {
                   {targetLabel(r)} · {takeRow(r, null)}
                 </p>
                 <TranscriptStatus recording={r} paused={config?.transcriptionPaused ?? true} />
-                <AudioPlayer src={questionnaireApi.downloadHref(r.id)} />
+                <TranscriptViewer
+                  mediaId={r.mediaFileId}
+                  audioUrl={questionnaireApi.downloadHref(r.id)}
+                  initiallyOpen={false}
+                  fallback={<AudioPlayer src={questionnaireApi.downloadHref(r.id)} />}
+                />
               </li>
             ))}
           </ul>

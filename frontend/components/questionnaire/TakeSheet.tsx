@@ -6,6 +6,7 @@ import { useRef, useState } from "react";
 import { FieldDialog } from "@/components/dialogs/FieldDialog";
 import { TranscriptStatus } from "@/components/questionnaire/TranscriptStatus";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
+import { TranscriptViewer } from "@/components/transcript/TranscriptViewer";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
 import { questionnaireApi, type Recording, type RecordingEvent, type SectionOverride } from "@/lib/questionnaire/api";
@@ -143,7 +144,13 @@ export function TakeSheet({
                 {r.filing === "NEEDS_DECISION" ? <span className="text-xs font-medium text-amber-800">{qs("needsDecision")}</span> : null}
                 {r.estimated ? <span className="text-xs text-ink-500">{qs("estimatedDate")}</span> : null}
               </div>
-              <AudioPlayer src={questionnaireApi.downloadHref(r.id)} className="mt-2" />
+              <TranscriptViewer
+                mediaId={r.mediaFileId}
+                audioUrl={questionnaireApi.downloadHref(r.id)}
+                initiallyOpen={false}
+                questionnaire={{ onReview: onUseAsAnswer ? () => onUseAsAnswer(r) : undefined }}
+                fallback={<AudioPlayer src={questionnaireApi.downloadHref(r.id)} className="mt-2" />}
+              />
               <ButtonRow
                 size="sm"
                 className="mt-2"
