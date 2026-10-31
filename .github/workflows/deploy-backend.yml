@@ -1173,6 +1173,7 @@ jobs:
       # the step warns, because transcription stays paused until the coordinator un-pauses it.
       # The same pin switches the approved transcript features on (0.0.4): AI_FEATURES_ENABLED and
       # AI_TRANSCRIPT_INSIGHTS_ENABLED are written true, so BACKEND_ENV cannot leave them off.
+      # A key may hold '.': Google's newer AI Studio keys do (measured on this portal's key, 31 Oct).
       - name: Pin the speech-to-text and Gemini keys and the transcript switch
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
@@ -1187,8 +1188,8 @@ jobs:
               echo "::warning::$name is not set as an Actions secret; the release keeps the box's own line"
               continue
             fi
-            if ! printf '%s' "$value" | grep -qE '^[A-Za-z0-9_-]{20,}$'; then
-              echo "::error::$name is not one line of letters, digits, '_' or '-'; nothing was deployed."
+            if ! printf '%s' "$value" | grep -qE '^[A-Za-z0-9._-]{20,}$'; then
+              echo "::error::$name is not one line of letters, digits, '.', '_' or '-'; nothing was deployed."
               exit 1
             fi
           done
