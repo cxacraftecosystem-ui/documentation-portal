@@ -44,7 +44,8 @@ re-translate a turn, Ask, auto-draft, quote card).
 
 `ELEVENLABS_API_KEY` (per portal, IP-locked to its server) and `GEMINI_API_KEY` reach the release
 `.env` through the deploy pin in `.github/workflows/deploy-backend.yml`. After the switch, the deploy
-asks ElevenLabs `GET /v1/models` and Gemini `models.get gemini-3.8-flash` from the box and fails only
+asks ElevenLabs speech-to-text with no audio (refused by validation, never billed; the keys are
+scoped to speech-to-text, so `GET /v1/models` answers 401) and Gemini `models.get gemini-3.8-flash` from the box and fails only
 on an auth refusal, printing status codes only. CI never calls either provider: the tests use the
 recorded responses in `backend/tests/fixtures/transcript/`.
 

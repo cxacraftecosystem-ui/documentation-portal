@@ -1385,7 +1385,7 @@ jobs:
       # The transcript keys, asked FROM THE BOX (31 Oct 2026). ElevenLabs keys are IP-locked to each
       # portal's server, so CI must never call ElevenLabs itself: this step runs curl over ssh, with the
       # key read from the live .env on the box and handed to curl as a header file (never an argument,
-      # never printed). ElevenLabs `GET /v1/models` and Gemini `models.get gemini-3.8-flash`; only the
+      # never printed). ElevenLabs speech-to-text (no audio) and Gemini `models.get gemini-3.8-flash`; only the
       # HTTP status codes are printed. It fails ONLY on an auth refusal (401/403, or Google's
       # API_KEY_INVALID); a busy or unreachable provider warns, because the release itself is fine.
       - name: Smoke the speech-to-text and Gemini keys from the box
@@ -1406,11 +1406,14 @@ jobs:
           if [ -z "$el" ]; then
             echo "ElevenLabs: no key in the live .env (skipped)"
           else
-            code="$(curl -s -o "$body" -w '%{http_code}' --max-time 30 -H @<(printf 'xi-api-key: %s\n' "$el") https://api.elevenlabs.io/v1/models || true)"
-            echo "ElevenLabs GET /v1/models: HTTP ${code:-000}"
+            # POST speech-to-text with NO audio: the one scope the pipeline uses, refused by validation
+            # (400/422) before anything is transcribed or billed. Each portal's key is restricted to
+            # speech-to-text, so a read such as GET /v1/models answers 401 missing_permissions (31 Oct).
+            code="$(curl -s -o "$body" -w '%{http_code}' --max-time 30 -H @<(printf 'xi-api-key: %s\n' "$el") -F model_id=scribe_v2 https://api.elevenlabs.io/v1/speech-to-text || true)"
+            echo "ElevenLabs POST /v1/speech-to-text (no audio): HTTP ${code:-000}"
             case "$code" in
-              401|403) echo "::error::ElevenLabs refused this box's key (HTTP $code). Check the key and its IP lock."; fail=1 ;;
-              200) ;;
+              401|403) echo "::error::ElevenLabs refused this box's key for speech-to-text (HTTP $code). Check the key, its scope and its IP lock."; fail=1 ;;
+              200|400|422) ;;
               *) echo "::warning::ElevenLabs answered HTTP ${code:-000}; not an auth refusal, so the deploy stands." ;;
             esac
           fi
