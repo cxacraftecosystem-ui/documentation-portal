@@ -288,8 +288,9 @@ def test_proposals_write_every_draft_and_read_existing_answers_once(monkeypatch)
     small = run(_proposals(monkeypatch, 1))
     large = run(_proposals(monkeypatch, 5))
     report("proposals", questions1=small, questions5=large)
-    # + the one read of the session behind the take's chips (owner, 31 Oct 2026).
-    assert small == large == 14, (small, large)
+    # + the one read of the session behind the take's chips (owner, 31 Oct 2026), + the two reads of
+    # the plain-text list preview (the opening turns and the speaker names, 0.0.6).
+    assert small == large == 16, (small, large)
 
 
 # ── the designer portal's match call (POST /cross-portal/peer/artisans/match) ────────────────

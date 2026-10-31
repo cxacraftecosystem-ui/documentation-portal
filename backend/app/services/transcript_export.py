@@ -76,7 +76,7 @@ async def _verdicts(ids: list[str], client: Any) -> dict[str, str]:
     read withholds (the safe answer for an export)."""
     from app.questionnaire import ports
 
-    gate = ports.module("consent_gate")
+    gate = ports.consent_gate
     try:
         details = await gate.verdict_details(ids, client=client)
     except Exception:  # noqa: BLE001 - an unreadable consent store exports no words
