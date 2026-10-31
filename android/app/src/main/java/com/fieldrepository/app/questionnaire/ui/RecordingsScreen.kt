@@ -28,6 +28,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.questionnaire.data.ChipFilter
 import com.fieldrepository.app.questionnaire.data.FilterStore
+import com.fieldrepository.app.questionnaire.data.KeptPages
+import com.fieldrepository.app.questionnaire.data.ListPaging
 import com.fieldrepository.app.questionnaire.data.QRecording
 import com.fieldrepository.app.questionnaire.data.QSession
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
@@ -46,8 +48,11 @@ import kotlinx.coroutines.launch
  */
 @Composable
 fun rememberKeptFilters(v2: QuestionnaireV2, screen: String, initial: QuestionnaireFilters? = null): Pair<QuestionnaireFilters, (QuestionnaireFilters) -> Unit> {
-    var filters by remember(screen) { mutableStateOf(initial ?: v2.filterStore.load(screen)) }
-    LaunchedEffect(screen, initial) { if (initial != null) { filters = initial; v2.filterStore.save(screen, initial) } }
+    // A chip's filters replace the kept ones once per way in: Back to the same list keeps what the
+    // reader changed since (owner, 1 Nov 2026).
+    val applied = rememberKept("$screen.initialApplied") { null as QuestionnaireFilters? }
+    var filters by remember(screen) { mutableStateOf(initial?.takeIf { it != applied.value } ?: v2.filterStore.load(screen)) }
+    LaunchedEffect(screen, initial) { if (initial != null && initial != applied.value) { applied.value = initial; filters = initial; v2.filterStore.save(screen, initial) } }
     return filters to { next: QuestionnaireFilters -> filters = next; v2.filterStore.save(screen, next) }
 }
 
@@ -72,15 +77,17 @@ fun RecordingsList(
     val scope = rememberCoroutineScope()
     val (filters, setFilters) = rememberKeptFilters(v2, screen, initial)
     val applied = merged(filters, fixed)
-    var rows by remember { mutableStateOf<List<QRecording>>(emptyList()) }
-    var cursor by remember { mutableStateOf<String?>(null) }
-    var offline by remember { mutableStateOf(false) }
+    // Every page loaded, kept for Back from a take's session (owner, 1 Nov 2026; [ListPaging]).
+    var kept by rememberKept("$screen.pages") { KeptPages<QRecording>() }
+    val rows = kept.rows
+    val cursor = kept.cursor
+    var offline by rememberKept("$screen.offline") { false }
     var loading by remember { mutableStateOf(true) }
     var playing by remember { mutableStateOf<Uri?>(null) }
     LaunchedEffect(applied) {
         loading = true
         val page = runCatching { v2.recordingsPage(applied) }.getOrNull()
-        rows = page?.items.orEmpty(); cursor = page?.nextCursor; offline = page?.offline == true
+        kept = ListPaging.arrive(kept, applied, page?.items, page?.nextCursor) { it.id }; offline = page?.offline == true
         loading = false
     }
     val onChip = { f: ChipFilter, label: String -> setFilters(filters.applyChip(f, label)) }
@@ -114,7 +121,7 @@ fun RecordingsList(
             val at = cursor ?: return@PromptButton
             scope.launch {
                 runCatching { v2.recordingsPage(applied, at) }
-                    .onSuccess { next -> rows = rows + next.items.filter { n -> rows.none { it.id == n.id } }; cursor = next.nextCursor }
+                    .onSuccess { next -> kept = ListPaging.more(kept, next.items, next.nextCursor) { it.id } }
                     .onFailure { onError(QuestionnaireCopy.s("error.needsSignal")) }
             }
         }))
@@ -140,13 +147,14 @@ fun FormSessionsList(
     val fixed = remember(questionnaireId) { QuestionnaireFilters().with("questionnaireId", listOf(questionnaireId)) }
     val (filters, setFilters) = rememberKeptFilters(v2, FilterStore.formSessions(questionnaireId))
     val applied = merged(filters, fixed)
-    var rows by remember { mutableStateOf<List<QSession>>(emptyList()) }
-    var offline by remember { mutableStateOf(false) }
+    var rows by rememberKept("form-sessions-$questionnaireId.rows") { emptyList<QSession>() }
+    var offline by rememberKept("form-sessions-$questionnaireId.offline") { false }
     var loading by remember { mutableStateOf(true) }
     LaunchedEffect(applied) {
         loading = true
         val page = runCatching { v2.sessionsPage(applied, limit = 50) }.getOrNull()
-        rows = page?.items.orEmpty(); offline = page?.offline == true
+        // A failed read keeps the rows already shown rather than blanking the list.
+        if (page != null || rows.isEmpty()) rows = page?.items.orEmpty(); offline = page?.offline == true
         loading = false
     }
     Column(modifier.fillMaxWidth().testTag("form-sessions"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
