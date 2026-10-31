@@ -15,8 +15,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import HTTPException, status
-
 from app.core.roles import is_admin as _is_admin
 from app.core.roles import is_content_admin
 from app.services import recording_consent
@@ -42,6 +40,8 @@ async def readable_ids(rows: list[Any], viewer: Any) -> set[str]:
 
 async def guard_write(user: Any, media: Any) -> None:
     if not may_edit(user, media):
+        from fastapi import HTTPException, status  # here: the queue worker never loads FastAPI
+
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"code": "FORBIDDEN", "message": "Only the uploader or an admin can change this transcript."},

@@ -11,6 +11,7 @@ import asyncio
 import io
 import json
 import logging
+import sys
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -104,7 +105,7 @@ def test_scribe_words_become_speaker_turns_with_timings_offsets_and_unsure_spans
         for word in turn.words:
             assert turn.text[word.offset : word.offset + len(word.text)] == word.text
     second = turns[1]
-    assert second.low_confidence == [[3, 7], [26, 30]]
+    assert second.low_confidence == [[3, 7], [25, 29]]
     assert [second.text[a:b] for a, b in second.low_confidence] == ["dabu", "गोंद"]
     assert first.low_confidence == []
 
@@ -492,6 +493,7 @@ def _backfill() -> Any:
     spec = importlib.util.spec_from_file_location("backfill_transcripts", path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
+    sys.modules["backfill_transcripts"] = module  # dataclasses look their module up while defining
     spec.loader.exec_module(module)
     return module
 

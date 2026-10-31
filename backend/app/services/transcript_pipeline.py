@@ -280,7 +280,11 @@ async def generate(media: Any, *, user_id: str | None) -> dict[str, Any]:
     ``InsightsFailed`` exactly as the old path does, so the queue's handling is unchanged.
     """
     media_id = str(_value(media, "id"))
-    version = await transcript_store.current_version(media_id)
+    try:
+        version = await transcript_store.current_version(media_id)
+    except Exception as exc:  # noqa: BLE001 - no readable turns: the old path, exactly as before
+        logger.warning("turns of media %s unreadable (%s); summarising the text", media_id, type(exc).__name__)
+        version = None
     if version is None:
         return await transcript_insights.generate(media, user_id=user_id)
     turn_rows = await transcript_store.turns_of(version.id)
@@ -1067,8 +1071,11 @@ async def glossary(craft_id: str | None, q: str | None, limit: int, cursor: str 
     where: dict[str, Any] = {}
     if craft_id:
         where["OR"] = [{"craftId": craft_id}, {"linkedCraftId": craft_id}]
-    if q:
-        where["termKey"] = {"contains": insight.term_key(q)}
+    prefix = insight.term_key(q or "").replace("_", " ").strip()
+    if prefix:
+        # A prefix of the term's key: term_key keeps letters, digits and spaces only, so nothing
+        # here can reach LIKE as a wildcard or a control byte.
+        where["termKey"] = {"startswith": prefix}
     args: dict[str, Any] = {"where": where, "order": [{"occurrences": "desc"}, {"id": "asc"}], "take": limit + 1,
                             "include": {"sightings": {"take": 5, "order_by": {"createdAt": "desc"}}}}
     if cursor:

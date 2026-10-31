@@ -192,7 +192,7 @@ def test_the_pipeline_end_to_end_on_a_real_database(wired: Any) -> None:
             assert view["status"] == "READY" and view["cost"] is None, "cost is for admins"
             assert [t["translation"]["status"] for t in view["turns"]] == ["PENDING", "PENDING", "ALREADY_ENGLISH", "PENDING"]
             assert view["badges"][0]["label"] == "Scribe v2"
-            assert view["turns"][1]["lowConfidence"] == [[3, 7], [26, 30]]
+            assert view["turns"][1]["lowConfidence"] == [[3, 7], [25, 29]]
 
             # The insights job: one Gemini pass gives English per turn, summary, quotes and terms.
             fake = wired.gemini(fixture("gemini_translate"))
