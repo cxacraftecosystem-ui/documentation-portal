@@ -1,0 +1,132 @@
+{
+  "contract": "questionnaire-chips",
+  "version": 1,
+  "source": "owner, 31 Oct 2026: \"can each recording also have a few informative chips for the sake of easier retrieval, as in section number and questionnaire name, name(s) of artisans participated, date(s), and workshop name? all of these should be searchable filters in the sessions and questionnaires, for both the apps, across all surfaces.\"",
+  "enforcedBy": "backend/tests/test_questionnaire_chips.py (shared); frontend/e2e/questionnaire-chips-unit.spec.ts in both portals; android/app/src/test/java/<pkg>/questionnaire/ui/RecordingChipsTest.kt (shared tree)",
+  "rules": [
+    "The server sends `chips` on every recording (and on a session, without targets): see backend/app/questionnaire/chips.py. Clients turn it into display chips with exactly the labels and filters below, in this order: targets, questionnaire, people, date, captured, workshop, language, duration.",
+    "At most `maxTargets` target chips, then one `moreTargets` chip labelled '+N' whose title lists the rest, joined with ', '. No targets: one `target` chip 'Whole session' with no filter.",
+    "A SECTION target reads '<code> · <title>' ('Section <code>' when the title is empty) and filters sectionId; a QUESTION reads '<displayCode> · <sectionTitle>' ('<displayCode>' when the section title is empty) and filters questionLineageId.",
+    "People: artisans (who answered first, then who was present; the server sorts them) then guests. At most `maxPeople` chips, then one `morePeople` chip '+N' whose title lists the rest. A present-only artisan reads '<name> · present'; a guest reads '<name> · guest' and has no filter.",
+    "The date chip reads 'd MMM yyyy' in English (e.g. '7 Jul 2026'), with ' · estimated' when the session date or the capture time is estimated, and filters that day (dateFrom = dateTo). When the take was captured on another day there is a `captured` chip 'Recorded <day>' filtering that day.",
+    "The workshop chip filters workshopId for a FIELD workshop and designWorkshopId for a DESIGN workshop. The language chip reads the shared/languages.json label (the code upper-cased when unknown) and filters languageCode. The duration chip reads 'm:ss' under an hour and 'h:mm:ss' from an hour, and has no filter.",
+    "Tapping a chip with a filter applies it: a repeatable key gains the value, or loses it when it already has it (the chip then reads as active); a day sets dateFrom and dateTo to it, or clears both when they are already that day.",
+    "Filters travel as query parameters in the order of `filterKeys`, each repeatable value list comma-joined in the order chosen, empty ones left out, values encoded as encodeURIComponent does (a space is %20). The same string is the web URL's query and the API's."
+  ],
+  "maxTargets": 2,
+  "maxPeople": 2,
+  "filterKeys": ["q", "questionnaireId", "sectionId", "questionLineageId", "artisanId", "researcherId", "workshopId", "designWorkshopId", "dateFrom", "dateTo", "kind", "source", "transcript", "languageCode"],
+  "multiKeys": ["questionnaireId", "sectionId", "questionLineageId", "artisanId", "researcherId", "workshopId", "designWorkshopId", "kind", "source", "transcript", "languageCode"],
+  "values": {
+    "kind": ["WORKSHOP_INTERVIEW", "MARKET_SURVEY", "NONE"],
+    "source": ["APP", "UPLOAD", "HANDOFF"],
+    "transcript": ["HAS", "NONE", "PENDING", "FAILED"]
+  },
+  "chipKinds": ["target", "moreTargets", "questionnaire", "artisan", "guest", "morePeople", "date", "captured", "workshop", "language", "duration"],
+  "cases": [
+    {
+      "name": "a section take by two artisans, one only present, in a design workshop",
+      "chips": {
+        "session": {"id": "s1", "title": "Interview_2026-10-22_Bagru"},
+        "questionnaire": {"id": "f1", "title": "2nd Craft Toolkit", "kind": "WORKSHOP_INTERVIEW"},
+        "targets": [{"kind": "SECTION", "sectionId": "secA", "sectionCode": "A", "sectionTitle": "Materials"}],
+        "artisans": [{"id": "a1", "name": "Giriraj", "role": "ANSWERED"}, {"id": "a2", "name": "Meena", "role": "PRESENT"}],
+        "respondents": [],
+        "sessionDate": "2026-10-22", "sessionDateEstimated": false, "capturedOn": null, "captureEstimated": false,
+        "workshop": {"id": "dw1", "name": "Bagru Design Workshop", "type": "DESIGN"},
+        "languageCode": "hi", "durationMs": 1524000, "researcher": {"id": "u1", "name": "Nandini"}, "source": "APP"
+      },
+      "expect": [
+        {"kind": "target", "label": "A · Materials", "filter": {"key": "sectionId", "value": "secA"}},
+        {"kind": "questionnaire", "label": "2nd Craft Toolkit", "filter": {"key": "questionnaireId", "value": "f1"}},
+        {"kind": "artisan", "label": "Giriraj", "filter": {"key": "artisanId", "value": "a1"}},
+        {"kind": "artisan", "label": "Meena · present", "filter": {"key": "artisanId", "value": "a2"}},
+        {"kind": "date", "label": "22 Oct 2026", "filter": {"key": "date", "value": "2026-10-22"}},
+        {"kind": "workshop", "label": "Bagru Design Workshop", "filter": {"key": "designWorkshopId", "value": "dw1"}},
+        {"kind": "language", "label": "Hindi", "filter": {"key": "languageCode", "value": "hi"}},
+        {"kind": "duration", "label": "25:24", "filter": null}
+      ]
+    },
+    {
+      "name": "three question targets, four people with a guest, captured the next day, estimated",
+      "chips": {
+        "session": {"id": "s2", "title": "Interview_2026-07-07_Kolkata"},
+        "questionnaire": {"id": "f2", "title": "Market survey", "kind": "MARKET_SURVEY"},
+        "targets": [
+          {"kind": "QUESTION", "questionLineageId": "q1", "displayCode": "F1", "prompt": "Which tools?", "sectionId": "secF", "sectionCode": "F", "sectionTitle": "Tools"},
+          {"kind": "QUESTION", "questionLineageId": "q2", "displayCode": "F2", "prompt": "Where bought?", "sectionId": "secF", "sectionCode": "F", "sectionTitle": "Tools"},
+          {"kind": "QUESTION", "questionLineageId": "q3", "displayCode": "G1", "prompt": "Price?", "sectionId": "secG", "sectionCode": "G", "sectionTitle": ""}
+        ],
+        "artisans": [{"id": "a1", "name": "Giriraj", "role": "ANSWERED"}, {"id": "a3", "name": "Ravi", "role": "ANSWERED"}, {"id": "a2", "name": "Meena", "role": "PRESENT"}],
+        "respondents": [{"id": "r1", "name": "Shopper at Johari Bazaar", "role": "ANSWERED"}],
+        "sessionDate": "2026-07-07", "sessionDateEstimated": false, "capturedOn": "2026-07-08", "captureEstimated": true,
+        "workshop": {"id": "w1", "name": "Kolkata field visit", "type": "FIELD"},
+        "languageCode": "bn", "durationMs": 3723000, "researcher": {"id": "u2", "name": "Ankur"}, "source": "UPLOAD"
+      },
+      "expect": [
+        {"kind": "target", "label": "F1 · Tools", "filter": {"key": "questionLineageId", "value": "q1"}},
+        {"kind": "target", "label": "F2 · Tools", "filter": {"key": "questionLineageId", "value": "q2"}},
+        {"kind": "moreTargets", "label": "+1", "filter": null, "title": "G1"},
+        {"kind": "questionnaire", "label": "Market survey", "filter": {"key": "questionnaireId", "value": "f2"}},
+        {"kind": "artisan", "label": "Giriraj", "filter": {"key": "artisanId", "value": "a1"}},
+        {"kind": "artisan", "label": "Ravi", "filter": {"key": "artisanId", "value": "a3"}},
+        {"kind": "morePeople", "label": "+2", "filter": null, "title": "Meena · present, Shopper at Johari Bazaar · guest"},
+        {"kind": "date", "label": "7 Jul 2026 · estimated", "filter": {"key": "date", "value": "2026-07-07"}},
+        {"kind": "captured", "label": "Recorded 8 Jul 2026", "filter": {"key": "date", "value": "2026-07-08"}},
+        {"kind": "workshop", "label": "Kolkata field visit", "filter": {"key": "workshopId", "value": "w1"}},
+        {"kind": "language", "label": "Bengali", "filter": {"key": "languageCode", "value": "bn"}},
+        {"kind": "duration", "label": "1:02:03", "filter": null}
+      ]
+    },
+    {
+      "name": "a whole-session take with only a guest, no workshop, no language, no duration",
+      "chips": {
+        "session": {"id": "s3", "title": "Interview_2026-10-20_Johari-Bazaar"},
+        "questionnaire": {"id": "f2", "title": "Market survey", "kind": "MARKET_SURVEY"},
+        "targets": [],
+        "artisans": [],
+        "respondents": [{"id": "r9", "name": "Stall owner", "role": "ANSWERED"}],
+        "sessionDate": "2026-10-20", "sessionDateEstimated": true, "capturedOn": null, "captureEstimated": false,
+        "workshop": null, "languageCode": null, "durationMs": null, "researcher": null, "source": "HANDOFF"
+      },
+      "expect": [
+        {"kind": "target", "label": "Whole session", "filter": null},
+        {"kind": "questionnaire", "label": "Market survey", "filter": {"key": "questionnaireId", "value": "f2"}},
+        {"kind": "guest", "label": "Stall owner · guest", "filter": null},
+        {"kind": "date", "label": "20 Oct 2026 · estimated", "filter": {"key": "date", "value": "2026-10-20"}}
+      ]
+    },
+    {
+      "name": "a section with no title, an unknown language, a short take, no session date",
+      "chips": {
+        "session": {"id": "s4", "title": "Legacy"},
+        "questionnaire": null,
+        "targets": [{"kind": "SECTION", "sectionId": "secT", "sectionCode": "T", "sectionTitle": ""}],
+        "artisans": [{"id": "a5", "name": "Sabita", "role": "ANSWERED"}],
+        "respondents": [],
+        "sessionDate": null, "sessionDateEstimated": false, "capturedOn": "2026-06-21", "captureEstimated": false,
+        "workshop": null, "languageCode": "xx", "durationMs": 42000, "researcher": null, "source": "APP"
+      },
+      "expect": [
+        {"kind": "target", "label": "Section T", "filter": {"key": "sectionId", "value": "secT"}},
+        {"kind": "artisan", "label": "Sabita", "filter": {"key": "artisanId", "value": "a5"}},
+        {"kind": "captured", "label": "Recorded 21 Jun 2026", "filter": {"key": "date", "value": "2026-06-21"}},
+        {"kind": "language", "label": "XX", "filter": {"key": "languageCode", "value": "xx"}},
+        {"kind": "duration", "label": "0:42", "filter": null}
+      ]
+    }
+  ],
+  "applyCases": [
+    {"name": "a repeatable key gains the value", "before": {"artisanId": ["a1"]}, "chip": {"key": "artisanId", "value": "a2"}, "after": {"artisanId": ["a1", "a2"]}},
+    {"name": "and loses it when it already has it", "before": {"artisanId": ["a1", "a2"]}, "chip": {"key": "artisanId", "value": "a1"}, "after": {"artisanId": ["a2"]}},
+    {"name": "a day sets both ends", "before": {"q": "loom"}, "chip": {"key": "date", "value": "2026-10-22"}, "after": {"q": "loom", "dateFrom": "2026-10-22", "dateTo": "2026-10-22"}},
+    {"name": "the same day clears both", "before": {"dateFrom": "2026-10-22", "dateTo": "2026-10-22"}, "chip": {"key": "date", "value": "2026-10-22"}, "after": {}},
+    {"name": "a workshop of the other type is kept beside it", "before": {"workshopId": ["w1"]}, "chip": {"key": "designWorkshopId", "value": "dw1"}, "after": {"workshopId": ["w1"], "designWorkshopId": ["dw1"]}}
+  ],
+  "queryCases": [
+    {"filters": {}, "query": ""},
+    {"filters": {"q": "block print", "artisanId": ["a1", "a2"], "dateFrom": "2026-10-01", "dateTo": "2026-10-31"}, "query": "q=block%20print&artisanId=a1,a2&dateFrom=2026-10-01&dateTo=2026-10-31"},
+    {"filters": {"transcript": ["HAS"], "source": ["UPLOAD", "APP"], "questionnaireId": ["f1"], "sectionId": ["secA"], "questionLineageId": ["q1"]}, "query": "questionnaireId=f1&sectionId=secA&questionLineageId=q1&source=UPLOAD,APP&transcript=HAS"},
+    {"filters": {"q": "Meena & Ravi", "workshopId": ["w1"], "designWorkshopId": ["dw1"], "kind": ["MARKET_SURVEY"], "languageCode": ["hi"], "researcherId": ["u1"]}, "query": "q=Meena%20%26%20Ravi&researcherId=u1&workshopId=w1&designWorkshopId=dw1&kind=MARKET_SURVEY&languageCode=hi"}
+  ]
+}

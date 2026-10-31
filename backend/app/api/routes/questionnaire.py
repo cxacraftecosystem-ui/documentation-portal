@@ -17,7 +17,6 @@ from fastapi import (
 )
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
-from prisma import Json
 from prisma.errors import UniqueViolationError
 
 # csv_response is SHARED with the export router rather than restated: both hand a researcher a .csv
@@ -26,7 +25,6 @@ from prisma.errors import UniqueViolationError
 # from data_browser.py for the same reason; nothing in that chain imports this module back.)
 from app.api.routes.export import csv_response
 from app.core.db import db
-from app.services.artisan_merge import redirect_merged_artisans
 from app.core.deps import (
     assert_can_contribute_relation,
     assert_can_create_records,
@@ -43,11 +41,13 @@ from app.core.deps import (
     require_content_admin,
     require_questionnaire_manager,
 )
-from app.services.access import (
-    guard_record_edit,
-    owner_download_scope,
-    record_edit_privilege,
-)
+from app.questionnaire import authoring as questionnaire_authoring
+from app.questionnaire import filters as shared_filters
+from app.questionnaire import kinds as questionnaire_kinds
+from app.questionnaire import sessions as v2_sessions
+from app.questionnaire import shims_fr as v2_shims
+from app.questionnaire.common import fail as v2_fail
+from app.questionnaire.locks import lock_key
 from app.schemas.questionnaire import (
     MAX_HELP_CHARS,
     CompletionCellUpdate,
@@ -65,30 +65,25 @@ from app.schemas.questionnaire import (
     QuestionnaireSectionUpdate,
     QuestionnaireUpdate,
 )
-from app.services.questionnaire_instruments import (
-    default_questionnaire_id,
-    require_questionnaire,
-    resolve_questionnaire_id,
-)
-from app.services import answer_drafts, cross_portal_codes, questionnaire_library
+from app.services import answer_drafts, cross_portal_codes, naming, questionnaire_library
 from app.services import completeness as completeness_module
-from app.questionnaire import authoring as questionnaire_authoring
-from app.questionnaire import kinds as questionnaire_kinds
-from app.questionnaire import shims_fr as v2_shims
-from app.questionnaire import sessions as v2_sessions
-from app.questionnaire.common import fail as v2_fail
-from app.questionnaire.locks import lock_key
+from app.services.access import (
+    guard_record_edit,
+    owner_download_scope,
+    record_edit_privilege,
+)
+from app.services.artisan_merge import redirect_merged_artisans
 from app.services.concurrency import gather_reads
 from app.services.pagination import normalize_pagination, page_payload
-from app.services.record_filters import (
-    artisan_workshop_clause,
-    resolve_workshop_ids,
-    workshop_clause,
-)
 from app.services.questionnaire_consolidation import (
     CSV_COLUMNS,
     consolidate_for_artisan,
     consolidated_rows,
+)
+from app.services.questionnaire_instruments import (
+    default_questionnaire_id,
+    require_questionnaire,
+    resolve_questionnaire_id,
 )
 from app.services.questionnaire_xlsx import (
     MAX_SECTIONS,
@@ -104,8 +99,11 @@ from app.services.questionnaire_xlsx import (
     parse_questionnaire_workbook,
     question_set_filename,
 )
-from app.services.standard_values import StandardValueError, apply_interview_values
-from app.services.uploads import read_upload_bounded
+from app.services.record_filters import (
+    artisan_workshop_clause,
+    resolve_workshop_ids,
+    workshop_clause,
+)
 from app.services.records import (
     Relation,
     add_date_range,
@@ -123,6 +121,8 @@ from app.services.records import (
     resubmit_status,
     viewable_where,
 )
+from app.services.standard_values import StandardValueError, apply_interview_values
+from app.services.uploads import read_upload_bounded
 from app.services.workshop_access import (
     WorkshopSubmissionCheck,
     enforce_workshop_submission,
@@ -130,7 +130,7 @@ from app.services.workshop_access import (
     stamp_workshop_submission,
 )
 from app.services.workshop_inference import count_unassigned_interviews
-from app.services import naming
+from prisma import Json
 
 # TWO PREFIXES, ONE MOUNT POINT.
 #
@@ -2460,13 +2460,24 @@ async def list_questionnaires(
     scope: str | None = None,
     workshopId: str | None = None,
     kind: str | None = None,
+    request: Request = None,  # type: ignore[assignment]  # FastAPI injects it; a direct call passes none
 ) -> list[dict[str, Any]]:
     """Every instrument, with the counts a picker needs (one statement for the rows, one for the
     counts). With no ``scope`` the list is what every client has always read; the forms library asks
     for ``mine``, ``shared``, ``workshop`` (optionally one ``workshopId``) or, for content admins,
-    ``deleted`` (UNIFY 4.1), optionally narrowed to one ``kind`` (or ``none``)."""
+    ``deleted`` (UNIFY 4.1), optionally narrowed to one ``kind`` (or ``none``).
+
+    THE SHARED FILTERS (owner, 31 Oct 2026; ``app/questionnaire/filters.py``) narrow it further:
+    ``q`` finds a form by its title, description, sections, questions and the sessions held on it;
+    artisans, researchers, workshops, dates, source, transcript and language keep the forms with a
+    live session that matches (a workshop alone also keeps the forms bound to it). ``kind`` keeps
+    its own spelling above, and ``workshopId`` under ``scope=workshop`` its binding meaning."""
+    library_filters = shared_filters.parse(request.query_params if request is not None else {}).without("kind")
+    if scope == "workshop":
+        library_filters = library_filters.without("workshopId")
+    matching = await shared_filters.form_ids_matching(library_filters)
     return await questionnaire_library.list_forms(
-        current_user, scope=scope, workshop_id=workshopId, kind=kind, active_only=activeOnly
+        current_user, scope=scope, workshop_id=workshopId, kind=kind, active_only=activeOnly, ids=matching
     )
 
 
