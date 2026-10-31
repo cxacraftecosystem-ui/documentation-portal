@@ -716,7 +716,7 @@ def test_an_artisan_who_refused_consent_is_recorded_and_filed_but_never_sent_out
         without = await _take(api, ids.lead, s["id"], targets=[_sec(ids, "B")], at=_at(DAY1, 10))
         assert {x["artisanId"] for x in without["subjects"]} == {a0, a1}
         assert without["consent"]["verdict"] == consent_gate.ALLOW
-        assert without["transcript"] == {"status": "QUEUED", "paused": False, "text": None, "language": None}
+        assert without["transcript"] == {"status": "QUEUED", "paused": False, "text": None, "language": None, "preview": None}
         solo = await _take(api, ids.lead, s["id"], targets=[_sec(ids, "C")], at=_at(DAY1, 10, 30), subjects=_answered(a0))
         assert solo["consent"]["verdict"] == consent_gate.ALLOW and solo["transcript"]["status"] == "QUEUED"
 
