@@ -61,6 +61,20 @@ class TranscriptContractTest {
         assertEquals(3, v.revision)
     }
 
+    @Test fun `a read-only view decodes with its reason and offers no edit`() {
+        assertEquals(null, example.readOnly)
+        val held = json.parseToJsonElement(
+            """{"mediaId":"m","status":"READY","permissions":{"edit":false,"ask":true},""" +
+                """"readOnly":{"code":"HELD_POST","message":"Read-only: part of a workshop you oversee."}}"""
+        )
+        val v = json.decodeFromJsonElement(Transcript.serializer(), held)
+        assertEquals("HELD_POST", v.readOnly?.code)
+        assertEquals("Read-only: part of a workshop you oversee.", v.readOnly?.message)
+        assertFalse(v.permissions.edit)
+        assertFalse(v.permissions.mapSpeakers)
+        assertTrue(v.permissions.ask)
+    }
+
     @Test fun `the other examples decode too`() {
         val examples = contract["examples"]!!.jsonObject
         val budget = json.decodeFromJsonElement(BudgetMeter.serializer(), examples["BudgetMeter"]!!)

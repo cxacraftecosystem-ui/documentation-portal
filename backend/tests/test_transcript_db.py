@@ -193,6 +193,14 @@ def test_the_pipeline_end_to_end_on_a_real_database(wired: Any) -> None:
             assert [t["translation"]["status"] for t in view["turns"]] == ["PENDING", "PENDING", "ALREADY_ENGLISH", "PENDING"]
             assert view["badges"][0]["label"] == "Scribe v2"
             assert view["turns"][1]["lowConfidence"] == [[3, 7], [25, 29]]
+            # The uploader may change it; another reader is told why not, and offered no edit control.
+            assert view["readOnly"] is None and view["permissions"]["edit"] and view["permissions"]["mapSpeakers"]
+            from types import SimpleNamespace
+
+            stranger = SimpleNamespace(id="not-the-uploader", role="RESEARCHER", email="x@example.org")
+            other = await pipeline.build_view(media, stranger)
+            assert other["readOnly"]["code"] == "NOT_EDITOR" and other["readOnly"]["message"]
+            assert not any(other["permissions"][k] for k in ("edit", "retry", "autodraft", "mapSpeakers"))
 
             # The insights job: one Gemini pass gives English per turn, summary, quotes and terms.
             fake = wired.gemini(fixture("gemini_translate"))

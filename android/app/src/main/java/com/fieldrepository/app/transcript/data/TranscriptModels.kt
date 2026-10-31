@@ -84,6 +84,10 @@ data class TranscriptPermissions(
     val mapSpeakers: Boolean = false,
 )
 
+/** `TranscriptView.readOnly`: `NOT_EDITOR` or `HELD_POST`, with the portal's own read-only sentence. */
+@Serializable
+data class TranscriptReadOnly(val code: String = "", val message: String = "")
+
 /** `TranscriptView`: GET /api/transcripts/{mediaId}. */
 @Serializable
 data class Transcript(
@@ -106,6 +110,8 @@ data class Transcript(
     val cost: TranscriptCost? = null,
     val audio: TranscriptAudio = TranscriptAudio(),
     val permissions: TranscriptPermissions = TranscriptPermissions(),
+    /** Why this reader may read but not change it; null when they may (the write rule's own answer). */
+    val readOnly: TranscriptReadOnly? = null,
     /** Bumps on every edit or speaker change; sent back as `baseRevision`. */
     val revision: Int = 0,
     val updatedAt: String? = null,

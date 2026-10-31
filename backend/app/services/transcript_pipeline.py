@@ -628,7 +628,10 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
                 "speaker": q.get("speaker"),
             })
     admin = transcript_portal.is_admin(user)
-    edit = transcript_portal.may_edit(user, media)
+    # The write rule itself (``guard_write``'s), so a control the view offers is one the server takes;
+    # ``readOnly`` names why it is not offered, in the words the portal already uses.
+    read_only = await transcript_portal.read_only(user, media)
+    edit = read_only is None
     cost = None
     if admin:
         stt, gem = await transcript_store.media_cost(media_id)
@@ -670,6 +673,7 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
             "quoteCard": version is not None,
             "mapSpeakers": edit and version is not None,
         },
+        "readOnly": read_only,
         "revision": version.revision if version is not None else 0,
         "updatedAt": _iso(getattr(version, "updatedAt", None) or _value(media, "updatedAt")),
     }
