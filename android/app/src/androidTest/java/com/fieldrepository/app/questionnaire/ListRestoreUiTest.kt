@@ -177,7 +177,10 @@ class ListRestoreUiTest {
         compose.waitForIdle()
         memory = ScreenMemory()
         showList = true
-        compose.waitUntil(30_000) { compose.onAllNodesWithText("Restore interview two").fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithText("Restore interview one").assertIsDisplayed()
+        compose.waitUntil(30_000) {
+            compose.onAllNodesWithText("Restore interview two").fetchSemanticsNodes().isEmpty() &&
+                compose.onAllNodesWithText("Restore interview one").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Restore interview one").assertExists()
     }
 }
