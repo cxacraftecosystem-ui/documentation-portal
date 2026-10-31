@@ -101,7 +101,8 @@ for (const viewport of VIEWPORTS) {
       const reader = await page.context().newPage();
       await pick(page, viewer.getByTestId("copy-turn-turn_a"), "english");
       await expect(viewer.locator('[data-copy-status="ok"]')).toHaveText("Copied");
-      await reader.goto("about:blank");
+      // A page of the app (a secure context with the API), not about:blank, which has no clipboard.
+      await reader.goto("/login");
       expect(await reader.evaluate(() => navigator.clipboard.readText())).toBe(FIXTURES.copy.single_english_turn_a);
       await reader.close();
     });
@@ -120,6 +121,7 @@ for (const viewport of VIEWPORTS) {
       expect(await clipboard(page)).toBe("We mix clay and gum for dabu (mud-resist printing).");
       await button.focus();
       await page.keyboard.press("Enter");
+      await expect(menu.locator('[data-menu-item="original"]')).toBeFocused();
       await page.keyboard.press("Escape");
       await expect(menu).toHaveCount(0);
       await expect(button).toBeFocused();
@@ -143,7 +145,7 @@ for (const viewport of VIEWPORTS) {
         const ok = scope.locator('a[href="https://example.org/"]');
         await expect(ok).toHaveAttribute("rel", "noopener noreferrer nofollow");
       }
-      await scope_click_is_harmless(page, answer);
+      await clickIsHarmless(page, answer);
       expect(await page.evaluate(() => (window as unknown as { __pwned?: string }).__pwned ?? null)).toBeNull();
     });
 
@@ -243,7 +245,7 @@ test.describe("desktop actions", () => {
 });
 
 /** A click on a neutralised link must not run anything either. */
-async function scope_click_is_harmless(page: Page, scope: ReturnType<Page["locator"]>) {
+async function clickIsHarmless(page: Page, scope: ReturnType<Page["locator"]>) {
   await scope.getByText("click me").click();
   await page.waitForTimeout(200);
 }

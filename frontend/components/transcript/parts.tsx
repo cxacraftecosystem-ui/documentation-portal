@@ -87,12 +87,6 @@ export function MenuButton({
     const buttons = Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>("button:not([disabled])") ?? []);
     const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
     let next = -1;
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      close(true);
-      return;
-    }
     if (event.key === "Tab") {
       setOpen(false);
       return;
@@ -107,7 +101,19 @@ export function MenuButton({
   }
 
   return (
-    <div ref={wrapRef} className="relative inline-flex">
+    <div
+      ref={wrapRef}
+      className="relative inline-flex"
+      onKeyDown={(event) => {
+        // Escape closes from anywhere inside, the trigger included (focus reaches the first item a
+        // frame after opening, and a quick Escape must not be lost in between).
+        if (open && event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          close(true);
+        }
+      }}
+    >
       <button
         ref={buttonRef}
         type="button"
