@@ -55,6 +55,20 @@
     "budgetState": ["OK", "ALERT", "PAUSED", "UNSET"]
   },
 
+  "dataBrowser": {
+    "about": "0.0.6: what View data and Download data (the data browser, both portals) carry for recordings. Same gate and row visibility as the data browser (dataset-download permission). Consent refused or withdrawn: no words at all (no turns, summary, quotes, glossary or transcript files). Cost and model names: ADMIN, MASTER_ADMIN and MINISTRY_ADMIN only.",
+    "routes": [
+      {"method": "GET", "path": "/api/data/transcripts", "query": "cursor=&limit=1..50 plus the filters below", "returns": "{items:[DataRecording], nextCursor: string|null, filters}"},
+      {"method": "GET", "path": "/api/data/transcripts/{kind}.{fmt}", "query": "kind=recordings|turns|glossary, fmt=csv|ndjson, plus the filters below", "returns": "streamed file (Content-Disposition per the naming skill). csv starts with a UTF-8 BOM; recordings.ndjson is one DataRecording per line, the others one flat row per line"}
+    ],
+    "filters": {"language": "codes heard, any of", "status": "MediaFile transcript status, any of", "speaker": "a mapped speaker name, contains", "researcherId": "uploader ids, any of", "since": "ISO-8601, uploaded on or after", "until": "ISO-8601, uploaded before", "hasEnglish": "true|false", "q": "words in the transcript", "questionnaire": "every questionnaire filter of the recordings list (questionnaireId, sectionId, questionId, artisanId, workshopId, ...)"},
+    "DataRecording": {"mediaId": "string", "file": "string|null", "mediaType": "string", "uploadedBy": "string|null", "uploadedAt": "ISO-8601|null", "transcriptStatus": "string|null", "withheld": "'CONSENT_REFUSED'|null", "source": "'TURNS'|'TEXT'|null  TEXT = transcribed before the turn pipeline: turns have no times", "version": "int|null", "languages": "[{code,label}]", "durationMs": "int|null", "speakers": "[{speakerKey: string|null, label, colorKey, role}]", "turns": "[DataTurn]", "timed": "bool", "summary": "[string]", "quotes": "[{speaker, original, english}]", "glossary": "[{term, gloss, craft}]", "chips": "the questionnaire recording chips object, or null", "models": "{stt, translation}  administrators only (absent otherwise)", "costUsd": "number  administrators only (absent otherwise)"},
+    "DataTurn": {"index": "int", "speakerKey": "string|null", "speaker": "string", "colorKey": "string", "startMs": "int|null", "endMs": "int|null", "start": "HH:MM:SS|null", "end": "HH:MM:SS|null", "language": "string|null", "text": "string", "english": "string|null", "translationStatus": "string|null", "edited": "bool"},
+    "manifest": "GET /api/data/manifest: a recording with turns (while the pipeline is on) carries up to eight transcript files instead of its .transcript.md: md and docx, bilingual, with and without timestamps, and srt and vtt (original and English; only when the turns are timed). Each is {path, url, mediaId, mediaType: 'TRANSCRIPT', transcriptFile: {format, track, timestamps}}. url is a portal API path (/api/transcripts/{mediaId}/download?...): the web fetches it as is (same origin, session cookie); the apps prefix their API base and send their token.",
+    "tree": "GET /api/data/tree: a recording's file entry carries transcriptFiles: [{name, format, track, timestamps, url}] when it has turns; transcriptAvailable is false when consent was refused.",
+    "report": "GET /api/data/report adds three sheets: 'Transcript recordings' (summary, quotes, glossary terms, chips), 'Transcript turns', 'Transcript glossary'. Capped at 5000 rows each, flagged truncated; the streamed download has every row."
+  },
+
   "speakerPalette": {
     "about": "One colour per colorKey for marks and labels. Light values are 4.5:1 or better on white, dark values 4.5:1 or better on #121212 (WCAG AA for text). The first two speakers are far apart in hue.",
     "neutral": {"light": "#52525B", "dark": "#A1A1AA"},
