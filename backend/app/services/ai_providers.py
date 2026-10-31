@@ -212,16 +212,23 @@ _GEMINI = ProviderSpec(
     ),
     models=(
         AiModel(
+            id="gemini-3.8-flash",
+            label="Gemini 3.8 Flash",
+            note="The newest fast model, and the right default. It translates every transcript here.",
+            price_per_mtok=(0.75, 3.75),
+            tasks=TEXT_AND_VISION | {AiTask.TRANSCRIBE},
+        ),
+        AiModel(
             id="gemini-3.7-flash",
             label="Gemini 3.7 Flash",
-            note="The newest fast model, and the right default. Handles audio and photographs too.",
+            note="The previous fast model, same price, and the transcript pipeline's fallback.",
             price_per_mtok=(0.75, 3.75),
             tasks=TEXT_AND_VISION | {AiTask.TRANSCRIBE},
         ),
         AiModel(
             id="gemini-3.6-flash",
             label="Gemini 3.6 Flash",
-            note="The previous fast model, same price. Pick it if 3.7 behaves differently for you.",
+            note="An older fast model, same price. Pick it if 3.8 behaves differently for you.",
             price_per_mtok=(0.75, 3.75),
             tasks=TEXT_AND_VISION | {AiTask.TRANSCRIBE},
         ),
@@ -247,7 +254,7 @@ _GEMINI = ProviderSpec(
             tasks=TEXT_AND_VISION | {AiTask.TRANSCRIBE},
         ),
     ),
-    default_model="gemini-3.7-flash",
+    default_model="gemini-3.8-flash",
 )
 
 _ANTHROPIC = ProviderSpec(

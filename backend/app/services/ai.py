@@ -288,8 +288,12 @@ def _stt_options(
     language_bias: list[str] | None = None,
     session_id: str | None = None,
     keep_payload: bool = False,
+    keyterms: list[str] | None = None,
 ) -> SttOptions:
-    """The options every provider is asked with: craft keyterms, diarization, models, language hint."""
+    """The options every provider is asked with: craft keyterms, diarization, models, language hint.
+
+    ``keyterms`` replaces the general vocabulary with one recording's own terms, most specific first
+    (``transcript_pipeline.keyterms_for``); without it every provider gets the vocabulary file."""
     models = {"elevenlabs": _elevenlabs_model(settings)}
     deepgram_model = getattr(settings, "deepgram_stt_model", None)
     if deepgram_model:
@@ -302,7 +306,7 @@ def _stt_options(
         models["muse"] = muse_model
     return SttOptions(
         language_bias=list(language_bias or []),
-        keyterms=list(craft_keyterms()),
+        keyterms=list(keyterms) if keyterms else list(craft_keyterms()),
         models=models,
         session_id=session_id,
         keep_payload=keep_payload,
@@ -680,7 +684,7 @@ def _transcribe_on_personal_key(
 
 
 async def transcribe_audio_bytes(
-    content: bytes,
+    content: bytes | None,
     filename: str,
     mime_type: str,
     settings: Settings,
@@ -690,7 +694,17 @@ async def transcribe_audio_bytes(
     job_id: str | None = None,
     language_bias: list[str] | None = None,
     skip_providers: set[str] | None = None,
+    source_path: str | None = None,
+    keyterms: list[str] | None = None,
 ) -> dict[str, Any]:
+    """Transcribe a recording through this deployment's provider chain.
+
+    ``source_path`` is the temp file a queued recording was streamed to (``content`` is then None):
+    the shared ``transcription_jobs.transcribe_recording`` always passes it, and until 31 Oct 2026
+    this signature did not take it, so every queued job would have failed with a TypeError the
+    moment transcription was un-paused. A personal key needs the bytes, so it is offered only when
+    the recording came in as bytes.
+    """
     # Prime the managed-secret cache on the event loop BEFORE any thread hop, so both the provider
     # chain below and the header reads inside the thread see keys saved in the UI.
     await managed_secrets.refresh_if_stale()
@@ -709,7 +723,7 @@ async def transcribe_audio_bytes(
     #
     # `user_id` is None for the queue worker unless the job carries its requester, which is what
     # keeps a background drain off an arbitrary designer's card.
-    if user_id:
+    if user_id and content is not None:
         personal = await user_ai_keys.resolve(user_id, AiTask.TRANSCRIBE)
         if personal is not None and personal.is_user_supplied:
             try:
@@ -749,7 +763,9 @@ async def transcribe_audio_bytes(
     state = await store.load_state(job_id=job_id, providers=chain)
     state.skip |= set(skip_providers or ())
     hooks = StoreHooks(store, asyncio.get_running_loop(), media_id=media_id, job_id=job_id)
-    opts = _stt_options(settings, language_bias=language_bias, session_id=media_id)
+    opts = _stt_options(
+        settings, language_bias=language_bias, session_id=media_id, keyterms=keyterms
+    )
     try:
         return await asyncio.to_thread(
             _transcribe_sync,
@@ -758,6 +774,7 @@ async def transcribe_audio_bytes(
             mime_type,
             settings,
             chain,
+            source_path=source_path,
             state=state,
             hooks=hooks,
             opts=opts,

@@ -1,0 +1,206 @@
+{
+  "contract": "transcript-v1-api",
+  "contractVersion": 1,
+  "owner": "feature/transcript-pipeline stream T1 (backend). WEB (T2) and ANDROID (T3) copy this file verbatim and load their mocks from `examples` and `fixtures`.",
+  "source": "C:/dev/IIT/docs/transcription/DESIGN_2026-10-31_Scribe-Gemini-Pipeline.md sections 2-4, 9, 10",
+  "enforcedBy": "backend/tests/test_transcript_contract.py: every route below exists with its method, every example validates against backend/app/transcription/transcript/schema.py, and every fixture is reproduced byte for byte by backend/app/transcription/transcript/render.py",
+  "rules": [
+    "Identical in designer-portal and documentation-portal (shared/transcription.sha256 lists it).",
+    "Base path /api/transcripts. {mediaId} is MediaFile.id: every recording in both portals (Field Repository media, questionnaire takes, artisan record media, designer workshop media, designer dictation).",
+    "All times are ISO-8601 UTC. startMs/endMs are milliseconds from the start of the audio.",
+    "Field order is not normative. Extra response fields need a contractVersion bump.",
+    "Errors are {detail:{code,message}} with an UPPER_SNAKE code from errorCodes. A 404 with code NOT_FOUND also covers 'you may not read this transcript'.",
+    "Every route answers 404 NOT_FOUND while the feature switch is off (TRANSCRIPT_PIPELINE_ENABLED); clients then draw the legacy plain transcript.",
+    "Text from the server is plain text or our own markdown (render.py). Clients show markdown through a sanitised renderer: no raw HTML, ever.",
+    "The client never builds copy text itself unless it reproduces fixtures.copy byte for byte; otherwise it asks POST /copy.",
+    "Turn ids are stable for a version. A new version (re-transcription) gets new turn ids; edits and speaker names carry across by speakerKey and index only where noted."
+  ],
+  "errorCodes": [
+    "NOT_FOUND", "FORBIDDEN", "VALIDATION_FAILED", "STALE_REVISION", "TRANSCRIPTION_PAUSED",
+    "BUDGET_PAUSED", "CONSENT_REFUSED", "NOT_READY", "TURN_UNKNOWN", "ANSWER_LOCKED",
+    "NOT_A_QUESTIONNAIRE_TAKE", "AI_UNAVAILABLE", "ALREADY_RUNNING"
+  ],
+  "errorExample": {"detail": {"code": "STALE_REVISION", "message": "Changed on another device."}},
+
+  "enums": {
+    "pipelineStatus": [
+      {"value": "WAITING_FOR_CONSENT", "label": "Waiting for consent", "action": null},
+      {"value": "QUEUED", "label": "Queued", "action": "TRANSCRIBE_NOW"},
+      {"value": "TRANSCRIBING", "label": "Transcribing", "action": null},
+      {"value": "TRANSLATING", "label": "Translating", "action": null},
+      {"value": "READY", "label": "Ready", "action": null},
+      {"value": "NEEDS_ATTENTION", "label": "Needs attention", "action": "RETRY"}
+    ],
+    "pipelineStatusNotes": "WAITING_FOR_CONSENT: a subject refused external processing; nothing was sent. QUEUED also covers 'paused' and 'outside the nightly window' (see view.queueReason). TRANSCRIBE_NOW is shown to admins only (view.permissions.transcribeNow). RETRY is shown to whoever may edit (view.permissions.retry). READY with translation FAILED on some turns still reads READY; those turns carry translation.status FAILED.",
+    "queueReason": ["PAUSED", "BUDGET_PAUSED", "WINDOW", "WAITING", null],
+    "translationStatus": [
+      {"value": "TRANSLATED", "label": null},
+      {"value": "ALREADY_ENGLISH", "label": "Already in English"},
+      {"value": "STALE", "label": "Out of date"},
+      {"value": "PENDING", "label": "Translating"},
+      {"value": "FAILED", "label": "Couldn't translate"}
+    ],
+    "textSource": [
+      {"value": "MACHINE", "label": "Machine"},
+      {"value": "EDITED", "label": "Edited"}
+    ],
+    "speakerRole": ["RESEARCHER", "ARTISAN", "OTHER"],
+    "copyTrack": ["original", "english", "both"],
+    "downloadFormat": ["md", "docx", "srt", "vtt"],
+    "budgetState": ["OK", "ALERT", "PAUSED", "UNSET"]
+  },
+
+  "routes": [
+    {"method": "GET", "path": "/api/transcripts/{mediaId}", "returns": "TranscriptView", "notes": "Current version. ?version=N reads an older one (read only)."},
+    {"method": "GET", "path": "/api/transcripts/batch", "query": "ids=a,b,c (max 50)", "returns": "{items:[TranscriptSummary]}", "notes": "Header badges for lists. Unreadable ids are left out."},
+    {"method": "GET", "path": "/api/transcripts/{mediaId}/versions", "returns": "{items:[VersionInfo]}"},
+    {"method": "PUT", "path": "/api/transcripts/{mediaId}/speakers", "body": "SpeakerMappingBody", "returns": "TranscriptView", "notes": "Applies to every turn, every version and every copy."},
+    {"method": "GET", "path": "/api/transcripts/{mediaId}/speakers/suggestions", "returns": "{items:[SpeakerSuggestion]}"},
+    {"method": "PATCH", "path": "/api/transcripts/{mediaId}/turns/{turnId}", "body": "TurnEditBody", "returns": "Turn", "notes": "An edited original marks its English STALE. 409 STALE_REVISION when baseRevision is behind."},
+    {"method": "GET", "path": "/api/transcripts/{mediaId}/turns/{turnId}/history", "returns": "{items:[TurnHistoryEntry]}"},
+    {"method": "POST", "path": "/api/transcripts/{mediaId}/turns/{turnId}/retranslate", "returns": "Turn", "notes": "Synchronous, one turn, consent re-checked. 409 CONSENT_REFUSED / BUDGET_PAUSED."},
+    {"method": "POST", "path": "/api/transcripts/{mediaId}/retry", "returns": "202 TranscriptView", "notes": "Needs attention -> Queued. Re-runs translation only when transcription already succeeded."},
+    {"method": "POST", "path": "/api/transcripts/{mediaId}/transcribe-now", "returns": "202 TranscriptView", "notes": "Admins. 409 TRANSCRIPTION_PAUSED while paused."},
+    {"method": "POST", "path": "/api/transcripts/{mediaId}/copy", "body": "CopyBody", "returns": "{text: string}", "notes": "Server-side copy helper: exactly fixtures.copy."},
+    {"method": "GET", "path": "/api/transcripts/{mediaId}/download", "query": "format=md|docx|srt|vtt&track=original|english|both (srt/vtt: original|english)", "returns": "file with Content-Disposition (naming skill)"},
+    {"method": "POST", "path": "/api/transcripts/{mediaId}/ask", "body": "{question: string (3..500 chars)}", "returns": "AskAnswer", "notes": "Answers from this transcript only; consent re-checked; counts against budget."},
+    {"method": "POST", "path": "/api/transcripts/{mediaId}/autodraft", "returns": "AutoDraftResult", "notes": "Questionnaire takes only (409 NOT_A_QUESTIONNAIRE_TAKE). Drafts land in the existing AI drafts flow; locked answers and recordings-preferred questions are skipped and listed."},
+    {"method": "POST", "path": "/api/transcripts/{mediaId}/quote-card", "body": "{turnIds: [string] (1..6, contiguous or not)}", "returns": "QuoteCard", "notes": "409 CONSENT_REFUSED when any quoted artisan withdrew."},
+    {"method": "GET", "path": "/api/transcripts/glossary", "query": "craftId=&q=&limit=50&cursor=", "returns": "{items:[GlossaryTerm], nextCursor}"},
+    {"method": "GET", "path": "/api/transcripts/budget", "returns": "BudgetMeter", "notes": "Admins only (403 otherwise)."},
+    {"method": "PUT", "path": "/api/transcripts/budget", "body": "{monthlyUsd: number >= 0}", "returns": "BudgetMeter", "notes": "Admins only."}
+  ],
+
+  "types": {
+    "TranscriptView": {
+      "mediaId": "string",
+      "title": "string  e.g. 'Interview · Giriraj Prasad Chhipa · 24 Jun 2026'",
+      "status": "pipelineStatus",
+      "queueReason": "queueReason",
+      "statusMessage": "string|null  one calm sentence for NEEDS_ATTENTION / WAITING_FOR_CONSENT",
+      "version": "int|null  null before the first run",
+      "languages": "[{code: 'hi', label: 'Hindi'}]  in order of share of speech",
+      "durationMs": "int|null",
+      "speakerCount": "int",
+      "badges": "[{kind: 'stt'|'translation', provider: string, model: string, label: 'Scribe v2'|'Gemini 3.8 Flash'}]",
+      "speakers": "[Speaker]",
+      "turns": "[Turn]",
+      "summary": "[string]  up to five English lines (existing insights), [] when none",
+      "quotes": "[{turnId: string|null, original: string, english: string, speaker: string|null}]",
+      "cost": "{sttUsd: number, translationUsd: number, totalUsd: number}|null  admins only, else null",
+      "audio": "{url: string|null, durationMs: int|null}  url is the existing signed media url",
+      "permissions": "{edit: bool, retry: bool, transcribeNow: bool, ask: bool, autodraft: bool, quoteCard: bool, mapSpeakers: bool}",
+      "revision": "int  bumps on every edit or speaker change; send back as baseRevision",
+      "updatedAt": "ISO-8601"
+    },
+    "TranscriptSummary": {"mediaId": "string", "status": "pipelineStatus", "languages": "[{code,label}]", "durationMs": "int|null", "speakerCount": "int", "badges": "[Badge]"},
+    "Speaker": {"speakerKey": "string e.g. 'speaker_0'", "label": "string  the mapped name, else 'Speaker 1'", "name": "string|null", "role": "speakerRole|null", "personId": "string|null", "suggested": "bool  true when label comes from a suggestion nobody confirmed"},
+    "Turn": {
+      "id": "string",
+      "index": "int  0-based order",
+      "speakerKey": "string|null",
+      "speakerName": "string  as Speaker.label (the copy uses this)",
+      "startMs": "int",
+      "endMs": "int",
+      "language": "string  BCP-47 short code ('hi', 'en', ...)",
+      "text": "string  the current original (edited if edited, else machine)",
+      "textSource": "textSource",
+      "lowConfidence": "[[start, end)]  Unicode code-point offsets into text (equal to UTF-16 offsets for every Indic script) where Scribe was unsure; [] once edited",
+      "words": "[{text: string, startMs: int, endMs: int, offset: int}]  karaoke; offset is the character index of the word in text; [] once edited",
+      "translation": "{text: string|null, status: translationStatus, source: textSource, model: string|null}",
+      "revision": "int"
+    },
+    "VersionInfo": {"version": "int", "createdAt": "ISO-8601", "current": "bool", "status": "pipelineStatus", "badges": "[Badge]", "turnCount": "int", "durationMs": "int|null", "costUsd": "number|null (admins)"},
+    "SpeakerMappingBody": {"baseRevision": "int", "mappings": "[{speakerKey: string, name: string (1..80) | null to clear, role: speakerRole|null, personId: string|null}]"},
+    "SpeakerSuggestion": {"speakerKey": "string", "candidates": "[{name: string, role: speakerRole, personId: string|null, reason: 'roster'|'researcher'|'uploader'|'most_speech'}]"},
+    "TurnEditBody": {"baseRevision": "int  the Turn.revision you edited", "text": "string|undefined  new original (1..20000)", "english": "string|undefined  new English (0..20000)"},
+    "TurnHistoryEntry": {"at": "ISO-8601", "field": "ORIGINAL|ENGLISH|RETRANSLATE", "source": "textSource", "text": "string", "byName": "string|null"},
+    "CopyBody": {"track": "copyTrack", "turnIds": "[string]|null  null = Copy all (with the header); a list = Copy selected (no header), in transcript order", "single": "bool  true with exactly one turnId: the per-turn copy (text only, no speaker line)"},
+    "AskAnswer": {"covered": "bool  false = the transcript does not cover the question", "answer": "string  English", "citations": "[{turnId: string, startMs: int, quote: string|null}]  every turnId exists in this version; a quote is a verbatim span of that turn's original or English", "model": "string"},
+    "AutoDraftResult": {"drafted": "[{questionId: string, answerOriginal: string, answerEnglish: string, citations: [{turnId, startMs, quote}]}]", "skipped": "[{questionId: string, reason: 'LOCKED'|'RECORDING_PREFERRED'|'NOT_COVERED'|'ALREADY_ANSWERED'}]", "draftsUrl": "string  where the drafts flow shows them"},
+    "QuoteCard": {"turnIds": "[string]", "original": "string", "english": "string", "speakerName": "string", "artisanName": "string|null", "craft": "string|null", "date": "string e.g. '24 Jun 2026'", "language": "{code,label}", "clip": "{startMs: int, endMs: int, url: string|null}  the audio of those turns, with 500 ms padding, clamped", "markdown": "string  same shape as a Copy both of those turns, plus an attribution line"},
+    "GlossaryTerm": {"id": "string", "term": "string", "gloss": "string|null", "craftId": "string|null", "craftName": "string|null", "occurrences": "int", "sightings": "[{mediaId: string, turnId: string|null, startMs: int|null}] (max 5)"},
+    "BudgetMeter": {"month": "YYYY-MM (India time)", "monthlyUsd": "number|null", "spentUsd": "number", "sttUsd": "number", "translationUsd": "number", "percent": "number|null", "state": "budgetState", "alertAt": 0.8, "pauseAt": 1.0, "pausedByBudget": "bool"}
+  },
+
+  "examples": {
+    "TranscriptView": {
+      "mediaId": "cm_media_1",
+      "title": "Interview · Giriraj Prasad Chhipa · 24 Jun 2026",
+      "status": "READY",
+      "queueReason": null,
+      "statusMessage": null,
+      "version": 1,
+      "languages": [{"code": "hi", "label": "Hindi"}, {"code": "en", "label": "English"}],
+      "durationMs": 1524000,
+      "speakerCount": 2,
+      "badges": [
+        {"kind": "stt", "provider": "elevenlabs", "model": "scribe_v2", "label": "Scribe v2"},
+        {"kind": "translation", "provider": "gemini", "model": "gemini-3.8-flash", "label": "Gemini 3.8 Flash"}
+      ],
+      "speakers": [
+        {"speakerKey": "speaker_0", "label": "Nandini (researcher)", "name": "Nandini", "role": "RESEARCHER", "personId": "u_1", "suggested": false},
+        {"speakerKey": "speaker_1", "label": "Giriraj", "name": "Giriraj", "role": "ARTISAN", "personId": "a_1", "suggested": false}
+      ],
+      "turns": [
+        {
+          "id": "turn_a", "index": 0, "speakerKey": "speaker_0", "speakerName": "Nandini (researcher)",
+          "startMs": 4000, "endMs": 7600, "language": "hi",
+          "text": "आप ये रंग कैसे बनाते हैं?", "textSource": "MACHINE", "lowConfidence": [],
+          "words": [
+            {"text": "आप", "startMs": 4000, "endMs": 4300, "offset": 0},
+            {"text": "ये", "startMs": 4350, "endMs": 4600, "offset": 3},
+            {"text": "रंग", "startMs": 4650, "endMs": 5100, "offset": 6},
+            {"text": "कैसे", "startMs": 5150, "endMs": 5700, "offset": 10},
+            {"text": "बनाते", "startMs": 5750, "endMs": 6400, "offset": 15},
+            {"text": "हैं?", "startMs": 6450, "endMs": 7600, "offset": 21}
+          ],
+          "translation": {"text": "How do you make these colours?", "status": "TRANSLATED", "source": "MACHINE", "model": "gemini-3.8-flash"},
+          "revision": 1
+        },
+        {
+          "id": "turn_b", "index": 1, "speakerKey": "speaker_1", "speakerName": "Giriraj",
+          "startMs": 9000, "endMs": 15200, "language": "hi",
+          "text": "हम dabu के लिए मिट्टी और गोंद मिलाते हैं", "textSource": "MACHINE", "lowConfidence": [[3, 7]],
+          "words": [],
+          "translation": {"text": "We mix clay and gum for dabu (mud-resist printing).", "status": "TRANSLATED", "source": "MACHINE", "model": "gemini-3.8-flash"},
+          "revision": 1
+        }
+      ],
+      "summary": ["Giriraj explains how the dabu resist paste is made from clay and gum."],
+      "quotes": [{"turnId": "turn_b", "original": "हम dabu के लिए मिट्टी और गोंद मिलाते हैं", "english": "We mix clay and gum for dabu.", "speaker": "Giriraj"}],
+      "cost": null,
+      "audio": {"url": null, "durationMs": 1524000},
+      "permissions": {"edit": true, "retry": true, "transcribeNow": false, "ask": true, "autodraft": false, "quoteCard": true, "mapSpeakers": true},
+      "revision": 3,
+      "updatedAt": "2026-10-31T10:00:00Z"
+    },
+    "BudgetMeter": {"month": "2026-10", "monthlyUsd": 100.0, "spentUsd": 81.5, "sttUsd": 70.0, "translationUsd": 11.5, "percent": 81.5, "state": "ALERT", "alertAt": 0.8, "pauseAt": 1.0, "pausedByBudget": false},
+    "AskAnswer": {"covered": true, "answer": "He mixes clay and gum to make the dabu paste.", "citations": [{"turnId": "turn_b", "startMs": 9000, "quote": "मिट्टी और गोंद"}], "model": "gemini-3.8-flash"},
+    "AskAnswerNotCovered": {"covered": false, "answer": "The interview doesn't cover this.", "citations": [], "model": "gemini-3.8-flash"}
+  },
+
+  "fixtures": {
+    "about": "Input view (examples.TranscriptView) -> exact text. render.py reproduces each byte for byte; a client that copies locally must too (a test on each client loads this file). Line ends are \\n; no trailing newline.",
+    "timestamp": {"rule": "HH:MM:SS from startMs, floor to the second, always two-digit hours", "cases": [[0, "00:00:00"], [4000, "00:00:04"], [9999, "00:00:09"], [3725000, "01:02:05"]]},
+    "length": {"rule": "M:SS under an hour, H:MM:SS from an hour", "cases": [[0, "0:00"], [1524000, "25:24"], [3725000, "1:02:05"]]},
+    "copy": {
+      "all_original": "# Interview · Giriraj Prasad Chhipa · 24 Jun 2026\n| Language | Hindi, English | Length | 25:24 | Speakers | 2 |\n\n**Nandini (researcher)** · `00:00:04`\nआप ये रंग कैसे बनाते हैं?\n\n**Giriraj** · `00:00:09`\nहम dabu के लिए मिट्टी और गोंद मिलाते हैं",
+      "all_english": "# Interview · Giriraj Prasad Chhipa · 24 Jun 2026\n| Language | Hindi, English | Length | 25:24 | Speakers | 2 |\n\n**Nandini (researcher)** · `00:00:04`\nHow do you make these colours?\n\n**Giriraj** · `00:00:09`\nWe mix clay and gum for dabu (mud-resist printing).",
+      "all_both": "# Interview · Giriraj Prasad Chhipa · 24 Jun 2026\n| Language | Hindi, English | Length | 25:24 | Speakers | 2 |\n\n**Nandini (researcher)** · `00:00:04`\nआप ये रंग कैसे बनाते हैं?\n> How do you make these colours?\n\n**Giriraj** · `00:00:09`\nहम dabu के लिए मिट्टी और गोंद मिलाते हैं\n> We mix clay and gum for dabu (mud-resist printing).",
+      "selected_both_turn_b": "**Giriraj** · `00:00:09`\nहम dabu के लिए मिट्टी और गोंद मिलाते हैं\n> We mix clay and gum for dabu (mud-resist printing).",
+      "single_original_turn_a": "आप ये रंग कैसे बनाते हैं?",
+      "single_english_turn_a": "How do you make these colours?",
+      "single_both_turn_a": "आप ये रंग कैसे बनाते हैं?\n> How do you make these colours?",
+      "rules": [
+        "English of a turn whose translation is ALREADY_ENGLISH is its original text; 'both' then prints the original once, with no quote line.",
+        "English of a turn with no translation text (PENDING/FAILED) prints the original under 'english', and nothing under the quote for 'both'.",
+        "STALE English is still printed (it is the last good translation).",
+        "A multi-line English turn quotes every line with '> '.",
+        "Markdown-significant characters in turn text are NOT escaped: the text is what was said. Speaker names have '*', '`', '|' removed."
+      ]
+    },
+    "srt_original": "1\n00:00:04,000 --> 00:00:07,600\nNandini (researcher): आप ये रंग कैसे बनाते हैं?\n\n2\n00:00:09,000 --> 00:00:15,200\nGiriraj: हम dabu के लिए मिट्टी और गोंद मिलाते हैं",
+    "vtt_english": "WEBVTT\n\n1\n00:00:04.000 --> 00:00:07.600\n<v Nandini (researcher)>How do you make these colours?\n\n2\n00:00:09.000 --> 00:00:15.200\n<v Giriraj>We mix clay and gum for dabu (mud-resist printing)."
+  }
+}
