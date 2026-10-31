@@ -1642,7 +1642,7 @@ model MediaFile {
   /// The language the provider detected (`hin`, `multi`, ...). A record of what was heard, never a lock.
   transcriptLanguage String?
   /// Which provider produced `transcriptText` (`elevenlabs`, `deepgram`, `whisper`, `muse`, `cache`).
-  transcriptProvider String?
+  transcriptProvider String?
   /// 0.0.5: the Voice Isolator copy, beside the original (same file name, its own key).
   cleanedObjectKey   String?
   cleanedMimeType    String?
@@ -2665,7 +2665,7 @@ model AppSetting {
   workshopAutoMapLastResult Json?
   /// The transcript pipeline's monthly budget in USD (alert at 80 %, pause at 100 %), and the
   /// India-time month (YYYY-MM) the alert and the pause last fired in, so each fires once a month.
-  transcriptMonthlyBudgetUsd   Float?  @default(100)
+  transcriptMonthlyBudgetUsd   Float?  @default(100)
   /// 0.0.5: clean each newly transcribed recording with ElevenLabs Voice Isolator. Off by default.
   audioIsolationEnabled        Boolean @default(false)
   transcriptBudgetAlertedMonth String?
