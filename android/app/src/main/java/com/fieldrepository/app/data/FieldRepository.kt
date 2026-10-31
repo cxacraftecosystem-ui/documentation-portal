@@ -1779,8 +1779,8 @@ class FieldRepository(
         api.workshops(page = page, pageSize = 100, search = search?.blankToNull(), completeness = completeness)
 
     /** [artisansSearchPage] for media files. */
-    suspend fun mediaSearchPage(search: String?, page: Int): PageResponse<MediaFileDto> =
-        api.media(page = page, pageSize = 100, search = search?.blankToNull())
+    suspend fun mediaSearchPage(search: String?, page: Int, filters: Map<String, String> = emptyMap()): PageResponse<MediaFileDto> =
+        api.media(page = page, pageSize = 100, search = search?.blankToNull(), filters = filters)
 
     /** [artisansSearchPage] for interviews, inside the workshop scope on screen. */
     suspend fun interviewsSearchPage(

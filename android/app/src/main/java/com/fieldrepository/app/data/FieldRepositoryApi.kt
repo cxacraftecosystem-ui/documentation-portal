@@ -616,7 +616,9 @@ interface FieldRepositoryApi {
         @Query("linkedRecordType") linkedRecordType: String? = null,
         @Query("linkedRecordId") linkedRecordId: String? = null,
         /** The route's free-text filter (file name, caption, type), for the record pickers. */
-        @Query("search") search: String? = null
+        @Query("search") search: String? = null,
+        /** The shared questionnaire filters for takes (owner, 31 Oct 2026): `QuestionnaireFilters.mediaParams()`. */
+        @QueryMap(encoded = true) filters: Map<String, String> = emptyMap()
     ): PageResponse<MediaFileDto>
 
     // Admin-only: media whose parent record was deleted (tag columns survive, typed FK nulled) — and
