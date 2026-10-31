@@ -147,7 +147,6 @@ fun FormDetailScreen(
             form = fetched ?: v2.cache.detail(user?.id, formId)
             pending = v2.outbox.pendingSectionsOf(formId)
             bindings = runCatching { v2.api.bindings(formId).bindings }.getOrDefault(bindings)
-            sessions = runCatching { QuestionnaireV2.get(context).api.sessions(questionnaireId = formId).items }.getOrDefault(sessions)
         }
         loading = false
     }
@@ -268,17 +267,10 @@ fun FormDetailScreen(
         }
         if (actions.edit) PromptButtons(listOf(PromptButton(FormsCopy.ADD_SECTION, primary = true) { addingSection = true }))
 
-        // ── Sessions on this form ──
-        if (sessions.isNotEmpty()) {
-            Text(FormsCopy.SESSIONS_ON_FORM, style = MaterialTheme.typography.titleMedium)
-            sessions.forEach { s ->
-                Column(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { onOpenSession(s.id) }.padding(vertical = 6.dp)) {
-                    Text(s.title, style = MaterialTheme.typography.bodyMedium)
-                    Text(serverRow(s).meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
-                }
-                HorizontalDivider(color = MaterialTheme.field.hairline)
-            }
-        }
+        // ── Sessions on this form: the shared search and filters, each with its chips (owner, 31 Oct 2026) ──
+        if (!FormQueue.isLocal(formId)) com.fieldrepository.app.questionnaire.ui.FormSessionsList(
+            QuestionnaireV2.get(context), formId, onOpenSession = { s -> onOpenSession(s.id) }
+        )
     }
 
     val f = form

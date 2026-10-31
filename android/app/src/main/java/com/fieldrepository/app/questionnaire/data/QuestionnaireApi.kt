@@ -11,6 +11,7 @@ import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.QueryMap
 import retrofit2.http.Streaming
 import okhttp3.ResponseBody
 
@@ -57,6 +58,36 @@ interface QuestionnaireApi {
         @Query("dateTo") dateTo: String? = null,
         @Query("deleted") deleted: Boolean? = null
     ): QSessionList
+
+    /**
+     * The sessions list with the shared filters (owner, 31 Oct 2026): [filters] is
+     * [QuestionnaireFilters.toParams], already encoded (form, section or question, artisans,
+     * researcher, workshops, dates, kind, source, transcript, language, `q`).
+     */
+    @GET("questionnaire/sessions")
+    suspend fun sessionsFiltered(
+        @QueryMap(encoded = true) filters: Map<String, String>,
+        @Query("cursor") cursor: String? = null,
+        @Query("limit") limit: Int? = null
+    ): QSessionList
+
+    /** The recordings list and search: takes matching the shared filters, each with its chips. */
+    @GET("questionnaire/recordings")
+    suspend fun recordings(
+        @QueryMap(encoded = true) filters: Map<String, String>,
+        @Query("cursor") cursor: String? = null,
+        @Query("limit") limit: Int? = null,
+        @Query("sessionId") sessionId: String? = null
+    ): QRecordingPage
+
+    /** What each filter can be set to; [field] and [q] answer one searchable select. */
+    @GET("questionnaire/filters")
+    suspend fun filterOptions(
+        @Query("field") field: String? = null,
+        @Query("q") q: String? = null,
+        @Query("questionnaireId") questionnaireId: String? = null,
+        @Query("limit") limit: Int? = null
+    ): QFilterOptions
 
     @GET("questionnaire/sessions/{id}")
     suspend fun session(@Path("id") id: String): QSessionDetail

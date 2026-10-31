@@ -176,6 +176,36 @@ class QuestionnaireV2 private constructor(context: Context) {
         return runCatching { outboxJson.decodeFromString(serializer, kept.body) }.getOrNull()
     }
 
+    // ── Recording chips and the shared filters (owner, 31 Oct 2026) ───────────────────────────
+
+    /** Each list's filters, kept across navigation and a restart, for the account that set them. */
+    val filterStore: FilterStore by lazy { FilterStore(prefs, ::meId) }
+
+    /** The rows last read, so a list still filters with no signal (owner-stamped). */
+    val offlineRows: OfflineRows by lazy { OfflineRows(cacheDir, ::meId) }
+
+    /** One page of a list, and whether it came from this phone because there was no signal. */
+    data class Paged<T>(val items: List<T>, val nextCursor: String?, val offline: Boolean)
+
+    /** The sessions list: the server's page, or with no signal this account's kept rows, filtered here. */
+    suspend fun sessionsPage(filters: QuestionnaireFilters, cursor: String? = null, limit: Int = 30): Paged<QSession> =
+        runCatching { api.sessionsFiltered(filters.toParams(), cursor, limit) }.fold(
+            { page -> runCatching { offlineRows.keepSessions(page.items) }; Paged(page.items, page.nextCursor, false) },
+            { if (cursor != null) throw it else Paged(offlineRows.sessions(filters), null, true) }
+        )
+
+    /** The recordings list: the server's page, or with no signal this account's kept takes, filtered here. */
+    suspend fun recordingsPage(filters: QuestionnaireFilters, cursor: String? = null, limit: Int = 30): Paged<QRecording> =
+        runCatching { api.recordings(filters.toParams(), cursor, limit) }.fold(
+            { page -> runCatching { offlineRows.keepRecordings(page.items) }; Paged(page.items, page.nextCursor, false) },
+            { if (cursor != null) throw it else Paged(offlineRows.recordings(filters), null, true) }
+        )
+
+    /** One filter's values for a searchable select; null with no signal. */
+    suspend fun filterOptions(facet: String, q: String, questionnaireIds: List<String>): QFilterOptions? = runCatching {
+        api.filterOptions(field = facet, q = q.trim().ifBlank { null }, questionnaireId = questionnaireIds.joinToString(",").ifBlank { null })
+    }.getOrNull()
+
     /** A form with its sections and questions, online or from this account's kept copy. */
     suspend fun form(questionnaireId: String): QFormDetail? = cachedRead("form-$questionnaireId", QFormDetail.serializer()) { api.form(questionnaireId) }
 

@@ -21,6 +21,7 @@ import retrofit2.http.PUT
 import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.QueryMap
 import retrofit2.http.Streaming
 
 /**
@@ -169,7 +170,9 @@ interface QuestionnaireFormsApi {
     suspend fun forms(
         @Query("activeOnly") activeOnly: Boolean = true,
         @Query("scope") scope: String? = null,
-        @Query("kind") kind: String? = null
+        @Query("kind") kind: String? = null,
+        /** The shared questionnaire filters (owner, 31 Oct 2026), already encoded: `QuestionnaireFilters.toParams()`. */
+        @QueryMap(encoded = true) filters: Map<String, String> = emptyMap()
     ): List<QForm>
 
     @GET("questionnaires/{id}")

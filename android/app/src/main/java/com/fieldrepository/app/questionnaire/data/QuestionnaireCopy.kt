@@ -233,7 +233,47 @@ object QuestionnaireCopy {
         "outboxSendAgain" to "Send again",
         "outboxDiscardTitle" to "Discard this?",
         "outboxSendWithout" to "Send without the conflicting answers",
-        "useMyLocation" to "Use my location"
+        "useMyLocation" to "Use my location",
+        // Recording chips and the shared filters (owner, 31 Oct 2026).
+        "recordingsTitle" to "Recordings",
+        "chipWholeSession" to "Whole session",
+        "chipPresent" to "{name} · present",
+        "chipGuest" to "{name} · guest",
+        "chipEstimated" to "{date} · estimated",
+        "chipRecordedOn" to "Recorded {date}",
+        "chipMore" to "+{count}",
+        "chipSection" to "Section {code}",
+        "filtersTitle" to "Filters",
+        "filterSearchSessions" to "Search sessions, artisans, places",
+        "filterSearchRecordings" to "Search recordings, sections, transcripts",
+        "filterSearchForms" to "Search forms, sections, questions",
+        "filterQuestionnaire" to "Questionnaire",
+        "filterSection" to "Section or question",
+        "filterArtisans" to "Artisans",
+        "filterResearcher" to "Researcher",
+        "filterWorkshop" to "Workshop",
+        "filterDates" to "Dates",
+        "filterKind" to "Kind",
+        "filterSource" to "Source",
+        "filterTranscript" to "Transcript",
+        "filterLanguage" to "Language",
+        "filterAny" to "Any",
+        "filterFrom" to "From",
+        "filterTo" to "To",
+        "filterDateRange" to "{from} – {to}",
+        "filterClearAll" to "Clear all",
+        "filterDone" to "Done",
+        "filterCount" to "Filters ({count})",
+        "filterNoMatches" to "Nothing matches these filters.",
+        "filterOfflineCached" to "Offline: filtering what is on this device.",
+        "sourceApp" to "App",
+        "sourceUpload" to "Upload",
+        "sourceHandoff" to "Handoff",
+        "transcriptHas" to "Has transcript",
+        "transcriptNone" to "No transcript",
+        "transcriptPending" to "Transcribing",
+        "transcriptFailed" to "Transcript failed",
+        "kindNotStated" to "Kind not stated"
     )
 
     /** The keys the screens use, each pointing at its shared key. */
@@ -410,7 +450,12 @@ object QuestionnaireCopy {
         "tray.sendAgain" to "outboxSendAgain",
         "tray.discardTitle" to "outboxDiscardTitle",
         "tray.sendWithout" to "outboxSendWithout",
-        "place.useLocation" to "useMyLocation"
+        "place.useLocation" to "useMyLocation",
+        "researcher.pick" to "filterResearcher",
+        "researcher.roleContributor" to "filterResearcher",
+        "sessions.filters" to "filtersTitle",
+        "filter.from" to "filterFrom",
+        "filter.to" to "filterTo"
     )
 
     /**
@@ -521,9 +566,7 @@ object QuestionnaireCopy {
         "sessions.deletedEmpty" to "No deleted sessions.",
         "session.restored" to "Session restored.",
         "session.read" to "Read view",
-        "researcher.pick" to "Researcher",
         "researcher.role" to "Role",
-        "researcher.roleContributor" to "Researcher",
         "researcher.roleVolunteer" to "Volunteer",
         "researcher.added" to "Researcher added.",
         "read.approved" to "Approved.",
@@ -536,9 +579,6 @@ object QuestionnaireCopy {
         "place.permission" to "Allow location to fill the place, or type it.",
         "form.pick" to "Pick a form",
         "form.bound" to "Bound to this workshop",
-        "sessions.filters" to "Filters",
-        "filter.from" to "From",
-        "filter.to" to "To"
     )
 
     /** Every fixed string the screens ask for by key. */

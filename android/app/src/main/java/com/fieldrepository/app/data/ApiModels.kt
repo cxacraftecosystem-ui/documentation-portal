@@ -520,7 +520,9 @@ data class MediaFileDto(
     val uploadedBy: UserDto? = null,
     val createdAt: String? = null,
     val linkedRecordType: String? = null,
-    val linkedRecordId: String? = null
+    val linkedRecordId: String? = null,
+    /** A questionnaire take's chips (section, form, artisans, dates, workshop; owner, 31 Oct 2026). */
+    val questionnaireChips: com.fieldrepository.app.questionnaire.data.QChips? = null
 )
 
 @Serializable

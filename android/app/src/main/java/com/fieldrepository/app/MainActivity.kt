@@ -10639,7 +10639,9 @@ private data class RecordRow(
     val text: String,
     val interview: QuestionnaireInterviewDetailDto? = null,
     /** The server's completeness block for the record (2026-10-18), drawn as the card's ring. */
-    val completeness: CompletenessDto? = null
+    val completeness: CompletenessDto? = null,
+    /** A second line: a questionnaire take's chips, as words (owner, 31 Oct 2026). */
+    val hint: String? = null
 )
 
 /**
@@ -10683,7 +10685,8 @@ private suspend fun recordRowsPage(
         }
         EntryMode.MEDIA -> repository.mediaSearchPage(search, page).rows { m ->
             val label = m.caption?.takeIf { it.isNotBlank() } ?: m.originalFilename.ifBlank { "Media" }
-            RecordRow(m.id, label, "$label ${m.originalFilename} ${m.mediaType}")
+            val chips = com.fieldrepository.app.questionnaire.data.ChipRules.display(m.questionnaireChips).joinToString(" · ") { it.label }.ifBlank { null }
+            RecordRow(m.id, label, "$label ${m.originalFilename} ${m.mediaType} ${chips.orEmpty()}", hint = chips)
         }
         EntryMode.QUESTIONNAIRE -> repository.interviewsSearchPage(workshopIds, search, page, completeness).rows { iv ->
             val names = iv.artisans.mapNotNull { it.artisan?.name }.distinct().joinToString(", ")
@@ -10699,7 +10702,7 @@ private suspend fun recordRowsPage(
  */
 private fun recordRowOptions(mode: EntryMode, rows: List<RecordRow>): List<SelectOption> =
     if (mode != EntryMode.QUESTIONNAIRE) {
-        rows.map { SelectOption(it.id, it.label) }
+        rows.map { SelectOption(it.id, it.label, it.hint) }
     } else {
         rows.mapNotNull { it.interview }.groupBy { interviewGroupKey(it) }.values.map { group ->
             val rep = representativeInterview(group)
