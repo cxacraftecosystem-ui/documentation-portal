@@ -38,7 +38,8 @@ export function turnText(turn: TranscriptTurn, track: CopyTrack): string {
   return hasEnglish(turn) ? `${turn.text}\n${quote(turn.translation.text as string)}` : turn.text;
 }
 
-export function turnBlock(turn: TranscriptTurn, track: CopyTrack): string {
+export function turnBlock(turn: TranscriptTurn, track: CopyTrack, timestamps = true): string {
+  if (!timestamps) return `**${cleanName(turn.speakerName)}**\n${turnText(turn, track)}`;
   return `**${cleanName(turn.speakerName)}** · \`${clock(turn.startMs)}\`\n${turnText(turn, track)}`;
 }
 
@@ -47,9 +48,9 @@ export function transcriptHeader(transcript: Transcript): string {
   return `# ${transcript.title}\n| Language | ${languages} | Length | ${lengthLabel(transcript.durationMs)} | Speakers | ${transcript.speakerCount} |`;
 }
 
-/** Copy all: the header, then every turn. */
-export function copyAll(transcript: Transcript, track: CopyTrack): string {
-  return [transcriptHeader(transcript), ...transcript.turns.map((turn) => turnBlock(turn, track))].join("\n\n");
+/** Copy all: the header, then every turn. `timestamps: false` keeps only the speaker on each turn. */
+export function copyAll(transcript: Transcript, track: CopyTrack, timestamps = true): string {
+  return [transcriptHeader(transcript), ...transcript.turns.map((turn) => turnBlock(turn, track, timestamps))].join("\n\n");
 }
 
 /** Copy selected: the chosen turns in transcript order, no header. */

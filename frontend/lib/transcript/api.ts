@@ -28,8 +28,8 @@ export const TRANSCRIPT_ROUTES = {
   retranslate: (mediaId: string, turnId: string) => `${base(mediaId)}/turns/${encodeURIComponent(turnId)}/retranslate`,
   retry: (mediaId: string) => `${base(mediaId)}/retry`,
   transcribeNow: (mediaId: string) => `${base(mediaId)}/transcribe-now`,
-  download: (mediaId: string, format: DownloadFormat, track: CopyTrack) =>
-    `${base(mediaId)}/download?format=${format}&track=${(format === "srt" || format === "vtt") && track === "both" ? "original" : track}`,
+  download: (mediaId: string, format: DownloadFormat, track: CopyTrack, timestamps = true) =>
+    `${base(mediaId)}/download?format=${format}&track=${(format === "srt" || format === "vtt") && track === "both" ? "original" : track}${timestamps ? "" : "&timestamps=false"}`,
   ask: (mediaId: string) => `${base(mediaId)}/ask`,
   autodraft: (mediaId: string) => `${base(mediaId)}/autodraft`,
   quoteCard: (mediaId: string) => `${base(mediaId)}/quote-card`,

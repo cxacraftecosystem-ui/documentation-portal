@@ -515,3 +515,22 @@ def test_the_backfill_goes_oldest_first_inside_the_budget() -> None:
     assert [x.media_id for x in backfill.next_batch(candidates, limit=10, budget_left_usd=one_hour * 2.5)] == ["old", "mid"]
     assert backfill.next_batch(candidates, limit=10, budget_left_usd=0.0) == []
     assert backfill.minutes_of(90_000, None) == 1.5 and backfill.minutes_of(None, 480_000) == 1.0
+
+
+def test_each_speaker_gets_a_few_seconds_of_their_longest_turn_to_be_heard_by() -> None:
+    from types import SimpleNamespace as N
+
+    from app.services.transcript_pipeline import SAMPLE_MAX_MS, speaker_samples
+
+    rows = [
+        N(speakerKey="speaker_0", startMs=0, endMs=2_000),
+        N(speakerKey="speaker_1", startMs=2_000, endMs=30_000),
+        N(speakerKey="speaker_0", startMs=30_000, endMs=34_500),
+        N(speakerKey="speaker_2", startMs=40_000, endMs=40_600),
+        N(speakerKey=None, startMs=50_000, endMs=60_000),
+    ]
+    samples = speaker_samples(rows)
+    assert samples["speaker_0"] == {"startMs": 30_000, "endMs": 34_500}, "the longest turn"
+    assert samples["speaker_1"] == {"startMs": 2_000, "endMs": 2_000 + SAMPLE_MAX_MS}, "never more than eight seconds"
+    assert samples["speaker_2"] == {"startMs": 40_000, "endMs": 40_600}, "a short sample beats none"
+    assert set(samples) == {"speaker_0", "speaker_1", "speaker_2"}

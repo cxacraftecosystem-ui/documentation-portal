@@ -177,7 +177,11 @@ export class TranscriptFake {
       const name = `DesignWorkshop_Interview_2026-06-24_Giriraj-Prasad-Chhipa_Transcript.${format}`;
       return {
         status: 200,
-        raw: Buffer.from(format === "md" ? FIXTURES.copy[`all_${track}`] ?? "" : `${format}:${track}`),
+        raw: Buffer.from(
+          format === "md"
+            ? (query.get("timestamps") === "false" ? FIXTURES.copy[`all_${track}_no_timestamps`] : FIXTURES.copy[`all_${track}`]) ?? ""
+            : `${format}:${track}`
+        ),
         contentType: format === "md" ? "text/markdown" : "application/octet-stream",
         headers: { "content-disposition": `attachment; filename="${name}"` }
       };

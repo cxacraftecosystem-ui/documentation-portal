@@ -191,7 +191,8 @@ def test_the_pipeline_end_to_end_on_a_real_database(wired: Any) -> None:
             assert all(set(t) == set(CONTRACT["types"]["Turn"]) for t in view["turns"])
             assert view["status"] == "READY" and view["cost"] is None, "cost is for admins"
             assert [t["translation"]["status"] for t in view["turns"]] == ["PENDING", "PENDING", "ALREADY_ENGLISH", "PENDING"]
-            assert view["badges"][0]["label"] == "Scribe v2"
+            assert view["badges"] == [], "the model names are for administrators only"
+            assert all(s["sample"] and s["sample"]["endMs"] - s["sample"]["startMs"] <= 8000 for s in view["speakers"])
             assert view["turns"][1]["lowConfidence"] == [[3, 7], [25, 29]]
             # The uploader may change it; another reader is told why not, and offered no edit control.
             assert view["readOnly"] is None and view["permissions"]["edit"] and view["permissions"]["mapSpeakers"]

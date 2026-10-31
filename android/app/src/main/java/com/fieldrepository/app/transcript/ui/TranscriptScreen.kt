@@ -167,14 +167,24 @@ fun TranscriptScreen(
         is ScreenState.Ready -> {
             val repo = repository!!
             val view = s.loaded.view
-            val uri = audio ?: view.audio.url?.let(Uri::parse)
+            // Voice Isolator (0.0.5): the cleaned copy unless the reader ticks "the original recording".
+            var playingOriginal by remember(view.mediaId) { mutableStateOf(false) }
+            // A cleaned copy wins over the mount's own URI for the file: that URI is the recording as made.
+            val cleaned = view.audio.cleaned && view.audio.url != null && view.audio.originalUrl != null
+            val uri = if (cleaned) (if (playingOriginal) view.audio.originalUrl else view.audio.url)?.let(Uri::parse)
+            else audio ?: view.audio.url?.let(Uri::parse)
             val playback = rememberTranscriptPlayback(uri)
             val host = remember(view, s.loaded.offline) {
                 RepositoryHost(context, repo, view, s.loaded.offline, acceptDraft, scope,
                     onChanged = { updated -> state = s.copy(loaded = s.loaded.copy(view = updated, waitingEdits = s.loaded.waitingEdits + 1)) },
                     onReload = { reloads++ })
             }
-            TranscriptViewer(view, playback, host, offline = s.loaded.offline, waitingEdits = s.loaded.waitingEdits, failures = s.failures, headerExtra = headerExtra)
+            TranscriptViewer(
+                view, playback, host,
+                offline = s.loaded.offline, waitingEdits = s.loaded.waitingEdits, failures = s.failures, headerExtra = headerExtra,
+                playingOriginal = playingOriginal,
+                onPlayOriginal = if (cleaned) { on -> playingOriginal = on } else null,
+            )
         }
     }
 }
@@ -249,17 +259,19 @@ private class RepositoryHost(
         }
     }
 
-    override fun download(format: String, track: CopyTrack) {
+    override fun download(format: String, track: CopyTrack) = download(format, track, true)
+
+    override fun download(format: String, track: CopyTrack, timestamps: Boolean) {
         AppScope.io.launch {
             val file = runCatching {
                 if (offline) throw IOException("offline")
-                val got = server.download(view.mediaId, format, track)
+                val got = server.download(view.mediaId, format, track, timestamps)
                 File(shareDir(context), got.name ?: TranscriptNames.forView(view, format)).also { it.writeBytes(got.bytes) }
             }.getOrElse { e ->
                 if (e is CancellationException) throw e
                 // No connection: everything but Word is built on the phone from the same turns.
                 val text = when (format) {
-                    "md" -> TranscriptFormat.all(view, track)
+                    "md" -> TranscriptFormat.all(view, track, timestamps)
                     "srt" -> TranscriptFormat.srt(view, track)
                     "vtt" -> TranscriptFormat.vtt(view, track)
                     else -> null

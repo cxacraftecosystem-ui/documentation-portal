@@ -35,7 +35,7 @@ from app.core.config import get_settings
 from app.core.db import connect_db, disconnect_db, ensure_db_connected
 from app.services import artisan_duplicates
 from app.services.email_outbox import process_next_email_jobs
-from app.services.media_queue import process_next_media_jobs, queue_work_due
+from app.services.media_queue import process_next_media_jobs, queue_work_due, run_insights_lane
 from app.questionnaire.sessions import maybe_close_stale_sessions
 from app.services.workshop_auto_map import maybe_run_nightly_auto_map
 from app.services.weekly_digest import run_weekly_digests
@@ -95,6 +95,9 @@ async def _run() -> None:
         await connect_db()
 
     logger.info("Media queue worker started (interval=%.1fs)", interval)
+    # THE TRANSLATION LANE (0.0.5), beside the loop below rather than inside it: English and the
+    # summary for transcripts already made run while the next recording is being transcribed.
+    lane = asyncio.create_task(run_insights_lane(stop, settings))
     last_search_pass = 0.0
     try:
         while not stop.is_set():
@@ -112,6 +115,7 @@ async def _run() -> None:
                         limit=settings.media_queue_batch_size,
                         worker_id="queue-service",
                         settings=settings,
+                        skip_insights=True,
                     )
             except Exception:  # one bad iteration must never kill the worker
                 logger.exception("Media queue iteration failed; backing off")
@@ -155,6 +159,10 @@ async def _run() -> None:
             with suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(stop.wait(), timeout=interval)
     finally:
+        stop.set()
+        lane.cancel()
+        with suppress(asyncio.CancelledError, Exception):
+            await lane
         await disconnect_db()
         logger.info("Media queue worker stopped")
 

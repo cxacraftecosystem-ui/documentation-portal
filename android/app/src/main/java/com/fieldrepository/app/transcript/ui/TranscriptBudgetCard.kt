@@ -13,18 +13,22 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.fieldrepository.app.transcript.data.AudioIsolationSetting
 import com.fieldrepository.app.transcript.data.BudgetMeter
 import com.fieldrepository.app.transcript.data.TranscriptStrings
 import com.fieldrepository.app.transcript.data.TranscriptUiText
 import com.fieldrepository.app.transcript.portal.TranscriptPortal
+import com.fieldrepository.app.ui.AppToggle
 import com.fieldrepository.app.ui.FieldLinearProgressIndicator
 import com.fieldrepository.app.ui.field
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 /**
  * The month's transcription spend, read only, where admins already see the AI settings (§4.7).
@@ -81,4 +85,52 @@ fun BudgetMeterCard(meter: BudgetMeter, modifier: Modifier = Modifier) {
             meter.state == "ALERT" -> Text(TranscriptStrings.budgetAlert, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
         }
     }
+}
+
+/**
+ * Settings → API keys (0.0.5): ElevenLabs Voice Isolator on each newly transcribed recording. OFF
+ * until a master admin turns it on; the original recording is always kept. Draws nothing for a
+ * reader the route refuses. [canChange] is the master admin; the server refuses anyone else anyway.
+ */
+@Composable
+fun AudioIsolationCard(canChange: Boolean, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var setting by remember { mutableStateOf<AudioIsolationSetting?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        setting = try {
+            TranscriptPortal.backend(context).audioIsolation()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+    }
+    val current = setting ?: return
+    AppToggle(
+        label = "Remove background noise",
+        description = when {
+            current.enabled -> "On. Each new recording is cleaned with ElevenLabs Voice Isolator after it is transcribed. The original is kept."
+            current.keyConfigured -> "Off. Turn on to clean new recordings with ElevenLabs Voice Isolator, billed by ElevenLabs."
+            else -> "Off. Needs an ElevenLabs key with the Voice Isolator permission."
+        },
+        checked = current.enabled,
+        enabled = canChange,
+        busy = busy,
+        onCheckedChange = { on ->
+            busy = true
+            scope.launch {
+                setting = try {
+                    TranscriptPortal.backend(context).setAudioIsolation(on) ?: current
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    current
+                }
+                busy = false
+            }
+        },
+        modifier = modifier.testTag("transcript.isolation"),
+    )
 }

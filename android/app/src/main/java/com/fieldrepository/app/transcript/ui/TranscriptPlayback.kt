@@ -34,6 +34,10 @@ interface TranscriptPlayback {
     fun toggle()
     /** Moves to [seconds] and, unless [play] is false (the scrubber), plays from there. */
     fun seek(seconds: Double, play: Boolean = true)
+    /** A speaker's sample is playing and will stop by itself. */
+    val sampling: Boolean get() = false
+    /** Plays from [startSeconds] and stops at [endSeconds] by itself; called while sampling, stops. */
+    fun playRange(startSeconds: Double, endSeconds: Double) = seek(startSeconds)
 }
 
 /** A playback the test (or a recording with no audio yet) moves by hand. */
@@ -44,6 +48,11 @@ class ManualPlayback(available: Boolean = true, duration: Double = 0.0) : Transc
     override var durationSeconds by mutableDoubleStateOf(duration)
     override fun toggle() { playing = !playing }
     override fun seek(seconds: Double, play: Boolean) { positionSeconds = seconds; if (play) playing = true }
+    override var sampling by mutableStateOf(false)
+    override fun playRange(startSeconds: Double, endSeconds: Double) {
+        if (sampling) { sampling = false; playing = false; return }
+        positionSeconds = startSeconds; playing = true; sampling = true
+    }
 }
 
 private class ExoPlayback(private val player: ExoPlayer) : TranscriptPlayback {
@@ -51,7 +60,19 @@ private class ExoPlayback(private val player: ExoPlayer) : TranscriptPlayback {
     override var playing by mutableStateOf(false)
     override var positionSeconds by mutableDoubleStateOf(0.0)
     override var durationSeconds by mutableDoubleStateOf(0.0)
+    override var sampling by mutableStateOf(false)
+    private var stopAt: Double? = null
+    override fun playRange(startSeconds: Double, endSeconds: Double) {
+        if (sampling && player.isPlaying) {
+            stopAt = null; sampling = false; player.pause(); return
+        }
+        stopAt = endSeconds
+        sampling = true
+        seek(startSeconds, play = true)
+    }
     override fun toggle() {
+        stopAt = null
+        sampling = false
         if (player.isPlaying) player.pause() else {
             if (player.playbackState == Player.STATE_ENDED) player.seekTo(0)
             player.play()
@@ -65,6 +86,13 @@ private class ExoPlayback(private val player: ExoPlayer) : TranscriptPlayback {
     fun tick() {
         playing = player.isPlaying
         positionSeconds = player.currentPosition / 1000.0
+        stopAt?.let { end ->
+            if (positionSeconds >= end) {
+                player.pause()
+                stopAt = null
+                sampling = false
+            }
+        }
         val d = player.duration
         if (d > 0) durationSeconds = d / 1000.0
     }

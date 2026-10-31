@@ -41,6 +41,8 @@ export type TranscriptSpeaker = {
   personId: string | null;
   /** The label comes from a suggestion nobody confirmed. */
   suggested: boolean;
+  /** A few seconds of this speaker (their longest turn, at most 8 s), to play when naming them. */
+  sample?: { startMs: number; endMs: number } | null;
 };
 
 export type TranscriptWord = {
@@ -101,7 +103,8 @@ export type Transcript = {
   quotes: { turnId: string | null; original: string; english: string; speaker: string | null }[];
   /** Admins only, else null. */
   cost: { sttUsd: number; translationUsd: number; totalUsd: number } | null;
-  audio: { url: string | null; durationMs: number | null };
+  /** `url` is the Voice Isolator copy when `cleaned`; `originalUrl` is then the recording as made. */
+  audio: { url: string | null; durationMs: number | null; cleaned?: boolean; originalUrl?: string | null };
   permissions: TranscriptPermissions;
   /** Why this reader may read but not change it (edit, speakers, re-translate, retry, auto-draft); null when they may. */
   readOnly: { code: "NOT_EDITOR" | "HELD_POST"; message: string } | null;

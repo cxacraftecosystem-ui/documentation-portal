@@ -28,7 +28,23 @@ data class TranscriptSpeaker(
     val personId: String? = null,
     /** The label comes from a suggestion nobody has confirmed. */
     val suggested: Boolean = false,
+    /** A few seconds of this speaker (their longest turn, at most 8 s), played when naming them. */
+    val sample: TranscriptClip? = null,
 )
+
+/** `GET /settings/transcription`'s `audioIsolation` (0.0.5): the switch, and whether its key is set. */
+@Serializable
+data class AudioIsolationSetting(val enabled: Boolean = false, val keyConfigured: Boolean = false)
+
+@Serializable
+data class AudioIsolationEnvelope(val audioIsolation: AudioIsolationSetting? = null)
+
+@Serializable
+data class AudioIsolationBody(val audioIsolation: Boolean)
+
+/** A stretch of the recording, in milliseconds. */
+@Serializable
+data class TranscriptClip(val startMs: Long = 0, val endMs: Long = 0)
 
 /** One word with its timing and its character [offset] in the turn's text (karaoke). */
 @Serializable
@@ -71,7 +87,13 @@ data class TranscriptQuote(val turnId: String? = null, val original: String = ""
 data class TranscriptCost(val sttUsd: Double = 0.0, val translationUsd: Double = 0.0, val totalUsd: Double = 0.0)
 
 @Serializable
-data class TranscriptAudio(val url: String? = null, val durationMs: Long? = null)
+data class TranscriptAudio(
+    val url: String? = null,
+    val durationMs: Long? = null,
+    /** Voice Isolator (0.0.5): [url] is the cleaned copy, and [originalUrl] the recording as made. */
+    val cleaned: Boolean = false,
+    val originalUrl: String? = null,
+)
 
 @Serializable
 data class TranscriptPermissions(

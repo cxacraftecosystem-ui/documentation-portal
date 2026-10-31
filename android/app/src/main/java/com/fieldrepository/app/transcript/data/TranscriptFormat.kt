@@ -73,12 +73,13 @@ object TranscriptFormat {
         }
     }
 
-    fun block(turn: TranscriptTurn, track: CopyTrack): String =
-        "**${cleanSpeaker(turn.speakerName)}** · `${timestamp(turn.startMs)}`\n" + body(turn, track)
+    fun block(turn: TranscriptTurn, track: CopyTrack, timestamps: Boolean = true): String =
+        if (!timestamps) "**${cleanSpeaker(turn.speakerName)}**\n" + body(turn, track)
+        else "**${cleanSpeaker(turn.speakerName)}** · `${timestamp(turn.startMs)}`\n" + body(turn, track)
 
-    /** Copy all. */
-    fun all(view: Transcript, track: CopyTrack): String =
-        (listOf(header(view)) + view.turns.sortedBy { it.index }.map { block(it, track) }).joinToString("\n\n")
+    /** Copy all. [timestamps] false keeps only the speaker on each turn (0.0.5). */
+    fun all(view: Transcript, track: CopyTrack, timestamps: Boolean = true): String =
+        (listOf(header(view)) + view.turns.sortedBy { it.index }.map { block(it, track, timestamps) }).joinToString("\n\n")
 
     /** Copy selected: no header, transcript order whatever order the turns were ticked in. */
     fun selected(view: Transcript, turnIds: Collection<String>, track: CopyTrack): String {

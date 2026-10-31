@@ -1,6 +1,7 @@
 package com.fieldrepository.app.transcript.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -55,6 +57,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -92,6 +95,8 @@ open class TranscriptHost {
     /** Puts [text] on the clipboard; the viewer then says "Copied". */
     open fun copy(text: String) {}
     open fun download(format: String, track: CopyTrack) {}
+    /** The same, without a timestamp on any turn (`md` and `docx`; 0.0.5). */
+    open fun download(format: String, track: CopyTrack, timestamps: Boolean) = download(format, track)
     open fun statusAction() {}
     open fun editTurn(turn: TranscriptTurn, text: String?, english: String?) {}
     open fun retranslate(turn: TranscriptTurn) {}
@@ -130,6 +135,9 @@ fun TranscriptViewer(
     failures: List<String> = emptyList(),
     /** The mount's own chips for the recording (a take's RecordingChips), drawn under the badges. */
     headerExtra: (@Composable () -> Unit)? = null,
+    /** Voice Isolator (0.0.5): the recording as made is playing instead of the cleaned copy. */
+    playingOriginal: Boolean = false,
+    onPlayOriginal: ((Boolean) -> Unit)? = null,
 ) {
     var tab by rememberSaveable { mutableStateOf(TranscriptTab.ORIGINAL) }
     var selecting by rememberSaveable { mutableStateOf(false) }
@@ -141,6 +149,8 @@ fun TranscriptViewer(
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val turns = remember(view.turns) { view.turns.sortedBy { it.index } }
+    val marks = rememberTimelineMarks(view.mediaId)
+    var sampleKey by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
 
     fun copied(text: String) {
@@ -191,9 +201,9 @@ fun TranscriptViewer(
                             Toolbar(
                                 view = view,
                                 selecting = selecting,
-                                onCopyAll = { track -> copied(TranscriptFormat.all(view, track)) },
+                                onCopyAll = { track, timestamps -> copied(TranscriptFormat.all(view, track, timestamps)) },
                                 onSelect = { selecting = true },
-                                onDownload = host::download,
+                                onDownload = { format, track, timestamps -> host.download(format, track, timestamps) },
                                 onSheet = { sheet = it },
                                 hasFill = host.acceptDraft != null && view.permissions.autodraft,
                             )
@@ -224,6 +234,8 @@ fun TranscriptViewer(
                             onRetranslate = { host.retranslate(turn) },
                             onHistory = { historyOf = turn },
                             onSpeaker = { sheet = Sheet.SPEAKERS },
+                            marked = turn.id in marks.ids,
+                            onMark = if (playback.available) { on -> marks.set(turn.id, on) } else null,
                         )
                     }
                 }
@@ -237,13 +249,32 @@ fun TranscriptViewer(
                     onCancel = { selecting = false; selected.clear() },
                 )
             }
-            if (playback.available) PlayerBar(playback)
+            if (playback.available) {
+                PlayerBar(
+                    playback,
+                    marked = turns.filter { it.id in marks.ids },
+                    cleaned = view.audio.cleaned && view.audio.originalUrl != null && onPlayOriginal != null,
+                    playingOriginal = playingOriginal,
+                    onPlayOriginal = onPlayOriginal,
+                )
+            }
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 72.dp))
     }
 
     when (sheet) {
-        Sheet.SPEAKERS -> SpeakersSheet(view, host, onDismiss = { sheet = Sheet.NONE })
+        Sheet.SPEAKERS -> SpeakersSheet(
+            view,
+            host,
+            onDismiss = { sheet = Sheet.NONE },
+            onPlaySample = if (playback.available) { speaker ->
+                speaker.sample?.let { clip ->
+                    sampleKey = speaker.speakerKey
+                    playback.playRange(clip.startMs / 1000.0, clip.endMs / 1000.0)
+                }
+            } else null,
+            playingKey = if (playback.sampling) sampleKey else null,
+        )
         Sheet.ASK -> AskSheet(view, host, onSeek = { ms -> playback.seek(ms / 1000.0) }, onDismiss = { sheet = Sheet.NONE })
         Sheet.FILL -> FillSheet(view, host, onSeek = { ms -> playback.seek(ms / 1000.0) }, onDismiss = { sheet = Sheet.NONE })
         Sheet.GLOSSARY -> GlossarySheet(view, host, onSeek = { ms -> playback.seek(ms / 1000.0) }, onDismiss = { sheet = Sheet.NONE })
@@ -347,9 +378,9 @@ private fun StatusPill(status: String) {
 private fun Toolbar(
     view: Transcript,
     selecting: Boolean,
-    onCopyAll: (CopyTrack) -> Unit,
+    onCopyAll: (CopyTrack, Boolean) -> Unit,
     onSelect: () -> Unit,
-    onDownload: (String, CopyTrack) -> Unit,
+    onDownload: (String, CopyTrack, Boolean) -> Unit,
     onSheet: (Sheet) -> Unit,
     hasFill: Boolean,
 ) {
@@ -370,14 +401,15 @@ private fun Toolbar(
             )
             DropdownMenu(expanded = copyMenu, onDismissRequest = { copyMenu = false }) {
                 listOf(
-                    CopyTrack.ORIGINAL to TranscriptStrings.copyAllOriginal,
-                    CopyTrack.ENGLISH to TranscriptStrings.copyAllEnglish,
-                    CopyTrack.BOTH to TranscriptStrings.copyAllBoth,
-                ).forEach { (track, label) ->
+                    Triple(CopyTrack.ORIGINAL, TranscriptStrings.copyAllOriginal, true),
+                    Triple(CopyTrack.ENGLISH, TranscriptStrings.copyAllEnglish, true),
+                    Triple(CopyTrack.BOTH, TranscriptStrings.copyAllBoth, true),
+                    Triple(CopyTrack.BOTH, TranscriptStrings.copyAllBothNoTimestamps, false),
+                ).forEach { (track, label, timestamps) ->
                     DropdownMenuItem(
                         text = { Text(label) },
-                        onClick = { copyMenu = false; onCopyAll(track) },
-                        modifier = Modifier.testTag("transcript.copyAll.${track.wire}")
+                        onClick = { copyMenu = false; onCopyAll(track, timestamps) },
+                        modifier = Modifier.testTag("transcript.copyAll.${track.wire}" + if (timestamps) "" else ".plain")
                     )
                 }
             }
@@ -387,12 +419,18 @@ private fun Toolbar(
             AssistChip(onClick = { downloadMenu = true }, label = { Text(TranscriptStrings.download) }, modifier = Modifier.testTag("transcript.download"))
             DropdownMenu(expanded = downloadMenu, onDismissRequest = { downloadMenu = false }) {
                 listOf(
-                    Triple("md", CopyTrack.BOTH, TranscriptStrings.downloadMarkdown),
-                    Triple("docx", CopyTrack.BOTH, TranscriptStrings.downloadWord),
-                    Triple("srt", CopyTrack.ORIGINAL, TranscriptStrings.downloadSrt),
-                    Triple("vtt", CopyTrack.ORIGINAL, TranscriptStrings.downloadVtt),
-                ).forEach { (format, track, label) ->
-                    DropdownMenuItem(text = { Text(label) }, onClick = { downloadMenu = false; onDownload(format, track) })
+                    DownloadChoice("md", CopyTrack.BOTH, TranscriptStrings.downloadMarkdown, true),
+                    DownloadChoice("docx", CopyTrack.BOTH, TranscriptStrings.downloadWord, true),
+                    DownloadChoice("md", CopyTrack.BOTH, TranscriptStrings.downloadMarkdownNoTimestamps, false),
+                    DownloadChoice("docx", CopyTrack.BOTH, TranscriptStrings.downloadWordNoTimestamps, false),
+                    DownloadChoice("srt", CopyTrack.ORIGINAL, TranscriptStrings.downloadSrt, true),
+                    DownloadChoice("vtt", CopyTrack.ORIGINAL, TranscriptStrings.downloadVtt, true),
+                ).forEach { choice ->
+                    DropdownMenuItem(
+                        text = { Text(choice.label) },
+                        onClick = { downloadMenu = false; onDownload(choice.format, choice.track, choice.timestamps) },
+                        modifier = Modifier.testTag("transcript.download.${choice.format}" + if (choice.timestamps) "" else ".plain")
+                    )
                 }
             }
         }
@@ -422,6 +460,8 @@ private fun TurnRow(
     onRetranslate: () -> Unit,
     onHistory: () -> Unit,
     onSpeaker: () -> Unit,
+    marked: Boolean = false,
+    onMark: ((Boolean) -> Unit)? = null,
 ) {
     val lit = MaterialTheme.colorScheme.primary.copy(alpha = 0.06f)
     Column(
@@ -464,6 +504,15 @@ private fun TurnRow(
             )
             TurnCopyMenu(turn, onCopy)
             if (canEdit) TurnMoreMenu(turn, onEdit, onRetranslate, onHistory)
+        }
+        if (onMark != null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.clickable { onMark(!marked) }.testTag("turn.mark.${turn.id}")
+            ) {
+                Checkbox(checked = marked, onCheckedChange = { onMark(it) }, modifier = Modifier.size(32.dp))
+                Text(TranscriptStrings.markOnTimeline, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.field.muted)
+            }
         }
         val original: @Composable () -> Unit = { KaraokeText(turn, activeWord, onSeek) }
         val english: @Composable () -> Unit = { EnglishPane(turn, active, canEdit, onRetranslate) }
@@ -585,9 +634,48 @@ private fun SelectionBar(count: Int, canQuote: Boolean, onCopy: (CopyTrack) -> U
     }
 }
 
+private data class DownloadChoice(val format: String, val track: CopyTrack, val label: String, val timestamps: Boolean)
+
+/**
+ * The turns a reader marked as points on this recording's timeline: none until ticked, kept on this
+ * phone per recording (a reading aid, not part of the transcript).
+ */
+private class TimelineMarks(private val prefs: android.content.SharedPreferences, private val key: String) {
+    val ids = mutableStateListOf<String>().apply { addAll(prefs.getStringSet(key, emptySet()).orEmpty()) }
+    fun set(turnId: String, on: Boolean) {
+        if (on) { if (turnId !in ids) ids.add(turnId) } else ids.remove(turnId)
+        prefs.edit().putStringSet(key, ids.toSet()).apply()
+    }
+}
+
 @Composable
-private fun PlayerBar(playback: TranscriptPlayback) {
+private fun rememberTimelineMarks(mediaId: String): TimelineMarks {
+    val context = LocalContext.current
+    return remember(mediaId) {
+        TimelineMarks(context.getSharedPreferences("transcript_marks", android.content.Context.MODE_PRIVATE), mediaId)
+    }
+}
+
+@Composable
+private fun PlayerBar(
+    playback: TranscriptPlayback,
+    marked: List<TranscriptTurn> = emptyList(),
+    cleaned: Boolean = false,
+    playingOriginal: Boolean = false,
+    onPlayOriginal: ((Boolean) -> Unit)? = null,
+) {
     Surface(tonalElevation = 2.dp) {
+        Column {
+        if (cleaned && onPlayOriginal != null) {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(TranscriptStrings.cleanedAudioNote, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.field.muted, modifier = Modifier.weight(1f))
+                Checkbox(checked = playingOriginal, onCheckedChange = onPlayOriginal, modifier = Modifier.testTag("transcript.playOriginal"))
+                Text(TranscriptStrings.originalAudio, style = MaterialTheme.typography.labelMedium)
+            }
+        }
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = playback::toggle, modifier = Modifier.testTag("transcript.play")) {
                 Icon(
@@ -597,18 +685,40 @@ private fun PlayerBar(playback: TranscriptPlayback) {
                 )
             }
             val duration = playback.durationSeconds
-            Slider(
-                value = if (duration > 0) (playback.positionSeconds / duration).toFloat().coerceIn(0f, 1f) else 0f,
-                onValueChange = { f -> if (duration > 0) playback.seek(f * duration, play = false) },
-                enabled = duration > 0,
-                modifier = Modifier.weight(1f)
-            )
+            BoxWithConstraints(Modifier.weight(1f)) {
+                Slider(
+                    value = if (duration > 0) (playback.positionSeconds / duration).toFloat().coerceIn(0f, 1f) else 0f,
+                    onValueChange = { f -> if (duration > 0) playback.seek(f * duration, play = false) },
+                    enabled = duration > 0,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (duration > 0) {
+                    // The track runs between the thumb's two resting centres, about 10 dp in from each edge.
+                    val track = maxWidth - 20.dp
+                    marked.forEach { turn ->
+                        val fraction = (turn.startMs / 1000.0 / duration).toFloat().coerceIn(0f, 1f)
+                        val time = TranscriptFormat.timestamp(turn.startMs)
+                        Box(
+                            Modifier
+                                .align(Alignment.CenterStart)
+                                .offset(x = 10.dp + track * fraction - 8.dp)
+                                .size(16.dp)
+                                .background(MaterialTheme.field.warningContainer, CircleShape)
+                                .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                                .clickable { playback.seek(turn.startMs / 1000.0) }
+                                .semantics { contentDescription = TranscriptStrings.jumpTo(time) }
+                                .testTag("timeline.mark.${turn.id}")
+                        )
+                    }
+                }
+            }
             Text(
                 TranscriptFormat.length((playback.positionSeconds * 1000).toLong()),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.field.muted,
                 modifier = Modifier.padding(horizontal = 8.dp)
             )
+        }
         }
     }
 }

@@ -15,7 +15,7 @@ import {
   TRANSCRIPT_ROUTES,
   transcribeNow
 } from "@/lib/transcript/api";
-import type { CopyTrack, DownloadFormat, SpeakerMapping, Transcript, TranscriptTurn, ViewTab } from "@/lib/transcript/contract";
+import type { CopyTrack, DownloadFormat, SpeakerMapping, Transcript, TranscriptSpeaker, TranscriptTurn, ViewTab } from "@/lib/transcript/contract";
 import { clock, lengthLabel, usd } from "@/lib/transcript/format";
 import { locate } from "@/lib/transcript/karaoke";
 import { copyAll, copySelected, copySingle } from "@/lib/transcript/markdown";
@@ -85,7 +85,23 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
   const [panel, setPanel] = useState<"speakers" | "ask" | "quote" | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [open, setOpen] = useState(initiallyOpen);
-  const audio = useTranscriptAudio(audioUrl ?? transcript?.audio.url ?? null);
+  /** Voice Isolator (0.0.5): the cleaned copy plays unless the reader asks for the recording as made. */
+  const [original, setOriginal] = useState(false);
+  const cleanedAudio = Boolean(transcript?.audio.cleaned && transcript.audio.originalUrl);
+  // A cleaned copy wins over the mount's own URL for the file: that URL is the recording as made.
+  const audio = useTranscriptAudio(
+    (cleanedAudio ? (original ? transcript?.audio.originalUrl : transcript?.audio.url) : (audioUrl ?? transcript?.audio.url)) ?? null
+  );
+  const [sampleKey, setSampleKey] = useState<string | null>(null);
+  const playSample = useCallback(
+    (speaker: TranscriptSpeaker) => {
+      if (!speaker.sample) return;
+      setSampleKey(speaker.speakerKey);
+      audio.playRange(speaker.sample.startMs, speaker.sample.endMs);
+    },
+    [audio]
+  );
+  const marks = useTimelineMarks(mediaId);
   const { copy, message } = useCopyFeedback();
 
   useEffect(() => {
@@ -185,12 +201,15 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
     }
   }
 
-  async function download(format: DownloadFormat) {
+  async function download(format: DownloadFormat, timestamps = true) {
     if (!transcript) return;
     setActionError(null);
     try {
       const track = (format === "srt" || format === "vtt") && tabTrack(tab) === "both" ? "original" : tabTrack(tab);
-      const file = await fetchTranscriptFile(TRANSCRIPT_ROUTES.download(mediaId, format, track), nameForView(transcript.title, downloadWhat(format, track), format));
+      const file = await fetchTranscriptFile(
+        TRANSCRIPT_ROUTES.download(mediaId, format, track, timestamps),
+        nameForView(transcript.title, downloadWhat(format, track), format)
+      );
       saveBlob(file.blob, file.fileName);
     } catch (error) {
       setActionError(failure(error, ts("downloadFailed")));
@@ -303,6 +322,7 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
           >
             {audio.playing ? <Pause className="h-4 w-4" aria-hidden /> : <Play className="ml-0.5 h-4 w-4" aria-hidden />}
           </button>
+          <div className="relative min-w-0 flex-1" data-audio-timeline>
           <input
             type="range"
             min={0}
@@ -311,16 +331,48 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
             value={Math.min(audio.currentMs, Math.max(duration, 1))}
             onChange={(event) => audio.seek(Number(event.target.value), false)}
             aria-label={ts("playFrom", { time: clock(audio.currentMs) })}
-            className="audio-range min-w-0 flex-1"
+            className="audio-range w-full"
             style={
               {
                 "--audio-range-fill": `linear-gradient(to right, rgb(var(--progress-fill)) 0%, rgb(var(--progress-fill)) ${filled}%, rgb(var(--progress-track)) ${filled}%, rgb(var(--progress-track)) 100%)`
               } as React.CSSProperties
             }
           />
+          {duration > 0 && transcript
+            ? transcript.turns
+                .filter((turn) => marks.has(turn.id))
+                .map((turn) => (
+                  <button
+                    key={turn.id}
+                    type="button"
+                    className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-amber-500 shadow-sm transition hover:scale-125 focus-visible:outline-2 focus-visible:outline-purple-600 dark:border-ink-900"
+                    style={{ left: `${Math.min(100, (100 * turn.startMs) / duration)}%` }}
+                    aria-label={ts("jumpTo", { time: clock(turn.startMs) })}
+                    title={`${turn.speakerName} · ${clock(turn.startMs)}`}
+                    onClick={() => audio.seek(turn.startMs, true)}
+                    data-timeline-mark={turn.id}
+                  />
+                ))
+            : null}
+          </div>
           <span className="shrink-0 font-mono text-xs tabular-nums text-ink-500" data-audio-clock>
             {clock(audio.currentMs)}
           </span>
+        </div>
+      ) : null}
+      {audio.hasAudio && cleanedAudio ? (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-500" data-audio-cleaned>
+          <span>{ts("cleanedAudioNote")}</span>
+          <label className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 max-sm:min-h-11">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-purple-700"
+              checked={original}
+              onChange={(event) => setOriginal(event.target.checked)}
+              data-testid="play-original"
+            />
+            {ts("originalAudio")}
+          </label>
         </div>
       ) : null}
 
@@ -375,7 +427,12 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
               items={[
                 { id: "original", label: ts("copyAllOriginal"), onSelect: () => void copy(copyAll(transcript, "original")) },
                 { id: "english", label: ts("copyAllEnglish"), onSelect: () => void copy(copyAll(transcript, "english")) },
-                { id: "both", label: ts("copyAllBoth"), onSelect: () => void copy(copyAll(transcript, "both")) }
+                { id: "both", label: ts("copyAllBoth"), onSelect: () => void copy(copyAll(transcript, "both")) },
+                {
+                  id: "both-plain",
+                  label: ts("copyAllBothNoTimestamps"),
+                  onSelect: () => void copy(copyAll(transcript, "both", false))
+                }
               ]}
             />
             <button
@@ -400,6 +457,8 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
               items={[
                 { id: "md", label: ts("downloadMarkdown"), onSelect: () => void download("md") },
                 { id: "docx", label: ts("downloadWord"), onSelect: () => void download("docx") },
+                { id: "md-plain", label: ts("downloadMarkdownNoTimestamps"), onSelect: () => void download("md", false) },
+                { id: "docx-plain", label: ts("downloadWordNoTimestamps"), onSelect: () => void download("docx", false) },
                 { id: "srt", label: ts("downloadSrt"), onSelect: () => void download("srt") },
                 { id: "vtt", label: ts("downloadVtt"), onSelect: () => void download("vtt") }
               ]}
@@ -474,6 +533,8 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
               transcript={transcript}
               onSave={(mapping: SpeakerMapping) => runView(`speaker-${mapping.speakerKey}`, () => mapSpeakers(mediaId, transcript.revision, [mapping]))}
               onClose={() => setPanel(null)}
+              onPlaySample={audio.hasAudio ? playSample : undefined}
+              playingKey={audio.sampling ? sampleKey : null}
             />
           ) : null}
           {panel === "ask" ? <AskPanel mediaId={mediaId} onSeek={seek} /> : null}
@@ -501,6 +562,8 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
                   onSave={save}
                   onRetranslate={retranslate}
                   retranslating={busy === `retranslate-${turn.id}`}
+                  marked={marks.has(turn.id)}
+                  onMark={audio.hasAudio ? marks.set : undefined}
                 />
               );
             })}
@@ -511,4 +574,39 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
       {transcript.status === "READY" && !ready ? <p className="text-sm text-ink-500">{ts("noTurns")}</p> : null}
     </section>
   );
+}
+
+/**
+ * The turns a reader marked as points on this recording's timeline: off for every turn until ticked,
+ * kept on this device per recording (a reading aid, not part of the transcript), and readable when
+ * storage is not.
+ */
+function useTimelineMarks(mediaId: string) {
+  const storageKey = `transcript-marks:${mediaId}`;
+  const [ids, setIds] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(storageKey);
+      setIds(new Set(stored ? (JSON.parse(stored) as string[]) : []));
+    } catch {
+      setIds(new Set());
+    }
+  }, [storageKey]);
+  const set = useCallback(
+    (turnId: string, marked: boolean) => {
+      setIds((current) => {
+        const next = new Set(current);
+        if (marked) next.add(turnId);
+        else next.delete(turnId);
+        try {
+          window.localStorage.setItem(storageKey, JSON.stringify([...next]));
+        } catch {
+          // A private window keeps the marks for this visit only.
+        }
+        return next;
+      });
+    },
+    [storageKey]
+  );
+  return useMemo(() => ({ has: (turnId: string) => ids.has(turnId), set }), [ids, set]);
 }

@@ -49,6 +49,9 @@ test("Copy all, in each track, is fixtures.copy exactly", () => {
   expect(copyAll(VIEW, "original")).toBe(COPY.all_original);
   expect(copyAll(VIEW, "english")).toBe(COPY.all_english);
   expect(copyAll(VIEW, "both")).toBe(COPY.all_both);
+  // Without timestamps: the same text, the speaker alone on each turn (0.0.5).
+  expect(copyAll(VIEW, "both", false)).toBe(COPY.all_both_no_timestamps);
+  expect(COPY.all_both_no_timestamps).not.toContain("`00:");
 });
 
 test("Copy selected and the per-turn copy are fixtures.copy exactly", () => {

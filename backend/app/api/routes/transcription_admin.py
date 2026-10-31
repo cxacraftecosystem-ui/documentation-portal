@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from app.core.db import db
 from app.core.deps import require_admin, require_master_admin
-from app.services import ai, app_settings, managed_secrets, transcription_store
+from app.services import ai, app_settings, audio_isolation, managed_secrets, transcription_store
 from app.transcription.contract import PROVIDER_IDS
 from app.transcription.providers import ADAPTERS
 
@@ -40,6 +40,8 @@ class TranscriptionSettingsUpdate(BaseModel):
     paused: bool | None = None
     disabledProviders: list[Literal["elevenlabs", "deepgram", "whisper", "muse"]] | None = None
     budgets: list[BudgetIn] | None = Field(default=None, max_length=8)
+    #: ElevenLabs Voice Isolator on newly transcribed recordings (0.0.5). Off until switched on.
+    audioIsolation: bool | None = None
 
 
 class RetryFailedIn(BaseModel):
@@ -85,6 +87,11 @@ async def _state() -> dict[str, Any]:
             else app_settings.DEFAULT_TIMEZONE,
         },
         "mode": app_settings.transcription_mode(row),
+        # Voice Isolator (0.0.5): the switch, and whether the ElevenLabs key it needs is set.
+        "audioIsolation": {
+            "enabled": bool(getattr(row, "audioIsolationEnabled", False)) if row is not None else False,
+            "keyConfigured": bool(managed_secrets.peek_secret(audio_isolation.KEY_NAME)),
+        },
         **snapshot,
     }
 
@@ -109,13 +116,16 @@ async def update_transcription_settings(
             else None,
             updated_by_id=current_user.id,
         )
+    if payload.audioIsolation is not None:
+        await audio_isolation.set_enabled(payload.audioIsolation, current_user.id)
     for budget in payload.budgets or []:
         await transcription_store.save_budget(
             budget.provider, budget.period, budget.minutesCap, budget.spendCapUsd, current_user.id
         )
     logger.warning(
-        "AUDIT transcription-settings: paused=%s disabled=%s budgets=%s by=%s",
+        "AUDIT transcription-settings: paused=%s audioIsolation=%s disabled=%s budgets=%s by=%s",
         payload.paused,
+        payload.audioIsolation,
         payload.disabledProviders,
         [b.model_dump() for b in payload.budgets or []],
         current_user.email,

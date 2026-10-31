@@ -318,6 +318,8 @@ class Settings(BaseSettings):
     media_queue_worker_enabled: bool = Field(default=True, alias="MEDIA_QUEUE_WORKER_ENABLED")
     media_queue_interval_seconds: float = Field(default=5.0, alias="MEDIA_QUEUE_INTERVAL_SECONDS")
     media_queue_batch_size: int = Field(default=3, alias="MEDIA_QUEUE_BATCH_SIZE")
+    # The translation lane beside transcription (0.0.5): Gemini jobs in flight at once.
+    media_queue_insights_concurrency: int = Field(default=2, alias="MEDIA_QUEUE_INSIGHTS_CONCURRENCY")
     media_queue_job_max_attempts: int = Field(default=3, alias="MEDIA_QUEUE_JOB_MAX_ATTEMPTS")
 
     # --- Optional scaling layer (app/scale) -----------------------------------------------------
