@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
+import com.fieldrepository.app.transcript.data.TranscriptUiText
 import com.fieldrepository.app.ui.AudioPlayer
 import com.fieldrepository.app.ui.field
 
@@ -48,7 +49,9 @@ data class TakeRow(
     /** Removed in this visit: shown under "Show removed" with Restore. */
     val removed: Boolean = false,
     /** A finished transcript: "Draft answers" can read it. */
-    val canPropose: Boolean = false
+    val canPropose: Boolean = false,
+    /** The take's media file: the transcript viewer opens on it (DESIGN_2026-10-31 §3). */
+    val mediaFileId: String? = null
 )
 
 /**
@@ -75,6 +78,8 @@ fun TakeSheet(
     onPropose: (TakeRow) -> Unit = {},
     /** B40: the take's history (moves, refilings, decisions, removals, restores). */
     onHistory: (TakeRow) -> Unit = {},
+    /** Opens the take's transcript (tabs, copy, karaoke, Fill from recording). */
+    onTranscript: (TakeRow) -> Unit = {},
     /** A gentle line under the heading ("Add a recording?" for a typed-only cell). */
     note: String? = null
 ) {
@@ -103,6 +108,7 @@ fun TakeSheet(
                 }
                 if (!t.local) {
                     val actions = buildList {
+                        if (t.mediaFileId != null) add(PromptButton(TranscriptUiText.open) { onTranscript(t) })
                         if (t.canPropose) add(PromptButton(QuestionnaireCopy.s("take.propose")) { onPropose(t) })
                         if (t.canMakePrimary) add(PromptButton(QuestionnaireCopy.s("take.makePrimary")) { onMakePrimary(t) })
                         add(PromptButton(QuestionnaireCopy.s("take.history")) { onHistory(t) })

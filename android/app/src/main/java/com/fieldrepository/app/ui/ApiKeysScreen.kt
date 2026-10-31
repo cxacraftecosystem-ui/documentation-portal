@@ -433,6 +433,9 @@ fun ApiKeysScreen(
         // shared error line.
         ProviderOrderPanel(onMessage = onMessage)
 
+        // The month's transcription spend (read only; the route answers admins only and draws nothing otherwise).
+        com.fieldrepository.app.transcript.ui.TranscriptBudgetCard()
+
         // The service's switches and what it is doing. Admins read; the master admin changes.
         TranscriptionPanel(canChange = state.secrets != null && !state.restricted)
 

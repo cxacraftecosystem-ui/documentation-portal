@@ -15,6 +15,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,6 +30,8 @@ import com.fieldrepository.app.questionnaire.data.QArtisanRecord
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.questionnaire.data.QuestionnaireV2
 import com.fieldrepository.app.ui.AudioPlayer
+import com.fieldrepository.app.transcript.data.TranscriptUiText
+import com.fieldrepository.app.transcript.ui.TranscriptDialog
 import com.fieldrepository.app.ui.FieldLinearProgressIndicator
 import com.fieldrepository.app.questionnaire.ui.SegmentedChoice
 import com.fieldrepository.app.ui.SelectOption
@@ -65,6 +68,7 @@ fun ArtisanQuestionnaireRecord(
     var playing by remember { mutableStateOf<Uri?>(null) }
     var consent by remember { mutableStateOf<String?>("…") }
     // "Show removed" (B40): this artisan's removed takes, from the server, with Restore.
+    var transcriptOf by remember { mutableStateOf<String?>(null) }
     var removed by remember { mutableStateOf<List<com.fieldrepository.app.questionnaire.data.QRecording>>(emptyList()) }
     var showRemoved by remember { mutableStateOf(false) }
     var historyOf by remember { mutableStateOf<Pair<String, String>?>(null) }
@@ -145,6 +149,9 @@ fun ArtisanQuestionnaireRecord(
                                             row.badges.forEach { AssistChip(onClick = {}, label = { Text(it, style = MaterialTheme.typography.labelSmall) }) }
                                         }
                                     }
+                                    row.mediaFileId?.let { id ->
+                                        TextButton(onClick = { transcriptOf = id }) { Text(TranscriptUiText.open, style = MaterialTheme.typography.labelSmall) }
+                                    }
                                     Text("▶", style = MaterialTheme.typography.bodySmall)
                                 }
                             }
@@ -195,6 +202,7 @@ fun ArtisanQuestionnaireRecord(
                 }
             }
             playing?.let { AudioPlayer(it) }
+            transcriptOf?.let { id -> TranscriptDialog(id, audio = null, onDismiss = { transcriptOf = null }) }
         }
     }
     historyOf?.let { (answerId, heading) -> AnswerHistoryDialog(v2, answerId, heading) { historyOf = null } }
