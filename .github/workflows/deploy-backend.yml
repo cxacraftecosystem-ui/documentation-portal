@@ -1171,7 +1171,9 @@ jobs:
       # secrets with an SSM backup, and they reach the release .env only through this pin, never by
       # hand. On ssh's STDIN, never an argument, and never echoed. Unset: the box's own line is kept and
       # the step warns, because transcription stays paused until the coordinator un-pauses it.
-      - name: Pin the speech-to-text and Gemini keys
+      # The same pin switches the approved transcript features on (0.0.4): AI_FEATURES_ENABLED and
+      # AI_TRANSCRIPT_INSIGHTS_ENABLED are written true, so BACKEND_ENV cannot leave them off.
+      - name: Pin the speech-to-text and Gemini keys and the transcript switch
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           ENVFILE_PATH: /home/ubuntu/app/next/.env
@@ -1197,7 +1199,7 @@ jobs:
             cat <<'REMOTE'
           set -euo pipefail
           [ -s "$ENVFILE" ] && [ -n "$(tail -c1 "$ENVFILE")" ] && printf '\n' >> "$ENVFILE"
-          for pair in "ELEVENLABS_API_KEY:$EL" "GEMINI_API_KEY:$GM"; do
+          for pair in "ELEVENLABS_API_KEY:$EL" "GEMINI_API_KEY:$GM" "AI_FEATURES_ENABLED:true" "AI_TRANSCRIPT_INSIGHTS_ENABLED:true"; do
             name="${pair%%:*}"
             value="${pair#*:}"
             [ -n "$value" ] || continue
