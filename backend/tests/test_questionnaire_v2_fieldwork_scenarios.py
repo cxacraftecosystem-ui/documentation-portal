@@ -747,7 +747,8 @@ def test_an_artisan_who_refused_consent_is_recorded_and_filed_but_never_sent_out
 
 # ── 11 ────────────────────────────────────────────────────────────────────────────────────────
 # +1 each since owner amendment 2 (22 Oct 2026): the typed-answer read that lets a typed answer count.
-RECORD_BUDGET = 34
+# The record +1 since 31 Oct 2026: the one read of the sessions behind the takes' chips.
+RECORD_BUDGET = 35
 GRID_BUDGET = 8
 
 
