@@ -39,6 +39,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
+import com.fieldrepository.app.questionnaire.ui.LocalFormsScroll
+import com.fieldrepository.app.questionnaire.ui.rememberKept
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -151,13 +156,33 @@ fun FormsTab(
     val context = LocalContext.current
     val v2 = remember { FormsV2.get(context) }
     val scope = rememberCoroutineScope()
-    var openId by remember { mutableStateOf<String?>(null) }
-    var annexureOpen by remember { mutableStateOf(false) }
-    var tab by remember { mutableStateOf(FormTab.MINE) }
-    var kind by remember { mutableStateOf<String?>(null) }
-    var forms by remember { mutableStateOf<List<QForm>>(emptyList()) }
-    var localForms by remember { mutableStateOf<List<QForm>>(emptyList()) }
-    var workshops by remember { mutableStateOf<List<QWorkshopOption>>(emptyList()) }
+    // The open form, the library's tab and rows live in the memory the home gives this tab, so a
+    // session opened from a form comes back to that form, and closing a form comes back to the row it
+    // was opened from (owner, 1 Nov 2026).
+    var openId by rememberKept("forms.openId") { null as String? }
+    var annexureOpen by rememberKept("forms.annexureOpen") { false }
+    var tab by rememberKept("forms.tab") { FormTab.MINE }
+    var kind by rememberKept("forms.kind") { null as String? }
+    var forms by rememberKept("forms.rows") { emptyList<QForm>() }
+    var localForms by rememberKept("forms.localRows") { emptyList<QForm>() }
+    var workshops by rememberKept("forms.workshops") { emptyList<QWorkshopOption>() }
+    // Where the library was scrolled when a form was opened over it: the home's scroller is shared by
+    // the list and the form, so the list's place is written down and put back on close.
+    val pageScroll = LocalFormsScroll.current
+    var listScrollAt by rememberKept("forms.listScrollAt") { 0 }
+    fun openForm(id: String) {
+        listScrollAt = pageScroll?.value ?: 0
+        openId = id
+    }
+    LaunchedEffect(openId == null) {
+        val scroll = pageScroll ?: return@LaunchedEffect
+        if (openId != null) { scroll.scrollTo(0); return@LaunchedEffect }
+        val target = listScrollAt
+        if (target <= 0) return@LaunchedEffect
+        withTimeoutOrNull(4_000) { snapshotFlow { scroll.maxValue }.first { it >= target } }
+        scroll.scrollTo(target.coerceAtMost(scroll.maxValue))
+        listScrollAt = 0
+    }
     var loading by remember { mutableStateOf(true) }
     var refresh by remember { mutableIntStateOf(0) }
     val creating by FormsNav.newForm.collectAsState()
@@ -186,7 +211,7 @@ fun FormsTab(
         uri ?: return@rememberLauncherForActivityResult
         scope.launch {
             runCatching { v2.api.uploadWorkbook(workbookPart(context, uri)) }
-                .onSuccess { report -> message = FormsCopy.UPLOADED; refresh++; report.questionnaire?.id?.let { openId = it } }
+                .onSuccess { report -> message = FormsCopy.UPLOADED; refresh++; report.questionnaire?.id?.let { openForm(it) } }
                 .onFailure { onError(errorText(it, "Couldn't upload that workbook.")) }
         }
     }
@@ -233,7 +258,7 @@ fun FormsTab(
                         }
                     }
                 },
-                onOpen = { openId = it.id }
+                onOpen = { openForm(it.id) }
             )
         }
     }
@@ -243,9 +268,9 @@ fun FormsTab(
         scope.launch {
             // Online: created at once. Offline: queued with a local id and opened from the phone (A15).
             val created = if (ConnectivityObserver.isOnline(context)) runCatching { v2.api.createForm(java.util.UUID.randomUUID().toString(), body) }.getOrNull() else null
-            if (created != null) { refresh++; openId = created.id }
+            if (created != null) { refresh++; openForm(created.id) }
             else runCatching { v2.outbox.queueForm(body, user?.id) }
-                .onSuccess { localId -> OutboxSyncWorker.schedule(context); refresh++; openId = localId }
+                .onSuccess { localId -> OutboxSyncWorker.schedule(context); refresh++; openForm(localId) }
                 .onFailure { onError("Couldn't save that on this phone.") }
         }
     }
