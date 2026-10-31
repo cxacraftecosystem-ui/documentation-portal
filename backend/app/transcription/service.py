@@ -89,6 +89,8 @@ def result_dict(result: SttResult) -> dict[str, Any]:
         out["note"] = result.note
     if result.audio_ms:
         out["audioMs"] = result.audio_ms
+    if result.words:
+        out["words"] = result.words
     return out
 
 

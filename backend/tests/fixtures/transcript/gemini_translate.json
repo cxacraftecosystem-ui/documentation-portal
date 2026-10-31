@@ -1,0 +1,22 @@
+{
+ "candidates": [
+  {
+   "content": {
+    "role": "model",
+    "parts": [
+     {
+      "text": "{\"translations\": [{\"id\": \"t1\", \"english\": \"How do you make these colours?\", \"alreadyEnglish\": false}, {\"id\": \"t2\", \"english\": \"We mix clay and gum for dabu (mud-resist printing).\", \"alreadyEnglish\": false}, {\"id\": \"t3\", \"english\": \"And how long does it dry?\", \"alreadyEnglish\": true}, {\"id\": \"t4\", \"english\": \"Two days, 2 days in the sun.\", \"alreadyEnglish\": false}, {\"id\": \"t99\", \"english\": \"A turn that does not exist.\", \"alreadyEnglish\": false}], \"primaryLanguage\": \"hi\", \"summary\": [\"Giriraj explains how the dabu resist paste is made from clay and gum.\", \"It dries for 2 days in the sun.\"], \"quotes\": [{\"id\": \"t2\", \"original\": \"मिट्टी और गोंद\", \"english\": \"clay and gum\"}, {\"id\": \"t4\", \"original\": \"हम नील से रंगते हैं\", \"english\": \"We dye with indigo\"}], \"terms\": [{\"term\": \"dabu\", \"gloss\": \"mud-resist printing\"}, {\"term\": \"ajrakh\", \"gloss\": \"never said\"}]}"
+     }
+    ]
+   },
+   "finishReason": "STOP",
+   "index": 0
+  }
+ ],
+ "usageMetadata": {
+  "promptTokenCount": 900,
+  "candidatesTokenCount": 420,
+  "totalTokenCount": 1320
+ },
+ "modelVersion": "gemini-3.8-flash"
+}

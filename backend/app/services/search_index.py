@@ -387,9 +387,28 @@ async def _transcript(entity_id: str) -> dict[str, Any] | None:
         row.id,
         title=row.caption or row.originalFilename,
         subtitle=_join("Transcript", _media_kind(row)),
-        body=_body(row.originalFilename, row.caption, row.transcriptSummary, row.transcriptText),
+        body=_body(
+            row.originalFilename, row.caption, row.transcriptSummary, row.transcriptText,
+            await _transcript_english(row),
+        ),
         **await _media_common(row),
     )
+
+
+async def _transcript_english(row: Any) -> str | None:
+    """The English of the transcript's turns (services/transcript_pipeline), so an English search
+    finds a Hindi interview. Only while its words may still leave the server: a withdrawal stops new
+    English being indexed, and the embeddings already stored are kept (D32)."""
+    try:
+        from app.services import transcript_pipeline, transcript_portal
+
+        english = await transcript_pipeline.search_english(row.id)
+        if not english:
+            return None
+        may, _refusal = await transcript_portal.may_send(row)
+        return english if may else None
+    except Exception:  # noqa: BLE001 - the original transcript is still indexed
+        return None
 
 
 async def _product(entity_id: str) -> dict[str, Any] | None:

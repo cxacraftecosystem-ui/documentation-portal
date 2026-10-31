@@ -188,6 +188,9 @@ class SttResult:
     raw_ref: str | None = None
     #: The provider's own response, only when ``SttOptions.keep_payload``. Never persisted.
     payload: Any = None
+    #: Word timings in Scribe's shape (``{text, start, end, type, speaker_id, logprob}``, seconds),
+    #: from a provider that returns them. The transcript pipeline builds its turns from these.
+    words: list[dict[str, Any]] = field(default_factory=list)
 
 
 class SttProvider(Protocol):
