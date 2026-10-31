@@ -18,14 +18,26 @@ from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, ValidationError
 
-from app.services import transcription_enqueue as transcription
 from app.core.config import get_settings
 from app.core.deps import get_current_user, require_dataset_downloader
+from app.questionnaire import (
+    answers,
+    authoring,
+    bindings,
+    corpus,
+    coverage,
+    filters,
+    inbox,
+    record,
+    recordings,
+    respondents,
+    sessions,
+)
 from app.questionnaire import schemas as S
-from app.services import consent_gate
-from app.questionnaire import answers, authoring, bindings, corpus, coverage, inbox, record, recordings, respondents, sessions
 from app.questionnaire.common import fail, iso
 from app.questionnaire.recordings import MULTIPART_THRESHOLD, PART_SIZE
+from app.services import consent_gate
+from app.services import transcription_enqueue as transcription
 
 CONTRACT_VERSION = 1
 
@@ -99,18 +111,41 @@ async def sessions_create(request: Request, user: Any = Depends(get_current_user
 
 @router.get("/sessions", dependencies=V2)
 async def sessions_list(
-    workshopId: str | None = None, questionnaireId: str | None = None, artisanId: str | None = None,
-    researcherId: str | None = None, dateFrom: str | None = None, dateTo: str | None = None, search: str | None = None,
-    cursor: str | None = None, limit: int = Query(20, ge=1, le=100), deleted: bool = False,
+    request: Request, cursor: str | None = None, limit: int = Query(20, ge=1, le=100), deleted: bool = False,
     user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
+    """The sessions list. Every filter of ``app/questionnaire/filters.py`` (form, section or question,
+    artisans, researchers, workshops, dates, kind, source, transcript, language, ``q``); a repeatable
+    one is given more than once or comma-separated. ``search`` is the older name of ``q``."""
     # The Deleted list (soft-deleted sessions, owner decision 3) is the content admins'.
     if deleted and not authoring.may_list_deleted_sessions(user):
         fail("FORBIDDEN", "Only an admin can see deleted sessions.")
     return await sessions.list_sessions(
-        workshopId=workshopId, questionnaireId=questionnaireId, artisanId=artisanId, researcherId=researcherId,
-        dateFrom=dateFrom, dateTo=dateTo, search=search, cursor=cursor, limit=limit, deleted=deleted,
+        filters=filters.parse(request.query_params), cursor=cursor, limit=limit, deleted=deleted,
     )
+
+
+@router.get("/recordings", dependencies=V2)
+async def recordings_list(
+    request: Request, sessionId: str | None = None, cursor: str | None = None, limit: int = Query(30, ge=1, le=100),
+    user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Every live take matching the shared filters, newest first, each with its chips: the
+    recordings list and search (owner, 31 Oct 2026)."""
+    return await filters.list_recordings(
+        filters.parse(request.query_params), user, session_id=sessionId, cursor=cursor, limit=limit,
+    )
+
+
+@router.get("/filters", dependencies=V2)
+async def filter_options(
+    field: str | None = None, q: str | None = None, questionnaireId: list[str] = Query(default=[]),
+    limit: int = Query(50, ge=1, le=200), _: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """What each filter can be set to (forms, sections, questions, artisans, researchers,
+    workshops, languages), most used first; ``field`` and ``q`` answer a searchable select."""
+    ids = [v for value in questionnaireId for v in value.split(",") if v]
+    return await filters.facets(field_name=field, q=q, questionnaire_ids=ids or None, limit=limit)
 
 
 @router.post("/sessions/join", dependencies=V2)
@@ -547,7 +582,6 @@ async def artisan_consent_post(artisan_id: str, request: Request, user: Any = De
     (19 Oct 2026), so a refusal is what stops a send; recording GRANTED after one re-enqueues their
     held recordings (still subject to the pause, and to anyone else's refusal)."""
     from app.core.db import db
-
     from app.services.access import record_edit_privilege
 
     payload = await parse(request, S.ConsentPost)

@@ -15,6 +15,13 @@ import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
 import { useToast } from "@/components/ui/Toast";
 import { formSessions, libraryError, sourceLabel, type FormSession } from "@/lib/questionnaireLibrary";
 import { NEEDS_CONNECTION } from "@/components/questionnaires/useOnline";
+import { chipToggler, FilterBar } from "@/components/questionnaire/FilterBar";
+import { RecordingChips } from "@/components/questionnaire/RecordingChips";
+import { useUrlFilters } from "@/components/questionnaire/useUrlFilters";
+import { cleanFilters, type Filters } from "@/lib/questionnaire/filters";
+import { qs } from "@/lib/questionnaire/qs";
+
+const NO_FILTERS: Filters = {};
 
 export function FormSessionsCard({
   questionnaireId,
@@ -33,16 +40,22 @@ export function FormSessionsCard({
   const [more, setMore] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 
+  // The shared filters on this form's sessions (owner, 31 Oct 2026), kept in the page's URL.
+  const filtering = Boolean(questionnaireId) && !deletedOnly;
+  const { filters, setFilters, ready } = useUrlFilters();
+  const applied = filtering ? filters : NO_FILTERS;
+
   const load = useCallback(async () => {
+    if (!ready) return;
     try {
-      const answer = await formSessions.list(questionnaireId, view === "deleted");
+      const answer = await formSessions.list(questionnaireId, view === "deleted", applied);
       setRows(answer.items);
       setMore(Boolean(answer.nextCursor));
     } catch (err) {
       setRows([]);
       toast({ tone: "error", title: "Couldn't load the sessions", description: libraryError(err) });
     }
-  }, [questionnaireId, view, toast]);
+  }, [questionnaireId, view, toast, ready, applied]);
 
   useEffect(() => {
     void load();
@@ -82,12 +95,15 @@ export function FormSessionsCard({
           />
         ) : null}
       </div>
+      {filtering ? <FilterBar filters={filters} onChange={setFilters} placeholder={qs("filterSearchSessions")} hide={["questionnaireId", "kind"]} /> : null}
       {rows === null ? (
         <p className="text-sm text-ink-500">Loading…</p>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-ink-500">{view === "deleted" ? "Nothing deleted." : "No sessions on this form yet."}</p>
+        <p className="text-sm text-ink-500">
+          {view === "deleted" ? "Nothing deleted." : Object.keys(cleanFilters(applied)).length ? qs("filterNoMatches") : "No sessions on this form yet."}
+        </p>
       ) : (
-        <ul className="divide-y divide-line-200 rounded-md border border-line-200" data-testid={`sessions-${view}`}>
+        <ul className="divide-y divide-line-200 rounded-md border border-line-200" data-testid={`sessions-${view}`} data-form-session-list>
           {rows.map((row) => (
             <li key={row.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
@@ -100,6 +116,9 @@ export function FormSessionsCard({
                   {row.sessionDate ?? ""}
                   {sourceLabel(row.source) ? ` · ${sourceLabel(row.source)}` : ""}
                 </p>
+                {view === "live" ? (
+                  <RecordingChips chips={row.chips} variant="session" onChip={chipToggler(filters, setFilters)} filters={filters} className="mt-1.5" />
+                ) : null}
               </div>
               {view === "deleted" ? (
                 <RowActions>

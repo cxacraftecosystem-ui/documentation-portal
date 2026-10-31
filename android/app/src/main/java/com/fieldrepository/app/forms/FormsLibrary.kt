@@ -28,6 +28,12 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import com.fieldrepository.app.questionnaire.data.FilterStore
+import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
+import com.fieldrepository.app.questionnaire.data.QuestionnaireV2
+import com.fieldrepository.app.questionnaire.ui.FilterBar
+import com.fieldrepository.app.questionnaire.ui.FilterField
+import com.fieldrepository.app.questionnaire.ui.rememberKeptFilters
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -158,11 +164,18 @@ fun FormsTab(
     var message by remember { mutableStateOf<String?>(null) }
     val online = ConnectivityObserver.isOnline(context)
     val received by FormBundleInbox.pending.collectAsState()
+    // The shared search and filters (owner, 31 Oct 2026), kept across navigation for this account: the
+    // text finds a form by its title, sections, questions and sessions; the rest keep the forms with a
+    // session that matches (artisans, researcher, workshop, dates, source, transcript, language).
+    val sessionsV2 = remember { QuestionnaireV2.get(context) }
+    val (formFilters, setFormFilters) = rememberKeptFilters(sessionsV2, FilterStore.FORMS)
 
-    LaunchedEffect(refresh) {
+    LaunchedEffect(refresh, formFilters) {
         loading = true
-        val fetched = runCatching { v2.api.forms(activeOnly = false) }.getOrNull()
-        if (fetched != null && user != null) v2.cache.putList(user.id, fetched)
+        val narrowed = !formFilters.isEmpty
+        val fetched = runCatching { v2.api.forms(activeOnly = false, filters = formFilters.without("kind").toParams()) }.getOrNull()
+        // Only the whole library is kept for offline: a filtered answer would read as all of it.
+        if (fetched != null && user != null && !narrowed) v2.cache.putList(user.id, fetched)
         forms = fetched ?: v2.cache.read(user?.id)?.forms.orEmpty()
         localForms = v2.outbox.localForms()
         if (workshops.isEmpty()) workshops = runCatching { QuestionnairePortal.workshops(context) }.getOrDefault(emptyList())
@@ -196,6 +209,11 @@ fun FormsTab(
         else -> Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (loading) FieldLinearProgressIndicator(Modifier.fillMaxWidth())
             message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body) }
+            FilterBar(
+                formFilters, setFormFilters, QuestionnaireCopy.t("filterSearchForms"),
+                options = { facet, q, ids -> sessionsV2.filterOptions(facet, q, ids) },
+                fields = FilterField.FORMS.filterNot { it == FilterField.KIND }
+            )
             FormsLibraryList(
                 forms = forms, localForms = localForms, user = user, tab = tab, kind = kind, online = online,
                 onTab = { tab = it }, onKind = { kind = it },

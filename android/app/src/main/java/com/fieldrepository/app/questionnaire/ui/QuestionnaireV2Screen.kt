@@ -33,7 +33,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -52,11 +51,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.BuildConfig
 import com.fieldrepository.app.data.Naming
+import com.fieldrepository.app.questionnaire.data.ChipFilter
+import com.fieldrepository.app.questionnaire.data.FilterStore
 import com.fieldrepository.app.questionnaire.data.QArtisanOption
 import com.fieldrepository.app.questionnaire.data.QFormOption
 import com.fieldrepository.app.questionnaire.data.QSession
 import com.fieldrepository.app.questionnaire.data.QSessionCreate
 import com.fieldrepository.app.questionnaire.data.QWorkshopOption
+import com.fieldrepository.app.questionnaire.data.QuestionnaireFilters
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.questionnaire.data.QuestionnaireV2
 import com.fieldrepository.app.questionnaire.data.SessionUnit
@@ -67,13 +69,10 @@ import com.fieldrepository.app.recording.RecordingDraft
 import com.fieldrepository.app.recording.RecordingDrafts
 import com.fieldrepository.app.recording.RecordingService
 import com.fieldrepository.app.recording.RecoveryScanner
-import com.fieldrepository.app.ui.CalendarField
 import com.fieldrepository.app.ui.FieldLinearProgressIndicator
 import com.fieldrepository.app.ui.LocalMayDelete
-import com.fieldrepository.app.ui.SearchableSelectField
 import com.fieldrepository.app.ui.SelectOption
 import com.fieldrepository.app.ui.field
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -84,6 +83,8 @@ private sealed interface QRoute {
     data object Join : QRoute
     data object Coverage : QRoute
     data class ReadView(val sessionId: String) : QRoute
+    /** The recordings list, opened from the menu or by a chip tapped on another screen. */
+    data class Recordings(val initial: QuestionnaireFilters? = null) : QRoute
 }
 
 /** One row of the sessions list: a server session, or one still only on this phone. */
@@ -118,23 +119,12 @@ internal fun serverRow(s: QSession): SessionListRow = SessionListRow(
     session = s
 )
 
-/** The sessions list's overflow menu: Join and Workshop coverage for everyone. */
-internal fun sessionsMenu(): List<String> = listOf("sessions.join", "coverage.title")
+/** The sessions list's overflow menu: Recordings, Join and Workshop coverage for everyone. */
+internal fun sessionsMenu(): List<String> = listOf("recordings", "sessions.join", "coverage.title")
 
 /** The next page joins the list; a session already listed (a local row, or an earlier page) is not repeated. */
 internal fun appendPage(rows: List<SessionListRow>, page: List<QSession>): List<SessionListRow> =
     rows + page.map(::serverRow).filter { s -> rows.none { it.key == s.key } }
-
-/** B28: the list's filters, sent to the server as they are. */
-data class SessionFilters(
-    val workshopId: String = "",
-    val questionnaireId: String = "",
-    val artisanId: String = "",
-    val from: LocalDate? = null,
-    val to: LocalDate? = null
-) {
-    val any: Boolean get() = workshopId.isNotBlank() || questionnaireId.isNotBlank() || artisanId.isNotBlank() || from != null || to != null
-}
 
 /** The home's two tabs (UNIFY §4.2 Android): Sessions | Forms, with one FAB matching the tab. */
 enum class QuestionnaireTab { SESSIONS, FORMS }
@@ -192,9 +182,9 @@ fun QuestionnaireHome(
     var rows by remember { mutableStateOf<List<SessionListRow>>(emptyList()) }
     var cursor by remember { mutableStateOf<String?>(null) }
     var capped by remember { mutableStateOf(false) }
-    var search by remember { mutableStateOf("") }
-    var filters by remember { mutableStateOf(SessionFilters()) }
-    var showFilters by remember { mutableStateOf(false) }
+    // B28 and the shared filters (owner, 31 Oct 2026): kept per list across navigation and restarts.
+    val (filters, setFilters) = rememberKeptFilters(v2, FilterStore.SESSIONS)
+    var offline by remember { mutableStateOf(false) }
     var showDeleted by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
     var loadingMore by remember { mutableStateOf(false) }
@@ -222,27 +212,20 @@ fun QuestionnaireHome(
         batteryAsk = shouldAskBattery(context)
     }
 
-    suspend fun page(after: String?) = v2.api.sessions(
-        search = search.trim().ifBlank { null },
-        workshopId = filters.workshopId.ifBlank { null }.takeUnless { QuestionnairePortal.FILES_UNDER_DESIGN_WORKSHOP },
-        questionnaireId = filters.questionnaireId.ifBlank { null },
-        artisanId = filters.artisanId.ifBlank { null },
-        cursor = after,
-        dateFrom = filters.from?.toString(),
-        dateTo = filters.to?.toString()
-    )
+    suspend fun page(after: String?) = v2.sessionsPage(filters, after)
 
-    LaunchedEffect(refresh, route, search, filters, tab) {
+    LaunchedEffect(refresh, route, filters, tab) {
         if (route != QRoute.List || tab != QuestionnaireTab.SESSIONS) return@LaunchedEffect
-        if (search.isNotEmpty()) delay(350)
         loading = true
         val units = v2.outbox.units()
-        val local = if (filters.any) emptyList() else units.filter { it.sessionId == null }.mapNotNull { localRow(it, names) }
+        val search = filters.q
+        val local = if (!filters.without("q").isEmpty) emptyList() else units.filter { it.sessionId == null }.mapNotNull { localRow(it, names) }
             .filter { search.isBlank() || it.title.contains(search, ignoreCase = true) || it.note.orEmpty().contains(search, ignoreCase = true) }
         val result = runCatching { page(null) }.getOrNull()
         rows = appendPage(local, result?.items.orEmpty())
         cursor = result?.nextCursor
-        capped = result?.capped == true
+        offline = result?.offline == true
+        capped = false
         // The fix tray's way in: sessions with work this phone could not send (audit H20).
         unsent = units.filter { it.failedSteps.isNotEmpty() }.map { it.clientKey }
         inboxCount = runCatching { v2.api.inbox().counts.total }.getOrDefault(0)
@@ -285,6 +268,14 @@ fun QuestionnaireHome(
         tab = QuestionnaireTab.SESSIONS
         openServerId(id)
     }
+    // A chip tapped on another screen: the recordings list, filtered by it.
+    val chipToShow by QuestionnaireV2Nav.showRecordings.collectAsState()
+    LaunchedEffect(chipToShow) {
+        val f = chipToShow ?: return@LaunchedEffect
+        QuestionnaireV2Nav.showRecordings.value = null
+        tab = QuestionnaireTab.SESSIONS
+        route = QRoute.Recordings(f)
+    }
     // A form's "Start session" from elsewhere in the app.
     val formToStart by QuestionnaireV2Nav.startOnForm.collectAsState()
     LaunchedEffect(formToStart) {
@@ -323,25 +314,27 @@ fun QuestionnaireHome(
                             IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = QuestionnaireCopy.s("session.more")) }
                             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                                 sessionsMenu().forEach { key ->
-                                    DropdownMenuItem(text = { Text(QuestionnaireCopy.s(key)) }, onClick = {
+                                    DropdownMenuItem(text = { Text(if (key == "recordings") QuestionnaireCopy.t("recordingsTitle") else QuestionnaireCopy.s(key)) }, onClick = {
                                         menu = false
-                                        route = if (key == "coverage.title") QRoute.Coverage else QRoute.Join
+                                        route = when (key) {
+                                            "coverage.title" -> QRoute.Coverage
+                                            "recordings" -> QRoute.Recordings()
+                                            else -> QRoute.Join
+                                        }
                                     })
                                 }
                             }
                         }
                     }
                     if (unsent.isNotEmpty()) UnsentBanner(unsent.size) { scope.launch { openUnit(unsent.first()) } }
-                    OutlinedTextField(
-                        value = search, onValueChange = { search = it },
-                        label = { Text(QuestionnaireCopy.s("sessions.search")) }, singleLine = true, modifier = Modifier.fillMaxWidth()
+                    FilterBar(
+                        filters, setFilters, QuestionnaireCopy.t("filterSearchSessions"),
+                        options = { facet, q, ids -> v2.filterOptions(facet, q, ids) }, offline = offline
                     )
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(selected = showFilters || filters.any, onClick = { showFilters = !showFilters }, label = { Text(QuestionnaireCopy.s("sessions.filters")) })
-                        // Deleted sessions are the content admins' (owner decision 3), with Restore.
-                        if (mayDelete) FilterChip(selected = showDeleted, onClick = { showDeleted = !showDeleted }, label = { Text(QuestionnaireCopy.s("sessions.deleted")) })
+                    // Deleted sessions are the content admins' (owner decision 3), with Restore.
+                    if (mayDelete) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = showDeleted, onClick = { showDeleted = !showDeleted }, label = { Text(QuestionnaireCopy.s("sessions.deleted")) })
                     }
-                    if (showFilters) SessionFiltersPanel(filters, workshops, forms, artisans) { filters = it }
                     if (showDeleted) {
                         DeletedSessionsList(v2, onRestored = { onError(QuestionnaireCopy.s("session.restored")); refresh++ }, onError = onError)
                     } else {
@@ -358,6 +351,9 @@ fun QuestionnaireHome(
                                 Text(row.title, style = MaterialTheme.typography.bodyLarge)
                                 row.note?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted) }
                                 Text(row.meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.body)
+                                row.session?.chips?.let { chips ->
+                                    RecordingChips(chips, session = true, filters = filters, onChip = { f, label -> setFilters(filters.applyChip(f, label)) })
+                                }
                             }
                             HorizontalDivider(color = MaterialTheme.field.hairline)
                         }
@@ -367,7 +363,7 @@ fun QuestionnaireHome(
                             loadingMore = true
                             scope.launch {
                                 runCatching { page(cursor) }
-                                    .onSuccess { next -> rows = appendPage(rows, next.items); cursor = next.nextCursor; capped = next.capped }
+                                    .onSuccess { next -> rows = appendPage(rows, next.items); cursor = next.nextCursor }
                                     .onFailure { onError(QuestionnaireCopy.s("error.needsSignal")) }
                                 loadingMore = false
                             }
@@ -402,6 +398,13 @@ fun QuestionnaireHome(
             QRoute.Join -> Column {
                 TextButton(onClick = { route = QRoute.List }) { Text("‹ " + QuestionnaireCopy.s("sessions.title")) }
                 JoinScanner(v2, meId, onJoined = { key -> scope.launch { openUnit(key) } }, onError = onError)
+            }
+            is QRoute.Recordings -> Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
+                TextButton(onClick = { route = QRoute.List; refresh++ }) { Text("‹ " + QuestionnaireCopy.s("sessions.title")) }
+                RecordingsList(
+                    v2, initial = r.initial, onError = onError,
+                    onOpenSession = { sessionId -> scope.launch { openServerId(sessionId) } }
+                )
             }
             QRoute.Coverage -> Column {
                 TextButton(onClick = { route = QRoute.List }) { Text("‹ " + QuestionnaireCopy.s("sessions.title")) }
@@ -466,36 +469,6 @@ fun QuestionnaireHome(
     }
 }
 
-/** B28's filters: workshop, form, artisan and a date range, each a proper control. */
-@Composable
-private fun SessionFiltersPanel(
-    filters: SessionFilters,
-    workshops: List<QWorkshopOption>,
-    forms: List<QFormOption>,
-    artisans: List<QArtisanOption>,
-    onChange: (SessionFilters) -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (!QuestionnairePortal.FILES_UNDER_DESIGN_WORKSHOP) SearchableSelectField(
-            label = QuestionnaireCopy.s("start.workshop"),
-            options = workshops.map { SelectOption(it.id, it.title, it.place) },
-            selectedValue = filters.workshopId, includeNone = true, searchable = true
-        ) { onChange(filters.copy(workshopId = it)) }
-        SearchableSelectField(
-            label = QuestionnaireCopy.s("start.instrument"),
-            options = forms.map { SelectOption(it.id, it.title, it.kindLabel.ifBlank { null }) },
-            selectedValue = filters.questionnaireId, includeNone = true, searchable = true
-        ) { onChange(filters.copy(questionnaireId = it)) }
-        SearchableSelectField(
-            label = QuestionnaireCopy.s("start.artisan"),
-            options = artisans.filterNot { it.id.startsWith("local-") }.map { SelectOption(it.id, it.name, it.place.ifBlank { null }) },
-            selectedValue = filters.artisanId, includeNone = true, searchable = true
-        ) { onChange(filters.copy(artisanId = it)) }
-        CalendarField(label = QuestionnaireCopy.s("filter.from"), value = filters.from, onValueChange = { onChange(filters.copy(from = it)) }, maximum = filters.to)
-        CalendarField(label = QuestionnaireCopy.s("filter.to"), value = filters.to, onValueChange = { onChange(filters.copy(to = it)) }, minimum = filters.from)
-    }
-}
-
 /** Work this phone could not send (audit H20): opens the first such session, where the fix tray is. */
 @Composable
 private fun UnsentBanner(sessions: Int, onOpen: () -> Unit) {
@@ -541,6 +514,14 @@ object QuestionnaireV2Nav {
 
     /** A form's "Start session" (A9, D3): the start sheet opens on this form. */
     val startOnForm = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+
+    /** A chip tapped where there is no list to filter: the recordings list opens filtered by it. */
+    val showRecordings = kotlinx.coroutines.flow.MutableStateFlow<QuestionnaireFilters?>(null)
+
+    /** [RecordingChips]' usual `onChip` on a screen with no list of its own. */
+    fun openRecordings(filter: ChipFilter, label: String) {
+        showRecordings.value = QuestionnaireFilters().applyChip(filter, label)
+    }
 }
 
 /** P14's Update: the web app's page that serves the current APK. */

@@ -9,6 +9,10 @@
  * Everything that writes needs a connection and says so on the button (UNIFY 4.3).
  */
 
+import { FilterBar } from "@/components/questionnaire/FilterBar";
+import { useUrlFilters } from "@/components/questionnaire/useUrlFilters";
+import { filtersToQuery } from "@/lib/questionnaire/filters";
+import { qs } from "@/lib/questionnaire/qs";
 import { ClipboardList, Download, FilePlus2, FileSpreadsheet, FileUp, Package, RotateCcw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -75,6 +79,9 @@ export default function QuestionnairesLibraryPage() {
   const [reload, setReload] = useState(0);
   const [saved, setSaved] = useState<string | null>(null);
   const tab = scope ?? defaultTab(user);
+  // The shared filters (owner, 31 Oct 2026): forms by their words, sections and questions, and by
+  // the sessions held on them (artisans, workshops, dates …), kept in the URL.
+  const { filters: sharedFilters, setFilters: setSharedFilters, ready: filtersReady } = useUrlFilters();
 
   useEffect(() => {
     if (!user) return;
@@ -91,12 +98,12 @@ export default function QuestionnairesLibraryPage() {
 
   // A late answer for an earlier tab or filter is dropped by the `cancelled` flag.
   useEffect(() => {
-    if (!user) return;
+    if (!user || !filtersReady) return;
     let cancelled = false;
     const options = { workshopId: tab === "workshop" ? workshopId || null : null, kind: kind || null };
-    const key = listCacheKey(tab, options);
+    const key = listCacheKey(tab, options) + (Object.keys(sharedFilters).length ? `|${filtersToQuery(sharedFilters)}` : "");
     library
-      .list(tab, options)
+      .list(tab, { ...options, filters: sharedFilters })
       .then((rows) => {
         if (cancelled) return;
         writeFormsCache(user.id, { list: { key, forms: rows } });
@@ -120,7 +127,7 @@ export default function QuestionnairesLibraryPage() {
     return () => {
       cancelled = true;
     };
-  }, [user, tab, workshopId, kind, reload]);
+  }, [user, tab, workshopId, kind, reload, sharedFilters, filtersReady]);
 
   const load = () => setReload((n) => n + 1);
 
@@ -237,6 +244,16 @@ export default function QuestionnairesLibraryPage() {
             />
           </div>
         </div>
+
+        <FilterBar
+          filters={sharedFilters}
+          onChange={(next) => {
+            setForms(null);
+            setSharedFilters(next);
+          }}
+          placeholder={qs("filterSearchForms")}
+          hide={["questionnaireId", "kind"]}
+        />
 
         {tab === "workshop" && workshopId && annexureAllowed ? (
           <ButtonRow align="start" size="sm">

@@ -15,6 +15,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,6 +30,8 @@ import com.fieldrepository.app.questionnaire.data.QArtisanRecord
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.questionnaire.data.QuestionnaireV2
 import com.fieldrepository.app.ui.AudioPlayer
+import com.fieldrepository.app.transcript.data.TranscriptUiText
+import com.fieldrepository.app.transcript.ui.TranscriptDialog
 import com.fieldrepository.app.ui.FieldLinearProgressIndicator
 import com.fieldrepository.app.questionnaire.ui.SegmentedChoice
 import com.fieldrepository.app.ui.SelectOption
@@ -65,10 +68,13 @@ fun ArtisanQuestionnaireRecord(
     var playing by remember { mutableStateOf<Uri?>(null) }
     var consent by remember { mutableStateOf<String?>("…") }
     // "Show removed" (B40): this artisan's removed takes, from the server, with Restore.
+    var transcriptOf by remember { mutableStateOf<String?>(null) }
     var removed by remember { mutableStateOf<List<com.fieldrepository.app.questionnaire.data.QRecording>>(emptyList()) }
     var showRemoved by remember { mutableStateOf(false) }
     var historyOf by remember { mutableStateOf<Pair<String, String>?>(null) }
     var consentFailed by remember { mutableStateOf(false) }
+    // A chip tapped on a take: the recordings list, filtered by it, over this record.
+    var chipFilter by remember { mutableStateOf<com.fieldrepository.app.questionnaire.data.QuestionnaireFilters?>(null) }
 
     LaunchedEffect(artisanId, attempt) {
         loading = true; failed = false
@@ -144,6 +150,12 @@ fun ArtisanQuestionnaireRecord(
                                         if (row.badges.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                             row.badges.forEach { AssistChip(onClick = {}, label = { Text(it, style = MaterialTheme.typography.labelSmall) }) }
                                         }
+                                        RecordingChips(chipsOf(record!!, row.recordingId), onChip = { f, label ->
+                                            chipFilter = com.fieldrepository.app.questionnaire.data.QuestionnaireFilters().applyChip(f, label)
+                                        })
+                                    }
+                                    row.mediaFileId?.let { id ->
+                                        TextButton(onClick = { transcriptOf = id }) { Text(TranscriptUiText.open, style = MaterialTheme.typography.labelSmall) }
                                     }
                                     Text("▶", style = MaterialTheme.typography.bodySmall)
                                 }
@@ -195,9 +207,11 @@ fun ArtisanQuestionnaireRecord(
                 }
             }
             playing?.let { AudioPlayer(it) }
+            transcriptOf?.let { id -> TranscriptDialog(id, audio = null, onDismiss = { transcriptOf = null }) }
         }
     }
     historyOf?.let { (answerId, heading) -> AnswerHistoryDialog(v2, answerId, heading) { historyOf = null } }
+    chipFilter?.let { f -> RecordingsDialog(v2, f) { chipFilter = null } }
     continueFrom?.let { instrument ->
         val last = latestSession(instrument)
         if (last == null) { continueFrom = null } else {
@@ -216,3 +230,8 @@ fun ArtisanQuestionnaireRecord(
 /** The session "Continue with…" carries on from: the artisan's latest on this instrument (the web's latestSession). */
 internal fun latestSession(instrument: com.fieldrepository.app.questionnaire.data.QRecordInstrument): com.fieldrepository.app.questionnaire.data.QRecordSession? =
     instrument.sessions.maxByOrNull { it.session.sessionDate.orEmpty() }
+
+/** The chips of one take of the record, wherever in its sessions it sits. */
+internal fun chipsOf(record: QArtisanRecord, recordingId: String): com.fieldrepository.app.questionnaire.data.QChips? =
+    record.instruments.asSequence().flatMap { it.sessions.asSequence() }.flatMap { (it.recordings + it.uncertain).asSequence() }
+        .firstOrNull { it.id == recordingId }?.chips

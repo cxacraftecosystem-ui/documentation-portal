@@ -121,6 +121,7 @@ async def counts_for(form_ids: list[str]) -> dict[str, dict[str, int]]:
 
 async def list_forms(
     user: Any, *, scope: str | None = None, workshop_id: str | None = None, kind: str | None = None, active_only: bool = True,
+    ids: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """``GET /questionnaires``. With no ``scope`` the list is what it always was (every live form, or
     every form with ``activeOnly=false``), so older clients keep their picker. A scope narrows it:
@@ -168,6 +169,9 @@ async def list_forms(
             except ValueError as exc:
                 fail("VALIDATION_FAILED", str(exc))
             where.append(f'q."kind" = {p(token)}')
+    if ids is not None:
+        # The shared filters' answer (``app/questionnaire/filters.form_ids_matching``).
+        where.append(f'q."id" = ANY({p(sorted(ids))}::text[])')
     sql = 'SELECT q.* FROM "Questionnaire" q' + (" WHERE " + " AND ".join(where) if where else "") + ' ORDER BY q."sortOrder" ASC, q."createdAt" ASC'
     rows = await db.query_raw(sql, *params)
     counts = await counts_for([str(r["id"]) for r in rows])

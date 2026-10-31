@@ -262,7 +262,9 @@ data class QSession(
     val source: String = SessionSource.APP.wire,
     /** Soft-deleted (content admins see these under Deleted, and restore them). */
     val deletedAt: String? = null,
-    val respondents: List<QRespondent> = emptyList()
+    val respondents: List<QRespondent> = emptyList(),
+    /** The session's chips: form, artisans, date, workshop, language ([ChipRules]). */
+    val chips: QChips? = null
 )
 
 @Serializable
@@ -383,7 +385,9 @@ data class QRecording(
     val transcript: QTranscript? = null,
     val consent: QConsentVerdict? = null,
     /** Guests on the take, beside the artisan [subjects] (UNIFY U6). */
-    val respondents: List<QRecordingRespondent> = emptyList()
+    val respondents: List<QRecordingRespondent> = emptyList(),
+    /** The take's chips: section or question, form, people, dates, workshop, language, duration. */
+    val chips: QChips? = null
 ) {
     /** Every subject as one list, guests as `R:<id>` ([QSubjects]). */
     val allSubjects: List<QSubject> get() =
@@ -701,6 +705,39 @@ data class QRecordingEvents(val recordingId: String = "", val events: List<QReco
 
 @Serializable
 data class QRecordingList(val items: List<QRecording> = emptyList())
+
+/** `GET /questionnaire/recordings`: one page of takes matching the shared filters, newest first. */
+@Serializable
+data class QRecordingPage(val items: List<QRecording> = emptyList(), val nextCursor: String? = null)
+
+/** One value a filter can take (`GET /questionnaire/filters`), most used first. */
+@Serializable
+data class QFilterOption(
+    val id: String = "",
+    val label: String = "",
+    val count: Int = 0,
+    val kind: String? = null,
+    val type: String? = null,
+    val code: String? = null,
+    val title: String? = null,
+    val displayCode: String? = null,
+    val sectionId: String? = null,
+    val questionnaireId: String? = null
+)
+
+@Serializable
+data class QFilterOptions(
+    val questionnaires: List<QFilterOption> = emptyList(),
+    val sections: List<QFilterOption> = emptyList(),
+    val questions: List<QFilterOption> = emptyList(),
+    val artisans: List<QFilterOption> = emptyList(),
+    val researchers: List<QFilterOption> = emptyList(),
+    val workshops: List<QFilterOption> = emptyList(),
+    val languages: List<QFilterOption> = emptyList(),
+    val kinds: List<String> = emptyList(),
+    val sources: List<String> = emptyList(),
+    val transcript: List<String> = emptyList()
+)
 
 // ── The start sheet's form and the server grid (UNIFY U5, owner amendment 2) ─────────────────
 

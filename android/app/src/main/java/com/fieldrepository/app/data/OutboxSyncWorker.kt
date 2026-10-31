@@ -44,6 +44,8 @@ class OutboxSyncWorker(appContext: Context, params: WorkerParameters) : Coroutin
         // No read cache here: the activity's client owns that directory, and a sync pass only writes.
         val repository = FieldRepository(ApiClient.create(tokenStore), tokenStore)
         val userId = tokenStore.getUser()?.id
+        // Transcript edits, speaker names and re-translations made offline (transcript/data).
+        runCatching { com.fieldrepository.app.transcript.portal.TranscriptPortal.repository(context)?.drain() }
         // Questionnaire v2: older-format entries drain through the shims first, then the
         // per-session queue runs (data/QuestionnaireV2.kt, DESIGN §6.1.6).
         val outcome = try {

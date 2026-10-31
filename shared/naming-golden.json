@@ -567,6 +567,93 @@
         "ext": "m4a"
       },
       "name": "DesignWorkshop_Interview_2026-07-01_Bagru-Jaipur_Giriraj-Prasad-Chhipa-Ramesh-Kumar-Chhipa-Suresh-Chandra-Chhipa-Mahesh-Kumar-Chhipa_Recording.m4a"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Interview",
+        "date": "2026-06-24",
+        "place": "Jaipur",
+        "craft": "Hand Block Printing",
+        "subject": "Giriraj Prasad Chhipa",
+        "what": "Transcript",
+        "ext": "md"
+      },
+      "name": "DesignWorkshop_Interview_2026-06-24_Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Transcript.md"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Interview",
+        "date": "2026-06-24",
+        "place": "Jaipur",
+        "craft": "Hand Block Printing",
+        "subject": "Giriraj Prasad Chhipa",
+        "what": "Transcript-English",
+        "ext": "docx"
+      },
+      "name": "DesignWorkshop_Interview_2026-06-24_Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Transcript-English.docx"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Interview",
+        "date": "2026-06-24",
+        "place": "Jaipur",
+        "craft": "Hand Block Printing",
+        "subject": "Giriraj Prasad Chhipa",
+        "what": "Transcript-Bilingual",
+        "ext": "md"
+      },
+      "name": "DesignWorkshop_Interview_2026-06-24_Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Transcript-Bilingual.md"
+    },
+    {
+      "input": {
+        "portal": "FieldRepository",
+        "entity": "Interview",
+        "date": "2026-06-24",
+        "place": "Jaipur",
+        "craft": "Hand Block Printing",
+        "subject": "Giriraj Prasad Chhipa",
+        "what": "Subtitles-With-Speakers",
+        "ext": "srt"
+      },
+      "name": "FieldRepository_Interview_2026-06-24_Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Subtitles-With-Speakers.srt"
+    },
+    {
+      "input": {
+        "portal": "FieldRepository",
+        "entity": "Interview",
+        "date": "2026-06-24",
+        "place": "Jaipur",
+        "craft": "Hand Block Printing",
+        "subject": "Giriraj Prasad Chhipa",
+        "what": "Subtitles-With-Speakers-English",
+        "ext": "vtt"
+      },
+      "name": "FieldRepository_Interview_2026-06-24_Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Subtitles-With-Speakers-English.vtt"
+    },
+    {
+      "input": {
+        "portal": "DesignWorkshop",
+        "entity": "Interview",
+        "date": "2026-06-24",
+        "subject": "Giriraj Prasad Chhipa",
+        "what": "Quote-Card",
+        "ext": "png"
+      },
+      "name": "DesignWorkshop_Interview_2026-06-24_Giriraj-Prasad-Chhipa_Quote-Card.png"
+    },
+    {
+      "input": {
+        "portal": "FieldRepository",
+        "entity": "Interview",
+        "date": "2026-06-24",
+        "subject": "Giriraj Prasad Chhipa",
+        "what": "Quote-Card",
+        "ext": "m4a"
+      },
+      "name": "FieldRepository_Interview_2026-06-24_Giriraj-Prasad-Chhipa_Quote-Card.m4a"
     }
   ],
   "titles": [

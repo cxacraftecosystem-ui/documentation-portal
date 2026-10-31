@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
+import com.fieldrepository.app.transcript.data.TranscriptUiText
 import com.fieldrepository.app.ui.AudioPlayer
 import com.fieldrepository.app.ui.field
 
@@ -43,12 +44,16 @@ data class TakeRow(
     val removable: Boolean,
     /** The take's target this row stands for ("Q:…" or "S:…"), for "Make main take". */
     val targetKey: String? = null,
+    /** The take's chips (owner, 31 Oct 2026): section, form, people, dates, workshop, language. */
+    val chips: com.fieldrepository.app.questionnaire.data.QChips? = null,
     /** "Make main take" is offered (Professor and above, on an artisan's cell). */
     val canMakePrimary: Boolean = false,
     /** Removed in this visit: shown under "Show removed" with Restore. */
     val removed: Boolean = false,
     /** A finished transcript: "Draft answers" can read it. */
-    val canPropose: Boolean = false
+    val canPropose: Boolean = false,
+    /** The take's media file: the transcript viewer opens on it (DESIGN_2026-10-31 §3). */
+    val mediaFileId: String? = null
 )
 
 /**
@@ -75,6 +80,8 @@ fun TakeSheet(
     onPropose: (TakeRow) -> Unit = {},
     /** B40: the take's history (moves, refilings, decisions, removals, restores). */
     onHistory: (TakeRow) -> Unit = {},
+    /** Opens the take's transcript (tabs, copy, karaoke, Fill from recording). */
+    onTranscript: (TakeRow) -> Unit = {},
     /** A gentle line under the heading ("Add a recording?" for a typed-only cell). */
     note: String? = null
 ) {
@@ -93,6 +100,8 @@ fun TakeSheet(
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(t.first, style = MaterialTheme.typography.bodyMedium)
                         Text(t.second, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
+                        // Tapping a chip opens the recordings list filtered by it.
+                        RecordingChips(t.chips, onChip = QuestionnaireV2Nav::openRecordings)
                         TranscriptStatusLine(
                             t.transcript,
                             onRetry = if (t.local) null else ({ onRetry(t) }),
@@ -103,6 +112,7 @@ fun TakeSheet(
                 }
                 if (!t.local) {
                     val actions = buildList {
+                        if (t.mediaFileId != null) add(PromptButton(TranscriptUiText.open) { onTranscript(t) })
                         if (t.canPropose) add(PromptButton(QuestionnaireCopy.s("take.propose")) { onPropose(t) })
                         if (t.canMakePrimary) add(PromptButton(QuestionnaireCopy.s("take.makePrimary")) { onMakePrimary(t) })
                         add(PromptButton(QuestionnaireCopy.s("take.history")) { onHistory(t) })

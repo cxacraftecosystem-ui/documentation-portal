@@ -152,6 +152,9 @@ async def transcribe_recording(
         if hit is not None:
             result = service.result_dict(cached_result(hit))
             result["cacheHit"] = True
+            from app.services import transcript_pipeline
+
+            await transcript_pipeline.store_transcription(media, result)
             try:
                 await store.record_usage(
                     UsageEvent(hit.provider, hit.model, None, None, 0, None, result["status"], 0.0),
@@ -164,6 +167,16 @@ async def transcribe_recording(
                     "could not record a cache hit for media %s (%s)", media_id, type(exc).__name__
                 )
             return result
+    # THE TRANSCRIPT PIPELINE (31 Oct 2026): this recording's own key terms (its artisans, its craft,
+    # the glossary heard for that craft, then the master list), at most 100, most specific first.
+    from app.services import transcript_pipeline
+
+    extra: dict[str, Any] = {}
+    terms: list[str] = []
+    if transcript_pipeline.accepts_keyterms(transcribe):
+        terms = await transcript_pipeline.keyterms_for(media)
+        if terms:
+            extra["keyterms"] = terms
     result = await transcribe(
         content if not source_path else None,
         filename,
@@ -175,7 +188,11 @@ async def transcribe_recording(
         job_id=_value(job, "id"),
         language_bias=bias,
         skip_providers=skipped_providers(job) if job is not None else None,
+        **extra,
     )
+    if result.get("status") == "COMPLETED":
+        await transcript_pipeline.store_transcription(media, result, keyterm_count=len(terms))
+        await transcript_pipeline.check_budget()
     if result.get("status") == "RATE_LIMITED" and job is not None:
         await note_throttle(job, result.get("provider"))
     if sha and result.get("status") == "COMPLETED" and result.get("provider"):

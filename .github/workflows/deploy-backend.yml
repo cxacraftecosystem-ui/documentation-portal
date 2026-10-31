@@ -1165,6 +1165,52 @@ jobs:
           REMOTE
           } | ssh ubuntu@$EC2_HOST 'bash -s'
 
+      # The transcript pipeline's two keys (31 Oct 2026, docs/transcription/DESIGN_2026-10-31_Scribe-Gemini-
+      # Pipeline.md section 9): ELEVENLABS_API_KEY (Scribe v2; this portal's own key, IP-locked by
+      # ElevenLabs to this box) and GEMINI_API_KEY (Gemini 3.8 Flash, AI Studio). Both are Actions
+      # secrets with an SSM backup, and they reach the release .env only through this pin, never by
+      # hand. On ssh's STDIN, never an argument, and never echoed. Unset: the box's own line is kept and
+      # the step warns, because transcription stays paused until the coordinator un-pauses it.
+      # The same pin switches the approved transcript features on (0.0.4): AI_FEATURES_ENABLED and
+      # AI_TRANSCRIPT_INSIGHTS_ENABLED are written true, so BACKEND_ENV cannot leave them off.
+      - name: Pin the speech-to-text and Gemini keys and the transcript switch
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          ENVFILE_PATH: /home/ubuntu/app/next/.env
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+          for name in ELEVENLABS_API_KEY GEMINI_API_KEY; do
+            value="${!name}"
+            if [ -z "$value" ]; then
+              echo "::warning::$name is not set as an Actions secret; the release keeps the box's own line"
+              continue
+            fi
+            if ! printf '%s' "$value" | grep -qE '^[A-Za-z0-9_-]{20,}$'; then
+              echo "::error::$name is not one line of letters, digits, '_' or '-'; nothing was deployed."
+              exit 1
+            fi
+          done
+          {
+            printf 'ENVFILE=%q\n' "$ENVFILE_PATH"
+            printf 'EL=%q\n' "$ELEVENLABS_API_KEY"
+            printf 'GM=%q\n' "$GEMINI_API_KEY"
+            cat <<'REMOTE'
+          set -euo pipefail
+          [ -s "$ENVFILE" ] && [ -n "$(tail -c1 "$ENVFILE")" ] && printf '\n' >> "$ENVFILE"
+          for pair in "ELEVENLABS_API_KEY:$EL" "GEMINI_API_KEY:$GM" "AI_FEATURES_ENABLED:true" "AI_TRANSCRIPT_INSIGHTS_ENABLED:true"; do
+            name="${pair%%:*}"
+            value="${pair#*:}"
+            [ -n "$value" ] || continue
+            sed -i "/^${name}=/d" "$ENVFILE"
+            printf '%s=%s\n' "$name" "$value" >> "$ENVFILE"
+            echo "$name pinned: $(grep -c "^${name}=" "$ENVFILE") line"
+          done
+          unset EL GM
+          REMOTE
+          } | ssh ubuntu@$EC2_HOST 'bash -s'
+
       # The web app's proxy secret (2026-10-17). The web app keeps the sign-in session in an HttpOnly
       # cookie and relays every browser call through its own server (frontend/proxy.ts), so the API
       # sees a Vercel address as the client. The proxy names the visitor in X-Viewer-Address beside
@@ -1334,6 +1380,57 @@ jobs:
         run: |
           set -euo pipefail
           ssh ubuntu@${{ secrets.EC2_HOST }} "bash -s -- release '${CAND_PORT}'" < backend/deploy/blue_green.sh
+
+      # The transcript keys, asked FROM THE BOX (31 Oct 2026). ElevenLabs keys are IP-locked to each
+      # portal's server, so CI must never call ElevenLabs itself: this step runs curl over ssh, with the
+      # key read from the live .env on the box and handed to curl as a header file (never an argument,
+      # never printed). ElevenLabs `GET /v1/models` and Gemini `models.get gemini-3.8-flash`; only the
+      # HTTP status codes are printed. It fails ONLY on an auth refusal (401/403, or Google's
+      # API_KEY_INVALID); a busy or unreachable provider warns, because the release itself is fine.
+      - name: Smoke the speech-to-text and Gemini keys from the box
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          ENVFILE_PATH: /home/ubuntu/app/slots/${{ env.CAND_PORT }}/backend/.env
+        run: |
+          set -euo pipefail
+          {
+            printf 'ENVFILE=%q\n' "$ENVFILE_PATH"
+            cat <<'REMOTE'
+          set -uo pipefail
+          val() { grep -E "^$1=" "$ENVFILE" 2>/dev/null | tail -n1 | cut -d= -f2- | sed -e 's/^["'"'"']//' -e 's/["'"'"']$//'; }
+          body="$(mktemp)"
+          trap 'rm -f "$body"' EXIT
+          fail=0
+          el="$(val ELEVENLABS_API_KEY)"
+          if [ -z "$el" ]; then
+            echo "ElevenLabs: no key in the live .env (skipped)"
+          else
+            code="$(curl -s -o "$body" -w '%{http_code}' --max-time 30 -H @<(printf 'xi-api-key: %s\n' "$el") https://api.elevenlabs.io/v1/models || true)"
+            echo "ElevenLabs GET /v1/models: HTTP ${code:-000}"
+            case "$code" in
+              401|403) echo "::error::ElevenLabs refused this box's key (HTTP $code). Check the key and its IP lock."; fail=1 ;;
+              200) ;;
+              *) echo "::warning::ElevenLabs answered HTTP ${code:-000}; not an auth refusal, so the deploy stands." ;;
+            esac
+          fi
+          gm="$(val GEMINI_API_KEY)"
+          [ -n "$gm" ] || gm="$(val GEMINI_API_KEYS | tr ',' '\n' | sed -n '1p' | tr -d '[:space:]')"
+          if [ -z "$gm" ]; then
+            echo "Gemini: no key in the live .env (skipped)"
+          else
+            code="$(curl -s -o "$body" -w '%{http_code}' --max-time 30 -H @<(printf 'x-goog-api-key: %s\n' "$gm") https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash || true)"
+            echo "Gemini models.get gemini-3.8-flash: HTTP ${code:-000}"
+            if [ "$code" = "401" ] || [ "$code" = "403" ] || { [ "$code" = "400" ] && grep -q 'API_KEY_INVALID' "$body"; }; then
+              echo "::error::Gemini refused this box's key (HTTP $code)."
+              fail=1
+            elif [ "$code" != "200" ]; then
+              echo "::warning::Gemini answered HTTP ${code:-000}; not an auth refusal, so the deploy stands."
+            fi
+          fi
+          unset el gm
+          exit "$fail"
+          REMOTE
+          } | ssh ubuntu@$EC2_HOST 'bash -s'
 
       # `if: always()`: a deploy that fails or is cancelled must not leave port 22 open to a runner
       # address that will be handed to somebody else. An already-absent rule is the state wanted.

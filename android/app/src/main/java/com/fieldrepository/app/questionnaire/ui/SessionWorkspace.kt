@@ -83,6 +83,7 @@ import com.fieldrepository.app.questionnaire.data.outboxJson
 import com.fieldrepository.app.questionnaire.portal.QuestionnairePortal
 import com.fieldrepository.app.recording.RecordingDraft
 import com.fieldrepository.app.recording.RecordingDrafts
+import com.fieldrepository.app.transcript.ui.TranscriptDialog
 import com.fieldrepository.app.recording.RecordingService
 import com.fieldrepository.app.ui.AppToggle
 import com.fieldrepository.app.ui.LocalMayDelete
@@ -186,6 +187,7 @@ fun SessionWorkspace(
     var p10 by remember { mutableStateOf<Pair<String, Int>?>(null) }
     var consentFor by remember { mutableStateOf<String?>(null) }
     var proposals by remember { mutableStateOf<Pair<String, List<QProposal>>?>(null) }
+    var transcriptOf by remember { mutableStateOf<TakeRow?>(null) }
     var discard by remember { mutableStateOf<PendingDiscard?>(null) }
     var historyOf by remember { mutableStateOf<HistoryOf?>(null) }
     var takeHistory by remember { mutableStateOf<String?>(null) }
@@ -685,7 +687,8 @@ fun SessionWorkspace(
                 }
             },
             onPropose = { row -> online { proposals = row.recordingId to v2.api.answerProposals(row.recordingId).proposals } },
-            onHistory = { row -> takeHistory = row.recordingId }
+            onHistory = { row -> takeHistory = row.recordingId },
+            onTranscript = { row -> transcriptOf = row }
         )
     }
     removeTake?.let { row ->
@@ -727,6 +730,20 @@ fun SessionWorkspace(
                 withUnit { key -> v2.outbox.addAnswers(key, QAnswersPut(items)) }
             }
         )
+    }
+    transcriptOf?.let { row ->
+        val mediaId = row.mediaFileId ?: return@let
+        TranscriptDialog(mediaId, audio = null, onDismiss = { transcriptOf = null }, acceptDraft = { draft, text ->
+            // A drafted answer goes in like an accepted proposal: through the outbox, as the
+            // recording's, for the artisans on the take (the server already skipped locked and
+            // recording-preferred questions).
+            val rec = detail?.recordings?.firstOrNull { it.id == row.recordingId }
+            val onTake = rec?.allSubjects?.map { it.artisanId }?.filter { id -> roster.any { it.artisanId == id } }.orEmpty().toSet()
+            val ids = onTake.ifEmpty { roster.map { it.artisanId }.toSet() }
+            val origin = if (text == draft.answerOriginal) "MACHINE_SUGGESTED" else "MACHINE_SUGGESTED_EDITED"
+            val items = AnswerModel.items(text, ids, draft.questionId, unit?.sessionId ?: clientKey, answers, origin = origin, sourceRecordingId = row.recordingId)
+            withUnit { key -> v2.outbox.addAnswers(key, QAnswersPut(items)) }
+        })
     }
     historyOf?.let { h -> AnswerHistoryDialog(v2, h.answerId, h.heading) { historyOf = null } }
     takeHistory?.let { id -> TakeHistoryDialog(v2, id) { takeHistory = null } }
@@ -1092,8 +1109,10 @@ private fun takeRow(t: QSnapshotTake, detail: QSessionDetail?, paused: Boolean, 
         // Removing a take is a delete: content admins only (owner's ruling, 2026-10-20).
         removable = mayRemove,
         targetKey = t.targetKey,
+        chips = rec?.chips,
         canMakePrimary = mayMakePrimary,
-        canPropose = rec?.transcript?.status == "COMPLETED"
+        canPropose = rec?.transcript?.status == "COMPLETED",
+        mediaFileId = rec?.mediaFileId
     )
 }
 

@@ -1,0 +1,22 @@
+{
+ "candidates": [
+  {
+   "content": {
+    "role": "model",
+    "parts": [
+     {
+      "text": "{\"translations\": [{\"id\": \"t2\", \"english\": \"We mix clay and gum for dabu.\", \"alreadyEnglish\": false}, {\"id\": \"t4\", \"english\": \"Two days in the sun.\", \"alreadyEnglish\": false}]}"
+     }
+    ]
+   },
+   "finishReason": "STOP",
+   "index": 0
+  }
+ ],
+ "usageMetadata": {
+  "promptTokenCount": 300,
+  "candidatesTokenCount": 60,
+  "totalTokenCount": 360
+ },
+ "modelVersion": "gemini-3.8-flash"
+}

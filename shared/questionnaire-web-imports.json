@@ -37,6 +37,7 @@
     "@/components/ui/CalendarField",
     "@/components/ui/SearchableSelect",
     "@/components/ui/SegmentedChoice",
-    "@/components/ui/Toggle"
+    "@/components/ui/Toggle",
+    "@/components/transcript/TranscriptViewer"
   ]
 }

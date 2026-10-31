@@ -117,6 +117,7 @@ import androidx.compose.foundation.BorderStroke
 import com.fieldrepository.app.ui.OutboxPendingBanner
 import com.fieldrepository.app.ui.FormDraft
 import com.fieldrepository.app.ui.TranscriptInsightsCard
+import com.fieldrepository.app.transcript.ui.TranscriptEntry
 import com.fieldrepository.app.ui.RECORD_UPDATE_LABEL
 import com.fieldrepository.app.ui.recordUpdateAllowed
 import com.fieldrepository.app.ui.recordUpdateTitle
@@ -157,6 +158,7 @@ import com.fieldrepository.app.ui.appMenuBleed
 import com.fieldrepository.app.ui.appMenuHidesPage
 import com.fieldrepository.app.ui.appMenuShowing
 import com.fieldrepository.app.ui.appSearchCachedItems
+import com.fieldrepository.app.ui.appSearchRecordingItems
 import com.fieldrepository.app.ui.appSearchRemoteItems
 import com.fieldrepository.app.ui.RemoteRecordScreen
 import com.fieldrepository.app.ui.appSearchScreenItems
@@ -1927,6 +1929,12 @@ private fun HomeScreen(
     LaunchedEffect(questionnaireV2Session) {
         if (questionnaireV2Session != null) screen = screenFor(EntryMode.QUESTIONNAIRE)
     }
+    // A take found by the search, or a chip tapped where there is no list: the questionnaire screen
+    // opens on the recordings list filtered by it.
+    val recordingsRequest by QuestionnaireV2Nav.showRecordings.collectAsState()
+    LaunchedEffect(recordingsRequest) {
+        if (recordingsRequest != null) screen = screenFor(EntryMode.QUESTIONNAIRE)
+    }
 
     fun refresh() {
         scope.launch {
@@ -2228,6 +2236,7 @@ private fun HomeScreen(
             appSearchCachedItems(artisans, crafts) { type, id -> attemptExit { openSearchRecord(type, id) } }
 
     suspend fun searchRemote(query: String): List<AppSearchItem> =
+        appSearchRecordingItems(context, query) { filters -> attemptExit { QuestionnaireV2Nav.showRecordings.value = filters } } +
         appSearchRemoteItems(
             repository = repository,
             query = query,
@@ -6478,15 +6487,23 @@ private fun RecordPickerScreen(
     var completenessFilter by remember(mode) {
         mutableStateOf(if (completenessKind != null) CompletenessFilterMemory.read(context, mode.name) else CompletenessFilter.ALL)
     }
+    // The media list's questionnaire filters (owner, 31 Oct 2026): form, section or question,
+    // artisans, researcher, workshop, kind, source, transcript, language, kept for this account. Its
+    // own search box and upload days are left as they are.
+    val mediaV2 = remember { com.fieldrepository.app.questionnaire.data.QuestionnaireV2.get(context) }
+    val (mediaFilters, setMediaFilters) = com.fieldrepository.app.questionnaire.ui.rememberKeptFilters(mediaV2, com.fieldrepository.app.questionnaire.data.FilterStore.MEDIA)
+    val mediaParams = if (mode == EntryMode.MEDIA) mediaFilters.mediaParams() else emptyMap()
     val rows = rememberRecordRows(
         repository,
         mode,
         workshopIds = if (isInterviews) workshopScope.workshopIds else EVERY_WORKSHOP,
-        key = Triple(mode, scopeKey, completenessFilter),
+        key = listOf(mode, scopeKey, completenessFilter, mediaParams),
         enabled = scopeSettled,
-        completeness = completenessFilter.wire
+        completeness = completenessFilter.wire,
+        mediaFilters = mediaParams
     )
     val completenessById = remember(rows.browse) { rows.browse.associate { it.id to it.completeness } }
+    val chipsById = remember(rows.browse) { rows.browse.associate { it.id to it.chips } }
     val loading = !rows.browseLoaded && rows.note == null
     val failed = !rows.browseLoaded && rows.note != null && !rows.loading
     val options = recordRowOptions(mode, rows.known).map { it.value to it.label }
@@ -6537,6 +6554,11 @@ private fun RecordPickerScreen(
                         CompletenessFilterMemory.write(context, mode.name, next)
                     }
                 }
+                if (mode == EntryMode.MEDIA) com.fieldrepository.app.questionnaire.ui.FilterBar(
+                    mediaFilters, setMediaFilters, "",
+                    options = { facet, q, ids -> mediaV2.filterOptions(facet, q, ids) },
+                    fields = com.fieldrepository.app.questionnaire.ui.FilterField.MEDIA, showSearch = false
+                )
                 when {
                     loading -> Text("Loading ${mode.label.lowercase()} records…", color = Muted)
                     failed -> LoadFailedCard(
@@ -6595,7 +6617,13 @@ private fun RecordPickerScreen(
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(label, color = Body, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    Column(Modifier.weight(1f)) {
+                        Text(label, color = Body, style = MaterialTheme.typography.bodyMedium)
+                        // A take's chips; a tap narrows this list by it (a day is the upload day here, so not a filter).
+                        com.fieldrepository.app.questionnaire.ui.RecordingChips(chipsById[id], filters = mediaFilters, onChip = { f, l ->
+                            if (mediaFilters.appliesToMedia(f)) setMediaFilters(mediaFilters.applyChip(f, l))
+                        })
+                    }
                     completenessById[id]?.let { block ->
                         CompletenessRing(
                             percent = block.percent,
@@ -10639,7 +10667,9 @@ private data class RecordRow(
     val text: String,
     val interview: QuestionnaireInterviewDetailDto? = null,
     /** The server's completeness block for the record (2026-10-18), drawn as the card's ring. */
-    val completeness: CompletenessDto? = null
+    val completeness: CompletenessDto? = null,
+    /** A questionnaire take's chips, drawn on its card (owner, 31 Oct 2026). */
+    val chips: com.fieldrepository.app.questionnaire.data.QChips? = null
 )
 
 /**
@@ -10657,7 +10687,9 @@ private suspend fun recordRowsPage(
     page: Int,
     workshopIds: List<String>? = EVERY_WORKSHOP,
     /** The record completeness filter's wire value (`incomplete` / `required`), or null for all. */
-    completeness: String? = null
+    completeness: String? = null,
+    /** A media list's questionnaire filters, encoded (`QuestionnaireFilters.mediaParams()`). */
+    mediaFilters: Map<String, String> = emptyMap()
 ): PageResponse<RecordRow> {
     fun <T> PageResponse<T>.rows(row: (T) -> RecordRow) =
         PageResponse(items.map(row), total, this.page, pageSize, pages)
@@ -10681,9 +10713,10 @@ private suspend fun recordRowsPage(
             val title = workshopDisplayTitle(it.title, date = it.occurrenceDate(), place = it.place)
             RecordRow(it.id, title, "$title ${it.place.orEmpty()}", completeness = it.completeness)
         }
-        EntryMode.MEDIA -> repository.mediaSearchPage(search, page).rows { m ->
+        EntryMode.MEDIA -> repository.mediaSearchPage(search, page, mediaFilters).rows { m ->
             val label = m.caption?.takeIf { it.isNotBlank() } ?: m.originalFilename.ifBlank { "Media" }
-            RecordRow(m.id, label, "$label ${m.originalFilename} ${m.mediaType}")
+            val words = com.fieldrepository.app.questionnaire.data.ChipRules.display(m.questionnaireChips).joinToString(" ") { it.label }
+            RecordRow(m.id, label, "$label ${m.originalFilename} ${m.mediaType} $words", chips = m.questionnaireChips)
         }
         EntryMode.QUESTIONNAIRE -> repository.interviewsSearchPage(workshopIds, search, page, completeness).rows { iv ->
             val names = iv.artisans.mapNotNull { it.artisan?.name }.distinct().joinToString(", ")
@@ -10721,7 +10754,8 @@ private fun rememberRecordRows(
     workshopIds: List<String>? = EVERY_WORKSHOP,
     key: Any? = mode,
     enabled: Boolean = mode != null,
-    completeness: String? = null
+    completeness: String? = null,
+    mediaFilters: Map<String, String> = emptyMap()
 ): ServerSearchState<RecordRow> = rememberServerSearch(
     key = key,
     cached = emptyList(),
@@ -10729,7 +10763,7 @@ private fun rememberRecordRows(
     idOf = { it.id },
     textOf = { it.text },
     enabled = enabled
-) { term, page -> recordRowsPage(repository, mode ?: EntryMode.ARTISAN, term, page, workshopIds, completeness) }
+) { term, page -> recordRowsPage(repository, mode ?: EntryMode.ARTISAN, term, page, workshopIds, completeness, mediaFilters) }
 
 // ===========================================================================
 // My Activity — every record the current user created, most recent first
@@ -11024,6 +11058,8 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
             style = MaterialTheme.typography.bodySmall
         )
     }
+    // A questionnaire take's chips (owner, 31 Oct 2026); a tap opens the recordings list filtered by it.
+    com.fieldrepository.app.questionnaire.ui.RecordingChips(media.questionnaireChips, onChip = QuestionnaireV2Nav::openRecordings)
     // A reviewer's Reject on this one file, on a record's page only (see [LocalMediaReview]).
     MediaRejectAction(mediaId = media.id, label = media.caption?.takeIf { it.isNotBlank() } ?: media.originalFilename)
     val scope = rememberCoroutineScope()
@@ -11055,6 +11091,10 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
         }
     }
 
+    val isVideo = media.mediaType.equals("VIDEO", ignoreCase = true)
+    // The transcript viewer (DESIGN_2026-10-31 §3) wherever the pipeline answers; the plain
+    // transcript below wherever it does not (the switch is off, or the file predates it).
+    val legacyTranscript: @Composable () -> Unit = {
     when {
         !transcriptText.isNullOrBlank() -> {
             Column(
@@ -11125,6 +11165,9 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
             }
         }
     }
+    Unit
+    }
+    if (isAudio || isVideo) TranscriptEntry(mediaId = media.id, audio = null, legacy = legacyTranscript) else legacyTranscript()
 }
 
 /** Admin "Transcribe now" / "Re-transcribe" action — runs transcription on the spot via the settings mode. */
@@ -13787,6 +13830,14 @@ private fun ViewDataDetail(
                 DetailRow("Status", v.status)
                 DetailRow("Artisans", v.artisans.mapNotNull { it.artisan?.name }.joinToString(", ").ifBlank { null })
                 RecordMediaSection(repository, context, mode.linkedRecordType(), recordId, onError)
+                // The questionnaire takes filed under this workshop, each with its chips (owner, 31 Oct 2026).
+                HorizontalDivider()
+                com.fieldrepository.app.questionnaire.ui.RecordingsList(
+                    remember { com.fieldrepository.app.questionnaire.data.QuestionnaireV2.get(context) },
+                    fixed = remember(recordId) { com.fieldrepository.app.questionnaire.data.QuestionnaireFilters().with("workshopId", listOf(recordId)) },
+                    screen = "workshop-recordings-$recordId",
+                    onOpenSession = { sessionId -> QuestionnaireV2Nav.openServerSession.value = sessionId }
+                )
             }
         }
         EntryMode.CRAFT -> {

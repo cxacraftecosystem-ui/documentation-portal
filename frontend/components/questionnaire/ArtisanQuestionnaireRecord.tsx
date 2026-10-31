@@ -9,6 +9,7 @@ import { takeRow } from "@/components/questionnaire/TakeSheet";
 import { TranscriptStatus } from "@/components/questionnaire/TranscriptStatus";
 import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
+import { TranscriptViewer } from "@/components/transcript/TranscriptViewer";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
 import { shortName } from "@/lib/questionnaire/coverageCache";
@@ -16,8 +17,11 @@ import { questionnaireApi, type ArtisanRecord, type Recording } from "@/lib/ques
 import { shortDate } from "@/lib/questionnaire/prompts";
 import { artisanTimeline, isLegacyTake, modeLabel, subjectRoleFor, targetLabel } from "@/lib/questionnaire/view";
 import { qs } from "@/lib/questionnaire/qs";
+import { RecordingChips } from "@/components/questionnaire/RecordingChips";
+import { useChipNavigator } from "@/components/questionnaire/useUrlFilters";
 
 function TakeLine({ recording, artisanId, paused }: { recording: Recording; artisanId: string; paused: boolean }) {
+  const goChip = useChipNavigator();
   const present = subjectRoleFor(recording, artisanId) === "PRESENT";
   const time = new Date(recording.capturedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Kolkata" });
   return (
@@ -31,7 +35,18 @@ function TakeLine({ recording, artisanId, paused }: { recording: Recording; arti
         {isLegacyTake(recording) ? ` · ${qs("legacyRecord")}` : ""}
       </p>
       <TranscriptStatus recording={recording} paused={paused} />
-      <AudioPlayer src={questionnaireApi.downloadHref(recording.id)} />
+      <TranscriptViewer
+        mediaId={recording.mediaFileId}
+        chips={<RecordingChips chips={recording.chips} onChip={goChip} variant="recording" size="sm" />}
+        audioUrl={questionnaireApi.downloadHref(recording.id)}
+        initiallyOpen={false}
+        fallback={
+          <>
+            <RecordingChips chips={recording.chips} onChip={goChip} variant="recording" size="sm" />
+            <AudioPlayer src={questionnaireApi.downloadHref(recording.id)} />
+          </>
+        }
+      />
     </li>
   );
 }

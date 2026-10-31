@@ -4,12 +4,18 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from app.core.fastapi_lazy import jsonable_encoder
 from prisma.errors import UniqueViolationError
 
 from app.core.config import Settings, get_settings
 from app.core.db import db
-from app.services import recording_consent, transcription_jobs
+from app.core.fastapi_lazy import jsonable_encoder
+from app.services import (
+    recording_consent,
+    transcript_insights,
+    transcript_pipeline,
+    transcription_jobs,
+)
+from app.services import transcription_enqueue as transcription
 from app.services.ai import (
     analyze_measurement_image_bytes,
     redact_secrets,
@@ -22,8 +28,6 @@ from app.services.app_settings import (
     transcription_paused,
     within_processing_window,
 )
-from app.services import transcript_insights
-from app.services import transcription_enqueue as transcription
 from app.services.s3 import discard_temp, download_to_temp, get_object_bytes
 from app.services.transcription_store import open_key
 from app.transcription import schedule
@@ -292,7 +296,7 @@ async def queue_work_due(now: datetime | None = None) -> tuple[bool, bool]:
             and not _transcription_in_cooldown(now)
         )
         return allowed, mail
-    except Exception:  # noqa: BLE001 - a failed probe must never stop the queue
+    except Exception:
         logger.warning("queue probe failed; draining as usual", exc_info=True)
         return True, True
 
@@ -320,8 +324,9 @@ async def process_next_media_jobs(
     held_back: list[str] = []
     if not allow_transcription:
         held_back.append(TRANSCRIPTION)
-    if not transcript_insights.enabled():
-        # Switched off: leave queued insights jobs where they are rather than failing them.
+    if not transcript_insights.enabled() or transcript_pipeline.holds_translation(app_settings):
+        # Switched off, or the monthly transcript budget is used up: leave queued insights jobs
+        # where they are rather than failing them.
         held_back.append(TRANSCRIPT_INSIGHTS)
     if len(held_back) == 1:
         where["jobType"] = {"not": held_back[0]}
@@ -653,7 +658,9 @@ async def _process_insights_job(job: Any, media: Any) -> None:
         await _fail_for_consent(job, refusal)
         return
     try:
-        outcome = await transcript_insights.generate(media, user_id=requested_by)
+        # Turns (Scribe) are translated turn by turn with the summary in the same Gemini pass; a
+        # transcript without turns takes the old path (services/transcript_pipeline.generate).
+        outcome = await transcript_pipeline.generate(media, user_id=requested_by)
     except transcript_insights.InsightsUnavailable as exc:
         await _finalize_unavailable_job(job.id, {"status": UNAVAILABLE}, str(exc))
         return

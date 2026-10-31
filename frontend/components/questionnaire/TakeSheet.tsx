@@ -6,11 +6,14 @@ import { useRef, useState } from "react";
 import { FieldDialog } from "@/components/dialogs/FieldDialog";
 import { TranscriptStatus } from "@/components/questionnaire/TranscriptStatus";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
+import { TranscriptViewer } from "@/components/transcript/TranscriptViewer";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
 import { questionnaireApi, type Recording, type RecordingEvent, type SectionOverride } from "@/lib/questionnaire/api";
 import { shortDate, takeRowLabel } from "@/lib/questionnaire/prompts";
 import { qs } from "@/lib/questionnaire/qs";
+import { RecordingChips } from "@/components/questionnaire/RecordingChips";
+import { useChipNavigator } from "@/components/questionnaire/useUrlFilters";
 
 /** A take row's words: position, reason, duration, researcher, date and setting — never a file name. */
 export function takeRow(recording: Recording, artisanId: string | null): string {
@@ -82,6 +85,7 @@ export function TakeSheet({
   /** A change made here (primary, decision, restore) that the workspace should reload for. */
   onChanged?: () => void;
 }) {
+  const goChip = useChipNavigator();
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [events, setEvents] = useState<{ id: string; rows: RecordingEvent[] } | null>(null);
   const [removed, setRemoved] = useState<Recording[] | null>(null);
@@ -143,7 +147,19 @@ export function TakeSheet({
                 {r.filing === "NEEDS_DECISION" ? <span className="text-xs font-medium text-amber-800">{qs("needsDecision")}</span> : null}
                 {r.estimated ? <span className="text-xs text-ink-500">{qs("estimatedDate")}</span> : null}
               </div>
-              <AudioPlayer src={questionnaireApi.downloadHref(r.id)} className="mt-2" />
+              <TranscriptViewer
+                mediaId={r.mediaFileId}
+                chips={<RecordingChips chips={r.chips} onChip={goChip} variant="recording" size="sm" />}
+                audioUrl={questionnaireApi.downloadHref(r.id)}
+                initiallyOpen={false}
+                questionnaire={{ onReview: onUseAsAnswer ? () => onUseAsAnswer(r) : undefined }}
+                fallback={
+                  <>
+                    <RecordingChips chips={r.chips} onChip={goChip} variant="recording" size="sm" />
+                    <AudioPlayer src={questionnaireApi.downloadHref(r.id)} className="mt-2" />
+                  </>
+                }
+              />
               <ButtonRow
                 size="sm"
                 className="mt-2"

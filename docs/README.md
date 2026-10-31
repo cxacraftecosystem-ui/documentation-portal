@@ -56,6 +56,7 @@ flowchart TD
 | [CRAFTS.md](CRAFTS.md) | The craft master list: the categories, sub-categories and crafts both portals share, the catalogue every picker reads, the craft routes, and how crafts recorded before the list are mapped onto it |
 | [RELEASE.md](RELEASE.md) | The data steps a release takes on production after its migrations, such as mapping crafts onto the master list |
 | [MEDIA_PIPELINE.md](MEDIA_PIPELINE.md) | Every tactic both clients use to get a photograph off a phone on a bad network without losing it |
+| [TRANSCRIPT_PIPELINE.md](TRANSCRIPT_PIPELINE.md) | Scribe v2 turns, Gemini 3.8 Flash English, the transcript API, its switches, budget, keys and backfill |
 | [SECURITY.md](SECURITY.md) | Transport, secrets, PII and Aadhaar handling, the authorisation model's security properties, and the open risk register |
 | [SEARCH.md](SEARCH.md) | One search across both portals: the per-portal index and its triggers, full-text, trigram and (behind the AI flag) meaning ranking, the signed peer search with the designer portal, consent, and the rollout order |
 
