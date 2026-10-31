@@ -31,7 +31,7 @@ from app.services.app_settings import (
 )
 from app.services.s3 import discard_temp, download_to_temp, get_object_bytes
 from app.services.transcription_store import open_key
-from app.transcription import schedule
+from app.transcription import schedule, workdir
 from prisma import Json
 
 TRANSCRIPTION = "TRANSCRIPTION"
@@ -409,7 +409,7 @@ async def transcribe_media_now(media: Any, settings: Settings | None = None) -> 
         raise transcription_jobs.TranscriptionPaused()
     media_id = str(_value(media, "id"))
     await db.mediafile.update(where={"id": media_id}, data={"transcriptStatus": PROCESSING})
-    source_path = await asyncio.to_thread(download_to_temp, _value(media, "objectKey"))
+    source_path = await workdir.owned(download_to_temp, _value(media, "objectKey"))
     try:
         result = await transcription_jobs.transcribe_recording(
             media,
@@ -586,7 +586,7 @@ async def _process_job(job: Any, settings: Settings) -> None:
             await _fail_for_consent(job, verdict.refusal)
             return
         # Streamed to a temp file, never read whole into the heap (the designer-portal shape).
-        source_path = await asyncio.to_thread(download_to_temp, media.objectKey)
+        source_path = await workdir.owned(download_to_temp, media.objectKey)
         try:
             result = await transcription_jobs.transcribe_recording(
                 media,
