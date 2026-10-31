@@ -325,7 +325,7 @@ object TranscriptStatus {
 
 sealed interface TimelineRow {
     data class SessionHead(val sessionId: String, val text: String) : TimelineRow
-    data class Take(val recordingId: String, val time: String?, val text: String, val badges: List<String>) : TimelineRow
+    data class Take(val recordingId: String, val time: String?, val text: String, val badges: List<String>, val mediaFileId: String? = null) : TimelineRow
     data object Uncertain : TimelineRow
 }
 
@@ -379,7 +379,7 @@ object ArtisanTimeline {
             if (r.provenance == "LEGACY") add(QuestionnaireCopy.s("record.legacy"))
         }
         val time = if (showTime && !r.estimated) r.capturedAt?.let { runCatching { QuestionnaireCopy.clock(Instant.parse(it)) }.getOrNull() } else null
-        return TimelineRow.Take(r.id, time, parts.joinToString(" · "), badges)
+        return TimelineRow.Take(r.id, time, parts.joinToString(" · "), badges, r.mediaFileId)
     }
 
     /** "Section A", "F7", "F1–F6", or "Whole session". */

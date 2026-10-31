@@ -117,6 +117,7 @@ import androidx.compose.foundation.BorderStroke
 import com.fieldrepository.app.ui.OutboxPendingBanner
 import com.fieldrepository.app.ui.FormDraft
 import com.fieldrepository.app.ui.TranscriptInsightsCard
+import com.fieldrepository.app.transcript.ui.TranscriptEntry
 import com.fieldrepository.app.ui.RECORD_UPDATE_LABEL
 import com.fieldrepository.app.ui.recordUpdateAllowed
 import com.fieldrepository.app.ui.recordUpdateTitle
@@ -11090,6 +11091,10 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
         }
     }
 
+    val isVideo = media.mediaType.equals("VIDEO", ignoreCase = true)
+    // The transcript viewer (DESIGN_2026-10-31 §3) wherever the pipeline answers; the plain
+    // transcript below wherever it does not (the switch is off, or the file predates it).
+    val legacyTranscript: @Composable () -> Unit = {
     when {
         !transcriptText.isNullOrBlank() -> {
             Column(
@@ -11160,6 +11165,9 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
             }
         }
     }
+    Unit
+    }
+    if (isAudio || isVideo) TranscriptEntry(mediaId = media.id, audio = null, legacy = legacyTranscript) else legacyTranscript()
 }
 
 /** Admin "Transcribe now" / "Re-transcribe" action — runs transcription on the spot via the settings mode. */
