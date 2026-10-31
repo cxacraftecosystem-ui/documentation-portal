@@ -1,3 +1,4 @@
+import type { TranscriptPreview } from "@/lib/transcript/contract";
 import type { RecordingChips } from "@/lib/questionnaire/chips";
 import type { CompletenessBlock } from "@/lib/completenessCore";
 
@@ -390,6 +391,8 @@ export type MediaFile = {
   recordedTimezone?: string | null;
   status: RecordStatus;
   transcriptText?: string | null;
+  /** The list preview (transcript contract v2): plain text under speaker labels; null when withheld or empty. */
+  transcriptPreview?: TranscriptPreview | null;
   transcriptSummary?: string | null;
   transcriptStatus?: string | null;
   transcriptError?: string | null;

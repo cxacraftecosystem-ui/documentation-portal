@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { rememberFilterLabel } from "@/components/questionnaire/FilterBar";
 import type { ChipFilter, DisplayChip } from "@/lib/questionnaire/chips";
@@ -64,4 +64,99 @@ export function useChipNavigator(): (filter: ChipFilter, chip?: DisplayChip) => 
     },
     [router]
   );
+}
+
+const PLACE_PREFIX = "qv2_list_place:";
+
+/** Where a list was under one URL: how many "Show more" pages it had open, and the scroll. */
+export type ListPlace = { pages: number; scrollY: number };
+
+/** A stored place read back, accepting only the shape written. Pure. */
+export function parseListPlace(raw: string | null | undefined): ListPlace | null {
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw) as Partial<ListPlace>;
+    const pages = Number(value?.pages);
+    const scrollY = Number(value?.scrollY);
+    if (!Number.isInteger(pages) || pages < 1 || !Number.isFinite(scrollY) || scrollY < 0) return null;
+    return { pages: Math.min(pages, 50), scrollY };
+  } catch {
+    return null;
+  }
+}
+
+function readPlace(url: string): ListPlace | null {
+  try {
+    return parseListPlace(window.sessionStorage.getItem(PLACE_PREFIX + url));
+  } catch {
+    return null;
+  }
+}
+
+function writePlace(url: string, place: ListPlace) {
+  try {
+    window.sessionStorage.setItem(PLACE_PREFIX + url, JSON.stringify({ pages: place.pages, scrollY: Math.round(place.scrollY) }));
+  } catch {
+    // Storage blocked — Back lands at the top of the right list instead.
+  }
+}
+
+/**
+ * Back from a record lands where the reader was in a list (owner, 1 Nov 2026): the filters are
+ * already in the URL (`useUrlFilters`); this keeps, under that exact URL, how many "Show more"
+ * pages were open and the scroll position, and puts both back on return.
+ *
+ * `pages` is how many pages the list holds now, `ready` that its rows are drawn, `exhausted` that
+ * there is no further page. While `wantsMore(pages)` is true the list loads its next page itself;
+ * once it has as many as before (or no more exist), the scroll is restored, once.
+ */
+export function useListPlace(pages: number, ready: boolean, exhausted: boolean): { wantsMore: (loaded: number) => boolean } {
+  const home = useRef<string | null>(null);
+  const wanted = useRef<ListPlace | null>(null);
+  const restored = useRef(false);
+  const latestPages = useRef(pages);
+
+  useEffect(() => {
+    home.current = window.location.pathname;
+    wanted.current = readPlace(window.location.pathname + window.location.search);
+    let frame = 0;
+    const onScroll = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        // A navigation to a record scrolls the NEW page; that is not this list's position.
+        if (!restored.current || window.location.pathname !== home.current) return;
+        writePlace(window.location.pathname + window.location.search, { pages: latestPages.current, scrollY: window.scrollY });
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  useEffect(() => {
+    latestPages.current = pages;
+    if (!ready || home.current === null || window.location.pathname !== home.current) return;
+    if (!restored.current) {
+      const target = wanted.current;
+      if (target && pages < target.pages && !exhausted) return;
+      restored.current = true;
+      if (target && target.scrollY > 0) {
+        let frames = 0;
+        const step = () => {
+          window.scrollTo(0, target.scrollY);
+          frames += 1;
+          if (Math.abs(window.scrollY - target.scrollY) > 2 && frames < 60) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+        return;
+      }
+    }
+    writePlace(window.location.pathname + window.location.search, { pages, scrollY: window.scrollY });
+  }, [pages, ready, exhausted]);
+
+  const wantsMore = useCallback((loaded: number) => !restored.current && wanted.current !== null && loaded < wanted.current.pages, []);
+  return { wantsMore };
 }

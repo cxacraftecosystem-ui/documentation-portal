@@ -11,6 +11,8 @@ import { FIXTURES, MEDIA_ID, TranscriptFake } from "./support/transcriptFake";
  * from the contract's own example. Each block runs on a desktop, a tablet and a phone viewport:
  * every copy mode lands on the clipboard exactly as `fixtures.copy` says (and through the selection
  * fallback when the Clipboard API is missing), hostile markdown renders inert, and karaoke seeks.
+ * 0.0.6 adds reading mode, the all-marks button, the mark's bubble (hover and keyboard), marks on
+ * the bar's centre, one colour per speaker, and auto-follow with its "Follow along" pill.
  */
 
 const VIEWPORTS = [
@@ -184,6 +186,180 @@ for (const viewport of VIEWPORTS) {
       await panel.locator("button[type=submit]").click();
       await expect(panel.locator('[data-ask-answer][data-covered="false"]')).toContainText("The interview doesn't cover this.");
       await expect(panel.locator("[data-citations]")).toHaveCount(0);
+    });
+  });
+}
+
+/** A transcript long enough to scroll: `count` turns, alternating two speakers, across 28 s of audio. */
+function longTranscript(fake: TranscriptFake, count = 40) {
+  const view = fake.view as unknown as Transcript;
+  const [first, second] = view.turns;
+  const step = Math.floor(28000 / count);
+  view.turns = Array.from({ length: count }, (_, index) => {
+    const base = index % 2 === 0 ? first : second;
+    return {
+      ...base,
+      id: `turn_${index}`,
+      index,
+      startMs: index * step,
+      endMs: index * step + step - 50,
+      words: [],
+      lowConfidence: [],
+      text: `${base.text} (${index + 1}) — a longer line so each turn takes up real room on a phone and on a laptop alike.`,
+      translation: { ...base.translation, text: `${base.translation.text} (${index + 1})` }
+    };
+  });
+}
+
+const activeInView = (page: Page) =>
+  page.evaluate(() => {
+    const element = document.querySelector('[data-follow-turn][data-active="true"]');
+    if (!element) return false;
+    const box = element.getBoundingClientRect();
+    return box.bottom > 0 && box.top < window.innerHeight;
+  });
+
+const centreY = async (locator: ReturnType<Page["locator"]>) => {
+  const box = await locator.boundingBox();
+  if (!box) throw new Error("not laid out");
+  return box.y + box.height / 2;
+};
+
+for (const viewport of VIEWPORTS) {
+  test.describe(`${viewport.name} (0.0.6)`, () => {
+    test.use(viewport.use);
+
+    test("reading mode is one flowing transcript in Original, English and Both, with no timestamps", async ({ page }) => {
+      const viewer = await open(page, new TranscriptFake());
+      await viewer.locator('[data-view-mode="reading"]').click();
+      await expect(viewer.locator('[data-view-mode="reading"]')).toHaveAttribute("aria-pressed", "true");
+      const reading = viewer.locator("[data-reading]");
+      await expect(reading).toHaveAttribute("data-reading", "original");
+      await expect(reading).toContainText("आप ये रंग कैसे बनाते हैं?");
+      await expect(reading).not.toContainText("How do you make these colours?");
+      await expect(reading.locator("[data-reading-block] [data-speaker]")).toHaveText(["Nandini (researcher)", "Giriraj"]);
+      // No clock anywhere in the view, and no turn cards with their tools.
+      expect(await reading.innerText()).not.toMatch(/\d{1,2}:\d{2}(:\d{2})?/);
+      await expect(reading.locator("[data-seek-ms]")).toHaveCount(0);
+      await expect(viewer.locator("[data-turn-id]")).toHaveCount(0);
+
+      await viewer.locator('[data-tab="english"]').click();
+      await expect(reading).toHaveAttribute("data-reading", "english");
+      await expect(reading).toContainText("We mix clay and gum for dabu (mud-resist printing).");
+      await expect(reading).not.toContainText("हम dabu");
+
+      const both = viewer.locator('[data-tab="side"]');
+      await expect(both).toHaveText("Both");
+      await both.click();
+      await expect(reading).toHaveAttribute("data-reading", "both");
+      await expect(reading.locator("[data-reading-original]").first()).toContainText("आप ये रंग");
+      await expect(reading.locator("[data-reading-english]").first()).toContainText("How do you make these colours?");
+      expect(await reading.innerText()).not.toMatch(/\d{1,2}:\d{2}(:\d{2})?/);
+
+      // The view copies as it reads: no timestamps.
+      await viewer.getByTestId("copy-view").click();
+      await expect(viewer.locator('[data-copy-status="ok"]')).toHaveText("Copied");
+      expect(await clipboard(page)).toBe(FIXTURES.copy.all_both_no_timestamps);
+
+      await viewer.locator('[data-view-mode="turns"]').click();
+      await expect(viewer.locator("[data-turn-id]")).toHaveCount(2);
+    });
+
+    test("one button marks every turn and clears them all", async ({ page }) => {
+      const viewer = await open(page, new TranscriptFake());
+      const all = viewer.getByTestId("marks-all");
+      await expect(all).toHaveText("Mark all");
+      await all.click();
+      await expect(viewer.locator("[data-timeline-mark]")).toHaveCount(2);
+      await expect(viewer.locator("[data-mark-turn]:checked")).toHaveCount(2);
+      await expect(all).toHaveText("Clear marks");
+      await all.click();
+      await expect(viewer.locator("[data-timeline-mark]")).toHaveCount(0);
+      await expect(viewer.locator("[data-mark-turn]:checked")).toHaveCount(0);
+      await expect(all).toHaveText("Mark all");
+    });
+
+    test("a mark sits on the bar's vertical centre and shows what was said on hover and on keyboard focus", async ({ page }) => {
+      const viewer = await open(page, new TranscriptFake());
+      await viewer.getByTestId("marks-all").click();
+      const bar = viewer.locator("[data-timeline-bar]");
+      for (const id of ["turn_a", "turn_b"]) {
+        const mark = viewer.locator(`[data-timeline-mark="${id}"]`);
+        expect(Math.abs((await centreY(mark)) - (await centreY(bar)))).toBeLessThanOrEqual(1);
+      }
+      const mark = viewer.locator('[data-timeline-mark="turn_b"]');
+      await mark.hover();
+      const bubble = viewer.locator('[data-mark-bubble="turn_b"]');
+      await expect(bubble).toBeVisible();
+      await expect(bubble.locator("[data-bubble-speaker]")).toHaveText("Giriraj");
+      await expect(bubble.locator("[data-bubble-original]")).toHaveText("हम dabu के लिए मिट्टी और गोंद मिलाते हैं");
+      await expect(bubble.locator("[data-bubble-english]")).toHaveText("We mix clay and gum for dabu (mud-resist printing).");
+      // Inside the viewport, even beside the bar's right end on a phone.
+      const box = await bubble.boundingBox();
+      const width = page.viewportSize()?.width ?? 0;
+      expect(box && box.x >= 0 && box.x + box.width <= width).toBe(true);
+      await page.mouse.move(1, 1);
+      await expect(bubble).toHaveCount(0);
+
+      await viewer.locator('[data-timeline-mark="turn_a"]').focus();
+      const focused = viewer.locator('[data-mark-bubble="turn_a"]');
+      await expect(focused).toBeVisible();
+      await expect(focused.locator("[data-bubble-speaker]")).toHaveText("Nandini (researcher)");
+      await expect(viewer.locator('[data-timeline-mark="turn_a"]')).toHaveAttribute("aria-describedby", /.+/);
+      await page.keyboard.press("Escape");
+      await expect(focused).toHaveCount(0);
+    });
+
+    test("each speaker keeps one colour on their label, their marks and the reading view", async ({ page }) => {
+      const viewer = await open(page, new TranscriptFake());
+      const labelA = viewer.locator('[data-turn-id="turn_a"] [data-speaker]');
+      const labelB = viewer.locator('[data-turn-id="turn_b"] [data-speaker]');
+      await expect(labelA).toHaveAttribute("data-color-key", "s0");
+      await expect(labelB).toHaveAttribute("data-color-key", "s1");
+      const colour = (locator: ReturnType<Page["locator"]>, property: "color" | "backgroundColor") =>
+        locator.evaluate((element, name) => getComputedStyle(element)[name as "color"], property);
+      expect(await colour(labelA, "color")).not.toBe(await colour(labelB, "color"));
+      await viewer.getByTestId("marks-all").click();
+      expect(await colour(viewer.locator('[data-timeline-mark="turn_b"]'), "backgroundColor")).toBe(await colour(labelB, "color"));
+      expect(await colour(viewer.locator('[data-timeline-mark="turn_a"]'), "backgroundColor")).toBe(await colour(labelA, "color"));
+      const before = await colour(labelB, "color");
+      await page.reload();
+      await expect(labelB).toHaveAttribute("data-color-key", "s1");
+      expect(await colour(labelB, "color")).toBe(before);
+      await viewer.locator('[data-view-mode="reading"]').click();
+      await expect(viewer.locator("[data-reading-block] [data-speaker]").nth(1)).toHaveAttribute("data-color-key", "s1");
+    });
+
+    test("auto-follow keeps the spoken line in view, stops when the reader takes the page back, and the pill resumes it", async ({ page }) => {
+      const fake = new TranscriptFake();
+      longTranscript(fake);
+      const viewer = await open(page, fake);
+      await expect(viewer.getByTestId("follow-along")).toHaveCount(0);
+      await viewer.getByTestId("transcript-play").click();
+      // Following: the page travels with the audio and the lit line stays on screen.
+      await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 20_000 }).toBeGreaterThan(300);
+      await expect.poll(() => activeInView(page)).toBe(true);
+      await expect(viewer.getByTestId("follow-along")).toHaveCount(0);
+
+      // The reader takes over: a touch on a touch screen, a wheel upwards with a mouse.
+      if (viewport.name === "desktop") {
+        await page.mouse.move(640, 500);
+        await page.mouse.wheel(0, -400);
+      } else {
+        await page.touchscreen.tap(4, 500);
+      }
+      const pill = page.getByTestId("follow-along");
+      await expect(pill).toBeVisible();
+      await page.waitForTimeout(600);
+      const parked = await page.evaluate(() => window.scrollY);
+      await page.waitForTimeout(2500);
+      expect(Math.abs((await page.evaluate(() => window.scrollY)) - parked)).toBeLessThanOrEqual(2);
+
+      // "Follow along" picks it up again.
+      await pill.click();
+      await expect(pill).toHaveCount(0);
+      await expect.poll(() => activeInView(page), { timeout: 10_000 }).toBe(true);
+      await viewer.locator("audio[data-transcript-audio]").evaluate((element: HTMLAudioElement) => element.pause());
     });
   });
 }

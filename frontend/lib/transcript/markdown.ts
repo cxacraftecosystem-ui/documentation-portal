@@ -16,7 +16,7 @@ import { clock, lengthLabel } from "./format";
 const cleanName = (name: string) => name.replace(/[*`|]/g, "");
 
 /** True when "both" has a second line to print for this turn. */
-function hasEnglish(turn: TranscriptTurn): boolean {
+export function hasEnglish(turn: TranscriptTurn): boolean {
   return turn.translation.status !== "ALREADY_ENGLISH" && typeof turn.translation.text === "string" && turn.translation.text !== "";
 }
 

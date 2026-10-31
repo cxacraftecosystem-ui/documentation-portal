@@ -16,6 +16,7 @@ import { FieldBlock } from "@/components/tasks/TaskPrimitives";
 import { LocationFields } from "@/components/forms/LocationFields";
 import { MediaCaptureField } from "@/components/forms/MediaCaptureField";
 import { Markdown } from "@/components/Markdown";
+import { TranscriptPreview } from "@/components/transcript/TranscriptPreview";
 import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
 import { UploadProgress } from "@/components/media/UploadProgress";
 import { UploadTray } from "@/components/media/UploadTray";
@@ -35,6 +36,7 @@ import { useRecordOffPage } from "@/components/forms/recordPickers";
 import { useServerSearchList } from "@/components/forms/useServerSearchList";
 import { readCarryContext } from "@/lib/carryContext";
 import { failedOriginals, initialMediaTarget } from "@/lib/mediaTarget";
+import { useListMemory } from "@/components/hooks/useListMemory";
 import { queueMediaOnly, uploadFailureIsOffline } from "@/lib/offline";
 import { ComboBox, Dropdown } from "@/components/ui/Dropdown";
 import { apiFetch, listResource } from "@/lib/api";
@@ -268,12 +270,29 @@ function MediaPageBody() {
     []
   );
 
+  /**
+   * Search, page and scroll, in the URL, so Back from a file's read-only page lands on the same rows.
+   * Recalled once before the first fetch — `placeRestored` holds that fetch until it has been.
+   */
+  const memory = useListMemory("media", { query: search, page }, data !== null);
+  const [placeRestored, setPlaceRestored] = useState(false);
+  useEffect(() => {
+    const remembered = memory.recall();
+    if (remembered) {
+      setSearch(remembered.query ?? "");
+      setPage(remembered.page ?? 1);
+    }
+    setPlaceRestored(true);
+    // Once, on arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Live search: debounce keystrokes, reload most-recent-first from page 1.
   useEffect(() => {
-    if (!filtersReady) return;
+    if (!placeRestored || !filtersReady) return;
     const timer = setTimeout(() => load(page, search, takeFilters), 300);
     return () => clearTimeout(timer);
-  }, [page, search, load, filtersReady, takeFilters]);
+  }, [page, search, load, placeRestored, filtersReady, takeFilters]);
 
   /**
    * Android parity: every uploaded object is renamed to `PREFIX_Name_TYPE_index_timestamp.ext`.
@@ -601,6 +620,7 @@ function MediaPageBody() {
                       {item.linkedRecordType ? LINK_TYPE_LABEL.get(item.linkedRecordType) ?? item.linkedRecordType : "-"}
                     </td>
                     <td className="px-4 py-3 text-ink-700">
+                      <TranscriptPreview preview={item.transcriptPreview} text={item.transcriptText} lines={2} className="mt-1" />
                       {item.transcriptText ? (
                         <details data-row-ignore>
                           <summary className="cursor-pointer font-semibold text-field-700 dark:text-purple-300">View transcript</summary>

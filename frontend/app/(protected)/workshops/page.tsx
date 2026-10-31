@@ -315,7 +315,7 @@ function WorkshopsPageBody() {
    * BACK FROM A WORKSHOP'S VIEW PUTS THE LIST BACK AS IT WAS — search, page and scroll. A row click
    * opens the read-only view (`/workshops/[id]`); see `lib/listReturn.ts`.
    */
-  const listReturn = useListReturn("workshops");
+  const listReturn = useListReturn("workshops", { query: applied, page, completeness }, Boolean(data));
   useEffect(() => {
     const note = listReturn.restored;
     if (!note) return;

@@ -463,7 +463,7 @@ function QuestionnairePageBody() {
    * `FunnelFilters`' `restore`, whose first `onChange` keeps the restored page.
    */
   const [completeness, setCompleteness] = useState<CompletenessValue>("");
-  const listReturn = useListReturn("questionnaire");
+  const listReturn = useListReturn("questionnaire", { query: searchQuery, page, funnel, completeness }, Boolean(data));
   const restoredPage = useRef<number | null>(null);
   useEffect(() => {
     const note = listReturn.restored;

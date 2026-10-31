@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { CheckSquare, Copy, Download, Loader2, MessageCircleQuestion, Pause, Play, Quote, RotateCw, Users, Zap } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ArrowDownToLine, BookOpen, CheckSquare, Copy, Download, ListOrdered, Loader2, MapPin, MessageCircleQuestion, Pause, Play, Quote, RotateCw, Users, Zap } from "lucide-react";
 
 import {
   editTurn,
@@ -27,9 +27,12 @@ import { AskPanel } from "./AskPanel";
 import { FillFromRecording } from "./FillFromRecording";
 import { Badge, CopyStatus, MenuButton, PRIMARY, SECONDARY, useCopyFeedback } from "./parts";
 import { QuoteCardBuilder } from "./QuoteCardBuilder";
+import { ReadingView } from "./ReadingView";
 import { SpeakerNames } from "./SpeakerNames";
+import { TimelineMarks } from "./TimelineMarks";
 import { TranscriptMarkdown } from "./TranscriptMarkdown";
 import { TurnRow } from "./TurnRow";
+import { useAutoFollow } from "./useAutoFollow";
 import { useTranscriptAudio } from "./useTranscriptAudio";
 
 const POLL_MS = 15_000;
@@ -80,6 +83,9 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [tab, setTab] = useState<ViewTab>("original");
+  /** Turns (one card per turn, with its clock and tools) or Reading (one flowing transcript, no clocks). */
+  const [mode, setMode] = useState<"turns" | "reading">("turns");
+  const playerRef = useRef<HTMLDivElement | null>(null);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [panel, setPanel] = useState<"speakers" | "ask" | "quote" | null>(null);
@@ -137,6 +143,9 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
     () => (transcript && audio.playing ? locate(transcript.turns, audio.currentMs) : null),
     [transcript, audio.playing, audio.currentMs]
   );
+
+  const activeTurnId = transcript && position ? (transcript.turns[position.turnIndex]?.id ?? null) : null;
+  const follow = useAutoFollow(activeTurnId, audio.playing);
 
   const audioSeek = audio.seek;
   const seek = useCallback((ms: number) => audioSeek(ms, true), [audioSeek]);
@@ -239,6 +248,7 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
   const action = statusAction(transcript);
   const note = statusNote(transcript);
   const ready = transcript.turns.length > 0;
+  const allMarked = ready && transcript.turns.every((turn) => marks.has(turn.id));
   const duration = audio.durationMs || transcript.audio.durationMs || transcript.durationMs || 0;
   const filled = duration > 0 ? (100 * Math.min(audio.currentMs, duration)) / duration : 0;
 
@@ -311,7 +321,11 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
       </header>
 
       {audio.hasAudio ? (
-        <div className="flex items-center gap-3 rounded-md border border-line-200 bg-card px-3 py-2">
+        <div
+          ref={playerRef}
+          className="relative flex items-center gap-3 rounded-md border border-line-200 bg-card px-3 py-2"
+          data-transcript-player
+        >
           <audio {...audio.bind} className="hidden" data-transcript-audio />
           <button
             type="button"
@@ -322,7 +336,8 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
           >
             {audio.playing ? <Pause className="h-4 w-4" aria-hidden /> : <Play className="ml-0.5 h-4 w-4" aria-hidden />}
           </button>
-          <div className="relative min-w-0 flex-1" data-audio-timeline>
+          {/* Exactly the range input's height, so a mark centred in it is centred on the bar. */}
+          <div className="relative flex h-4 min-w-0 flex-1 items-center" data-audio-timeline>
           <input
             type="range"
             min={0}
@@ -331,29 +346,15 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
             value={Math.min(audio.currentMs, Math.max(duration, 1))}
             onChange={(event) => audio.seek(Number(event.target.value), false)}
             aria-label={ts("playFrom", { time: clock(audio.currentMs) })}
-            className="audio-range w-full"
+            className="audio-range block h-4 w-full"
+            data-timeline-bar
             style={
               {
                 "--audio-range-fill": `linear-gradient(to right, rgb(var(--progress-fill)) 0%, rgb(var(--progress-fill)) ${filled}%, rgb(var(--progress-track)) ${filled}%, rgb(var(--progress-track)) 100%)`
               } as React.CSSProperties
             }
           />
-          {duration > 0 && transcript
-            ? transcript.turns
-                .filter((turn) => marks.has(turn.id))
-                .map((turn) => (
-                  <button
-                    key={turn.id}
-                    type="button"
-                    className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-amber-500 shadow-sm transition hover:scale-125 focus-visible:outline-2 focus-visible:outline-purple-600 dark:border-ink-900"
-                    style={{ left: `${Math.min(100, (100 * turn.startMs) / duration)}%` }}
-                    aria-label={ts("jumpTo", { time: clock(turn.startMs) })}
-                    title={`${turn.speakerName} · ${clock(turn.startMs)}`}
-                    onClick={() => audio.seek(turn.startMs, true)}
-                    data-timeline-mark={turn.id}
-                  />
-                ))
-            : null}
+          <TimelineMarks turns={transcript.turns.filter((turn) => marks.has(turn.id))} durationMs={duration} onSeek={seek} rowRef={playerRef} />
           </div>
           <span className="shrink-0 font-mono text-xs tabular-nums text-ink-500" data-audio-clock>
             {clock(audio.currentMs)}
@@ -410,7 +411,25 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
                     tab === entry.id ? "bg-card text-purple-800 shadow-sm dark:text-purple-200" : "text-ink-500 hover:text-ink-900"
                   }`}
                 >
-                  {ts(entry.key)}
+                  {mode === "reading" && entry.id === "side" ? ts("trackBoth") : ts(entry.key)}
+                </button>
+              ))}
+            </div>
+            {/* Two named layouts, not a setting: a segmented pair. */}
+            <div className="inline-flex rounded-md border border-line-200 bg-surface-50 p-0.5" role="group" aria-label={ts("viewModeLabel")}>
+              {(["turns", "reading"] as const).map((entry) => (
+                <button
+                  key={entry}
+                  type="button"
+                  aria-pressed={mode === entry}
+                  data-view-mode={entry}
+                  onClick={() => setMode(entry)}
+                  className={`inline-flex min-h-9 items-center gap-1.5 rounded-sm px-3 text-sm font-medium transition max-sm:min-h-11 ${
+                    mode === entry ? "bg-card text-purple-800 shadow-sm dark:text-purple-200" : "text-ink-500 hover:text-ink-900"
+                  }`}
+                >
+                  {entry === "turns" ? <ListOrdered className="h-4 w-4" aria-hidden /> : <BookOpen className="h-4 w-4" aria-hidden />}
+                  {entry === "turns" ? ts("viewTurns") : ts("viewReading")}
                 </button>
               ))}
             </div>
@@ -419,6 +438,24 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
 
           {/* A toolbar of controls on one transcript, not an action row. */}
           <div className="flex flex-wrap gap-2" data-transcript-toolbar>
+            {mode === "reading" ? (
+              <button type="button" className={SECONDARY} onClick={() => void copy(copyAll(transcript, tabTrack(tab), false))} data-testid="copy-view">
+                <Copy className="h-4 w-4" aria-hidden />
+                {ts("copyView")}
+              </button>
+            ) : null}
+            {audio.hasAudio ? (
+              <button
+                type="button"
+                className={SECONDARY}
+                onClick={() => marks.setAll(transcript.turns.map((turn) => turn.id), !allMarked)}
+                data-testid="marks-all"
+                data-all-marked={allMarked ? "true" : "false"}
+              >
+                <MapPin className="h-4 w-4" aria-hidden />
+                {allMarked ? ts("clearMarks") : ts("markAll")}
+              </button>
+            ) : null}
             <MenuButton
               label={ts("copyAll")}
               ariaLabel={ts("copyAll")}
@@ -543,31 +580,47 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
             <FillFromRecording mediaId={mediaId} onSeek={seek} onReview={questionnaire.onReview} />
           ) : null}
 
-          <ol className="grid gap-1" data-turns>
-            {transcript.turns.map((turn, index) => {
-              const active = position?.turnIndex === index;
-              return (
-                <TurnRow
-                  key={`${turn.id}-${turn.revision}`}
-                  turn={turn}
-                  tab={tab}
-                  active={active}
-                  activeWord={active ? (position?.wordIndex ?? null) : null}
-                  selecting={selecting}
-                  selected={selected.has(turn.id)}
-                  canEdit={transcript.permissions.edit}
-                  onToggle={toggle}
-                  onSeek={seek}
-                  onCopy={copyTurn}
-                  onSave={save}
-                  onRetranslate={retranslate}
-                  retranslating={busy === `retranslate-${turn.id}`}
-                  marked={marks.has(turn.id)}
-                  onMark={audio.hasAudio ? marks.set : undefined}
-                />
-              );
-            })}
-          </ol>
+          {mode === "reading" ? <ReadingView turns={transcript.turns} track={tabTrack(tab)} activeTurnId={activeTurnId} /> : null}
+
+          {follow.paused ? (
+            <button
+              type="button"
+              onClick={follow.resume}
+              className="fixed bottom-[calc(var(--bottom-nav-h,0px)+1rem+env(safe-area-inset-bottom,0px))] left-1/2 z-40 inline-flex min-h-11 -translate-x-1/2 items-center gap-2 rounded-full bg-purple-700 px-4 text-sm font-medium text-white shadow-lg transition hover:bg-purple-800"
+              data-testid="follow-along"
+            >
+              <ArrowDownToLine className="h-4 w-4" aria-hidden />
+              {ts("followAlong")}
+            </button>
+          ) : null}
+
+          {mode === "turns" ? (
+            <ol className="grid gap-1" data-turns>
+              {transcript.turns.map((turn, index) => {
+                const active = position?.turnIndex === index;
+                return (
+                  <TurnRow
+                    key={`${turn.id}-${turn.revision}`}
+                    turn={turn}
+                    tab={tab}
+                    active={active}
+                    activeWord={active ? (position?.wordIndex ?? null) : null}
+                    selecting={selecting}
+                    selected={selected.has(turn.id)}
+                    canEdit={transcript.permissions.edit}
+                    onToggle={toggle}
+                    onSeek={seek}
+                    onCopy={copyTurn}
+                    onSave={save}
+                    onRetranslate={retranslate}
+                    retranslating={busy === `retranslate-${turn.id}`}
+                    marked={marks.has(turn.id)}
+                    onMark={audio.hasAudio ? marks.set : undefined}
+                  />
+                );
+              })}
+            </ol>
+          ) : null}
         </>
       ) : null}
 
@@ -608,5 +661,17 @@ function useTimelineMarks(mediaId: string) {
     },
     [storageKey]
   );
-  return useMemo(() => ({ has: (turnId: string) => ids.has(turnId), set }), [ids, set]);
+  const setAll = useCallback(
+    (turnIds: string[], marked: boolean) => {
+      const next = new Set(marked ? turnIds : []);
+      setIds(next);
+      try {
+        window.localStorage.setItem(storageKey, JSON.stringify([...next]));
+      } catch {
+        // As above.
+      }
+    },
+    [storageKey]
+  );
+  return useMemo(() => ({ has: (turnId: string) => ids.has(turnId), set, setAll }), [ids, set, setAll]);
 }
