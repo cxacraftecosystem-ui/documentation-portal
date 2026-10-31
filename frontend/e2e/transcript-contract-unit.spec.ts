@@ -8,7 +8,7 @@ import { clock, lengthLabel } from "../lib/transcript/format";
 import { locate, pieces } from "../lib/transcript/karaoke";
 import { fileName, type FileNameInput } from "../lib/naming";
 import { copyAll, copySelected, copySingle } from "../lib/transcript/markdown";
-import { downloadWhat, QUOTE_CARD_WHAT, QUOTE_CLIP_WHAT } from "../lib/transcript/names";
+import { downloadWhat, nameForView, QUOTE_CARD_WHAT } from "../lib/transcript/names";
 import { safeUrl } from "../lib/transcript/sanitize";
 import { statusAction, statusLabel } from "../lib/transcript/status";
 
@@ -125,11 +125,18 @@ test("every file the viewer names is a golden naming row", () => {
     for (const track of ["original", "english", "both"] as const) whats.add(downloadWhat(format, track));
   }
   expect([...whats].sort()).toEqual(["Subtitles-With-Speakers", "Subtitles-With-Speakers-English", "Transcript", "Transcript-Bilingual", "Transcript-English"]);
-  for (const what of [...whats, QUOTE_CARD_WHAT, QUOTE_CLIP_WHAT]) {
+  for (const what of [...whats, QUOTE_CARD_WHAT]) {
     const row = golden.fileNames.find((entry) => entry.input.what === what);
     expect(row, what).toBeTruthy();
     expect(fileName(row!.input)).toBe(row!.name);
   }
+  // The quote card and its clip, named from the view as the Android viewer names them.
+  for (const ext of ["png", "m4a"]) {
+    const row = golden.fileNames.find((entry) => entry.input.what === QUOTE_CARD_WHAT && entry.input.ext === ext);
+    expect(row, ext).toBeTruthy();
+    expect(nameForView(VIEW.title, QUOTE_CARD_WHAT, ext)).toBe(fileName({ ...row!.input, portal: undefined, craft: undefined }));
+  }
+  expect(nameForView("Group interview · 6 artisans · 1 Jul 2026", "Transcript", "md")).toMatch(/_Group-Interview_2026-07-01_6-Artisans_Transcript\.md$/);
   // Subtitles carry one language: "both" downloads the original's.
   expect(downloadWhat("srt", "both")).toBe("Subtitles-With-Speakers");
 });

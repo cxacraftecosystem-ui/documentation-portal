@@ -225,7 +225,7 @@ test.describe("desktop actions", () => {
     await expect(card.locator("[data-quote-image]")).toBeVisible();
     const download = page.waitForEvent("download");
     await card.getByRole("button", { name: "Download image" }).click();
-    expect((await download).suggestedFilename()).toMatch(/_Interview_.*Quote-Card\.png$/);
+    expect((await download).suggestedFilename()).toMatch(/_Interview_2026-06-24_Giriraj-Prasad-Chhipa_Quote-Card\.png$/);
   });
 
   test("the Markdown download carries the server's name", async ({ page }) => {

@@ -637,23 +637,23 @@
       "input": {
         "portal": "DesignWorkshop",
         "entity": "Interview",
-        "craft": "Hand Block Printing",
+        "date": "2026-06-24",
         "subject": "Giriraj Prasad Chhipa",
         "what": "Quote-Card",
         "ext": "png"
       },
-      "name": "DesignWorkshop_Interview_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Quote-Card.png"
+      "name": "DesignWorkshop_Interview_2026-06-24_Giriraj-Prasad-Chhipa_Quote-Card.png"
     },
     {
       "input": {
         "portal": "FieldRepository",
         "entity": "Interview",
-        "craft": "Hand Block Printing",
+        "date": "2026-06-24",
         "subject": "Giriraj Prasad Chhipa",
-        "what": "Quote-Clip",
+        "what": "Quote-Card",
         "ext": "m4a"
       },
-      "name": "FieldRepository_Interview_Hand-Block-Printing_Giriraj-Prasad-Chhipa_Quote-Clip.m4a"
+      "name": "FieldRepository_Interview_2026-06-24_Giriraj-Prasad-Chhipa_Quote-Card.m4a"
     }
   ],
   "titles": [

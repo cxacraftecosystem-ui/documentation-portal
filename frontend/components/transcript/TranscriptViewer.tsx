@@ -19,7 +19,7 @@ import type { CopyTrack, DownloadFormat, SpeakerMapping, Transcript, TranscriptT
 import { clock, lengthLabel, usd } from "@/lib/transcript/format";
 import { locate } from "@/lib/transcript/karaoke";
 import { copyAll, copySelected, copySingle } from "@/lib/transcript/markdown";
-import { transcriptFileName } from "@/lib/transcript/names";
+import { downloadWhat, nameForView } from "@/lib/transcript/names";
 import { inFlight, statusAction, statusLabel, statusNote, statusTone } from "@/lib/transcript/status";
 import { ts } from "@/lib/transcript/strings";
 
@@ -190,7 +190,7 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
     setActionError(null);
     try {
       const track = (format === "srt" || format === "vtt") && tabTrack(tab) === "both" ? "original" : tabTrack(tab);
-      const file = await fetchTranscriptFile(TRANSCRIPT_ROUTES.download(mediaId, format, track), transcriptFileName(format, track));
+      const file = await fetchTranscriptFile(TRANSCRIPT_ROUTES.download(mediaId, format, track), nameForView(transcript.title, downloadWhat(format, track), format));
       saveBlob(file.blob, file.fileName);
     } catch (error) {
       setActionError(failure(error, ts("downloadFailed")));
@@ -472,7 +472,7 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
             />
           ) : null}
           {panel === "ask" ? <AskPanel mediaId={mediaId} onSeek={seek} /> : null}
-          {panel === "quote" && chosen.length ? <QuoteCardBuilder mediaId={mediaId} turns={chosen} onClose={() => setPanel(null)} /> : null}
+          {panel === "quote" && chosen.length ? <QuoteCardBuilder mediaId={mediaId} title={transcript.title} turns={chosen} onClose={() => setPanel(null)} /> : null}
           {questionnaire && transcript.permissions.autodraft && transcript.status === "READY" ? (
             <FillFromRecording mediaId={mediaId} onSeek={seek} onReview={questionnaire.onReview} />
           ) : null}

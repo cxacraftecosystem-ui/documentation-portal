@@ -5,7 +5,7 @@ import { AudioLines, ImageDown, Loader2, X } from "lucide-react";
 
 import { errorCode, makeQuoteCard, saveBlob } from "@/lib/transcript/api";
 import type { QuoteCard, TranscriptTurn } from "@/lib/transcript/contract";
-import { QUOTE_CARD_WHAT, QUOTE_CLIP_WHAT, quoteFileName } from "@/lib/transcript/names";
+import { nameForView, QUOTE_CARD_WHAT } from "@/lib/transcript/names";
 import { ts } from "@/lib/transcript/strings";
 
 import { Actions, ICON_BUTTON, PRIMARY, SECONDARY } from "./parts";
@@ -19,7 +19,7 @@ const PAD = 72;
  * CONSENT_REFUSED when a quoted artisan withdrew; the image is drawn here, on a canvas, from that
  * answer, and the audio clip of those turns comes from the url the server signs.
  */
-export function QuoteCardBuilder({ mediaId, turns, onClose }: { mediaId: string; turns: TranscriptTurn[]; onClose: () => void }) {
+export function QuoteCardBuilder({ mediaId, title, turns, onClose }: { mediaId: string; title: string; turns: TranscriptTurn[]; onClose: () => void }) {
   const [card, setCard] = useState<QuoteCard | null>(null);
   const [image, setImage] = useState<{ url: string; blob: Blob } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -82,12 +82,12 @@ export function QuoteCardBuilder({ mediaId, turns, onClose }: { mediaId: string;
       )}
       {card && !error ? (
         <Actions>
-          <button type="button" className={PRIMARY} disabled={!image} onClick={() => image && saveBlob(image.blob, quoteFileName(QUOTE_CARD_WHAT, "png", subject, card?.craft))}>
+          <button type="button" className={PRIMARY} disabled={!image} onClick={() => image && saveBlob(image.blob, nameForView(title, QUOTE_CARD_WHAT, "png"))}>
             <ImageDown className="h-4 w-4" aria-hidden />
             {ts("quoteCardDownload")}
           </button>
           {card.clip.url ? (
-            <a className={SECONDARY} href={card.clip.url} download={quoteFileName(QUOTE_CLIP_WHAT, "m4a", subject, card?.craft)} target="_blank" rel="noopener noreferrer">
+            <a className={SECONDARY} href={card.clip.url} download={nameForView(title, QUOTE_CARD_WHAT, "m4a")} target="_blank" rel="noopener noreferrer">
               <AudioLines className="h-4 w-4" aria-hidden />
               {ts("quoteCardClip")}
             </a>
