@@ -44,7 +44,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import com.fieldrepository.app.data.AppScope
-import com.fieldrepository.app.data.Naming
 import com.fieldrepository.app.transcript.data.AskAnswer
 import com.fieldrepository.app.transcript.data.AutoDraft
 import com.fieldrepository.app.transcript.data.AutoDraftResult
@@ -58,6 +57,7 @@ import com.fieldrepository.app.transcript.data.SpeakerSuggestion
 import com.fieldrepository.app.transcript.data.Transcript
 import com.fieldrepository.app.transcript.data.TranscriptEdit
 import com.fieldrepository.app.transcript.data.TranscriptFormat
+import com.fieldrepository.app.transcript.data.TranscriptNames
 import com.fieldrepository.app.transcript.data.TranscriptRepository
 import com.fieldrepository.app.transcript.data.TranscriptStrings
 import com.fieldrepository.app.transcript.data.TranscriptSummary
@@ -95,7 +95,13 @@ private sealed interface ScreenState {
  * recording is a questionnaire take (Fill from recording).
  */
 @Composable
-fun TranscriptDialog(mediaId: String, audio: Uri?, onDismiss: () -> Unit, acceptDraft: ((AutoDraft, String) -> Unit)? = null) {
+fun TranscriptDialog(
+    mediaId: String,
+    audio: Uri?,
+    onDismiss: () -> Unit,
+    acceptDraft: ((AutoDraft, String) -> Unit)? = null,
+    headerExtra: (@Composable () -> Unit)? = null,
+) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -105,14 +111,19 @@ fun TranscriptDialog(mediaId: String, audio: Uri?, onDismiss: () -> Unit, accept
                     }
                     Text(TranscriptUiText.open, style = MaterialTheme.typography.titleMedium)
                 }
-                TranscriptScreen(mediaId, audio, acceptDraft)
+                TranscriptScreen(mediaId, audio, acceptDraft, headerExtra)
             }
         }
     }
 }
 
 @Composable
-fun TranscriptScreen(mediaId: String, audio: Uri?, acceptDraft: ((AutoDraft, String) -> Unit)? = null) {
+fun TranscriptScreen(
+    mediaId: String,
+    audio: Uri?,
+    acceptDraft: ((AutoDraft, String) -> Unit)? = null,
+    headerExtra: (@Composable () -> Unit)? = null,
+) {
     val context = LocalContext.current
     val repository = remember(mediaId) { TranscriptPortal.repository(context) }
     var state by remember(mediaId) { mutableStateOf<ScreenState>(ScreenState.Loading) }
@@ -163,7 +174,7 @@ fun TranscriptScreen(mediaId: String, audio: Uri?, acceptDraft: ((AutoDraft, Str
                     onChanged = { updated -> state = s.copy(loaded = s.loaded.copy(view = updated, waitingEdits = s.loaded.waitingEdits + 1)) },
                     onReload = { reloads++ })
             }
-            TranscriptViewer(view, playback, host, offline = s.loaded.offline, waitingEdits = s.loaded.waitingEdits, failures = s.failures)
+            TranscriptViewer(view, playback, host, offline = s.loaded.offline, waitingEdits = s.loaded.waitingEdits, failures = s.failures, headerExtra = headerExtra)
         }
     }
 }
@@ -230,10 +241,9 @@ private class RepositoryHost(
     override fun shareQuoteCard(card: QuoteCard) {
         AppScope.io.launch {
             val dir = shareDir(context)
-            val stem = fileStem(view, "Quote-Card")
-            val image = File(dir, "$stem.png").also { it.writeBytes(QuoteCardImage.png(card)) }
+            val image = File(dir, TranscriptNames.forView(view, "png")).also { it.writeBytes(QuoteCardImage.png(card)) }
             val clip = card.clip.url?.let { url ->
-                runCatching { File(dir, "$stem.m4a").also { f -> URL(url).openStream().use { input -> f.outputStream().use { input.copyTo(it) } } } }.getOrNull()
+                runCatching { File(dir, TranscriptNames.forView(view, "m4a")).also { f -> URL(url).openStream().use { input -> f.outputStream().use { input.copyTo(it) } } } }.getOrNull()
             }
             withContext(Dispatchers.Main) { shareFiles(context, listOfNotNull(image, clip), card.markdown) }
         }
@@ -244,7 +254,7 @@ private class RepositoryHost(
             val file = runCatching {
                 if (offline) throw IOException("offline")
                 val got = server.download(view.mediaId, format, track)
-                File(shareDir(context), got.name ?: fileName(view, format)).also { it.writeBytes(got.bytes) }
+                File(shareDir(context), got.name ?: TranscriptNames.forView(view, format)).also { it.writeBytes(got.bytes) }
             }.getOrElse { e ->
                 if (e is CancellationException) throw e
                 // No connection: everything but Word is built on the phone from the same turns.
@@ -254,7 +264,7 @@ private class RepositoryHost(
                     "vtt" -> TranscriptFormat.vtt(view, track)
                     else -> null
                 } ?: return@launch
-                File(shareDir(context), fileName(view, format)).also { it.writeText(text) }
+                File(shareDir(context), TranscriptNames.forView(view, format)).also { it.writeText(text) }
             }
             withContext(Dispatchers.Main) { shareFiles(context, listOf(file), null) }
         }
@@ -292,6 +302,7 @@ fun TranscriptEntry(
     audio: Uri?,
     modifier: Modifier = Modifier,
     acceptDraft: ((AutoDraft, String) -> Unit)? = null,
+    headerExtra: (@Composable () -> Unit)? = null,
     legacy: @Composable () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -331,7 +342,7 @@ fun TranscriptEntry(
         }
         else -> legacy()
     }
-    if (open) TranscriptDialog(mediaId, audio, onDismiss = { open = false }, acceptDraft = acceptDraft)
+    if (open) TranscriptDialog(mediaId, audio, onDismiss = { open = false }, acceptDraft = acceptDraft, headerExtra = headerExtra)
 }
 
 // ── Clipboard and share sheet ──────────────────────────────────────────────────────────────────
@@ -366,16 +377,3 @@ private fun shareFiles(context: Context, files: List<File>, text: String?) {
     intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     context.startActivity(Intent.createChooser(intent, TranscriptUiText.share).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 }
-
-/** The title's parts after "Interview · ": the subject, and a date the naming helper reads. */
-private fun fileStem(view: Transcript, what: String): String {
-    val parts = view.title.split(" · ").map { it.trim() }
-    val entity = parts.firstOrNull()?.takeIf { it == "Interview" || it == "Group interview" }?.replace(' ', '-') ?: "Interview"
-    val subject = parts.drop(1).firstOrNull { java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy", java.util.Locale.ENGLISH).let { f -> runCatching { java.time.LocalDate.parse(it, f) }.isFailure } }
-    val date = parts.firstNotNullOfOrNull { p -> runCatching { java.time.LocalDate.parse(p, java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy", java.util.Locale.ENGLISH)) }.getOrNull() }
-    return Naming.fileName(entity = entity, what = what, date = date?.toString(), subject = subject)
-}
-
-/** The naming convention's name for a file built on the phone (`Transcript` / `Subtitles-With-Speakers`). */
-private fun fileName(view: Transcript, format: String): String =
-    fileStem(view, if (format == "srt" || format == "vtt") "Subtitles-With-Speakers" else "Transcript") + "." + format

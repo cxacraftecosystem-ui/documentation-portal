@@ -128,6 +128,8 @@ fun TranscriptViewer(
     offline: Boolean = false,
     waitingEdits: Int = 0,
     failures: List<String> = emptyList(),
+    /** The mount's own chips for the recording (a take's RecordingChips), drawn under the badges. */
+    headerExtra: (@Composable () -> Unit)? = null,
 ) {
     var tab by rememberSaveable { mutableStateOf(TranscriptTab.ORIGINAL) }
     var selecting by rememberSaveable { mutableStateOf(false) }
@@ -162,7 +164,7 @@ fun TranscriptViewer(
         Column(Modifier.fillMaxSize()) {
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(bottom = 16.dp)) {
                 item(key = "header") {
-                    TranscriptHeader(view, offline, waitingEdits, failures, onAction = host::statusAction)
+                    TranscriptHeader(view, offline, waitingEdits, failures, headerExtra, onAction = host::statusAction)
                 }
                 item(key = "toolbar") {
                     if (view.status == PipelineStatus.READY && turns.isNotEmpty()) {
@@ -257,7 +259,14 @@ private const val HEADER_ITEMS = 2
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TranscriptHeader(view: Transcript, offline: Boolean, waitingEdits: Int, failures: List<String>, onAction: () -> Unit) {
+private fun TranscriptHeader(
+    view: Transcript,
+    offline: Boolean,
+    waitingEdits: Int,
+    failures: List<String>,
+    extra: (@Composable () -> Unit)?,
+    onAction: () -> Unit,
+) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(view.title.ifBlank { TranscriptUiText.open }, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -269,6 +278,7 @@ private fun TranscriptHeader(view: Transcript, offline: Boolean, waitingEdits: I
             if (offline) Pill(TranscriptStrings.offlineCached, tone = PillTone.QUIET)
             view.cost?.let { Pill("${TranscriptStrings.spendPerRecording} ${TranscriptUiText.usd(it.totalUsd)}", tone = PillTone.QUIET) }
         }
+        extra?.invoke()
         TranscriptUiText.statusLine(view)?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted) }
         if (waitingEdits > 0) Text(TranscriptUiText.waiting(waitingEdits), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
         failures.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
