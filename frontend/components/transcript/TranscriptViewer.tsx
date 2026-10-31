@@ -19,6 +19,7 @@ import type { CopyTrack, DownloadFormat, SpeakerMapping, Transcript, TranscriptT
 import { clock, lengthLabel, usd } from "@/lib/transcript/format";
 import { locate } from "@/lib/transcript/karaoke";
 import { copyAll, copySelected, copySingle } from "@/lib/transcript/markdown";
+import { transcriptFileName } from "@/lib/transcript/names";
 import { inFlight, statusAction, statusLabel, statusNote, statusTone } from "@/lib/transcript/status";
 import { ts } from "@/lib/transcript/strings";
 
@@ -60,6 +61,8 @@ export type TranscriptViewerProps = {
   fallback?: ReactNode;
   /** A questionnaire take: offers "Fill the questionnaire"; `onReview` opens the drafts in the form. */
   questionnaire?: { onReview?: () => void };
+  /** The recording's chips (what it answers, who, when, where), drawn under the header facts. */
+  chips?: ReactNode;
   /** False on a dense list (questionnaire takes): the header and player show, the turns wait for a tap. */
   initiallyOpen?: boolean;
 };
@@ -71,7 +74,7 @@ export type TranscriptViewerProps = {
  * per-turn copy; Copy all; Select turns → Copy selected / Make a quote card; downloads; speaker
  * names; turn edits; karaoke; Ask this interview; Fill the questionnaire on a take.
  */
-export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionnaire, initiallyOpen = true }: TranscriptViewerProps) {
+export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionnaire, initiallyOpen = true, chips = null }: TranscriptViewerProps) {
   const [transcript, setTranscript] = useState<Transcript | null | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -186,7 +189,8 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
     if (!transcript) return;
     setActionError(null);
     try {
-      const file = await fetchTranscriptFile(TRANSCRIPT_ROUTES.download(mediaId, format, tabTrack(tab)), `Transcript.${format}`);
+      const track = (format === "srt" || format === "vtt") && tabTrack(tab) === "both" ? "original" : tabTrack(tab);
+      const file = await fetchTranscriptFile(TRANSCRIPT_ROUTES.download(mediaId, format, track), transcriptFileName(format, track));
       saveBlob(file.blob, file.fileName);
     } catch (error) {
       setActionError(failure(error, ts("downloadFailed")));
@@ -279,6 +283,7 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
             </div>
           ) : null}
         </dl>
+        {chips}
       </header>
 
       {audio.hasAudio ? (

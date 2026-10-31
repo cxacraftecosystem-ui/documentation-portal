@@ -6,7 +6,9 @@ import { expect, test } from "@playwright/test";
 import type { Transcript, TranscriptTurn } from "../lib/transcript/contract";
 import { clock, lengthLabel } from "../lib/transcript/format";
 import { locate, pieces } from "../lib/transcript/karaoke";
+import { fileName, type FileNameInput } from "../lib/naming";
 import { copyAll, copySelected, copySingle } from "../lib/transcript/markdown";
+import { downloadWhat, QUOTE_CARD_WHAT, QUOTE_CLIP_WHAT } from "../lib/transcript/names";
 import { safeUrl } from "../lib/transcript/sanitize";
 import { statusAction, statusLabel } from "../lib/transcript/status";
 
@@ -114,4 +116,20 @@ test("the sanitiser keeps only http(s) and mailto links", () => {
   for (const hostile of ["javascript:alert(1)", " JavaScript:alert(1)", "data:text/html,<script>x</script>", "vbscript:x", "/relative", "//evil.example"]) {
     expect(safeUrl(hostile), hostile).toBe("");
   }
+});
+
+test("every file the viewer names is a golden naming row", () => {
+  const golden = JSON.parse(readFileSync(join(REPO, "shared", "naming-golden.json"), "utf8")) as { fileNames: { input: FileNameInput & { what: string }; name: string }[] };
+  const whats = new Set<string>();
+  for (const format of ["md", "docx", "srt", "vtt"] as const) {
+    for (const track of ["original", "english", "both"] as const) whats.add(downloadWhat(format, track));
+  }
+  expect([...whats].sort()).toEqual(["Subtitles-With-Speakers", "Subtitles-With-Speakers-English", "Transcript", "Transcript-Bilingual", "Transcript-English"]);
+  for (const what of [...whats, QUOTE_CARD_WHAT, QUOTE_CLIP_WHAT]) {
+    const row = golden.fileNames.find((entry) => entry.input.what === what);
+    expect(row, what).toBeTruthy();
+    expect(fileName(row!.input)).toBe(row!.name);
+  }
+  // Subtitles carry one language: "both" downloads the original's.
+  expect(downloadWhat("srt", "both")).toBe("Subtitles-With-Speakers");
 });

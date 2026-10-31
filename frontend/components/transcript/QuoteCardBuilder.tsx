@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import { AudioLines, ImageDown, Loader2, X } from "lucide-react";
 
-import { fileName } from "@/lib/naming";
 import { errorCode, makeQuoteCard, saveBlob } from "@/lib/transcript/api";
 import type { QuoteCard, TranscriptTurn } from "@/lib/transcript/contract";
+import { QUOTE_CARD_WHAT, QUOTE_CLIP_WHAT, quoteFileName } from "@/lib/transcript/names";
 import { ts } from "@/lib/transcript/strings";
 
 import { Actions, ICON_BUTTON, PRIMARY, SECONDARY } from "./parts";
@@ -58,7 +58,7 @@ export function QuoteCardBuilder({ mediaId, turns, onClose }: { mediaId: string;
   }, [card]);
 
   const subject = card?.artisanName || card?.speakerName || null;
-  const names = (what: string, ext: string) => fileName({ entity: "Interview", craft: card?.craft, subject, what, ext });
+
 
   return (
     <div className="grid gap-3 rounded-lg border border-line-200 bg-surface-50 p-3 sm:p-4" data-quote-card>
@@ -82,12 +82,12 @@ export function QuoteCardBuilder({ mediaId, turns, onClose }: { mediaId: string;
       )}
       {card && !error ? (
         <Actions>
-          <button type="button" className={PRIMARY} disabled={!image} onClick={() => image && saveBlob(image.blob, names("Quote-Card", "png"))}>
+          <button type="button" className={PRIMARY} disabled={!image} onClick={() => image && saveBlob(image.blob, quoteFileName(QUOTE_CARD_WHAT, "png", subject, card?.craft))}>
             <ImageDown className="h-4 w-4" aria-hidden />
             {ts("quoteCardDownload")}
           </button>
           {card.clip.url ? (
-            <a className={SECONDARY} href={card.clip.url} download={names("Quote-Clip", "m4a")} target="_blank" rel="noopener noreferrer">
+            <a className={SECONDARY} href={card.clip.url} download={quoteFileName(QUOTE_CLIP_WHAT, "m4a", subject, card?.craft)} target="_blank" rel="noopener noreferrer">
               <AudioLines className="h-4 w-4" aria-hidden />
               {ts("quoteCardClip")}
             </a>
