@@ -44,7 +44,7 @@ object QuoteCardImage {
         val credit = listOfNotNull(card.artisanName ?: card.speakerName.ifBlank { null }, card.craft, card.date.ifBlank { null }).joinToString(" · ")
         val attribution = layout(credit, 34f, ACCENT, Typeface.BOLD)
         val gap = 48f
-        val height = (PAD * 2 + quote.height + (english?.let { gap + it.height } ?: 0) + gap + attribution.height).toInt()
+        val height = (PAD * 2 + quote.height + (english?.let { gap + it.height } ?: 0f) + gap + attribution.height).toInt()
         val bitmap = Bitmap.createBitmap(WIDTH, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         canvas.drawRoundRect(RectF(0f, 0f, WIDTH.toFloat(), height.toFloat()), 48f, 48f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = GROUND })
