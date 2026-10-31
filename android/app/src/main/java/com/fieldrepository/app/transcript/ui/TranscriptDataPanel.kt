@@ -191,7 +191,7 @@ internal fun DataRecordingCard(r: DataRecording) {
         Modifier.fillMaxWidth().background(MaterialTheme.field.surface50, RoundedCornerShape(12.dp)).padding(12.dp).testTag("transcript.data.row.${r.mediaId}"),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Text(r.file?.ifBlank { null } ?: r.mediaId, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(r.file?.ifBlank { null } ?: r.mediaId, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         val facts = listOfNotNull(
             r.uploadedAt?.take(10),
             r.languages.joinToString(", ") { it.label.ifBlank { it.code } }.ifBlank { null },
