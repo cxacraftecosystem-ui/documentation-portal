@@ -12,8 +12,9 @@ The key is the portal's own ``ELEVENLABS_API_KEY``; a key restricted to speech-t
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 import requests
 

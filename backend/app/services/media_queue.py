@@ -987,12 +987,12 @@ async def run_insights_lane(stop: Any, settings: Settings | None = None, *, idle
         try:
             result = await process_next_insights_jobs(settings=settings)
             busy = result["processed"] > 0
-        except Exception:  # noqa: BLE001 - one bad pass must never kill the lane
+        except Exception:  # one bad pass must never kill the lane
             logger.exception("Translation lane pass failed; backing off")
         if not busy:
             try:
                 await asyncio.wait_for(stop.wait(), timeout=idle_seconds)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
 
