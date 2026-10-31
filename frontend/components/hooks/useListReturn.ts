@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { listMemoryFromSearch, listMemoryToSearch, readScroll, restoreScroll as restoreListScroll, writeScroll } from "@/components/hooks/useListMemory";
+import { listMemoryFromSearch, listMemoryToSearch, readScroll, restoreScroll as restoreListScroll, watchScroll, writeScroll } from "@/components/hooks/useListMemory";
 import { rememberListReturn, takeListReturn, type ListReturn } from "@/lib/listReturn";
 
 /** What a list is showing right now, handed in every render so the address bar can follow it. */
@@ -69,24 +69,19 @@ export function useListReturn(key: string, current?: ListPlace, ready = false) {
     if (search !== window.location.search) window.history.replaceState(null, "", `${window.location.pathname}${search}${window.location.hash}`);
   });
 
-  useEffect(() => {
-    let frame = 0;
-    const onScroll = () => {
-      if (frame) return;
-      frame = requestAnimationFrame(() => {
-        frame = 0;
-        // A navigation to a record scrolls the NEW page; that is not this list's position.
-        if (!tracking.current || home.current === null || window.location.pathname !== home.current) return;
-        writeScroll(window.location.pathname + window.location.search, window.scrollY);
-        if (latest.current) rememberListReturn(key, { ...latest.current, scrollY: window.scrollY });
-      });
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      if (frame) cancelAnimationFrame(frame);
-    };
-  }, [key]);
+  // As the reader scrolls, and at every press (`watchScroll`): never a position the browser clamped
+  // the window to while the next page laid out, nor one from before the rows were drawn.
+  useEffect(
+    () =>
+      watchScroll(
+        (y) => {
+          writeScroll(window.location.pathname + window.location.search, y);
+          if (latest.current) rememberListReturn(key, { ...latest.current, scrollY: y });
+        },
+        () => tracking.current && home.current !== null && window.location.pathname === home.current
+      ),
+    [key]
+  );
 
   const remember = useCallback(
     (state: ListPlace) => {

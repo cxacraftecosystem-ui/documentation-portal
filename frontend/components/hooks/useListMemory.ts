@@ -218,6 +218,42 @@ export function restoreScroll(target: number) {
   requestAnimationFrame(step);
 }
 
+/** After a press, scroll events are not the reader's position for this long: a navigation lays out the next page under the same window and the browser clamps the scroll to it. */
+export const PRESS_QUIET_MS = 1000;
+
+/**
+ * Calls `save(scrollY)` as the reader scrolls (once a frame), and at the moment of every press —
+ * a click or Enter, in the capture phase, before any navigation it starts — which is exactly the
+ * position Back should return to. Scroll events in the second after a press are ignored, and so is
+ * everything while `allowed()` is false. Returns the cleanup.
+ */
+export function watchScroll(save: (y: number) => void, allowed: () => boolean): () => void {
+  let frame = 0;
+  let quietUntil = 0;
+  const onPress = (event: Event) => {
+    if (event instanceof KeyboardEvent && event.key !== "Enter") return;
+    if (allowed()) save(window.scrollY);
+    quietUntil = performance.now() + PRESS_QUIET_MS;
+  };
+  const onScroll = () => {
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      if (performance.now() < quietUntil || !allowed()) return;
+      save(window.scrollY);
+    });
+  };
+  window.addEventListener("scroll", onScroll, { passive: true });
+  document.addEventListener("click", onPress, true);
+  document.addEventListener("keydown", onPress, true);
+  return () => {
+    window.removeEventListener("scroll", onScroll);
+    document.removeEventListener("click", onPress, true);
+    document.removeEventListener("keydown", onPress, true);
+    if (frame) cancelAnimationFrame(frame);
+  };
+}
+
 /**
  * Keeps the scroll position of the page at its current URL, and puts it back once `ready` (the
  * rows are drawn). For a list whose page and filters already live in the URL (the search page, the
@@ -225,31 +261,23 @@ export function restoreScroll(target: number) {
  */
 export function useUrlScrollMemory(ready: boolean) {
   const home = useRef<string | null>(null);
+  /** The position stored for the URL the reader ARRIVED on, read before any scroll can replace it. */
+  const target = useRef<number | null>(null);
   const restored = useRef(false);
 
   useEffect(() => {
     home.current = window.location.pathname;
-    let frame = 0;
-    const onScroll = () => {
-      if (frame) return;
-      frame = requestAnimationFrame(() => {
-        frame = 0;
-        if (window.location.pathname !== home.current) return;
-        writeScroll(window.location.pathname + window.location.search, window.scrollY);
-      });
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      if (frame) cancelAnimationFrame(frame);
-    };
+    target.current = readScroll(window.location.pathname + window.location.search);
+    return watchScroll(
+      (y) => writeScroll(window.location.pathname + window.location.search, y),
+      () => restored.current && window.location.pathname === home.current
+    );
   }, []);
 
   useEffect(() => {
     if (!ready || restored.current) return;
     restored.current = true;
-    const target = readScroll(window.location.pathname + window.location.search);
-    if (target) restoreScroll(target);
+    if (target.current) restoreScroll(target.current);
   }, [ready]);
 }
 
@@ -302,22 +330,14 @@ export function useListMemory(key: string, state: Omit<ListMemory, "scrollY">, r
   useEffect(() => {
     home.current = window.location.pathname;
     if (arrival.current === null) arrival.current = window.location.pathname + window.location.search;
-    let frame = 0;
-    const onScroll = () => {
-      if (frame) return;
-      frame = requestAnimationFrame(() => {
-        frame = 0;
-        // A navigation to a record scrolls the NEW page; that is not this list's position.
-        if (!here() || recalled.current === undefined) return;
-        writeScroll(window.location.pathname + window.location.search, window.scrollY);
-        write(key, { ...latest.current, scrollY: window.scrollY });
-      });
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      if (frame) cancelAnimationFrame(frame);
-    };
+    // Only once the place is restored: until then the window is clamped to a page still loading.
+    return watchScroll(
+      (y) => {
+        writeScroll(window.location.pathname + window.location.search, y);
+        write(key, { ...latest.current, scrollY: y });
+      },
+      () => here() && restored.current && recalled.current !== undefined
+    );
   }, [key]);
 
   // Once, after the first page of rows is drawn: put the reader back where they were.

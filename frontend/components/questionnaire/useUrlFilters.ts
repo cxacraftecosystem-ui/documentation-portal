@@ -155,18 +155,31 @@ export function useListPlace(pages: number, ready: boolean, exhausted: boolean):
     home.current = window.location.pathname;
     wanted.current = readPlace(window.location.pathname + window.location.search);
     let frame = 0;
+    let quietUntil = 0;
+    const allowed = () => restored.current && window.location.pathname === home.current;
+    const save = () => writePlace(window.location.pathname + window.location.search, { pages: latestPages.current, scrollY: window.scrollY });
+    // A press (click or Enter, capture phase) is the position Back returns to; for a second after it
+    // scroll events are the next page laying out under the same window, not the reader.
+    const onPress = (event: Event) => {
+      if (event instanceof KeyboardEvent && event.key !== "Enter") return;
+      if (allowed()) save();
+      quietUntil = performance.now() + 1000;
+    };
     const onScroll = () => {
       if (frame) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
-        // A navigation to a record scrolls the NEW page; that is not this list's position.
-        if (!restored.current || window.location.pathname !== home.current) return;
-        writePlace(window.location.pathname + window.location.search, { pages: latestPages.current, scrollY: window.scrollY });
+        if (performance.now() < quietUntil || !allowed()) return;
+        save();
       });
     };
     window.addEventListener("scroll", onScroll, { passive: true });
+    document.addEventListener("click", onPress, true);
+    document.addEventListener("keydown", onPress, true);
     return () => {
       window.removeEventListener("scroll", onScroll);
+      document.removeEventListener("click", onPress, true);
+      document.removeEventListener("keydown", onPress, true);
       if (frame) cancelAnimationFrame(frame);
     };
   }, []);
