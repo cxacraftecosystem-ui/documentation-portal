@@ -125,8 +125,10 @@ export class ListBackNavFake {
     const search = (query.get("q") ?? "").toLowerCase();
     const kept = rows.filter((row) => !search || title(row).toLowerCase().includes(search));
     const start = Number(query.get("cursor") ?? 0) || 0;
-    const items = kept.slice(start, start + PAGE);
-    return { items, nextCursor: start + PAGE < kept.length ? String(start + PAGE) : null, capped: false };
+    // `limit` as the server reads it (the search page's Recordings group asks for 5).
+    const size = Math.max(1, Math.min(Number(query.get("limit")) || PAGE, PAGE));
+    const items = kept.slice(start, start + size);
+    return { items, nextCursor: start + size < kept.length ? String(start + size) : null, capped: false };
   }
 
   answer(method: string, path: string, query: URLSearchParams): { status: number; json?: unknown } | null {

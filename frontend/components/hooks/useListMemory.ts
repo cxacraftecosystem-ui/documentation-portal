@@ -177,17 +177,43 @@ export function writeScroll(url: string, y: number) {
   }
 }
 
+/** How long a restored position is held while the page is still laying itself out. */
+export const RESTORE_HOLD_MS = 4000;
+
 /**
- * Scroll to `target` once the page is tall enough to reach it — rows, images and late panels can
- * still be growing the page for a moment after the rows arrive — giving up after about a second.
+ * Scroll to `target` and HOLD it while the page finishes laying out. Rows arrive first; panels
+ * above them (a capture form, a processing-jobs card, a location card) can still grow the page
+ * for a few seconds, and a position applied once lands short — measured on /media at tablet width:
+ * restored to 689 of 2751 when the page was not yet tall enough. So the position is re-applied
+ * every frame and on every size change of the page for `RESTORE_HOLD_MS`, and let go the moment
+ * the reader takes over (a wheel, a touch, a key, a press) or the page navigates away.
  */
 export function restoreScroll(target: number) {
-  if (target <= 0) return;
-  let frames = 0;
+  if (target <= 0 || typeof window === "undefined") return;
+  const path = window.location.pathname;
+  const started = performance.now();
+  let done = false;
+  const handover = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
+  const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => apply());
+  function stop() {
+    if (done) return;
+    done = true;
+    for (const name of handover) window.removeEventListener(name, stop);
+    observer?.disconnect();
+  }
+  function apply() {
+    if (done) return;
+    if (window.location.pathname !== path || performance.now() - started > RESTORE_HOLD_MS) {
+      stop();
+      return;
+    }
+    if (Math.abs(window.scrollY - target) > 1) window.scrollTo(0, target);
+  }
+  for (const name of handover) window.addEventListener(name, stop, { passive: true });
+  observer?.observe(document.body);
   const step = () => {
-    window.scrollTo(0, target);
-    frames += 1;
-    if (Math.abs(window.scrollY - target) > 2 && frames < 60) requestAnimationFrame(step);
+    apply();
+    if (!done) requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
 }

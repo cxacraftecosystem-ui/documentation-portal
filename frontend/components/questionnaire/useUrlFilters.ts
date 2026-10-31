@@ -102,6 +102,41 @@ function writePlace(url: string, place: ListPlace) {
 }
 
 /**
+ * Scroll to `y` and hold it for a few seconds while the page finishes laying out (panels above a
+ * list can still grow it after the rows arrive), letting go the moment the reader takes over — a
+ * wheel, a touch, a key, a press — or the page navigates away. The portals' `restoreScroll` rule;
+ * this tree may not import it.
+ */
+function holdScroll(y: number) {
+  const path = window.location.pathname;
+  const started = performance.now();
+  let done = false;
+  const handover = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
+  const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => apply());
+  function stop() {
+    if (done) return;
+    done = true;
+    for (const name of handover) window.removeEventListener(name, stop);
+    observer?.disconnect();
+  }
+  function apply() {
+    if (done) return;
+    if (window.location.pathname !== path || performance.now() - started > 4000) {
+      stop();
+      return;
+    }
+    if (Math.abs(window.scrollY - y) > 1) window.scrollTo(0, y);
+  }
+  for (const name of handover) window.addEventListener(name, stop, { passive: true });
+  observer?.observe(document.body);
+  const step = () => {
+    apply();
+    if (!done) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+/**
  * Back from a record lands where the reader was in a list (owner, 1 Nov 2026): the filters are
  * already in the URL (`useUrlFilters`); this keeps, under that exact URL, how many "Show more"
  * pages were open and the scroll position, and puts both back on return.
@@ -144,13 +179,7 @@ export function useListPlace(pages: number, ready: boolean, exhausted: boolean):
       if (target && pages < target.pages && !exhausted) return;
       restored.current = true;
       if (target && target.scrollY > 0) {
-        let frames = 0;
-        const step = () => {
-          window.scrollTo(0, target.scrollY);
-          frames += 1;
-          if (Math.abs(window.scrollY - target.scrollY) > 2 && frames < 60) requestAnimationFrame(step);
-        };
-        requestAnimationFrame(step);
+        holdScroll(target.scrollY);
         return;
       }
     }

@@ -56,10 +56,14 @@ const visible = (locator: Locator) => locator.filter({ visible: true }).first();
 const scrollY = (page: Page) => page.evaluate(() => Math.round(window.scrollY));
 const row = (page: Page, n: number) => visible(page.getByText(new RegExp(`${rowName(n)}\\b`)));
 
-/** Centre an element in the window (clear of the fixed header and the bottom island), then press it. */
+/**
+ * Press a button from the keyboard (focus, Enter). The pager sits mid-page above more content, and
+ * a pointer press there is at the mercy of Playwright's retry scrolling, which can park it under the
+ * phone's fixed bottom island; Enter on the focused button is the same action with no hit test.
+ */
 async function press(locator: Locator) {
-  await locator.evaluate((element) => element.scrollIntoView({ block: "center" }));
-  await locator.click();
+  await locator.focus();
+  await locator.press("Enter");
 }
 
 /** The pager's Next: the LAST visible one, since a form above a list can carry a "Next" of its own. */
@@ -165,9 +169,10 @@ for (const viewport of VIEWPORTS) {
       await page.goBack();
       await expect(page).toHaveURL(/[?&]q=Record\b/);
       await expect(page).toHaveURL(/[?&]page=2\b/);
-      await expect(row(page, 21)).toBeVisible({ timeout: 30_000 });
-      // Rows 01-05 are also the Recordings group the search page draws for the same words.
-      await expect(row(page, 10)).toHaveCount(0);
+      // The ARTISAN results by their links: the Recordings group below them answers the same words
+      // with rows of its own ("Record 01" …), so a bare text match cannot tell the pages apart.
+      await expect(visible(page.locator('a[href="/artisans/artisans-21"]'))).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator('a[href="/artisans/artisans-1"]')).toHaveCount(0);
       await expect(page.getByPlaceholder(/^Search (repository|records)$/)).toHaveValue("Record");
       await expectScrollBack(page, saved);
     });

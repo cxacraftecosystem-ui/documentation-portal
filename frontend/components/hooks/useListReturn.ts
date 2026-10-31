@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { listMemoryFromSearch, listMemoryToSearch, readScroll, writeScroll } from "@/components/hooks/useListMemory";
+import { listMemoryFromSearch, listMemoryToSearch, readScroll, restoreScroll as restoreListScroll, writeScroll } from "@/components/hooks/useListMemory";
 import { rememberListReturn, takeListReturn, type ListReturn } from "@/lib/listReturn";
 
 /** What a list is showing right now, handed in every render so the address bar can follow it. */
@@ -108,14 +108,8 @@ export function useListReturn(key: string, current?: ListPlace, ready = false) {
     if (!rowsReady || scrollPending.current === null) return;
     const target = scrollPending.current;
     scrollPending.current = null;
-    // Until the page is tall enough to reach it: late rows and images can still be growing it.
-    let frames = 0;
-    const step = () => {
-      window.scrollTo({ top: target });
-      frames += 1;
-      if (Math.abs(window.scrollY - target) > 2 && frames < 60) window.requestAnimationFrame(step);
-    };
-    window.requestAnimationFrame(step);
+    // Held while the page finishes laying out, let go when the reader takes over (`restoreScroll`).
+    restoreListScroll(target);
   }, []);
 
   return { restored, remember, restoredFunnel, restoreScroll };

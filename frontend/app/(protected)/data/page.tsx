@@ -38,6 +38,7 @@ import remarkGfm from "remark-gfm";
 
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
+import { TranscriptDataPanel } from "@/components/transcript/TranscriptDataPanel";
 import { OpenableRow, RecordTitleLink } from "@/components/records/OpenableRow";
 import { useAuth } from "@/components/AuthProvider";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
@@ -84,6 +85,8 @@ type TreeEntry = {
   url?: string | null;
   sizeBytes?: number | string | null;
   transcriptAvailable?: boolean;
+  /** 0.0.6: the recording's transcript files (md, docx, srt, vtt; with and without timestamps), when it has turns. */
+  transcriptFiles?: { name: string; format: string; track: string; timestamps: boolean; url: string }[];
   /** Inline body for generated text files (details.txt / answers.txt). */
   content?: string | null;
 };
@@ -1707,6 +1710,9 @@ export default function DataBrowserPage() {
       {/* Jump straight to a record type without walking the tree. */}
       <BrowseByTypePanel />
 
+      {/* Every recording's transcript data, filtered by its recording fields, and its streamed downloads. */}
+      <TranscriptDataPanel />
+
       <div className="grid items-start gap-5 lg:grid-cols-[290px_minmax(0,1fr)]">
         {/* Left pane: lazy-loading directory tree */}
         <section className="panel p-3 lg:sticky lg:top-4">
@@ -1922,6 +1928,15 @@ export default function DataBrowserPage() {
                               </a>
                             ) : null}
                           </div>
+                          {file.transcriptFiles?.length ? (
+                            <p data-row-ignore="" className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs" data-transcript-files>
+                              {file.transcriptFiles.map((entry) => (
+                                <a key={entry.url} href={entry.url} download={entry.name} className="font-semibold text-purple-700 hover:underline dark:text-purple-300">
+                                  {entry.name}
+                                </a>
+                              ))}
+                            </p>
+                          ) : null}
                           {file.mediaType === "AUDIO" && file.url ? (
                             // Preview always plays the original object, never the MP4 conversion.
                             <audio controls preload="none" src={file.url} className="mt-2 h-9 w-full max-w-md" />
