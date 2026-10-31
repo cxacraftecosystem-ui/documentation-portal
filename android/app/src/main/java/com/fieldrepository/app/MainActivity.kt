@@ -157,6 +157,7 @@ import com.fieldrepository.app.ui.appMenuBleed
 import com.fieldrepository.app.ui.appMenuHidesPage
 import com.fieldrepository.app.ui.appMenuShowing
 import com.fieldrepository.app.ui.appSearchCachedItems
+import com.fieldrepository.app.ui.appSearchRecordingItems
 import com.fieldrepository.app.ui.appSearchRemoteItems
 import com.fieldrepository.app.ui.RemoteRecordScreen
 import com.fieldrepository.app.ui.appSearchScreenItems
