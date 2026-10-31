@@ -553,8 +553,15 @@ export async function runUnit(
     await mutateUnit(store, unit.id, (stored) => mergeRunner(stored, unit, touched));
   };
 
+  // ONLY PENDING STEPS ARE SENT. A FAILED step was refused for good (`isPermanent`: a 4xx other
+  // than 408/429) and re-sending the same frozen body cannot change the answer; doing it on every
+  // drain (every page load) only replaced the real reason in the fix tray ("That artisan was
+  // removed.") with whatever the re-send happened to get back. It waits, reason intact, until the
+  // researcher presses Send again (`sendStepAgain` → PENDING) or Discard — exactly the steps
+  // `useSessionQueue.hasRetryableWork` schedules retries for. Retryable failures (network, 5xx,
+  // 408, 429) never leave PENDING, so they are still retried here.
   for (const step of unit.steps) {
-    if (step.status === "DONE") continue;
+    if (step.status !== "PENDING") continue;
     if (step.kind === "session") {
       try {
         const session = await api.createSession(step.body);
@@ -575,7 +582,7 @@ export async function runUnit(
   const sessionId = unit.sessionId;
 
   for (const step of unit.steps) {
-    if (step.kind !== "participant" || step.status === "DONE") continue;
+    if (step.kind !== "participant" || step.status !== "PENDING") continue;
     try {
       if (step.op === "add") await api.addParticipant(sessionId, step.artisanId, step.idempotencyKey);
       else await api.patchParticipant(sessionId, step.artisanId, step.op === "leave" ? { leftAt: step.at } : { joinedAt: step.at, leftAt: null });
@@ -589,7 +596,7 @@ export async function runUnit(
     await persist(step);
   }
 
-  const clips = unit.steps.filter((s): s is ClipStep => s.kind === "clip" && s.status !== "DONE" && s.error !== "MISSING_FILE");
+  const clips = unit.steps.filter((s): s is ClipStep => s.kind === "clip" && s.status === "PENDING" && s.error !== "MISSING_FILE");
   const width = opts.slowLink ? 1 : MAX_PARALLEL_CLIPS;
   let cursor = 0;
   async function worker() {
@@ -612,7 +619,7 @@ export async function runUnit(
 
   for (const step of unit.steps) {
     // Held answers wait for the researcher's P9; resending them would only conflict again.
-    if (step.kind !== "answers" || step.status === "DONE" || step.error === "CONFLICT") continue;
+    if (step.kind !== "answers" || step.status !== "PENDING" || step.error === "CONFLICT") continue;
     try {
       const { results } = await api.putAnswers(step.items.map((item) => ({ ...item, sessionId })));
       const held = heldAnswerResults(step.items, results ?? []);
