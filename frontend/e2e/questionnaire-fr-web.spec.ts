@@ -230,9 +230,17 @@ for (const theme of ["light", "dark"] as const) {
     await page.getByRole("button", { name: "Open bundle" }).click();
     await page.locator("[data-bundle-input]").setInputFiles({ name: "x.frwq", mimeType: "application/octet-stream", buffer: bundleFile() });
     const dialog = page.getByRole("dialog");
-    const notNow = await dialog.getByRole("button", { name: "Not now" }).boundingBox();
-    const add = await dialog.getByRole("button", { name: "Add" }).boundingBox();
-    expect(notNow && add && Math.abs(notNow.y - add.y) < 2).toBe(true);
+    await expect(dialog.getByRole("button", { name: "Not now" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Add" })).toBeVisible();
+    // The dialog panel springs in (y 10 -> 0, scale 0.98 -> 1), so two separate boundingBox() calls
+    // can land on different frames of that motion and disagree by several px with the buttons on one
+    // line. Read both tops in one layout pass, once the fonts the labels are set in have loaded.
+    await page.evaluate(() => document.fonts.ready.then(() => undefined));
+    const tops = await dialog
+      .getByRole("button", { name: /^(Not now|Add)$/ })
+      .evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().top));
+    expect(tops).toHaveLength(2);
+    expect(Math.abs(tops[0] - tops[1])).toBeLessThan(2);
     await page.screenshot({ path: `${SHOTS}/p17-360-${theme}.png` });
   });
 }
