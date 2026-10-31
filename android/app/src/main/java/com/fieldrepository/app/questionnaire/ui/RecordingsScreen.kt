@@ -33,6 +33,7 @@ import com.fieldrepository.app.questionnaire.data.QSession
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.questionnaire.data.QuestionnaireFilters
 import com.fieldrepository.app.questionnaire.data.QuestionnaireV2
+import com.fieldrepository.app.transcript.ui.TranscriptPreviewText
 import com.fieldrepository.app.ui.AudioPlayer
 import com.fieldrepository.app.ui.FieldLinearProgressIndicator
 import com.fieldrepository.app.ui.field
@@ -103,6 +104,8 @@ fun RecordingsList(
                         modifier = Modifier.clickable { r.sessionId?.let(onOpenSession) }
                     )
                 }
+                // What was said (0.0.6): speakers as labels, never markdown, three lines at most.
+                r.transcript?.shownPreview()?.let { TranscriptPreviewText(it, maxLines = 3) }
                 RecordingChips(r.chips, filters = applied, onChip = onChip)
             }
             HorizontalDivider(color = MaterialTheme.field.hairline)

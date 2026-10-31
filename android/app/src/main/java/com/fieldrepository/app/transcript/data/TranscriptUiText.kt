@@ -22,6 +22,15 @@ object TranscriptUiText {
     const val noTurns = "No speech in this recording."
     const val glossaryEmpty = "No craft terms heard yet."
     const val shareCard = "Share card and clip"
+    // 0.0.6: reading mode, auto-follow and the timeline marks.
+    const val readingMode = "Reading mode"
+    const val both = "Both"
+    const val followAlong = "Follow along"
+    const val markAll = "Mark all"
+    const val clearMarks = "Clear marks"
+
+    /** What a timeline mark says to a screen reader: its time, then who spoke and what they said. */
+    fun markSaid(time: String, speaker: String, text: String) = "$time. $speaker: $text"
 
     fun waiting(n: Int) = if (n == 1) "1 change waiting to send" else "$n changes waiting to send"
 

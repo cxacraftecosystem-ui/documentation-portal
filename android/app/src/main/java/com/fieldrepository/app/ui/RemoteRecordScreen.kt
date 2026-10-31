@@ -77,7 +77,7 @@ fun RemoteRecordScreen(repository: FieldRepository, type: String, id: String) {
                                 Text(value, style = MaterialTheme.typography.bodyMedium)
                             }
                         }
-                        shown.snippet?.takeIf { it.isNotBlank() }?.let {
+                        shown.snippet?.takeIf { it.isNotBlank() }?.let { com.fieldrepository.app.transcript.data.TranscriptPreview.cleanSnippet(it) }?.let {
                             Text(it, style = MaterialTheme.typography.bodyMedium)
                         }
                     }

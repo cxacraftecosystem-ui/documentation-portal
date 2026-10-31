@@ -1,6 +1,28 @@
 package com.fieldrepository.app.transcript.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.DragInteraction
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import com.fieldrepository.app.transcript.data.TranscriptPreview
+import com.fieldrepository.app.transcript.data.TranscriptReading
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -152,6 +174,20 @@ fun TranscriptViewer(
     val marks = rememberTimelineMarks(view.mediaId)
     var sampleKey by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
+    // Reading mode (0.0.6): one long transcript, no timestamps, a speaker's run one paragraph.
+    var reading by rememberSaveable { mutableStateOf(false) }
+    val paragraphs = remember(turns) { TranscriptReading.paragraphs(turns) }
+    // Auto-follow (0.0.6): on until the reader touches, holds or drags the transcript; the
+    // "Follow along" pill, or pressing play, turns it back on.
+    var following by rememberSaveable { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        listState.interactionSource.interactions.collect { if (it is DragInteraction.Start) following = false }
+    }
+    var wasPlaying by remember { mutableStateOf(playback.playing) }
+    LaunchedEffect(playback.playing) {
+        if (playback.playing && !wasPlaying) following = true
+        wasPlaying = playback.playing
+    }
 
     fun copied(text: String) {
         host.copy(text)
@@ -160,19 +196,34 @@ fun TranscriptViewer(
 
     val positionMs = (playback.positionSeconds * 1000).toLong()
     val karaoke = if (playback.available && (playback.playing || positionMs > 0)) TranscriptKaraoke.at(turns, positionMs) else TranscriptKaraoke.Position(-1, -1)
-    // Follow the voice: while it plays, the turn being said is kept on screen.
-    LaunchedEffect(karaoke.turn, playback.playing) {
-        if (playback.playing && karaoke.turn >= 0) {
-            val item = karaoke.turn + HEADER_ITEMS
-            val visible = listState.layoutInfo.visibleItemsInfo.map { it.index }
-            if (item !in visible) listState.animateScrollToItem(item)
+    val activeParagraph = if (karaoke.turn >= 0) TranscriptReading.paragraphOf(paragraphs, turns.getOrNull(karaoke.turn)?.id) else -1
+    val followItem = (if (reading) activeParagraph else karaoke.turn).let { if (it >= 0) it + HEADER_ITEMS else -1 }
+    // Follow the voice: while it plays and the reader has not taken over, the line being said is
+    // kept wholly on screen.
+    LaunchedEffect(followItem, playback.playing, following) {
+        if (playback.playing && following && followItem >= 0) {
+            if (!TranscriptFollow.fullyVisible(listState.layoutInfo, followItem)) listState.animateScrollToItem(followItem)
         }
     }
 
     BoxWithConstraints(modifier.fillMaxSize().testTag("transcript.viewer")) {
         val wide = maxWidth >= 600.dp
         Column(Modifier.fillMaxSize()) {
-            LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(bottom = 16.dp)) {
+          Box(Modifier.weight(1f).fillMaxWidth()) {
+            LazyColumn(
+                Modifier
+                    .fillMaxSize()
+                    .testTag("transcript.list")
+                    // Any touch or hold on the transcript hands it to the reader (observed, never consumed).
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                            following = false
+                        }
+                    },
+                state = listState,
+                contentPadding = PaddingValues(bottom = 16.dp)
+            ) {
                 item(key = "header") {
                     TranscriptHeader(view, offline, waitingEdits, failures, headerExtra, onAction = host::statusAction)
                 }
@@ -190,7 +241,7 @@ fun TranscriptViewer(
                                                 when (t) {
                                                     TranscriptTab.ORIGINAL -> TranscriptStrings.tabOriginal
                                                     TranscriptTab.ENGLISH -> TranscriptStrings.tabEnglish
-                                                    TranscriptTab.SIDE_BY_SIDE -> TranscriptStrings.tabSideBySide
+                                                    TranscriptTab.SIDE_BY_SIDE -> if (reading) TranscriptUiText.both else TranscriptStrings.tabSideBySide
                                                 },
                                                 maxLines = 1
                                             )
@@ -206,6 +257,11 @@ fun TranscriptViewer(
                                 onDownload = { format, track, timestamps -> host.download(format, track, timestamps) },
                                 onSheet = { sheet = it },
                                 hasFill = host.acceptDraft != null && view.permissions.autodraft,
+                                reading = reading,
+                                readingTrack = tab.track,
+                                onReading = { on -> reading = on; if (on) { selecting = false; selected.clear() } },
+                                allMarked = if (playback.available) turns.isNotEmpty() && turns.all { it.id in marks.ids } else null,
+                                onAllMarks = { on -> marks.setAll(turns.map { it.id }, on) },
                             )
                         }
                     }
@@ -215,7 +271,11 @@ fun TranscriptViewer(
                         Text(TranscriptUiText.noTurns, color = MaterialTheme.field.muted, modifier = Modifier.padding(20.dp))
                     }
                 }
-                if (view.status == PipelineStatus.READY || turns.isNotEmpty()) {
+                if (reading && turns.isNotEmpty()) {
+                    itemsIndexed(paragraphs, key = { _, p -> "p:" + p.turnIds.first() }) { index, paragraph ->
+                        ReadingRow(paragraph, tab, wide, active = index == activeParagraph)
+                    }
+                } else if (view.status == PipelineStatus.READY || turns.isNotEmpty()) {
                     itemsIndexed(turns, key = { _, t -> t.id }) { index, turn ->
                         TurnRow(
                             turn = turn,
@@ -228,7 +288,8 @@ fun TranscriptViewer(
                             canEdit = view.permissions.edit,
                             canName = view.permissions.mapSpeakers,
                             onToggle = { if (turn.id in selected) selected.remove(turn.id) else selected.add(turn.id) },
-                            onSeek = { ms -> playback.seek(ms / 1000.0) },
+                            // A turn the reader chose to play from is followed again from there.
+                            onSeek = { ms -> following = true; playback.seek(ms / 1000.0) },
                             onCopy = { track -> copied(TranscriptFormat.body(turn, track)) },
                             onEdit = { editing = turn },
                             onRetranslate = { host.retranslate(turn) },
@@ -240,6 +301,18 @@ fun TranscriptViewer(
                     }
                 }
             }
+            // Shown once the reader has taken over while it plays: one tap and it follows again.
+            if (playback.playing && !following && followItem >= 0) {
+                AssistChip(
+                    onClick = {
+                        following = true
+                        scope.launch { listState.animateScrollToItem(followItem) }
+                    },
+                    label = { Text(TranscriptUiText.followAlong) },
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp).testTag("transcript.followAlong")
+                )
+            }
+          }
             if (selecting) {
                 SelectionBar(
                     count = selected.size,
@@ -383,6 +456,12 @@ private fun Toolbar(
     onDownload: (String, CopyTrack, Boolean) -> Unit,
     onSheet: (Sheet) -> Unit,
     hasFill: Boolean,
+    reading: Boolean = false,
+    readingTrack: CopyTrack = CopyTrack.ORIGINAL,
+    onReading: (Boolean) -> Unit = {},
+    /** Null when there is no audio to mark; else whether every turn is marked. */
+    allMarked: Boolean? = null,
+    onAllMarks: (Boolean) -> Unit = {},
 ) {
     var copyMenu by remember { mutableStateOf(false) }
     var downloadMenu by remember { mutableStateOf(false) }
@@ -392,7 +471,41 @@ private fun Toolbar(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Box {
+        FilterChip(
+            selected = reading,
+            onClick = { onReading(!reading) },
+            label = { Text(TranscriptUiText.readingMode) },
+            modifier = Modifier.testTag("transcript.reading")
+        )
+        // Reading mode copies and downloads exactly what it shows: no timestamps, its own track.
+        if (reading) {
+            AssistChip(
+                onClick = { onCopyAll(readingTrack, false) },
+                label = { Text(TranscriptStrings.copy) },
+                leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                modifier = Modifier.testTag("transcript.reading.copy")
+            )
+            Box {
+                AssistChip(onClick = { downloadMenu = true }, label = { Text(TranscriptStrings.download) }, modifier = Modifier.testTag("transcript.reading.download"))
+                DropdownMenu(expanded = downloadMenu, onDismissRequest = { downloadMenu = false }) {
+                    listOf("md" to TranscriptStrings.downloadMarkdownNoTimestamps, "docx" to TranscriptStrings.downloadWordNoTimestamps).forEach { (format, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = { downloadMenu = false; onDownload(format, readingTrack, false) },
+                            modifier = Modifier.testTag("transcript.reading.download.$format")
+                        )
+                    }
+                }
+            }
+        }
+        if (allMarked != null && !reading) {
+            AssistChip(
+                onClick = { onAllMarks(!allMarked) },
+                label = { Text(if (allMarked) TranscriptUiText.clearMarks else TranscriptUiText.markAll) },
+                modifier = Modifier.testTag("transcript.marks.all")
+            )
+        }
+        if (!reading) Box {
             AssistChip(
                 onClick = { copyMenu = true },
                 label = { Text(TranscriptStrings.copyAll) },
@@ -414,8 +527,8 @@ private fun Toolbar(
                 }
             }
         }
-        if (!selecting) AssistChip(onClick = onSelect, label = { Text(TranscriptStrings.selectTurns) }, modifier = Modifier.testTag("transcript.select"))
-        Box {
+        if (!selecting && !reading) AssistChip(onClick = onSelect, label = { Text(TranscriptStrings.selectTurns) }, modifier = Modifier.testTag("transcript.select"))
+        if (!reading) Box {
             AssistChip(onClick = { downloadMenu = true }, label = { Text(TranscriptStrings.download) }, modifier = Modifier.testTag("transcript.download"))
             DropdownMenu(expanded = downloadMenu, onDismissRequest = { downloadMenu = false }) {
                 listOf(
@@ -475,11 +588,14 @@ private fun TurnRow(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (selecting) Checkbox(checked = selected, onCheckedChange = { onToggle() }, modifier = Modifier.testTag("turn.select.${turn.id}"))
+            val speakerTint = speakerColor(TranscriptPreview.colorKeyOf(turn))
+            Box(Modifier.size(8.dp).background(speakerTint, CircleShape))
+            Spacer(Modifier.width(6.dp))
             Text(
                 TranscriptFormat.cleanSpeaker(turn.speakerName),
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = speakerTint,
                 maxLines = 1,
                 modifier = Modifier.weight(1f, fill = false).then(if (canName && !selecting) Modifier.clickable(onClick = onSpeaker) else Modifier)
             )
@@ -534,6 +650,55 @@ private fun TurnRow(
         }
     }
     HorizontalDivider(color = MaterialTheme.field.hairline, modifier = Modifier.padding(start = 20.dp))
+}
+
+/** One paragraph of reading mode: the speaker's label in their colour, then what they said. */
+@Composable
+private fun ReadingRow(paragraph: TranscriptReading.Paragraph, tab: TranscriptTab, wide: Boolean, active: Boolean) {
+    val lit = MaterialTheme.colorScheme.primary.copy(alpha = 0.06f)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(if (active) lit else MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 20.dp, vertical = 10.dp)
+            .testTag("reading.${paragraph.turnIds.first()}"),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            paragraph.speaker,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = speakerColor(paragraph.colorKey)
+        )
+        val original: @Composable () -> Unit = {
+            Text(paragraph.original, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.field.body)
+        }
+        val english: @Composable () -> Unit = {
+            Text(TranscriptReading.text(paragraph, CopyTrack.ENGLISH), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.field.body)
+        }
+        when (tab) {
+            TranscriptTab.ORIGINAL -> original()
+            TranscriptTab.ENGLISH -> english()
+            TranscriptTab.SIDE_BY_SIDE -> when {
+                paragraph.english == null -> original()
+                wide -> Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Box(Modifier.weight(1f)) { original() }
+                    Box(Modifier.weight(1f)) { english() }
+                }
+                else -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    original()
+                    Box(Modifier.fillMaxWidth().background(MaterialTheme.field.surface100, RoundedCornerShape(10.dp)).padding(10.dp)) { english() }
+                }
+            }
+        }
+    }
+}
+
+/** The track a tab copies and downloads in reading mode. */
+private val TranscriptTab.track: CopyTrack get() = when (this) {
+    TranscriptTab.ORIGINAL -> CopyTrack.ORIGINAL
+    TranscriptTab.ENGLISH -> CopyTrack.ENGLISH
+    TranscriptTab.SIDE_BY_SIDE -> CopyTrack.BOTH
 }
 
 @Composable
@@ -646,6 +811,12 @@ private class TimelineMarks(private val prefs: android.content.SharedPreferences
         if (on) { if (turnId !in ids) ids.add(turnId) } else ids.remove(turnId)
         prefs.edit().putStringSet(key, ids.toSet()).apply()
     }
+    /** Every turn on, or none (0.0.6's single toggle beside the per-turn boxes). */
+    fun setAll(turnIds: List<String>, on: Boolean) {
+        ids.clear()
+        if (on) ids.addAll(turnIds)
+        prefs.edit().putStringSet(key, ids.toSet()).apply()
+    }
 }
 
 @Composable
@@ -685,33 +856,7 @@ private fun PlayerBar(
                 )
             }
             val duration = playback.durationSeconds
-            BoxWithConstraints(Modifier.weight(1f)) {
-                Slider(
-                    value = if (duration > 0) (playback.positionSeconds / duration).toFloat().coerceIn(0f, 1f) else 0f,
-                    onValueChange = { f -> if (duration > 0) playback.seek(f * duration, play = false) },
-                    enabled = duration > 0,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                if (duration > 0) {
-                    // The track runs between the thumb's two resting centres, about 10 dp in from each edge.
-                    val track = maxWidth - 20.dp
-                    marked.forEach { turn ->
-                        val fraction = (turn.startMs / 1000.0 / duration).toFloat().coerceIn(0f, 1f)
-                        val time = TranscriptFormat.timestamp(turn.startMs)
-                        Box(
-                            Modifier
-                                .align(Alignment.CenterStart)
-                                .offset(x = 10.dp + track * fraction - 8.dp)
-                                .size(16.dp)
-                                .background(MaterialTheme.field.warningContainer, CircleShape)
-                                .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
-                                .clickable { playback.seek(turn.startMs / 1000.0) }
-                                .semantics { contentDescription = TranscriptStrings.jumpTo(time) }
-                                .testTag("timeline.mark.${turn.id}")
-                        )
-                    }
-                }
-            }
+            TimelineSeekBar(playback, duration, marked, Modifier.weight(1f))
             Text(
                 TranscriptFormat.length((playback.positionSeconds * 1000).toLong()),
                 style = MaterialTheme.typography.labelMedium,
@@ -720,5 +865,107 @@ private fun PlayerBar(
             )
         }
         }
+    }
+}
+
+/** The thumb's width, fixed so the marks can sit exactly on the track it runs along. */
+private val THUMB = DpSize(4.dp, 40.dp)
+private val MARK = 16.dp
+
+/**
+ * The seek bar with the marked turns on it (0.0.6): each mark is centred on the track, in its
+ * speaker's colour; a tap plays from it, touch-and-hold (or keyboard focus) shows a bubble with who
+ * spoke and what they said, and a screen reader hears the same words as the mark's description.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TimelineSeekBar(playback: TranscriptPlayback, duration: Double, marked: List<TranscriptTurn>, modifier: Modifier = Modifier) {
+    var bubble by remember { mutableStateOf<String?>(null) }
+    BoxWithConstraints(modifier) {
+        val interaction = remember { MutableInteractionSource() }
+        Slider(
+            value = if (duration > 0) (playback.positionSeconds / duration).toFloat().coerceIn(0f, 1f) else 0f,
+            onValueChange = { f -> if (duration > 0) playback.seek(f * duration, play = false) },
+            enabled = duration > 0,
+            interactionSource = interaction,
+            thumb = { SliderDefaults.Thumb(interactionSource = interaction, thumbSize = THUMB) },
+            modifier = Modifier.fillMaxWidth().testTag("transcript.seek")
+        )
+        if (duration > 0) {
+            // The track runs between the thumb's two resting centres, half a thumb in from each edge.
+            val track = maxWidth - THUMB.width
+            marked.forEach { turn ->
+                val fraction = (turn.startMs / 1000.0 / duration).toFloat().coerceIn(0f, 1f)
+                val time = TranscriptFormat.timestamp(turn.startMs)
+                val speaker = TranscriptFormat.cleanSpeaker(turn.speakerName)
+                val tint = speakerColor(TranscriptPreview.colorKeyOf(turn))
+                Box(
+                    Modifier
+                        .align(Alignment.CenterStart)
+                        .offset(x = THUMB.width / 2 + track * fraction - MARK / 2)
+                        .size(MARK)
+                        .background(tint, CircleShape)
+                        .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                        .onFocusChanged { if (it.isFocused) bubble = turn.id else if (bubble == turn.id) bubble = null }
+                        .focusable()
+                        .pointerInput(turn.id) {
+                            detectTapGestures(
+                                onPress = { tryAwaitRelease(); if (bubble == turn.id) bubble = null },
+                                onLongPress = { bubble = turn.id },
+                                onTap = { playback.seek(turn.startMs / 1000.0) },
+                            )
+                        }
+                        .semantics { contentDescription = TranscriptUiText.markSaid(TranscriptStrings.jumpTo(time), speaker, turn.text) }
+                        .testTag("timeline.mark.${turn.id}")
+                ) {
+                    if (bubble == turn.id) MarkBubble(turn, speaker, time, tint)
+                }
+            }
+        }
+    }
+}
+
+/** The chat bubble over a held mark: the speaker and time, the words, and their English. */
+@Composable
+private fun MarkBubble(turn: TranscriptTurn, speaker: String, time: String, tint: androidx.compose.ui.graphics.Color) {
+    val gap = with(androidx.compose.ui.platform.LocalDensity.current) { 8.dp.roundToPx() }
+    Popup(popupPositionProvider = remember(gap) { AboveAnchor(gap) }) {
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            tonalElevation = 3.dp,
+            shadowElevation = 8.dp,
+            modifier = Modifier.widthIn(max = 300.dp).testTag("timeline.bubble")
+        ) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(speaker, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = tint, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    Spacer(Modifier.width(8.dp))
+                    Text(time, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.field.muted)
+                }
+                Text(turn.text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.body, maxLines = 5, overflow = TextOverflow.Ellipsis)
+                val english = TranscriptFormat.englishOf(turn)
+                if (english != null && turn.translation.status != TranslationStatus.ALREADY_ENGLISH) {
+                    Text(english, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("timeline.bubble.english"))
+                }
+            }
+        }
+    }
+}
+
+/** Centred over its anchor, [gap] above it, kept inside the window. */
+private class AboveAnchor(private val gap: Int) : PopupPositionProvider {
+    override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
+        val x = (anchorBounds.center.x - popupContentSize.width / 2).coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0))
+        val above = anchorBounds.top - gap - popupContentSize.height
+        val y = if (above >= 0) above else anchorBounds.bottom + gap
+        return IntOffset(x, y)
+    }
+}
+
+/** Auto-follow's one question of the list, kept apart so a unit test can ask it. */
+internal object TranscriptFollow {
+    fun fullyVisible(layout: androidx.compose.foundation.lazy.LazyListLayoutInfo, index: Int): Boolean {
+        val item = layout.visibleItemsInfo.firstOrNull { it.index == index } ?: return false
+        return item.offset >= layout.viewportStartOffset && item.offset + item.size <= layout.viewportEndOffset
     }
 }
