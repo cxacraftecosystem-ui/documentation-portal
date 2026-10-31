@@ -199,4 +199,6 @@ private fun TakeLine(r: QRecording, onPlay: () -> Unit) {
         )
         Text("▶", style = MaterialTheme.typography.bodySmall)
     }
+    // The take's chips (owner, 31 Oct 2026); a tap opens the recordings list filtered by it.
+    RecordingChips(r.chips, onChip = QuestionnaireV2Nav::openRecordings)
 }

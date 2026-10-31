@@ -69,6 +69,8 @@ fun ArtisanQuestionnaireRecord(
     var showRemoved by remember { mutableStateOf(false) }
     var historyOf by remember { mutableStateOf<Pair<String, String>?>(null) }
     var consentFailed by remember { mutableStateOf(false) }
+    // A chip tapped on a take: the recordings list, filtered by it, over this record.
+    var chipFilter by remember { mutableStateOf<com.fieldrepository.app.questionnaire.data.QuestionnaireFilters?>(null) }
 
     LaunchedEffect(artisanId, attempt) {
         loading = true; failed = false
@@ -144,6 +146,9 @@ fun ArtisanQuestionnaireRecord(
                                         if (row.badges.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                             row.badges.forEach { AssistChip(onClick = {}, label = { Text(it, style = MaterialTheme.typography.labelSmall) }) }
                                         }
+                                        RecordingChips(chipsOf(record!!, row.recordingId), onChip = { f, label ->
+                                            chipFilter = com.fieldrepository.app.questionnaire.data.QuestionnaireFilters().applyChip(f, label)
+                                        })
                                     }
                                     Text("▶", style = MaterialTheme.typography.bodySmall)
                                 }
@@ -198,6 +203,7 @@ fun ArtisanQuestionnaireRecord(
         }
     }
     historyOf?.let { (answerId, heading) -> AnswerHistoryDialog(v2, answerId, heading) { historyOf = null } }
+    chipFilter?.let { f -> RecordingsDialog(v2, f) { chipFilter = null } }
     continueFrom?.let { instrument ->
         val last = latestSession(instrument)
         if (last == null) { continueFrom = null } else {
@@ -216,3 +222,8 @@ fun ArtisanQuestionnaireRecord(
 /** The session "Continue with…" carries on from: the artisan's latest on this instrument (the web's latestSession). */
 internal fun latestSession(instrument: com.fieldrepository.app.questionnaire.data.QRecordInstrument): com.fieldrepository.app.questionnaire.data.QRecordSession? =
     instrument.sessions.maxByOrNull { it.session.sessionDate.orEmpty() }
+
+/** The chips of one take of the record, wherever in its sessions it sits. */
+internal fun chipsOf(record: QArtisanRecord, recordingId: String): com.fieldrepository.app.questionnaire.data.QChips? =
+    record.instruments.asSequence().flatMap { it.sessions.asSequence() }.flatMap { (it.recordings + it.uncertain).asSequence() }
+        .firstOrNull { it.id == recordingId }?.chips

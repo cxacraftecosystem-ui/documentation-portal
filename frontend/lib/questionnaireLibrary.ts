@@ -15,6 +15,8 @@
  * The server sends `can` on every form it lists, so the screens draw exactly what it will accept.
  */
 
+import type { RecordingChips } from "@/lib/questionnaire/chips";
+import { filtersAsParams, filtersToQuery, type Filters } from "@/lib/questionnaire/filters";
 import { API_BASE, ApiError, apiFetch, assertApiConfigured, buildQuery, describeApiDetail } from "@/lib/api";
 import { canManageQuestionnaire, isContentAdmin } from "@/lib/permissions";
 import { saveBlobToDevice } from "@/lib/saveToDevice";
@@ -283,8 +285,12 @@ function json(method: string, body: unknown, create = false): RequestInit {
  * passes its own. */
 export function libraryClient(fetchJson: JsonFetcher = apiFetch) {
   return {
-    list: (scope: FormScope, options: { workshopId?: string | null; kind?: string | null } = {}) =>
-      fetchJson<LibraryForm[]>(`${FORMS}${buildQuery({ scope, workshopId: options.workshopId || undefined, kind: options.kind || undefined })}`),
+    /** `filters`: the shared questionnaire filters (owner, 31 Oct 2026), after the library's own. */
+    list: (scope: FormScope, options: { workshopId?: string | null; kind?: string | null; filters?: Filters } = {}) => {
+      const shared = options.filters ? filtersToQuery(options.filters) : "";
+      const own = buildQuery({ scope, workshopId: options.workshopId || undefined, kind: options.kind || undefined });
+      return fetchJson<LibraryForm[]>(`${FORMS}${own}${shared ? `${own ? "&" : "?"}${shared}` : ""}`);
+    },
     get: (id: string) => fetchJson<LibraryFormDetail>(`${FORMS}/${encodeURIComponent(id)}`),
     create: (body: { title: string; description?: string | null; kind?: string | null }) =>
       fetchJson<LibraryForm>(FORMS, json("POST", body, true)),
@@ -361,6 +367,8 @@ export function saveDownload(file: DownloadedFile) {
 export type FormSession = {
   id: string;
   title: string;
+  /** The session's chips (owner, 31 Oct 2026). */
+  chips?: RecordingChips | null;
   sessionDate?: string | null;
   source?: string | null;
   deletedAt?: string | null;
@@ -368,9 +376,15 @@ export type FormSession = {
 };
 
 export const formSessions = {
-  list: (questionnaireId: string | null, deleted = false) =>
+  /** `filters`: the shared questionnaire filters on this form's sessions (owner, 31 Oct 2026). */
+  list: (questionnaireId: string | null, deleted = false, filters: Filters = {}) =>
     apiFetch<{ items: FormSession[]; nextCursor: string | null }>(
-      `/questionnaire/sessions${buildQuery({ questionnaireId: questionnaireId ?? undefined, deleted: deleted ? "true" : undefined, limit: 50 })}`
+      `/questionnaire/sessions${buildQuery({
+        ...filtersAsParams(filters),
+        questionnaireId: questionnaireId ?? undefined,
+        deleted: deleted ? "true" : undefined,
+        limit: 50
+      })}`
     ),
   restore: (sessionId: string) => apiFetch<unknown>(`/questionnaire/sessions/${encodeURIComponent(sessionId)}/restore`, { method: "POST" })
 };

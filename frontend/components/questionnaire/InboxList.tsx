@@ -40,6 +40,8 @@ import {
   type InboxToFile
 } from "@/lib/questionnaire/inbox";
 import { qs, type QsKey } from "@/lib/questionnaire/qs";
+import { RecordingChips } from "@/components/questionnaire/RecordingChips";
+import { useChipNavigator } from "@/components/questionnaire/useUrlFilters";
 import type { Artisan } from "@/lib/types";
 
 export const INBOX_TITLES: Record<InboxSectionKey, QsKey> = {
@@ -69,6 +71,7 @@ async function recordingVersion(sessionId: string | null, recordingId: string): 
  * they are remembered on this device; "Not needed" on a clip is stored on the server.
  */
 export function InboxList() {
+  const goChip = useChipNavigator();
   const [raw, setRaw] = useState<Inbox | null>(null);
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
@@ -169,6 +172,7 @@ export function InboxList() {
                 return (
                   <li key={key} className="grid gap-2 rounded-md border border-line-200 p-3" data-inbox-row={key}>
                     <DecisionRow row={row as unknown as InboxDecision} busy={busy === key} run={(work) => run(key, work)} />
+                    <RecordingChips chips={(row as unknown as InboxDecision).chips} onChip={goChip} />
                     {failure}
                   </li>
                 );
@@ -194,6 +198,9 @@ export function InboxList() {
                       onFile={() => setFiling(filing === key ? null : key)}
                     />
                   </div>
+                  {section === "toFile" || section === "legacy" ? (
+                    <RecordingChips chips={(row as unknown as InboxToFile | InboxLegacy).chips} onChip={goChip} />
+                  ) : null}
                   {section === "toFile" && filing === key ? (
                     <FileItPicker
                       row={row as unknown as InboxToFile}

@@ -9,22 +9,24 @@ from fastapi.responses import JSONResponse
 from prisma.errors import UniqueViolationError
 from pydantic import ValidationError
 
+from app.core.config import get_settings
+from app.core.db import db
+from app.core.deps import (
+    assert_can_delete,
+    get_current_user,
+    is_content_admin,
+    require_admin,
+    require_content_admin,
+)
+from app.questionnaire import chips as questionnaire_chips
+from app.questionnaire import common as v2_common
+from app.questionnaire import filters as questionnaire_filters
+from app.questionnaire import recordings as v2_recordings
+from app.questionnaire import shims_fr as v2_shims
+from app.questionnaire.live import live_media_where
 from app.questionnaire.schemas import CompleteRequest as V2CompleteRequest
 from app.questionnaire.schemas import MultipartCreateRequest as V2MultipartCreateRequest
 from app.questionnaire.schemas import PresignRequest as V2PresignRequest
-from app.services import consent_gate
-from app.questionnaire import recordings as v2_recordings
-from app.questionnaire import common as v2_common
-from app.questionnaire import shims_fr as v2_shims
-from app.services import transcription_enqueue as transcription
-from app.questionnaire.live import live_media_where
-
-from app.core.config import get_settings
-from app.core.db import db
-from app.services.artisan_merge import redirect_merged_artisans
-from app.services import recording_consent, transcription_jobs
-from app.services.app_settings import load_transcription_paused
-from app.core.deps import assert_can_delete, get_current_user, is_content_admin, require_admin, require_content_admin
 from app.schemas.media import (
     MediaCompleteRequest,
     MediaRelinkRequest,
@@ -38,12 +40,15 @@ from app.schemas.media import (
     TranscriptRefineRequest,
     TranscriptUpdateRequest,
 )
+from app.services import consent_gate, recording_consent, transcript_insights, transcription_jobs
+from app.services import transcription_enqueue as transcription
 from app.services.ai import (
     analyze_measurement_image_bytes,
     refine_transcript_text,
     transcribe_audio_bytes,
 )
-from app.services import transcript_insights
+from app.services.app_settings import load_transcription_paused
+from app.services.artisan_merge import redirect_merged_artisans
 from app.services.media_naming import display_filename, interview_record
 from app.services.media_queue import (
     enqueue_media_processing_jobs,
@@ -51,9 +56,7 @@ from app.services.media_queue import (
     transcribe_media_now,
 )
 from app.services.pagination import normalize_pagination, page_payload
-from app.services.uploads import read_upload_bounded
 from app.services.records import (
-    public_encode,
     add_date_range,
     attach_location,
     clean_data,
@@ -61,13 +64,9 @@ from app.services.records import (
     jsonify_metadata,
     media_relation_data,
     media_url_owners,
+    public_encode,
     require_record,
     viewable_where,
-)
-from app.services.workshop_access import (
-    enforce_workshop_submission,
-    pin_pending_if_late,
-    stamp_workshop_submission,
 )
 from app.services.s3 import (
     abort_multipart_upload,
@@ -78,6 +77,12 @@ from app.services.s3 import (
     presign_put_url,
     presign_upload_part,
     public_url_for_key,
+)
+from app.services.uploads import read_upload_bounded
+from app.services.workshop_access import (
+    enforce_workshop_submission,
+    pin_pending_if_late,
+    stamp_workshop_submission,
 )
 
 # S3 multipart part size. >= 5 MiB (S3 minimum for all but the last part); 16 MiB keeps the part
@@ -125,6 +130,33 @@ MEASUREMENT_MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 DICTATION_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 router = APIRouter(prefix="/media", tags=["media"])
+
+# ── QUESTIONNAIRE CHIPS AND FILTERS ON THE MEDIA LIST (owner, 31 Oct 2026) ────────────────────
+# A questionnaire take listed here carries ``questionnaireChips``: the same chips the session
+# screens draw (section or question, form, artisans, dates, workshop, language, duration), from
+# ``app/questionnaire/chips.for_media`` in a fixed number of reads for the whole page. The list also
+# takes the shared filters (``app/questionnaire/filters.py``) for questionnaire takes: form,
+# section or question, artisans, researcher, workshop, kind, source, transcript and language. The
+# media list's own ``dateFrom``/``dateTo`` (upload day), ``designWorkshopId`` and ``search`` keep
+# their meaning; ``search`` also finds a take by what its chips say.
+_MEDIA_OWN_FILTERS = ("q", "dateFrom", "dateTo", "designWorkshopId")
+
+
+def _questionnaire_media_filters(request: Request | None) -> Any:
+    return questionnaire_filters.parse(request.query_params if request is not None else {}).without(*_MEDIA_OWN_FILTERS)
+
+
+async def _with_questionnaire_chips(payload: Any) -> Any:
+    rows = payload.get("items") if isinstance(payload, dict) and isinstance(payload.get("items"), list) else (
+        payload if isinstance(payload, list) else [payload])
+    ids = [str(r.get("id")) for r in rows if isinstance(r, dict) and r.get("questionnaireInterviewId")]
+    if ids:
+        found = await questionnaire_chips.for_media(db, ids)
+        for r in rows:
+            if isinstance(r, dict) and str(r.get("id")) in found:
+                r["questionnaireChips"] = found[str(r.get("id"))]
+    return payload
+
 
 # "the caller did not say which uploaders' URLs may travel". Distinct from None, which MEANS "all of
 # them" — see ``records.public_encode``.
@@ -580,6 +612,7 @@ async def _complete_old(payload: MediaCompleteRequest, current_user: Any) -> dic
 @router.get("")
 async def list_media(
     current_user: Any = Depends(get_current_user),
+    request: Request = None,  # type: ignore[assignment]  # FastAPI injects it; a direct call passes none
     search: str | None = None,
     mediaType: str | None = None,
     linkedRecordType: str | None = None,
@@ -601,6 +634,14 @@ async def list_media(
         where["AND"] = [vis]
     if search:
         where["OR"] = [{"originalFilename": contains(search)}, {"caption": contains(search)}, {"mimeType": contains(search)}]
+        by_chips = await questionnaire_filters.media_text_ids(search.strip()[: questionnaire_filters.MAX_TEXT], client=db)
+        if by_chips:
+            where["OR"].append({"id": {"in": by_chips}})
+    questionnaire_only = _questionnaire_media_filters(request)
+    if questionnaire_filters.media_filtered(questionnaire_only):
+        where.setdefault("AND", []).append(
+            {"id": {"in": await questionnaire_filters.media_ids_matching(questionnaire_only, client=db)}}
+        )
     if mediaType:
         where["mediaType"] = mediaType
     if linkedRecordType:
@@ -622,7 +663,7 @@ async def list_media(
         take=page_size,
         order={"createdAt": "desc"},
     )
-    return page_payload(await _public(items, current_user), total, page, page_size)
+    return await _with_questionnaire_chips(page_payload(await _public(items, current_user), total, page, page_size))
 
 
 # linkedRecordType -> the typed foreign-key column that should point at the parent record. When a
@@ -1011,7 +1052,7 @@ async def delete_staged_object(objectKey: str, current_user: Any = Depends(get_c
 async def get_media(media_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
     media = await db.mediafile.find_unique(where={"id": media_id}, include=INCLUDE)
     media = await require_record(db.mediafile, media_id) if not media else media
-    return await _public(media, current_user)
+    return await _with_questionnaire_chips(await _public(media, current_user))
 
 
 @router.delete("/{media_id}", status_code=status.HTTP_204_NO_CONTENT)

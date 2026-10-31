@@ -28,7 +28,7 @@ from typing import Any
 from uuid import uuid4
 
 from app import shared_vocab
-from app.questionnaire import coverage, ports, sessions, titles
+from app.questionnaire import chips, coverage, ports, sessions, titles
 from app.questionnaire.authoring import CONTENT_DELETE_REFUSAL
 from app.questionnaire.common import (
     IST,
@@ -741,11 +741,14 @@ def _bucket() -> str:
 # ── reading ────────────────────────────────────────────────────────────────────────────────────
 async def recording_rows(client: Any, *, recording_ids: list[str] | None = None, session_id: str | None = None,
                          session_ids: list[str] | None = None, include_removed: bool = False, removed_only: bool = False,
-                         artisan_id: str | None = None) -> list[dict[str, Any]]:
+                         artisan_id: str | None = None, media_ids: list[str] | None = None) -> list[dict[str, Any]]:
     where, params = [], []
     if recording_ids is not None:
         params.append(recording_ids)
         where.append(f'r."id" = ANY(${len(params)}::text[])')
+    if media_ids is not None:
+        params.append(media_ids)
+        where.append(f'r."mediaFileId" = ANY(${len(params)}::text[])')
     if session_id:
         params.append(session_id)
         where.append(f'm."questionnaireInterviewId" = ${len(params)}')
@@ -778,23 +781,12 @@ async def serialize_recordings(client: Any, rows: list[dict[str, Any]], user: An
     if not rows:
         return []
     rids = [str(r["id"]) for r in rows]
-    targets = await client.query_raw(
-        'SELECT t.*, q."displayCode", q."prompt", q."sectionCode" AS qsec, s."code" AS scode FROM "QuestionnaireRecordingTarget" t '
-        'LEFT JOIN "QuestionnaireQuestion" q ON q."id" = COALESCE(t."askedQuestionId", t."questionLineageId") '
-        'LEFT JOIN "QuestionnaireSection" s ON s."id" = t."sectionId" WHERE t."recordingId" = ANY($1::text[]) ORDER BY t."targetKey"',
-        rids,
-    )
-    # Artisan subjects and guest respondents in ONE read (the statement budgets hold): a guest row has
-    # no artisanId and carries its respondentId and name.
-    every_subject = await client.query_raw(
-        'SELECT x.* FROM (SELECT s."recordingId", s."artisanId", NULL::text AS "respondentId", NULL::text AS name, '
-        's."role"::text AS role, s."named", s."repeatReason"::text AS reason, s."flag"::text AS flag '
-        'FROM "QuestionnaireRecordingSubject" s WHERE s."recordingId" = ANY($1::text[]) '
-        'UNION ALL SELECT g."recordingId", NULL, g."respondentId", r."name", g."role"::text, g."named", g."repeatReason"::text, g."flag"::text '
-        'FROM "QuestionnaireRecordingRespondent" g JOIN "QuestionnaireRespondent" r ON r."id" = g."respondentId" '
-        'WHERE g."recordingId" = ANY($1::text[])) x ORDER BY x.role, x."artisanId", x.name',
-        rids,
-    )
+    # The targets with their section's code and title, and the question's display code: what the
+    # take is about, and what its chips name.
+    targets = await client.query_raw(chips.TARGETS_SQL, rids)
+    # Artisan subjects (with their names, for the chips) and guest respondents in ONE read (the
+    # statement budgets hold): a guest row has no artisanId and carries its respondentId and name.
+    every_subject = await client.query_raw(chips.SUBJECTS_SQL, rids)
     subjects = [x for x in every_subject if x.get("artisanId")]
     guests = [x for x in every_subject if not x.get("artisanId")]
     positions = await client.query_raw(
@@ -819,6 +811,8 @@ async def serialize_recordings(client: Any, rows: list[dict[str, Any]], user: An
     # part number, the consent verdict) is read once for the whole list.
     title_inputs = await titles.title_inputs(client, [r["sessionId"] for r in rows if r.get("sessionId")])
     parts = await _part_numbers(client, [str(r["id"]) for r in rows if r.get("continuationOfId")])
+    # The chips (owner, 31 Oct 2026) from the rows above, plus one read of the sessions behind them.
+    chip_by = await chips.for_rows(client, rows, targets=targets, subjects=every_subject)
     out = []
     for r in rows:
         rid = str(r["id"])
@@ -865,6 +859,7 @@ async def serialize_recordings(client: Any, rows: list[dict[str, Any]], user: An
                 "text": r.get("transcriptText") if status in ("COMPLETED", "SKIPPED_DUPLICATE") else None, "language": None,
             },
             "consent": consents.get(str(r["mediaFileId"])) or {"verdict": consent_gate.ALLOW, "source": None},
+            "chips": chip_by.get(rid),
         })
     return out
 

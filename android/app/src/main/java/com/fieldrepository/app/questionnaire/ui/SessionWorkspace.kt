@@ -1092,6 +1092,7 @@ private fun takeRow(t: QSnapshotTake, detail: QSessionDetail?, paused: Boolean, 
         // Removing a take is a delete: content admins only (owner's ruling, 2026-10-20).
         removable = mayRemove,
         targetKey = t.targetKey,
+        chips = rec?.chips,
         canMakePrimary = mayMakePrimary,
         canPropose = rec?.transcript?.status == "COMPLETED"
     )

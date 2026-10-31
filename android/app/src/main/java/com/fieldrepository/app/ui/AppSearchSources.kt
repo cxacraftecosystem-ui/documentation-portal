@@ -1,6 +1,7 @@
 package com.fieldrepository.app.ui
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Build
@@ -243,3 +244,35 @@ private suspend fun appSearchLegacyItems(
 /** A search failure that is not "no network", in the words this app uses for API errors. */
 fun appSearchErrorLine(error: Throwable): String =
     error.userMessage("Can't search online. Showing what's on this phone.")
+
+/**
+ * The Recordings group: questionnaire takes matching [query] on what their chips say (section,
+ * form, artisans, workshop, transcript), each drawn with its chips; a tap opens the recordings list
+ * searched for the same words. With no signal it reads this account's kept takes; a failure is an
+ * empty group, never the whole panel's.
+ */
+suspend fun appSearchRecordingItems(
+    context: android.content.Context,
+    query: String,
+    open: (com.fieldrepository.app.questionnaire.data.QuestionnaireFilters) -> Unit
+): List<AppSearchItem> {
+    val hits = try {
+        com.fieldrepository.app.questionnaire.data.QuestionnaireV2.get(context).searchRecordings(query)
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (other: Exception) {
+        emptyList()
+    }
+    return recordingSearchItems(hits, open)
+}
+
+/** The Recordings group's rows for [hits]: titled by what each take answers, with its chips. */
+fun recordingSearchItems(
+    hits: List<com.fieldrepository.app.questionnaire.data.RecordingHit>,
+    open: (com.fieldrepository.app.questionnaire.data.QuestionnaireFilters) -> Unit
+): List<AppSearchItem> = hits.map { hit ->
+    AppSearchItem(
+        AppSearchGroup.RECORDINGS, hit.id, hit.title, Icons.Filled.PlayArrow,
+        subtitle = hit.subtitle, chips = hit.chips
+    ) { open(hit.filters) }
+}
