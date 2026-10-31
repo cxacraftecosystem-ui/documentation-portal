@@ -98,11 +98,13 @@ for (const viewport of VIEWPORTS) {
       });
       const viewer = await open(page, new TranscriptFake());
       // Read the clipboard back with a fresh page in the same context, where the API still exists.
+      // A page of the app (a secure context with the API), not about:blank, which has no clipboard.
       const reader = await page.context().newPage();
+      await reader.goto("/login");
+      await reader.evaluate(() => navigator.clipboard.writeText("sentinel"));
+      await page.bringToFront();
       await pick(page, viewer.getByTestId("copy-turn-turn_a"), "english");
       await expect(viewer.locator('[data-copy-status="ok"]')).toHaveText("Copied");
-      // A page of the app (a secure context with the API), not about:blank, which has no clipboard.
-      await reader.goto("/login");
       expect(await reader.evaluate(() => navigator.clipboard.readText())).toBe(FIXTURES.copy.single_english_turn_a);
       await reader.close();
     });

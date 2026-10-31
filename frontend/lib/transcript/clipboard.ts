@@ -3,8 +3,8 @@
  *
  * The async Clipboard API first. It is missing on plain http, refused inside some embedded browsers,
  * and on older iOS Safari it rejects outside a direct tap, so the fallback is the selection route:
- * a read-only, off-screen textarea, selected with a range (iOS ignores `select()` on a read-only
- * field) and copied with `execCommand("copy")`. The caller says "Copied" only when one of them
+ * a read-only, off-screen textarea, focused and selected (with `setSelectionRange`, which iOS needs
+ * on a read-only field) and copied with `execCommand("copy")`. The caller says "Copied" only when one of them
  * reported success.
  */
 export async function copyText(text: string): Promise<boolean> {
@@ -35,14 +35,13 @@ export function copyBySelection(text: string): boolean {
   document.body.appendChild(area);
   let ok = false;
   try {
-    const range = document.createRange();
-    range.selectNodeContents(area);
-    const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-    area.setSelectionRange(0, text.length);
+    // Focus, then select: `execCommand("copy")` copies the FOCUSED field's selection, and iOS
+    // honours only `setSelectionRange` on a read-only field (clipboard.js's sequence).
+    area.focus({ preventScroll: true });
+    area.select();
+    area.setSelectionRange(0, area.value.length);
     ok = document.execCommand("copy");
-    selection?.removeAllRanges();
+    window.getSelection()?.removeAllRanges();
   } catch {
     ok = false;
   } finally {
