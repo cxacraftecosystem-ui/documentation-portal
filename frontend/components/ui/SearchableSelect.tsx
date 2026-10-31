@@ -831,6 +831,16 @@ export type SearchableMultiSelectProps = {
    * still hold the full set. Turn off where the selection is already shown as a list beside it.
    */
   showChips?: boolean;
+  /**
+   * Draw "Select all" / "Clear all" (default on). PASS `false` ON A FILTER: there a choice of nothing
+   * already means everything, and "all" over a server's first page is not all.
+   */
+  bulk?: boolean;
+  /**
+   * Called with every keystroke in the filter box (and "" when the panel closes), for a caller that
+   * asks the server for the matching options instead of holding the whole list.
+   */
+  onSearch?: (query: string) => void;
 };
 
 /** Chips drawn before the rest are summarised as "+N more". */
@@ -848,7 +858,9 @@ export function SearchableMultiSelect({
   searchable,
   confirmOnSelect = true,
   confirmLabel = "Confirm",
-  showChips = true
+  showChips = true,
+  bulk: bulkOn = true,
+  onSearch
 }: SearchableMultiSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -877,7 +889,8 @@ export function SearchableMultiSelect({
   const close = useCallback(() => {
     setOpen(false);
     setQuery("");
-  }, []);
+    onSearch?.("");
+  }, [onSearch]);
 
   const closeAndMoveOn = useCallback(
     (advance: boolean) => {
@@ -938,6 +951,7 @@ export function SearchableMultiSelect({
   function onQueryChange(next: string) {
     setQuery(next);
     setHighlight(0);
+    onSearch?.(next);
   }
 
   const onTabForward = useCallback(() => closeAndMoveOn(true), [closeAndMoveOn]);
@@ -1025,7 +1039,7 @@ export function SearchableMultiSelect({
    * control is supposed to avoid.
    */
   const bulkButton =
-    bulk.length > 0 ? (
+    bulkOn && bulk.length > 0 ? (
       <button
         type="button"
         onClick={applyBulk}

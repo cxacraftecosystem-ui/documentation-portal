@@ -1,12 +1,12 @@
 "use client";
 
 import { SlidersHorizontal, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { SearchInput } from "@/components/SearchInput";
 import { CalendarField } from "@/components/ui/CalendarField";
-import { SearchableMultiSelect } from "@/components/ui/SearchableSelect";
-import { questionnaireApi, type FilterOption, type FilterOptions } from "@/lib/questionnaire/api";
+import type { SelectOption } from "@/components/ui/SearchableSelect";
+import { questionnaireApi, type FilterField, type FilterOption, type FilterOptions } from "@/lib/questionnaire/api";
 import { chipDay, type ChipFilter, type DisplayChip } from "@/lib/questionnaire/chips";
 import {
   activeCount,
@@ -21,6 +21,7 @@ import {
 } from "@/lib/questionnaire/filters";
 import { languageLabel } from "@/lib/questionnaire/languages";
 import { qs, type QsKey } from "@/lib/questionnaire/qs";
+import { FilterMultiSelect } from "@/lib/questionnairePortal";
 
 /**
  * The search box and filters every questionnaire list shares (owner, 31 Oct 2026): questionnaire,
@@ -47,13 +48,6 @@ export function chipToggler(filters: Filters, setFilters: (next: Filters) => voi
     setFilters(applyChip(filters, filter));
   };
 }
-
-/**
- * No chips under the triggers (the active filters are drawn once, as pills above) and no "Select
- * all" (a filter spells "everything" by choosing nothing). Spread rather than named because the two
- * portals' select primitives spell these props differently; each reads its own and ignores the rest.
- */
-const QUIET = { chips: false, showChips: false, bulk: false } as Record<never, never>;
 
 const KIND_LABEL: Record<string, QsKey> = { WORKSHOP_INTERVIEW: "kindWorkshopInterview", MARKET_SURVEY: "kindMarketSurvey", NONE: "kindNotStated" };
 const SOURCE_LABEL: Record<string, QsKey> = { APP: "sourceApp", UPLOAD: "sourceUpload", HANDOFF: "sourceHandoff" };
@@ -108,26 +102,58 @@ export function FilterBar({ filters, onChange, placeholder, hide = [], labels = 
     };
   }, [formsKey]);
 
-  const opt = (list: FilterOption[] | undefined, prefix = "") =>
-    (list ?? []).map((o) => ({ value: `${prefix}${o.id}`, label: o.label, hint: o.count !== undefined ? String(o.count) : undefined }));
+  const opt = (list: FilterOption[] | undefined): SelectOption[] =>
+    (list ?? []).map((o) => ({ value: o.id, label: o.label, hint: o.count !== undefined ? String(o.count) : undefined }));
 
-  const sectionOptions = useMemo(
-    () => [
-      ...(options.sections ?? []).map((o) => ({ value: `s:${o.id}`, label: o.label, group: qs("filterSection") })),
-      ...(options.questions ?? []).map((o) => ({ value: `q:${o.id}`, label: o.label, group: qs("fieldInstrument") }))
-    ],
-    [options.sections, options.questions]
+  const sectionRows = (sections: FilterOption[] = [], questions: FilterOption[] = []): SelectOption[] => [
+    ...sections.map((o) => ({ value: `s:${o.id}`, label: o.label, group: qs("filterSection") })),
+    ...questions.map((o) => ({ value: `q:${o.id}`, label: o.label, group: qs("fieldInstrument") }))
+  ];
+  const workshopOpts = (list: FilterOption[] = []): SelectOption[] =>
+    list.map((o) => ({ value: `${o.type === "DESIGN" ? "d" : "w"}:${o.id}`, label: o.label }));
+  const sectionOptions = sectionRows(options.sections, options.questions);
+
+  /** One field's options from the server for what the reader typed. */
+  const searchField = (field: FilterField) => (term: string) =>
+    questionnaireApi.filterOptions(field, term).then((answer) => opt(answer[field]));
+  const searchSections = (term: string) =>
+    Promise.all([
+      questionnaireApi.filterOptions("sections", term, chosenForms),
+      chosenForms.length ? questionnaireApi.filterOptions("questions", term, chosenForms) : Promise.resolve({} as FilterOptions)
+    ]).then(([a, b]) => sectionRows(a.sections, b.questions));
+  const searchWorkshops = (term: string) => questionnaireApi.filterOptions("workshops", term).then((answer) => workshopOpts(answer.workshops));
+
+  /** The values' own rows (label from what is known), so a search never blanks a chosen one. */
+  const selectedRows = (key: string, values: string[]): SelectOption[] =>
+    values.map((v) => {
+      const [k, id] =
+        key === "sectionId" ? (v.startsWith("q:") ? ["questionLineageId", v.slice(2)] : ["sectionId", v.slice(2)])
+        : key === "workshopId" ? (v.startsWith("d:") ? ["designWorkshopId", v.slice(2)] : ["workshopId", v.slice(2)])
+        : [key, v];
+      return { value: v, label: labelOf(k, id) };
+    });
+
+  const multi = (
+    key: string,
+    title: string,
+    values: string[],
+    change: (v: string[]) => void,
+    base: SelectOption[],
+    search?: (term: string) => Promise<SelectOption[]>
+  ) => (
+    <div className="grid gap-1" data-filter-field={key}>
+      <span className="field-label">{title}</span>
+      <FilterMultiSelect
+        values={values}
+        onChange={change}
+        options={base}
+        selected={selectedRows(key, values)}
+        search={search}
+        ariaLabel={title}
+        placeholder={qs("filterAny")}
+      />
+    </div>
   );
-  const workshopOptions = useMemo(
-    () => (options.workshops ?? []).map((o) => ({ value: `${o.type === "DESIGN" ? "d" : "w"}:${o.id}`, label: o.label })),
-    [options.workshops]
-  );
-  const artisanBase = options.artisans ?? [];
-  const artisanSeen = new Set(artisanBase.map((o) => o.id));
-  const artisanOptions = opt([
-    ...(filters.artisanId ?? []).filter((id) => !artisanSeen.has(id)).map((id) => ({ id, label: labelOf("artisanId", id) })),
-    ...artisanBase
-  ]);
 
   function labelOf(key: string, value: string): string {
     const known = labels[`${key}=${value}`] ?? remembered.get(`${key}=${value}`);
@@ -239,111 +265,58 @@ export function FilterBar({ filters, onChange, placeholder, hide = [], labels = 
 
       {open ? (
         <div className="panel grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-3" data-filters-panel>
-          {shows("questionnaireId") ? (
-            <div className="grid gap-1">
-              <span className="field-label">{qs("filterQuestionnaire")}</span>
-              <SearchableMultiSelect
-                values={filters.questionnaireId ?? []}
-                onChange={(v) => set("questionnaireId", v)}
-                options={opt(options.questionnaires)}
-                placeholder={qs("filterAny")}
-                ariaLabel={qs("filterQuestionnaire")}
-                searchable
-                confirmOnSelect={false}
-                {...QUIET}
-              />
-            </div>
-          ) : null}
-          {shows("sectionId") ? (
-            <div className="grid gap-1">
-              <span className="field-label">{qs("filterSection")}</span>
-              <SearchableMultiSelect
-                values={[...(filters.sectionId ?? []).map((v) => `s:${v}`), ...(filters.questionLineageId ?? []).map((v) => `q:${v}`)]}
-                onChange={(v) =>
+          {shows("questionnaireId")
+            ? multi("questionnaireId", qs("filterQuestionnaire"), filters.questionnaireId ?? [], (v) => set("questionnaireId", v), opt(options.questionnaires), searchField("questionnaires"))
+            : null}
+          {shows("sectionId")
+            ? multi(
+                "sectionId",
+                qs("filterSection"),
+                [...(filters.sectionId ?? []).map((v) => `s:${v}`), ...(filters.questionLineageId ?? []).map((v) => `q:${v}`)],
+                (v) =>
                   onChange(
                     cleanFilters({
                       ...filters,
                       sectionId: v.filter((x) => x.startsWith("s:")).map((x) => x.slice(2)),
                       questionLineageId: v.filter((x) => x.startsWith("q:")).map((x) => x.slice(2))
                     })
-                  )
-                }
-                options={sectionOptions}
-                placeholder={qs("filterAny")}
-                ariaLabel={qs("filterSection")}
-                searchable
-                confirmOnSelect={false}
-                {...QUIET}
-              />
-            </div>
-          ) : null}
-          {shows("artisanId") ? (
-            <div className="grid gap-1">
-              <span className="field-label">{qs("filterArtisans")}</span>
-              <SearchableMultiSelect
-                values={filters.artisanId ?? []}
-                onChange={(v) => set("artisanId", v)}
-                options={artisanOptions}
-                placeholder={qs("filterAny")}
-                ariaLabel={qs("filterArtisans")}
-                searchable
-                confirmOnSelect={false}
-                {...QUIET}
-              />
-            </div>
-          ) : null}
-          {shows("researcherId") ? (
-            <div className="grid gap-1">
-              <span className="field-label">{qs("filterResearcher")}</span>
-              <SearchableMultiSelect
-                values={filters.researcherId ?? []}
-                onChange={(v) => set("researcherId", v)}
-                options={opt(options.researchers)}
-                placeholder={qs("filterAny")}
-                ariaLabel={qs("filterResearcher")}
-                searchable
-                confirmOnSelect={false}
-                {...QUIET}
-              />
-            </div>
-          ) : null}
-          {shows("workshopId") ? (
-            <div className="grid gap-1">
-              <span className="field-label">{qs("filterWorkshop")}</span>
-              <SearchableMultiSelect
-                values={[...(filters.workshopId ?? []).map((v) => `w:${v}`), ...(filters.designWorkshopId ?? []).map((v) => `d:${v}`)]}
-                onChange={(v) =>
+                  ),
+                sectionOptions,
+                searchSections
+              )
+            : null}
+          {shows("artisanId")
+            ? multi("artisanId", qs("filterArtisans"), filters.artisanId ?? [], (v) => set("artisanId", v), opt(options.artisans), searchField("artisans"))
+            : null}
+          {shows("researcherId")
+            ? multi("researcherId", qs("filterResearcher"), filters.researcherId ?? [], (v) => set("researcherId", v), opt(options.researchers), searchField("researchers"))
+            : null}
+          {shows("workshopId")
+            ? multi(
+                "workshopId",
+                qs("filterWorkshop"),
+                [...(filters.workshopId ?? []).map((v) => `w:${v}`), ...(filters.designWorkshopId ?? []).map((v) => `d:${v}`)],
+                (v) =>
                   onChange(
                     cleanFilters({
                       ...filters,
                       workshopId: v.filter((x) => x.startsWith("w:")).map((x) => x.slice(2)),
                       designWorkshopId: v.filter((x) => x.startsWith("d:")).map((x) => x.slice(2))
                     })
-                  )
-                }
-                options={workshopOptions}
-                placeholder={qs("filterAny")}
-                ariaLabel={qs("filterWorkshop")}
-                searchable
-                confirmOnSelect={false}
-                {...QUIET}
-              />
-            </div>
-          ) : null}
-          {shows("languageCode") ? (
-            <div className="grid gap-1">
-              <span className="field-label">{qs("filterLanguage")}</span>
-              <SearchableMultiSelect
-                values={filters.languageCode ?? []}
-                onChange={(v) => set("languageCode", v)}
-                options={(options.languages ?? []).map((o) => ({ value: o.id, label: languageLabel(o.id) || o.id }))}
-                placeholder={qs("filterAny")}
-                ariaLabel={qs("filterLanguage")}
-                confirmOnSelect={false}
-                {...QUIET}
-              />
-            </div>
-          ) : null}
+                  ),
+                workshopOpts(options.workshops),
+                searchWorkshops
+              )
+            : null}
+          {shows("languageCode")
+            ? multi(
+                "languageCode",
+                qs("filterLanguage"),
+                filters.languageCode ?? [],
+                (v) => set("languageCode", v),
+                (options.languages ?? []).map((o) => ({ value: o.id, label: languageLabel(o.id) || o.id }))
+              )
+            : null}
           {shows("dateFrom") ? (
             <div className="grid gap-2 sm:col-span-2 sm:grid-cols-2">
               <CalendarField

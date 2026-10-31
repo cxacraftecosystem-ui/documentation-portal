@@ -152,6 +152,8 @@ function many(query: URLSearchParams, key: string): string[] {
   return query.getAll(key).flatMap((v) => v.split(",")).filter(Boolean);
 }
 
+const FAKE_WORKSHOP_TYPE = "FIELD";
+
 const SHARED_FILTER_KEYS = ["sectionId", "questionLineageId", "artisanId", "researcherId", "dateFrom", "dateTo", "source", "transcript", "languageCode", "q"];
 
 function recording(id: string, over: Json = {}): Json {
@@ -511,6 +513,20 @@ export class QuestionnaireFake {
         return true;
       });
       return { status: 200, json: { items: live, nextCursor: null } };
+    }
+    if (path === "/questionnaire/filters" && query.get("field")) {
+      // A searchable select's typing: that one list, narrowed by q, as the server answers it.
+      const field = String(query.get("field"));
+      const q = (query.get("q") ?? "").toLowerCase();
+      const lists: Record<string, Json[]> = {
+        artisans: ARTISANS.map((a) => ({ id: a.id, label: a.name, count: 1 })),
+        researchers: [{ id: ME.id, label: ME.name, count: 2 }, { id: OTHER.id, label: OTHER.name, count: 1 }],
+        workshops: [{ id: WORKSHOP.id, label: WORKSHOP.title, type: FAKE_WORKSHOP_TYPE, count: 2 }],
+        questionnaires: [{ id: "f1", label: FORM.title, kind: FORM.kind, count: 2 }],
+        sections: FORM.sections.map((sec) => ({ id: sec.id, label: `${sec.code} · ${sec.title}`, code: sec.code, title: sec.title, questionnaireId: "f1" })),
+        questions: []
+      };
+      return { status: 200, json: { [field]: (lists[field] ?? []).filter((o) => String(o.label).toLowerCase().includes(q)) } };
     }
     if (path === "/questionnaire/filters")
       return {

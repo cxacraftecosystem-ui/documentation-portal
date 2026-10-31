@@ -164,3 +164,9 @@ export async function coverageScope(workshopId: string): Promise<{ workshopId?: 
  * text with the document beside it; see `AnswerTextEditor`.
  */
 export { AnswerTextEditor, answerEditorValue, answerParts } from "@/components/questionnaires/AnswerTextEditor";
+
+/**
+ * The questionnaire filters' multi-select over this portal's own select primitive, searching the
+ * server as the reader types (owner, 31 Oct 2026); see its file for the props.
+ */
+export { FilterMultiSelect, type FilterMultiSelectProps } from "@/components/questionnaires/FilterMultiSelect";
