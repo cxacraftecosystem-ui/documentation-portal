@@ -27,10 +27,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDateRangePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -233,13 +231,15 @@ private fun FilterSheet(
         DatePickerDialog(
             onDismissRequest = { dates = false },
             confirmButton = {
-                TextButton(onClick = {
-                    val from = day(state.selectedStartDateMillis); val to = day(state.selectedEndDateMillis) ?: from
-                    onChange(filters.with("dateFrom", listOfNotNull(from)).with("dateTo", listOfNotNull(to)))
-                    dates = false
-                }) { Text(QuestionnaireCopy.t("filterDone")) }
-            },
-            dismissButton = { TextButton(onClick = { onChange(filters.without("dateFrom", "dateTo")); dates = false }) { Text(QuestionnaireCopy.t("filterClearAll")) } }
+                PromptButtons(listOf(
+                    PromptButton(QuestionnaireCopy.t("filterClearAll")) { onChange(filters.without("dateFrom", "dateTo")); dates = false },
+                    PromptButton(QuestionnaireCopy.t("filterDone"), primary = true) {
+                        val from = day(state.selectedStartDateMillis); val to = day(state.selectedEndDateMillis) ?: from
+                        onChange(filters.with("dateFrom", listOfNotNull(from)).with("dateTo", listOfNotNull(to)))
+                        dates = false
+                    }
+                ), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+            }
         ) { DateRangePicker(state = state, modifier = Modifier.heightIn(max = 520.dp)) }
     }
 }
@@ -311,7 +311,11 @@ private fun OptionPicker(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onApply(draft) }) { Text(QuestionnaireCopy.t("filterDone")) } },
-        dismissButton = { OutlinedButton(onClick = onDismiss) { Text(QuestionnaireCopy.s("session.cancel")) } }
+        confirmButton = {
+            PromptButtons(listOf(
+                PromptButton(QuestionnaireCopy.s("session.cancel"), onClick = onDismiss),
+                PromptButton(QuestionnaireCopy.t("filterDone"), primary = true) { onApply(draft) }
+            ))
+        }
     )
 }
