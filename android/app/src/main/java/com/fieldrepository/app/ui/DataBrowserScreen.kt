@@ -80,6 +80,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -650,6 +651,21 @@ fun DataBrowserScreen(
                 }
             }
 
+            // 0.0.6: transcripts in View data and Download data, folded until opened.
+            item("transcripts") {
+                var open by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+                Column(
+                    Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp)).padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(com.fieldrepository.app.transcript.data.TranscriptUiText.dataTitle, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { open = !open }, modifier = Modifier.testTag("data.transcripts.toggle")) { Text(if (open) "Hide" else "Show") }
+                    }
+                    if (open) com.fieldrepository.app.transcript.ui.TranscriptDataPanel(onMessage = { note(it) })
+                }
+            }
+
             item("download") {
                 BrowserPanel {
                     Text(
@@ -780,29 +796,35 @@ fun DataBrowserScreen(
             }
 
             items(state.files, key = { "file:${it.path}" }) { file ->
-                FileRow(
-                    entry = file,
-                    inlineOpen = file.path in state.openInline,
-                    transcriptOpen = file.path in state.openTranscripts,
-                    transcriptLoading = state.transcriptLoading,
-                    transcript = if (file.path in state.openTranscripts) state.transcriptFor(file) else null,
-                    saving = savingMediaId == file.mediaId && file.mediaId != null,
-                    onToggleInline = { state.toggleInline(file) },
-                    onToggleTranscript = { state.toggleTranscript(file) },
-                    onPreview = { viewing = file },
-                    onSave = {
-                        val mediaId = file.mediaId ?: return@FileRow
-                        scope.launch {
-                            savingMediaId = mediaId
-                            runCatching { repository.downloadDataMedia(context, mediaId, file.name) }
-                                .onSuccess { note("Saved to $it") }
-                                .onFailure {
-                                    state.reportError(it.apiErrorMessage("Unable to save this file"))
-                                }
-                            savingMediaId = null
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FileRow(
+                        entry = file,
+                        inlineOpen = file.path in state.openInline,
+                        transcriptOpen = file.path in state.openTranscripts,
+                        transcriptLoading = state.transcriptLoading,
+                        transcript = if (file.path in state.openTranscripts) state.transcriptFor(file) else null,
+                        saving = savingMediaId == file.mediaId && file.mediaId != null,
+                        onToggleInline = { state.toggleInline(file) },
+                        onToggleTranscript = { state.toggleTranscript(file) },
+                        onPreview = { viewing = file },
+                        onSave = {
+                            val mediaId = file.mediaId ?: return@FileRow
+                            scope.launch {
+                                savingMediaId = mediaId
+                                runCatching { repository.downloadDataMedia(context, mediaId, file.name) }
+                                    .onSuccess { note("Saved to $it") }
+                                    .onFailure {
+                                        state.reportError(it.apiErrorMessage("Unable to save this file"))
+                                    }
+                                savingMediaId = null
+                            }
                         }
+                    )
+                    // 0.0.6: the recording's transcript files, one tap each to the share sheet.
+                    file.mediaId?.let { mediaId ->
+                        com.fieldrepository.app.transcript.ui.TranscriptFileChips(mediaId, file.transcriptFiles, Modifier.padding(start = 12.dp), onMessage = { note(it) })
                     }
-                )
+                }
             }
         }
     }

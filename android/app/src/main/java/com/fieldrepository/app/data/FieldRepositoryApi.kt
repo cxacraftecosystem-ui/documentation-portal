@@ -21,6 +21,7 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 import retrofit2.http.QueryMap
 import retrofit2.http.Streaming
+import retrofit2.http.Url
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
@@ -1328,6 +1329,11 @@ interface FieldRepositoryApi {
 
     // One media file. Audio defaults to a server-side .mp4 (AAC) conversion; anything else is
     // redirected to the stored object (OkHttp follows it, dropping the auth header cross-host).
+    /** A portal API path a manifest hands out (0.0.6: `/api/transcripts/{id}/download?…`), resolved on this base. */
+    @Streaming
+    @GET
+    suspend fun apiPath(@Url path: String): Response<ResponseBody>
+
     @Streaming
     @GET("data/media/{id}/download")
     suspend fun downloadDataMedia(

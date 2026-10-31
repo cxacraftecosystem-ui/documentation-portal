@@ -11,6 +11,7 @@ import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.QueryMap
 import retrofit2.http.Streaming
 
 /** The routes of `shared/transcript-contract.json`, under the apps' `/api/` base. */
@@ -77,6 +78,23 @@ interface TranscriptApi {
 
     @GET("transcripts/budget")
     suspend fun budget(): BudgetMeter
+
+    /** View data (0.0.6): one page of recordings with everything the pipeline added. */
+    @GET("data/transcripts")
+    suspend fun dataTranscripts(
+        @QueryMap filters: Map<String, String>,
+        @Query("cursor") cursor: String? = null,
+        @Query("limit") limit: Int = 20,
+    ): DataTranscriptPage
+
+    /** Download data (0.0.6): every matching row, streamed; `kind` recordings|turns|glossary, `fmt` csv|ndjson. */
+    @Streaming
+    @GET("data/transcripts/{kind}.{fmt}")
+    suspend fun dataTranscriptsFile(
+        @Path("kind") kind: String,
+        @Path("fmt") fmt: String,
+        @QueryMap filters: Map<String, String>,
+    ): Response<ResponseBody>
 }
 
 /**
@@ -106,6 +124,11 @@ interface TranscriptBackend {
     /** ElevenLabs Voice Isolator on new recordings (0.0.5): null when this reader may not see it. */
     suspend fun audioIsolation(): AudioIsolationSetting? = null
     suspend fun setAudioIsolation(on: Boolean): AudioIsolationSetting? = null
+    /** View data (0.0.6): a page of recordings matching [filters]. */
+    suspend fun dataPage(filters: Map<String, String>, cursor: String?): DataTranscriptPage = DataTranscriptPage()
+    /** Download data (0.0.6): one streamed dataset, written to [sink]; the server's file name, if sent. */
+    suspend fun dataFile(kind: String, fmt: String, filters: Map<String, String>, sink: java.io.File): String? =
+        throw UnsupportedOperationException("no dataset downloads here")
 }
 
 class RetrofitTranscriptBackend(private val api: TranscriptApi) : TranscriptBackend {
@@ -133,6 +156,15 @@ class RetrofitTranscriptBackend(private val api: TranscriptApi) : TranscriptBack
     override suspend fun budget() = api.budget()
     override suspend fun audioIsolation() = api.transcriptionSettings().audioIsolation
     override suspend fun setAudioIsolation(on: Boolean) = api.setAudioIsolation(AudioIsolationBody(on)).audioIsolation
+    override suspend fun dataPage(filters: Map<String, String>, cursor: String?) = api.dataTranscripts(filters, cursor)
+    override suspend fun dataFile(kind: String, fmt: String, filters: Map<String, String>, sink: java.io.File): String? {
+        val response = api.dataTranscriptsFile(kind, fmt, filters)
+        val body = response.body()
+        if (!response.isSuccessful || body == null) throw HttpException(response)
+        // Streamed to disk, never held whole: a dataset can be every turn of every recording.
+        body.use { b -> b.byteStream().use { input -> sink.outputStream().use { input.copyTo(it) } } }
+        return contentDispositionName(response.headers()["Content-Disposition"])
+    }
 }
 
 /** The `{detail: {code, message}}` of a refusal, or null when the body is something else. */
