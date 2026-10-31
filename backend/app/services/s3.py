@@ -248,6 +248,19 @@ def abort_multipart_upload(object_key: str, upload_id: str) -> None:
     )
 
 
+def put_object_bytes(object_key: str, data: bytes, *, mime_type: str) -> None:
+    """Store ``data`` under ``object_key`` (0.0.5: the Voice Isolator copy). Server-side, so no presign;
+    the bucket's encryption settings apply as for every other object. Blocking: call it from a thread."""
+    settings = get_settings()
+    _client().put_object(
+        Bucket=settings.aws_s3_bucket,
+        Key=object_key,
+        Body=data,
+        ContentType=mime_type,
+        **_sse_params(),
+    )
+
+
 def get_object_bytes(object_key: str) -> bytes:
     settings = get_settings()
     response = _client().get_object(Bucket=settings.aws_s3_bucket, Key=object_key)

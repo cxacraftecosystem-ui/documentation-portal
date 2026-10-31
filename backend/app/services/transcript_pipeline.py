@@ -232,6 +232,33 @@ def _speaker_labels(turn_rows: list[Any], speakers: dict[str, Any]) -> dict[str,
     return labels
 
 
+#: A speaker's sample clip: long enough to recognise a voice, short enough to play at a tap.
+SAMPLE_MIN_MS = 1_500
+SAMPLE_MAX_MS = 8_000
+
+
+def speaker_samples(turn_rows: list[Any]) -> dict[str, dict[str, int]]:
+    """``{speakerKey: {startMs, endMs}}``: a few seconds of each speaker, to tell voices apart by ear.
+
+    The speaker's longest turn (the clearest stretch of one voice), from its start and at most
+    :data:`SAMPLE_MAX_MS` long. A speaker whose every turn is shorter than :data:`SAMPLE_MIN_MS` still
+    gets their longest one: a short sample beats none.
+    """
+    best: dict[str, Any] = {}
+    for row in turn_rows:
+        key = getattr(row, "speakerKey", None)
+        start, end = getattr(row, "startMs", None), getattr(row, "endMs", None)
+        if not key or start is None or end is None or end <= start:
+            continue
+        current = best.get(key)
+        if current is None or (end - start) > (current.endMs - current.startMs):
+            best[key] = row
+    return {
+        key: {"startMs": int(row.startMs), "endMs": int(min(row.endMs, row.startMs + SAMPLE_MAX_MS))}
+        for key, row in best.items()
+    }
+
+
 def _label(labels: dict[str, str], key: str | None) -> str:
     return labels.get(key or "", "Speaker") if key else "Speaker"
 
@@ -338,7 +365,9 @@ async def generate(media: Any, *, user_id: str | None) -> dict[str, Any]:
             media_id=media_id, kind=KIND_TRANSLATE, model=None, key_ref=None, input_tokens=0, output_tokens=0,
             cost_usd=0.0, outcome=exc.kind.upper(),
         )
-        raise transcript_insights.InsightsFailed(str(exc), retry=exc.retry) from None
+        raise transcript_insights.InsightsFailed(
+            str(exc), retry=exc.retry, hold_seconds=getattr(exc, "hold_seconds", None)
+        ) from None
     await transcript_store.record_spend(
         media_id=media_id, kind=KIND_TRANSLATE, model=result.model, key_ref=None,
         input_tokens=result.input_tokens, output_tokens=result.output_tokens, cost_usd=result.cost_usd,
@@ -628,12 +657,16 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
                 "speaker": q.get("speaker"),
             })
     admin = transcript_portal.is_admin(user)
+    # Cost and the model names are for the three administrator roles only (0.0.5): the portal says
+    # who they are, and the server leaves both out for everyone else, so no client can show them.
+    sees_spend = transcript_portal.may_see_spend(user)
+    samples = speaker_samples(turn_rows)
     # The write rule itself (``guard_write``'s), so a control the view offers is one the server takes;
     # ``readOnly`` names why it is not offered, in the words the portal already uses.
     read_only = await transcript_portal.read_only(user, media)
     edit = read_only is None
     cost = None
-    if admin:
+    if sees_spend:
         stt, gem = await transcript_store.media_cost(media_id)
         cost = {"sttUsd": round(stt, 4), "translationUsd": round(gem, 4), "totalUsd": round(stt + gem, 4)}
     languages = list(version.languages or []) if version is not None else []
@@ -647,7 +680,7 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
         "languages": [{"code": c, "label": language_label(c)} for c in languages],
         "durationMs": version.durationMs if version is not None else None,
         "speakerCount": version.speakerCount if version is not None else 0,
-        "badges": _badges(version),
+        "badges": _badges(version) if sees_spend else [],
         "speakers": [
             {
                 "speakerKey": key,
@@ -656,6 +689,7 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
                 "role": getattr(speakers.get(key), "role", None),
                 "personId": getattr(speakers.get(key), "personId", None),
                 "suggested": False,
+                "sample": samples.get(key),
             }
             for key in labels
         ],
@@ -663,7 +697,13 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
         "summary": list(getattr(row, "summaryLines", None) or []),
         "quotes": quotes,
         "cost": cost,
-        "audio": {"url": transcript_portal.audio_url(media), "durationMs": version.durationMs if version else None},
+        "audio": {
+            "url": transcript_portal.audio_url(media),
+            "durationMs": version.durationMs if version else None,
+            # Voice Isolator (0.0.5): the player plays the cleaned copy and offers the recording as made.
+            "cleaned": bool(_value(media, "cleanedObjectKey")),
+            "originalUrl": transcript_portal.audio_url(media, original=True) if _value(media, "cleanedObjectKey") else None,
+        },
         "permissions": {
             "edit": edit,
             "retry": edit,
@@ -679,7 +719,8 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
     }
 
 
-async def summary_items(media_rows: list[Any]) -> list[dict[str, Any]]:
+async def summary_items(media_rows: list[Any], user: Any = None) -> list[dict[str, Any]]:
+    sees_spend = user is not None and transcript_portal.may_see_spend(user)
     ids = [str(m.id) for m in media_rows]
     versions_by = await transcript_store.current_versions(ids)
     settings_row = await _settings_row()
@@ -693,7 +734,7 @@ async def summary_items(media_rows: list[Any]) -> list[dict[str, Any]]:
             "languages": [{"code": c, "label": language_label(c)} for c in (version.languages if version else [])],
             "durationMs": version.durationMs if version else None,
             "speakerCount": version.speakerCount if version else 0,
-            "badges": _badges(version),
+            "badges": _badges(version) if sees_spend else [],
         })
     return out
 

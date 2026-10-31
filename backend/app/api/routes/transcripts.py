@@ -84,7 +84,7 @@ async def batch(ids: str = Query("", max_length=4_000), user: Any = Depends(get_
         return {"items": []}
     rows = await db.mediafile.find_many(where={"id": {"in": wanted}})
     readable = await transcript_portal.readable_ids(rows, user)
-    return {"items": await pipeline.summary_items([r for r in rows if str(r.id) in readable])}
+    return {"items": await pipeline.summary_items([r for r in rows if str(r.id) in readable], user)}
 
 
 @router.get("/glossary", dependencies=ENABLED)
@@ -132,7 +132,7 @@ async def list_versions(media_id: str, user: Any = Depends(get_current_user)) ->
                 "createdAt": pipeline._iso(v.createdAt),
                 "current": v.supersededAt is None,
                 "status": "READY",
-                "badges": pipeline._badges(v),
+                "badges": pipeline._badges(v) if transcript_portal.may_see_spend(user) else [],
                 "turnCount": v.turnCount,
                 "durationMs": v.durationMs,
                 "costUsd": round((v.sttCostUsd or 0) + (v.translationCostUsd or 0), 4) if admin else None,
@@ -247,6 +247,7 @@ async def download(
     media_id: str,
     format: str = Query(..., pattern="^(md|docx|srt|vtt)$"),
     track: str = Query("both", pattern="^(original|english|both)$"),
+    timestamps: bool = Query(True),
     user: Any = Depends(get_current_user),
 ) -> Response:
     from app.services import naming
@@ -259,9 +260,9 @@ async def download(
     if format in {"srt", "vtt"} and track == "both":
         track = "original"
     if format == "md":
-        content: bytes = render.copy_all(doc, track).encode("utf-8")
+        content: bytes = render.copy_all(doc, track, timestamps=timestamps).encode("utf-8")
     elif format == "docx":
-        content = render.docx(doc, track)
+        content = render.docx(doc, track, timestamps=timestamps)
     elif format == "srt":
         content = render.srt(doc, track).encode("utf-8")
     else:

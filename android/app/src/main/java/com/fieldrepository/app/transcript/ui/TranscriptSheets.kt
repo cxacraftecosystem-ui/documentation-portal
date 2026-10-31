@@ -55,6 +55,7 @@ import com.fieldrepository.app.transcript.data.SpeakerSuggestion
 import com.fieldrepository.app.transcript.data.TextSource
 import com.fieldrepository.app.transcript.data.Transcript
 import com.fieldrepository.app.transcript.data.TranscriptFormat
+import com.fieldrepository.app.transcript.data.TranscriptSpeaker
 import com.fieldrepository.app.transcript.data.TranscriptStrings
 import com.fieldrepository.app.transcript.data.TranscriptTurn
 import com.fieldrepository.app.transcript.data.TranscriptUiText
@@ -108,7 +109,14 @@ private fun Throwable.rethrowCancel() { if (this is CancellationException) throw
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun SpeakersSheet(view: Transcript, host: TranscriptHost, onDismiss: () -> Unit) {
+internal fun SpeakersSheet(
+    view: Transcript,
+    host: TranscriptHost,
+    onDismiss: () -> Unit,
+    /** Plays a few seconds of a speaker (their `sample`); null when there is no audio. */
+    onPlaySample: ((TranscriptSpeaker) -> Unit)? = null,
+    playingKey: String? = null,
+) {
     val names = remember { mutableStateMapOf<String, String>().apply { view.speakers.forEach { put(it.speakerKey, it.name.orEmpty()) } } }
     val roles = remember { mutableStateMapOf<String, String?>().apply { view.speakers.forEach { put(it.speakerKey, it.role) } } }
     val people = remember { mutableStateMapOf<String, String?>().apply { view.speakers.forEach { put(it.speakerKey, it.personId) } } }
@@ -124,6 +132,12 @@ internal fun SpeakersSheet(view: Transcript, host: TranscriptHost, onDismiss: ()
                     style = MaterialTheme.typography.labelLarge
                 )
                 if (speaker.suggested) Text(TranscriptStrings.suggested, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.field.muted)
+                if (onPlaySample != null && speaker.sample != null) {
+                    val playing = playingKey == key
+                    OutlinedButton(onClick = { onPlaySample(speaker) }, modifier = Modifier.testTag("speaker.sample.$key")) {
+                        Text(if (playing) TranscriptStrings.stopSample else TranscriptStrings.playSample)
+                    }
+                }
                 OutlinedTextField(
                     value = names[key].orEmpty(),
                     onValueChange = { names[key] = it.take(80); people[key] = null },

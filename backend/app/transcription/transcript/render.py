@@ -99,13 +99,16 @@ def body(turn: RenderTurn, track: str) -> str:
     return text
 
 
-def block(turn: RenderTurn, track: str) -> str:
+def block(turn: RenderTurn, track: str, *, timestamps: bool = True) -> str:
+    if not timestamps:
+        return f"**{clean_name(turn.speaker_name)}**\n{body(turn, track)}"
     return f"**{clean_name(turn.speaker_name)}** · `{timestamp(turn.start_ms)}`\n{body(turn, track)}"
 
 
-def copy_all(doc: RenderDoc, track: str) -> str:
-    """Copy all / the .md download: the header, then every turn."""
-    return "\n\n".join([header(doc), *(block(turn, track) for turn in doc.turns)])
+def copy_all(doc: RenderDoc, track: str, *, timestamps: bool = True) -> str:
+    """Copy all / the .md download: the header, then every turn. ``timestamps=False`` is the
+    "without timestamps" copy and download: the same text with only the speaker on each turn."""
+    return "\n\n".join([header(doc), *(block(turn, track, timestamps=timestamps) for turn in doc.turns)])
 
 
 def copy_selected(doc: RenderDoc, turn_ids: list[str], track: str) -> str:
@@ -208,7 +211,7 @@ def _para(*runs: str, indent: int = 0, after: int = 120) -> str:
     return f"<w:p>{ppr}{''.join(runs)}</w:p>"
 
 
-def docx(doc: RenderDoc, track: str = BOTH) -> bytes:
+def docx(doc: RenderDoc, track: str = BOTH, *, timestamps: bool = True) -> bytes:
     """A plain Word document: title, the header facts, then each turn (English indented under it)."""
     paragraphs = [
         _para(_run(doc.title, bold=True, size=32), after=80),
@@ -223,14 +226,10 @@ def docx(doc: RenderDoc, track: str = BOTH) -> bytes:
         ),
     ]
     for turn in doc.turns:
-        paragraphs.append(
-            _para(
-                _run(clean_name(turn.speaker_name), bold=True),
-                _run(" · "),
-                _run(timestamp(turn.start_ms), mono=True, size=18),
-                after=0,
-            )
-        )
+        speaker = [_run(clean_name(turn.speaker_name), bold=True)]
+        if timestamps:
+            speaker += [_run(" · "), _run(timestamp(turn.start_ms), mono=True, size=18)]
+        paragraphs.append(_para(*speaker, after=0))
         if track == ENGLISH:
             paragraphs.append(_para(_run(english_of(turn).strip())))
             continue

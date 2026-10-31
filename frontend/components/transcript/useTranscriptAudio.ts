@@ -16,6 +16,18 @@ export function useTranscriptAudio(src: string | null | undefined) {
   const [currentMs, setCurrentMs] = useState(0);
   const [durationMs, setDurationMs] = useState(0);
   const frame = useRef<number | null>(null);
+  /** Where a sample stops by itself (a speaker's few seconds); null while playing freely. */
+  const stopAt = useRef<number | null>(null);
+  const [sampling, setSampling] = useState(false);
+
+  const reached = useCallback((ms: number) => {
+    const audio = audioRef.current;
+    if (stopAt.current !== null && ms >= stopAt.current) {
+      stopAt.current = null;
+      setSampling(false);
+      audio?.pause();
+    }
+  }, []);
 
   useEffect(() => {
     setPlaying(false);
@@ -27,14 +39,18 @@ export function useTranscriptAudio(src: string | null | undefined) {
     if (!playing) return;
     const tick = () => {
       const audio = audioRef.current;
-      if (audio) setCurrentMs(Math.round(audio.currentTime * 1000));
+      if (audio) {
+        const ms = Math.round(audio.currentTime * 1000);
+        setCurrentMs(ms);
+        reached(ms);
+      }
       frame.current = requestAnimationFrame(tick);
     };
     frame.current = requestAnimationFrame(tick);
     return () => {
       if (frame.current) cancelAnimationFrame(frame.current);
     };
-  }, [playing]);
+  }, [playing, reached]);
 
   const seek = useCallback((ms: number, play = true) => {
     const audio = audioRef.current;
@@ -44,9 +60,32 @@ export function useTranscriptAudio(src: string | null | undefined) {
     if (play && audio.paused) void audio.play().catch(() => setPlaying(false));
   }, []);
 
+  /** Play from `startMs` and stop at `endMs` by itself: a speaker's sample. Calling it again stops. */
+  const playRange = useCallback((startMs: number, endMs: number) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (stopAt.current !== null && !audio.paused) {
+      stopAt.current = null;
+      setSampling(false);
+      audio.pause();
+      return;
+    }
+    stopAt.current = endMs;
+    setSampling(true);
+    setCurrentMs(startMs);
+    audio.currentTime = startMs / 1000;
+    void audio.play().catch(() => {
+      stopAt.current = null;
+      setSampling(false);
+      setPlaying(false);
+    });
+  }, []);
+
   const toggle = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
+    stopAt.current = null;
+    setSampling(false);
     if (audio.paused) void audio.play().catch(() => setPlaying(false));
     else audio.pause();
   }, []);
@@ -56,11 +95,22 @@ export function useTranscriptAudio(src: string | null | undefined) {
     src: src ?? undefined,
     preload: "metadata" as const,
     onPlay: () => setPlaying(true),
-    onPause: () => setPlaying(false),
-    onEnded: () => setPlaying(false),
+    onPause: () => {
+      setPlaying(false);
+      setSampling(false);
+    },
+    onEnded: () => {
+      setPlaying(false);
+      setSampling(false);
+      stopAt.current = null;
+    },
     onTimeUpdate: () => {
       const audio = audioRef.current;
-      if (audio) setCurrentMs(Math.round(audio.currentTime * 1000));
+      if (audio) {
+        const ms = Math.round(audio.currentTime * 1000);
+        setCurrentMs(ms);
+        reached(ms);
+      }
     },
     onLoadedMetadata: () => {
       const audio = audioRef.current;
@@ -72,7 +122,7 @@ export function useTranscriptAudio(src: string | null | undefined) {
     }
   };
 
-  return { bind, playing, currentMs, durationMs, seek, toggle, hasAudio: Boolean(src) };
+  return { bind, playing, sampling, currentMs, durationMs, seek, toggle, playRange, hasAudio: Boolean(src) };
 }
 
 export type TranscriptAudio = ReturnType<typeof useTranscriptAudio>;

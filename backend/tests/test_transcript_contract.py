@@ -101,6 +101,8 @@ def test_the_copy_fixtures_byte_for_byte() -> None:
     assert render.copy_all(doc, "original") == copy["all_original"]
     assert render.copy_all(doc, "english") == copy["all_english"]
     assert render.copy_all(doc, "both") == copy["all_both"]
+    assert render.copy_all(doc, "both", timestamps=False) == copy["all_both_no_timestamps"]
+    assert "`00:" not in copy["all_both_no_timestamps"], "no timestamp on any turn"
     assert render.copy_selected(doc, ["turn_b"], "both") == copy["selected_both_turn_b"]
     first = doc.turns[0]
     assert render.copy_single(first, "original") == copy["single_original_turn_a"]

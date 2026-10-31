@@ -104,6 +104,23 @@ class TranscriptContractTest {
         assertEquals(copy("all_both"), TranscriptFormat.all(example, CopyTrack.BOTH))
     }
 
+    @Test fun `copy all without timestamps equals the fixture and carries no time`() {
+        val plain = TranscriptFormat.all(example, CopyTrack.BOTH, timestamps = false)
+        assertEquals(copy("all_both_no_timestamps"), plain)
+        assertFalse(plain.contains("`00:"))
+    }
+
+    @Test fun `each speaker carries a sample to be heard by, and the audio says when it is cleaned`() {
+        assertEquals(listOf(4000L to 7600L, 9000L to 15200L), example.speakers.map { it.sample!!.startMs to it.sample!!.endMs })
+        assertFalse(example.audio.cleaned)
+        val cleaned = json.decodeFromString(
+            Transcript.serializer(),
+            """{"mediaId":"m","status":"READY","audio":{"url":"https://x/c.mp3","cleaned":true,"originalUrl":"https://x/o.m4a"}}"""
+        )
+        assertTrue(cleaned.audio.cleaned)
+        assertEquals("https://x/o.m4a", cleaned.audio.originalUrl)
+    }
+
     @Test fun `copy selected has no header`() {
         assertEquals(copy("selected_both_turn_b"), TranscriptFormat.selected(example, listOf("turn_b"), CopyTrack.BOTH))
     }

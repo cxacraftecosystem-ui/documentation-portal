@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, X } from "lucide-react";
+import { Check, Square, Volume2, X } from "lucide-react";
 
 import { speakerSuggestions } from "@/lib/transcript/api";
 import type { SpeakerCandidate, SpeakerMapping, SpeakerRole, Transcript, TranscriptSpeaker } from "@/lib/transcript/contract";
@@ -17,11 +17,17 @@ import { ICON_BUTTON, PRIMARY } from "./parts";
 export function SpeakerNames({
   transcript,
   onSave,
-  onClose
+  onClose,
+  onPlaySample,
+  playingKey = null
 }: {
   transcript: Transcript;
   onSave: (mapping: SpeakerMapping) => Promise<boolean>;
   onClose: () => void;
+  /** Plays a few seconds of this speaker (their `sample`), so a voice can be told apart by ear. */
+  onPlaySample?: (speaker: TranscriptSpeaker) => void;
+  /** The speaker whose sample is playing now. */
+  playingKey?: string | null;
 }) {
   const [candidates, setCandidates] = useState<Record<string, SpeakerCandidate[]>>({});
   useEffect(() => {
@@ -46,7 +52,14 @@ export function SpeakerNames({
       </div>
       <ul className="grid gap-4">
         {transcript.speakers.map((speaker) => (
-          <SpeakerRow key={speaker.speakerKey} speaker={speaker} candidates={candidates[speaker.speakerKey] ?? []} onSave={onSave} />
+          <SpeakerRow
+            key={speaker.speakerKey}
+            speaker={speaker}
+            candidates={candidates[speaker.speakerKey] ?? []}
+            onSave={onSave}
+            onPlaySample={onPlaySample}
+            playing={playingKey === speaker.speakerKey}
+          />
         ))}
       </ul>
       <p className="text-xs text-ink-500">{ts("applyToAll")}</p>
@@ -56,7 +69,19 @@ export function SpeakerNames({
 
 const roleWord = (role: SpeakerRole | null) => (role === "RESEARCHER" ? "researcher" : null);
 
-function SpeakerRow({ speaker, candidates, onSave }: { speaker: TranscriptSpeaker; candidates: SpeakerCandidate[]; onSave: (mapping: SpeakerMapping) => Promise<boolean> }) {
+function SpeakerRow({
+  speaker,
+  candidates,
+  onSave,
+  onPlaySample,
+  playing
+}: {
+  speaker: TranscriptSpeaker;
+  candidates: SpeakerCandidate[];
+  onSave: (mapping: SpeakerMapping) => Promise<boolean>;
+  onPlaySample?: (speaker: TranscriptSpeaker) => void;
+  playing: boolean;
+}) {
   const [typing, setTyping] = useState(false);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -76,6 +101,18 @@ function SpeakerRow({ speaker, candidates, onSave }: { speaker: TranscriptSpeake
       <p className="flex flex-wrap items-center gap-2 text-sm">
         <span className="font-semibold text-ink-900">{speaker.name ? speaker.label : ts("mapSpeaker")}</span>
         {speaker.suggested ? <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">{ts("suggested")}</span> : null}
+        {onPlaySample && speaker.sample ? (
+          <button
+            type="button"
+            className="ml-auto inline-flex min-h-9 items-center gap-1.5 rounded-full border border-line-200 bg-card px-3 text-sm text-ink-900 transition hover:border-purple-300 hover:bg-purple-50 max-sm:min-h-11 dark:hover:bg-purple-950/40"
+            aria-pressed={playing}
+            data-play-sample={speaker.speakerKey}
+            onClick={() => onPlaySample(speaker)}
+          >
+            {playing ? <Square className="h-3.5 w-3.5" aria-hidden /> : <Volume2 className="h-4 w-4" aria-hidden />}
+            {playing ? ts("stopSample") : ts("playSample")}
+          </button>
+        ) : null}
       </p>
       <div className="flex flex-wrap gap-2" role="group" aria-label={speaker.label}>
         {candidates.map((candidate) => {

@@ -32,6 +32,7 @@ object TranscriptStrings {
     const val copyAllOriginal = "Original"
     const val copyAllEnglish = "English"
     const val copyAllBoth = "Both"
+    const val copyAllBothNoTimestamps = "Both, without timestamps"
     const val selectTurns = "Select turns"
     const val copySelected = "Copy selected"
     fun selectedCount(count: Any): String = "{count} selected".replace("{count}", count.toString())
@@ -39,6 +40,8 @@ object TranscriptStrings {
     const val download = "Download"
     const val downloadMarkdown = "Markdown (.md)"
     const val downloadWord = "Word (.docx)"
+    const val downloadMarkdownNoTimestamps = "Markdown, without timestamps"
+    const val downloadWordNoTimestamps = "Word, without timestamps"
     const val downloadSrt = "Subtitles (.srt)"
     const val downloadVtt = "Subtitles (.vtt)"
     const val trackOriginal = "Original"
@@ -61,6 +64,13 @@ object TranscriptStrings {
     const val history = "History"
     const val changedElsewhere = "Changed on another device."
     const val speakers = "Speakers"
+    const val playSample = "Play a sample"
+    const val stopSample = "Stop the sample"
+    const val originalAudio = "Play the original recording"
+    const val cleanedAudioNote = "Background noise removed"
+    const val markOnTimeline = "Mark on the timeline"
+    const val timelineMarks = "Marked points"
+    fun jumpTo(time: Any): String = "Jump to {time}".replace("{time}", time.toString())
     fun speakerDefault(number: Any): String = "Speaker {number}".replace("{number}", number.toString())
     fun speakerResearcherSuffix(name: Any): String = "{name} (researcher)".replace("{name}", name.toString())
     const val mapSpeaker = "Who is this?"
@@ -122,6 +132,7 @@ object TranscriptStrings {
         "copyAllOriginal" to "Original",
         "copyAllEnglish" to "English",
         "copyAllBoth" to "Both",
+        "copyAllBothNoTimestamps" to "Both, without timestamps",
         "selectTurns" to "Select turns",
         "copySelected" to "Copy selected",
         "selectedCount" to "{count} selected",
@@ -129,6 +140,8 @@ object TranscriptStrings {
         "download" to "Download",
         "downloadMarkdown" to "Markdown (.md)",
         "downloadWord" to "Word (.docx)",
+        "downloadMarkdownNoTimestamps" to "Markdown, without timestamps",
+        "downloadWordNoTimestamps" to "Word, without timestamps",
         "downloadSrt" to "Subtitles (.srt)",
         "downloadVtt" to "Subtitles (.vtt)",
         "trackOriginal" to "Original",
@@ -151,6 +164,13 @@ object TranscriptStrings {
         "history" to "History",
         "changedElsewhere" to "Changed on another device.",
         "speakers" to "Speakers",
+        "playSample" to "Play a sample",
+        "stopSample" to "Stop the sample",
+        "originalAudio" to "Play the original recording",
+        "cleanedAudioNote" to "Background noise removed",
+        "markOnTimeline" to "Mark on the timeline",
+        "timelineMarks" to "Marked points",
+        "jumpTo" to "Jump to {time}",
         "speakerDefault" to "Speaker {number}",
         "speakerResearcherSuffix" to "{name} (researcher)",
         "mapSpeaker" to "Who is this?",

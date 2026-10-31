@@ -40,6 +40,8 @@ type TranscriptionState = {
   providers: ProviderRow[];
   window: { enabled: boolean; start: string; end: string; timezone: string };
   mode: string;
+  /** ElevenLabs Voice Isolator on newly transcribed recordings (0.0.5). Off until switched on. */
+  audioIsolation?: { enabled: boolean; keyConfigured: boolean };
   queue?: Record<string, number>;
   usage?: UsageRow[];
   cooldowns?: { provider: string; until: string }[];
@@ -183,6 +185,23 @@ export function TranscriptionPanel({ canChange }: { canChange: boolean }) {
             busy={saving === "pause"}
             onChange={(on) => void save("pause", { paused: !on })}
           />
+
+          {state.audioIsolation ? (
+            <Toggle
+              label="Remove background noise"
+              description={
+                state.audioIsolation.enabled
+                  ? "On. Each new recording is cleaned with ElevenLabs Voice Isolator after it is transcribed. The original is kept."
+                  : state.audioIsolation.keyConfigured
+                    ? "Off. Turn on to clean new recordings with ElevenLabs Voice Isolator, billed by ElevenLabs."
+                    : "Off. Needs an ElevenLabs key with the Voice Isolator permission."
+              }
+              checked={state.audioIsolation.enabled}
+              disabled={!canChange}
+              busy={saving === "isolation"}
+              onChange={(on) => void save("isolation", { audioIsolation: on })}
+            />
+          ) : null}
 
           <div className="grid gap-2">
             <h3 className="field-label">Providers</h3>

@@ -128,9 +128,12 @@ class InsightsFailed(RuntimeError):
     every attempt (and, on designer-portal, the requester's allowance) on the same answer.
     """
 
-    def __init__(self, message: str, *, retry: bool = True) -> None:
+    def __init__(self, message: str, *, retry: bool = True, hold_seconds: int | None = None) -> None:
         super().__init__(message)
         self.retry = retry
+        #: Set when the failure clears by itself (busy, unreachable, credit run out): the queue parks
+        #: the job for this long and asks again without spending an attempt.
+        self.hold_seconds = hold_seconds
 
 
 #: The sentences for a failure that will not clear by itself.

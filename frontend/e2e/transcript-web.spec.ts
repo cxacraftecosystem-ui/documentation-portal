@@ -234,6 +234,58 @@ test.describe("desktop actions", () => {
     await expect(viewer.getByTestId("ask-open")).toBeVisible();
   });
 
+  test("the whole transcript and its English copy and download without timestamps", async ({ page }) => {
+    const fake = new TranscriptFake();
+    const viewer = await open(page, fake);
+    await pick(page, viewer.getByTestId("copy-all"), "both-plain");
+    await expect(viewer.locator('[data-copy-status="ok"]')).toHaveText("Copied");
+    expect(await clipboard(page)).toBe(FIXTURES.copy.all_both_no_timestamps);
+    const download = page.waitForEvent("download");
+    await pick(page, viewer.getByTestId("download"), "md-plain");
+    await download;
+    const asked = fake.calledWith("GET", `/transcripts/${MEDIA_ID}/download`).at(-1);
+    expect(asked?.query.get("timestamps")).toBe("false");
+    expect(asked?.query.get("format")).toBe("md");
+  });
+
+  test("each speaker plays a sample of their own voice to be named by", async ({ page }) => {
+    const viewer = await open(page, new TranscriptFake());
+    await viewer.getByTestId("speakers-open").click();
+    const play = viewer.locator('[data-play-sample="speaker_1"]');
+    await expect(play).toHaveText("Play a sample");
+    await play.click();
+    await expect(play).toHaveAttribute("aria-pressed", "true");
+    const at = await page.locator("[data-transcript-audio]").evaluate((audio: HTMLAudioElement) => audio.currentTime);
+    expect(at).toBeGreaterThanOrEqual(9);
+  });
+
+  test("a ticked turn becomes a point on the timeline, and none is there until ticked", async ({ page }) => {
+    const viewer = await open(page, new TranscriptFake());
+    await expect(viewer.locator("[data-timeline-mark]")).toHaveCount(0);
+    const box = viewer.locator('[data-mark-turn="turn_b"]');
+    await expect(box).not.toBeChecked();
+    await box.check();
+    const mark = viewer.locator('[data-timeline-mark="turn_b"]');
+    await expect(mark).toBeVisible();
+    await mark.click();
+    const at = await page.locator("[data-transcript-audio]").evaluate((audio: HTMLAudioElement) => audio.currentTime);
+    expect(at).toBeGreaterThanOrEqual(8.9);
+    await box.uncheck();
+    await expect(viewer.locator("[data-timeline-mark]")).toHaveCount(0);
+  });
+
+  test("cleaned audio plays by default and the recording as made is one tick away", async ({ page }) => {
+    const fake = new TranscriptFake();
+    const view = fake.view as unknown as Transcript;
+    view.audio = { ...view.audio, cleaned: true, originalUrl: `${view.audio.url}?original=1` };
+    const viewer = await open(page, fake);
+    await expect(viewer.locator("[data-audio-cleaned]")).toContainText("Background noise removed");
+    const src = () => page.locator("[data-transcript-audio]").evaluate((audio: HTMLAudioElement) => audio.getAttribute("src"));
+    expect(await src()).not.toContain("original=1");
+    await viewer.getByTestId("play-original").check();
+    await expect.poll(src).toContain("original=1");
+  });
+
   test("a quote card previews and downloads", async ({ page }) => {
     const viewer = await open(page, new TranscriptFake());
     await viewer.getByTestId("select-turns").click();

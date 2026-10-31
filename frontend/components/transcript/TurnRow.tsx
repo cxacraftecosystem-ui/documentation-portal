@@ -26,6 +26,9 @@ type Props = {
   onSave: (turn: TranscriptTurn, change: { text?: string; english?: string }) => Promise<boolean>;
   onRetranslate: (turn: TranscriptTurn) => void;
   retranslating: boolean;
+  /** This turn is a marked point on the audio timeline (off until ticked). */
+  marked?: boolean;
+  onMark?: (turnId: string, marked: boolean) => void;
 };
 
 const FIELD =
@@ -142,6 +145,18 @@ export const TurnRow = memo(function TurnRow(props: Props) {
               ·
             </span>
             <TimeChip ms={turn.startMs} label={time} onSeek={props.onSeek} />
+            {props.onMark ? (
+              <label className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 text-xs text-ink-500 max-sm:min-h-11" title={ts("markOnTimeline")}>
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-purple-700"
+                  checked={Boolean(props.marked)}
+                  onChange={(event) => props.onMark?.(turn.id, event.target.checked)}
+                  data-mark-turn={turn.id}
+                />
+                <span className="max-sm:sr-only">{ts("markOnTimeline")}</span>
+              </label>
+            ) : null}
             <span className="ml-auto inline-flex items-center gap-0.5">
               {canEdit && !editing ? (
                 <button type="button" className={ICON_BUTTON} onClick={startEdit} aria-label={ts("editTurnLabel", { speaker, time })} title={ts("editTurn")}>

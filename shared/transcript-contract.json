@@ -62,7 +62,7 @@
     {"method": "POST", "path": "/api/transcripts/{mediaId}/retry", "returns": "202 TranscriptView", "notes": "Needs attention -> Queued. Re-runs translation only when transcription already succeeded."},
     {"method": "POST", "path": "/api/transcripts/{mediaId}/transcribe-now", "returns": "202 TranscriptView", "notes": "Admins. 409 TRANSCRIPTION_PAUSED while paused."},
     {"method": "POST", "path": "/api/transcripts/{mediaId}/copy", "body": "CopyBody", "returns": "{text: string}", "notes": "Server-side copy helper: exactly fixtures.copy."},
-    {"method": "GET", "path": "/api/transcripts/{mediaId}/download", "query": "format=md|docx|srt|vtt&track=original|english|both (srt/vtt: original|english)", "returns": "file with Content-Disposition (naming skill)"},
+    {"method": "GET", "path": "/api/transcripts/{mediaId}/download", "query": "format=md|docx|srt|vtt&track=original|english|both (srt/vtt: original|english)&timestamps=true|false (md/docx; false drops the time on every turn, default true)", "returns": "file with Content-Disposition (naming skill)"},
     {"method": "POST", "path": "/api/transcripts/{mediaId}/ask", "body": "{question: string (3..500 chars)}", "returns": "AskAnswer", "notes": "Answers from this transcript only; consent re-checked; counts against budget."},
     {"method": "POST", "path": "/api/transcripts/{mediaId}/autodraft", "returns": "AutoDraftResult", "notes": "Questionnaire takes only (409 NOT_A_QUESTIONNAIRE_TAKE). Drafts land in the existing AI drafts flow; locked answers and recordings-preferred questions are skipped and listed."},
     {"method": "POST", "path": "/api/transcripts/{mediaId}/quote-card", "body": "{turnIds: [string] (1..6, contiguous or not)}", "returns": "QuoteCard", "notes": "409 CONSENT_REFUSED when any quoted artisan withdrew."},
@@ -82,20 +82,20 @@
       "languages": "[{code: 'hi', label: 'Hindi'}]  in order of share of speech",
       "durationMs": "int|null",
       "speakerCount": "int",
-      "badges": "[{kind: 'stt'|'translation', provider: string, model: string, label: 'Scribe v2'|'Gemini 3.8 Flash'}]",
+      "badges": "[{kind: 'stt'|'translation', provider: string, model: string, label: 'Scribe v2'|'Gemini 3.8 Flash'}]  ADMIN, MASTER_ADMIN and MINISTRY_ADMIN only; [] for everyone else (also on TranscriptSummary and VersionInfo)",
       "speakers": "[Speaker]",
       "turns": "[Turn]",
       "summary": "[string]  up to five English lines (existing insights), [] when none",
       "quotes": "[{turnId: string|null, original: string, english: string, speaker: string|null}]",
-      "cost": "{sttUsd: number, translationUsd: number, totalUsd: number}|null  admins only, else null",
-      "audio": "{url: string|null, durationMs: int|null}  url is the existing signed media url",
+      "cost": "{sttUsd: number, translationUsd: number, totalUsd: number}|null  ADMIN, MASTER_ADMIN and MINISTRY_ADMIN only, else null",
+      "audio": "{url: string|null, durationMs: int|null, cleaned: bool, originalUrl: string|null}  url is the signed media url: the Voice Isolator copy when cleaned is true (originalUrl is then the recording as made), else the recording itself",
       "permissions": "{edit: bool, retry: bool, transcribeNow: bool, ask: bool, autodraft: bool, quoteCard: bool, mapSpeakers: bool}",
       "readOnly": "{code: 'NOT_EDITOR'|'HELD_POST', message: string}|null  why this reader may read but not change it (edit, speakers, re-translate, retry, auto-draft), by the same rule every write refuses by; null when they may. Clients show the message once and offer none of those controls",
       "revision": "int  bumps on every edit or speaker change; send back as baseRevision",
       "updatedAt": "ISO-8601"
     },
     "TranscriptSummary": {"mediaId": "string", "status": "pipelineStatus", "languages": "[{code,label}]", "durationMs": "int|null", "speakerCount": "int", "badges": "[Badge]"},
-    "Speaker": {"speakerKey": "string e.g. 'speaker_0'", "label": "string  the mapped name, else 'Speaker 1'", "name": "string|null", "role": "speakerRole|null", "personId": "string|null", "suggested": "bool  true when label comes from a suggestion nobody confirmed"},
+    "Speaker": {"speakerKey": "string e.g. 'speaker_0'", "label": "string  the mapped name, else 'Speaker 1'", "name": "string|null", "role": "speakerRole|null", "personId": "string|null", "suggested": "bool  true when label comes from a suggestion nobody confirmed", "sample": "{startMs: int, endMs: int}|null  a few seconds of this speaker (their longest turn, at most 8 s) to play when naming them"},
     "Turn": {
       "id": "string",
       "index": "int  0-based order",
@@ -140,8 +140,8 @@
         {"kind": "translation", "provider": "gemini", "model": "gemini-3.8-flash", "label": "Gemini 3.8 Flash"}
       ],
       "speakers": [
-        {"speakerKey": "speaker_0", "label": "Nandini (researcher)", "name": "Nandini", "role": "RESEARCHER", "personId": "u_1", "suggested": false},
-        {"speakerKey": "speaker_1", "label": "Giriraj", "name": "Giriraj", "role": "ARTISAN", "personId": "a_1", "suggested": false}
+        {"speakerKey": "speaker_0", "label": "Nandini (researcher)", "name": "Nandini", "role": "RESEARCHER", "personId": "u_1", "suggested": false, "sample": {"startMs": 4000, "endMs": 7600}},
+        {"speakerKey": "speaker_1", "label": "Giriraj", "name": "Giriraj", "role": "ARTISAN", "personId": "a_1", "suggested": false, "sample": {"startMs": 9000, "endMs": 15200}}
       ],
       "turns": [
         {
@@ -171,7 +171,7 @@
       "summary": ["Giriraj explains how the dabu resist paste is made from clay and gum."],
       "quotes": [{"turnId": "turn_b", "original": "हम dabu के लिए मिट्टी और गोंद मिलाते हैं", "english": "We mix clay and gum for dabu.", "speaker": "Giriraj"}],
       "cost": null,
-      "audio": {"url": null, "durationMs": 1524000},
+      "audio": {"url": null, "durationMs": 1524000, "cleaned": false, "originalUrl": null},
       "permissions": {"edit": true, "retry": true, "transcribeNow": false, "ask": true, "autodraft": false, "quoteCard": true, "mapSpeakers": true},
       "readOnly": null,
       "revision": 3,
@@ -190,6 +190,7 @@
       "all_original": "# Interview · Giriraj Prasad Chhipa · 24 Jun 2026\n| Language | Hindi, English | Length | 25:24 | Speakers | 2 |\n\n**Nandini (researcher)** · `00:00:04`\nआप ये रंग कैसे बनाते हैं?\n\n**Giriraj** · `00:00:09`\nहम dabu के लिए मिट्टी और गोंद मिलाते हैं",
       "all_english": "# Interview · Giriraj Prasad Chhipa · 24 Jun 2026\n| Language | Hindi, English | Length | 25:24 | Speakers | 2 |\n\n**Nandini (researcher)** · `00:00:04`\nHow do you make these colours?\n\n**Giriraj** · `00:00:09`\nWe mix clay and gum for dabu (mud-resist printing).",
       "all_both": "# Interview · Giriraj Prasad Chhipa · 24 Jun 2026\n| Language | Hindi, English | Length | 25:24 | Speakers | 2 |\n\n**Nandini (researcher)** · `00:00:04`\nआप ये रंग कैसे बनाते हैं?\n> How do you make these colours?\n\n**Giriraj** · `00:00:09`\nहम dabu के लिए मिट्टी और गोंद मिलाते हैं\n> We mix clay and gum for dabu (mud-resist printing).",
+      "all_both_no_timestamps": "# Interview · Giriraj Prasad Chhipa · 24 Jun 2026\n| Language | Hindi, English | Length | 25:24 | Speakers | 2 |\n\n**Nandini (researcher)**\nआप ये रंग कैसे बनाते हैं?\n> How do you make these colours?\n\n**Giriraj**\nहम dabu के लिए मिट्टी और गोंद मिलाते हैं\n> We mix clay and gum for dabu (mud-resist printing).",
       "selected_both_turn_b": "**Giriraj** · `00:00:09`\nहम dabu के लिए मिट्टी और गोंद मिलाते हैं\n> We mix clay and gum for dabu (mud-resist printing).",
       "single_original_turn_a": "आप ये रंग कैसे बनाते हैं?",
       "single_english_turn_a": "How do you make these colours?",

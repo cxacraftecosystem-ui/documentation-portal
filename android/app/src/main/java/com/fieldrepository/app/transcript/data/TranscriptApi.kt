@@ -43,8 +43,20 @@ interface TranscriptApi {
     suspend fun transcribeNow(@Path("mediaId") mediaId: String): Transcript
 
     @Streaming
+    /** Settings → API keys (0.0.5): the Voice Isolator switch rides the transcription settings. */
+    @GET("settings/transcription")
+    suspend fun transcriptionSettings(): AudioIsolationEnvelope
+
+    @PUT("settings/transcription")
+    suspend fun setAudioIsolation(@Body body: AudioIsolationBody): AudioIsolationEnvelope
+
     @GET("transcripts/{mediaId}/download")
-    suspend fun download(@Path("mediaId") mediaId: String, @Query("format") format: String, @Query("track") track: String): Response<ResponseBody>
+    suspend fun download(
+        @Path("mediaId") mediaId: String,
+        @Query("format") format: String,
+        @Query("track") track: String,
+        @Query("timestamps") timestamps: Boolean? = null,
+    ): Response<ResponseBody>
 
     @POST("transcripts/{mediaId}/ask")
     suspend fun ask(@Path("mediaId") mediaId: String, @Body body: AskBody): AskAnswer
@@ -83,11 +95,17 @@ interface TranscriptBackend {
     suspend fun transcribeNow(mediaId: String): Transcript
     /** The file; `srt`/`vtt` take `original` or `english` only. */
     suspend fun download(mediaId: String, format: String, track: CopyTrack): DownloadedFile
+    /** The same file without a timestamp on any turn (`md` and `docx`; 0.0.5). */
+    suspend fun download(mediaId: String, format: String, track: CopyTrack, timestamps: Boolean): DownloadedFile =
+        download(mediaId, format, track)
     suspend fun ask(mediaId: String, question: String): AskAnswer
     suspend fun autodraft(mediaId: String): AutoDraftResult
     suspend fun quoteCard(mediaId: String, turnIds: List<String>): QuoteCard
     suspend fun glossary(craftId: String?, q: String?): List<GlossaryTerm>
     suspend fun budget(): BudgetMeter
+    /** ElevenLabs Voice Isolator on new recordings (0.0.5): null when this reader may not see it. */
+    suspend fun audioIsolation(): AudioIsolationSetting? = null
+    suspend fun setAudioIsolation(on: Boolean): AudioIsolationSetting? = null
 }
 
 class RetrofitTranscriptBackend(private val api: TranscriptApi) : TranscriptBackend {
@@ -100,8 +118,10 @@ class RetrofitTranscriptBackend(private val api: TranscriptApi) : TranscriptBack
     override suspend fun retranslate(mediaId: String, turnId: String) = api.retranslate(mediaId, turnId)
     override suspend fun retry(mediaId: String) = api.retry(mediaId)
     override suspend fun transcribeNow(mediaId: String) = api.transcribeNow(mediaId)
-    override suspend fun download(mediaId: String, format: String, track: CopyTrack): DownloadedFile {
-        val response = api.download(mediaId, format, track.wire)
+    override suspend fun download(mediaId: String, format: String, track: CopyTrack): DownloadedFile =
+        download(mediaId, format, track, timestamps = true)
+    override suspend fun download(mediaId: String, format: String, track: CopyTrack, timestamps: Boolean): DownloadedFile {
+        val response = api.download(mediaId, format, track.wire, if (timestamps) null else false)
         val body = response.body()
         if (!response.isSuccessful || body == null) throw HttpException(response)
         return DownloadedFile(contentDispositionName(response.headers()["Content-Disposition"]), body.use { it.bytes() })
@@ -111,6 +131,8 @@ class RetrofitTranscriptBackend(private val api: TranscriptApi) : TranscriptBack
     override suspend fun quoteCard(mediaId: String, turnIds: List<String>) = api.quoteCard(mediaId, QuoteCardBody(turnIds))
     override suspend fun glossary(craftId: String?, q: String?) = api.glossary(craftId, q).items
     override suspend fun budget() = api.budget()
+    override suspend fun audioIsolation() = api.transcriptionSettings().audioIsolation
+    override suspend fun setAudioIsolation(on: Boolean) = api.setAudioIsolation(AudioIsolationBody(on)).audioIsolation
 }
 
 /** The `{detail: {code, message}}` of a refusal, or null when the body is something else. */

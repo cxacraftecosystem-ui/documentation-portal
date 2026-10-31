@@ -42,6 +42,7 @@ TIMEOUT_SECONDS = 180
 
 #: Kinds of failure, worst-for-retry last.
 THROTTLED = "throttled"
+BILLING = "billing"
 UNREACHABLE = "unreachable"
 FAILED = "failed"
 UNREADABLE = "unreadable"
@@ -51,10 +52,15 @@ KEY = "key"
 DECLINED = "declined"
 UNAVAILABLE = "unavailable"
 
-_RETRYABLE = {THROTTLED, UNREACHABLE, FAILED, UNREADABLE}
+_RETRYABLE = {THROTTLED, BILLING, UNREACHABLE, FAILED, UNREADABLE}
+#: Failures that clear by themselves (a busy model, no route, a project whose credit ran out and is
+#: topped up): the queue parks the job and asks again later WITHOUT spending an attempt, so it
+#: resumes on its own however long the hold lasts. Seconds to wait before asking again.
+HOLD_SECONDS = {THROTTLED: 180, UNREACHABLE: 180, BILLING: 900}
 
 MESSAGES = {
     THROTTLED: "Gemini is busy just now; this will be tried again.",
+    BILLING: "Gemini's credit for this project has run out. Translation resumes by itself once it is topped up.",
     UNREACHABLE: "Gemini could not be reached; this will be tried again.",
     FAILED: "Gemini had a problem; this will be tried again.",
     UNREADABLE: "Gemini's answer couldn't be read; this will be tried again.",
@@ -74,6 +80,7 @@ class GeminiError(RuntimeError):
         self.kind = kind
         self.status = status
         self.retry = kind in _RETRYABLE
+        self.hold_seconds = HOLD_SECONDS.get(kind)
 
 
 @dataclass
@@ -186,6 +193,10 @@ def generate_json(
                 kinds.append(KEY)
                 logger.warning("gemini %s refused key %s (HTTP %s)", model, key.ref, status)
                 continue
+            if status == 402:
+                kinds.append(BILLING)
+                logger.warning("gemini %s refused key %s for billing (HTTP 402)", model, key.ref)
+                continue
             if status in (429, 503):
                 kinds.append(THROTTLED)
                 logger.warning("gemini %s throttled key %s (HTTP %s)", model, key.ref, status)
@@ -251,6 +262,8 @@ def _worst(kinds: list[str]) -> str:
     for kind in (DECLINED, KEY):
         if kinds and all(k == kind for k in kinds):
             return kind
+    if BILLING in kinds:
+        return BILLING  # does not clear until somebody pays; say so rather than "busy"
     if THROTTLED in kinds:
         return THROTTLED
     if UNREACHABLE in kinds:
