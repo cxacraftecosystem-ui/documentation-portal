@@ -343,6 +343,8 @@ test("@qf:E3 @qf:E6 the sessions list searches and filters on the server and kee
   await page.locator("[data-filters-toggle]").click();
   await page.locator("[data-filter-pill='transcript=HAS']").click();
   await expect.poll(() => fake.calledWith("GET", "/questionnaire/sessions").some((c) => c.query.get("transcript") === "HAS")).toBe(true);
+  // The URL is written just after the request goes out: wait for it, or the reload reads the old one.
+  await expect(page).toHaveURL(/transcript=HAS/);
   fake.calls.length = 0;
   await page.reload();
   await expect(page.locator("[data-filter-bar]").getByRole("searchbox")).toHaveValue("s-1");
