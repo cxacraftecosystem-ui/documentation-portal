@@ -132,3 +132,63 @@ def test_the_strings_are_complete_sentences_with_no_gap_admissions() -> None:
         lowered = value.lower()
         assert value.strip() == value and value, key
         assert "not built" not in lowered and "coming soon" not in lowered and "no endpoint" not in lowered, key
+
+
+# --- 0.0.6: speaker colours and list previews (contractVersion 2) ----------------------------
+
+
+@pytest.mark.parametrize(("key", "label", "expected"), [tuple(case) for case in FIX["speakerColor"]["cases"]])
+def test_speaker_colours(key: str | None, label: str | None, expected: str) -> None:
+    from app.transcription.transcript import preview
+
+    assert preview.color_key(key, label) == expected
+
+
+def test_the_palette_has_a_light_and_dark_colour_for_every_key() -> None:
+    from app.transcription.transcript import preview
+
+    palette = CONTRACT["speakerPalette"]
+    keys = {f"s{n}" for n in range(preview.PALETTE_SIZE)} | {preview.NEUTRAL}
+    assert keys <= set(palette)
+    for key in keys:
+        assert set(palette[key]) == {"light", "dark"}
+        for value in palette[key].values():
+            assert len(value) == 7 and value.startswith("#"), (key, value)
+    assert len({palette[k]["light"] for k in keys}) == len(keys), "every speaker reads differently"
+
+
+def test_the_example_colour_keys_follow_the_rule() -> None:
+    from app.transcription.transcript import preview
+
+    for speaker in VIEW["speakers"]:
+        assert speaker["colorKey"] == preview.color_key(speaker["speakerKey"])
+    for turn in VIEW["turns"]:
+        assert turn["colorKey"] == preview.color_key(turn["speakerKey"])
+
+
+@pytest.mark.parametrize("case", FIX["preview"]["cases"], ids=lambda c: c["name"])
+def test_the_preview_fixtures(case: dict[str, Any]) -> None:
+    from app.transcription.transcript import preview
+
+    if "markdown" in case:
+        got = preview.preview_markdown(case["markdown"])
+    else:
+        got = preview.preview([preview.PreviewTurn(t["speakerKey"], t["speaker"], t["text"]) for t in case["turns"]])
+    assert got == case["expected"]
+    if got is not None:
+        assert set(got) == set(CONTRACT["types"]["TranscriptPreview"])
+        for line in got["lines"]:
+            assert set(line) == set(CONTRACT["types"]["PreviewLine"])
+            assert "*" not in line["text"] and "`" not in line["text"], "a preview is plain text"
+            assert len(line["text"]) <= preview.LINE_CHARS
+        assert 1 <= len(got["lines"]) <= preview.PREVIEW_LINES
+
+
+def test_a_legacy_preview_has_no_transcript_prefix_or_markdown() -> None:
+    from app.transcription.transcript import preview
+
+    got = preview.preview_markdown("Transcript **Speaker 1:** Wow! It is *lovely*.")
+    assert got == {
+        "text": "Speaker 1: Wow! It is lovely.",
+        "lines": [{"speaker": "Speaker 1", "speakerKey": None, "colorKey": "s0", "text": "Wow! It is lovely."}],
+    }

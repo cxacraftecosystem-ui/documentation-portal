@@ -155,7 +155,29 @@ async def _with_questionnaire_chips(payload: Any) -> Any:
         for r in rows:
             if isinstance(r, dict) and str(r.get("id")) in found:
                 r["questionnaireChips"] = found[str(r.get("id"))]
+    await _with_transcript_previews(rows)
     return payload
+
+
+async def _with_transcript_previews(rows: list[Any]) -> None:
+    """``transcriptPreview`` (0.0.6, transcript contract ``TranscriptPreview``) on every row whose
+    transcript the reader may see: plain text under speaker labels, so no list renders markdown.
+    Two reads for the whole page. A row whose ``transcriptText`` was withheld gets None."""
+    from app.services import transcript_pipeline
+
+    texts = {
+        str(r.get("id")): (r.get("transcriptText") if isinstance(r.get("transcriptText"), str) and r.get("transcriptText").strip() else None)
+        for r in rows if isinstance(r, dict) and r.get("id")
+    }
+    if not any(texts.values()):
+        for r in rows:
+            if isinstance(r, dict) and r.get("id"):
+                r["transcriptPreview"] = None
+        return
+    found = await transcript_pipeline.previews(texts)
+    for r in rows:
+        if isinstance(r, dict) and r.get("id"):
+            r["transcriptPreview"] = found.get(str(r.get("id")))
 
 
 # "the caller did not say which uploaders' URLs may travel". Distinct from None, which MEANS "all of

@@ -41,6 +41,7 @@ from app.transcription.transcript import (
     gemini,
     insight,
     keyterms,
+    preview,
     render,
     translate,
 )
@@ -576,6 +577,7 @@ def turn_json(row: Any, labels: dict[str, str]) -> dict[str, Any]:
         "index": row.position,
         "speakerKey": row.speakerKey,
         "speakerName": _label(labels, row.speakerKey),
+        "colorKey": preview.color_key(row.speakerKey),
         "startMs": row.startMs,
         "endMs": row.endMs,
         "language": row.language,
@@ -690,6 +692,7 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
                 "personId": getattr(speakers.get(key), "personId", None),
                 "suggested": False,
                 "sample": samples.get(key),
+                "colorKey": preview.color_key(key),
             }
             for key in labels
         ],
@@ -737,6 +740,44 @@ async def summary_items(media_rows: list[Any], user: Any = None) -> list[dict[st
             "badges": _badges(version) if sees_spend else [],
         })
     return out
+
+
+async def previews(markdown_by_id: dict[str, str | None], *, client: Any = None) -> dict[str, dict[str, Any] | None]:
+    """``{mediaId: preview}`` for a list page (contract ``TranscriptPreview``), in two reads.
+
+    ``markdown_by_id`` is each row's stored transcript text, or None where the list may not show
+    one (the caller's own rule: status, consent): those stay None. A recording with turns previews
+    its first turns under their mapped names; one transcribed before the turn pipeline previews its
+    stored markdown.
+    """
+    shown = [mid for mid, text in markdown_by_id.items() if text is not None]
+    out: dict[str, dict[str, Any] | None] = {mid: None for mid in markdown_by_id}
+    if not shown:
+        return out
+    turns_by, speakers_by = await transcript_store.opening_turns(shown, limit=preview.PREVIEW_LINES, client=client)
+    for mid in shown:
+        rows = turns_by.get(mid)
+        if rows:
+            names = speakers_by.get(mid, {})
+            labels: dict[str, str] = {}
+            for number, key in enumerate(speaker_order(rows), start=1):
+                mapped = names.get(key)
+                if mapped and mapped.get("name"):
+                    # The transcript's own label (_speaker_labels), so a row and its page agree.
+                    labels[key] = f"{mapped['name']} (researcher)" if mapped.get("role") == "RESEARCHER" else str(mapped["name"])
+                else:
+                    labels[key] = f"Speaker {number}"
+            out[mid] = preview.preview([
+                preview.PreviewTurn(r.get("speakerKey"), labels.get(r.get("speakerKey") or "") if r.get("speakerKey") else None, r["text"])
+                for r in rows
+            ])
+        else:
+            out[mid] = preview.preview_markdown(markdown_by_id[mid])
+    return out
+
+
+def speaker_color(key: str | None, label: str | None = None) -> str:
+    return preview.color_key(key, label)
 
 
 async def render_doc(media: Any) -> tuple[render.RenderDoc, dict[str, Any]]:
