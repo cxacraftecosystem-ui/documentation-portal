@@ -2248,6 +2248,8 @@ model QuestionnaireRecording {
 
   @@index([changeSeq])
   @@index([continuationOfId])
+  // The recordings list and search, newest capture first (owner, 31 Oct 2026).
+  @@index([capturedAt, id])
 }
 
 /// The clip-to-question link by foreign key (quick win 4). One take can cover F1-F6, so a table.

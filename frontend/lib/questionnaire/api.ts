@@ -10,6 +10,8 @@
  */
 
 import { ApiError, apiFetch, buildQuery } from "@/lib/api";
+import type { RecordingChips } from "@/lib/questionnaire/chips";
+import { filtersToQuery, type Filters } from "@/lib/questionnaire/filters";
 import {
   RepeatReasonValues,
   SessionPurposeValues,
@@ -199,6 +201,8 @@ export type Session = {
   source?: "APP" | "UPLOAD" | "HANDOFF" | string;
   /** Set on a session in the content admins' Deleted list. */
   deletedAt?: string | null;
+  /** The session's chips (owner, 31 Oct 2026): form, people, day, workshop, language. */
+  chips?: RecordingChips | null;
 };
 
 export type RecordingTarget = {
@@ -253,7 +257,28 @@ export type Recording = {
   downloadName: string;
   transcript: TranscriptState;
   consent: { verdict: ConsentVerdict; source: string | null };
+  /** What the take answers, on which form, who answered, when and where (owner, 31 Oct 2026). */
+  chips?: RecordingChips | null;
 };
+
+/** A page of the recordings list and search (`GET /questionnaire/recordings`). */
+export type RecordingList = { items: Recording[]; nextCursor: string | null; filters?: Record<string, unknown> };
+
+/** One choice a filter offers (`GET /questionnaire/filters`), most used first. */
+export type FilterOption = {
+  id: string;
+  label: string;
+  count?: number;
+  kind?: string | null;
+  type?: "FIELD" | "DESIGN" | string;
+  code?: string;
+  title?: string;
+  questionnaireId?: string | null;
+  sectionId?: string | null;
+  displayCode?: string | null;
+};
+export type FilterField = "questionnaires" | "sections" | "questions" | "artisans" | "researchers" | "workshops" | "languages";
+export type FilterOptions = Partial<Record<FilterField, FilterOption[]>> & { kinds?: string[]; sources?: string[]; transcript?: string[] };
 
 export type Answer = {
   id: string;
@@ -673,6 +698,12 @@ export type JsonFetcher = <T>(path: string, init?: RequestInit) => Promise<T>;
  * (`e2e/questionnaire-v2-stack.spec.ts`) builds the SAME client over a fetcher pointed at a real local
  * backend, so a shape the server does not send fails there rather than hiding behind a fake.
  */
+/** `?<filters>&cursor=…&limit=…&<extra>`, or "" when there is nothing to send. */
+function withQuery(filters: string, cursor?: string | null, limit?: number, extra = ""): string {
+  const parts = [filters, cursor ? `cursor=${encodeURIComponent(cursor)}` : "", limit ? `limit=${limit}` : "", extra].filter(Boolean);
+  return parts.length ? `?${parts.join("&")}` : "";
+}
+
 export function questionnaireClient(fetchJson: JsonFetcher) {
   return {
     config: () => fetchJson<QuestionnaireConfig>(`${Q}/config`),
@@ -690,6 +721,19 @@ export function questionnaireClient(fetchJson: JsonFetcher) {
     createSession: (body: SessionCreate) => fetchJson<Session>(`${Q}/sessions`, json("POST", body, body.clientKey)),
     listSessions: (params: Record<string, string | number | undefined | null>) =>
       fetchJson<SessionList>(`${Q}/sessions${buildQuery(params)}`),
+    /** The sessions list under the shared filters, server-side; `deleted` is the content admins' list. */
+    sessions: (filters: Filters, extra: { cursor?: string | null; limit?: number; deleted?: boolean } = {}) =>
+      fetchJson<SessionList>(`${Q}/sessions${withQuery(filtersToQuery(filters), extra.cursor, extra.limit, extra.deleted ? "deleted=true" : "")}`),
+    /** Every live take matching the filters, newest first, each with its chips. */
+    listRecordings: (filters: Filters, cursor?: string | null, sessionId?: string | null, limit?: number) =>
+      fetchJson<RecordingList>(
+        `${Q}/recordings${withQuery(filtersToQuery(filters), cursor, limit, sessionId ? `sessionId=${encodeURIComponent(sessionId)}` : "")}`
+      ),
+    /** What a filter can be set to; `field` + `q` answer one searchable select as the reader types. */
+    filterOptions: (field?: FilterField | null, q?: string | null, questionnaireIds: string[] = [], limit?: number) =>
+      fetchJson<FilterOptions>(
+        `${Q}/filters${buildQuery({ field: field ?? undefined, q: q || undefined, questionnaireId: questionnaireIds.length ? questionnaireIds.join(",") : undefined, limit })}`
+      ),
     getSession: (id: string) => fetchJson<SessionDetail>(`${Q}/sessions/${encodeURIComponent(id)}`),
     patchSession: (id: string, body: SessionPatch) => fetchJson<Session>(`${Q}/sessions/${encodeURIComponent(id)}`, json("PATCH", body)),
     addParticipant: (id: string, artisanId: string, key = mintKey("part")) =>

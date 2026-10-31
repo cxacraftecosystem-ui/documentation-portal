@@ -22,6 +22,8 @@ import { loadInstrumentQuestions } from "@/components/questionnaire/instrumentQu
 import { reviewRequest } from "@/lib/questionnaire/inbox";
 import { approveBlock, modeLabel, reviewFlags, targetLabel } from "@/lib/questionnaire/view";
 import { qs } from "@/lib/questionnaire/qs";
+import { RecordingChips } from "@/components/questionnaire/RecordingChips";
+import { useChipNavigator } from "@/components/questionnaire/useUrlFilters";
 
 /** Recordings grouped by section in instrument order; whole-session takes last. */
 export function groupBySection(detail: { recordings: Recording[]; grid: GridView }): { key: string; label: string; recordings: Recording[] }[] {
@@ -94,6 +96,7 @@ export function answersBySection(
  * Reviewers also get the flags line and Return · Approve, with Approve held and its reason shown.
  */
 export function SessionReadView({ id }: { id: string }) {
+  const goChip = useChipNavigator();
   const { user } = useAuth();
   const config = useQuestionnaireConfig();
   const [detail, setDetail] = useState<SessionDetail | null>(null);
@@ -195,9 +198,15 @@ export function SessionReadView({ id }: { id: string }) {
                 <TranscriptStatus recording={r} paused={config?.transcriptionPaused ?? true} />
                 <TranscriptViewer
                   mediaId={r.mediaFileId}
+                  chips={<RecordingChips chips={r.chips} onChip={goChip} variant="recording" size="sm" />}
                   audioUrl={questionnaireApi.downloadHref(r.id)}
                   initiallyOpen={false}
-                  fallback={<AudioPlayer src={questionnaireApi.downloadHref(r.id)} />}
+                  fallback={
+                    <>
+                      <RecordingChips chips={r.chips} onChip={goChip} variant="recording" size="sm" />
+                      <AudioPlayer src={questionnaireApi.downloadHref(r.id)} />
+                    </>
+                  }
                 />
               </li>
             ))}

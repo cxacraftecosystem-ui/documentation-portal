@@ -83,7 +83,9 @@ internal data class InboxRow(
     val dateFrom: String? = null,
     /** "File it": the session (and target) the server guessed, preselected. */
     val candidateSessionId: String? = null,
-    val candidateTargetKey: String? = null
+    val candidateTargetKey: String? = null,
+    /** The take's (or clip's session's) chips (owner, 31 Oct 2026). */
+    val chips: com.fieldrepository.app.questionnaire.data.QChips? = null
 )
 
 internal object InboxSection {
@@ -131,7 +133,8 @@ internal fun toFileRow(row: JsonObject): InboxRow {
         InboxSection.TO_FILE, "toFile:${row.str("mediaId")}", line(row.str("name"), inboxDay(row.str("date"))), row.str("sessionId"),
         mediaId = row.str("mediaId"),
         candidateSessionId = candidate?.str("sessionId") ?: row.str("sessionId"),
-        candidateTargetKey = candidate?.str("targetKey") ?: candidate?.strings("targets")?.firstOrNull()
+        candidateTargetKey = candidate?.str("targetKey") ?: candidate?.strings("targets")?.firstOrNull(),
+        chips = com.fieldrepository.app.questionnaire.data.ChipRules.parse(row["chips"])
     )
 }
 
@@ -140,7 +143,8 @@ internal fun decisionRow(row: JsonObject) = InboxRow(
     line(row.strings("targets").joinToString(", ").ifBlank { null }, row.strings("artisanNames").joinToString(", ").ifBlank { null }, inboxDay(row.str("capturedAt"), withTime = true)),
     row.str("sessionId"), row.str("recordingId"),
     otherRecordingId = row.str("otherRecordingId") ?: row.strings("otherRecordingIds").firstOrNull(),
-    part2OfRecordingId = row.str("part2OfRecordingId")
+    part2OfRecordingId = row.str("part2OfRecordingId"),
+    chips = com.fieldrepository.app.questionnaire.data.ChipRules.parse(row["chips"])
 )
 
 internal fun legacyRow(row: JsonObject) = InboxRow(
@@ -150,7 +154,8 @@ internal fun legacyRow(row: JsonObject) = InboxRow(
         val o = c as? JsonObject ?: return@mapNotNull null
         val lineage = o.str("questionLineageId") ?: return@mapNotNull null
         LegacyCandidate(lineage, o.str("prompt") ?: o.str("displayCode") ?: lineage)
-    }
+    },
+    chips = com.fieldrepository.app.questionnaire.data.ChipRules.parse(row["chips"])
 )
 
 internal fun setDatesRow(row: JsonObject): InboxRow {
@@ -283,6 +288,8 @@ fun InboxScreen(
                         color = if (row.sessionId != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                         modifier = row.sessionId?.let { id -> Modifier.clickable { onOpenSession(id) } } ?: Modifier
                     )
+                    // A tap on a chip opens the recordings list filtered by it.
+                    RecordingChips(row.chips, onChip = QuestionnaireV2Nav::openRecordings)
                     when (row.section) {
                         InboxSection.TO_FILE -> PromptButtons(listOfNotNull(
                             PromptButton(QuestionnaireCopy.s("inbox.notNeeded")) {

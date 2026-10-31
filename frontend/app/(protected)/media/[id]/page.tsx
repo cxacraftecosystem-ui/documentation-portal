@@ -10,6 +10,8 @@ import { RECORD_LIST_HREF } from "@/components/records/dangerZoneRules";
 import { RecordMediaList } from "@/components/records/RecordMediaList";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
+import { RecordingChips } from "@/components/questionnaire/RecordingChips";
+import { useChipNavigator } from "@/components/questionnaire/useUrlFilters";
 import type { MediaFile } from "@/lib/types";
 
 /**
@@ -19,6 +21,7 @@ import type { MediaFile } from "@/lib/types";
  */
 export default function MediaViewPage() {
   const { id } = useParams<{ id: string }>();
+  const goChip = useChipNavigator();
   const [media, setMedia] = useState<MediaFile | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,6 +51,7 @@ export default function MediaViewPage() {
       ) : (
         <div className="grid gap-5">
           <section className="panel grid gap-3 p-4" aria-label="File">
+            <RecordingChips chips={media.questionnaireChips} size="md" onChip={goChip} />
             <RecordMediaList items={[media]} />
           </section>
           <section className="panel p-4" aria-label={`${title} details`}>

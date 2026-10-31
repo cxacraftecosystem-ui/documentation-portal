@@ -40,8 +40,8 @@ class SessionV2FeaturesTest {
     private val t0 = Instant.parse("2026-07-01T10:00:00Z")
 
     @QFeature("B12")
-    @Test fun `the sessions menu offers Join and the workshop coverage page to everyone`() {
-        assertEquals(listOf("sessions.join", "coverage.title"), sessionsMenu())
+    @Test fun `the sessions menu offers Recordings, Join and the workshop coverage page to everyone`() {
+        assertEquals(listOf("recordings", "sessions.join", "coverage.title"), sessionsMenu())
     }
 
     @QFeature("B9")

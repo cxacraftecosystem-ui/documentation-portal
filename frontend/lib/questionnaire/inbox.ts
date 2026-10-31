@@ -7,10 +7,11 @@
 
 import { shortName } from "@/lib/questionnaire/coverageCache";
 import type { Recording } from "@/lib/questionnaire/api";
+import type { RecordingChips } from "@/lib/questionnaire/chips";
 import { shortDate, durationLabel } from "@/lib/questionnaire/prompts";
 import { qs } from "@/lib/questionnaire/qs";
 
-export type InboxToFile = { mediaId: string; name: string | null; date: string | null; sessionId: string | null; candidate?: unknown; durationMs?: number | null };
+export type InboxToFile = { mediaId: string; name: string | null; date: string | null; sessionId: string | null; candidate?: unknown; durationMs?: number | null; chips?: RecordingChips | null };
 export type InboxDecision = {
   recordingId: string;
   sessionId: string | null;
@@ -20,9 +21,10 @@ export type InboxDecision = {
   capturedAt: string | null;
   /** The take this one clashes with, where the server names it (audit H13); else found from the session. */
   otherRecordingId?: string | null;
+  chips?: RecordingChips | null;
 };
 export type LegacyCandidate = { questionLineageId: string; prompt: string | null; score?: number };
-export type InboxLegacy = { recordingId: string; sessionId: string | null; candidates: LegacyCandidate[]; capturedAt: string | null; code?: string | null; section?: string | null };
+export type InboxLegacy = { recordingId: string; sessionId: string | null; candidates: LegacyCandidate[]; capturedAt: string | null; code?: string | null; section?: string | null; chips?: RecordingChips | null };
 export type InboxSetDates = { workshopId: string | null; workshop: string | null; sessionIds: string[]; from: string | null; to: string | null; count: number };
 export type InboxNoParticipants = { sessionId: string; title: string | null; date: string | null };
 export type InboxEmptySession = { sessionId: string; title: string | null; approvedAt: string | null };

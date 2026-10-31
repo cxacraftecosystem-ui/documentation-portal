@@ -127,7 +127,9 @@ enum class AppSearchGroup(val label: String) {
     TRANSCRIPTS("Transcripts"),
     REPORTS("Reports"),
     QUESTIONNAIRES("Questionnaires"),
-    MEDIA("Media")
+    MEDIA("Media"),
+    /** Questionnaire takes, found by what their chips say (owner, 31 Oct 2026). */
+    RECORDINGS("Recordings")
 }
 
 /**
@@ -148,6 +150,8 @@ class AppSearchItem(
     val subtitle: String? = null,
     val keywords: List<String> = emptyList(),
     val portal: String? = null,
+    /** A questionnaire take's chips, drawn under its title (the Recordings group). */
+    val chips: com.fieldrepository.app.questionnaire.data.QChips? = null,
     val onOpen: () -> Unit
 )
 
@@ -791,6 +795,7 @@ private fun AppSearchRow(item: AppSearchItem, onClick: () -> Unit) {
                     overflow = TextOverflow.Ellipsis
                 )
             }
+            item.chips?.let { com.fieldrepository.app.questionnaire.ui.RecordingChips(it) }
         }
         item.portal?.let { portal ->
             Spacer(Modifier.width(8.dp))

@@ -15,7 +15,7 @@ from typing import Any
 
 from prisma.errors import UniqueViolationError
 
-from app.questionnaire import authoring, ports, titles
+from app.questionnaire import authoring, chips, ports, titles
 from app.questionnaire.authoring import CONTENT_DELETE_REFUSAL
 from app.questionnaire.common import (
     IST,
@@ -153,12 +153,8 @@ async def serialize_sessions(client: Any, rows: list[dict[str, Any]]) -> list[di
         "ORDER BY CASE r.\"role\" WHEN 'LEAD' THEN 0 WHEN 'CONTRIBUTOR' THEN 1 ELSE 2 END, r.\"addedAt\"",
         sids,
     )
-    meta = await client.query_raw(
-        'SELECT i."id" AS sid, q."id" AS qid, q."title" AS qtitle, w."id" AS wid, w."title" AS wtitle '
-        'FROM "QuestionnaireInterview" i JOIN "Questionnaire" q ON q."id" = i."questionnaireId" '
-        'LEFT JOIN "Workshop" w ON w."id" = i."workshopId" WHERE i."id" = ANY($1::text[])',
-        sids,
-    )
+    # The form, the workshop (field or design) and the date: the session's half of every chip.
+    meta_by = await chips.session_meta(client, sids)
     reasons = await client.query_raw(
         'SELECT DISTINCT ON ("recordId") "recordId" AS sid, "reason", "status"::text AS status FROM "ReviewLog" '
         "WHERE \"recordType\" = 'QUESTIONNAIRE' AND \"recordId\" = ANY($1::text[]) "
@@ -168,12 +164,13 @@ async def serialize_sessions(client: Any, rows: list[dict[str, Any]]) -> list[di
     artisan_ids = list({str(p["artisanId"]) for p in parts})
     consent = await consent_gate.current_states("ARTISAN", artisan_ids, client=client)
     counts = await _counts(client, sids)
-    meta_by = {str(m["sid"]): m for m in meta}
     reason_by = {str(r["sid"]): r for r in reasons}
     out: list[dict[str, Any]] = []
     for row in rows:
         sid = str(row["id"])
-        m = meta_by.get(sid, {})
+        m = meta_by.get(sid) or {}
+        form = m.get("questionnaire") or {}
+        workshop = m.get("workshop")
         participants = [
             {
                 "artisanId": str(p["artisanId"]),
@@ -202,8 +199,8 @@ async def serialize_sessions(client: Any, rows: list[dict[str, Any]]) -> list[di
                 "title": row.get("title") or "",
                 "note": row.get("note"),
                 "legacyTitle": row.get("legacyTitle"),
-                "questionnaire": {"id": str(m.get("qid") or row["questionnaireId"]), "title": m.get("qtitle") or ""},
-                "workshop": {"id": str(m["wid"]), "name": m.get("wtitle") or ""} if m.get("wid") else None,
+                "questionnaire": {"id": str(form.get("id") or row["questionnaireId"]), "title": form.get("title") or ""},
+                "workshop": {"id": workshop["id"], "name": workshop["name"]} if workshop and workshop["type"] == "FIELD" else None,
                 "designWorkshopId": row.get("designWorkshopId"),
                 "sessionDate": session_date.isoformat() if session_date else None,
                 "sessionDateEstimated": bool(row.get("sessionDateEstimated")),
@@ -232,6 +229,12 @@ async def serialize_sessions(client: Any, rows: list[dict[str, Any]]) -> list[di
                 "counts": counts.get(sid, {"sections": 0, "takes": 0, "needsDecision": 0}),
                 "source": enum_text(row.get("source")) or "APP",
                 "deletedAt": iso(row.get("deletedAt")),
+                # The session's chips (owner, 31 Oct 2026): the recording chips without a target.
+                "chips": chips.build(
+                    meta=m or None, targets=[], subjects=[{"artisanId": p["artisanId"], "name": p["name"], "role": "ANSWERED"} for p in participants],
+                    respondents=[], captured_at=None, captured_at_source=None, language_code=row.get("languageCode"),
+                    duration_ms=None, recorded_by=None,
+                ),
             }
         )
     return out
@@ -871,48 +874,41 @@ async def list_sessions(
     *, client: Any = None, workshopId: str | None = None, questionnaireId: str | None = None,
     artisanId: str | None = None, researcherId: str | None = None, dateFrom: Any = None, dateTo: Any = None,
     search: str | None = None, cursor: str | None = None, limit: int = 20, deleted: bool = False,
+    filters: Any = None,
 ) -> dict[str, Any]:
     """Newest ``sessionDate`` first (undated legacy rows last), keyset-paged by an opaque cursor.
-    ``deleted=True`` lists the soft-deleted sessions instead (the route allows it to content admins)."""
+    ``deleted=True`` lists the soft-deleted sessions instead (the route allows it to content admins).
+
+    ``filters`` is the shared filter model (``app/questionnaire/filters.py``: form, section or
+    question, artisans, researchers, workshops, dates, kind, source, transcript, language, free
+    text); the single-value keywords are the older spelling of the same and still work."""
+    from app.questionnaire import filters as F
+
     db = _client(client)
     limit = max(1, min(int(limit or 20), PAGE_MAX))
+    if filters is None:
+        filters = F.parse({
+            "workshopId": workshopId, "questionnaireId": questionnaireId, "artisanId": artisanId,
+            "researcherId": researcherId, "dateFrom": str(as_date(dateFrom)) if dateFrom else None,
+            "dateTo": str(as_date(dateTo)) if dateTo else None, "q": search,
+        })
+    b = F.Sql()
     where = ['i."mergedIntoId" IS NULL', 'i."deletedAt" IS NOT NULL' if deleted else 'i."deletedAt" IS NULL']
-    params: list[Any] = []
-
-    def p(value: Any) -> str:
-        params.append(value)
-        return f"${len(params)}"
-
-    if workshopId:
-        where.append(f'i."workshopId" = {p(workshopId)}')
-    if questionnaireId:
-        where.append(f'i."questionnaireId" = {p(questionnaireId)}')
-    if artisanId:
-        where.append(f'EXISTS (SELECT 1 FROM "QuestionnaireInterviewArtisan" x WHERE x."interviewId" = i."id" AND x."artisanId" = {p(artisanId)})')
-    if researcherId:
-        where.append(f'EXISTS (SELECT 1 FROM "QuestionnaireInterviewResearcher" x WHERE x."interviewId" = i."id" AND x."userId" = {p(researcherId)})')
-    if dateFrom:
-        where.append(f'i."sessionDate" >= {p(str(as_date(dateFrom)))}::date')
-    if dateTo:
-        where.append(f'i."sessionDate" <= {p(str(as_date(dateTo)))}::date')
-    if search and search.strip():
-        term = f"%{search.strip()}%"
-        ph = p(term)
-        where.append(f'(i."title" ILIKE {ph} OR i."note" ILIKE {ph} OR i."legacyTitle" ILIKE {ph})')
+    where += F.session_where(filters, b, alias="i")
     if cursor:
         try:
             day, created, cid = cursor.split("|")
         except ValueError:
             fail("VALIDATION_FAILED", "Bad cursor.")
         key = '(COALESCE(i."sessionDate", DATE \'1900-01-01\'), i."createdAt", i."id")'
-        where.append(f"{key} < ({p(day)}::date, {p(created)}::timestamp, {p(cid)})")
+        where.append(f"{key} < ({b.p(day)}::date, {b.p(created)}::timestamp, {b.p(cid)})")
     sql = (
         'SELECT i.*, i."state"::text AS state_t, i."purpose"::text AS purpose_t, i."origin"::text AS origin_t, '
         'i."status"::text AS status_t FROM "QuestionnaireInterview" i WHERE ' + " AND ".join(where)
         + ' ORDER BY COALESCE(i."sessionDate", DATE \'1900-01-01\') DESC, i."createdAt" DESC, i."id" DESC'
         + f" LIMIT {limit + 1}"
     )
-    rows = await db.query_raw(sql, *params)
+    rows = await db.query_raw(sql, *b.params)
     more = len(rows) > limit
     rows = rows[:limit]
     next_cursor = None
@@ -920,7 +916,7 @@ async def list_sessions(
         last = rows[-1]
         day = as_date(last.get("sessionDate"))
         next_cursor = f"{day.isoformat() if day else '1900-01-01'}|{naive_utc(aware(last['createdAt']))}|{last['id']}"
-    return {"items": await serialize_sessions(db, rows), "nextCursor": next_cursor, "capped": False}
+    return {"items": await serialize_sessions(db, rows), "nextCursor": next_cursor, "capped": False, "filters": filters.echo()}
 
 
 async def open_match(*, questionnaire_id: str, workshop_id: str | None, artisan_ids: list[str], day: Any, client: Any = None) -> dict[str, Any]:

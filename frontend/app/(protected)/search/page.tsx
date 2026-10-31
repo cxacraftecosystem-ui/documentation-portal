@@ -1,5 +1,6 @@
 "use client";
 
+import { RecordingSearchGroup } from "@/components/questionnaire/RecordingSearchGroup";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -445,6 +446,11 @@ export default function SearchPage() {
           />
           ) : null}
           <SearchPager page={page} shown={shown} hasMore={hasMore} loading={loading} onPage={setPage} />
+        </div>
+      ) : null}
+      {applied?.q ? (
+        <div className="mt-5">
+          <RecordingSearchGroup q={applied.q} />
         </div>
       ) : null}
     </>

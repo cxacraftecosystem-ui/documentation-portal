@@ -107,6 +107,12 @@ async def inbox(user: Any, *, client: Any = None) -> dict[str, Any]:
         uid,
     )
 
+    # The chips of every take and clip listed (owner, 31 Oct 2026), in a fixed number of reads.
+    from app.questionnaire import chips, recordings
+
+    decision_rows = await recordings.recording_rows(db, recording_ids=[str(d["id"]) for d in decisions]) if decisions else []
+    take_chips = await chips.for_rows(db, decision_rows)
+    clip_chips = await chips.for_media(db, [str(m["id"]) for m in to_file if m.get("sessionId")])
     legacy = [d for d in decisions if d.get("decisionKind") == "UNRESOLVED_LEGACY"]
     needs = [d for d in decisions if d.get("decisionKind") != "UNRESOLVED_LEGACY"]
     # "Set dates" is one row per workshop DAY (audit Low): the sessions an estimated date put on one
@@ -118,7 +124,7 @@ async def inbox(user: Any, *, client: Any = None) -> dict[str, Any]:
     out = {
         "toFile": [
             {"mediaId": str(m["id"]), "name": m.get("originalFilename"), "date": iso(m.get("createdAt")),
-             "sessionId": m.get("sessionId"), "candidate": m.get("candidate")}
+             "sessionId": m.get("sessionId"), "candidate": m.get("candidate"), "chips": clip_chips.get(str(m["id"]))}
             for m in to_file
         ],
         "needsDecision": [
@@ -127,7 +133,7 @@ async def inbox(user: Any, *, client: Any = None) -> dict[str, Any]:
              "capturedAt": iso(d.get("capturedAt")),
              "otherRecordingId": d.get("twin") or (others.get(str(d["id"])) or [None])[0],
              "otherRecordingIds": [d["twin"]] if d.get("twin") else others.get(str(d["id"]), []),
-             "part2OfRecordingId": part2.get(str(d["id"]))}
+             "part2OfRecordingId": part2.get(str(d["id"])), "chips": take_chips.get(str(d["id"]))}
             for d in needs
         ],
         "legacy": [
@@ -135,7 +141,7 @@ async def inbox(user: Any, *, client: Any = None) -> dict[str, Any]:
              "candidate": next((c for c in _list(d.get("candidates")) if isinstance(c, dict) and not c.get("part2Of")), None),
              "capturedAt": iso(d.get("capturedAt")),
              "otherRecordingId": (others.get(str(d["id"])) or [None])[0],
-             "part2OfRecordingId": part2.get(str(d["id"]))}
+             "part2OfRecordingId": part2.get(str(d["id"])), "chips": take_chips.get(str(d["id"]))}
             for d in legacy
         ],
         "setDates": [

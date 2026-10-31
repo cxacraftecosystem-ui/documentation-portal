@@ -1,5 +1,9 @@
 "use client";
 
+import { chipToggler, FilterBar } from "@/components/questionnaire/FilterBar";
+import { RecordingChips } from "@/components/questionnaire/RecordingChips";
+import { useUrlFilters } from "@/components/questionnaire/useUrlFilters";
+import { filtersAsParams, type Filters } from "@/lib/questionnaire/filters";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Images, Upload } from "lucide-react";
@@ -248,10 +252,14 @@ function MediaPageBody() {
   const [error, setError] = useState<string | null>(null);
   const [activePreview, setActivePreview] = useState<PreviewMedia | null>(null);
 
+  // The questionnaire filters (owner, 31 Oct 2026): a take by its form, section, artisans, workshop …
+  const { filters: takeFilters, setFilters: setTakeFilters, ready: filtersReady } = useUrlFilters();
   const load = useCallback(
-    async (pageToLoad: number, term: string) => {
+    async (pageToLoad: number, term: string, shared: Filters = {}) => {
       try {
-        setData(await listResource<MediaFile>("/media", { page: pageToLoad, pageSize: 20, search: term || undefined }));
+        setData(
+          await listResource<MediaFile>("/media", { ...filtersAsParams(shared), page: pageToLoad, pageSize: 20, search: term || undefined })
+        );
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unable to load media");
@@ -262,9 +270,10 @@ function MediaPageBody() {
 
   // Live search: debounce keystrokes, reload most-recent-first from page 1.
   useEffect(() => {
-    const timer = setTimeout(() => load(page, search), 300);
+    if (!filtersReady) return;
+    const timer = setTimeout(() => load(page, search, takeFilters), 300);
     return () => clearTimeout(timer);
-  }, [page, search, load]);
+  }, [page, search, load, filtersReady, takeFilters]);
 
   /**
    * Android parity: every uploaded object is renamed to `PREFIX_Name_TYPE_index_timestamp.ext`.
@@ -328,7 +337,7 @@ function MediaPageBody() {
       // The uploaded files surface twice: as chips under this form and in the page-level tray.
       addCompleted(MEDIA_SECTION, MEDIA_SECTION_LABEL, uploaded);
       // Anything that got through is already in the repository, so refresh the table either way.
-      load(page, search);
+      load(page, search, takeFilters);
       if (failed.length) {
         // A9: only the files that failed stay selected, so "Upload" retries exactly those.
         setSelectedFiles(failedOriginals(selectedFiles, renamed, failed.map((item) => item.name)));
@@ -366,7 +375,7 @@ function MediaPageBody() {
     if (!ok) return;
     try {
       await apiFetch(`/media/${id}`, { method: "DELETE" });
-      await load(page, search);
+      await load(page, search, takeFilters);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to remove media file");
     }
@@ -482,6 +491,18 @@ function MediaPageBody() {
             }}
             placeholder="Search media by filename, caption, or MIME type"
           />
+          <div className="mt-3">
+            <FilterBar
+              filters={takeFilters}
+              onChange={(next) => {
+                setTakeFilters(next);
+                setPage(1);
+              }}
+              placeholder=""
+              search={false}
+              hide={["q", "dateFrom", "dateTo", "designWorkshopId"]}
+            />
+          </div>
         </div>
         {!data ? (
           <div className="p-4 text-sm text-ink-700">Loading...</div>
@@ -572,6 +593,7 @@ function MediaPageBody() {
                     <td className="px-4 py-3">
                       <div className="font-medium text-ink-900">{item.originalFilename}</div>
                       {item.caption ? <div className="max-w-xs truncate text-xs text-ink-500">{item.caption}</div> : null}
+                      <RecordingChips chips={item.questionnaireChips} onChip={chipToggler(takeFilters, setTakeFilters)} filters={takeFilters} className="mt-1 max-w-md" />
                     </td>
                     <td className="px-4 py-3 text-ink-700">{item.mediaType}</td>
                     <td className="px-4 py-3 text-ink-700">{bytes(item.sizeBytes)}</td>
