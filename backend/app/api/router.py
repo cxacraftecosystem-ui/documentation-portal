@@ -43,6 +43,7 @@ from app.api.routes import (
     tools,
     transcript_insights,
     transcription_admin,
+    transcripts,
     two_factor,
     users,
     workshops,
@@ -78,6 +79,8 @@ api_router.include_router(processes.router)
 api_router.include_router(tools.router)
 # Before media: GET /media/insights would otherwise be taken by GET /media/{media_id}.
 api_router.include_router(transcript_insights.router)
+# The transcript pipeline's API (shared/transcript-contract.json), on its own prefix.
+api_router.include_router(transcripts.router)
 api_router.include_router(media.router)
 api_router.include_router(answer_drafts.router)
 api_router.include_router(questionnaire.router)

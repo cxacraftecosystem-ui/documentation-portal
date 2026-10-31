@@ -37,7 +37,8 @@ class ElevenLabs:
     supports = Capabilities(
         diarize=True, word_timestamps=True, segment_timestamps=True, keyterm_limit=KEYTERM_LIMIT
     )
-    price_per_hour_usd = 0.40
+    #: Scribe v2 pay-as-you-go (owner, 31 Oct 2026: design section 9).
+    price_per_hour_usd = 0.22
 
     def model(self, opts: SttOptions) -> str:
         return opts.models.get(ID) or MODEL
@@ -92,11 +93,23 @@ class ElevenLabs:
             speakers=speakers,
             degraded=degraded,
             payload=payload if opts.keep_payload else None,
+            words=parse_words(payload) if opts.want_segments else [],
         )
 
 
 def _words(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return [word for word in (payload.get("words") or []) if word.get("type") != "audio_event"]
+
+
+_WORD_FIELDS = ("text", "start", "end", "type", "speaker_id", "logprob")
+
+
+def parse_words(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Scribe's words (spacing included, audio events left out), trimmed to the fields turns use."""
+    return [
+        {name: word.get(name) for name in _WORD_FIELDS if word.get(name) is not None}
+        for word in _words(payload)
+    ]
 
 
 def parse_text(payload: dict[str, Any]) -> tuple[str, int]:

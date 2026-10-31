@@ -1,0 +1,22 @@
+{
+ "candidates": [
+  {
+   "content": {
+    "role": "model",
+    "parts": [
+     {
+      "text": "{\"translations\": [{\"id\": \"t1\", \"english\": \"How do you make these colours?\", \"alreadyEnglish\": false}, {\"id\": \"t2\", \"english\": \"Clay.\", \"alreadyEnglish\": false}], \"primaryLanguage\": \"hi\", \"summary\": [\"A short summary.\"], \"quotes\": [], \"terms\": []}"
+     }
+    ]
+   },
+   "finishReason": "STOP",
+   "index": 0
+  }
+ ],
+ "usageMetadata": {
+  "promptTokenCount": 900,
+  "candidatesTokenCount": 420,
+  "totalTokenCount": 1320
+ },
+ "modelVersion": "gemini-3.8-flash"
+}

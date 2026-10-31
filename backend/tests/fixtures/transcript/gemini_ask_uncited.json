@@ -1,0 +1,22 @@
+{
+ "candidates": [
+  {
+   "content": {
+    "role": "model",
+    "parts": [
+     {
+      "text": "{\"covered\": true, \"answer\": \"Probably with alum.\", \"citations\": [{\"id\": \"t8\", \"quote\": \"alum\"}]}"
+     }
+    ]
+   },
+   "finishReason": "STOP",
+   "index": 0
+  }
+ ],
+ "usageMetadata": {
+  "promptTokenCount": 700,
+  "candidatesTokenCount": 20,
+  "totalTokenCount": 720
+ },
+ "modelVersion": "gemini-3.8-flash"
+}

@@ -68,7 +68,7 @@ def post(monkeypatch: pytest.MonkeyPatch):
 
 def _settings(**overrides) -> SimpleNamespace:
     base = {
-        "elevenlabs_stt_model": "scribe_v1",  # the stale default in config.py
+        "elevenlabs_stt_model": "scribe_v1",  # the old config.py default, still read as unset
         "deepgram_stt_model": "nova-3",
         "openai_transcription_model": "whisper-1",
     }
@@ -261,7 +261,7 @@ def test_elevenlabs_asks_scribe_v2_to_diarize_and_bias_towards_the_craft(post) -
     assert sent["url"] == "https://api.elevenlabs.io/v1/speech-to-text"
     assert sent["headers"]["xi-api-key"] == "test-key"
     fields = dict(field for field in sent["data"] if field[0] != "keyterms")
-    assert fields["model_id"] == "scribe_v2"  # the config.py default still says scribe_v1
+    assert fields["model_id"] == "scribe_v2"  # scribe_v1 in the environment still means v2
     assert fields["diarize"] == "true"
     assert fields["tag_audio_events"] == "false"  # workshop noise is not dialogue
     assert fields["timestamps_granularity"] == "word"

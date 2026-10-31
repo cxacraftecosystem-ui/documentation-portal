@@ -155,7 +155,7 @@ uploads still succeed — transcripts and grid measurements simply stay empty.
 | Variable | Required | Default | Secret | Notes |
 |---|---|---|---|---|
 | `ELEVENLABS_API_KEY` | No | unset | **Yes** | Priority 1: ElevenLabs Scribe. Auto language detection, ~1 GB files, no chunking. |
-| `ELEVENLABS_STT_MODEL` | No | `scribe_v1` in config, but the **effective** model is `scribe_v2` | No | Read the note below before setting it. |
+| `ELEVENLABS_STT_MODEL` | No | `scribe_v2` | No | Read the note below before setting it. |
 | `DEEPGRAM_API_KEY` | No | unset | **Yes** | Priority 2: Deepgram Nova-3. Handles code-switched Hindi + English. |
 | `DEEPGRAM_STT_MODEL` | No | `nova-3` | No | |
 | `OPENAI_API_KEY` | No | unset | **Yes** | Primary role is transcript **refinement/translation**; only transcribes when neither dedicated STT key is set (priority 3, Whisper). |
@@ -166,14 +166,11 @@ uploads still succeed — transcripts and grid measurements simply stay empty.
 | `GEMINI_MEASUREMENT_MODEL` | No | `gemini-2.5-flash-lite` | No | Pin an id that still exists — `gemini-1.5-flash` now 404s. |
 | `NEXT_PUBLIC_MAPTILER_API_KEY` | No | unset | No | Read by the backend only so one `.env` can feed both apps; the browser gets it from the frontend build. |
 
-> **`ELEVENLABS_STT_MODEL` is the one variable in this file whose config default is not what runs.**
-> `config.py` defaults it to `scribe_v1`, which was the only model that existed when the integration
-> was written. `_elevenlabs_model` in `app/services/ai.py` treats that specific value as "unset" and
-> uses **`scribe_v2`**; setting anything else uses your value verbatim. So the effective default is
-> `scribe_v2`, and writing `ELEVENLABS_STT_MODEL=scribe_v1` into a `.env` does **not** pin the old
-> model — it is indistinguishable from leaving it blank. (`scribe_v1` is still used as the
-> conservative retry when a `scribe_v2` request is rejected.) A deployment that genuinely needs the
-> legacy model must change the code, not the variable.
+> **`ELEVENLABS_STT_MODEL` defaults to `scribe_v2`** (since 31 Oct 2026; it used to read `scribe_v1`
+> in `config.py` while `scribe_v2` ran). `_elevenlabs_model` in `app/services/ai.py` still treats
+> `scribe_v1` as "unset", so writing it into a `.env` does **not** pin the old model. (`scribe_v1` is
+> still used as the conservative retry when a `scribe_v2` request is rejected.) A deployment that
+> genuinely needs the legacy model must change the code, not the variable.
 
 Provider ordering is a **runtime** setting, not an environment variable: a master admin ranks the
 three providers in the Settings hub, stored on `AppSetting`. The default order is generated into
