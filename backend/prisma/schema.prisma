@@ -1682,6 +1682,12 @@ model MediaFile {
   location   Location?             @relation(fields: [locationId], references: [id], onDelete: SetNull)
   processingJobs MediaProcessingJob[]
   insights       TranscriptInsight[]
+  /// The transcript pipeline (migration 20261110090000_transcript_turns).
+  transcriptVersions       TranscriptVersion[]          @relation("MediaTranscriptVersions")
+  transcriptSpeakers       TranscriptSpeaker[]          @relation("MediaTranscriptSpeakers")
+  transcriptSpend          TranscriptSpend[]            @relation("MediaTranscriptSpend")
+  transcriptGlossary       TranscriptGlossarySighting[] @relation("MediaTranscriptGlossary")
+  transcriptDraftCitations TranscriptDraftCitation[]    @relation("MediaTranscriptDraftCitations")
   recordingConsents RecordingConsent[]
 
   @@index([mediaType])
@@ -2649,6 +2655,12 @@ model AppSetting {
   workshopAutoMapLastRunAt  DateTime?
   /// What the last night's run filed, as {"at", "applied", "byBucket"}. Null until it has run once.
   workshopAutoMapLastResult Json?
+  /// The transcript pipeline's monthly budget in USD (alert at 80 %, pause at 100 %), and the
+  /// India-time month (YYYY-MM) the alert and the pause last fired in, so each fires once a month.
+  transcriptMonthlyBudgetUsd   Float?  @default(100)
+  transcriptBudgetAlertedMonth String?
+  transcriptBudgetPausedMonth  String?
+
   updatedAt          DateTime @updatedAt
   updatedById        String?
 }
@@ -3287,4 +3299,184 @@ model RecordingConsent {
 
   @@index([mediaFileId, createdAt])
   @@index([artisanId, createdAt])
+}
+
+// ------------------------------------------------------------------------------------------------
+// THE TRANSCRIPT PIPELINE (31 Oct 2026; migration 20261110090000_transcript_turns). IDENTICAL IN
+// BOTH PORTALS. See services/transcript_store.py and docs/transcription/.
+// ------------------------------------------------------------------------------------------------
+
+/// One run of the pipeline over one recording: Scribe's turns, then Gemini's English. The current
+/// version is the one with `supersededAt` NULL. `revision` bumps on every edit or speaker change.
+model TranscriptVersion {
+  id                  String    @id @default(cuid())
+  mediaFileId         String
+  version             Int
+  sttProvider         String?
+  sttModel            String?
+  translationProvider String?
+  translationModel    String?
+  promptVersion       String?
+  detectedLanguage    String?
+  languages           String[]  @default([])
+  durationMs          Int?
+  speakerCount        Int       @default(0)
+  turnCount           Int       @default(0)
+  keytermCount        Int       @default(0)
+  sttCostUsd          Float     @default(0)
+  translationCostUsd  Float     @default(0)
+  /// PENDING | COMPLETED | PARTIAL | FAILED | NOT_NEEDED
+  translationStatus   String    @default("PENDING")
+  translatedAt        DateTime?
+  revision            Int       @default(1)
+  supersededAt        DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  mediaFile MediaFile        @relation("MediaTranscriptVersions", fields: [mediaFileId], references: [id], onDelete: Cascade)
+  turns     TranscriptTurn[]
+
+  @@unique([mediaFileId, version])
+  @@index([mediaFileId, supersededAt])
+  @@index([translationStatus])
+}
+
+/// One voice, one stretch. The machine's words stay in `machineText` / `machineEnglish`; an edit
+/// writes `editedText` / `editedEnglish` and a TranscriptTurnEdit row. `editedById` carries no
+/// relation, for the reason `MediaFile.transcriptEditedById` carries none.
+model TranscriptTurn {
+  id                String    @id @default(cuid())
+  versionId         String
+  mediaFileId       String
+  position          Int
+  speakerKey        String?
+  startMs           Int       @default(0)
+  endMs             Int       @default(0)
+  language          String    @default("und")
+  machineText       String
+  editedText        String?
+  /// [{text, startMs, endMs, offset}]
+  words             Json      @default("[]")
+  /// [[start, end]] code-point offsets
+  lowConfidence     Json      @default("[]")
+  machineEnglish    String?
+  editedEnglish     String?
+  /// PENDING | TRANSLATED | ALREADY_ENGLISH | STALE | FAILED
+  translationStatus String    @default("PENDING")
+  translationModel  String?
+  editedAt          DateTime?
+  editedById        String?
+  revision          Int       @default(1)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  version TranscriptVersion    @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  edits   TranscriptTurnEdit[]
+
+  @@unique([versionId, position])
+  @@index([mediaFileId])
+}
+
+/// The history of a turn: ORIGINAL | ENGLISH | RETRANSLATE, MACHINE or EDITED.
+model TranscriptTurnEdit {
+  id        String   @id @default(cuid())
+  turnId    String
+  field     String
+  source    String
+  text      String
+  actorId   String?
+  createdAt DateTime @default(now())
+
+  turn TranscriptTurn @relation(fields: [turnId], references: [id], onDelete: Cascade)
+
+  @@index([turnId, createdAt])
+}
+
+/// "Speaker 1" is Nandini. One row per recording and provider speaker key, for every version.
+model TranscriptSpeaker {
+  mediaFileId String
+  speakerKey  String
+  name        String
+  /// RESEARCHER | ARTISAN | OTHER
+  role        String?
+  personId    String?
+  setById     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  mediaFile MediaFile @relation("MediaTranscriptSpeakers", fields: [mediaFileId], references: [id], onDelete: Cascade)
+
+  @@id([mediaFileId, speakerKey])
+}
+
+/// Every Gemini call the pipeline paid for (TRANSLATE | RETRANSLATE | ASK | AUTODRAFT). Speech-to-text
+/// spend is in SttUsage; the budget meter adds the two.
+model TranscriptSpend {
+  id           String   @id @default(cuid())
+  mediaFileId  String?
+  kind         String
+  provider     String
+  model        String?
+  keyRef       String?
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  costUsd      Float    @default(0)
+  outcome      String   @default("COMPLETED")
+  createdAt    DateTime @default(now())
+
+  mediaFile MediaFile? @relation("MediaTranscriptSpend", fields: [mediaFileId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([mediaFileId])
+}
+
+/// A craft term heard in transcripts, with its gloss. `scopeKey` is the craft id or ''. `craftId`
+/// and `linkedCraftId` (the master craft the term names) carry no relation on purpose.
+model TranscriptGlossaryTerm {
+  id            String    @id @default(cuid())
+  scopeKey      String    @default("")
+  craftId       String?
+  termKey       String
+  term          String
+  gloss         String?
+  linkedCraftId String?
+  occurrences   Int       @default(0)
+  lastHeardAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  sightings TranscriptGlossarySighting[]
+
+  @@unique([scopeKey, termKey])
+  @@index([craftId])
+}
+
+model TranscriptGlossarySighting {
+  id          String   @id @default(cuid())
+  termId      String
+  mediaFileId String
+  turnId      String?
+  startMs     Int?
+  createdAt   DateTime @default(now())
+
+  term      TranscriptGlossaryTerm @relation(fields: [termId], references: [id], onDelete: Cascade)
+  mediaFile MediaFile              @relation("MediaTranscriptGlossary", fields: [mediaFileId], references: [id], onDelete: Cascade)
+
+  @@unique([termId, mediaFileId])
+}
+
+/// The English and citations beside a QuestionnaireTakeDraft made from a recording.
+model TranscriptDraftCitation {
+  recordingId       String
+  questionLineageId String
+  mediaFileId       String
+  english           String?
+  /// [{turnId, startMs, quote}]
+  citations         Json     @default("[]")
+  model             String?
+  createdAt         DateTime @default(now())
+
+  mediaFile MediaFile @relation("MediaTranscriptDraftCitations", fields: [mediaFileId], references: [id], onDelete: Cascade)
+
+  @@id([recordingId, questionLineageId])
 }

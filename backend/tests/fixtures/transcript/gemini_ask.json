@@ -1,0 +1,22 @@
+{
+ "candidates": [
+  {
+   "content": {
+    "role": "model",
+    "parts": [
+     {
+      "text": "{\"covered\": true, \"answer\": \"He mixes clay and gum to make the dabu paste, and it dries for 2 days in the sun.\", \"citations\": [{\"id\": \"t2\", \"quote\": \"मिट्टी और गोंद\"}, {\"id\": \"t4\", \"quote\": \"2 days in the sun\"}, {\"id\": \"t9\", \"quote\": \"invented\"}, {\"id\": \"t1\", \"quote\": \"a quote nobody said\"}]}"
+     }
+    ]
+   },
+   "finishReason": "STOP",
+   "index": 0
+  }
+ ],
+ "usageMetadata": {
+  "promptTokenCount": 700,
+  "candidatesTokenCount": 80,
+  "totalTokenCount": 780
+ },
+ "modelVersion": "gemini-3.8-flash"
+}

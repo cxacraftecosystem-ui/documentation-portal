@@ -1,0 +1,22 @@
+{
+ "candidates": [
+  {
+   "content": {
+    "role": "model",
+    "parts": [
+     {
+      "text": "{\"answers\": [{\"n\": 1, \"original\": \"मिट्टी और गोंद मिलाते हैं\", \"english\": \"They mix clay and gum.\", \"citations\": [{\"id\": \"t2\", \"quote\": \"मिट्टी और गोंद\"}]}, {\"n\": 2, \"original\": \"दो दिन\", \"english\": \"Two days.\", \"citations\": [{\"id\": \"t4\"}]}, {\"n\": 3, \"original\": \"Indigo\", \"english\": \"Indigo\", \"citations\": [{\"id\": \"t2\", \"quote\": \"indigo\"}]}, {\"n\": 7, \"original\": \"out of range\", \"english\": \"x\", \"citations\": [{\"id\": \"t1\"}]}]}"
+     }
+    ]
+   },
+   "finishReason": "STOP",
+   "index": 0
+  }
+ ],
+ "usageMetadata": {
+  "promptTokenCount": 800,
+  "candidatesTokenCount": 120,
+  "totalTokenCount": 920
+ },
+ "modelVersion": "gemini-3.8-flash"
+}
