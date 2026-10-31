@@ -33,9 +33,11 @@ object TranscriptPreview {
     const val LINE_CHARS = 160
     private const val ELLIPSIS = "…"
 
-    private val NUMBERED_KEY = Regex("(?U)^speaker_(\\d+)$")
-    private val NUMBERED_LABEL = Regex("(?U)^Speaker (\\d+)$")
-    private val WHITESPACE = Regex("(?U)\\s+")
+    // No (?U) flag: Android's ICU regex rejects UNICODE_CHARACTER_CLASS, and its \s and \d are
+    // already Unicode-aware there.
+    private val NUMBERED_KEY = Regex("^speaker_(\\d+)$")
+    private val NUMBERED_LABEL = Regex("^Speaker (\\d+)$")
+    private val WHITESPACE = Regex("\\s+")
 
     /** `s0` .. `s7` for a speaker, `neutral` for none (the contract's rule, case for case). */
     fun colorKey(speakerKey: String?, label: String? = null): String {
@@ -65,14 +67,14 @@ object TranscriptPreview {
 
     private fun squash(text: String): String = text.split(WHITESPACE).filter { it.isNotEmpty() }.joinToString(" ")
 
-    private val HEADING = Regex("(?U)^\\s*#{1,6}\\s+")
-    private val RULE = Regex("(?U)^\\s*(?:-{3,}|\\*{3,}|_{3,})\\s*$")
-    private val TABLE = Regex("(?U)^\\s*\\|")
-    private val QUOTE = Regex("(?U)^\\s*>")
-    private val INLINE_LABEL = Regex("(?U)^\\s*\\*\\*\\s*([^*\\n]{1,80}?)\\s*(?::\\s*\\*\\*|\\*\\*\\s*:)\\s*(.*)$")
-    private val BLOCK_LABEL = Regex("(?U)^\\s*\\*\\*\\s*([^*\\n]{1,80}?)\\s*\\*\\*\\s*(?:·\\s*`[^`]*`)?\\s*$")
-    private val LEAD_WORD = Regex("(?iU)^\\s*transcript\\s*[:\\-–—]?\\s*(?=\\*\\*|$)")
-    private val BULLET = Regex("(?U)^\\s*[-*+]\\s+(?=\\S)")
+    private val HEADING = Regex("^\\s*#{1,6}\\s+")
+    private val RULE = Regex("^\\s*(?:-{3,}|\\*{3,}|_{3,})\\s*$")
+    private val TABLE = Regex("^\\s*\\|")
+    private val QUOTE = Regex("^\\s*>")
+    private val INLINE_LABEL = Regex("^\\s*\\*\\*\\s*([^*\\n]{1,80}?)\\s*(?::\\s*\\*\\*|\\*\\*\\s*:)\\s*(.*)$")
+    private val BLOCK_LABEL = Regex("^\\s*\\*\\*\\s*([^*\\n]{1,80}?)\\s*\\*\\*\\s*(?:·\\s*`[^`]*`)?\\s*$")
+    private val LEAD_WORD = Regex("(?i)^\\s*transcript\\s*[:\\-–—]?\\s*(?=\\*\\*|$)")
+    private val BULLET = Regex("^\\s*[-*+]\\s+(?=\\S)")
     private val CODE = Regex("`([^`\\n]*)`")
     private val EMPHASIS = Regex("\\*\\*([^*\\n]+?)\\*\\*|\\*([^*\\n]+?)\\*")
     private val STRAY = Regex("[*`]+")
