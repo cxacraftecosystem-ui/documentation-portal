@@ -341,6 +341,9 @@ class TranscriptState(Strict):
     paused: bool
     text: str | None
     language: str | None
+    #: The list preview (0.0.6, transcript contract ``TranscriptPreview``): {text, lines:[{speaker,
+    #: speakerKey, colorKey, text}]}, plain text, or None when there is no transcript to show.
+    preview: dict[str, Any] | None = None
 
 
 class ConsentVerdictOut(Strict):

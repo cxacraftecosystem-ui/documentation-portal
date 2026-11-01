@@ -105,3 +105,6 @@ docs-check.log
 pytest-output.log
 actual-failures.txt
 expected-failures.txt
+
+# The transcription working directory (app/transcription/workdir.py, D37).
+backend/var/

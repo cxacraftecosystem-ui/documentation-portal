@@ -160,3 +160,11 @@ async def requeue_held(*, artisan_id: str | None = None, media_id: str | None = 
     for row in rows:
         await enqueue(str(row["id"]), "consent recorded", requested_by_id=requested_by_id, client=db)
     return len(rows)
+
+
+async def previews(markdown_by_id: dict[str, str | None], *, client: Any = None) -> dict[str, Any]:
+    """List previews for the questionnaire's recordings (contract ``TranscriptPreview``): plain text
+    with speaker labels, from the turns when there are any. Two reads for the whole page."""
+    from app.services import transcript_pipeline
+
+    return await transcript_pipeline.previews(markdown_by_id, client=client)
