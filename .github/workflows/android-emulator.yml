@@ -89,13 +89,13 @@ jobs:
         run: chmod +x gradlew
 
       - name: Ensure the required Android SDK packages are installed
-        # Mirrors android-build.yml: compileSdk 37 is the `android-37.0` platform package, and
+        # Mirrors android-build.yml: compileSdk 37.2 is the `android-37.2` platform package, and
         # build-tools 37.0.0. No-ops when the image already has them.
         run: |
           set -euo pipefail
           sdkmanager="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
           yes | "$sdkmanager" --licenses > /dev/null 2>&1 || true
-          "$sdkmanager" "platforms;android-37.0" "build-tools;37.0.0" > /dev/null
+          "$sdkmanager" "platforms;android-37.2" "build-tools;37.0.0" > /dev/null
 
       - name: Build the debug APK, as android-build.yml builds it
         # No local.properties exists at this point, so this is byte-for-byte the build the Android

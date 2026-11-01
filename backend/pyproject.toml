@@ -2,21 +2,22 @@
 name = "field-repository-backend"
 version = "0.1.0"
 description = "API-first FastAPI backend for field documentation and repository workflows."
-# 3.14 everywhere since 2026-10-09: CI, the Docker image and the EC2 box (deploy-backend.yml installs
-# upstream CPython 3.14.8, the release CI tests, and builds the venv on it). A floor and not a range,
+# 3.15 everywhere since 0.0.7 (2026-11-01; 3.14 from 2026-10-09): CI, the Docker image and the EC2
+# box (deploy-backend.yml installs upstream CPython 3.15.2, the release CI tests, and builds the venv
+# on it). A floor and not a range,
 # so nobody can recreate a 3.12 venv from this file by accident; the 24.04 box keeps python3.12
 # installed only as the rollback interpreter.
-requires-python = ">=3.14"
+requires-python = ">=3.15"
 # FLOORS, NOT PINS, AND EACH ONE IS THE LATEST RELEASE ON 2026-10-09. What actually gets installed is
 # decided by backend/requirements.lock, compiled from this list (the command is in docs/CI.md under
 # "The backend dependency lock"), and every machine installs that lock: `pip install -r
 # requirements.lock`, then `pip install --no-deps -e .`. A floor here says "older than this is not
 # supported"; the lock says "this is what runs".
 dependencies = [
-    "fastapi>=0.143.0",
+    "fastapi>=0.162.0",
     "uvicorn[standard]>=0.54.0",
-    "pydantic>=2.14.0",
-    "pydantic-settings>=2.15.0",
+    "pydantic>=2.14.2",
+    "pydantic-settings>=2.16.2",
     # JWTs. PyJWT REPLACED python-jose on 2026-10-09: python-jose 3.5.0 is its latest release and is
     # still affected by GHSA-3qf3-8w2g-rqmx (no fixed version exists), and it dragged in ecdsa, which
     # carries CVE-2024-23342 with no fix either. The tokens did not change: HS256 is one wire format,
@@ -39,7 +40,7 @@ dependencies = [
     # The printable artisan card (app/services/artisan_card_pdf.py): ID-1 and A6 pages, and A4 sheets
     # of ten for a workshop. The QR inside is segno's matrix drawn as vector squares, so it prints
     # sharp at any size. Pulls in pillow, which places the artisan's photo.
-    "reportlab>=5.0.1",
+    "reportlab>=5.1.0",
     # PINNED EXACTLY, AND THAT IS A BLOCKER RATHER THAN A PREFERENCE. RobertCraigie/prisma-client-py
     # is archived ("no longer being maintained", README); 0.15.0 (2024-08-16) is its final release and
     # it drives the Prisma CLI and engines at 5.17.0, which therefore cannot move either. `==` keeps
@@ -47,10 +48,10 @@ dependencies = [
     # the data layer to a maintained ORM (SQLAlchemy 2.x + Alembic on psycopg 3) — a project-sized
     # change (docs/REPO_FACTS.md counts the models), which would also take Node off the deploy path.
     "prisma==0.15.0",
-    "boto3>=1.43.110",
-    "python-multipart>=0.0.32",
+    "boto3>=1.43.123",
+    "python-multipart>=0.0.33",
     "email-validator>=2.3.0",
-    "google-auth>=2.61.0",
+    "google-auth>=2.62.0",
     "requests>=2.34.2",
     # 0.25.1 (2021) is the latest pydub and it is unmaintained. It imports `audioop`, which PEP 594
     # removed from the standard library in 3.13; audioop-lts is the maintained backport that puts the
@@ -77,7 +78,7 @@ dependencies = [
     # in anthropic_verbs pass a float timeout, an int max_retries and output_config={"effort": ...},
     # none of which the 1.x removals (sampling parameters, Text Completions, raw output_format dicts,
     # LegacyAPIResponse, httpx objects handed to the client) touch.
-    "anthropic>=1.12.1",
+    "anthropic>=2.3.0",
     # ASCII file names and S3 leaves (owner correction (a), 18 Oct 2026; app/services/naming.py).
     # The same library as npm any-ascii and Java com.anyascii:anyascii, so the three runtimes'
     # transliterations agree with shared/session-title.json. Pure Python, no dependencies.
@@ -86,11 +87,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.16.10",
-    "pytest>=9.1.1",
+    "ruff>=0.17.3",
+    "pytest>=9.2.0",
     "httpx>=0.28.1",
     # Reads the artisan-card PDFs back in tests/test_artisan_card_routes.py (page size, text).
-    "pypdf>=6.21.1",
+    "pypdf>=6.21.4",
 ]
 # Optional AI image features (app/ai_features, all flags default off — see docs/AI_FEATURES.md).
 # Nothing below is installed by `pip install -e .`, and nothing below is imported unless a
@@ -105,17 +106,17 @@ dev = [
 ai = [
     # Pillow composites the two layers of a separation from the alpha a hosted cutout returns.
     # Hosted background removal alone needs nothing here: requests is already a core dependency.
-    "pillow>=12.3.0",
+    "pillow>=13.0.0",
     # Rust raster-to-SVG tracer: a small wheel, no model, no per-image charge. Its BYTES API
     # segfaults on CPython 3.14 (docs/AI_FEATURES.md); the provider calls the path API, which does not.
     "vtracer>=0.6.15",
 ]
 ai-local = [
-    "pillow>=12.3.0",
+    "pillow>=13.0.0",
     # MEASURED on a laptop: importing rembg alone costs ~130 MB, a U2Net session ~560 MB, and one
     # 1.9 MP matte peaked the process at 1,032 MB. Do not install this on the t3.micro.
-    "rembg>=2.0.85",
-    "onnxruntime>=1.31.0",
+    "rembg>=2.0.86",
+    "onnxruntime>=1.31.1",
 ]
 # Only for SCALE_CACHE_BACKEND=redis. Deliberately NOT in `dependencies`: the default cache backend
 # is in-process and needs nothing installed, so `pip install -e .` stays exactly as light as it was.
@@ -139,7 +140,7 @@ exclude = ["prisma*"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py314"
+target-version = "py315"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

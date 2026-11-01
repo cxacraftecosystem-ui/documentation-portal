@@ -1,5 +1,5 @@
 plugins {
-    id("com.android.application") version "9.4.1" apply false
+    id("com.android.application") version "9.5.0" apply false
     // NO `org.jetbrains.kotlin.android`, AND IT MUST NOT COME BACK. AGP 9 compiles Kotlin itself
     // ("built-in Kotlin"), and the Kotlin Android plugin is incompatible with AGP 9's DSL, so the two
     // cannot both be applied to :app. The compiler AGP drives is the Kotlin Gradle plugin on this

@@ -41,7 +41,7 @@ ARG INSTALL_FFMPEG=false
 # =============================================================================================
 # Stage 1 — builder: resolve dependencies into a self-contained virtualenv.
 # =============================================================================================
-FROM python:3.14-slim-trixie AS builder
+FROM python:3.15-slim-trixie AS builder
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -163,7 +163,7 @@ ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 # =============================================================================================
 # Stage 3 — runtime.
 # =============================================================================================
-FROM python:3.14-slim-trixie AS runtime
+FROM python:3.15-slim-trixie AS runtime
 
 ARG INSTALL_FFMPEG
 

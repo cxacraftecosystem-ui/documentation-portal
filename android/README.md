@@ -70,12 +70,12 @@ Command-line debug build:
 
 | | |
 |---|---|
-| Gradle | 9.8.1 (the wrapper; its distribution is checksum-pinned in `gradle/wrapper/gradle-wrapper.properties`) |
+| Gradle | 9.8.2 (the wrapper; its distribution is checksum-pinned in `gradle/wrapper/gradle-wrapper.properties`) |
 | JDK that runs the build | 25 (Temurin LTS), in CI and locally. Gradle 9.8 itself runs on 17–27, but Kotlin 2.4 documents Java only up to 26 |
-| Android Gradle Plugin | 9.4.1, with built-in Kotlin — there is no `org.jetbrains.kotlin.android` plugin |
+| Android Gradle Plugin | 9.5.0, with built-in Kotlin — there is no `org.jetbrains.kotlin.android` plugin |
 | Kotlin | 2.4.21 (Compose compiler and serialization plugins at the same version) |
 | Bytecode | Java 17 for every module, the newest level Android documents |
-| compileSdk / targetSdk / minSdk | 37 / 37 / 26 |
+| compileSdk / targetSdk / minSdk | 37.2 / 37 / 26 |
 
 Install the `Android SDK Platform 37.0` and `Build-Tools 37.0.0` packages. Dependabot proposes Gradle,
 AGP, Kotlin and library updates monthly (`.github/dependabot.yml`); the JDK and the SDK levels are moved

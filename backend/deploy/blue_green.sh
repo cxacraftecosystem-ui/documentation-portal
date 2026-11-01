@@ -64,7 +64,7 @@ NODE_CACHE="${NODE_CACHE:-$HOME/.cache/prisma-python}"
 HEALTH_LIMIT="${HEALTH_LIMIT:-600}"
 # Seconds between the nginx reload and stopping the old port: requests already sent to it finish.
 DRAIN="${DRAIN:-5}"
-NODE_PIN=26.11.1
+NODE_PIN=26.13.0
 UNIT=fieldrepo-api
 LEGACY=fieldrepo
 QUEUE=fieldrepo-queue

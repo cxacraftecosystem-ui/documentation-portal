@@ -107,7 +107,7 @@ dependencies {
      * with it and ParityTest parses the docs/fixtures/ files with it, so `:core-pipeline:test` is the
      * check that the newer library still reads what the older one did.
      */
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
     testImplementation(kotlin("test"))
 }
 
