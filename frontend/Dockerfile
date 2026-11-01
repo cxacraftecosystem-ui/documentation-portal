@@ -21,7 +21,7 @@
 # The repository's one Node major lives in frontend/package.json (`engines.node`), which CI and
 # Vercel both read. A FROM line cannot read a file, so this is a copy, and the deps stage below
 # refuses to build when the copy and the field disagree rather than quietly shipping another major.
-ARG NODE_VERSION=24
+ARG NODE_VERSION=26
 
 
 # =============================================================================================

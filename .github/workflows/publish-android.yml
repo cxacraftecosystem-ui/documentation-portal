@@ -166,7 +166,7 @@ env:
   # names are pinned so the absence of the second is an assertion and not an assumption.
   APK: app/build/outputs/apk/release/app-release.apk
   UNSIGNED_APK: app/build/outputs/apk/release/app-release-unsigned.apk
-  # Must track android/app/build.gradle.kts (compileSdk/targetSdk 37, AGP 9.4.1, which needs
+  # Must track android/app/build.gradle.kts (compileSdk 37.2, targetSdk 37, AGP 9.5.0, which needs
   # build-tools 36.0.0 or later) and the value android-build.yml already installs. This is also
   # where `apksigner` and `aapt2` live on the runner, which GUARD 2 and the version assertion need;
   # 37.0.0 ships both, and the install step below asserts they are there rather than assuming it.
@@ -532,7 +532,7 @@ jobs:
 
       - name: Ensure the required Android SDK packages are installed
         # The runner image ships an Android SDK, but which platform/build-tools versions are
-        # preinstalled drifts with the image. compileSdk/targetSdk are 37 — the `android-37.0`
+        # preinstalled drifts with the image. compileSdk is 37.2 and targetSdk 37 — the `android-37.2`
         # platform package — and build-tools is ${BUILD_TOOLS_VERSION}, so install them explicitly
         # rather than betting on the image. Both are no-ops when already present. Same two packages
         # as android-build.yml.
@@ -548,7 +548,7 @@ jobs:
           sdk_root="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
           sdkmanager="${sdk_root}/cmdline-tools/latest/bin/sdkmanager"
           yes | "$sdkmanager" --licenses > /dev/null 2>&1 || true
-          "$sdkmanager" "platforms;android-37.0" "build-tools;${BUILD_TOOLS_VERSION}" > /dev/null
+          "$sdkmanager" "platforms;android-37.2" "build-tools;${BUILD_TOOLS_VERSION}" > /dev/null
           tools="${sdk_root}/build-tools/${BUILD_TOOLS_VERSION}"
           for tool in apksigner aapt2; do
             if [ ! -x "${tools}/${tool}" ]; then

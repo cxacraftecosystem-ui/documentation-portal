@@ -67,8 +67,8 @@ val localProperties = Properties().apply {
 //
 // To cut a release: bump `appVersionName` AND add 1 to `appVersionCode`. publish-android.yml reads
 // both lines, checks the tag against the name and refuses a code at or below the published one.
-val appVersionName = "0.0.6"
-val appVersionCode = 27
+val appVersionName = "0.0.7"
+val appVersionCode = 28
 
 val releaseKeystorePath = signingProperty(localProperties, "releaseKeystore", "ANDROID_RELEASE_KEYSTORE")
 val releaseKeystorePassword = signingProperty(localProperties, "releaseKeystorePassword", "ANDROID_RELEASE_KEYSTORE_PASSWORD")
@@ -137,7 +137,15 @@ android {
      *   • Certificate Transparency and Encrypted Client Hello on by default ->
      *     res/xml/network_security_config.xml
      */
-    compileSdk = 37
+    // 37.2, Android 17's second minor release, since 0.0.7 (37.0 before), as designer-portal does: a
+    // minor level only adds APIs. targetSdk, which changes behaviour, has no minor level and stays 37.
+    // CI installs `platforms;android-37.2` in android-build.yml, android-emulator.yml, codeql.yml and
+    // publish-android.yml; move them together.
+    compileSdk {
+        version = release(37) {
+            minorApiLevel = 2
+        }
+    }
 
     defaultConfig {
         applicationId = "com.fieldrepository.app"
@@ -475,10 +483,10 @@ dependencies {
      */
     implementation("com.squareup.retrofit2:retrofit:3.0.0")
     implementation("com.squareup.retrofit2:converter-kotlinx-serialization:3.0.0")
-    implementation("com.squareup.okhttp3:okhttp:5.5.0")
-    implementation("com.squareup.okhttp3:logging-interceptor:5.5.0")
+    implementation("com.squareup.okhttp3:okhttp:5.5.1")
+    implementation("com.squareup.okhttp3:logging-interceptor:5.5.1")
     // Must equal the version in core-pipeline/build.gradle.kts — see settings.gradle.kts.
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
 
     /*
      * QR codes for joining a questionnaire session (data/JoinQr.kt): drawing the code in the session

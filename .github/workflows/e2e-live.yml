@@ -107,7 +107,7 @@ jobs:
         working-directory: backend
         run: |
           set -euo pipefail
-          python -m prisma migrate deploy --schema prisma/schema.prisma
+          python -m app.prisma_cli migrate deploy --schema prisma/schema.prisma
           python -u scripts/seed_admin.py
 
       - name: Start the API

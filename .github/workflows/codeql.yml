@@ -81,7 +81,7 @@ jobs:
           chmod +x gradlew
           sdkmanager="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
           yes | "$sdkmanager" --licenses > /dev/null 2>&1 || true
-          "$sdkmanager" "platforms;android-37.0" "build-tools;37.0.0" > /dev/null
+          "$sdkmanager" "platforms;android-37.2" "build-tools;37.0.0" > /dev/null
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1

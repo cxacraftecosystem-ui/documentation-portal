@@ -50,7 +50,10 @@ def _deploy(tmp: Path, names: list[str]) -> None:
             src = BACKEND / "prisma" / "deferred" / name
         if not (root / "migrations" / name).exists():
             shutil.copytree(src, root / "migrations" / name)
-    out = subprocess.run([sys.executable, "-m", "prisma", "migrate", "deploy", "--schema", str(root / "schema.prisma")],
+    # Through app.prisma_cli, never `-m prisma`: the plain CLI imports the whole generated client
+    # (prisma/types.py) before it runs, about five minutes per call on a runner, and this test makes
+    # three. app.prisma_cli leaves those types unloaded and runs the same command.
+    out = subprocess.run([sys.executable, "-m", "app.prisma_cli", "migrate", "deploy", "--schema", str(root / "schema.prisma")],
                          cwd=BACKEND, env={**os.environ, "DATABASE_URL": URL}, capture_output=True, text=True, timeout=900, check=False)
     assert out.returncode == 0, out.stdout[-3000:] + out.stderr[-3000:]
 

@@ -496,6 +496,12 @@ jobs:
         # Lint step and docs/CI.md, "ESLint 10 and the three plugins that predate it".
         run: npm ci
 
+      - name: Audit the lockfile
+        # Fails on any advisory npm knows for an installed package, dev tools included (Dependabot
+        # alerts on the whole lockfile, so this does too). Added in 0.0.7 after minimatch and next
+        # sat open as Dependabot alerts with nothing in CI to say so.
+        run: npm audit --audit-level=low
+
       - name: Typecheck (TypeScript 7)
         # `next build` also fails on a type error, but only during the deploy — i.e. AFTER the backend
         # has already shipped and the live site is pointed at it (docs/CI.md §1 explains why the
@@ -1137,8 +1143,11 @@ jobs:
           # Through the service container's own psql, so the runner image needs no client.
           docker exec "${{ job.services.postgres.id }}" \
             psql -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE field_repository_backfill'
-          python -m prisma migrate deploy --schema prisma/schema.prisma
-          DATABASE_URL="$QV2_BACKFILL_DATABASE_URL" python -m prisma migrate deploy --schema prisma/schema.prisma
+          # app.prisma_cli, not `python -m prisma`: the plain CLI imports the whole generated client
+          # (28 MB of prisma/types.py) before its first line, which was 7.8 of this step's 15.9
+          # minutes per call (run 41274319823). The same command with the types left unloaded.
+          python -m app.prisma_cli migrate deploy --schema prisma/schema.prisma
+          DATABASE_URL="$QV2_BACKFILL_DATABASE_URL" python -m app.prisma_cli migrate deploy --schema prisma/schema.prisma
 
       - name: The other portal, for the shared-file parity tests
         # The same clone as the "Backend tests" job: without it every sibling-parity test skips.
@@ -1252,7 +1261,7 @@ jobs:
           set -euo pipefail
           python -m prisma py fetch
           python -m prisma generate --schema prisma/schema.prisma
-          python -m prisma migrate deploy --schema prisma/schema.prisma
+          python -m app.prisma_cli migrate deploy --schema prisma/schema.prisma
 
       - name: Start a throwaway bucket
         # docker-compose.yml's image and bucket, started by hand: a service container cannot be given
