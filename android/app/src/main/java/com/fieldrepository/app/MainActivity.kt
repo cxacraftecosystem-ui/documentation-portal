@@ -6519,6 +6519,7 @@ private fun RecordPickerScreen(
     )
     val completenessById = remember(rows.browse) { rows.browse.associate { it.id to it.completeness } }
     val chipsById = remember(rows.browse) { rows.browse.associate { it.id to it.chips } }
+    val previewById = remember(rows.browse) { rows.browse.associate { it.id to it.preview } }
     val loading = !rows.browseLoaded && rows.note == null
     val failed = !rows.browseLoaded && rows.note != null && !rows.loading
     val options = recordRowOptions(mode, rows.known).map { it.value to it.label }
@@ -6634,6 +6635,8 @@ private fun RecordPickerScreen(
                 ) {
                     Column(Modifier.weight(1f)) {
                         Text(label, color = Body, style = MaterialTheme.typography.bodyMedium)
+                        // What was said (0.0.6): the server's preview, two lines, speakers as labels.
+                        previewById[id]?.let { com.fieldrepository.app.transcript.ui.TranscriptPreviewText(it, maxLines = 2) }
                         // A take's chips; a tap narrows this list by it (a day is the upload day here, so not a filter).
                         com.fieldrepository.app.questionnaire.ui.RecordingChips(chipsById[id], filters = mediaFilters, onChip = { f, l ->
                             if (mediaFilters.appliesToMedia(f)) setMediaFilters(mediaFilters.applyChip(f, l))
@@ -10684,7 +10687,9 @@ private data class RecordRow(
     /** The server's completeness block for the record (2026-10-18), drawn as the card's ring. */
     val completeness: CompletenessDto? = null,
     /** A questionnaire take's chips, drawn on its card (owner, 31 Oct 2026). */
-    val chips: com.fieldrepository.app.questionnaire.data.QChips? = null
+    val chips: com.fieldrepository.app.questionnaire.data.QChips? = null,
+    /** A recording's list preview (0.0.6): two lines, speakers as coloured labels. */
+    val preview: com.fieldrepository.app.transcript.data.TranscriptPreviewDto? = null
 )
 
 /**
@@ -10731,7 +10736,7 @@ private suspend fun recordRowsPage(
         EntryMode.MEDIA -> repository.mediaSearchPage(search, page, mediaFilters).rows { m ->
             val label = m.caption?.takeIf { it.isNotBlank() } ?: m.originalFilename.ifBlank { "Media" }
             val words = com.fieldrepository.app.questionnaire.data.ChipRules.display(m.questionnaireChips).joinToString(" ") { it.label }
-            RecordRow(m.id, label, "$label ${m.originalFilename} ${m.mediaType} $words", chips = m.questionnaireChips)
+            RecordRow(m.id, label, "$label ${m.originalFilename} ${m.mediaType} $words", chips = m.questionnaireChips, preview = m.transcriptPreview)
         }
         EntryMode.QUESTIONNAIRE -> repository.interviewsSearchPage(workshopIds, search, page, completeness).rows { iv ->
             val names = iv.artisans.mapNotNull { it.artisan?.name }.distinct().joinToString(", ")

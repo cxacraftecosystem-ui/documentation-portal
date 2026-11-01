@@ -163,7 +163,12 @@ fun QuestionnaireHome(
     /** The host's way out, when the home owns the whole viewport (its own back control). */
     onBack: (() -> Unit)? = null,
     /** The home's box: the host gives it a bounded height when it sits in a page that scrolls. */
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /**
+     * A session opened from another screen of the app (a form's own sessions on its detail page):
+     * Back from it goes there through this, instead of to the home's list. Null: the home's list.
+     */
+    onLeaveSession: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val v2 = remember { QuestionnaireV2.get(context) }
@@ -175,8 +180,7 @@ fun QuestionnaireHome(
     // recordings list or the inbox, on the tab it was opened from, with that list's rows, pages and
     // scroll as they were left. Each list keeps them in a memory of its own ([ScreenMemory]); a fresh
     // way in from the menu starts that memory over.
-    var openedFrom by remember { mutableStateOf<QRoute>(QRoute.List) }
-    var openedFromTab by remember { mutableStateOf<QuestionnaireTab?>(null) }
+    val origin = remember { SessionOrigin<QRoute>(QRoute.List) }
     val homeMemory = LocalScreenMemory.current ?: remember { ScreenMemory() }
     val sessionsScroll = rememberKeptValue("q.sessions.scroll") { ScrollState(0) }
     val formsScroll = rememberKeptValue("q.forms.scroll") { ScrollState(0) }
@@ -249,18 +253,20 @@ fun QuestionnaireHome(
 
     suspend fun loadInstrument(qid: String): Instrument? = v2.form(qid)?.let(Instrument::from)
 
-    /** Where Back from a session returns: the list it was opened from (see [openedFrom]). */
-    fun noteOrigin() {
-        if (route is QRoute.Workspace || route is QRoute.ReadView) return
-        openedFrom = route
-        openedFromTab = tab
-    }
+    /** Where Back from a session returns: the list it was opened from (see [SessionOrigin]). */
+    fun noteOrigin() = origin.note(route, tab, inSession = route is QRoute.Workspace || route is QRoute.ReadView)
 
     fun backFromSession() {
-        route = openedFrom
-        openedFromTab?.let { tab = it }
-        openedFrom = QRoute.List
-        openedFromTab = null
+        when (val back = origin.back()) {
+            SessionOrigin.Back.Host -> {
+                route = QRoute.List
+                onLeaveSession?.invoke()
+            }
+            is SessionOrigin.Back.To -> {
+                route = back.route
+                back.tab?.let { tab = it }
+            }
+        }
         refresh++
     }
 
@@ -296,8 +302,10 @@ fun QuestionnaireHome(
     LaunchedEffect(serverSession) {
         val id = serverSession ?: return@LaunchedEffect
         QuestionnaireV2Nav.openServerSession.value = null
-        // Opened from a form's own sessions (the Forms tab): Back returns to that form.
+        // Opened from a form's own sessions (the Forms tab): Back returns to that form. Opened from
+        // another screen that asked for it back (DR's form detail): Back returns there.
         noteOrigin()
+        if (onLeaveSession != null) origin.noteHost()
         tab = QuestionnaireTab.SESSIONS
         openServerId(id)
     }
