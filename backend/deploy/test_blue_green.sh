@@ -20,10 +20,10 @@ setup() {
   echo "$T" > "$TMPDIR_CHECK/T"
   export APP="$T/app" NGINX_SITE="$T/nginx-site" UNIT_DIR="$T/units" NODE_CACHE="$T/node" \
     CPYTHON_ROOT="$T/cpython" STATE="$T/state" HEALTH_LIMIT=2 DRAIN=0 REAL_SLEEP="$real_sleep"
-  mkdir -p "$APP/venvs/v1/bin" "$UNIT_DIR" "$STATE/active" "$T/bin" "$NODE_CACHE/nodeenv-26.11.1/bin" "$CPYTHON_ROOT"
-  ln -s nodeenv-26.11.1 "$NODE_CACHE/nodeenv"
-  printf '#!/bin/sh\necho v26.11.1\n' > "$NODE_CACHE/nodeenv-26.11.1/bin/node"
-  chmod +x "$NODE_CACHE/nodeenv-26.11.1/bin/node"
+  mkdir -p "$APP/venvs/v1/bin" "$UNIT_DIR" "$STATE/active" "$T/bin" "$NODE_CACHE/nodeenv-26.13.0/bin" "$CPYTHON_ROOT"
+  ln -s nodeenv-26.13.0 "$NODE_CACHE/nodeenv"
+  printf '#!/bin/sh\necho v26.13.0\n' > "$NODE_CACHE/nodeenv-26.13.0/bin/node"
+  chmod +x "$NODE_CACHE/nodeenv-26.13.0/bin/node"
   cat > "$APP/venvs/v1/bin/python" <<'PY'
 #!/usr/bin/env bash
 echo "python $*" >> "$STATE/log"

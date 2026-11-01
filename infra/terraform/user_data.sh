@@ -153,10 +153,10 @@ chown -R ubuntu:ubuntu /home/ubuntu/app
 # ctypes, pyexpat, ensurepip, venv), and only then renamed to /opt/cpython/<version>+<build>,
 # root-owned and writable by nobody else, with INSTALLED_FROM naming the URL and hash. The system
 # python3 stays as the cloud image shipped it: cloud-init and apt's own tooling run on it.
-cpython=3.14.8
-pbs_release=20261009
-pbs_url=https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.14.8%2B20261009-x86_64-unknown-linux-gnu-install_only.tar.gz
-pbs_sha256=83f9cb480b702548c592443f86209cf0fc03448d90692df257f095c01791dccc
+cpython=3.15.2
+pbs_release=20261026
+pbs_url=https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.15.2%2B20261026-x86_64-unknown-linux-gnu-install_only.tar.gz
+pbs_sha256=08d4ae9024a7cfbd3b70e559241afa2571cd3208d7bd5f96f88e0080dd4092aa
 prefix="/opt/cpython/${cpython}+${pbs_release}"
 provenance="$(printf 'url=%s\nsha256=%s' "$pbs_url" "$pbs_sha256")"
 if [ "$(cat "$prefix/INSTALLED_FROM" 2>/dev/null)" != "$provenance" ]; then
