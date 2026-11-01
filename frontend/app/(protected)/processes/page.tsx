@@ -115,7 +115,7 @@ function ProcessesPageInner() {
    * and restored here on the way back — see `lib/listReturn.ts` and the artisans list, which carries
    * the same block.
    */
-  const listReturn = useListReturn("processes");
+  const listReturn = useListReturn("processes", { query: applied, page, funnel }, Boolean(data));
   const restoredPage = useRef<number | null>(null);
   useEffect(() => {
     const note = listReturn.restored;

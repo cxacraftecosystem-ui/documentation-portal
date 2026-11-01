@@ -205,6 +205,8 @@ private fun TakeLine(r: QRecording, onPlay: () -> Unit) {
         if (r.mediaFileId != null) TextButton(onClick = { transcript = true }) { Text(TranscriptUiText.open, style = MaterialTheme.typography.labelSmall) }
         Text("▶", style = MaterialTheme.typography.bodySmall)
     }
+    // What was said (0.0.6): speakers as labels, two lines at most.
+    r.transcript?.shownPreview()?.let { com.fieldrepository.app.transcript.ui.TranscriptPreviewText(it, maxLines = 2) }
     // The take's chips (owner, 31 Oct 2026); a tap opens the recordings list filtered by it.
     RecordingChips(r.chips, onChip = QuestionnaireV2Nav::openRecordings)
 }

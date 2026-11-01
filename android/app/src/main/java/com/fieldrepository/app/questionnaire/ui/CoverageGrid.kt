@@ -3,6 +3,7 @@ package com.fieldrepository.app.questionnaire.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -51,7 +52,7 @@ fun CoverageGrid(
                 Row(Modifier.padding(vertical = 6.dp)) {
                     Text("Section", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.field.muted, modifier = Modifier.width(200.dp))
                     rows.firstOrNull()?.cells?.forEach { c ->
-                        Text(names[c.artisanId].orEmpty().substringBefore(' '), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.field.muted, modifier = Modifier.width(96.dp))
+                        Box(Modifier.width(96.dp)) { CoverageName(names[c.artisanId].orEmpty(), 92.dp, tag = "coverage.name.${c.artisanId}") }
                     }
                 }
                 rows.forEach { row ->

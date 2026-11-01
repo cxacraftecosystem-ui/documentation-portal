@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 
 import { RecordingChips } from "@/components/questionnaire/RecordingChips";
 import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
+import { TranscriptPreview } from "@/components/transcript/TranscriptPreview";
 import { RECORDINGS_HREF, useChipNavigator } from "@/components/questionnaire/useUrlFilters";
 import { questionnaireApi, type Recording } from "@/lib/questionnaire/api";
 import { filtersToQuery } from "@/lib/questionnaire/filters";
@@ -60,6 +61,7 @@ export function RecordingSearchGroup({ q, limit = 5 }: { q: string; limit?: numb
               {r.chips?.session?.title || r.downloadName}
             </Link>
             <RecordingChips chips={r.chips} onChip={goChip} />
+            <TranscriptPreview preview={r.transcript.preview} text={r.transcript.text} lines={2} />
           </li>
         ))}
       </ul>

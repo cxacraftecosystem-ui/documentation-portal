@@ -5,5 +5,5 @@
   "rule": "frontend/lib/transcript/** and frontend/components/transcript/** are byte-identical in both portals (shared/transcript-web.sha256, scripts/sync_transcript_web.py). A file there may import only another file of the two trees (by @/ path or relatively), the packages listed in 'packages', and the app modules in 'modules', which both portals carry with the same exports. frontend/e2e/transcript-web-imports-unit.spec.ts fails on anything else.",
   "trees": ["@/lib/transcript/", "@/components/transcript/"],
   "packages": ["react", "react-markdown", "remark-gfm", "lucide-react"],
-  "modules": ["@/lib/api", "@/lib/naming"]
+  "modules": ["@/lib/api", "@/lib/naming", "@/components/ui/CalendarField", "@/components/ui/SearchableSelect"]
 }

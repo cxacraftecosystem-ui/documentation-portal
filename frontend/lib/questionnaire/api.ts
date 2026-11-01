@@ -9,6 +9,7 @@
  * download uses the server's `downloadName`.
  */
 
+import type { TranscriptPreview } from "@/lib/transcript/contract";
 import { ApiError, apiFetch, buildQuery } from "@/lib/api";
 import type { RecordingChips } from "@/lib/questionnaire/chips";
 import { filtersToQuery, type Filters } from "@/lib/questionnaire/filters";
@@ -228,6 +229,8 @@ export type TranscriptState = {
   paused: boolean;
   text: string | null;
   language: string | null;
+  /** The list preview (transcript contract v2): plain text under speaker labels, mapped names included. */
+  preview?: TranscriptPreview | null;
 };
 
 export type RecordingGuest = { respondentId: string; name: string; role: SubjectRole; named: boolean; subjectKey: string };
@@ -423,6 +426,17 @@ export function readSectionOverride(value: string | null | undefined): SectionOv
   return SECTION_OVERRIDES.includes(token as SectionOverride) ? (token as SectionOverride) : null;
 }
 
+/** One take behind a coverage cell (transcript contract v2 `CoverageRecording`): what a dot opens. */
+export type CoverageRecording = {
+  recordingId: string;
+  mediaFileId: string | null;
+  sessionId: string | null;
+  capturedAt: string;
+  durationMs: number | null;
+  recordedBy: { id: string | null; name: string };
+  needsDecision: boolean;
+};
+
 /** Where a covered cell's coverage comes from: a recording (preferred), or a typed answer only (✎). */
 export type CoverageSource = "RECORDED" | "TYPED";
 
@@ -440,6 +454,8 @@ type ContractCell = {
   typedOnlyCount?: number;
   /** A typed-only cell: offer "Add a recording?", never blocking (owner, amendment 2 point 4). */
   addRecording?: boolean;
+  /** The takes behind the cell, oldest first (0.0.6); absent from an older server. */
+  recordings?: CoverageRecording[];
 };
 
 /** `GET /coverage` and `SessionDetail.grid`, as the contract sends it. */
@@ -469,6 +485,8 @@ export type CoverageGridCell = {
   addRecording?: boolean;
   /** The admin override, shown beside the data-derived state. */
   override?: SectionOverride | null;
+  /** The takes behind the cell, oldest first; undefined when the server did not say. */
+  recordings?: CoverageRecording[];
 };
 
 /** The grid column id for a guest respondent. */
@@ -500,6 +518,7 @@ export function toGridView(grid: CoverageGrid | null | undefined, questions: Rec
           partial: c.covered !== null && c.total !== null && c.state === "PARTIAL" ? { done: c.covered, of: c.total } : null,
           source: c.source ?? null,
           addRecording: Boolean(c.addRecording),
+          recordings: c.recordings,
           override
         };
       })

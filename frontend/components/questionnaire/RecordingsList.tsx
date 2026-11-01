@@ -10,8 +10,9 @@ import { ButtonRow } from "@/components/ui/ButtonRow";
 import { chipToggler, FilterBar } from "@/components/questionnaire/FilterBar";
 import { RecordingChips } from "@/components/questionnaire/RecordingChips";
 import { TranscriptStatus } from "@/components/questionnaire/TranscriptStatus";
+import { TranscriptPreview } from "@/components/transcript/TranscriptPreview";
 import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
-import { useUrlFilters } from "@/components/questionnaire/useUrlFilters";
+import { useListPlace, useUrlFilters } from "@/components/questionnaire/useUrlFilters";
 import { questionnaireApi, type Recording } from "@/lib/questionnaire/api";
 import { cleanFilters, type Filters } from "@/lib/questionnaire/filters";
 import { qs } from "@/lib/questionnaire/qs";
@@ -26,6 +27,7 @@ export function RecordingsList() {
   const config = useQuestionnaireConfig();
   const [items, setItems] = useState<Recording[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
+  const [pages, setPages] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const generation = useRef(0);
 
@@ -37,6 +39,7 @@ export function RecordingsList() {
       if (mine !== generation.current) return;
       setItems((prev) => (after && prev ? [...prev, ...page.items] : page.items));
       setCursor(page.nextCursor);
+      setPages((n) => (after ? n + 1 : 1));
     } catch {
       if (mine === generation.current) setError(qs("listLoadError"));
     }
@@ -45,6 +48,14 @@ export function RecordingsList() {
   useEffect(() => {
     if (ready) void load(filters, null);
   }, [ready, filters, load]);
+
+  // Back from a session: as many pages as were open, then the scroll (`useListPlace`).
+  const { wantsMore } = useListPlace(pages, items !== null, cursor === null);
+  useEffect(() => {
+    if (cursor && wantsMore(pages)) void load(filters, cursor);
+    // `filters` is read as it stands; a change of filters reloads from page one above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cursor, pages, wantsMore, load]);
 
   const onChip = chipToggler(filters, setFilters);
   const filtered = Object.keys(cleanFilters(filters)).length > 0;
@@ -81,7 +92,7 @@ export function RecordingsList() {
                 <span className="text-xs text-ink-500">{r.recordedBy.name}</span>
               </div>
               <TranscriptStatus recording={r} paused={config?.transcriptionPaused ?? true} />
-              {r.transcript.text ? <p className="line-clamp-2 text-xs text-ink-700">{r.transcript.text}</p> : null}
+              <TranscriptPreview preview={r.transcript.preview} text={r.transcript.text} />
             </li>
           ))}
         </ul>

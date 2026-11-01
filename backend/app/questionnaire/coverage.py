@@ -107,8 +107,9 @@ async def take_rows(
         'tv."questionLineageId", tv."askedQuestionId", tv."capturedAt", tv."capturedAtSource"::text AS source, '
         'tv."filing"::text AS filing, tv."continuationOfId", tv."rosterCount", tv."recordedById", tv."durationMs", '
         'tv."changeSeq", tv."repeatReason"::text AS reason, tv."flag"::text AS flag, tv."named", tv."position", '
-        'u."name" AS "recordedByName", i."sessionDate", i."purpose"::text AS purpose '
+        'u."name" AS "recordedByName", i."sessionDate", i."purpose"::text AS purpose, qr."mediaFileId" '
         'FROM questionnaire_take_v tv JOIN "User" u ON u."id" = tv."recordedById" '
+        'JOIN "QuestionnaireRecording" qr ON qr."id" = tv."recordingId" '
         'JOIN "QuestionnaireInterview" i ON i."id" = tv."sessionId" WHERE ' + " AND ".join(where)
         + ' ORDER BY tv."capturedAt", tv."recordingId"',
         *params,
@@ -248,6 +249,28 @@ async def check(payload: Any, user: Any, *, client: Any = None) -> dict[str, Any
     }
 
 
+def cell_recording(row: dict[str, Any]) -> dict[str, Any]:
+    """One take behind a grid cell (0.0.6): what a dot opens, or what its chooser lists."""
+    return {
+        "recordingId": str(row["recordingId"]),
+        "mediaFileId": str(row["mediaFileId"]) if row.get("mediaFileId") else None,
+        "sessionId": str(row["sessionId"]) if row.get("sessionId") else None,
+        "capturedAt": iso(row.get("capturedAt")),
+        "durationMs": row.get("durationMs"),
+        "recordedBy": {"id": str(row["recordedById"]) if row.get("recordedById") else None, "name": row.get("recordedByName") or ""},
+        "needsDecision": row.get("filing") == "NEEDS_DECISION",
+    }
+
+
+def cell_recordings(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The distinct takes of a cell, oldest first (one opens directly; several open a chooser)."""
+    seen: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        seen.setdefault(str(row["recordingId"]), row)
+    ordered = sorted(seen.values(), key=lambda r: (iso(r.get("capturedAt")) or "", str(r["recordingId"])))
+    return [cell_recording(r) for r in ordered]
+
+
 async def _sections(client: Any, questionnaire_id: str) -> list[dict[str, Any]]:
     return await client.query_raw(
         'SELECT s."id", s."code", s."title", s."sortOrder", '
@@ -310,6 +333,7 @@ async def grid(questionnaire_id: str, *, artisan_ids: list[str] | None = None, w
     question_lineages: dict[tuple[str, str], set] = defaultdict(set)
     question_takes: dict[tuple[str, str], set] = defaultdict(set)
     nd: dict[tuple[str, str], bool] = defaultdict(bool)
+    cell_takes: dict[tuple[str, str], list] = defaultdict(list)
     for t in takes:
         a = str(t["artisanId"])
         if t.get("sectionId"):
@@ -319,6 +343,7 @@ async def grid(questionnaire_id: str, *, artisan_ids: list[str] | None = None, w
             if not found:
                 continue
             sec = str(found)
+        cell_takes[(a, sec)].append(t)
         if t.get("filing") == "NEEDS_DECISION":
             # Waiting for a decision: shown, never counted as covered (DESIGN 3.1; audit M2).
             nd[(a, sec)] = True
@@ -357,6 +382,7 @@ async def grid(questionnaire_id: str, *, artisan_ids: list[str] | None = None, w
                 "needsDecision": bool(nd.get((a, sid))), "override": override_by.get((a, sid)),
                 "source": source, "recordedCount": len(recorded_q), "typedOnlyCount": len(typed_q - recorded_q),
                 "addRecording": source == SOURCE_TYPED,
+                "recordings": cell_recordings(cell_takes.get((a, sid), [])),
             })
         out_sections.append({"sectionId": sid, "code": s["code"], "title": s["title"], "cells": cells})
     out = {
@@ -382,8 +408,11 @@ async def _guest_cells(db: Any, questionnaire_id: str, respondent_ids: list[str]
     if not order:
         return
     takes = await db.query_raw(
-        'SELECT g."respondentId", t."sectionId", t."questionLineageId", r."id" AS "recordingId", r."filing"::text AS filing '
+        'SELECT g."respondentId", t."sectionId", t."questionLineageId", r."id" AS "recordingId", r."filing"::text AS filing, '
+        'r."mediaFileId", m."questionnaireInterviewId" AS "sessionId", r."capturedAt", r."durationMs", r."recordedById", '
+        'u."name" AS "recordedByName" '
         'FROM "QuestionnaireRecordingRespondent" g JOIN "QuestionnaireRecording" r ON r."id" = g."recordingId" '
+        'JOIN "User" u ON u."id" = r."recordedById" '
         'JOIN "MediaFile" m ON m."id" = r."mediaFileId" JOIN "QuestionnaireInterview" i ON i."id" = m."questionnaireInterviewId" '
         'JOIN "QuestionnaireRecordingTarget" t ON t."recordingId" = r."id" '
         "WHERE g.\"respondentId\" = ANY($1::text[]) AND g.\"role\" = 'ANSWERED' AND r.\"removedAt\" IS NULL AND m.\"removedAt\" IS NULL "
@@ -401,11 +430,13 @@ async def _guest_cells(db: Any, questionnaire_id: str, respondent_ids: list[str]
     recorded: dict[tuple[str, str], set[str]] = defaultdict(set)
     takes_in: dict[tuple[str, str], set[str]] = defaultdict(set)
     waiting: set[tuple[str, str]] = set()
+    guest_takes: dict[tuple[str, str], list] = defaultdict(list)
     for t in takes:
         g = str(t["respondentId"])
         sec = str(t["sectionId"]) if t.get("sectionId") else lineage_home.get(str(t.get("questionLineageId")))
         if not sec:
             continue
+        guest_takes[(g, sec)].append(t)
         if t.get("filing") == "NEEDS_DECISION":
             waiting.add((g, sec))
             continue
@@ -434,6 +465,7 @@ async def _guest_cells(db: Any, questionnaire_id: str, respondent_ids: list[str]
                 "covered": covered, "total": total, "needsDecision": (g, sid) in waiting, "override": None,
                 "source": source, "recordedCount": len(rec_q), "typedOnlyCount": len(typed_q - rec_q),
                 "addRecording": source == SOURCE_TYPED,
+                "recordings": cell_recordings(guest_takes.get((g, sid), [])),
             })
         section["guestCells"] = cells
 

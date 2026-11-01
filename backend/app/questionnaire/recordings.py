@@ -813,6 +813,12 @@ async def serialize_recordings(client: Any, rows: list[dict[str, Any]], user: An
     parts = await _part_numbers(client, [str(r["id"]) for r in rows if r.get("continuationOfId")])
     # The chips (owner, 31 Oct 2026) from the rows above, plus one read of the sessions behind them.
     chip_by = await chips.for_rows(client, rows, targets=targets, subjects=every_subject)
+    # The list preview (0.0.6): plain text under speaker labels, never the raw markdown. Two reads.
+    shown = {
+        str(r["mediaFileId"]): (r.get("transcriptText") if r.get("transcriptStatus") in ("COMPLETED", "SKIPPED_DUPLICATE") else None)
+        for r in rows
+    }
+    preview_by = await transcription.previews(shown, client=client)
     out = []
     for r in rows:
         rid = str(r["id"])
@@ -857,6 +863,7 @@ async def serialize_recordings(client: Any, rows: list[dict[str, Any]], user: An
             "transcript": {
                 "status": status, "paused": paused and status in (None, "QUEUED", "RATE_LIMITED", "FAILED"),
                 "text": r.get("transcriptText") if status in ("COMPLETED", "SKIPPED_DUPLICATE") else None, "language": None,
+                "preview": preview_by.get(str(r["mediaFileId"])),
             },
             "consent": consents.get(str(r["mediaFileId"])) or {"verdict": consent_gate.ALLOW, "source": None},
             "chips": chip_by.get(rid),

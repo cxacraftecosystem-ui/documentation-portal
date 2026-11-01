@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import com.fieldrepository.app.questionnaire.ui.rememberKeptValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -70,6 +71,12 @@ data class ServerSearch(
 fun serverSearchMatches(text: String, query: String): Boolean {
     val terms = query.trim().split(' ', '\t', '\n').filter { it.isNotBlank() }
     return terms.all { text.contains(it, ignoreCase = true) }
+}
+
+/** A fresh first page, then every kept row it does not repeat (the later pages), in their order. */
+fun <T> keepLaterPages(first: List<T>, kept: List<T>, idOf: (T) -> String): List<T> {
+    val fresh = first.mapTo(HashSet()) { idOf(it) }
+    return first + kept.filter { idOf(it) !in fresh }
 }
 
 /** Union by id, first writer wins, nothing removed. */
@@ -261,6 +268,25 @@ class ServerSearchState<T> internal constructor(
         }
     }
 
+    /**
+     * The first page again over a list that is already loaded (Back from a record): those rows are
+     * refreshed and every later page stays, so the row the reader opened is still there to return
+     * to (owner, 1 Nov 2026). A failed read leaves the list as it was.
+     */
+    internal suspend fun refreshFirst() {
+        try {
+            val page = fetch(null, 1)
+            browse = keepLaterPages(page.items, browse, idOf)
+            browseTotal = page.total
+            keep(page.items)
+            note = null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            // The kept rows stand; the next deliberate action will say what is wrong.
+        }
+    }
+
     /** Ask for the scope's first page again — the Try again on a list that never arrived. */
     fun retry() {
         val launcher = scope ?: return
@@ -340,15 +366,26 @@ fun <T> rememberServerSearch(
     idOf: (T) -> String,
     textOf: (T) -> String,
     enabled: Boolean = true,
+    /**
+     * A name to keep this list under in the screen's memory ([LocalScreenMemory]): its pages, its
+     * search and its results come back with Back from a record. Null for a picker inside a form.
+     */
+    keepAs: String? = null,
     fetch: suspend (search: String?, page: Int) -> PageResponse<T>
 ): ServerSearchState<T> {
-    val state = remember { ServerSearchState(idOf, textOf) }
+    val state = if (keepAs != null) rememberKeptValue(keepAs) { ServerSearchState(idOf, textOf) } else remember { ServerSearchState(idOf, textOf) }
     val latestFetch by rememberUpdatedState(fetch)
     state.fetch = { search, page -> latestFetch(search, page) }
     state.scope = rememberCoroutineScope()
     state.cached = cached
 
     LaunchedEffect(key, seed, enabled) {
+        // Back to a kept list of the same scope: refresh its first page, keep the rest.
+        if (keepAs != null && state.browseLoaded && state.browseKey == key) {
+            state.currentKey = key
+            if (enabled) state.refreshFirst()
+            return@LaunchedEffect
+        }
         state.reset()
         state.currentKey = key
         if (!enabled) return@LaunchedEffect

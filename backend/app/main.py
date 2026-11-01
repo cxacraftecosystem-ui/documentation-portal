@@ -12,22 +12,23 @@ from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.router import api_router
-from app.api.routes.users import EXISTING_ACCOUNT_HEADER
 from app.api.routes.auth import (
     CONFIRM_SIGN_IN_HEADER,
     SESSION_TOKEN_HEADER,
     SIGN_IN_PROOF_HEADER,
     TWO_FACTOR_REQUIRED_HEADER,
 )
+from app.api.routes.users import EXISTING_ACCOUNT_HEADER
 from app.core.config import get_settings
-from app.services import aadhaar_fingerprint
 from app.core.db import connect_db, db, disconnect_db
 from app.core.deps import PASSWORD_CHANGE_REQUIRED_HEADER
 from app.core.idempotency import IdempotencyMiddleware
-from app.services.app_versions import AppVersionMiddleware
 from app.core.security import verify_jwt_configuration
+from app.services import aadhaar_fingerprint
+from app.services.app_versions import AppVersionMiddleware
 from app.services.email_outbox import process_next_email_jobs
 from app.services.media_queue import process_next_media_jobs, queue_work_due
+from app.transcription import workdir
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,11 @@ async def lifespan(app: FastAPI):
         queue_lock = _acquire_queue_worker_lock()
         if queue_lock is not None:
             logger.info("Media queue worker elected in pid %s", os.getpid())
+            # D37: the transcription working directory, swept of what a killed run left behind.
+            try:
+                await asyncio.to_thread(workdir.on_worker_start)
+            except Exception:
+                logger.warning("transcription workdir sweep failed", exc_info=True)
             queue_task = asyncio.create_task(_media_queue_worker())
             app.state.media_queue_task = queue_task
             app.state.media_queue_lock = queue_lock
@@ -302,7 +308,7 @@ class UnhandledErrorMiddleware:
 
         try:
             await self.app(scope, receive, wrapped_send)
-        except Exception as exc:  # noqa: BLE001 - deliberate catch-all; re-raised when unusable
+        except Exception as exc:
             method = scope.get("method", "?")
             path = scope.get("path", "?")
             logger.exception("Unhandled error on %s %s: %s", method, path, exc)

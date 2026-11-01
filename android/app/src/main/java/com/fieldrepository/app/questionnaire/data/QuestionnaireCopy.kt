@@ -562,6 +562,8 @@ object QuestionnaireCopy {
         "coverage.legend" to "● recorded  ✎ typed  ◐ partial  ◎ uploading  ⚠ needs decision  ○ none",
         "coverage.pickForm" to "Form",
         "coverage.empty" to "No artisans recorded on this form yet.",
+        "coverage.openTake" to "Open recording",
+        "coverage.takes" to "{count} recordings",
         // Sessions: deleted, restored, researchers, read view (A14, B6, B27).
         "sessions.deletedEmpty" to "No deleted sessions.",
         "session.restored" to "Session restored.",

@@ -232,6 +232,34 @@ async def set_speaker(
     )
 
 
+async def opening_turns(media_ids: list[str], *, limit: int = 3, client: Any = None) -> tuple[dict[str, list[dict[str, Any]]], dict[str, dict[str, Any]]]:
+    """The first ``limit`` turns of each recording's current version, and its speaker names.
+
+    TWO reads however many recordings (list previews): ``({mediaId: [turn]}, {mediaId: {speakerKey:
+    speaker}})``. A turn is ``{speakerKey, text}`` with the edited original when there is one.
+    """
+    if not media_ids:
+        return {}, {}
+    conn = client or db
+    turns = await conn.query_raw(
+        'SELECT t."mediaFileId", t."speakerKey", COALESCE(t."editedText", t."machineText") AS text '
+        'FROM "TranscriptTurn" t JOIN "TranscriptVersion" v ON v."id" = t."versionId" AND v."supersededAt" IS NULL '
+        'WHERE t."mediaFileId" = ANY($1::text[]) AND t."position" < $2 ORDER BY t."mediaFileId", t."position"',
+        list(media_ids), int(limit),
+    )
+    names = await conn.query_raw(
+        'SELECT "mediaFileId", "speakerKey", "name", "role" FROM "TranscriptSpeaker" WHERE "mediaFileId" = ANY($1::text[])',
+        list(media_ids),
+    )
+    by_media: dict[str, list[dict[str, Any]]] = {}
+    for row in turns:
+        by_media.setdefault(str(row["mediaFileId"]), []).append({"speakerKey": row.get("speakerKey"), "text": row.get("text") or ""})
+    speakers: dict[str, dict[str, Any]] = {}
+    for row in names:
+        speakers.setdefault(str(row["mediaFileId"]), {})[str(row["speakerKey"])] = row
+    return by_media, speakers
+
+
 # --- Spend and the budget meter ---------------------------------------------------------------
 
 

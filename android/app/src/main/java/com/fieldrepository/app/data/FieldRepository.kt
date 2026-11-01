@@ -2375,8 +2375,17 @@ class FieldRepository(
         }.getOrDefault(false)
 
     /** Stream a stored object straight from its (presigned) URL into [sink]. */
-    private fun writeObject(url: String?, sink: java.io.OutputStream) {
+    private suspend fun writeObject(url: String?, sink: java.io.OutputStream) {
         if (url.isNullOrBlank()) return
+        // A portal API path (0.0.6: a recording's transcript files, `/api/transcripts/{id}/download?…`):
+        // asked of this portal with this account's token, never of the storage client.
+        if (url.startsWith("/api/")) {
+            val response = api.apiPath(url)
+            val body = response.body()
+            if (!response.isSuccessful || body == null) throw IllegalStateException("The download didn't finish. Try again.")
+            body.byteStream().use { it.copyTo(sink) }
+            return
+        }
         storageClient.newCall(Request.Builder().url(url).build()).execute().use { resp ->
             if (!resp.isSuccessful) throw IllegalStateException("The download didn't finish. Try again.")
             resp.body.byteStream().copyTo(sink)

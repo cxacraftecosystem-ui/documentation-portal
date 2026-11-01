@@ -41,6 +41,9 @@ def test_recording_upload_filing_and_approval_never_consult_the_gate() -> None:
         "app/questionnaire/corpus.py", "app/services/consent_gate.py", "app/questionnaire/ports.py", "app/services/questionnaire_ports.py",
         "app/services/recording_consent.py", "app/api/routes/answer_drafts.py",
         "app/services/search_indexer.py",
+        # 0.0.6: View data / Download data leave out the words of a recording whose consent was
+        # refused (owner request). It reads the verdict; it never sends anything anywhere.
+        "app/services/transcript_export.py",
     }
     for path in BACKEND.joinpath("app").rglob("*.py"):
         rel = path.relative_to(BACKEND).as_posix()

@@ -22,6 +22,38 @@ object TranscriptUiText {
     const val noTurns = "No speech in this recording."
     const val glossaryEmpty = "No craft terms heard yet."
     const val shareCard = "Share card and clip"
+    // 0.0.6: reading mode, auto-follow and the timeline marks.
+    const val readingMode = "Reading mode"
+    const val both = "Both"
+    const val followAlong = "Follow along"
+    const val markAll = "Mark all"
+    const val clearMarks = "Clear marks"
+
+    // 0.0.6: transcripts in View data and Download data.
+    const val dataTitle = "Transcripts"
+    const val dataAbout = "Every recording you can see, with speakers, times, English, summaries, quotes and craft terms."
+    const val dataWords = "Words said"
+    const val dataSpeaker = "Speaker"
+    const val dataHasEnglish = "Has English"
+    const val dataRecordings = "Recordings"
+    const val dataTurns = "Turns"
+    const val dataGlossary = "Glossary"
+    const val dataPreparing = "Preparing…"
+    const val dataMore = "Load more"
+    const val dataNone = "No recordings match."
+    const val dataWithheld = "Consent refused: nothing said is shown or downloaded."
+    const val dataDownloadFailed = "Couldn't download. Check the connection and try again."
+    fun dataMoreTurns(n: Int) = if (n == 1) "1 more turn" else "$n more turns"
+    fun dataQuotes(n: Int) = if (n == 1) "1 quote" else "$n quotes"
+
+    /** A transcript file's chip: "Word", "Markdown, no times", "SRT, English". */
+    fun fileLabel(format: String, english: Boolean, timestamps: Boolean): String {
+        val kind = when (format) { "md" -> "Markdown"; "docx" -> "Word"; else -> format.uppercase() }
+        return listOfNotNull(kind, "English".takeIf { english }, "no times".takeIf { !timestamps && format in setOf("md", "docx") }).joinToString(", ")
+    }
+
+    /** What a timeline mark says to a screen reader: its time, then who spoke and what they said. */
+    fun markSaid(time: String, speaker: String, text: String) = "$time. $speaker: $text"
 
     fun waiting(n: Int) = if (n == 1) "1 change waiting to send" else "$n changes waiting to send"
 

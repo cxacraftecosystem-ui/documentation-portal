@@ -16,7 +16,7 @@ import { coverageCell, modeLabel } from "@/lib/questionnaire/view";
 import { chipToggler, FilterBar } from "@/components/questionnaire/FilterBar";
 import { OutboxTray } from "@/components/questionnaire/OutboxTray";
 import { RecordingChips } from "@/components/questionnaire/RecordingChips";
-import { useUrlFilters } from "@/components/questionnaire/useUrlFilters";
+import { useListPlace, useUrlFilters } from "@/components/questionnaire/useUrlFilters";
 import { cleanFilters, type FilterKey, type Filters } from "@/lib/questionnaire/filters";
 import { qs } from "@/lib/questionnaire/qs";
 import { FORMS_HREF } from "@/lib/questionnairePortal";
@@ -37,6 +37,7 @@ export function SessionsList({ fixed, embedded = false }: { fixed?: Filters; emb
   const [items, setItems] = useState<Session[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [capped, setCapped] = useState(false);
+  const [pages, setPages] = useState(0);
   const { filters, setFilters, ready } = useUrlFilters();
   const [error, setError] = useState<string | null>(null);
   const generation = useRef(0);
@@ -52,6 +53,7 @@ export function SessionsList({ fixed, embedded = false }: { fixed?: Filters; emb
       setItems((prev) => (after && prev ? [...prev, ...page.items] : page.items));
       setCursor(page.nextCursor);
       setCapped(page.capped);
+      setPages((n) => (after ? n + 1 : 1));
     } catch {
       if (mine === generation.current) setError(qs("listLoadError"));
     }
@@ -60,6 +62,14 @@ export function SessionsList({ fixed, embedded = false }: { fixed?: Filters; emb
   useEffect(() => {
     if (ready) void load(filters, null);
   }, [ready, filters, load]);
+
+  // Back from a session: as many pages as were open, then the scroll (`useListPlace`).
+  const { wantsMore } = useListPlace(pages, items !== null, cursor === null);
+  useEffect(() => {
+    if (cursor && wantsMore(pages)) void load(filters, cursor);
+    // `filters` is read as it stands; a change of filters reloads from page one above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cursor, pages, wantsMore, load]);
 
   const shown = items ?? [];
   const onChip = chipToggler(filters, setFilters);

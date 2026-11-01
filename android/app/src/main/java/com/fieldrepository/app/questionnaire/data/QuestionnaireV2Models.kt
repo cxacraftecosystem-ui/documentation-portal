@@ -355,7 +355,18 @@ data class QSubject(
 data class QUserRef(val id: String = "", val name: String = "")
 
 @Serializable
-data class QTranscript(val status: String = "QUEUED", val paused: Boolean = true, val text: String? = null, val language: String? = null)
+data class QTranscript(
+    val status: String = "QUEUED",
+    val paused: Boolean = true,
+    val text: String? = null,
+    val language: String? = null,
+    /** The list preview (0.0.6): speakers as labels, never markdown; rebuilt from [text] when absent. */
+    val preview: com.fieldrepository.app.transcript.data.TranscriptPreviewDto? = null,
+) {
+    /** What a row shows under the take: the server's preview, else the same rule over [text]. */
+    fun shownPreview(): com.fieldrepository.app.transcript.data.TranscriptPreviewDto? =
+        preview?.takeIf { it.lines.isNotEmpty() } ?: text?.let(com.fieldrepository.app.transcript.data.TranscriptPreview::fromMarkdown)
+}
 
 @Serializable
 data class QConsentVerdict(val verdict: String = "AWAITING", val source: String? = null)
@@ -780,10 +791,24 @@ data class QGridCell(
     val recordedCount: Int = 0,
     val typedOnlyCount: Int = 0,
     /** A typed-only cell: "Add a recording?", never blocking. */
-    val addRecording: Boolean = false
+    val addRecording: Boolean = false,
+    /** The takes behind the dot (0.0.6), oldest first: one opens directly, several open a chooser. */
+    val recordings: List<QCoverageRecording> = emptyList()
 ) {
     val subjectId: String get() = QSubjects.of(artisanId, respondentId)
 }
+
+/** One take behind a coverage cell (transcript contract `CoverageRecording`, 0.0.6). */
+@Serializable
+data class QCoverageRecording(
+    val recordingId: String,
+    val mediaFileId: String? = null,
+    val sessionId: String? = null,
+    val capturedAt: String? = null,
+    val durationMs: Long? = null,
+    val recordedBy: QUserRef? = null,
+    val needsDecision: Boolean = false
+)
 
 @Serializable
 data class QGridSection(val sectionId: String, val code: String = "", val title: String = "", val cells: List<QGridCell> = emptyList())

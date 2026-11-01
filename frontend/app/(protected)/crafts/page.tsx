@@ -287,7 +287,7 @@ function CraftsPageBody() {
    * BACK FROM A CRAFT'S VIEW PUTS THE LIST BACK AS IT WAS — search, page and scroll. A row click
    * opens the read-only view (`/crafts/[id]`); see `lib/listReturn.ts`.
    */
-  const listReturn = useListReturn("crafts");
+  const listReturn = useListReturn("crafts", { query: applied, page }, Boolean(catalogue));
   useEffect(() => {
     const note = listReturn.restored;
     if (!note) return;

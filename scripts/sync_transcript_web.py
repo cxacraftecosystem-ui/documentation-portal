@@ -30,6 +30,7 @@ EXTRA = (
     "scripts/sync_transcript_web.py",
     "frontend/e2e/transcript-contract-unit.spec.ts",
     "frontend/e2e/transcript-web-imports-unit.spec.ts",
+    "frontend/e2e/transcript-preview-unit.spec.ts",
     "frontend/e2e/transcript-web.spec.ts",
     "frontend/e2e/support/transcriptFake.ts",
 )

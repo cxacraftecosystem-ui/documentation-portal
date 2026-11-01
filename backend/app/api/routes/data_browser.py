@@ -83,10 +83,33 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 
 from app.core.db import db
-from app.questionnaire.live import live_media_where
 from app.core.deps import require_dataset_downloader
-from app.services import answer_drafts
-from app.services.records import owned_or_granted_where
+from app.questionnaire.live import live_media_where
+from app.services import (
+    answer_drafts,
+    naming,
+    transcript_export,
+    transcript_pipeline,
+    transcript_portal,
+)
+from app.services.media_naming import (
+    RESERVED_NAMES as _RESERVED_NAMES,
+)
+from app.services.media_naming import (
+    clip as _clip,
+)
+from app.services.media_naming import (
+    display_filename,
+    folder_order,
+    interview_record,
+    transcript_filename,
+    unique_display_filename,
+    unique_display_stem,
+    unique_name,
+)
+from app.services.media_naming import (
+    safe_chars as _safe_chars,
+)
 from app.services.record_fields import (
     MEDIA_COLOR,
     MEDIA_COLUMNS,
@@ -95,32 +118,34 @@ from app.services.record_fields import (
     SPECS,
     TRANSCRIPT_COLOR,
     artisan_names,
-    cell as _cell,
-    date_str as _date,
-    enum_label as _enum_label,
-    ev as _ev,
-    human_size as _human_size,
     info_panel,
-    info_text as _info_text,
-    interview_label as _interview_label,
     media_row,
     provenance_row,
     sheet_columns,
     sheet_row,
 )
-from app.services import naming
-from app.services.media_naming import (
-    RESERVED_NAMES as _RESERVED_NAMES,
-    clip as _clip,
-    display_filename,
-    folder_order,
-    interview_record,
-    safe_chars as _safe_chars,
-    unique_display_filename,
-    transcript_filename,
-    unique_display_stem,
-    unique_name,
+from app.services.record_fields import (
+    cell as _cell,
 )
+from app.services.record_fields import (
+    date_str as _date,
+)
+from app.services.record_fields import (
+    enum_label as _enum_label,
+)
+from app.services.record_fields import (
+    ev as _ev,
+)
+from app.services.record_fields import (
+    human_size as _human_size,
+)
+from app.services.record_fields import (
+    info_text as _info_text,
+)
+from app.services.record_fields import (
+    interview_label as _interview_label,
+)
+from app.services.records import owned_or_granted_where
 from app.services.s3 import get_object_bytes
 from app.services.transcript_format import transcript_cell
 from app.services.xlsx_report import XLSX_MIME, build_report_workbook
@@ -541,6 +566,15 @@ def _media_entries(
                     step_number=step_number,
                     position=position,
                 ),
+                # 0.0.6: the row and its naming arguments, so /manifest and /tree can name the
+                # recording's transcript files (services/transcript_export.bundle_names).
+                "_media": m,
+                "_nameKw": {
+                    "record_type": record_type,
+                    "record_name": record_name,
+                    "step_number": step_number,
+                    "position": position,
+                },
             }
         )
     return entries
@@ -1425,6 +1459,10 @@ def _transcript_entries(parent: str, media: list[Any]) -> list[dict[str, Any]]:
                 "originalFilename": m.originalFilename,
                 "content": m.transcriptText,
                 "mediaId": m.id,
+                # 0.0.6: consent and the per-recording transcript files (transcript_export).
+                "_txMedia": m.id,
+                "_media": m,
+                "_nameKw": {"position": position},
             }
         )
     return entries
@@ -1800,6 +1838,7 @@ async def data_tree(
     scope = await _scope_for(current_user, data_status(status_value))
     norm = _norm(path)
     entries, info = await _list_level(norm, scope)
+    entries = await transcript_export.settle_tree(entries, pipeline_on=transcript_pipeline.enabled())
     crumbs = await _resolve_crumbs(norm)
     public = [{k: v for k, v in e.items() if not k.startswith("_")} for e in entries]
     public.sort(key=lambda e: (0 if e["kind"] == "folder" else 1, e["name"].lower()))
@@ -1873,6 +1912,20 @@ async def _walk(
             )
             continue
         if "content" in e:
+            if e.get("_txMedia"):
+                # A transcript file of the Transcripts folder: settled with the rest of them.
+                if include is None or "transcripts" in include or "text" in include:
+                    mid = str(e["_txMedia"])
+                    entry = {"content": e["content"], "mediaId": mid, "_tx": (mid, "legacy")}
+                    if e.get("originalFilename"):
+                        entry["originalFilename"] = e["originalFilename"]
+                    emit(entry, *_split_leaf(e["name"]))
+                    for leaf, file_entry, needs in transcript_export.bundle_entries(
+                        mid, transcript_export.bundle_names(e["_media"], e.get("_nameKw"))
+                    ):
+                        file_entry["_tx"] = (mid, "pipeline", needs)
+                        emit(file_entry, *_split_leaf(leaf))
+                continue
             if include is None or "text" in include:
                 entry = {"content": e["content"]}
                 if e.get("originalFilename"):
@@ -1919,14 +1972,26 @@ async def _walk(
                     extension,
                 )
         if e.get("transcriptAvailable") and (include is None or "transcripts" in include):
+            # The stored transcript inline, AND the recording's transcript files (md and docx with
+            # and without timestamps, srt and vtt): ``transcript_export.finalize_manifest`` keeps
+            # one set or the other per recording, and none where consent was refused.
+            mid = str(e["mediaId"])
             emit(
                 {
                     "content": e.get("_transcriptText") or "",
                     "originalFilename": original,
                     "mediaId": e["mediaId"],
+                    "_tx": (mid, "legacy"),
                 },
                 *_split_leaf(e.get("_transcriptName") or f"{stem}.md"),
             )
+            if e.get("_media") is not None:
+                for leaf, file_entry, needs in transcript_export.bundle_entries(
+                    mid, transcript_export.bundle_names(e["_media"], e.get("_nameKw"))
+                ):
+                    file_entry["originalFilename"] = original
+                    file_entry["_tx"] = (mid, "pipeline", needs)
+                    emit(file_entry, *_split_leaf(leaf))
     if child_walks:
         await asyncio.gather(*child_walks)
 
@@ -2046,7 +2111,10 @@ async def data_manifest(
     files: list[dict[str, Any]] = []
     state = {"truncated": False}
     await _walk(norm, "", include_set, files, 0, set(), state, scope)
-    total_media = sum(1 for f in files if f.get("mediaId") and f.get("content") is None)
+    await transcript_export.finalize_manifest(files, pipeline_on=transcript_pipeline.enabled())
+    total_media = sum(
+        1 for f in files if f.get("mediaId") and f.get("content") is None and f.get("mediaType") != "TRANSCRIPT"
+    )
     if stream:
         return manifest_ndjson_response(
             files, total_media, bool(state["truncated"]), "manifest.ndjson"
@@ -3036,7 +3104,17 @@ async def data_report(
     norm = _norm(path)
     segs = [s for s in norm.split("/") if s]
     records = await _report_records(segs, scope)
+    # 0.0.6: no words of a recording whose consent was refused, in any sheet; then the transcript
+    # pipeline's sheets (recordings with summary, quotes, glossary and chips; turns; glossary).
+    await transcript_export.withhold_refused(records["media"])
     sheets = _report_sheets(records)
+    sheets += await transcript_export.report_sheets(
+        [m.id for m in records["media"] if (m.transcriptText or "").strip()],
+        sees_spend=transcript_portal.may_see_spend(current_user),
+        sheet=_sheet,
+        cap=REPORT_TAKE,
+        color=TRANSCRIPT_COLOR,
+    )
     if fmt == "json":
         return JSONResponse({"sheets": sheets})
 

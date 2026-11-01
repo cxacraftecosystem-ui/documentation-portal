@@ -30,6 +30,8 @@ data class TranscriptSpeaker(
     val suggested: Boolean = false,
     /** A few seconds of this speaker (their longest turn, at most 8 s), played when naming them. */
     val sample: TranscriptClip? = null,
+    /** `s0`..`s7` or `neutral` (0.0.6): the speaker's colour, from their key only. */
+    val colorKey: String? = null,
 )
 
 /** `GET /settings/transcription`'s `audioIsolation` (0.0.5): the switch, and whether its key is set. */
@@ -78,6 +80,8 @@ data class TranscriptTurn(
     val words: List<TranscriptWord> = emptyList(),
     val translation: TurnTranslation = TurnTranslation(),
     val revision: Int = 0,
+    /** As [TranscriptSpeaker.colorKey] (0.0.6). */
+    val colorKey: String? = null,
 )
 
 @Serializable

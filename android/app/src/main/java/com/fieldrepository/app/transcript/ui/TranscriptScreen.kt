@@ -364,7 +364,7 @@ fun copyToClipboard(context: Context, text: String) {
     manager.setPrimaryClip(ClipData.newPlainText(TranscriptUiText.open, text))
 }
 
-private fun shareDir(context: Context): File = File(context.cacheDir, "transcript-share").apply { mkdirs() }
+internal fun shareDir(context: Context): File = File(context.cacheDir, "transcript-share").apply { mkdirs() }
 
 private fun mimeOf(file: File): String = when (file.extension.lowercase()) {
     "md" -> "text/markdown"
@@ -373,10 +373,12 @@ private fun mimeOf(file: File): String = when (file.extension.lowercase()) {
     "vtt" -> "text/vtt"
     "png" -> "image/png"
     "m4a" -> "audio/mp4"
+    "csv" -> "text/csv"
+    "ndjson" -> "application/x-ndjson"
     else -> "application/octet-stream"
 }
 
-private fun shareFiles(context: Context, files: List<File>, text: String?) {
+internal fun shareFiles(context: Context, files: List<File>, text: String?) {
     if (files.isEmpty()) return
     val authority = TranscriptPortal.fileProviderAuthority(context)
     val uris = ArrayList(files.map { FileProvider.getUriForFile(context, authority, it) })

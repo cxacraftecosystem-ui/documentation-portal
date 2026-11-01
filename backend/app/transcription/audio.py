@@ -15,9 +15,10 @@ import os
 import re
 import shutil
 import subprocess
-import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
+
+from app.transcription import workdir
 
 Runner = Callable[[list[str]], "subprocess.CompletedProcess[str]"]
 
@@ -199,7 +200,7 @@ class PartCutter:
     def prepare(self, source_path: str) -> list[PartPlan] | None:
         """Normalise and plan. None when ffmpeg cannot read the recording."""
         if self._wav is None:
-            self._dir = tempfile.mkdtemp(prefix="transcription_parts_")
+            self._dir = workdir.make_dir(prefix="transcription_parts_")
             wav = os.path.join(self._dir, "normalised_16k_mono.wav")
             if not normalise_to_wav(source_path, wav, self.runner):
                 return None

@@ -43,6 +43,8 @@ export type TranscriptSpeaker = {
   suggested: boolean;
   /** A few seconds of this speaker (their longest turn, at most 8 s), to play when naming them. */
   sample?: { startMs: number; endMs: number } | null;
+  /** Contract v2: the `speakerPalette` slot ("s0".."s7", "neutral"); from the key only, so a rename never moves it. */
+  colorKey?: string;
 };
 
 export type TranscriptWord = {
@@ -59,6 +61,8 @@ export type TranscriptTurn = {
   speakerKey: string | null;
   /** As the speaker's label; the copy uses this. */
   speakerName: string;
+  /** Contract v2: as the speaker's `colorKey`; "neutral" with no speaker. */
+  colorKey?: string;
   startMs: number;
   endMs: number;
   language: string;
@@ -112,6 +116,12 @@ export type Transcript = {
   revision: number;
   updatedAt: string;
 };
+
+/** One line of a list row's preview (contract v2): plain text, the speaker a separate label. */
+export type PreviewLine = { speaker: string | null; speakerKey: string | null; colorKey: string; text: string };
+
+/** A list row's transcript preview (contract v2): 1..3 lines, and the same on one line for a label. */
+export type TranscriptPreview = { text: string; lines: PreviewLine[] };
 
 export type SpeakerCandidate = { name: string; role: SpeakerRole; personId: string | null; reason: "roster" | "researcher" | "uploader" | "most_speech" };
 export type SpeakerSuggestion = { speakerKey: string; candidates: SpeakerCandidate[] };

@@ -105,7 +105,7 @@ export default function ToolsPage() {
    * and restored here on the way back — see `lib/listReturn.ts` and the artisans list, which carries
    * the same block.
    */
-  const listReturn = useListReturn("tools");
+  const listReturn = useListReturn("tools", { query: applied, page, funnel, completeness }, Boolean(data));
   const restoredPage = useRef<number | null>(null);
   useEffect(() => {
     const note = listReturn.restored;

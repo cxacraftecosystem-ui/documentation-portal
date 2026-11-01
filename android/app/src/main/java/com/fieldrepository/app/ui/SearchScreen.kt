@@ -44,6 +44,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import com.fieldrepository.app.questionnaire.ui.rememberKept
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -324,18 +325,21 @@ fun SearchScreen(
      */
     val seed = remember(initialRecordType) { SearchFilters(types = setOfNotNull(initialRecordType)) }
     // Live inputs.
-    var filters by remember(seed) { mutableStateOf(seed) }
+    // Kept in the screen's memory under the bucket it was opened on: Back from a result lands on the
+    // same filters, page and rows, scrolled to the result that was opened (owner, 1 Nov 2026).
+    val kept = "search.${initialRecordType.orEmpty()}"
+    var filters by rememberKept("$kept.filters") { seed }
     // The filters the CURRENT results belong to. The pager and the rendered buckets walk THESE,
     // never `filters`: they describe the rows on screen, and a half-typed box does not.
-    var applied by remember(seed) { mutableStateOf(seed) }
-    var page by remember(seed) { mutableStateOf(1) }
+    var applied by rememberKept("$kept.applied") { seed }
+    var page by rememberKept("$kept.page") { 1 }
     // Bumped by the Search button so pressing it re-runs an identical query (same filters, same page).
     var runCount by remember { mutableStateOf(0) }
     // Set once the researcher explicitly asks for an unfiltered listing — or immediately, when the
     // screen was opened from a dashboard total, which is that same request made by tapping a number.
-    var browseAll by remember(seed) { mutableStateOf(initialRecordType != null) }
+    var browseAll by rememberKept("$kept.browseAll") { initialRecordType != null }
 
-    var results by remember(seed) { mutableStateOf<SearchResultsDto?>(null) }
+    var results by rememberKept("$kept.results") { null as SearchResultsDto? }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 

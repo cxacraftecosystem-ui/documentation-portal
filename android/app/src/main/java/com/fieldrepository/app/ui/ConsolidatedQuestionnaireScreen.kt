@@ -782,9 +782,12 @@ private fun AnswerRow(answer: ConsolidatedAnswerDto, ordinal: Int?) {
             )
         }
         val body = answer.answerText?.takeIf { it.isNotBlank() }
-            ?: answer.transcriptText?.takeIf { it.isNotBlank() }
+        val spoken = answer.transcriptText?.takeIf { it.isNotBlank() }
         if (body != null) {
             Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+        } else if (spoken != null) {
+            // The stored transcript is markdown: read as speech, speakers as labels (0.0.6).
+            com.fieldrepository.app.transcript.ui.TranscriptSpokenText(spoken)
         } else if (answer.kind == "RECORDED") {
             Text(
                 answer.filename ?: "Recording",
