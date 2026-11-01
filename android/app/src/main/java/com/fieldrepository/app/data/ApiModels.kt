@@ -522,7 +522,9 @@ data class MediaFileDto(
     val linkedRecordType: String? = null,
     val linkedRecordId: String? = null,
     /** A questionnaire take's chips (section, form, artisans, dates, workshop; owner, 31 Oct 2026). */
-    val questionnaireChips: com.fieldrepository.app.questionnaire.data.QChips? = null
+    val questionnaireChips: com.fieldrepository.app.questionnaire.data.QChips? = null,
+    /** What was said (0.0.6, transcript contract `TranscriptPreview`): speakers as labels, never markdown. */
+    val transcriptPreview: com.fieldrepository.app.transcript.data.TranscriptPreviewDto? = null
 )
 
 @Serializable
@@ -2976,7 +2978,9 @@ data class DataTreeEntryDto(
     val url: String? = null,
     val sizeBytes: Long? = null,
     val transcriptAvailable: Boolean = false,
-    val content: String? = null
+    val content: String? = null,
+    /** A recording's transcript files (0.0.6): md and Word, with and without times; subtitles when timed. */
+    val transcriptFiles: List<com.fieldrepository.app.transcript.data.DataTranscriptFile> = emptyList()
 ) {
     val isFolder: Boolean get() = kind == "folder"
 }

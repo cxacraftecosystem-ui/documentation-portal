@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -37,6 +38,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -48,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.BuildConfig
 import com.fieldrepository.app.data.Naming
@@ -59,6 +62,8 @@ import com.fieldrepository.app.questionnaire.data.QSession
 import com.fieldrepository.app.questionnaire.data.QSessionCreate
 import com.fieldrepository.app.questionnaire.data.QWorkshopOption
 import com.fieldrepository.app.questionnaire.data.QuestionnaireFilters
+import com.fieldrepository.app.questionnaire.data.KeptPages
+import com.fieldrepository.app.questionnaire.data.ListPaging
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.questionnaire.data.QuestionnaireV2
 import com.fieldrepository.app.questionnaire.data.SessionUnit
@@ -158,14 +163,27 @@ fun QuestionnaireHome(
     /** The host's way out, when the home owns the whole viewport (its own back control). */
     onBack: (() -> Unit)? = null,
     /** The home's box: the host gives it a bounded height when it sits in a page that scrolls. */
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /**
+     * A session opened from another screen of the app (a form's own sessions on its detail page):
+     * Back from it goes there through this, instead of to the home's list. Null: the home's list.
+     */
+    onLeaveSession: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val v2 = remember { QuestionnaireV2.get(context) }
     val scope = rememberCoroutineScope()
     val mayDelete = LocalMayDelete.current
-    var tab by remember { mutableStateOf(initialTab) }
+    var tab by rememberKept("q.tab") { initialTab }
     var route by remember { mutableStateOf<QRoute>(QRoute.List) }
+    // BACK FROM A SESSION LANDS WHERE IT WAS OPENED (owner, 1 Nov 2026): the sessions list, the
+    // recordings list or the inbox, on the tab it was opened from, with that list's rows, pages and
+    // scroll as they were left. Each list keeps them in a memory of its own ([ScreenMemory]); a fresh
+    // way in from the menu starts that memory over.
+    val origin = remember { SessionOrigin<QRoute>(QRoute.List) }
+    val homeMemory = LocalScreenMemory.current ?: remember { ScreenMemory() }
+    val sessionsScroll = rememberKeptValue("q.sessions.scroll") { ScrollState(0) }
+    val formsScroll = rememberKeptValue("q.forms.scroll") { ScrollState(0) }
     // "Continue with…" / "Start session" from an artisan's record or a form: held HERE, because the
     // caller clears its request as soon as this screen takes it (audit M23: it used to be lost).
     var prefill by remember { mutableStateOf(prefillArtisanIds) }
@@ -179,9 +197,10 @@ fun QuestionnaireHome(
     var defaultWorkshop by remember { mutableStateOf<String?>(null) }
     // The start sheet reads its defaults (form, workshop) once, when it opens; it waits for the lists.
     var listsLoaded by remember { mutableStateOf(false) }
-    var rows by remember { mutableStateOf<List<SessionListRow>>(emptyList()) }
-    var cursor by remember { mutableStateOf<String?>(null) }
-    var capped by remember { mutableStateOf(false) }
+    var kept by rememberKept("q.sessions.pages") { KeptPages<SessionListRow>() }
+    val rows = kept.rows
+    val cursor = kept.cursor
+    var capped by rememberKept("q.sessions.capped") { false }
     // B28 and the shared filters (owner, 31 Oct 2026): kept per list across navigation and restarts.
     val (filters, setFilters) = rememberKeptFilters(v2, FilterStore.SESSIONS)
     var offline by remember { mutableStateOf(false) }
@@ -222,8 +241,8 @@ fun QuestionnaireHome(
         val local = if (!filters.without("q").isEmpty) emptyList() else units.filter { it.sessionId == null }.mapNotNull { localRow(it, names) }
             .filter { search.isBlank() || it.title.contains(search, ignoreCase = true) || it.note.orEmpty().contains(search, ignoreCase = true) }
         val result = runCatching { page(null) }.getOrNull()
-        rows = appendPage(local, result?.items.orEmpty())
-        cursor = result?.nextCursor
+        // The first page again, with every later page kept for the same filters ([ListPaging]).
+        kept = ListPaging.arrive(kept, filters, appendPage(local, result?.items.orEmpty()), result?.nextCursor) { it.key }
         offline = result?.offline == true
         capped = false
         // The fix tray's way in: sessions with work this phone could not send (audit H20).
@@ -234,10 +253,28 @@ fun QuestionnaireHome(
 
     suspend fun loadInstrument(qid: String): Instrument? = v2.form(qid)?.let(Instrument::from)
 
+    /** Where Back from a session returns: the list it was opened from (see [SessionOrigin]). */
+    fun noteOrigin() = origin.note(route, tab, inSession = route is QRoute.Workspace || route is QRoute.ReadView)
+
+    fun backFromSession() {
+        when (val back = origin.back()) {
+            SessionOrigin.Back.Host -> {
+                route = QRoute.List
+                onLeaveSession?.invoke()
+            }
+            is SessionOrigin.Back.To -> {
+                route = back.route
+                back.tab?.let { tab = it }
+            }
+        }
+        refresh++
+    }
+
     suspend fun openUnit(clientKey: String) {
         val unit = v2.outbox.unit(clientKey)
         val qid = unit?.questionnaireId ?: return
         instrument = loadInstrument(qid)
+        noteOrigin()
         route = QRoute.Workspace(clientKey)
     }
 
@@ -265,6 +302,10 @@ fun QuestionnaireHome(
     LaunchedEffect(serverSession) {
         val id = serverSession ?: return@LaunchedEffect
         QuestionnaireV2Nav.openServerSession.value = null
+        // Opened from a form's own sessions (the Forms tab): Back returns to that form. Opened from
+        // another screen that asked for it back (DR's form detail): Back returns there.
+        noteOrigin()
+        if (onLeaveSession != null) origin.noteHost()
         tab = QuestionnaireTab.SESSIONS
         openServerId(id)
     }
@@ -274,6 +315,7 @@ fun QuestionnaireHome(
         val f = chipToShow ?: return@LaunchedEffect
         QuestionnaireV2Nav.showRecordings.value = null
         tab = QuestionnaireTab.SESSIONS
+        homeMemory.forgetChild("recordings")
         route = QRoute.Recordings(f)
     }
     // A form's "Start session" from elsewhere in the app.
@@ -284,7 +326,8 @@ fun QuestionnaireHome(
         tab = QuestionnaireTab.SESSIONS; route = QRoute.List; prefillForm = id; starting = true
     }
 
-    if (route != QRoute.List) BackHandler { route = QRoute.List; refresh++ }
+    if (route is QRoute.Workspace || route is QRoute.ReadView) BackHandler { backFromSession() }
+    else if (route != QRoute.List) BackHandler { route = QRoute.List; refresh++ }
     else if (onBack != null) BackHandler { onBack() }
 
     Box(modifier.fillMaxSize()) {
@@ -301,10 +344,14 @@ fun QuestionnaireHome(
                     ) { tab = QuestionnaireTab.valueOf(it) }
                     if (config?.updateRequired(BuildConfig.VERSION_CODE) == true) UpdateBanner(onUpdateApp)
                 }
-                if (tab == QuestionnaireTab.FORMS) Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp)) {
-                    formsTab { questionnaireId -> prefillForm = questionnaireId; tab = QuestionnaireTab.SESSIONS; starting = true }
+                if (tab == QuestionnaireTab.FORMS) Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(formsScroll).padding(16.dp).testTag("questionnaire.forms")) {
+                    // The forms library keeps its rows and its open form in a memory of its own, so a
+                    // session opened from a form comes back to that form.
+                    CompositionLocalProvider(LocalScreenMemory provides homeMemory.child("forms"), LocalFormsScroll provides formsScroll) {
+                        formsTab { questionnaireId -> prefillForm = questionnaireId; tab = QuestionnaireTab.SESSIONS; starting = true }
+                    }
                     Box(Modifier.padding(bottom = 72.dp))
-                } else Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                } else Column(Modifier.fillMaxWidth().verticalScroll(sessionsScroll).padding(16.dp).testTag("questionnaire.sessions"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(QuestionnaireCopy.s("sessions.title"), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
                         BadgedBox(badge = { if (inboxCount > 0) Badge { Text("$inboxCount") } }) {
@@ -318,7 +365,7 @@ fun QuestionnaireHome(
                                         menu = false
                                         route = when (key) {
                                             "coverage.title" -> QRoute.Coverage
-                                            "recordings" -> QRoute.Recordings()
+                                            "recordings" -> QRoute.Recordings().also { homeMemory.forgetChild("recordings") }
                                             else -> QRoute.Join
                                         }
                                     })
@@ -363,7 +410,7 @@ fun QuestionnaireHome(
                             loadingMore = true
                             scope.launch {
                                 runCatching { page(cursor) }
-                                    .onSuccess { next -> rows = appendPage(rows, next.items); cursor = next.nextCursor }
+                                    .onSuccess { next -> kept = ListPaging.more(kept, next.items.map(::serverRow), next.nextCursor) { it.key } }
                                     .onFailure { onError(QuestionnaireCopy.s("error.needsSignal")) }
                                 loadingMore = false
                             }
@@ -376,15 +423,15 @@ fun QuestionnaireHome(
             is QRoute.Workspace -> SessionWorkspace(
                 v2 = v2, clientKey = r.clientKey, instrument = instrument, artisans = artisans, meId = meId,
                 canMakePrimary = canMakePrimary, isAdmin = isAdmin,
-                onBack = { route = QRoute.List; refresh++ },
+                onBack = { backFromSession() },
                 onOpenSession = { session -> scope.launch { openServer(session) } },
-                onOpenReadView = { id -> route = QRoute.ReadView(id) },
+                onOpenReadView = { id -> noteOrigin(); route = QRoute.ReadView(id) },
                 onError = onError
             )
             is QRoute.ReadView -> SessionReadView(
                 v2 = v2, sessionId = r.sessionId, canReview = canReview,
                 loadInstrument = { loadInstrument(it) },
-                onBack = { route = QRoute.List; refresh++ },
+                onBack = { backFromSession() },
                 onUpdate = { session -> scope.launch { openServer(session) } },
                 onError = onError
             )
@@ -399,12 +446,14 @@ fun QuestionnaireHome(
                 TextButton(onClick = { route = QRoute.List }) { Text("‹ " + QuestionnaireCopy.s("sessions.title")) }
                 JoinScanner(v2, meId, onJoined = { key -> scope.launch { openUnit(key) } }, onError = onError)
             }
-            is QRoute.Recordings -> Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
-                TextButton(onClick = { route = QRoute.List; refresh++ }) { Text("‹ " + QuestionnaireCopy.s("sessions.title")) }
-                RecordingsList(
-                    v2, initial = r.initial, onError = onError,
-                    onOpenSession = { sessionId -> scope.launch { openServerId(sessionId) } }
-                )
+            is QRoute.Recordings -> CompositionLocalProvider(LocalScreenMemory provides homeMemory.child("recordings")) {
+                Column(Modifier.verticalScroll(rememberKeptValue("scroll") { ScrollState(0) }).padding(16.dp).testTag("questionnaire.recordings")) {
+                    TextButton(onClick = { route = QRoute.List; refresh++ }) { Text("‹ " + QuestionnaireCopy.s("sessions.title")) }
+                    RecordingsList(
+                        v2, initial = r.initial, onError = onError,
+                        onOpenSession = { sessionId -> scope.launch { openServerId(sessionId) } }
+                    )
+                }
             }
             QRoute.Coverage -> Column {
                 TextButton(onClick = { route = QRoute.List }) { Text("‹ " + QuestionnaireCopy.s("sessions.title")) }

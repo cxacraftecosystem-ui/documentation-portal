@@ -2,6 +2,7 @@ package com.fieldrepository.app.questionnaire.ui
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,7 +17,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.testTag
+import com.fieldrepository.app.questionnaire.data.CoverageRecordings
+import com.fieldrepository.app.transcript.ui.TranscriptDialog
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -63,6 +69,27 @@ fun WorkshopCoverageScreen(
     var grid by remember { mutableStateOf<QGrid?>(null) }
     var names by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var loading by remember { mutableStateOf(false) }
+    // A dot's takes (0.0.6): one opens its transcript, several open the chooser first.
+    var choosing by remember { mutableStateOf<List<CoverageRecordings.Take>?>(null) }
+    var opened by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    fun open(takes: List<CoverageRecordings.Take>) {
+        when (val o = CoverageRecordings.opens(takes)) {
+            CoverageRecordings.Opens.Nothing -> Unit
+            is CoverageRecordings.Opens.One -> opened = o.take.mediaFileId
+            is CoverageRecordings.Opens.Choose -> choosing = o.takes
+        }
+    }
+    fun openDot(sectionId: String, subjectId: String, cell: QGridCell) {
+        val listed = CoverageRecordings.ofCell(cell)
+        if (cell.recordings.isNotEmpty()) return open(listed)
+        // A server older than 0.0.6 sends only the count: ask the recordings list.
+        scope.launch {
+            val filters = CoverageRecordings.filters(formId, sectionId, subjectId, workshopId, QuestionnairePortal.FILES_UNDER_DESIGN_WORKSHOP)
+            val rows = runCatching { v2.recordingsPage(filters, limit = 50).items }.getOrElse { onError(it.userSentence()); return@launch }
+            open(CoverageRecordings.fromList(rows, sectionId, subjectId))
+        }
+    }
     LaunchedEffect(formId, workshopId) {
         if (formId.isBlank()) return@LaunchedEffect
         loading = true
@@ -97,17 +124,22 @@ fun WorkshopCoverageScreen(
                 Row(Modifier.padding(vertical = 6.dp)) {
                     Text("Section", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.field.muted, modifier = Modifier.width(180.dp))
                     subjects.forEach { id ->
-                        Text(QuestionnaireCopy.firstName(names[id] ?: id.take(6)), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.field.muted, modifier = Modifier.width(88.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Box(Modifier.width(88.dp)) { CoverageName(names[id] ?: id.take(6), 84.dp, tag = "coverage.name.$id") }
                     }
                 }
                 g.sections.forEach { section ->
                     Row(Modifier.padding(vertical = 6.dp)) {
                         Text("${section.code}  ${section.title}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(180.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         subjects.forEach { id ->
-                            val cell = section.cells.firstOrNull { it.subjectId == id }?.let(::cellOf) ?: GridCell(id, CellMark.NONE)
-                            Text(
-                                cell.glyph, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(88.dp),
-                                color = if (cell.mark == CellMark.TYPED || cell.mark == CellMark.NONE) MaterialTheme.field.muted else MaterialTheme.field.body
+                            val wire = section.cells.firstOrNull { it.subjectId == id }
+                            val cell = wire?.let(::cellOf) ?: GridCell(id, CellMark.NONE)
+                            CoverageDot(
+                                cell.glyph,
+                                color = if (cell.mark == CellMark.TYPED || cell.mark == CellMark.NONE) MaterialTheme.field.muted else MaterialTheme.field.body,
+                                width = 88.dp,
+                                describe = "${names[id] ?: ""}, ${section.code} ${section.title}: ${cell.glyph}",
+                                onOpen = if (wire != null && CoverageRecordings.hasTakes(wire)) ({ openDot(section.sectionId, id, wire) }) else null,
+                                modifier = Modifier.testTag("coverage.dot.${section.sectionId}.$id")
                             )
                         }
                     }
@@ -121,4 +153,8 @@ fun WorkshopCoverageScreen(
             )
         }
     }
+    choosing?.let { takes ->
+        CoverageTakeChooser(takes, onPick = { r -> choosing = null; opened = r.mediaFileId }, onDismiss = { choosing = null })
+    }
+    opened?.let { id -> TranscriptDialog(id, audio = null, onDismiss = { opened = null }) }
 }

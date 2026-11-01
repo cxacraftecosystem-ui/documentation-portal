@@ -597,6 +597,9 @@ import java.time.ZoneId
 import java.util.Locale
 import com.fieldrepository.app.ui.FieldCircularProgressIndicator
 import com.fieldrepository.app.questionnaire.data.QuestionnaireV2
+import com.fieldrepository.app.questionnaire.ui.LocalScreenMemory
+import com.fieldrepository.app.questionnaire.ui.ScreenMemories
+import com.fieldrepository.app.questionnaire.ui.rememberKept
 import com.fieldrepository.app.questionnaire.portal.FieldArtisanQuestionnaireRecord
 import com.fieldrepository.app.questionnaire.portal.FieldQuestionnaireHome
 import com.fieldrepository.app.questionnaire.portal.questionnaireViewportHeight
@@ -1657,6 +1660,10 @@ private fun HomeScreen(
     // The same memory for the pages whose list is their scroller (`ui/LazyPage.kt`): an item and its
     // offset, because a lazy list has no pixel position for rows it has not measured.
     val lazyScrollMemory = remember { mutableMapOf<Screen, LazyScrollMark>() }
+    // What each list leaves behind besides its scroll — its rows, every page, its search and filters
+    // (owner, 1 Nov 2026) — handed back on the same Back that restores the scroll, and started over on
+    // any other way in. See questionnaire/ui/ScreenMemory.kt.
+    val screenMemories = remember { ScreenMemories<Screen>() }
     var nextStep by remember { mutableStateOf<NextStep?>(null) }
     // Bumped by every "Save and add another", so the same form opens again EMPTY: two equal
     // Screen.Create values would otherwise keep the composition, and the form, of the first.
@@ -2123,7 +2130,7 @@ private fun HomeScreen(
             is Screen.Dashboard -> Screen.Dashboard
         }
         // Back to a list from a record puts the list back where it was scrolled (see `pageScroll`).
-        scrollRestoreFor = if (leaving is Screen.View || leaving is Screen.Edit) target else null
+        scrollRestoreFor = if (leaving is Screen.View || leaving is Screen.Edit || leaving is Screen.RemoteRecord) target else null
         screen = target
     }
 
@@ -2318,7 +2325,13 @@ private fun HomeScreen(
             }
         ) {
             val richMediaUrl = remember(repository) { richMediaUrlResolver(repository) }
+            // Read in composition, before the page's restore clears [scrollRestoreFor].
+            val screenMemory = key(screen) {
+                val here = screen
+                remember { screenMemories.arrive(here, restoring = scrollRestoreFor == here) }
+            }
             CompositionLocalProvider(
+                LocalScreenMemory provides screenMemory,
                 LocalLayoutDirection provides LayoutDirection.Ltr,
                 LocalUnsavedGuard provides unsavedGuard,
                 com.fieldrepository.app.ui.LocalContentAdminChrome provides com.fieldrepository.app.ui.contentAdminChrome(user, adminView),
@@ -6450,7 +6463,7 @@ private fun RecordPickerScreen(
     /** The page's own scroller: this screen IS the list (`ui/LazyPage.kt`). */
     chrome: LazyPageChrome
 ) {
-    var selected by remember(mode) { mutableStateOf("") }
+    var selected by rememberKept("picker.${mode.name}.selected") { "" }
 
     /*
      * WHICH WORKSHOP'S INTERVIEWS THIS PICKER OFFERS — defect (2), on the screen the owner was
@@ -6500,10 +6513,13 @@ private fun RecordPickerScreen(
         key = listOf(mode, scopeKey, completenessFilter, mediaParams),
         enabled = scopeSettled,
         completeness = completenessFilter.wire,
-        mediaFilters = mediaParams
+        mediaFilters = mediaParams,
+        // Kept for Back from a record: every page loaded, the search and its results (owner, 1 Nov 2026).
+        keepAs = "picker.${mode.name}.rows"
     )
     val completenessById = remember(rows.browse) { rows.browse.associate { it.id to it.completeness } }
     val chipsById = remember(rows.browse) { rows.browse.associate { it.id to it.chips } }
+    val previewById = remember(rows.browse) { rows.browse.associate { it.id to it.preview } }
     val loading = !rows.browseLoaded && rows.note == null
     val failed = !rows.browseLoaded && rows.note != null && !rows.loading
     val options = recordRowOptions(mode, rows.known).map { it.value to it.label }
@@ -6619,6 +6635,8 @@ private fun RecordPickerScreen(
                 ) {
                     Column(Modifier.weight(1f)) {
                         Text(label, color = Body, style = MaterialTheme.typography.bodyMedium)
+                        // What was said (0.0.6): the server's preview, two lines, speakers as labels.
+                        previewById[id]?.let { com.fieldrepository.app.transcript.ui.TranscriptPreviewText(it, maxLines = 2) }
                         // A take's chips; a tap narrows this list by it (a day is the upload day here, so not a filter).
                         com.fieldrepository.app.questionnaire.ui.RecordingChips(chipsById[id], filters = mediaFilters, onChip = { f, l ->
                             if (mediaFilters.appliesToMedia(f)) setMediaFilters(mediaFilters.applyChip(f, l))
@@ -10669,7 +10687,9 @@ private data class RecordRow(
     /** The server's completeness block for the record (2026-10-18), drawn as the card's ring. */
     val completeness: CompletenessDto? = null,
     /** A questionnaire take's chips, drawn on its card (owner, 31 Oct 2026). */
-    val chips: com.fieldrepository.app.questionnaire.data.QChips? = null
+    val chips: com.fieldrepository.app.questionnaire.data.QChips? = null,
+    /** A recording's list preview (0.0.6): two lines, speakers as coloured labels. */
+    val preview: com.fieldrepository.app.transcript.data.TranscriptPreviewDto? = null
 )
 
 /**
@@ -10716,7 +10736,7 @@ private suspend fun recordRowsPage(
         EntryMode.MEDIA -> repository.mediaSearchPage(search, page, mediaFilters).rows { m ->
             val label = m.caption?.takeIf { it.isNotBlank() } ?: m.originalFilename.ifBlank { "Media" }
             val words = com.fieldrepository.app.questionnaire.data.ChipRules.display(m.questionnaireChips).joinToString(" ") { it.label }
-            RecordRow(m.id, label, "$label ${m.originalFilename} ${m.mediaType} $words", chips = m.questionnaireChips)
+            RecordRow(m.id, label, "$label ${m.originalFilename} ${m.mediaType} $words", chips = m.questionnaireChips, preview = m.transcriptPreview)
         }
         EntryMode.QUESTIONNAIRE -> repository.interviewsSearchPage(workshopIds, search, page, completeness).rows { iv ->
             val names = iv.artisans.mapNotNull { it.artisan?.name }.distinct().joinToString(", ")
@@ -10755,14 +10775,16 @@ private fun rememberRecordRows(
     key: Any? = mode,
     enabled: Boolean = mode != null,
     completeness: String? = null,
-    mediaFilters: Map<String, String> = emptyMap()
+    mediaFilters: Map<String, String> = emptyMap(),
+    keepAs: String? = null
 ): ServerSearchState<RecordRow> = rememberServerSearch(
     key = key,
     cached = emptyList(),
     seed = null,
     idOf = { it.id },
     textOf = { it.text },
-    enabled = enabled
+    enabled = enabled,
+    keepAs = keepAs
 ) { term, page -> recordRowsPage(repository, mode ?: EntryMode.ARTISAN, term, page, workshopIds, completeness, mediaFilters) }
 
 // ===========================================================================
@@ -10833,7 +10855,7 @@ private fun MyActivityScreen(
     /** The page's own scroller: this screen IS the list (`ui/LazyPage.kt`). */
     chrome: LazyPageChrome
 ) {
-    var activity by remember { mutableStateOf<MyActivityResult?>(null) }
+    var activity by rememberKept("myActivity.loaded") { null as MyActivityResult? }
     var loadError by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
     LaunchedEffect(attempt) {
