@@ -38,6 +38,8 @@
     "@/components/ui/SearchableSelect",
     "@/components/ui/SegmentedChoice",
     "@/components/ui/Toggle",
-    "@/components/transcript/TranscriptViewer"
+    "@/components/transcript/TranscriptViewer",
+    "@/components/transcript/TranscriptPreview",
+    "@/lib/transcript/contract"
   ]
 }

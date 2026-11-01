@@ -111,7 +111,7 @@ export default function ArtisansPage() {
    * back through `FunnelFilters`' own `restore`, and its first `onChange` keeps the restored page
    * instead of resetting to page one.
    */
-  const listReturn = useListReturn("artisans");
+  const listReturn = useListReturn("artisans", { query: applied, page, funnel, completeness }, Boolean(data));
   const restoredPage = useRef<number | null>(null);
   useEffect(() => {
     const note = listReturn.restored;

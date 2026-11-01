@@ -239,7 +239,7 @@ export default function UsersPage() {
    * BACK FROM A PERSON'S VIEW PUTS THE LIST BACK AS IT WAS — search, page and scroll. A row click
    * opens the read-only view (`/users/[id]`); see `lib/listReturn.ts`.
    */
-  const listReturn = useListReturn("users");
+  const listReturn = useListReturn("users", { query: applied, page }, Boolean(data));
   useEffect(() => {
     const note = listReturn.restored;
     if (!note) return;

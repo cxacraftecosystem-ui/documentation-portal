@@ -41,7 +41,7 @@ import {
 } from "@/lib/questionnaire/inbox";
 import { qs, type QsKey } from "@/lib/questionnaire/qs";
 import { RecordingChips } from "@/components/questionnaire/RecordingChips";
-import { useChipNavigator } from "@/components/questionnaire/useUrlFilters";
+import { useChipNavigator, useListPlace } from "@/components/questionnaire/useUrlFilters";
 import type { Artisan } from "@/lib/types";
 
 export const INBOX_TITLES: Record<InboxSectionKey, QsKey> = {
@@ -116,6 +116,8 @@ export function InboxList() {
     () => artisans.map((a) => ({ value: a.id, label: a.place ? `${a.name} · ${a.place}` : a.name })),
     [artisans]
   );
+  // Back from a session lands on the same row (`useListPlace`): one list, no further pages.
+  useListPlace(1, inbox !== null, true);
 
   const run: Run = async (key, work) => {
     setBusy(key);

@@ -64,7 +64,10 @@ export const WEB_ONLY_STRINGS = {
   inboxBadge: "{count} in the inbox",
   returnNoteLabel: "What needs changing?",
   returnNeedsNote: "Say what needs changing.",
-  continueSplit: "Sessions"
+  continueSplit: "Sessions",
+  colSection: "Section",
+  chooseRecording: "Which recording?",
+  takesLoadError: "Couldn't load the recordings. Try again."
 } as const;
 
 type SharedKey = keyof typeof questionnaireStrings;

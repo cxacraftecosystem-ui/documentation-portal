@@ -106,6 +106,16 @@ export function SessionReadView({ id }: { id: string }) {
   const [decideError, setDecideError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [questions, setQuestions] = useState<Record<string, GridQuestion[]>>({});
+  /** `?recording=<id>`: the take a coverage dot opened, brought into view with its transcript open. */
+  const [focusId, setFocusId] = useState<string | null>(null);
+  useEffect(() => {
+    setFocusId(new URLSearchParams(window.location.search).get("recording"));
+  }, []);
+  useEffect(() => {
+    if (!detail || !focusId) return;
+    const frame = requestAnimationFrame(() => document.getElementById(`recording-${focusId}`)?.scrollIntoView({ block: "start" }));
+    return () => cancelAnimationFrame(frame);
+  }, [detail, focusId]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -191,7 +201,13 @@ export function SessionReadView({ id }: { id: string }) {
           <h2 className="display-title text-base">{group.label}</h2>
           <ul className="grid gap-2">
             {group.recordings.map((r) => (
-              <li key={r.id} className="grid gap-1">
+              <li
+                key={r.id}
+                id={`recording-${r.id}`}
+                className={`grid scroll-mt-28 gap-1 ${focusId === r.id ? "rounded-md outline-2 outline-offset-4 outline-purple-700" : ""}`}
+                data-recording={r.id}
+                data-focused={focusId === r.id ? "true" : undefined}
+              >
                 <p className="text-sm text-ink-900">
                   {targetLabel(r)} · {takeRow(r, null)}
                 </p>
@@ -200,7 +216,7 @@ export function SessionReadView({ id }: { id: string }) {
                   mediaId={r.mediaFileId}
                   chips={<RecordingChips chips={r.chips} onChip={goChip} variant="recording" size="sm" />}
                   audioUrl={questionnaireApi.downloadHref(r.id)}
-                  initiallyOpen={false}
+                  initiallyOpen={focusId === r.id}
                   fallback={
                     <>
                       <RecordingChips chips={r.chips} onChip={goChip} variant="recording" size="sm" />

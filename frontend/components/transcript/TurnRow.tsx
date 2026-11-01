@@ -6,6 +6,7 @@ import { Copy, Languages, Pencil } from "lucide-react";
 import type { CopyTrack, TranscriptTurn, ViewTab } from "@/lib/transcript/contract";
 import { clock } from "@/lib/transcript/format";
 import { pieces } from "@/lib/transcript/karaoke";
+import { resolveColorKey, SPEAKER_TEXT, speakerStyle } from "@/lib/transcript/speakers";
 import { ts } from "@/lib/transcript/strings";
 
 import { Actions, Badge, ICON_BUTTON, MenuButton, PRIMARY, SECONDARY, TimeChip } from "./parts";
@@ -48,6 +49,7 @@ export const TurnRow = memo(function TurnRow(props: Props) {
   const [saving, setSaving] = useState(false);
   const time = clock(turn.startMs);
   const speaker = turn.speakerName;
+  const colorKey = resolveColorKey(turn.colorKey, turn.speakerKey, speaker);
   const alreadyEnglish = turn.translation.status === "ALREADY_ENGLISH";
 
   function startEdit() {
@@ -120,6 +122,7 @@ export const TurnRow = memo(function TurnRow(props: Props) {
     <li
       id={`turn-${turn.id}`}
       data-turn-id={turn.id}
+      data-follow-turn={turn.id}
       data-active={active ? "true" : undefined}
       className={`scroll-mt-28 rounded-lg border px-3 py-3 transition-colors sm:px-4 ${
         active ? "border-purple-300 bg-purple-50/60 dark:border-purple-800 dark:bg-purple-950/30" : "border-transparent"
@@ -138,7 +141,7 @@ export const TurnRow = memo(function TurnRow(props: Props) {
         ) : null}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="font-semibold text-ink-900" data-speaker>
+            <span className={`font-semibold ${SPEAKER_TEXT}`} style={speakerStyle(colorKey)} data-speaker data-color-key={colorKey}>
               {speaker}
             </span>
             <span className="text-ink-300" aria-hidden>

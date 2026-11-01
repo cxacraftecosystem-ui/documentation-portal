@@ -10,6 +10,7 @@
  */
 
 import { FilterBar } from "@/components/questionnaire/FilterBar";
+import { useListMemory } from "@/components/hooks/useListMemory";
 import { useUrlFilters } from "@/components/questionnaire/useUrlFilters";
 import { filtersToQuery } from "@/lib/questionnaire/filters";
 import { qs } from "@/lib/questionnaire/qs";
@@ -82,6 +83,18 @@ export default function QuestionnairesLibraryPage() {
   // The shared filters (owner, 31 Oct 2026): forms by their words, sections and questions, and by
   // the sessions held on them (artisans, workshops, dates …), kept in the URL.
   const { filters: sharedFilters, setFilters: setSharedFilters, ready: filtersReady } = useUrlFilters();
+
+  /** The tab, kind and workshop in the URL, and the scroll, so Back from a form lands where the reader was. */
+  const memory = useListMemory("questionnaires", { filters: { tab: scope ?? "", kind, workshop: workshopId } }, forms !== null);
+  useEffect(() => {
+    const remembered = memory.recall()?.filters ?? {};
+    const wanted = tabs.find((entry) => entry.id === remembered.tab);
+    if (wanted) setScope(wanted.id as FormScope);
+    if (remembered.kind) setKind(remembered.kind);
+    if (remembered.workshop) setWorkshopId(remembered.workshop);
+    // Once, on arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!user) return;

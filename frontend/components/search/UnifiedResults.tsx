@@ -15,6 +15,7 @@ import {
   type UnifiedResponse,
   type UnifiedType
 } from "@/lib/unifiedSearch";
+import { plainSnippet } from "@/lib/transcript/preview";
 
 /**
  * The unified answer on `/search` (docs/SEARCH.md): one panel per group in the server's order, five
@@ -120,10 +121,10 @@ function UnifiedRow({ item }: { item: UnifiedItem }) {
           {highlightSegments(item.snippet, item.highlights).map((segment, index) =>
             segment.hit ? (
               <mark key={index} className="rounded-sm bg-purple-100 px-0.5 text-ink-900 dark:bg-purple-900/60">
-                {segment.text}
+                {plainSnippet(segment.text)}
               </mark>
             ) : (
-              <span key={index}>{segment.text}</span>
+              <span key={index}>{plainSnippet(segment.text)}</span>
             )
           )}
         </p>

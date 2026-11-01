@@ -32,7 +32,14 @@ const WEB = {
   quotePreview: "Quote card",
   close: "Close",
   glossaryEmpty: "No craft terms heard yet.",
-  glossaryMore: "Show more"
+  glossaryMore: "Show more",
+  viewModeLabel: "Layout",
+  viewTurns: "Turns",
+  viewReading: "Reading",
+  copyView: "Copy this view",
+  markAll: "Mark all",
+  clearMarks: "Clear marks",
+  followAlong: "Follow along"
 } as const;
 
 export type TranscriptStringKey = keyof typeof SHARED.strings | keyof typeof WEB;
