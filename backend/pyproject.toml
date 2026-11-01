@@ -7,7 +7,10 @@ description = "API-first FastAPI backend for field documentation and repository 
 # on it). A floor and not a range,
 # so nobody can recreate a 3.12 venv from this file by accident; the 24.04 box keeps python3.12
 # installed only as the rollback interpreter.
-requires-python = ">=3.15"
+# The floor below is 3.14, not 3.15, since 0.0.8 (2026-11-01): Dependabot supports Python 3.10-3.14
+# only and aborted its /backend pip scan and graph on ">=3.15". Production and CI still run 3.15.2
+# (deploy-backend.yml and checks.yml); ruff's target-version stays py315.
+requires-python = ">=3.14"
 # FLOORS, NOT PINS, AND EACH ONE IS THE LATEST RELEASE ON 2026-10-09. What actually gets installed is
 # decided by backend/requirements.lock, compiled from this list (the command is in docs/CI.md under
 # "The backend dependency lock"), and every machine installs that lock: `pip install -r
