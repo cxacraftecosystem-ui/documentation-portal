@@ -14,6 +14,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import com.fieldrepository.app.questionnaire.QFeature
 import org.junit.Test
 import java.time.ZoneOffset
 
@@ -25,6 +26,7 @@ class CoverageDotTest {
     private fun take(id: String, media: String?, at: String, who: String = "Nandini Rao", ms: Long = 840_000) =
         QCoverageRecording(id, media, "s1", at, ms, QUserRef("u1", who))
 
+    @QFeature("E8")
     @Test fun `one take opens directly, several open a chooser, none opens nothing`() {
         val one = QGridCell(artisanId = "a1", takes = 1, recordings = listOf(take("r1", "m1", "2026-07-07T05:12:00Z")))
         assertEquals(CoverageRecordings.Opens.One(CoverageRecordings.ofCell(one).single()), CoverageRecordings.opens(CoverageRecordings.ofCell(one)))
@@ -67,6 +69,7 @@ class CoverageDotTest {
         assertEquals(listOf("r2", "r1"), CoverageRecordings.fromList(rows, "sec1", "a1").map { it.recordingId })
     }
 
+    @QFeature("E9")
     @Test fun `a take's preview is the server's, else its stored text read as speech`() {
         val server = TranscriptPreviewDto("Giriraj: Clay.", listOf(TranscriptPreviewLine("Giriraj", "speaker_1", "s1", "Clay.")))
         assertEquals(server, QTranscript(status = "COMPLETED", text = "**Speaker 1:** x", preview = server).shownPreview())

@@ -34,6 +34,7 @@ import com.fieldrepository.app.transcript.ui.TranscriptViewer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import com.fieldrepository.app.questionnaire.QFeature
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -198,6 +199,7 @@ class TranscriptReadingUiTest {
         compose.onNodeWithTag("reading.t38").assertIsDisplayed()
     }
 
+    @QFeature("E9")
     @Test fun aListPreviewShowsSpeakersAsLabelsWithNoMarkdown() {
         val preview = TranscriptPreview.fromMarkdown("Transcript **Speaker 1:** Wow! This is **really** good.\n\n**Speaker 2:** Yes, indigo.\n**Speaker 1:** And then?\n**Speaker 2:** Later.")!!
         compose.setContent { MaterialTheme { TranscriptPreviewText(preview, maxLines = 3) } }

@@ -43,6 +43,7 @@ class CoverageDotUiTest {
     @get:Rule
     val compose = createComposeRule()
 
+    @QFeature("E7")
     @Test fun holdingATruncatedNameShowsItInFull() {
         compose.setContent { MaterialTheme { Column(Modifier.padding(top = 80.dp)) { CoverageName("Giriraj Prasad Chhipa", 60.dp, tag = "name.a1") } } }
         compose.onNodeWithText("Giriraj").assertIsDisplayed()
@@ -56,11 +57,13 @@ class CoverageDotUiTest {
         compose.onNodeWithTag("name.a1.full").assertDoesNotExist()
     }
 
+    @QFeature("E8")
     @Test fun aDotWithNoTakesTakesNoTap() {
         compose.setContent { MaterialTheme { CoverageDot("○", Color.Gray, 88.dp, "Giriraj, A Materials: none", onOpen = null, modifier = Modifier.testTag("dot")) } }
         compose.onNodeWithTag("dot").assertHasNoClickAction()
     }
 
+    @QFeature("E8")
     @Test fun oneTakeOpensDirectlyAndSeveralOpenTheChooser() {
         val one = QGridCell(artisanId = "a1", takes = 1, recordings = listOf(QCoverageRecording("r1", "m1", "s1", "2026-07-07T05:12:00Z", 840_000, QUserRef("u1", "Nandini Rao"))))
         val two = QGridCell(
