@@ -1,7 +1,7 @@
 {
   "contract": "questionnaire-features",
   "version": 1,
-  "source": "C:/dev/IIT/docs/questionnaire/UNIFY_2026-10-21.md section 1 (A, B, C) and owner amendment 2 of 22 Oct 2026 (D); recording chips and filters of 31 Oct 2026 (E)",
+  "source": "C:/dev/IIT/docs/questionnaire/UNIFY_2026-10-21.md section 1 (A, B, C) and owner amendment 2 of 22 Oct 2026 (D); recording chips and filters of 31 Oct 2026 (E1-E6); coverage grid and transcript preview of 1 Nov 2026 (E7-E9)",
   "enforcedBy": "backend/tests/test_questionnaire_feature_parity.py, identical in both portals",
   "rules": [
     "clients: 'required', or {'na': 'ministry-admin-authoring'} for dr-android only.",
@@ -3223,6 +3223,114 @@
         "dr-android": "recording-chips",
         "fr-web": "recording-chips",
         "fr-android": "recording-chips"
+      },
+      "today": {}
+    },
+    {
+      "id": "E7",
+      "name": "Coverage grid: an artisan's truncated name expands to the full name, larger, on hover or focus (web) and long-press or focus (Android)",
+      "source": "owner, 1 Nov 2026 (0.0.6: coverage grid and transcript preview)",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaire/coverage"
+        ],
+        "documentation-portal": [
+          "GET /questionnaire/coverage"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r006",
+        "dr-android": "r006",
+        "fr-web": "r006",
+        "fr-android": "r006"
+      },
+      "today": {}
+    },
+    {
+      "id": "E8",
+      "name": "Coverage grid: a dot opens that artisan and section's recording; several open a chooser by date, researcher and duration; an empty cell is not a button",
+      "source": "owner, 1 Nov 2026 (0.0.6: coverage grid and transcript preview)",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaire/coverage"
+        ],
+        "documentation-portal": [
+          "GET /questionnaire/coverage"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r006",
+        "dr-android": "r006",
+        "fr-web": "r006",
+        "fr-android": "r006"
+      },
+      "today": {}
+    },
+    {
+      "id": "E9",
+      "name": "Transcript preview rendered, not Markdown: speaker names (mapped when set) as labels, no asterisks, clamped, no duplicated 'Transcript' prefix",
+      "source": "owner, 1 Nov 2026 (0.0.6: coverage grid and transcript preview)",
+      "api": {
+        "designer-portal": [
+          "GET /questionnaire/recordings"
+        ],
+        "documentation-portal": [
+          "GET /questionnaire/recordings"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r006",
+        "dr-android": "r006",
+        "fr-web": "r006",
+        "fr-android": "r006"
       },
       "today": {}
     }
