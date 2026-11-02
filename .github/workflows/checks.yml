@@ -1488,3 +1488,8 @@ jobs:
 
       - name: Release logic against stubs
         run: bash backend/deploy/test_blue_green.sh
+
+      - name: Backup freshness verdict against fixed clocks
+        # backup-db.yml's `freshness` job sources this function. The cases include the two checks
+        # GitHub started past India midnight on 2026-11-02, which the old rule failed.
+        run: shellcheck -x scripts/ci/backup_freshness.sh scripts/ci/test_backup_freshness.sh && bash scripts/ci/test_backup_freshness.sh

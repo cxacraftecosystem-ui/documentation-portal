@@ -38,9 +38,26 @@ name: Nightly database backup
 # the same minute.
 #
 # A late or missing run used to pass in silence. The `freshness` job below runs on its own
-# schedule and fails if the newest nightly dump is over 26 hours old or not dated today, or the
-# newest weekly copy over 8 days old. GitHub e-mails a failed scheduled run to whoever last changed
-# the schedule. Run it by hand with Run workflow → task: freshness-check.
+# schedule and fails if the newest nightly dump is not the one that should exist by now, or was
+# written over 26 hours before that dump's deadline, or the newest weekly copy is over 8 days old.
+# GitHub e-mails a failed scheduled run to whoever last changed the schedule. Run it by hand with
+# Run workflow → task: freshness-check.
+#
+# "THE ONE THAT SHOULD EXIST BY NOW" (2026-11-03). Until then it was "dated today in India", and on
+# 2 November GitHub started the afternoon check about ten hours late, past India midnight, where it
+# demanded the 3 November dump before that dump was due and failed in both portals with both dumps
+# in S3. The expected date is now derived from the dump's slot: today's India date once India time
+# is past the slot plus 6 h of grace for GitHub's own delay, yesterday's before that. A hand-run
+# check gets the same rule now; the old one had to exempt it, since any run between India midnight
+# and the dump would have failed. The reasoning and the arithmetic are in
+# scripts/ci/backup_freshness.sh; scripts/ci/test_backup_freshness.sh pins it against the delayed
+# runs of 2 November and the failures it must still catch.
+#
+# THE CHECK'S CRON STAYS IN THE INDIA AFTERNOON, ON PURPOSE. Moving it earlier would buy margin
+# before India midnight, which no longer matters: a check started after midnight still asks for the
+# dump it was scheduled to ask for. What the afternoon slot buys is time for the dump: a check at
+# the slot plus six hours would fail every night GitHub held the dump back seven. Six hours after
+# the deadline, it still turns a missing night red on the same India day.
 #
 # ─── THE SECRETS ──────────────────────────────────────────────────────────────────────────
 #   DATABASE_URL                the session-pooler DSN (port 5432, NOT the transaction pooler on
@@ -336,9 +353,9 @@ jobs:
 
   freshness:
     # Restore drill gap 6 (2026-10-18). Runs on its own schedule and fails when the newest nightly
-    # dump is more than 26 hours old or not dated today (India time), or the newest weekly copy more
-    # than 8 days old. A late or skipped night then shows as a red run, and GitHub e-mails whoever
-    # last changed the schedule.
+    # dump is not the one that should exist by now (India time, from the dump's slot; the header's
+    # "THE ONE THAT SHOULD EXIST BY NOW"), or the newest weekly copy is more than 8 days old. A late
+    # or skipped night then shows as a red run, and GitHub e-mails whoever last changed the schedule.
     # Same writer key: listing gives the name and the time, never the bytes.
     name: Newest dump is fresh
     if: github.event.schedule == '53 9 * * *' || inputs.task == 'freshness-check'
@@ -351,55 +368,38 @@ jobs:
       BACKUP_PREFIX: backups/documentation-portal
 
     steps:
+      - name: Checkout the verdict
+        # Only the function, which scripts/ci/test_backup_freshness.sh tests in Checks.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+
       - name: Check the newest nightly and weekly dumps
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_BACKUP_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_BACKUP_SECRET_ACCESS_KEY }}
+          # The dump's cron above, in India time. Move it with that line.
+          DUMP_SLOT_IST: "03:17"
+          GRACE_HOURS: "6"
         run: |
           set -euo pipefail
-          now="$(date -u +%s)"
+          . scripts/ci/backup_freshness.sh
           # Prints "<key> <LastModified>" for the newest object under the prefix, or "None".
           newest() {
             aws s3api list-objects-v2 --bucket "${BACKUP_BUCKET}" --prefix "$1" \
               --query 'sort_by(Contents || `[]`, &LastModified)[-1].[Key, LastModified]' --output text
           }
           read -r nkey nwhen <<< "$(newest "${BACKUP_PREFIX}/20")"
-          if [ "${nkey}" = "None" ] || [ -z "${nwhen:-}" ]; then
-            echo "::error::no nightly dump under ${BACKUP_PREFIX}/. Treat the database as having NO backup."
-            exit 1
-          fi
-          nage=$(( (now - $(date -u -d "${nwhen}" +%s)) / 3600 ))
-          echo "newest nightly: ${nkey}, ${nage} h old"
           read -r wkey wwhen <<< "$(newest "${BACKUP_PREFIX}/weekly/")"
-          wage=""
-          if [ "${wkey}" = "None" ] || [ -z "${wwhen:-}" ]; then
-            echo "::warning::no weekly copy yet. The next nightly run writes one."
-          else
-            wage=$(( (now - $(date -u -d "${wwhen}" +%s)) / 3600 ))
-            echo "newest weekly: ${wkey}, ${wage} h old"
-          fi
+          status=0
+          verdict="$(backup_freshness "$(date -u +%s)" "${nkey}" "${nwhen:-}" "${wkey}" "${wwhen:-}")" || status=$?
+          echo "${verdict}"
           {
             echo "### Backup freshness"
             echo ""
-            echo "Nightly: \`${nkey}\`, ${nage} h old"
-            [ -n "${wage}" ] && echo "" && echo "Weekly: \`${wkey}\`, ${wage} h old"
-            true
+            echo '```'
+            echo "${verdict}"
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          if [ "${nage}" -gt 26 ]; then
-            echo "::error::the newest nightly dump is ${nage} hours old (limit 26). Last night's run did not land: check this workflow's scheduled runs and run it by hand."
-            exit 1
-          fi
-          # The age limit alone can miss one skipped night if the run before it started over ~10 h
-          # late. The scheduled check runs in the India afternoon, after the dump's slot, so the
-          # newest nightly must also carry today's India date.
-          if [ "${GITHUB_EVENT_NAME}" = "schedule" ]; then
-            today="${BACKUP_PREFIX}/$(TZ=Asia/Kolkata date +%F).sql.gz"
-            if [ "${nkey}" != "${today}" ]; then
-              echo "::error::no dump for today (${today}); the newest is ${nkey}. Last night's run did not land: run it by hand."
-              exit 1
-            fi
-          fi
-          if [ -n "${wage}" ] && [ "${wage}" -gt 192 ]; then
-            echo "::error::the newest weekly copy is ${wage} hours old (limit 8 days)."
-            exit 1
-          fi
+          exit "${status}"
