@@ -451,7 +451,12 @@ def test_an_old_transcript_queues_nothing_without_consent_the_switch_or_over_an_
     from datetime import UTC, datetime
 
     from app.core.db import db
-    from app.services import transcript_insights, transcript_pipeline as pipeline, transcript_portal, transcript_store
+    from app.services import (
+        transcript_insights,
+        transcript_pipeline as pipeline,
+        transcript_portal,
+        transcript_store,
+    )
     from prisma import Json
 
     async def allowed(_media: Any) -> tuple[bool, str | None]:

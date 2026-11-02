@@ -75,7 +75,7 @@ internal fun EnglishNoticeCard(view: Transcript, host: TranscriptHost) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
                 Icon(Icons.Filled.Translate, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(TranscriptStrings.englishDeclined, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                    Text(TranscriptStrings.englishDeclined, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                     if (view.permissions.addEnglish) {
                         Text(TranscriptStrings.englishDeclinedHint, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.body)
                     }
@@ -152,7 +152,7 @@ internal fun ManualEnglishBlock(text: String) {
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(TranscriptStrings.manualEnglishTitle, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+            Text(TranscriptStrings.manualEnglishTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
             Pill(TranscriptStrings.manualEnglishSource, tone = PillTone.QUIET)
         }
         TranscriptFormat.paragraphs(text).forEach {
