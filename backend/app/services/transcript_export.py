@@ -139,7 +139,10 @@ async def load(media_ids: list[str], *, sees_spend: bool = False, client: Any = 
         allowed,
     ) if allowed else []
     insights = await conn.query_raw(
-        'SELECT DISTINCT ON ("mediaFileId") "mediaFileId", "summaryLines", "quotes" FROM "TranscriptInsight" '
+        'SELECT DISTINCT ON ("mediaFileId") "mediaFileId", "summaryLines", "quotes", '
+        # D38: only English a person pasted whole is read here, never a machine translation's text.
+        """CASE WHEN "provider" = 'manual' THEN "translationText" END AS "manualEnglish", """
+        """"generated"->>'versionId' AS "manualVersionId" FROM "TranscriptInsight" """
         'WHERE "mediaFileId" = ANY($1::text[]) AND "supersededAt" IS NULL ORDER BY "mediaFileId", "version" DESC',
         allowed,
     ) if allowed else []
@@ -185,6 +188,7 @@ async def load(media_ids: list[str], *, sees_spend: bool = False, client: Any = 
             "summary": [],
             "quotes": [],
             "glossary": [],
+            "english": None,
             "chips": chip_by.get(mid),
         }
         out[mid] = rec
@@ -241,6 +245,12 @@ async def load(media_ids: list[str], *, sees_spend: bool = False, client: Any = 
                 for name in dict.fromkeys(t["speaker"] for t in rec["turns"] if t["speaker"])
             ]
         insight = insight_by.get(mid)
+        if insight is not None and rec["source"] == "TURNS" and str(insight.get("manualEnglish") or "").strip():
+            # English pasted whole (D38): the recording's English while its turns lack their own.
+            made_for = insight.get("manualVersionId")
+            lacking = any(not t["english"] for t in rec["turns"] if t["translationStatus"] != "ALREADY_ENGLISH")
+            if lacking and (made_for is None or made_for == str(version["id"])):
+                rec["english"] = str(insight["manualEnglish"]).strip()
         if insight is not None:
             rec["summary"] = [str(s) for s in (insight.get("summaryLines") or []) if str(s).strip()]
             quotes = insight.get("quotes") or []
@@ -415,7 +425,7 @@ def _chip_text(chips: dict[str, Any] | None) -> dict[str, str]:
 
 RECORDING_COLUMNS = (
     "Media ID", "File", "Uploaded by", "Uploaded on", "Transcript status", "Consent", "Source", "Languages",
-    "Duration", "Speakers", "Turns", "Summary", "Quotes", "Glossary terms",
+    "Duration", "Speakers", "Turns", "Summary", "Quotes", "Glossary terms", "English (whole transcript)",
     "Form", "Session", "Section or question", "Artisans", "Respondents", "Researcher", "Session date", "Workshop",
     "Recording language", "Recording duration (s)",
 )
@@ -444,6 +454,7 @@ def recording_row(rec: dict[str, Any], *, sees_spend: bool) -> dict[str, Any]:
         "Duration": render.length(rec["durationMs"]) if rec.get("durationMs") else "",
         "Speakers": "; ".join(s["label"] for s in rec.get("speakers") or []),
         "Turns": str(len(rec.get("turns") or [])),
+        "English (whole transcript)": rec.get("english") or "",
         "Summary": "\n".join(rec.get("summary") or []),
         "Quotes": "\n".join(
             f"{q['speaker'] + ': ' if q.get('speaker') else ''}{q['original']}" + (f" ({q['english']})" if q.get("english") else "")
@@ -609,10 +620,23 @@ async def settle_tree(entries: list[dict[str, Any]], *, pipeline_on: bool, clien
 # --- The data browser's report (View data tables and the .xlsx) --------------------------------
 
 
+def has_text(m: Any) -> bool:
+    """Whether a media row carries a transcript worth printing.
+
+    A row loaded with named columns (the data browser's report, D39) answers through its cheap
+    ``hasTranscript`` flag and never holds the text itself; a full Prisma row answers through
+    ``transcriptText``."""
+    flag = getattr(m, "hasTranscript", None)
+    if flag is not None:
+        return bool(flag)
+    return bool(str(getattr(m, "transcriptText", None) or "").strip())
+
+
 async def withhold_refused(media: list[Any], *, client: Any = None) -> set[str]:
-    """Blank ``transcriptText`` on every row whose consent was refused (fixed reads per 4 batches).
+    """Clear the transcript on every row whose consent was refused (fixed reads per 4 batches):
+    ``hasTranscript`` false and ``transcriptText`` blank, whichever the row carries.
     Returns the withheld ids. The report's own sheets then never print those words."""
-    ids = [str(m.id) for m in media if str(getattr(m, "transcriptText", None) or "").strip()]
+    ids = [str(m.id) for m in media if has_text(m)]
     withheld: set[str] = set()
     for start in range(0, len(ids), BATCH * 4):
         chunk = ids[start : start + BATCH * 4]
@@ -620,11 +644,36 @@ async def withhold_refused(media: list[Any], *, client: Any = None) -> set[str]:
         withheld |= {mid for mid in chunk if verdicts.get(mid) != ALLOW}
     for m in media:
         if str(m.id) in withheld:
-            try:
-                m.transcriptText = None
-            except (AttributeError, TypeError, ValueError):
-                object.__setattr__(m, "transcriptText", None)
+            _clear(m, "transcriptText", None)
+            if getattr(m, "hasTranscript", None) is not None:
+                _clear(m, "hasTranscript", False)
     return withheld
+
+
+def _clear(m: Any, name: str, value: Any) -> None:
+    try:
+        setattr(m, name, value)
+    except (AttributeError, TypeError, ValueError):
+        object.__setattr__(m, name, value)
+
+
+async def transcript_texts(media_ids: list[str], *, client: Any = None) -> dict[str, str]:
+    """``{mediaId: stored transcript}`` for the report's Transcripts sheet, :data:`BATCH` x 4 ids per
+    read, naming two columns only. The caller passes ids :func:`withhold_refused` has already
+    cleared, so no refused recording is asked for; a row with no text is left out."""
+    ids = list(dict.fromkeys(str(i) for i in media_ids if i))
+    out: dict[str, str] = {}
+    conn = _conn(client)
+    for start in range(0, len(ids), BATCH * 4):
+        rows = await conn.query_raw(
+            'SELECT "id", "transcriptText" FROM "MediaFile" WHERE "id" = ANY($1::text[])',
+            ids[start : start + BATCH * 4],
+        )
+        for row in rows:
+            text = str(row.get("transcriptText") or "")
+            if text.strip():
+                out[str(row["id"])] = text
+    return out
 
 
 async def report_sheets(

@@ -48,6 +48,7 @@ import com.fieldrepository.app.transcript.data.AskAnswer
 import com.fieldrepository.app.transcript.data.AutoDraft
 import com.fieldrepository.app.transcript.data.AutoDraftResult
 import com.fieldrepository.app.transcript.data.CopyTrack
+import com.fieldrepository.app.transcript.data.EnglishBody
 import com.fieldrepository.app.transcript.data.GlossaryTerm
 import com.fieldrepository.app.transcript.data.LoadedTranscript
 import com.fieldrepository.app.transcript.data.PipelineStatus
@@ -234,7 +235,20 @@ private class RepositoryHost(
         }
     }
 
-    override suspend fun suggestions(): List<SpeakerSuggestion> = server.speakerSuggestions(view.mediaId)
+    /** Straight to the server (not the edit queue): the server decides whether it lands on the turns. */
+    override suspend fun addEnglish(text: String): String? = try {
+        val updated = server.addEnglish(view.mediaId, EnglishBody(view.revision, text))
+        repo.accept(updated)
+        onChanged(updated)
+        null
+    } catch (e: HttpException) {
+        if (e.transcriptError(TranscriptPortal.json)?.code == "STALE_REVISION") onReload()
+        TranscriptRepository.refusalSentence(e.code(), e.transcriptError(TranscriptPortal.json))
+    } catch (e: java.io.IOException) {
+        TranscriptUiText.englishNotSaved
+    }
+
+    override suspend fun suggestions(): List<SpeakerSuggestion> =server.speakerSuggestions(view.mediaId)
     override suspend fun history(turn: TranscriptTurn): List<TurnHistoryEntry> = server.turnHistory(view.mediaId, turn.id)
     override suspend fun ask(question: String): AskAnswer = server.ask(view.mediaId, question)
     override suspend fun autodraft(): AutoDraftResult = server.autodraft(view.mediaId)

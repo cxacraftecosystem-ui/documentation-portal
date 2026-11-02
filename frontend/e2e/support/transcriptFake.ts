@@ -171,6 +171,31 @@ export class TranscriptFake {
       });
       return { status: 200, json: updated };
     }
+    if (path === `${base}/english` && method === "POST") {
+      // The server's rule (add_english): one paragraph per turn that needs English, or per turn, lands on
+      // the turns; anything else is kept whole as manualEnglish. Either way the notice goes.
+      if (Number(body?.baseRevision) !== Number(this.view.revision))
+        return { status: 409, json: { detail: { code: "STALE_REVISION", message: "Changed on another device." } } };
+      const paragraphs = String(body?.text ?? "").split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean);
+      const turns = this.turns();
+      const needing = turns.filter((turn) => (turn.translation as Json).status !== "ALREADY_ENGLISH");
+      const aligned = paragraphs.length === needing.length || paragraphs.length === turns.length;
+      if (aligned) {
+        let next = 0;
+        this.view.turns = turns.map((turn, index) => {
+          if ((turn.translation as Json).status === "ALREADY_ENGLISH") return turn;
+          const english = paragraphs.length === turns.length ? paragraphs[index] : paragraphs[next++];
+          return { ...turn, revision: Number(turn.revision) + 1, translation: { ...(turn.translation as Json), text: english, status: "TRANSLATED", source: "EDITED" } };
+        });
+        this.view.manualEnglish = null;
+      } else {
+        this.view.manualEnglish = paragraphs.join("\n\n");
+      }
+      this.view.englishNotice = null;
+      this.view.permissions = { ...(this.view.permissions as Json), addEnglish: !aligned };
+      this.view.revision = Number(this.view.revision) + 1;
+      return { status: 200, json: this.view };
+    }
     if (path === `${base}/download`) {
       const format = query.get("format") ?? "md";
       const track = query.get("track") ?? "original";

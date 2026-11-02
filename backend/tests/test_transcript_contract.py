@@ -192,3 +192,36 @@ def test_a_legacy_preview_has_no_transcript_prefix_or_markdown() -> None:
         "text": "Speaker 1: Wow! It is lovely.",
         "lines": [{"speaker": "Speaker 1", "speakerKey": None, "colorKey": "s0", "text": "Wow! It is lovely."}],
     }
+
+
+# --- 0.0.9 (D38): English a person adds, and the notice when Gemini declined (contractVersion 3) ----
+
+
+def test_the_pasted_english_fixtures_byte_for_byte() -> None:
+    manual = FIX["manualEnglish"]
+    doc = doc_from(VIEW)
+    doc.english_text = manual["text"]
+    assert render.copy_all(doc, "english") == manual["all_english"]
+    assert render.copy_all(doc, "both") == manual["all_both"]
+    assert render.copy_all(doc, "both", timestamps=False) == manual["all_both_no_timestamps"]
+    assert render.copy_all(doc, "original") == FIX["copy"]["all_original"], "the original track never carries it"
+    assert render.copy_selected(doc, ["turn_b"], "both") == FIX["copy"]["selected_both_turn_b"]
+
+
+def test_the_english_route_body_and_the_view_fields_are_in_the_contract() -> None:
+    from app.transcription.transcript.schema import EnglishBody
+
+    EnglishBody.model_validate({"baseRevision": 3, "text": "One.\n\nTwo."})
+    with pytest.raises(ValueError):
+        EnglishBody.model_validate({"baseRevision": 3, "text": ""})
+    assert CONTRACT["contractVersion"] >= 3
+    assert {"englishNotice", "manualEnglish"} <= set(CONTRACT["types"]["TranscriptView"])
+    assert CONTRACT["enums"]["englishNotice"] == ["DECLINED", "UNAVAILABLE", None]
+    assert "addEnglish" in VIEW["permissions"] and "addEnglish" in CONTRACT["types"]["TranscriptView"]["permissions"]
+    assert "english" in CONTRACT["dataBrowser"]["DataRecording"]
+
+
+def test_the_declined_notice_for_others_names_no_provider() -> None:
+    strings = STRINGS["strings"]
+    assert "Gemini" in strings["englishDeclined"]
+    assert "gemini" not in strings["englishUnavailable"].lower() and "declined" not in strings["englishUnavailable"].lower()

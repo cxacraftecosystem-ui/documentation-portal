@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { ArrowDownToLine, BookOpen, CheckSquare, Copy, Download, ListOrdered, Loader2, MapPin, MessageCircleQuestion, Pause, Play, Quote, RotateCw, Users, Zap } from "lucide-react";
 
 import {
+  addEnglish,
   editTurn,
   errorCode,
   fetchTranscript,
@@ -24,6 +25,7 @@ import { inFlight, statusAction, statusLabel, statusNote, statusTone } from "@/l
 import { ts } from "@/lib/transcript/strings";
 
 import { AskPanel } from "./AskPanel";
+import { EnglishNotice, ManualEnglish } from "./EnglishNotice";
 import { FillFromRecording } from "./FillFromRecording";
 import { Badge, CopyStatus, MenuButton, PRIMARY, SECONDARY, useCopyFeedback } from "./parts";
 import { QuoteCardBuilder } from "./QuoteCardBuilder";
@@ -291,6 +293,11 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
             {transcript.readOnly.message}
           </p>
         ) : null}
+        <EnglishNotice
+          transcript={transcript}
+          busy={busy === "add-english"}
+          onSave={(text) => runView("add-english", () => addEnglish(mediaId, transcript.revision, text))}
+        />
         <dl className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-ink-500" data-transcript-facts>
           {transcript.languages.length ? (
             <div className="flex gap-1">
@@ -621,6 +628,7 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
               })}
             </ol>
           ) : null}
+          {transcript.manualEnglish && tab !== "original" ? <ManualEnglish text={transcript.manualEnglish} /> : null}
         </>
       ) : null}
 

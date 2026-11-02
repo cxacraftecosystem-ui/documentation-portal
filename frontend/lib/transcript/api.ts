@@ -26,6 +26,7 @@ export const TRANSCRIPT_ROUTES = {
   suggestions: (mediaId: string) => `${base(mediaId)}/speakers/suggestions`,
   turn: (mediaId: string, turnId: string) => `${base(mediaId)}/turns/${encodeURIComponent(turnId)}`,
   retranslate: (mediaId: string, turnId: string) => `${base(mediaId)}/turns/${encodeURIComponent(turnId)}/retranslate`,
+  english: (mediaId: string) => `${base(mediaId)}/english`,
   retry: (mediaId: string) => `${base(mediaId)}/retry`,
   transcribeNow: (mediaId: string) => `${base(mediaId)}/transcribe-now`,
   download: (mediaId: string, format: DownloadFormat, track: CopyTrack, timestamps = true) =>
@@ -72,7 +73,21 @@ export const mapSpeakers = (mediaId: string, baseRevision: number, mappings: Spe
 
 export const speakerSuggestions = (mediaId: string) => apiFetch<{ items: SpeakerSuggestion[] }>(TRANSCRIPT_ROUTES.suggestions(mediaId));
 
-export const retryTranscript = (mediaId: string) => apiFetch<Transcript>(TRANSCRIPT_ROUTES.retry(mediaId), { method: "POST" });
+/** English typed or pasted for the whole transcript (contract 3): laid on the turns when the paragraphs line up. */
+export const addEnglish = (mediaId: string, baseRevision: number, text: string) =>
+  apiFetch<Transcript>(TRANSCRIPT_ROUTES.english(mediaId), json("POST", { baseRevision, text }));
+
+/**
+ * What a paste becomes, before it is sent (the server's rule in `add_english`): blank-line paragraphs
+ * line up with the turns when there is one per turn that needs English, or one per turn.
+ */
+export function englishPlan(turns: { translation: { status: string } }[], text: string): { paragraphs: number; turns: number; aligned: boolean } {
+  const paragraphs = text.replace(/\r\n/g, "\n").split(/\n\s*\n/).filter((part) => part.trim() !== "").length;
+  const needing = turns.filter((turn) => turn.translation.status !== "ALREADY_ENGLISH").length;
+  return { paragraphs, turns: needing, aligned: paragraphs > 0 && (paragraphs === needing || paragraphs === turns.length) };
+}
+
+export const retryTranscript =(mediaId: string) => apiFetch<Transcript>(TRANSCRIPT_ROUTES.retry(mediaId), { method: "POST" });
 
 export const transcribeNow = (mediaId: string) => apiFetch<Transcript>(TRANSCRIPT_ROUTES.transcribeNow(mediaId), { method: "POST" });
 

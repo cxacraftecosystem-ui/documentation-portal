@@ -48,9 +48,20 @@ export function transcriptHeader(transcript: Transcript): string {
   return `# ${transcript.title}\n| Language | ${languages} | Length | ${lengthLabel(transcript.durationMs)} | Speakers | ${transcript.speakerCount} |`;
 }
 
-/** Copy all: the header, then every turn. `timestamps: false` keeps only the speaker on each turn. */
+/** The heading pasted whole-transcript English sits under in a "both" copy (fixtures.manualEnglish). */
+export const ENGLISH_HEADING = "## English";
+
+/**
+ * Copy all: the header, then every turn. `timestamps: false` keeps only the speaker on each turn.
+ * With `manualEnglish` (English pasted whole, contract 3) "english" is the header and that text, and
+ * "both" prints it under `ENGLISH_HEADING` after the turns.
+ */
 export function copyAll(transcript: Transcript, track: CopyTrack, timestamps = true): string {
-  return [transcriptHeader(transcript), ...transcript.turns.map((turn) => turnBlock(turn, track, timestamps))].join("\n\n");
+  const manual = (transcript.manualEnglish ?? "").trim();
+  if (manual && track === "english") return [transcriptHeader(transcript), manual].join("\n\n");
+  const parts = [transcriptHeader(transcript), ...transcript.turns.map((turn) => turnBlock(turn, track, timestamps))];
+  if (manual && track === "both") parts.push(ENGLISH_HEADING, manual);
+  return parts.join("\n\n");
 }
 
 /** Copy selected: the chosen turns in transcript order, no header. */

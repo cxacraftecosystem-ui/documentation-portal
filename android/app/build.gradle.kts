@@ -67,8 +67,8 @@ val localProperties = Properties().apply {
 //
 // To cut a release: bump `appVersionName` AND add 1 to `appVersionCode`. publish-android.yml reads
 // both lines, checks the tag against the name and refuses a code at or below the published one.
-val appVersionName = "0.0.7"
-val appVersionCode = 28
+val appVersionName = "0.0.9"
+val appVersionCode = 29
 
 val releaseKeystorePath = signingProperty(localProperties, "releaseKeystore", "ANDROID_RELEASE_KEYSTORE")
 val releaseKeystorePassword = signingProperty(localProperties, "releaseKeystorePassword", "ANDROID_RELEASE_KEYSTORE_PASSWORD")

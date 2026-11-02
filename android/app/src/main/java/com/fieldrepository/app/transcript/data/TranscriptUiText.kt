@@ -43,6 +43,8 @@ object TranscriptUiText {
     const val dataNone = "No recordings match."
     const val dataWithheld = "Consent refused: nothing said is shown or downloaded."
     const val dataDownloadFailed = "Couldn't download. Check the connection and try again."
+    // 0.0.9 (D38): the English a person adds.
+    const val englishNotSaved = "Couldn't save the English. Check the connection and try again."
     fun dataMoreTurns(n: Int) = if (n == 1) "1 more turn" else "$n more turns"
     fun dataQuotes(n: Int) = if (n == 1) "1 quote" else "$n quotes"
 
