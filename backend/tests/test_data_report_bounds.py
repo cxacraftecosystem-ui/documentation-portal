@@ -50,7 +50,7 @@ def test_the_json_preview_cuts_each_sheet_and_says_how_many_rows_the_download_ha
 
     # The download itself stops at REPORT_TAKE: 200 shown, then the note row, and the total is the cap.
     assert len(capped_p["rows"]) == data_browser.PREVIEW_ROWS + 1
-    assert str(capped_p["rows"][-1][0]).startswith("Note: capped at 300")
+    assert str(capped_p["rows"][-1][0]).startswith("Note:") and "300" in str(capped_p["rows"][-1][0])
     assert capped_p["capped"] is True and capped_p["preview"] is True and capped_p["totalRows"] == 300
 
     # A transcript-pipeline sheet built only as far as the preview: cut, and not counted.

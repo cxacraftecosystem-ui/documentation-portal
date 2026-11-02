@@ -2242,7 +2242,7 @@ def _moment(value: Any) -> Any:
     """A raw-query timestamp as a datetime (the engine may answer an ISO string)."""
     if isinstance(value, str):
         try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return datetime.fromisoformat(value)
         except ValueError:
             return value
     return value
