@@ -155,12 +155,27 @@ export function SessionWorkspace({ id }: { id: string }) {
   const [questions, setQuestions] = useState<Record<string, InstrumentQuestion[]>>({});
   const [proposals, setProposals] = useState<Record<string, AnswerProposal>>({});
   const [proposalNote, setProposalNote] = useState<string | null>(null);
+  // The question whose section opens on a take's proposals (B22). It is matched against the grid as
+  // it stands when the proposals arrive, or once the form's questions are read, never against the
+  // grid of the moment "Use as answer" was pressed.
+  const [revealLineage, setRevealLineage] = useState<string | null>(null);
+  useEffect(() => {
+    if (!revealLineage || !grid) return;
+    const section = grid.sections.find((s) => s.questions?.some((q) => q.lineageId === revealLineage));
+    if (!section) return;
+    setActiveSection(section.id);
+    setRevealLineage(null);
+  }, [revealLineage, grid]);
   const queue = useSessionQueue(detail ?? id);
   const unitsRef = useRef<SessionUnit[]>(queue.units);
   useEffect(() => {
     unitsRef.current = queue.units;
   }, [queue.units]);
   const generation = useRef(0);
+  // The form's questions as last read. A re-read of the session (a restored take, a landed take, a
+  // merge) keeps them on the grid, so an open section never loses its questions while the form is
+  // read again, and a take's proposals still find their section in that window (B22).
+  const knownQuestions = useRef<{ questionnaireId: string; byId: Record<string, InstrumentQuestion[]> } | null>(null);
 
   const load = useCallback(async () => {
     const mine = (generation.current += 1);
@@ -169,10 +184,12 @@ export function SessionWorkspace({ id }: { id: string }) {
       const d = await questionnaireApi.getSession(id);
       if (mine !== generation.current) return;
       setDetail(d);
-      setGrid(toGridView(d.grid));
+      const held = knownQuestions.current?.questionnaireId === d.questionnaire.id ? knownQuestions.current.byId : undefined;
+      setGrid(toGridView(d.grid, held));
       void loadInstrumentQuestions(d.questionnaire.id)
         .then((q) => {
           if (mine !== generation.current) return;
+          knownQuestions.current = { questionnaireId: d.questionnaire.id, byId: q.byId };
           setGrid(toGridView(d.grid, q.byId));
           setQuestions(q.byId);
         })
@@ -189,6 +206,7 @@ export function SessionWorkspace({ id }: { id: string }) {
         setDetail({ ...localSession(first.body, ""), recordings: [], answers: [], grid: { questionnaireId: first.body.questionnaireId, artisans: [], sections: [] } });
         try {
           const q = await loadInstrumentQuestions(first.body.questionnaireId);
+          knownQuestions.current = { questionnaireId: first.body.questionnaireId, byId: q.byId };
           setGrid(gridFromSections(q.sections, q.byId));
           setQuestions(q.byId);
         } catch {
@@ -619,20 +637,21 @@ export function SessionWorkspace({ id }: { id: string }) {
     setProposalNote(null);
     try {
       const { proposals: found } = await questionnaireApi.answerProposals(recording.id);
-      const next = { ...proposals };
-      for (const p of found) {
-        next[p.questionLineageId] = {
-          text: p.text,
-          origin: p.origin,
-          sourceRecordingId: recording.id,
-          subjectKeys: p.artisanIds ? p.artisanIds.map((a) => `A:${a}`) : null
-        };
-      }
-      setProposals(next);
+      setProposals((held) => {
+        const next = { ...held };
+        for (const p of found) {
+          next[p.questionLineageId] = {
+            text: p.text,
+            origin: p.origin,
+            sourceRecordingId: recording.id,
+            subjectKeys: p.artisanIds ? p.artisanIds.map((a) => `A:${a}`) : null
+          };
+        }
+        return next;
+      });
       setTypeAnswers(true);
       setProposalNote(found.length ? qs("proposalsReady", { count: found.length }) : qs("noProposals"));
-      const first = found[0] ? sectionOf(found[0].questionLineageId) : null;
-      if (first) setActiveSection(first);
+      if (found[0]) setRevealLineage(found[0].questionLineageId);
     } catch (error) {
       setProposalNote(error instanceof Error ? error.message : String(error));
     }
@@ -804,7 +823,10 @@ export function SessionWorkspace({ id }: { id: string }) {
               type="button"
               aria-pressed={activeSection === s.id}
               className={`min-h-10 min-w-10 rounded-md border px-2 text-sm font-semibold ${activeSection === s.id ? "border-purple-700 bg-purple-700 text-white" : "border-line-200 bg-card text-ink-700"}`}
-              onClick={() => setActiveSection(activeSection === s.id ? null : s.id)}
+              onClick={() => {
+                setRevealLineage(null);
+                setActiveSection(activeSection === s.id ? null : s.id);
+              }}
             >
               {s.code}
             </button>
