@@ -73,10 +73,16 @@ call only runs the queries that level needs (each bounded by ``TAKE``).
 """
 
 import asyncio
+import contextlib
+import ctypes
+import functools
 import io
 import json
+import sys
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from datetime import datetime
+from types import SimpleNamespace
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -92,6 +98,7 @@ from app.services import (
     transcript_pipeline,
     transcript_portal,
 )
+from app.services.concurrency import gather_reads
 from app.services.media_naming import (
     RESERVED_NAMES as _RESERVED_NAMES,
 )
@@ -169,6 +176,16 @@ _WALK_SEM = asyncio.Semaphore(5)
 MAX_CONVERT_BYTES = 200 * 1024 * 1024
 # Per-sheet row cap for /data/report (a truncation note row is appended when hit).
 REPORT_TAKE = 5000
+#: Rows per sheet in ``/data/report?format=json``, the View Data tables (D39). The screen shows a
+#: PREVIEW; the .xlsx and ``/data/manifest`` stay complete. A whole-repository report rendered in
+#: full was 7.8 MB of JSON per request and ratcheted the API's resident memory in steps.
+PREVIEW_ROWS = 200
+#: One report build at a time per process (D39). A second request while one is building is answered
+#: at once with this sentence and ``Retry-After`` rather than queued: two whole-repository builds at
+#: once is the shape that took the field API from 179 to 288 MB.
+_REPORT_BUILD = asyncio.Semaphore(1)
+REPORT_BUSY = "A report is already being prepared. Try again in a minute."
+REPORT_RETRY_AFTER_SECONDS = 60
 # Pseudo craft-folder id gathering a workshop's artisans that have no craft assigned.
 NO_CRAFT = "_none"
 
@@ -2157,17 +2174,34 @@ _INTERVIEW_INCLUDE = {
     "responses": {"include": {"question": True}},
     "createdBy": True,
 }
-_REPORT_MEDIA_INCLUDE = {
-    "uploadedBy": True,
-    "product": True,
-    "tool": True,
-    # artisan->craft is nested so a media row attached only to an artisan can still fill
-    # its Craft column in the hierarchy sheet.
-    "artisan": {"include": {"craft": True}},
-    "workshop": True,
-    "craft": True,
-    "questionnaireInterview": True,
-}
+#: THE MEDIA COLUMNS THE REPORT READS, BY NAME (D39). ``find_many`` selects every scalar of the
+#: row, which on ``MediaFile`` means ``transcriptText``, ``transcriptSegments`` and ``extraMetadata``
+#: for up to REPORT_TAKE files — the bulk of a whole-repository build. Nothing here may name those:
+#: whether a file has a transcript is the cheap ``hasTranscript`` expression, and the words reach the
+#: Transcripts sheet through ``transcript_export.transcript_texts`` in batches.
+_REPORT_MEDIA_COLUMNS = (
+    'm."id"',
+    'm."originalFilename"',
+    'm."mediaType"::text AS "mediaType"',
+    'm."sizeBytes"',
+    'm."url"',
+    'm."linkedRecordType"',
+    'm."linkedRecordId"',
+    'm."recordedAt"',
+    'm."createdAt"',
+    'm."uploadedById"',
+    'm."artisanId"',
+    'm."craftId"',
+    'm."workshopId"',
+    'm."productId"',
+    'm."toolId"',
+    'm."questionnaireInterviewId"',
+)
+_HAS_TRANSCRIPT = 'COALESCE(length(btrim(m."transcriptText")) > 0, false) AS "hasTranscript"'
+_REPORT_MEDIA_SQL = (
+    "SELECT " + ", ".join((*_REPORT_MEDIA_COLUMNS, _HAS_TRANSCRIPT))
+    + ' FROM "MediaFile" m WHERE m."id" = ANY($1::text[])'
+)
 
 _REPORT_KEYS = (
     "workshops",
@@ -2186,15 +2220,81 @@ def _tag_where(tags: list[str], ids: list[str]) -> dict[str, Any]:
 
 
 async def _report_media(where: dict[str, Any] | None, scope: Scope) -> list[Any]:
+    """The media rows of one report, newest first, at most REPORT_TAKE, in a fixed number of reads.
+
+    Three steps, none of which reads a transcript (D39): the visible ids through Prisma's own
+    filter (``group_by`` on ``id`` and ``createdAt`` selects those two columns and no other), the named columns of those
+    rows (``_REPORT_MEDIA_SQL``), then each relation the sheets print, once, by id.
+    """
     kwargs: dict[str, Any] = {
+        "by": ["id", "createdAt"],
         "take": REPORT_TAKE,
         "order": {"createdAt": "desc"},
-        "include": _REPORT_MEDIA_INCLUDE,
     }
     scoped = live_media_where(_and(where or {}, scope.media))
     if scoped:
         kwargs["where"] = scoped
-    return await db.mediafile.find_many(**kwargs)
+    picked = await db.mediafile.group_by(**kwargs)
+    return await _media_rows([str(row["id"]) for row in picked])
+
+
+def _moment(value: Any) -> Any:
+    """A raw-query timestamp as a datetime (the engine may answer an ISO string)."""
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return value
+    return value
+
+
+async def _by_ids(
+    delegate: Any, ids: set[str], include: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    if not ids:
+        return {}
+    kwargs: dict[str, Any] = {"where": {"id": {"in": sorted(ids)}}}
+    if include:
+        kwargs["include"] = include
+    return {row.id: row for row in await delegate.find_many(**kwargs)}
+
+
+async def _media_rows(ids: list[str]) -> list[Any]:
+    """``ids`` as report rows, in the order given: the named columns plus the relations."""
+    if not ids:
+        return []
+    found = {str(row["id"]): row for row in await db.query_raw(_REPORT_MEDIA_SQL, ids)}
+    rows = [found[i] for i in ids if i in found]
+
+    def wanted(key: str) -> set[str]:
+        return {str(row[key]) for row in rows if row.get(key)}
+
+    users, products, tools, artisans, workshops, crafts, interviews = await gather_reads(
+        _by_ids(db.user, wanted("uploadedById")),
+        _by_ids(db.productdocumentation, wanted("productId")),
+        _by_ids(db.tooldocumentation, wanted("toolId")),
+        # artisan->craft so a file attached only to an artisan still fills its Craft column.
+        _by_ids(db.artisan, wanted("artisanId"), {"craft": True}),
+        _by_ids(db.workshop, wanted("workshopId")),
+        _by_ids(db.craft, wanted("craftId")),
+        _by_ids(db.questionnaireinterview, wanted("questionnaireInterviewId")),
+    )
+    out = []
+    for row in rows:
+        m = SimpleNamespace(**row)
+        m.sizeBytes = int(m.sizeBytes) if m.sizeBytes is not None else None
+        m.recordedAt = _moment(m.recordedAt)
+        m.createdAt = _moment(m.createdAt)
+        m.hasTranscript = bool(m.hasTranscript)
+        m.uploadedBy = users.get(m.uploadedById)
+        m.product = products.get(m.productId)
+        m.tool = tools.get(m.toolId)
+        m.artisan = artisans.get(m.artisanId)
+        m.workshop = workshops.get(m.workshopId)
+        m.craft = crafts.get(m.craftId)
+        m.questionnaireInterview = interviews.get(m.questionnaireInterviewId)
+        out.append(m)
+    return out
 
 
 async def _report_records(segs: list[str], scope: Scope) -> dict[str, list[Any]]:
@@ -2576,6 +2676,8 @@ def _sheet(
         "rows": rows,
         "truncated": capped,
         "prose": prose or [],
+        # The last row is the note above, not data; the JSON preview keeps it last (D39).
+        "noteRow": capped,
     }
 
 
@@ -2737,7 +2839,7 @@ def _media_facts(m: Any) -> dict[str, str]:
         "uploadedBy": _cell(getattr(getattr(m, "uploadedBy", None), "name", None)),
         "uploadedOn": _cell(_date(m.createdAt)),
         "recordedOn": _cell(_date(m.recordedAt or m.createdAt)),
-        "transcript": "Yes" if (m.transcriptText or "").strip() else "",
+        "transcript": "Yes" if transcript_export.has_text(m) else "",
         "url": _cell(m.url),
     }
 
@@ -2874,8 +2976,15 @@ def _all_records_sheet(
 
 
 def _transcript_sheet(
-    media: list[Any], proc_names: dict[str, str], step_names: dict[str, str]
+    media: list[Any],
+    proc_names: dict[str, str],
+    step_names: dict[str, str],
+    texts: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+    """``texts`` is ``{mediaId: transcript}`` from ``transcript_export.transcript_texts`` (D39): the
+    media rows carry only ``hasTranscript``. A row it does not hold prints an empty cell, which only
+    happens past the JSON preview, where the row is cut anyway."""
+    texts = texts or {}
     columns = [
         "File",
         "Type",
@@ -2889,7 +2998,7 @@ def _transcript_sheet(
     ]
     rows = []
     for m in media:
-        if not (m.transcriptText or "").strip():
+        if not transcript_export.has_text(m):
             continue
         ctx = _media_context(m, proc_names, step_names)
         facts = _media_facts(m)
@@ -2903,7 +3012,7 @@ def _transcript_sheet(
                 ctx["label"],
                 facts["uploadedBy"],
                 facts["recordedOn"],
-                _cell(m.transcriptText),
+                _cell(texts.get(str(m.id))),
             ]
         )
     return _sheet(
@@ -3031,7 +3140,9 @@ def _media_by_type_sheet(
     return _sheet("Media by type", MEDIA_COLOR, columns, rows, len(media) >= REPORT_TAKE)
 
 
-def _report_sheets(data: dict[str, list[Any]]) -> list[dict[str, Any]]:
+def _report_sheets(
+    data: dict[str, list[Any]], texts: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
     """Every sheet in the workbook, in tab order.
 
     Layout: the coalesced All-records page first (the whole taxonomy at a glance), then
@@ -3055,7 +3166,7 @@ def _report_sheets(data: dict[str, list[Any]]) -> list[dict[str, Any]]:
         _record_sheet("tool", data["tools"], media_index),
         _record_sheet("interview", data["interviews"], media_index),
         _questionnaire_answer_sheet(data["interviews"]),
-        _transcript_sheet(media, proc_names, step_names),
+        _transcript_sheet(media, proc_names, step_names, texts),
         _media_by_hierarchy_sheet(media, proc_names, step_names),
         _media_by_uploader_sheet(media, proc_names, step_names),
         _media_by_type_sheet(media, proc_names, step_names),
@@ -3091,32 +3202,114 @@ async def data_report(
     current_user: Any = Depends(require_dataset_downloader),
 ) -> Response:
     """Relational report of the subtree at ``path``: one sheet per record type, rows carrying
-    their parent relations so the sheets interlink. ``format=json`` returns
-    {sheets:[{name,color,columns,rows}]}; ``format=xlsx`` (default) streams a styled workbook.
-    Every sheet is built from the caller's visible rows only."""
+    their parent relations so the sheets interlink. ``format=json`` returns a PREVIEW, at most
+    :data:`PREVIEW_ROWS` rows a sheet (see :func:`_preview`); ``format=xlsx`` (default) streams the
+    complete workbook. Every sheet is built from the caller's visible rows only.
+
+    ONE BUILD AT A TIME (D39): while one is running, another request is answered 503 with
+    ``Retry-After`` and :data:`REPORT_BUSY` straight away, never queued."""
     fmt = (format or "xlsx").strip().lower()
     if fmt not in ("json", "xlsx"):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="format must be 'json' or 'xlsx'",
         )
-    scope = await _scope_for(current_user, data_status(status_value))
+    status_filter = data_status(status_value)
+    # No await between the test and the acquire, so two requests cannot both pass it.
+    if _REPORT_BUILD.locked():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=REPORT_BUSY,
+            headers={"Retry-After": str(REPORT_RETRY_AFTER_SECONDS)},
+        )
+    async with _REPORT_BUILD:
+        try:
+            return await _build_report(path, fmt, status_filter, current_user)
+        finally:
+            _trim_heap()
+
+
+def _preview(sheets: list[dict[str, Any]], uncounted: set[int]) -> list[dict[str, Any]]:
+    """The JSON shape of each sheet: the first :data:`PREVIEW_ROWS` data rows.
+
+    ``truncated``  the screen shows fewer rows than exist (the preview cut, or the download's own cap)
+    ``preview``    the preview cut this sheet; the .xlsx has the rest
+    ``totalRows``  rows in the .xlsx, or ``None`` where they were not counted (the three transcript
+                   pipeline sheets, built only as far as the preview needs; ``uncounted`` indexes)
+    ``capped``     the .xlsx itself stops at REPORT_TAKE (the old ``truncated``)
+
+    A note row ``_sheet`` appended stays last, as before.
+    """
+    out = []
+    for index, sheet in enumerate(sheets):
+        rows = sheet.get("rows") or []
+        note = rows[-1:] if sheet.get("noteRow") else []
+        data = rows[:-1] if note else rows
+        shown = data[:PREVIEW_ROWS]
+        known = index not in uncounted
+        cut = len(data) > PREVIEW_ROWS or (not known and bool(sheet.get("truncated")))
+        capped = bool(sheet.get("truncated")) and known
+        entry = {k: v for k, v in sheet.items() if k not in ("rows", "noteRow")}
+        entry.update(
+            rows=[*shown, *note] if capped else shown,
+            truncated=cut or capped,
+            preview=cut,
+            capped=capped,
+            totalRows=len(data) if known else None,
+        )
+        out.append(entry)
+    return out
+
+
+@functools.cache
+def _malloc_trim() -> Any:
+    """glibc's ``malloc_trim``, or None off Linux or without that libc."""
+    if not sys.platform.startswith("linux"):
+        return None
+    try:
+        return ctypes.CDLL("libc.so.6").malloc_trim
+    except (OSError, AttributeError):
+        return None
+
+
+def _trim_heap() -> None:
+    """Hand the heap pages a report build freed back to the OS (D39). Never fails a request."""
+    trim = _malloc_trim()
+    if trim is None:
+        return
+    # A hint to the allocator, never worth an error.
+    with contextlib.suppress(Exception):
+        trim(0)
+
+
+async def _build_report(
+    path: str, fmt: str, status_filter: str | None, current_user: Any
+) -> Response:
+    scope = await _scope_for(current_user, status_filter)
     norm = _norm(path)
     segs = [s for s in norm.split("/") if s]
     records = await _report_records(segs, scope)
     # 0.0.6: no words of a recording whose consent was refused, in any sheet; then the transcript
     # pipeline's sheets (recordings with summary, quotes, glossary and chips; turns; glossary).
     await transcript_export.withhold_refused(records["media"])
-    sheets = _report_sheets(records)
-    sheets += await transcript_export.report_sheets(
-        [m.id for m in records["media"] if (m.transcriptText or "").strip()],
+    transcribed = [str(m.id) for m in records["media"] if transcript_export.has_text(m)]
+    # The words, in batches, and for the JSON preview only as many as it shows (D39).
+    texts = await transcript_export.transcript_texts(
+        transcribed[:PREVIEW_ROWS] if fmt == "json" else transcribed
+    )
+    sheets = _report_sheets(records, texts)
+    del texts
+    pipeline = await transcript_export.report_sheets(
+        transcribed,
         sees_spend=transcript_portal.may_see_spend(current_user),
         sheet=_sheet,
-        cap=REPORT_TAKE,
+        cap=PREVIEW_ROWS if fmt == "json" else REPORT_TAKE,
         color=TRANSCRIPT_COLOR,
     )
+    uncounted = set(range(len(sheets), len(sheets) + len(pipeline))) if fmt == "json" else set()
+    sheets += pipeline
     if fmt == "json":
-        return JSONResponse({"sheets": sheets})
+        return JSONResponse({"sheets": _preview(sheets, uncounted), "previewRows": PREVIEW_ROWS})
 
     crumbs = await _resolve_crumbs(norm)
     level_name = crumbs[-1]["name"] if crumbs else "Repository"
@@ -3124,6 +3317,7 @@ async def data_report(
     payload = await asyncio.to_thread(
         build_report_workbook, _rendered(sheets), f"{level_name} report"
     )
+    del sheets, records
     # NAMING 2.1: DesignWorkshop_Dataset_2026-10-18_Rajasthan_Report.xlsx. The web takes this name
     # from the header rather than building its own, so the two can no longer disagree.
     report_name = naming.export_filename(
