@@ -354,6 +354,14 @@ fun Throwable.apiFailure(fallback: String): ApiFailure {
     return ApiFailure(code, said ?: plain, detail as? JsonObject, refusalFieldPaths(detail))
 }
 
+/** FastAPI's `detail` out of an error body already read as a String (a streamed download's refusal). */
+private fun errorBodyDetail(raw: String?): String? {
+    if (raw.isNullOrBlank()) return null
+    val body = runCatching { errorBodyJson.parseToJsonElement(raw) }.getOrNull() as? JsonObject
+    val detail = body?.get("detail") ?: return null
+    return detailMessage(detail)?.takeUnless { looksLikeProtocolText(it) }
+}
+
 /** Pull the human-readable text out of whichever `detail` shape FastAPI returned. */
 private fun detailMessage(detail: JsonElement): String? = when (detail) {
     is JsonPrimitive -> detail.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
@@ -2280,7 +2288,11 @@ class FieldRepository(
      */
     suspend fun downloadReport(context: Context, path: String = "", status: String? = null): String = withContext(Dispatchers.IO) {
         val response = api.dataReport(format = "xlsx", path = path, status = status)
-        if (!response.isSuccessful) throw IllegalStateException("The report didn't download. Try again.")
+        // The server's own sentence when it gives one: a 503 while another report is being built
+        // says to try again in a minute (D39), which is more use than "try again".
+        if (!response.isSuccessful) throw IllegalStateException(
+            errorBodyDetail(response.errorBody()?.string()) ?: "The report didn't download. Try again."
+        )
         val body = response.body() ?: throw IllegalStateException("The report didn't download. Try again.")
         val name = Naming.exportFilename(
             "Dataset", "Report", "xlsx", withTime = true,
