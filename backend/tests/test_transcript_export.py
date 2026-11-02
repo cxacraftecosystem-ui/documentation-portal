@@ -155,3 +155,9 @@ def test_the_tree_hides_a_withheld_transcript_and_lists_files(monkeypatch: pytes
     assert [f["format"] for f in ok["transcriptFiles"]] == ["md", "md", "docx", "docx"]
     assert no["transcriptAvailable"] is False and "transcriptFiles" not in no
     assert folder["kind"] == "folder"
+
+
+def test_a_recording_row_carries_english_a_person_pasted_whole() -> None:
+    assert tx.recording_row(REC, sees_spend=False)["English (whole transcript)"] == ""
+    pasted = {**REC, "english": "How do you make these colours?\n\nWe mix clay and gum."}
+    assert tx.recording_row(pasted, sees_spend=False)["English (whole transcript)"] == pasted["english"]

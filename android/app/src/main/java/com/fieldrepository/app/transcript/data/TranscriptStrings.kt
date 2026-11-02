@@ -54,6 +54,18 @@ object TranscriptStrings {
     const val translationPending = "Translating"
     const val translationFailed = "Couldn't translate"
     const val retranslateTurn = "Re-translate this turn"
+    const val englishDeclined = "Gemini declined to translate this recording"
+    const val englishDeclinedHint = "Add the English yourself: edit a turn, or paste the whole translation."
+    const val englishUnavailable = "English isn't available for this recording."
+    const val addEnglish = "Add English"
+    const val addEnglishTitle = "Add the English"
+    const val addEnglishHint = "One paragraph per turn, separated by a blank line, lines up with the turns. Anything else is kept as one English text."
+    const val addEnglishPlaceholder = "Type or paste the English"
+    fun addEnglishAligned(count: Any): String = "{count} paragraphs, one for each turn.".replace("{count}", count.toString())
+    fun addEnglishWhole(paragraphs: Any, turns: Any): String = "{paragraphs} paragraphs for {turns} turns: kept as one English text.".replace("{paragraphs}", paragraphs.toString()).replace("{turns}", turns.toString())
+    const val addEnglishSave = "Save English"
+    const val manualEnglishTitle = "English"
+    const val manualEnglishSource = "Added by hand"
     const val sourceMachine = "Machine"
     const val sourceEdited = "Edited"
     const val editTurn = "Edit"
@@ -154,6 +166,18 @@ object TranscriptStrings {
         "translationPending" to "Translating",
         "translationFailed" to "Couldn't translate",
         "retranslateTurn" to "Re-translate this turn",
+        "englishDeclined" to "Gemini declined to translate this recording",
+        "englishDeclinedHint" to "Add the English yourself: edit a turn, or paste the whole translation.",
+        "englishUnavailable" to "English isn't available for this recording.",
+        "addEnglish" to "Add English",
+        "addEnglishTitle" to "Add the English",
+        "addEnglishHint" to "One paragraph per turn, separated by a blank line, lines up with the turns. Anything else is kept as one English text.",
+        "addEnglishPlaceholder" to "Type or paste the English",
+        "addEnglishAligned" to "{count} paragraphs, one for each turn.",
+        "addEnglishWhole" to "{paragraphs} paragraphs for {turns} turns: kept as one English text.",
+        "addEnglishSave" to "Save English",
+        "manualEnglishTitle" to "English",
+        "manualEnglishSource" to "Added by hand",
         "sourceMachine" to "Machine",
         "sourceEdited" to "Edited",
         "editTurn" to "Edit",

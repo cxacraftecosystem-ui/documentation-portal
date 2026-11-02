@@ -42,6 +42,13 @@ class RenderDoc:
     duration_ms: int | None
     speaker_count: int
     turns: list[RenderTurn] = field(default_factory=list)
+    #: The whole transcript's English as a person pasted it, when it could not be laid on the turns
+    #: (D38, 0.0.9). The English and both-track copies and documents carry it after the turns.
+    english_text: str | None = None
+
+
+#: The heading the pasted whole-transcript English sits under in a both-track copy.
+ENGLISH_HEADING = "## English"
 
 
 def timestamp(ms: int | None) -> str:
@@ -107,8 +114,17 @@ def block(turn: RenderTurn, track: str, *, timestamps: bool = True) -> str:
 
 def copy_all(doc: RenderDoc, track: str, *, timestamps: bool = True) -> str:
     """Copy all / the .md download: the header, then every turn. ``timestamps=False`` is the
-    "without timestamps" copy and download: the same text with only the speaker on each turn."""
-    return "\n\n".join([header(doc), *(block(turn, track, timestamps=timestamps) for turn in doc.turns)])
+    "without timestamps" copy and download: the same text with only the speaker on each turn.
+
+    With ``english_text`` (English pasted whole), the English track is the header and that text,
+    and the both track prints it under :data:`ENGLISH_HEADING` after the turns."""
+    manual = (doc.english_text or "").strip()
+    if manual and track == ENGLISH:
+        return "\n\n".join([header(doc), manual])
+    parts = [header(doc), *(block(turn, track, timestamps=timestamps) for turn in doc.turns)]
+    if manual and track == BOTH:
+        parts += [ENGLISH_HEADING, manual]
+    return "\n\n".join(parts)
 
 
 def copy_selected(doc: RenderDoc, turn_ids: list[str], track: str) -> str:
@@ -225,7 +241,8 @@ def docx(doc: RenderDoc, track: str = BOTH, *, timestamps: bool = True) -> bytes
             after=240,
         ),
     ]
-    for turn in doc.turns:
+    manual = (doc.english_text or "").strip()
+    for turn in [] if manual and track == ENGLISH else doc.turns:
         speaker = [_run(clean_name(turn.speaker_name), bold=True)]
         if timestamps:
             speaker += [_run(" · "), _run(timestamp(turn.start_ms), mono=True, size=18)]
@@ -236,6 +253,10 @@ def docx(doc: RenderDoc, track: str = BOTH, *, timestamps: bool = True) -> bytes
         paragraphs.append(_para(_run(turn.text.strip()), after=60 if track == BOTH else 120))
         if track == BOTH and quote_of(turn) is not None:
             paragraphs.append(_para(_run(str(turn.english).strip(), italic=True), indent=360))
+    if manual and track in (ENGLISH, BOTH):
+        if track == BOTH:
+            paragraphs.append(_para(_run("English", bold=True, size=26), after=120))
+        paragraphs += [_para(_run(p.strip())) for p in re.split(r"\n\s*\n", manual) if p.strip()]
     document = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'

@@ -120,6 +120,8 @@ open class TranscriptHost {
     /** The same, without a timestamp on any turn (`md` and `docx`; 0.0.5). */
     open fun download(format: String, track: CopyTrack, timestamps: Boolean) = download(format, track)
     open fun statusAction() {}
+    /** Contract 3: the whole transcript's English, typed or pasted. Null when saved, else the sentence to show. */
+    open suspend fun addEnglish(text: String): String? = null
     open fun editTurn(turn: TranscriptTurn, text: String?, english: String?) {}
     open fun retranslate(turn: TranscriptTurn) {}
     open fun mapSpeakers(mappings: List<SpeakerMapping>) {}
@@ -225,7 +227,7 @@ fun TranscriptViewer(
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
                 item(key = "header") {
-                    TranscriptHeader(view, offline, waitingEdits, failures, headerExtra, onAction = host::statusAction)
+                    TranscriptHeader(view, offline, waitingEdits, failures, headerExtra, onAction = host::statusAction, host = host)
                 }
                 item(key = "toolbar") {
                     if (view.status == PipelineStatus.READY && turns.isNotEmpty()) {
@@ -300,6 +302,11 @@ fun TranscriptViewer(
                         )
                     }
                 }
+                // Contract 3: English pasted whole, under the turns, wherever English is shown.
+                val manual = view.manualEnglish?.trim().orEmpty()
+                if (manual.isNotEmpty() && tab != TranscriptTab.ORIGINAL && turns.isNotEmpty()) {
+                    item(key = "manualEnglish") { ManualEnglishBlock(manual) }
+                }
             }
             // Shown once the reader has taken over while it plays: one tap and it follows again.
             if (playback.playing && !following && followItem >= 0) {
@@ -370,6 +377,7 @@ private fun TranscriptHeader(
     failures: List<String>,
     extra: (@Composable () -> Unit)?,
     onAction: () -> Unit,
+    host: TranscriptHost = TranscriptHost(),
 ) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(view.title.ifBlank { TranscriptUiText.open }, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
@@ -388,6 +396,8 @@ private fun TranscriptHeader(
         view.readOnly?.message?.takeIf { it.isNotBlank() }?.let {
             Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted, modifier = Modifier.testTag("transcript.readOnly"))
         }
+        // Contract 3: Gemini declined, and no English stands in yet (null: nothing drawn).
+        EnglishNoticeCard(view, host)
         if (waitingEdits > 0) Text(TranscriptUiText.waiting(waitingEdits), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
         failures.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
         val action = when {

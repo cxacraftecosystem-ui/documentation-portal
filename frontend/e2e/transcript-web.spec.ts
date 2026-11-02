@@ -481,6 +481,49 @@ test.describe("desktop actions", () => {
     expect((await download).suggestedFilename()).toBe("DesignWorkshop_Interview_2026-06-24_Giriraj-Prasad-Chhipa_Transcript.md");
   });
 
+  test("Gemini declined: an editor adds the English, one paragraph per turn, and the notice goes", async ({ page }) => {
+    const fake = declined(new TranscriptFake(), "DECLINED");
+    const viewer = await open(page, fake);
+    const notice = viewer.locator('[data-english-notice="DECLINED"]');
+    await expect(notice).toContainText("Gemini declined to translate this recording");
+    await notice.getByTestId("add-english-open").click();
+    await notice.getByTestId("add-english-text").fill("How do you make these colours?\n\nWe mix clay and gum.");
+    await expect(notice.locator("[data-english-plan]")).toHaveText("2 paragraphs, one for each turn.");
+    await notice.getByTestId("add-english-save").click();
+    await expect(viewer.locator("[data-english-notice]")).toHaveCount(0);
+    expect(fake.calledWith("POST", `/transcripts/${MEDIA_ID}/english`)[0].body).toEqual({
+      baseRevision: 3,
+      text: "How do you make these colours?\n\nWe mix clay and gum."
+    });
+    await viewer.locator('[data-tab="english"]').click();
+    await expect(viewer.locator('[data-turn-id="turn_b"]')).toContainText("We mix clay and gum.");
+  });
+
+  test("Gemini declined: English that does not line up is kept whole, shown under the turns and copied", async ({ page }) => {
+    const fake = declined(new TranscriptFake(), "DECLINED");
+    const viewer = await open(page, fake);
+    const notice = viewer.locator('[data-english-notice="DECLINED"]');
+    await notice.getByTestId("add-english-open").click();
+    const text = "One.\n\nTwo.\n\nThree.";
+    await notice.getByTestId("add-english-text").fill(text);
+    await expect(notice.locator("[data-english-plan]")).toHaveText("3 paragraphs for 2 turns: kept as one English text.");
+    await notice.getByTestId("add-english-save").click();
+    await viewer.locator('[data-tab="english"]').click();
+    await expect(viewer.locator("[data-manual-english]")).toContainText("Added by hand");
+    await expect(viewer.locator("[data-manual-english]")).toContainText("Three.");
+    await pick(page, viewer.getByTestId("copy-all"), "english");
+    await expect(viewer.locator('[data-copy-status="ok"]')).toHaveText("Copied");
+    expect((await clipboard(page)).endsWith(`|\n\n${text}`)).toBe(true);
+  });
+
+  test("Gemini declined: every other reader sees a neutral line that names no provider", async ({ page }) => {
+    const fake = declined(new TranscriptFake(), "UNAVAILABLE");
+    const viewer = await open(page, fake);
+    await expect(viewer.locator('[data-english-notice="UNAVAILABLE"]')).toHaveText("English isn't available for this recording.");
+    await expect(viewer.getByTestId("add-english-open")).toHaveCount(0);
+    await expect(viewer.getByText(/declined/i)).toHaveCount(0);
+  });
+
   test("with the pipeline off the stored transcript shows as before", async ({ page }) => {
     const fake = new TranscriptFake();
     fake.off = true;
@@ -491,6 +534,17 @@ test.describe("desktop actions", () => {
     await expect(page.locator("[data-transcript-viewer]")).toHaveCount(0);
   });
 });
+
+/** The view of a recording Gemini declined to translate (contract 3), for an editor or another reader. */
+function declined(fake: TranscriptFake, notice: "DECLINED" | "UNAVAILABLE"): TranscriptFake {
+  const view = fake.view as unknown as Transcript;
+  view.turns = view.turns.map((turn) => ({ ...turn, translation: { ...turn.translation, text: null, status: "FAILED" } }));
+  view.englishNotice = notice;
+  view.manualEnglish = null;
+  view.permissions = { ...view.permissions, addEnglish: notice === "DECLINED", edit: notice === "DECLINED" };
+  if (notice === "UNAVAILABLE") view.badges = [];
+  return fake;
+}
 
 /** A click on a neutralised link must not run anything either. */
 async function clickIsHarmless(page: Page, scope: ReturnType<Page["locator"]>) {

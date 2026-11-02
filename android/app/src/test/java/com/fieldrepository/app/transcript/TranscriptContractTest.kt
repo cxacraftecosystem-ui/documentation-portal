@@ -3,14 +3,17 @@ package com.fieldrepository.app.transcript
 import com.fieldrepository.app.transcript.data.AskAnswer
 import com.fieldrepository.app.transcript.data.BudgetMeter
 import com.fieldrepository.app.transcript.data.CopyTrack
+import com.fieldrepository.app.transcript.data.EnglishNotice
 import com.fieldrepository.app.transcript.data.PipelineStatus
 import com.fieldrepository.app.transcript.data.Transcript
 import com.fieldrepository.app.transcript.data.TranscriptFormat
+import com.fieldrepository.app.transcript.data.TranscriptStrings
 import com.fieldrepository.app.transcript.data.TranslationStatus
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -180,5 +183,50 @@ class TranscriptContractTest {
     @Test fun `no fixture ends in a newline and neither does the phone`() {
         for (track in CopyTrack.entries) assertFalse(TranscriptFormat.all(example, track).endsWith("\n"))
         assertTrue(contract["enums"]!!.jsonObject["copyTrack"]!!.jsonArray.map { (it as JsonPrimitive).content } == CopyTrack.entries.map { it.wire })
+    }
+
+    // ── Contract 3 (0.0.9, D38): English a person adds, and the notice when Gemini declined ──────
+
+    @Test fun `English pasted whole copies exactly as fixtures manualEnglish`() {
+        val manual = fixtures["manualEnglish"]!!.jsonObject
+        fun fix(key: String) = manual[key]!!.jsonPrimitive.content
+        val pasted = example.copy(manualEnglish = fix("text"))
+        assertEquals(fix("all_english"), TranscriptFormat.all(pasted, CopyTrack.ENGLISH))
+        assertEquals(fix("all_both"), TranscriptFormat.all(pasted, CopyTrack.BOTH))
+        assertEquals(fix("all_both_no_timestamps"), TranscriptFormat.all(pasted, CopyTrack.BOTH, timestamps = false))
+        assertEquals(copy("all_original"), TranscriptFormat.all(pasted, CopyTrack.ORIGINAL))
+        assertEquals(copy("selected_both_turn_b"), TranscriptFormat.selected(pasted, listOf("turn_b"), CopyTrack.BOTH))
+    }
+
+    @Test fun `the example carries the contract 3 fields and a declined view decodes`() {
+        assertEquals(null, example.englishNotice)
+        assertEquals(null, example.manualEnglish)
+        assertFalse(example.permissions.addEnglish)
+        val declined = json.parseToJsonElement(
+            """{"mediaId":"m","status":"READY","englishNotice":"DECLINED","manualEnglish":null,"permissions":{"edit":true,"addEnglish":true}}"""
+        )
+        val v = json.decodeFromJsonElement(Transcript.serializer(), declined)
+        assertEquals(EnglishNotice.DECLINED, v.englishNotice)
+        assertTrue(v.permissions.addEnglish)
+        val notices = contract["enums"]!!.jsonObject["englishNotice"]!!.jsonArray.map { (it as? JsonPrimitive)?.contentOrNull }
+        assertEquals(listOf(EnglishNotice.DECLINED, EnglishNotice.UNAVAILABLE, null), notices)
+        val routes = contract["routes"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(routes.any { it["method"]!!.jsonPrimitive.content == "POST" && it["path"]!!.jsonPrimitive.content == "/api/transcripts/{mediaId}/english" })
+    }
+
+    @Test fun `a paste lines up with the turns by the server's rule`() {
+        fun turn(status: String) = example.turns[0].copy(translation = example.turns[0].translation.copy(status = status, text = null))
+        val turns = listOf(turn(TranslationStatus.FAILED), turn(TranslationStatus.ALREADY_ENGLISH), turn(TranslationStatus.FAILED))
+        assertEquals(TranscriptFormat.EnglishPlan(2, 2, true), TranscriptFormat.englishPlan(turns, "One.\r\n\r\nTwo."))
+        assertEquals(TranscriptFormat.EnglishPlan(3, 2, true), TranscriptFormat.englishPlan(turns, "One.\n\nTwo.\n\nThree."))
+        assertEquals(TranscriptFormat.EnglishPlan(1, 2, false), TranscriptFormat.englishPlan(turns, "Just one."))
+        assertFalse(TranscriptFormat.englishPlan(turns, "  \n\n ").aligned)
+        assertEquals(listOf("One.", "Two\nstill two."), TranscriptFormat.paragraphs("One.\n\n\nTwo\nstill two.\n"))
+    }
+
+    @Test fun `the notice for other readers names no provider`() {
+        assertTrue(TranscriptStrings.englishDeclined.contains("Gemini"))
+        assertFalse(TranscriptStrings.englishUnavailable.contains("Gemini"))
+        assertFalse(TranscriptStrings.englishUnavailable.lowercase().contains("declined"))
     }
 }

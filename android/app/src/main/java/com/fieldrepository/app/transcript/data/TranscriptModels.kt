@@ -108,7 +108,21 @@ data class TranscriptPermissions(
     val autodraft: Boolean = false,
     val quoteCard: Boolean = false,
     val mapSpeakers: Boolean = false,
+    /** Contract 3: may type or paste the English (POST /english, or a turn's English edit). */
+    val addEnglish: Boolean = false,
 )
+
+/** Contract 3 `englishNotice`: why English is missing, for this reader (null: nothing to say). */
+object EnglishNotice {
+    /** Gemini declined to translate; this reader may add the English. */
+    const val DECLINED = "DECLINED"
+    /** The same, for every other reader: a neutral line naming no provider. */
+    const val UNAVAILABLE = "UNAVAILABLE"
+}
+
+/** The whole transcript's English, typed or pasted (contract 3 `EnglishBody`). */
+@Serializable
+data class EnglishBody(val baseRevision: Int, val text: String)
 
 /** `TranscriptView.readOnly`: `NOT_EDITOR` or `HELD_POST`, with the portal's own read-only sentence. */
 @Serializable
@@ -138,6 +152,10 @@ data class Transcript(
     val permissions: TranscriptPermissions = TranscriptPermissions(),
     /** Why this reader may read but not change it; null when they may (the write rule's own answer). */
     val readOnly: TranscriptReadOnly? = null,
+    /** Contract 3: [EnglishNotice] while English is missing because Gemini declined; null otherwise. */
+    val englishNotice: String? = null,
+    /** Contract 3: the whole transcript's English as a person pasted it, while the turns lack their own. */
+    val manualEnglish: String? = null,
     /** Bumps on every edit or speaker change; sent back as `baseRevision`. */
     val revision: Int = 0,
     val updatedAt: String? = null,
