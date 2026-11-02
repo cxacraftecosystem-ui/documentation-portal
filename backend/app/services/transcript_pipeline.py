@@ -28,6 +28,7 @@ import asyncio
 import inspect
 import json
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -68,6 +69,18 @@ KIND_ASK = "ASK"
 KIND_AUTODRAFT = "AUTODRAFT"
 
 BUDGET_NOTICE_KIND = "TRANSCRIPT_BUDGET"
+
+#: ``TranscriptVersion.translationStatus`` once Gemini declined the translation pass (D38, 0.0.9):
+#: the explicit marker the view reads, so nothing depends on matching a job's error sentence.
+DECLINED = "DECLINED"
+#: ``TranscriptVersion.translationProvider`` and ``TranscriptInsight.provider`` for English a person
+#: typed or pasted (:func:`add_english`).
+MANUAL = "manual"
+#: ``TranscriptView.englishNotice``: to whoever may add the English, and to everyone else.
+NOTICE_DECLINED = "DECLINED"
+NOTICE_UNAVAILABLE = "UNAVAILABLE"
+#: The longest English a person may paste for a whole transcript (the old insight's ceiling).
+MANUAL_ENGLISH_MAX_CHARS = transcript_insights.TRANSLATION_MAX_CHARS
 
 
 def enabled() -> bool:
@@ -197,7 +210,33 @@ async def ensure_version(media: Any) -> Any | None:
         "languageCode": _value(media, "transcriptLanguage"),
         "cacheHit": True,  # no new speech-to-text cost: the transcript was paid for long ago
     }
-    return await store_transcription(media, result)
+    created = await store_transcription(media, result)
+    if created is not None:
+        await queue_translation(media)
+    return created
+
+
+async def queue_translation(media: Any) -> Any | None:
+    """Queue the TRANSCRIPT_INSIGHTS job for a version :func:`ensure_version` just made (D38).
+
+    Before 0.0.9 an old transcript opened or exported got its PENDING turns and nothing else: no job
+    ever translated them. Idempotent and safe to call from a read: nothing is queued while the
+    switch is off, while consent refuses the send (re-read now), when a researcher edited the
+    summary (``enqueue_after_transcript``), or while an insights job is queued or running
+    (``enqueue``). That last rule is why ``generate``, which calls :func:`ensure_version` inside its
+    own PROCESSING job, queues no second one. Never raises: the view or export it sits in must work.
+    """
+    media_id = str(_value(media, "id"))
+    try:
+        if not enabled():
+            return None
+        may, _refusal = await transcript_portal.may_send(media)
+        if not may:
+            return None
+        return await transcript_insights.enqueue_after_transcript(media_id)
+    except Exception as exc:  # noqa: BLE001 - see the docstring
+        logger.warning("could not queue the translation of media %s (%s)", media_id, type(exc).__name__)
+        return None
 
 
 # --- 2. Translation and insights (the TRANSCRIPT_INSIGHTS job) --------------------------------
@@ -366,6 +405,8 @@ async def generate(media: Any, *, user_id: str | None) -> dict[str, Any]:
             media_id=media_id, kind=KIND_TRANSLATE, model=None, key_ref=None, input_tokens=0, output_tokens=0,
             cost_usd=0.0, outcome=exc.kind.upper(),
         )
+        if exc.kind == gemini.DECLINED:
+            await _mark_declined(version.id, turn_rows)
         raise transcript_insights.InsightsFailed(
             str(exc), retry=exc.retry, hold_seconds=getattr(exc, "hold_seconds", None)
         ) from None
@@ -406,6 +447,26 @@ async def generate(media: Any, *, user_id: str | None) -> dict[str, Any]:
     }
 
 
+async def _mark_declined(version_id: str, turn_rows: list[Any]) -> None:
+    """Gemini declined the pass (SAFETY, PROHIBITED_CONTENT and the like), and asking again gets the
+    same answer. The version says so (:data:`DECLINED`) and every turn left without English reads
+    FAILED rather than "Translating", so the view can offer a person the English (:func:`add_english`)."""
+    outcomes = [
+        (r.id, translate.FAILED, None)
+        for r in turn_rows
+        if r.translationStatus in {"PENDING", "STALE", "FAILED"} and not _current_english(r)
+    ]
+    try:
+        await transcript_store.write_translations(version_id, outcomes, None)
+        await db.execute_raw(
+            'UPDATE "TranscriptVersion" SET "translationStatus" = $2, "updatedAt" = now() WHERE "id" = $1',
+            version_id,
+            DECLINED,
+        )
+    except Exception as exc:  # noqa: BLE001 - the job still closes; the view falls back to its error
+        logger.warning("could not mark version %s declined (%s)", version_id, type(exc).__name__)
+
+
 class _GlossTurn:
     def __init__(self, row: Any) -> None:
         self.id = row.id
@@ -436,14 +497,17 @@ async def _index(media_id: str) -> None:
 
 
 async def search_english(media_id: str) -> str:
-    """The English of the current version, for the search document (empty when none)."""
+    """The English of the current version, for the search document (empty when none), with the
+    whole-transcript English a person pasted (:func:`manual_english`)."""
     version = await transcript_store.current_version(media_id)
     if version is None:
         return ""
     rows = await transcript_store.turns_of(version.id)
-    return "\n".join(
-        e for r in rows if r.translationStatus != "ALREADY_ENGLISH" and (e := _current_english(r))
-    )
+    parts = [e for r in rows if r.translationStatus != "ALREADY_ENGLISH" and (e := _current_english(r))]
+    manual = manual_english(await transcript_insights.current_insight(media_id))
+    if manual:
+        parts.append(manual)
+    return "\n".join(parts)
 
 
 # --- 3. The budget meter ----------------------------------------------------------------------
@@ -569,9 +633,12 @@ def _iso(value: Any) -> str | None:
     return str(value)
 
 
-def turn_json(row: Any, labels: dict[str, str]) -> dict[str, Any]:
+def turn_json(row: Any, labels: dict[str, str], *, declined: bool = False) -> dict[str, Any]:
     edited = row.editedText is not None
     english = _current_english(row)
+    status = row.translationStatus
+    if declined and status == "PENDING" and not english:
+        status = "FAILED"  # declined before 0.0.9 marked its turns: never "Translating" for ever
     return {
         "id": row.id,
         "index": row.position,
@@ -587,7 +654,7 @@ def turn_json(row: Any, labels: dict[str, str]) -> dict[str, Any]:
         "words": [] if edited else list(row.words or []),
         "translation": {
             "text": english or (None if row.translationStatus != "ALREADY_ENGLISH" else _current_text(row)),
-            "status": row.translationStatus,
+            "status": status,
             "source": "EDITED" if row.editedEnglish is not None else "MACHINE",
             "model": row.translationModel,
         },
@@ -605,10 +672,16 @@ async def title_for(media: Any, context: dict[str, Any]) -> str:
     return " · ".join(p for p in parts if p)
 
 
-async def _status_of(media: Any, version: Any, turn_rows: list[Any], settings_row: Any) -> insight.Status:
+_UNREAD: Any = object()
+
+
+async def _status_of(
+    media: Any, version: Any, turn_rows: list[Any], settings_row: Any, tr_job: Any = _UNREAD
+) -> insight.Status:
     media_id = str(_value(media, "id"))
     stt_job = await _latest_job(media_id, "TRANSCRIPTION")
-    tr_job = await _latest_job(media_id, transcript_insights.JOB_TYPE)
+    if tr_job is _UNREAD:
+        tr_job = await _latest_job(media_id, transcript_insights.JOB_TYPE)
     has_text = (
         bool(str(_value(media, "transcriptText") or "").strip())
         or bool(turn_rows)
@@ -635,6 +708,154 @@ async def _status_of(media: Any, version: Any, turn_rows: list[Any], settings_ro
     )
 
 
+def _job_status(job: Any) -> str | None:
+    status = getattr(job, "status", None)
+    return str(status).split(".")[-1] if status is not None else None
+
+
+def is_declined(version: Any, tr_job: Any) -> bool:
+    """Gemini declined to translate this version (D38). The version's own marker (:data:`DECLINED`,
+    written by :func:`generate` since 0.0.9); before that, the latest insights job FAILED with the
+    declined sentence, which is what a recording declined earlier still carries."""
+    if version is None:
+        return False
+    if _value(version, "translationStatus") == DECLINED:
+        return True
+    return _job_status(tr_job) == "FAILED" and (getattr(tr_job, "error", None) or "").strip() == gemini.MESSAGES[gemini.DECLINED]
+
+
+def manual_english(row: Any, version_id: str | None = None) -> str | None:
+    """The whole-transcript English a person pasted (a ``TranscriptInsight`` with provider
+    :data:`MANUAL`), for ``version_id`` when given: a re-transcription's new turns are not its text."""
+    if row is None or _value(row, "provider") != MANUAL:
+        return None
+    text = str(_value(row, "translationText") or "").strip()
+    if not text:
+        return None
+    generated = _value(row, "generated")
+    made_for = generated.get("versionId") if isinstance(generated, dict) else None
+    if version_id is not None and made_for is not None and made_for != version_id:
+        return None
+    return text
+
+
+def _missing_english(turn_rows: list[Any]) -> list[Any]:
+    return [r for r in turn_rows if r.translationStatus != "ALREADY_ENGLISH" and not (_current_english(r) or "").strip()]
+
+
+def english_state(
+    version: Any, turn_rows: list[Any], insight_row: Any, *, declined: bool, may_add: bool
+) -> dict[str, Any]:
+    """``{notice, manual, missing}`` for the view (contract ``englishNotice`` / ``manualEnglish``).
+
+    ``manual`` is the pasted whole-transcript English, shown only while turns still lack their own
+    (English laid on every turn supersedes it). ``notice`` is set only when Gemini declined and no
+    English stands in yet: :data:`NOTICE_DECLINED` for whoever may add it (the editor rule
+    ``guard_write`` refuses by, so the notice never offers a control the server would refuse), and
+    a neutral :data:`NOTICE_UNAVAILABLE` for every other reader.
+    """
+    missing = _missing_english(turn_rows)
+    manual = manual_english(insight_row, getattr(version, "id", None)) if missing else None
+    notice = None
+    if declined and missing and manual is None:
+        notice = NOTICE_DECLINED if may_add else NOTICE_UNAVAILABLE
+    return {"notice": notice, "manual": manual, "missing": len(missing)}
+
+
+def split_paragraphs(text: str) -> list[str]:
+    """Blank-line separated paragraphs, trimmed, empty ones dropped."""
+    return [p.strip() for p in re.split(r"\n\s*\n", str(text or "").replace("\r\n", "\n")) if p.strip()]
+
+
+async def add_english(media: Any, user: Any, *, base_revision: int, text: str) -> str:
+    """A person's English for the whole transcript (``POST /{mediaId}/english``, D38).
+
+    Pasted paragraphs are laid on the turns when they line up: one per turn that needs English, or
+    one per turn of the whole transcript (an English turn keeps its own words). Each becomes that
+    turn's edited English with its history, exactly as an English edit of one turn does. Otherwise
+    the text is kept whole as the transcript's English, a new ``TranscriptInsight`` with provider
+    :data:`MANUAL` (marked edited, so no automatic run replaces it), shown under the turns and in
+    every copy and download. Returns ``"TURNS"`` or ``"TEXT"``. The caller checked ``guard_write``.
+    """
+    media_id = str(_value(media, "id"))
+    version = await transcript_store.current_version(media_id)
+    if version is None:
+        raise PipelineRefused("NOT_READY", "This recording has no transcript yet.")
+    _check_revision(version, base_revision)
+    paragraphs = split_paragraphs(text)
+    if not paragraphs:
+        raise PipelineRefused("VALIDATION_FAILED", "Type or paste the English first.", 422)
+    rows = await transcript_store.turns_of(version.id)
+    targets = [r for r in rows if r.translationStatus != "ALREADY_ENGLISH"]
+    if not targets:
+        raise PipelineRefused("VALIDATION_FAILED", "This transcript is already in English.", 422)
+    if len(paragraphs) == len(targets):
+        pairs: list[tuple[Any, str]] | None = list(zip(targets, paragraphs, strict=True))
+    elif len(paragraphs) == len(rows):
+        pairs = [(r, p) for r, p in zip(rows, paragraphs, strict=True) if r.translationStatus != "ALREADY_ENGLISH"]
+    else:
+        pairs = None
+    actor = getattr(user, "id", None)
+    now = datetime.now(UTC)
+    if pairs is not None:
+        for row, english in pairs:
+            if english == (_current_english(row) or "").strip() and row.translationStatus == "TRANSLATED":
+                continue
+            if row.editedEnglish is None and row.machineEnglish:
+                await transcript_store.add_edit(row.id, "ENGLISH", "MACHINE", row.machineEnglish, None)
+            await db.transcriptturn.update(
+                where={"id": row.id},
+                data={"editedEnglish": english, "translationStatus": "TRANSLATED", "revision": {"increment": 1},
+                      "editedAt": now, "editedById": actor},
+            )
+            await transcript_store.add_edit(row.id, "ENGLISH", "EDITED", english, actor)
+        await db.execute_raw(
+            'UPDATE "TranscriptVersion" SET "translationStatus" = \'COMPLETED\', "translationProvider" = $2, '
+            '"translatedAt" = now(), "updatedAt" = now() WHERE "id" = $1 AND "translationStatus" <> \'NOT_NEEDED\'',
+            version.id,
+            MANUAL,
+        )
+        mode = "TURNS"
+    else:
+        whole = "\n\n".join(paragraphs)[:MANUAL_ENGLISH_MAX_CHARS]
+        current = await transcript_insights.current_insight(media_id)
+        previous = await db.transcriptinsight.find_first(where={"mediaFileId": media_id}, order={"version": "desc"})
+        number = (previous.version if previous else 0) + 1
+        summary = list(getattr(current, "summaryLines", None) or [])
+        quotes = list(getattr(current, "quotes", None) or [])
+        await db.transcriptinsight.create(
+            data={
+                "mediaFileId": media_id,
+                "version": number,
+                "sourceHash": transcript_insights.media_source_hash(media),
+                "sourceLanguage": version.detectedLanguage,
+                "summaryLines": summary,
+                "quotes": Json(quotes),
+                "translationStatus": transcript_insights.COMPLETED,
+                "translationText": whole,
+                "translationNote": None,
+                "provider": MANUAL,
+                "modelId": MANUAL,
+                "modelVersion": None,
+                "promptVersion": MANUAL,
+                "generated": Json({"versionId": version.id, "summaryLines": summary, "quotes": quotes, "translationText": whole}),
+                "generatedAt": now,
+                "requestedById": actor,
+                "editedAt": now,
+                "editedById": actor,
+            }
+        )
+        await db.transcriptinsight.update_many(
+            where={"mediaFileId": media_id, "supersededAt": None, "version": {"lt": number}},
+            data={"supersededAt": now},
+        )
+        mode = "TEXT"
+    await transcript_store.bump_revision(version.id)
+    await _index(media_id)
+    logger.info("english added by hand to media %s (%s, %d paragraphs)", media_id, mode, len(paragraphs))
+    return mode
+
+
 async def build_view(media: Any, user: Any, *, version_number: int | None = None) -> dict[str, Any]:
     media_id = str(_value(media, "id"))
     version = (
@@ -647,7 +868,8 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
     labels = _speaker_labels(turn_rows, speakers)
     context = await context_for(media)
     settings_row = await _settings_row()
-    state = await _status_of(media, version, turn_rows, settings_row)
+    tr_job = await _latest_job(media_id, transcript_insights.JOB_TYPE)
+    state = await _status_of(media, version, turn_rows, settings_row, tr_job)
     row = await transcript_insights.current_insight(media_id)
     quotes = []
     for q in list(getattr(row, "quotes", None) or []):
@@ -672,6 +894,9 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
         stt, gem = await transcript_store.media_cost(media_id)
         cost = {"sttUsd": round(stt, 4), "translationUsd": round(gem, 4), "totalUsd": round(stt + gem, 4)}
     languages = list(version.languages or []) if version is not None else []
+    declined = is_declined(version, tr_job)
+    english = english_state(version, turn_rows, row, declined=declined, may_add=edit)
+    current = version is not None and version_number is None
     return {
         "mediaId": media_id,
         "title": await title_for(media, context),
@@ -696,7 +921,7 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
             }
             for key in labels
         ],
-        "turns": [turn_json(r, labels) for r in turn_rows],
+        "turns": [turn_json(r, labels, declined=declined) for r in turn_rows],
         "summary": list(getattr(row, "summaryLines", None) or []),
         "quotes": quotes,
         "cost": cost,
@@ -715,7 +940,10 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
             "autodraft": edit and bool(context.get("recordingId")) and version is not None,
             "quoteCard": version is not None,
             "mapSpeakers": edit and version is not None,
+            "addEnglish": edit and current and english["missing"] > 0,
         },
+        "englishNotice": english["notice"],
+        "manualEnglish": english["manual"],
         "readOnly": read_only,
         "revision": version.revision if version is not None else 0,
         "updatedAt": _iso(getattr(version, "updatedAt", None) or _value(media, "updatedAt")),
@@ -800,6 +1028,10 @@ async def render_doc(media: Any) -> tuple[render.RenderDoc, dict[str, Any]]:
             )
             for r in rows
         ],
+        # The pasted whole-transcript English, while the turns still lack their own (D38).
+        english_text=manual_english(await transcript_insights.current_insight(media_id), version.id)
+        if _missing_english(rows)
+        else None,
     )
     return doc, context
 

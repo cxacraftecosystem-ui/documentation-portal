@@ -37,6 +37,10 @@ interface TranscriptApi {
     @POST("transcripts/{mediaId}/turns/{turnId}/retranslate")
     suspend fun retranslate(@Path("mediaId") mediaId: String, @Path("turnId") turnId: String): TranscriptTurn
 
+    /** Contract 3: English typed or pasted for the whole transcript. */
+    @POST("transcripts/{mediaId}/english")
+    suspend fun addEnglish(@Path("mediaId") mediaId: String, @Body body: EnglishBody): Transcript
+
     @POST("transcripts/{mediaId}/retry")
     suspend fun retry(@Path("mediaId") mediaId: String): Transcript
 
@@ -110,6 +114,9 @@ interface TranscriptBackend {
     suspend fun turnHistory(mediaId: String, turnId: String): List<TurnHistoryEntry>
     suspend fun retranslate(mediaId: String, turnId: String): TranscriptTurn
     suspend fun retry(mediaId: String): Transcript
+    /** Contract 3: English for the whole transcript; laid on the turns when the paragraphs line up. */
+    suspend fun addEnglish(mediaId: String, body: EnglishBody): Transcript =
+        throw UnsupportedOperationException("no English here")
     suspend fun transcribeNow(mediaId: String): Transcript
     /** The file; `srt`/`vtt` take `original` or `english` only. */
     suspend fun download(mediaId: String, format: String, track: CopyTrack): DownloadedFile
@@ -140,6 +147,7 @@ class RetrofitTranscriptBackend(private val api: TranscriptApi) : TranscriptBack
     override suspend fun turnHistory(mediaId: String, turnId: String) = api.turnHistory(mediaId, turnId).items
     override suspend fun retranslate(mediaId: String, turnId: String) = api.retranslate(mediaId, turnId)
     override suspend fun retry(mediaId: String) = api.retry(mediaId)
+    override suspend fun addEnglish(mediaId: String, body: EnglishBody) = api.addEnglish(mediaId, body)
     override suspend fun transcribeNow(mediaId: String) = api.transcribeNow(mediaId)
     override suspend fun download(mediaId: String, format: String, track: CopyTrack): DownloadedFile =
         download(mediaId, format, track, timestamps = true)

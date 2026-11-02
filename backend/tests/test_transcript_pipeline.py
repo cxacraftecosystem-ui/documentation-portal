@@ -534,3 +534,169 @@ def test_each_speaker_gets_a_few_seconds_of_their_longest_turn_to_be_heard_by() 
     assert samples["speaker_1"] == {"startMs": 2_000, "endMs": 2_000 + SAMPLE_MAX_MS}, "never more than eight seconds"
     assert samples["speaker_2"] == {"startMs": 40_000, "endMs": 40_600}, "a short sample beats none"
     assert set(samples) == {"speaker_0", "speaker_1", "speaker_2"}
+
+
+# --- D38 (0.0.9): old transcripts queue their translation; a declined one gets a person's English ---
+
+
+def _turn(status: str, *, english: str | None = None, edited: str | None = None) -> Any:
+    from types import SimpleNamespace
+
+    return SimpleNamespace(translationStatus=status, machineEnglish=english, editedEnglish=edited)
+
+
+def test_ensure_version_queues_the_translation_only_when_it_makes_the_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from app.services import transcript_pipeline as pipeline
+
+    queued: list[str] = []
+    existing: dict[str, Any] = {"version": None}
+
+    async def current(_media_id: str) -> Any:
+        return existing["version"]
+
+    async def store(_media: Any, _result: dict[str, Any], **_kw: Any) -> Any:
+        existing["version"] = SimpleNamespace(id="v1")
+        return existing["version"]
+
+    async def queue(media: Any) -> None:
+        queued.append(media.id)
+
+    monkeypatch.setattr(pipeline.transcript_store, "current_version", current)
+    monkeypatch.setattr(pipeline, "store_transcription", store)
+    monkeypatch.setattr(pipeline, "queue_translation", queue)
+    media = SimpleNamespace(id="m1", transcriptText="**Speaker 1:** नमस्ते", transcriptSummary=None, transcriptEditedAt=None,
+                            transcriptSegments=None, transcriptProvider="deepgram", transcriptLanguage="hi")
+    assert asyncio.run(pipeline.ensure_version(media)).id == "v1"
+    assert asyncio.run(pipeline.ensure_version(media)).id == "v1"
+    assert queued == ["m1"], "queued when the version was made, never again"
+
+
+def test_queueing_a_translation_reads_consent_and_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from app.services import transcript_pipeline as pipeline, transcript_portal
+
+    asked: list[str] = []
+
+    async def enqueue(media_id: str) -> str:
+        asked.append(media_id)
+        return "job"
+
+    async def refused(_media: Any) -> tuple[bool, str | None]:
+        return False, "Consent was refused."
+
+    async def allowed(_media: Any) -> tuple[bool, str | None]:
+        return True, None
+
+    async def broken(_media: Any) -> tuple[bool, str | None]:
+        raise RuntimeError("consent store down")
+
+    media = SimpleNamespace(id="m1")
+    monkeypatch.setattr(pipeline.transcript_insights, "enqueue_after_transcript", enqueue)
+    monkeypatch.setattr(pipeline, "enabled", lambda: False)
+    monkeypatch.setattr(transcript_portal, "may_send", allowed)
+    assert asyncio.run(pipeline.queue_translation(media)) is None and asked == [], "the switch is off"
+    monkeypatch.setattr(pipeline, "enabled", lambda: True)
+    monkeypatch.setattr(transcript_portal, "may_send", refused)
+    assert asyncio.run(pipeline.queue_translation(media)) is None and asked == [], "a refusal queues nothing"
+    monkeypatch.setattr(transcript_portal, "may_send", broken)
+    assert asyncio.run(pipeline.queue_translation(media)) is None and asked == [], "a failure never reaches the view"
+    monkeypatch.setattr(transcript_portal, "may_send", allowed)
+    assert asyncio.run(pipeline.queue_translation(media)) == "job" and asked == ["m1"]
+
+
+def test_declined_is_the_versions_marker_or_an_old_jobs_declined_sentence() -> None:
+    from types import SimpleNamespace
+
+    from app.services import transcript_pipeline as pipeline
+
+    marked = SimpleNamespace(translationStatus=pipeline.DECLINED)
+    plain = SimpleNamespace(translationStatus="PENDING")
+    old_job = SimpleNamespace(status="FAILED", error=gemini.MESSAGES[gemini.DECLINED])
+    busy_job = SimpleNamespace(status="FAILED", error=gemini.MESSAGES[gemini.THROTTLED])
+    assert pipeline.is_declined(marked, None)
+    assert pipeline.is_declined(plain, old_job)
+    assert not pipeline.is_declined(plain, busy_job)
+    assert not pipeline.is_declined(plain, SimpleNamespace(status="QUEUED", error=gemini.MESSAGES[gemini.DECLINED]))
+    assert not pipeline.is_declined(None, old_job), "no version, nothing to translate"
+
+
+def test_the_english_notice_by_role_and_when_it_goes_away() -> None:
+    from types import SimpleNamespace
+
+    from app.services import transcript_pipeline as pipeline
+
+    version = SimpleNamespace(id="v1")
+    rows = [_turn("FAILED"), _turn("ALREADY_ENGLISH"), _turn("FAILED")]
+    editor = pipeline.english_state(version, rows, None, declined=True, may_add=True)
+    reader = pipeline.english_state(version, rows, None, declined=True, may_add=False)
+    assert editor == {"notice": "DECLINED", "manual": None, "missing": 2}
+    assert reader["notice"] == "UNAVAILABLE"
+    assert pipeline.english_state(version, rows, None, declined=False, may_add=True)["notice"] is None, "only a refusal"
+    pasted = SimpleNamespace(provider="manual", translationText="  The English.  ", generated={"versionId": "v1"})
+    with_paste = pipeline.english_state(version, rows, pasted, declined=True, may_add=False)
+    assert with_paste["notice"] is None and with_paste["manual"] == "The English."
+    old_paste = SimpleNamespace(provider="manual", translationText="Old.", generated={"versionId": "v0"})
+    assert pipeline.english_state(version, rows, old_paste, declined=True, may_add=False)["manual"] is None, "another version's text"
+    machine = SimpleNamespace(provider="gemini", translationText="Machine.", generated={})
+    assert pipeline.english_state(version, rows, machine, declined=True, may_add=True)["manual"] is None
+    done = [_turn("TRANSLATED", edited="One."), _turn("ALREADY_ENGLISH"), _turn("TRANSLATED", english="Two.")]
+    assert pipeline.english_state(version, done, pasted, declined=True, may_add=True) == {"notice": None, "manual": None, "missing": 0}
+
+
+def test_pasted_english_splits_on_blank_lines() -> None:
+    from app.services import transcript_pipeline as pipeline
+
+    assert pipeline.split_paragraphs("One.\r\n\r\nTwo\nstill two.\n \n\n  Three.  \n") == ["One.", "Two\nstill two.", "Three."]
+    assert pipeline.split_paragraphs("  \n\n ") == []
+
+
+def test_a_declined_turn_never_reads_translating() -> None:
+    from types import SimpleNamespace
+
+    from app.services import transcript_pipeline as pipeline
+
+    row = SimpleNamespace(id="t", position=0, speakerKey="speaker_0", startMs=0, endMs=1, language="hi", machineText="नमस्ते",
+                          editedText=None, lowConfidence=[], words=[], machineEnglish=None, editedEnglish=None,
+                          translationStatus="PENDING", translationModel=None, revision=1)
+    assert pipeline.turn_json(row, {}, declined=True)["translation"]["status"] == "FAILED"
+    assert pipeline.turn_json(row, {})["translation"]["status"] == "PENDING"
+
+
+def test_the_sweep_buckets_in_order() -> None:
+    from app.scripts import queue_pending_translations as sweep
+
+    declined = gemini.MESSAGES[gemini.DECLINED]
+
+    def stop(**row: Any) -> str | None:
+        return sweep.classify(row, enabled=row.pop("enabled", True), declined_message=declined)
+
+    assert sweep.is_candidate({"versionId": None}) and sweep.is_candidate({"versionId": "v", "untranslated": True})
+    assert not sweep.is_candidate({"versionId": "v", "untranslated": False})
+    assert stop(active=True, edited=True) == sweep.ALREADY_ACTIVE
+    assert stop(versionStatus="DECLINED") == sweep.DECLINED
+    assert stop(lastStatus="FAILED", lastError=declined) == sweep.DECLINED
+    assert stop(edited=True) == sweep.EDITED
+    assert stop(ranSince=True) == sweep.ALREADY_RUN
+    assert stop(enabled=False) == sweep.FEATURE_OFF
+    assert stop(lastStatus="FAILED", lastError=gemini.MESSAGES[gemini.THROTTLED]) is None
+    assert "{scope}" in sweep.PAGE_SQL and "transcriptText\" IS NOT NULL" in sweep.PAGE_SQL
+    assert 'SELECT m."id", v."id"' in sweep.PAGE_SQL, "explicit columns: never the transcript text"
+
+
+def test_the_pasted_english_follows_the_turns_in_every_copy_and_document() -> None:
+    doc = render.RenderDoc("Interview", ["Hindi"], 60_000, 1, [render.RenderTurn("a", "Speaker 1", 0, 1000, "नमस्ते")],
+                           english_text="Hello.\n\nGood morning.")
+    english = render.copy_all(doc, render.ENGLISH)
+    assert english.endswith("|\n\nHello.\n\nGood morning.") and "नमस्ते" not in english
+    both = render.copy_all(doc, render.BOTH)
+    assert both.endswith("नमस्ते\n\n## English\n\nHello.\n\nGood morning.")
+    assert render.ENGLISH_HEADING not in render.copy_all(doc, render.ORIGINAL)
+    with zipfile.ZipFile(io.BytesIO(render.docx(doc, render.BOTH))) as archive:
+        xml = archive.read("word/document.xml").decode("utf-8")
+    assert "Good morning." in xml and "नमस्ते" in xml and ">English<" in xml
+    with zipfile.ZipFile(io.BytesIO(render.docx(doc, render.ENGLISH))) as archive:
+        xml = archive.read("word/document.xml").decode("utf-8")
+    assert "Hello." in xml and "नमस्ते" not in xml

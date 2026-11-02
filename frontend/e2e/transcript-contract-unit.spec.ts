@@ -7,6 +7,7 @@ import type { Transcript, TranscriptTurn } from "../lib/transcript/contract";
 import { clock, lengthLabel } from "../lib/transcript/format";
 import { locate, pieces } from "../lib/transcript/karaoke";
 import { fileName, type FileNameInput } from "../lib/naming";
+import { englishPlan } from "../lib/transcript/api";
 import { copyAll, copySelected, copySingle } from "../lib/transcript/markdown";
 import { downloadWhat, nameForView, QUOTE_CARD_WHAT } from "../lib/transcript/names";
 import { safeUrl } from "../lib/transcript/sanitize";
@@ -142,4 +143,28 @@ test("every file the viewer names is a golden naming row", () => {
   expect(nameForView("Group interview · 6 artisans · 1 Jul 2026", "Transcript", "md")).toMatch(/_Group-Interview_2026-07-01_6-Artisans_Transcript\.md$/);
   // Subtitles carry one language: "both" downloads the original's.
   expect(downloadWhat("srt", "both")).toBe("Subtitles-With-Speakers");
+});
+
+
+test("English pasted whole is copied exactly as fixtures.manualEnglish (contract 3)", () => {
+  const manual = CONTRACT.fixtures.manualEnglish as Record<string, string>;
+  const pasted: Transcript = { ...VIEW, manualEnglish: manual.text };
+  expect(copyAll(pasted, "english")).toBe(manual.all_english);
+  expect(copyAll(pasted, "both")).toBe(manual.all_both);
+  expect(copyAll(pasted, "both", false)).toBe(manual.all_both_no_timestamps);
+  expect(copyAll(pasted, "original")).toBe(COPY.all_original);
+  expect(copySelected(pasted, ["turn_b"], "both")).toBe(COPY.selected_both_turn_b);
+});
+
+test("the view carries the contract 3 English fields and the plan follows the server's rule", () => {
+  expect(VIEW).toHaveProperty("englishNotice", null);
+  expect(VIEW).toHaveProperty("manualEnglish", null);
+  expect(VIEW.permissions).toHaveProperty("addEnglish");
+  expect(CONTRACT.enums.englishNotice).toEqual(["DECLINED", "UNAVAILABLE", null]);
+  expect(CONTRACT.routes.some((route: { method: string; path: string }) => route.method === "POST" && route.path === "/api/transcripts/{mediaId}/english")).toBe(true);
+  const turns = [{ translation: { status: "FAILED" } }, { translation: { status: "ALREADY_ENGLISH" } }, { translation: { status: "FAILED" } }];
+  expect(englishPlan(turns, "One.\r\n\r\nTwo.")).toEqual({ paragraphs: 2, turns: 2, aligned: true });
+  expect(englishPlan(turns, "One.\n\nTwo.\n\nThree.")).toEqual({ paragraphs: 3, turns: 2, aligned: true });
+  expect(englishPlan(turns, "Just one.")).toEqual({ paragraphs: 1, turns: 2, aligned: false });
+  expect(englishPlan(turns, "  \n\n ").aligned).toBe(false);
 });

@@ -9,6 +9,7 @@ import { apiFetch, buildQuery } from "@/lib/api";
 import { fetchTranscriptFile, saveBlob } from "@/lib/transcript/api";
 import { resolveColorKey, SPEAKER_TEXT, speakerStyle } from "@/lib/transcript/speakers";
 
+import { ManualEnglish } from "./EnglishNotice";
 import { Actions, SECONDARY } from "./parts";
 
 /**
@@ -46,6 +47,8 @@ export type DataRecording = {
   turns: DataTurn[];
   timed: boolean;
   summary: string[];
+  /** Contract 3: the whole transcript's English a person pasted, while its turns lack their own. */
+  english?: string | null;
   quotes: { speaker: string | null; original: string; english: string | null }[];
   glossary: { term: string; gloss: string | null; craft: string | null }[];
   chips?: Record<string, unknown> | null;
@@ -280,6 +283,9 @@ function RecordingRow({ item, open, onToggle }: { item: DataRecording; open: boo
                     <li key={index}>{line}</li>
                   ))}
                 </ul>
+              ) : null}
+              {item.english ? (
+                <ManualEnglish text={item.english} />
               ) : null}
               {item.quotes.length ? (
                 <div className="grid gap-1">

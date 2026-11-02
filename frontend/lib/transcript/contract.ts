@@ -85,7 +85,12 @@ export type TranscriptPermissions = {
   autodraft: boolean;
   quoteCard: boolean;
   mapSpeakers: boolean;
+  /** Contract 3: may type or paste the English (POST /english, or a turn's English edit). */
+  addEnglish?: boolean;
 };
+
+/** Contract 3: why English is missing, for this reader. DECLINED: Gemini declined and they may add it; UNAVAILABLE: everyone else. */
+export type EnglishNotice = "DECLINED" | "UNAVAILABLE" | null;
 
 export type Transcript = {
   mediaId: string;
@@ -110,6 +115,10 @@ export type Transcript = {
   /** `url` is the Voice Isolator copy when `cleaned`; `originalUrl` is then the recording as made. */
   audio: { url: string | null; durationMs: number | null; cleaned?: boolean; originalUrl?: string | null };
   permissions: TranscriptPermissions;
+  /** Contract 3: one calm notice above the turns while English is missing because Gemini declined; null otherwise. */
+  englishNotice?: EnglishNotice;
+  /** Contract 3: the whole transcript's English as a person pasted it, while the turns lack their own. */
+  manualEnglish?: string | null;
   /** Why this reader may read but not change it (edit, speakers, re-translate, retry, auto-draft); null when they may. */
   readOnly: { code: "NOT_EDITOR" | "HELD_POST"; message: string } | null;
   /** Bumps on every edit or speaker change; sent back as baseRevision. */

@@ -77,9 +77,37 @@ object TranscriptFormat {
         if (!timestamps) "**${cleanSpeaker(turn.speakerName)}**\n" + body(turn, track)
         else "**${cleanSpeaker(turn.speakerName)}** · `${timestamp(turn.startMs)}`\n" + body(turn, track)
 
-    /** Copy all. [timestamps] false keeps only the speaker on each turn (0.0.5). */
-    fun all(view: Transcript, track: CopyTrack, timestamps: Boolean = true): String =
-        (listOf(header(view)) + view.turns.sortedBy { it.index }.map { block(it, track, timestamps) }).joinToString("\n\n")
+    /** The heading pasted whole-transcript English sits under in a "both" copy (fixtures.manualEnglish). */
+    const val ENGLISH_HEADING = "## English"
+
+    /**
+     * Copy all. [timestamps] false keeps only the speaker on each turn (0.0.5). With
+     * [Transcript.manualEnglish] (English pasted whole, contract 3) "english" is the header and that
+     * text, and "both" prints it under [ENGLISH_HEADING] after the turns.
+     */
+    fun all(view: Transcript, track: CopyTrack, timestamps: Boolean = true): String {
+        val manual = view.manualEnglish?.trim().orEmpty()
+        if (manual.isNotEmpty() && track == CopyTrack.ENGLISH) return header(view) + "\n\n" + manual
+        val parts = listOf(header(view)) + view.turns.sortedBy { it.index }.map { block(it, track, timestamps) }
+        val withManual = if (manual.isNotEmpty() && track == CopyTrack.BOTH) parts + listOf(ENGLISH_HEADING, manual) else parts
+        return withManual.joinToString("\n\n")
+    }
+
+    /**
+     * What a paste becomes before it is sent (the server's `add_english` rule): blank-line paragraphs
+     * line up with the turns when there is one per turn that needs English, or one per turn.
+     */
+    data class EnglishPlan(val paragraphs: Int, val turns: Int, val aligned: Boolean)
+
+    fun englishPlan(turns: List<TranscriptTurn>, text: String): EnglishPlan {
+        val paragraphs = text.replace("\r\n", "\n").split(Regex("\n\\s*\n")).count { it.isNotBlank() }
+        val needing = turns.count { it.translation.status != TranslationStatus.ALREADY_ENGLISH }
+        return EnglishPlan(paragraphs, needing, paragraphs > 0 && (paragraphs == needing || paragraphs == turns.size))
+    }
+
+    /** The pasted English's paragraphs, for drawing (blank lines between them dropped). */
+    fun paragraphs(text: String): List<String> =
+        text.replace("\r\n", "\n").split(Regex("\n\\s*\n")).map { it.trim() }.filter { it.isNotEmpty() }
 
     /** Copy selected: no header, transcript order whatever order the turns were ticked in. */
     fun selected(view: Transcript, turnIds: Collection<String>, track: CopyTrack): String {

@@ -16,6 +16,7 @@ and copied from designer-portal by its transcription sync script.
 | What only this portal knows (access, consent, context) | `backend/app/services/transcript_portal.py` (not shared) |
 | Tables | migration `20261110090000_transcript_turns` |
 | Backfill (dry run by default) | `backend/scripts/backfill_transcripts.py` |
+| Old-transcript translation sweep (dry run by default; 0.0.9) | `backend/app/scripts/queue_pending_translations.py` |
 
 ## The queue step
 
@@ -58,6 +59,26 @@ cd backend && python scripts/backfill_transcripts.py --apply --batch 25
 
 Oldest first; a batch stops at `--batch` recordings or before its estimate passes what is left of
 this month's budget. Recordings whose consent refuses are left out and counted.
+
+## Old transcripts and declined translations (0.0.9, D38)
+
+- **Old transcripts.** A recording transcribed before the turn pipeline gets its turns the first time
+  it is opened or exported (`ensure_version`), and that same moment now queues its TRANSCRIPT_INSIGHTS
+  job: never while the switch is off, consent refuses, a researcher edited the summary, or a job is
+  already queued or running. A one-off sweep catches the rest (counts only; dry run by default):
+
+  ```
+  cd backend && python -m app.scripts.queue_pending_translations            # counts only
+  cd backend && python -m app.scripts.queue_pending_translations --apply    # queue them
+  ```
+
+- **Declined.** When Gemini declines the pass (SAFETY, PROHIBITED_CONTENT and the like) the version is
+  marked `DECLINED` and its untranslated turns read "Couldn't translate". The view's `englishNotice` is
+  `DECLINED` for whoever may edit, with a way to type or paste the English
+  (`POST /api/transcripts/{mediaId}/english`, or a turn's English edit); every other reader sees a
+  neutral "English isn't available for this recording." Pasted paragraphs land on the turns when they
+  line up; otherwise the text is kept whole (`manualEnglish`, a `TranscriptInsight` with provider
+  `manual`) and every copy, download and data export carries it.
 
 ## How this document is kept true
 

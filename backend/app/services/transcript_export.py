@@ -139,7 +139,10 @@ async def load(media_ids: list[str], *, sees_spend: bool = False, client: Any = 
         allowed,
     ) if allowed else []
     insights = await conn.query_raw(
-        'SELECT DISTINCT ON ("mediaFileId") "mediaFileId", "summaryLines", "quotes" FROM "TranscriptInsight" '
+        'SELECT DISTINCT ON ("mediaFileId") "mediaFileId", "summaryLines", "quotes", '
+        # D38: only English a person pasted whole is read here, never a machine translation's text.
+        """CASE WHEN "provider" = 'manual' THEN "translationText" END AS "manualEnglish", """
+        """"generated"->>'versionId' AS "manualVersionId" FROM "TranscriptInsight" """
         'WHERE "mediaFileId" = ANY($1::text[]) AND "supersededAt" IS NULL ORDER BY "mediaFileId", "version" DESC',
         allowed,
     ) if allowed else []
@@ -185,6 +188,7 @@ async def load(media_ids: list[str], *, sees_spend: bool = False, client: Any = 
             "summary": [],
             "quotes": [],
             "glossary": [],
+            "english": None,
             "chips": chip_by.get(mid),
         }
         out[mid] = rec
@@ -241,6 +245,12 @@ async def load(media_ids: list[str], *, sees_spend: bool = False, client: Any = 
                 for name in dict.fromkeys(t["speaker"] for t in rec["turns"] if t["speaker"])
             ]
         insight = insight_by.get(mid)
+        if insight is not None and rec["source"] == "TURNS" and str(insight.get("manualEnglish") or "").strip():
+            # English pasted whole (D38): the recording's English while its turns lack their own.
+            made_for = insight.get("manualVersionId")
+            lacking = any(not t["english"] for t in rec["turns"] if t["translationStatus"] != "ALREADY_ENGLISH")
+            if lacking and (made_for is None or made_for == str(version["id"])):
+                rec["english"] = str(insight["manualEnglish"]).strip()
         if insight is not None:
             rec["summary"] = [str(s) for s in (insight.get("summaryLines") or []) if str(s).strip()]
             quotes = insight.get("quotes") or []
@@ -415,7 +425,7 @@ def _chip_text(chips: dict[str, Any] | None) -> dict[str, str]:
 
 RECORDING_COLUMNS = (
     "Media ID", "File", "Uploaded by", "Uploaded on", "Transcript status", "Consent", "Source", "Languages",
-    "Duration", "Speakers", "Turns", "Summary", "Quotes", "Glossary terms",
+    "Duration", "Speakers", "Turns", "Summary", "Quotes", "Glossary terms", "English (whole transcript)",
     "Form", "Session", "Section or question", "Artisans", "Respondents", "Researcher", "Session date", "Workshop",
     "Recording language", "Recording duration (s)",
 )
@@ -444,6 +454,7 @@ def recording_row(rec: dict[str, Any], *, sees_spend: bool) -> dict[str, Any]:
         "Duration": render.length(rec["durationMs"]) if rec.get("durationMs") else "",
         "Speakers": "; ".join(s["label"] for s in rec.get("speakers") or []),
         "Turns": str(len(rec.get("turns") or [])),
+        "English (whole transcript)": rec.get("english") or "",
         "Summary": "\n".join(rec.get("summary") or []),
         "Quotes": "\n".join(
             f"{q['speaker'] + ': ' if q.get('speaker') else ''}{q['original']}" + (f" ({q['english']})" if q.get("english") else "")

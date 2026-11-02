@@ -43,6 +43,13 @@ class TurnEditBody(_Body):
     english: str | None = Field(default=None, max_length=20_000)
 
 
+class EnglishBody(_Body):
+    """The whole transcript's English, typed or pasted by a person (D38): blank-line paragraphs."""
+
+    baseRevision: int = Field(ge=0)
+    text: str = Field(min_length=1, max_length=200_000)
+
+
 class CopyBody(_Body):
     track: Track
     turnIds: list[str] | None = Field(default=None, max_length=5_000)

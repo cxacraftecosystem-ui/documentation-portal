@@ -1,8 +1,9 @@
 {
   "contract": "transcript-v1-api",
-  "contractVersion": 2,
+  "contractVersion": 3,
   "changes": [
-    "2 (0.0.6, 1 Nov 2026): Speaker.colorKey and Turn.colorKey (speakerPalette, fixtures.speakerColor); TranscriptPreview on list rows (questionnaire Recording.transcript.preview, media list rows' transcriptPreview; fixtures.preview); coverage cells list their recordings (questionnaire coverage cell.recordings: [CoverageRecording]). Additive: a v1 client ignores them."
+    "2 (0.0.6, 1 Nov 2026): Speaker.colorKey and Turn.colorKey (speakerPalette, fixtures.speakerColor); TranscriptPreview on list rows (questionnaire Recording.transcript.preview, media list rows' transcriptPreview; fixtures.preview); coverage cells list their recordings (questionnaire coverage cell.recordings: [CoverageRecording]). Additive: a v1 client ignores them.",
+    "3 (0.0.9, 3 Nov 2026, D38): TranscriptView.englishNotice and TranscriptView.manualEnglish, permissions.addEnglish, POST /api/transcripts/{mediaId}/english (EnglishBody), DataRecording.english, fixtures.manualEnglish. Additive: a v2 client ignores them."
   ],
   "owner": "feature/transcript-pipeline stream T1 (backend). WEB (T2) and ANDROID (T3) copy this file verbatim and load their mocks from `examples` and `fixtures`.",
   "source": "C:/dev/IIT/docs/transcription/DESIGN_2026-10-31_Scribe-Gemini-Pipeline.md sections 2-4, 9, 10",
@@ -52,7 +53,9 @@
     "speakerRole": ["RESEARCHER", "ARTISAN", "OTHER"],
     "copyTrack": ["original", "english", "both"],
     "downloadFormat": ["md", "docx", "srt", "vtt"],
-    "budgetState": ["OK", "ALERT", "PAUSED", "UNSET"]
+    "budgetState": ["OK", "ALERT", "PAUSED", "UNSET"],
+    "englishNotice": ["DECLINED", "UNAVAILABLE", null],
+    "englishNoticeNotes": "Set only when Gemini declined to translate this recording (a SAFETY / PROHIBITED_CONTENT refusal) and no English stands in yet. DECLINED goes to whoever may add the English (permissions.addEnglish: the edit rule); UNAVAILABLE, a neutral notice that names no provider, to every other reader. null once every turn that needs English has it, or a person pasted the English whole (manualEnglish)."
   },
 
   "dataBrowser": {
@@ -62,7 +65,7 @@
       {"method": "GET", "path": "/api/data/transcripts/{kind}.{fmt}", "query": "kind=recordings|turns|glossary, fmt=csv|ndjson, plus the filters below", "returns": "streamed file (Content-Disposition per the naming skill). csv starts with a UTF-8 BOM; recordings.ndjson is one DataRecording per line, the others one flat row per line"}
     ],
     "filters": {"language": "codes heard, any of", "status": "MediaFile transcript status, any of", "speaker": "a mapped speaker name, contains", "researcherId": "uploader ids, any of", "since": "ISO-8601, uploaded on or after", "until": "ISO-8601, uploaded before", "hasEnglish": "true|false", "q": "words in the transcript", "questionnaire": "every questionnaire filter of the recordings list (questionnaireId, sectionId, questionId, artisanId, workshopId, ...)"},
-    "DataRecording": {"mediaId": "string", "file": "string|null", "mediaType": "string", "uploadedBy": "string|null", "uploadedAt": "ISO-8601|null", "transcriptStatus": "string|null", "withheld": "'CONSENT_REFUSED'|null", "source": "'TURNS'|'TEXT'|null  TEXT = transcribed before the turn pipeline: turns have no times", "version": "int|null", "languages": "[{code,label}]", "durationMs": "int|null", "speakers": "[{speakerKey: string|null, label, colorKey, role}]", "turns": "[DataTurn]", "timed": "bool", "summary": "[string]", "quotes": "[{speaker, original, english}]", "glossary": "[{term, gloss, craft}]", "chips": "the questionnaire recording chips object, or null", "models": "{stt, translation}  administrators only (absent otherwise)", "costUsd": "number  administrators only (absent otherwise)"},
+    "DataRecording": {"mediaId": "string", "file": "string|null", "mediaType": "string", "uploadedBy": "string|null", "uploadedAt": "ISO-8601|null", "transcriptStatus": "string|null", "withheld": "'CONSENT_REFUSED'|null", "source": "'TURNS'|'TEXT'|null  TEXT = transcribed before the turn pipeline: turns have no times", "version": "int|null", "languages": "[{code,label}]", "durationMs": "int|null", "speakers": "[{speakerKey: string|null, label, colorKey, role}]", "turns": "[DataTurn]", "timed": "bool", "summary": "[string]", "quotes": "[{speaker, original, english}]", "glossary": "[{term, gloss, craft}]", "english": "string|null  (3) the whole transcript's English a person pasted, while its turns lack their own (TranscriptView.manualEnglish)", "chips": "the questionnaire recording chips object, or null", "models": "{stt, translation}  administrators only (absent otherwise)", "costUsd": "number  administrators only (absent otherwise)"},
     "DataTurn": {"index": "int", "speakerKey": "string|null", "speaker": "string", "colorKey": "string", "startMs": "int|null", "endMs": "int|null", "start": "HH:MM:SS|null", "end": "HH:MM:SS|null", "language": "string|null", "text": "string", "english": "string|null", "translationStatus": "string|null", "edited": "bool"},
     "manifest": "GET /api/data/manifest: a recording with turns (while the pipeline is on) carries up to eight transcript files instead of its .transcript.md: md and docx, bilingual, with and without timestamps, and srt and vtt (original and English; only when the turns are timed). Each is {path, url, mediaId, mediaType: 'TRANSCRIPT', transcriptFile: {format, track, timestamps}}. url is a portal API path (/api/transcripts/{mediaId}/download?...): the web fetches it as is (same origin, session cookie); the apps prefix their API base and send their token.",
     "tree": "GET /api/data/tree: a recording's file entry carries transcriptFiles: [{name, format, track, timestamps, url}] when it has turns; transcriptAvailable is false when consent was refused.",
@@ -91,6 +94,7 @@
     {"method": "PATCH", "path": "/api/transcripts/{mediaId}/turns/{turnId}", "body": "TurnEditBody", "returns": "Turn", "notes": "An edited original marks its English STALE. 409 STALE_REVISION when baseRevision is behind."},
     {"method": "GET", "path": "/api/transcripts/{mediaId}/turns/{turnId}/history", "returns": "{items:[TurnHistoryEntry]}"},
     {"method": "POST", "path": "/api/transcripts/{mediaId}/turns/{turnId}/retranslate", "returns": "Turn", "notes": "Synchronous, one turn, consent re-checked. 409 CONSENT_REFUSED / BUDGET_PAUSED."},
+    {"method": "POST", "path": "/api/transcripts/{mediaId}/english", "body": "EnglishBody", "returns": "TranscriptView", "notes": "Whoever may edit (permissions.addEnglish; else 403 FORBIDDEN). Blank-line paragraphs are laid on the turns when their count equals the turns that need English, or every turn (an English turn keeps its own words); each becomes that turn's edited English with history. Otherwise the text is kept whole as the transcript's English (manualEnglish). Nothing is sent anywhere. 409 STALE_REVISION when baseRevision is not the view's revision; 422 VALIDATION_FAILED when the text is empty or the transcript is already English."},
     {"method": "POST", "path": "/api/transcripts/{mediaId}/retry", "returns": "202 TranscriptView", "notes": "Needs attention -> Queued. Re-runs translation only when transcription already succeeded."},
     {"method": "POST", "path": "/api/transcripts/{mediaId}/transcribe-now", "returns": "202 TranscriptView", "notes": "Admins. 409 TRANSCRIPTION_PAUSED while paused."},
     {"method": "POST", "path": "/api/transcripts/{mediaId}/copy", "body": "CopyBody", "returns": "{text: string}", "notes": "Server-side copy helper: exactly fixtures.copy."},
@@ -121,7 +125,9 @@
       "quotes": "[{turnId: string|null, original: string, english: string, speaker: string|null}]",
       "cost": "{sttUsd: number, translationUsd: number, totalUsd: number}|null  ADMIN, MASTER_ADMIN and MINISTRY_ADMIN only, else null",
       "audio": "{url: string|null, durationMs: int|null, cleaned: bool, originalUrl: string|null}  url is the signed media url: the Voice Isolator copy when cleaned is true (originalUrl is then the recording as made), else the recording itself",
-      "permissions": "{edit: bool, retry: bool, transcribeNow: bool, ask: bool, autodraft: bool, quoteCard: bool, mapSpeakers: bool}",
+      "permissions": "{edit: bool, retry: bool, transcribeNow: bool, ask: bool, autodraft: bool, quoteCard: bool, mapSpeakers: bool, addEnglish: bool}  addEnglish (3): this reader may type or paste the English (POST /english, or a turn's English edit): the edit rule, on the current version, while a turn that needs English has none",
+      "englishNotice": "englishNotice  (3) why some English is missing, for this reader; clients show one calm notice above the turns",
+      "manualEnglish": "string|null  (3) the whole transcript's English as a person pasted it (plain paragraphs), while the turns lack their own; shown under the turns and carried by the English and both copies and downloads (fixtures.manualEnglish)",
       "readOnly": "{code: 'NOT_EDITOR'|'HELD_POST', message: string}|null  why this reader may read but not change it (edit, speakers, re-translate, retry, auto-draft), by the same rule every write refuses by; null when they may. Clients show the message once and offer none of those controls",
       "revision": "int  bumps on every edit or speaker change; send back as baseRevision",
       "updatedAt": "ISO-8601"
@@ -150,6 +156,7 @@
     "VersionInfo": {"version": "int", "createdAt": "ISO-8601", "current": "bool", "status": "pipelineStatus", "badges": "[Badge]", "turnCount": "int", "durationMs": "int|null", "costUsd": "number|null (admins)"},
     "SpeakerMappingBody": {"baseRevision": "int", "mappings": "[{speakerKey: string, name: string (1..80) | null to clear, role: speakerRole|null, personId: string|null}]"},
     "SpeakerSuggestion": {"speakerKey": "string", "candidates": "[{name: string, role: speakerRole, personId: string|null, reason: 'roster'|'researcher'|'uploader'|'most_speech'}]"},
+    "EnglishBody": {"baseRevision": "int  the view's revision", "text": "string  the English (1..200000), paragraphs separated by a blank line"},
     "TurnEditBody": {"baseRevision": "int  the Turn.revision you edited", "text": "string|undefined  new original (1..20000)", "english": "string|undefined  new English (0..20000)"},
     "TurnHistoryEntry": {"at": "ISO-8601", "field": "ORIGINAL|ENGLISH|RETRANSLATE", "source": "textSource", "text": "string", "byName": "string|null"},
     "CopyBody": {"track": "copyTrack", "turnIds": "[string]|null  null = Copy all (with the header); a list = Copy selected (no header), in transcript order", "single": "bool  true with exactly one turnId: the per-turn copy (text only, no speaker line)"},
@@ -208,7 +215,9 @@
       "quotes": [{"turnId": "turn_b", "original": "हम dabu के लिए मिट्टी और गोंद मिलाते हैं", "english": "We mix clay and gum for dabu.", "speaker": "Giriraj"}],
       "cost": null,
       "audio": {"url": null, "durationMs": 1524000, "cleaned": false, "originalUrl": null},
-      "permissions": {"edit": true, "retry": true, "transcribeNow": false, "ask": true, "autodraft": false, "quoteCard": true, "mapSpeakers": true},
+      "permissions": {"edit": true, "retry": true, "transcribeNow": false, "ask": true, "autodraft": false, "quoteCard": true, "mapSpeakers": true, "addEnglish": false},
+      "englishNotice": null,
+      "manualEnglish": null,
       "readOnly": null,
       "revision": 3,
       "updatedAt": "2026-10-31T10:00:00Z"
@@ -247,6 +256,7 @@
       {"name": "empty", "markdown": "  \n# Transcript\n", "expected": null},
       {"name": "turns", "turns": [{"speakerKey": "speaker_0", "speaker": "Nandini (researcher)", "text": "How do you make **these** colours?"}, {"speakerKey": "speaker_1", "speaker": "Giriraj", "text": "We mix clay\nand gum."}, {"speakerKey": "speaker_0", "speaker": "Nandini (researcher)", "text": "And then?"}, {"speakerKey": "speaker_1", "speaker": "Giriraj", "text": "Not shown: only three lines."}], "expected": {"text": "Nandini (researcher): How do you make these colours? Giriraj: We mix clay and gum. Nandini (researcher): And then?", "lines": [{"speaker": "Nandini (researcher)", "speakerKey": "speaker_0", "colorKey": "s0", "text": "How do you make these colours?"}, {"speaker": "Giriraj", "speakerKey": "speaker_1", "colorKey": "s1", "text": "We mix clay and gum."}, {"speaker": "Nandini (researcher)", "speakerKey": "speaker_0", "colorKey": "s0", "text": "And then?"}]}}
     ]},
+    "manualEnglish": {"rule": "examples.TranscriptView with manualEnglish set to `text`. english: the header, a blank line, then manualEnglish trimmed (no turns). both: the usual both copy, then a blank line, '## English', a blank line and manualEnglish trimmed. original and every per-turn or selected copy are unchanged.", "text": "How do you make these colours?\n\nWe mix clay and gum for dabu.", "all_english": "# Interview · Giriraj Prasad Chhipa · 24 Jun 2026\n| Language | Hindi, English | Length | 25:24 | Speakers | 2 |\n\nHow do you make these colours?\n\nWe mix clay and gum for dabu.", "all_both": "# Interview · Giriraj Prasad Chhipa · 24 Jun 2026\n| Language | Hindi, English | Length | 25:24 | Speakers | 2 |\n\n**Nandini (researcher)** · `00:00:04`\nआप ये रंग कैसे बनाते हैं?\n> How do you make these colours?\n\n**Giriraj** · `00:00:09`\nहम dabu के लिए मिट्टी और गोंद मिलाते हैं\n> We mix clay and gum for dabu (mud-resist printing).\n\n## English\n\nHow do you make these colours?\n\nWe mix clay and gum for dabu.", "all_both_no_timestamps": "# Interview · Giriraj Prasad Chhipa · 24 Jun 2026\n| Language | Hindi, English | Length | 25:24 | Speakers | 2 |\n\n**Nandini (researcher)**\nआप ये रंग कैसे बनाते हैं?\n> How do you make these colours?\n\n**Giriraj**\nहम dabu के लिए मिट्टी और गोंद मिलाते हैं\n> We mix clay and gum for dabu (mud-resist printing).\n\n## English\n\nHow do you make these colours?\n\nWe mix clay and gum for dabu."},
     "srt_original": "1\n00:00:04,000 --> 00:00:07,600\nNandini (researcher): आप ये रंग कैसे बनाते हैं?\n\n2\n00:00:09,000 --> 00:00:15,200\nGiriraj: हम dabu के लिए मिट्टी और गोंद मिलाते हैं",
     "vtt_english": "WEBVTT\n\n1\n00:00:04.000 --> 00:00:07.600\n<v Nandini (researcher)>How do you make these colours?\n\n2\n00:00:09.000 --> 00:00:15.200\n<v Giriraj>We mix clay and gum for dabu (mud-resist printing)."
   }

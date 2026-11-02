@@ -15,9 +15,17 @@ The script is idempotent: running it twice changes nothing the second time. It n
 
 Release note (Designer Repository): stage 1 now requires a craft from the list. A workshop with no linked craft, including the live "Test" and "Test Craft" workshops, shows stage 1 as incomplete until a craft is picked. Saving stage 1 with a craft that is not on the list is refused (`CRAFT_NOT_IN_LIST`).
 
+## Old transcripts' translation (DR 0.0.9, FR 0.0.9)
+
+1. Deploy.
+2. On the server, through SSM, from the backend directory: `python -m app.scripts.queue_pending_translations`. It prints counts only.
+3. `python -m app.scripts.queue_pending_translations --apply`. The queue translates them within the monthly budget.
+4. Run the dry run again: `would-queue` reads 0. A `declined` count is recordings Gemini turned down; an editor adds their English on the transcript page.
+
 ## How this document is kept true
 
 | Claim | Kept true by |
 |---|---|
 | The mapping's dry run, its curated table and its idempotence | `test_map_crafts.py` |
+| The translation sweep's counts, dry run and idempotence | `test_transcript_db.py` |
 | The migration name and what it seeds | `test_craft_master_migration.py` |
