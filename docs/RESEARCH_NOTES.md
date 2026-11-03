@@ -762,7 +762,7 @@ Higher rank inherits every power below it; grantable capability booleans (`canRe
 lower-tier account without promoting them.
 
 **DERIVED** — the identical ladder appears in `backend/app/core/deps.py:30`,
-`frontend/lib/permissions.ts:8`, `android/.../MainActivity.kt:2277` and
+`frontend/lib/permissions.ts:3`, `android/.../MainActivity.kt:2277` and
 `android/.../ui/AppNavigation.kt:144`. Numeric ranks are spaced by ten specifically so a tier can be
 inserted without renumbering.
 
