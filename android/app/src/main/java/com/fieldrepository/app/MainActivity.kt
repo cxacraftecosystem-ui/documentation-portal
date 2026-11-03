@@ -6084,7 +6084,7 @@ private fun MediaCaptureSection(
         HorizontalDivider()
         Text("Attach media", display = true, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
         Text(
-            "Audio is transcribed after upload.",
+            "Tick Transcribe and translate on a recording or video to get its text.",
             color = Muted,
             style = MaterialTheme.typography.bodySmall
         )
@@ -14247,7 +14247,7 @@ private fun AndroidMediaForm(
         // (ElevenLabs → Deepgram → Whisper), so naming one of them tells the researcher something
         // that is only sometimes true. The web misc-media screen already says it this way.
         Text(
-            "Audio is transcribed after upload.",
+            "Tick Transcribe and translate on a recording or video to get its text.",
             color = Muted,
             style = MaterialTheme.typography.bodySmall
         )
