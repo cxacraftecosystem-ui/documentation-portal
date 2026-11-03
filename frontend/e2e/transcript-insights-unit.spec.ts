@@ -45,7 +45,7 @@ function view(mediaId: string, patch: Partial<TranscriptInsightView> = {}): Tran
       translation: { status: "COMPLETED", text: null, note: null },
       provenance: {
         provider: "openai",
-        modelId: "gpt-4o-mini",
+        modelId: "gpt-6-luna",
         modelVersion: null,
         promptVersion: "transcript-insights/1",
         generatedAt: "2026-10-30T10:00:00Z"

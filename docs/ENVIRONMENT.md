@@ -160,7 +160,7 @@ uploads still succeed — transcripts and grid measurements simply stay empty.
 | `DEEPGRAM_STT_MODEL` | No | `nova-3` | No | |
 | `OPENAI_API_KEY` | No | unset | **Yes** | Primary role is transcript **refinement/translation**; only transcribes when neither dedicated STT key is set (priority 3, Whisper). |
 | `OPENAI_TRANSCRIPTION_MODEL` | No | `whisper-1` | No | |
-| `OPENAI_CHAT_MODEL` | No | `gpt-4o-mini` | No | Rewrites raw transcripts into clean interviewer/interviewee dialogue. |
+| `OPENAI_CHAT_MODEL` | No | `gpt-6-luna` | No | Rewrites raw transcripts into clean interviewer/interviewee dialogue. |
 | `GEMINI_API_KEY` | No | unset | **Yes** | Single legacy key for grid measurement. |
 | `GEMINI_API_KEYS` | No | `""` | **Yes** | Any number of comma- or newline-separated keys; the worker rotates and fails over across them. Combined with `GEMINI_API_KEY` and de-duplicated. |
 | `GEMINI_MEASUREMENT_MODEL` | No | `gemini-2.5-flash-lite` | No | Pin an id that still exists — `gemini-1.5-flash` now 404s. |

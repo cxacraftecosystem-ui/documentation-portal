@@ -77,7 +77,7 @@ def _row(media_id: str, version: int) -> dict:
         "sourceHash": "h",
         "translationStatus": "NOT_NEEDED",
         "provider": "openai",
-        "modelId": "gpt-4o-mini",
+        "modelId": "gpt-6-luna",
         "promptVersion": "transcript-insights/1",
         "generated": Json({"summaryLines": [], "quotes": [], "translationText": None}),
         "generatedAt": datetime.now(UTC),
@@ -114,7 +114,7 @@ async def test_enqueue_and_generate_through_the_real_client(client, monkeypatch)
                                     "speaker": None}]})
     monkeypatch.setattr(ti.user_ai_keys, "resolve", resolve)
     monkeypatch.setattr(ti, "_chat_sync", lambda *a, **k: {"text": reply, "provider": "openai",
-                                                           "model": "gpt-4o-mini", "modelVersion": None})
+                                                           "model": "gpt-6-luna", "modelVersion": None})
     from app.services import consent_gate
 
     media_id = await _media(client)

@@ -45,6 +45,7 @@ def test_the_deployment_defaults_are_the_approved_current_models() -> None:
 
 
 def test_reasoning_openai_models_are_sent_no_temperature() -> None:
+    assert openai_sampling("gpt-6-luna", 0.2) == {}
     assert openai_sampling("gpt-5.6-terra", 0.0) == {}
     assert openai_sampling("o4-mini", 0.2) == {}
     assert openai_sampling("gpt-4.1", 0.2) == {"temperature": 0.2}

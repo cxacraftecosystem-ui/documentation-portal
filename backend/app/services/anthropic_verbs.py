@@ -14,10 +14,10 @@ worse answer. The official SDK carries those rules. Keeping it in a file of its 
 THREE MODEL RULES THAT ARE 400s IF BROKEN, NOT STYLE
 -----------------------------------------------------
 1. **No ``temperature``, ever.** The existing text verbs each pass a per-verb temperature — a
-   proofread wants determinism, an expansion does not. Claude Opus 5, Sonnet 5 and Opus 4.8 REMOVED
+   proofread wants determinism, an expansion does not. Claude Sonnet 5.5, Opus 5, Sonnet 5 and Opus 4.8 REMOVED
    the parameter and reject any request carrying it. The per-verb intent survives as ``effort``
    below and in the system prompts, which is where it belongs for these models anyway.
-2. **``effort`` is not universal.** It is supported on Opus 5, Sonnet 5 and Opus 4.8 and **errors on
+2. **``effort`` is not universal.** It is supported on Sonnet 5.5, Opus 5, Sonnet 5 and Opus 4.8 and **errors on
    Haiku 4.5**, which the catalogue also offers. :data:`_EFFORT_MODELS` is the allow-list; a model
    outside it is sent no ``output_config`` at all.
 3. **Thinking is left ON.** On Claude Opus 5 thinking is the default and omitting the parameter runs
@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 #: Models that accept ``output_config.effort``. Haiku 4.5 is deliberately absent — it errors.
 #: Keyed on the exact catalogue ids in ``services/ai_providers``; a model not listed here simply
 #: runs at its own default, which is correct behaviour rather than a degraded one.
-_EFFORT_MODELS = frozenset({"claude-opus-5", "claude-sonnet-5", "claude-opus-4-8"})
+_EFFORT_MODELS = frozenset({"claude-sonnet-5-5", "claude-opus-5", "claude-sonnet-5", "claude-opus-4-8"})
 
 #: Generous enough that a long translation is not truncated mid-sentence, and well inside the point
 #: at which the SDK requires streaming. The verbs clip their input to 48,000 characters upstream, so

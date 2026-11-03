@@ -196,7 +196,7 @@ def world(monkeypatch):
 
     async def fake_draft(questions, transcript, settings, *, user_id):
         asked.append((questions, transcript))
-        return {1: "Since my grandfather", 2: "My mother"}, "anthropic", "claude-sonnet-5"
+        return {1: "Since my grandfather", 2: "My mother"}, "anthropic", "claude-sonnet-5-5"
 
     monkeypatch.setattr(routes.ad, "draft_answers", fake_draft)
     consent = _consent_store(monkeypatch)
@@ -245,7 +245,7 @@ async def test_drafting_asks_only_unanswered_questions_and_writes_no_answer(worl
     assert out["drafted"] == 2 and out["asked"] == 2
     drafts = world.db.questionnaireanswerdraft.rows
     assert {d["questionId"] for d in drafts} == {"q1", "q2"}
-    assert all(d["status"] == "PENDING" and d["model"] == "claude-sonnet-5" for d in drafts)
+    assert all(d["status"] == "PENDING" and d["model"] == "claude-sonnet-5-5" for d in drafts)
     # Inert: not one answer was written by drafting.
     assert [r["questionId"] for r in world.db.questionnaireresponse.rows] == ["q3"]
 

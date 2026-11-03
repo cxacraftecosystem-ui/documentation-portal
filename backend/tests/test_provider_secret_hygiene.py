@@ -81,7 +81,7 @@ def _settings(**overrides) -> SimpleNamespace:
         "elevenlabs_stt_model": "scribe_v2",
         "deepgram_stt_model": "nova-3",
         "openai_transcription_model": "whisper-1",
-        "openai_chat_model": "gpt-4o-mini",
+        "openai_chat_model": "gpt-6-luna",
         "gemini_measurement_model": "gemini-2.5-flash-lite",
     }
     base.update(overrides)

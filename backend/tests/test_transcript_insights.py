@@ -56,7 +56,7 @@ def fake(monkeypatch):
         monkeypatch.setattr(module, "db", db)
     monkeypatch.setattr(ti, "enabled", lambda: True)
     monkeypatch.setattr(ti, "get_settings", lambda: SimpleNamespace(
-        media_queue_job_max_attempts=3, openai_chat_model="gpt-4o-mini"))
+        media_queue_job_max_attempts=3, openai_chat_model="gpt-6-luna"))
     # Consent granted unless a test withdraws it (``consent`` below).
     db.consent = {}
 
@@ -82,8 +82,8 @@ def provider(monkeypatch):
         if state.fail_on and index in state.fail_on:
             raise state.fail_on[index]
         text = state.replies.pop(0) if state.replies else "Translated."
-        return {"text": text, "provider": "openai", "model": "gpt-4o-mini",
-                "modelVersion": "gpt-4o-mini-2024-07-18"}
+        return {"text": text, "provider": "openai", "model": "gpt-6-luna",
+                "modelVersion": "gpt-6-luna"}
 
     monkeypatch.setattr(ti.user_ai_keys, "resolve", resolve)
     monkeypatch.setattr(ti, "_chat_sync", chat_sync)
@@ -236,8 +236,8 @@ def test_a_failed_chunk_fails_the_translation_and_the_summary_is_still_stored(fa
     row = fake.transcriptinsight.rows[0]
     assert row.translationStatus == ti.FAILED and row.translationText is None
     assert row.summaryLines[0] == "Dabu printing is done in the village."
-    assert row.provider == "openai" and row.modelId == "gpt-4o-mini"
-    assert row.modelVersion == "gpt-4o-mini-2024-07-18"
+    assert row.provider == "openai" and row.modelId == "gpt-6-luna"
+    assert row.modelVersion == "gpt-6-luna"
     assert row.promptVersion == "transcript-insights/1"
 
 

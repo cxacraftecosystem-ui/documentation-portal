@@ -136,7 +136,7 @@ object TranscriptInsightStates {
         return insight.translation.text.orEmpty()
     }
 
-    /** "Machine-generated · gpt-4o-mini · 30 Oct 2026", or the edited stamp. */
+    /** "Machine-generated · gpt-6-luna · 30 Oct 2026", or the edited stamp. */
     fun provenanceLine(insight: TranscriptInsightDto, formatDate: (String?) -> String?): String {
         val edited = insight.edited
         if (edited != null) {

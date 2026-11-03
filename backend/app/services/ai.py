@@ -822,7 +822,7 @@ async def transcribe_audio_bytes(
 # --- Transcript refinement (raw transcript -> clean interviewer/interviewee conversation) ----------
 
 # Hard cap on the transcript we send to the chat model, so a runaway transcript can't blow up the
-# token bill or the request. ~48k characters is well within gpt-4o-mini's context window.
+# token bill or the request. ~48k characters is well within gpt-6-luna's context window.
 _REFINE_MAX_CHARS = 48_000
 
 
@@ -880,7 +880,7 @@ async def refine_transcript_text(
     settings: Settings,
 ) -> dict[str, Any]:
     """Refine a raw transcript into a clean interviewer/interviewee conversation (Markdown), optionally
-    translating it to English. Uses the configured chat model (gpt-4o-mini by default)."""
+    translating it to English. Uses the configured chat model (gpt-6-luna by default)."""
     from app.services import transcript_insights
 
     if await user_ai_keys.resolve(None, AiTask.TRANSLATE) is None:

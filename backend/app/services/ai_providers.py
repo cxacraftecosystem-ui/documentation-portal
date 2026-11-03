@@ -143,6 +143,13 @@ _OPENAI = ProviderSpec(
     ),
     models=(
         AiModel(
+            id="gpt-6-luna",
+            label="GPT-6 Luna",
+            note="The default, and the cheapest by a wide margin. Good for proofreading, weaker on long translation.",
+            price_per_mtok=(0.20, 1.25),
+            tasks=TEXT_AND_VISION,
+        ),
+        AiModel(
             id="gpt-5.6-terra",
             label="GPT-5.6 Terra",
             note="The balanced choice for everyday work, at about ten times the default's price.",
@@ -154,13 +161,6 @@ _OPENAI = ProviderSpec(
             label="GPT-5.6 Sol",
             note="The most capable of the three. Slower and roughly two and a half times the price.",
             price_per_mtok=(5.0, 30.0),
-            tasks=TEXT_AND_VISION,
-        ),
-        AiModel(
-            id="gpt-5.6-luna",
-            label="GPT-5.6 Luna",
-            note="The default, and the cheapest by a wide margin. Good for proofreading, weaker on long translation.",
-            price_per_mtok=(0.20, 1.25),
             tasks=TEXT_AND_VISION,
         ),
         # ── AUDIO ONLY. The `tasks` set on these three is the whole reason this table is not a list
@@ -188,7 +188,7 @@ _OPENAI = ProviderSpec(
             tasks=frozenset({AiTask.TRANSCRIBE}),
         ),
     ),
-    default_model="gpt-5.6-luna",
+    default_model="gpt-6-luna",
 )
 
 _GEMINI = ProviderSpec(
@@ -279,17 +279,24 @@ _ANTHROPIC = ProviderSpec(
         # `claude-opus-5`, never `claude-opus-5-20260101`. A dated variant recalled from somewhere
         # else 404s.
         AiModel(
+            id="claude-sonnet-5-5",
+            label="Claude Sonnet 5.5",
+            note="The default. Fast and strong on everyday writing, translation and captions.",
+            price_per_mtok=(2.0, 10.0),
+            tasks=TEXT_AND_VISION,
+        ),
+        AiModel(
             id="claude-opus-5",
             label="Claude Opus 5",
-            note="The strongest of the three and the right default. Best on long or subtle passages.",
+            note="The strongest on long or subtle passages, at two and a half times the default's price.",
             price_per_mtok=(5.0, 25.0),
             tasks=TEXT_AND_VISION,
         ),
         AiModel(
             id="claude-sonnet-5",
             label="Claude Sonnet 5",
-            note="Nearly as good for most work, at roughly half the price.",
-            price_per_mtok=(3.0, 15.0),
+            note="The previous Sonnet, same price. Pick it if Sonnet 5.5 behaves differently for you.",
+            price_per_mtok=(2.0, 10.0),
             tasks=TEXT_AND_VISION,
         ),
         AiModel(
@@ -307,7 +314,7 @@ _ANTHROPIC = ProviderSpec(
             tasks=TEXT_AND_VISION,
         ),
     ),
-    default_model="claude-opus-5",
+    default_model="claude-sonnet-5-5",
 )
 
 
@@ -374,7 +381,7 @@ def looks_like_key(provider: AiProvider | str, value: str) -> bool:
     return spec.key_prefix is None or candidate.startswith(spec.key_prefix)
 
 
-OPENAI_FIXED_SAMPLING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+OPENAI_FIXED_SAMPLING_PREFIXES = ("gpt-5", "gpt-6", "o1", "o3", "o4")
 GEMINI_DECLINE_REASONS = frozenset({"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "RECITATION", "IMAGE_SAFETY"})
 
 

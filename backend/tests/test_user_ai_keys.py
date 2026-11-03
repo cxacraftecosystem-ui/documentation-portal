@@ -135,13 +135,13 @@ def _store(table: _Table, user: str, provider: AiProvider, key: str, model: str 
 async def test_a_designers_own_key_wins_over_the_deployments(table, monkeypatch):
     """The whole feature in one assertion: their key, their model, their bill."""
     _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key", GEMINI_API_KEY="sk-the-organisations-key")
-    _store(table, "designer-1", AiProvider.OPENAI, "sk-hers", "gpt-5.6-sol")
+    _store(table, "designer-1", AiProvider.OPENAI, "sk-hers", "gpt-6-luna")
 
     resolved = await user_ai_keys.resolve("designer-1", AiTask.PROOFREAD)
 
     assert resolved is not None
     assert resolved.api_key == "sk-hers"
-    assert resolved.model == "gpt-5.6-sol"
+    assert resolved.model == "gpt-6-luna"
     assert resolved.source == user_ai_keys.SOURCE_USER
     assert resolved.is_user_supplied
 
@@ -166,7 +166,7 @@ async def test_work_with_no_person_attached_never_reaches_a_personal_key(table, 
     pass every other test in this file and fail here.
     """
     _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key", GEMINI_API_KEY="sk-the-organisations-key")
-    _store(table, "designer-1", AiProvider.OPENAI, "sk-hers", "gpt-5.6-sol")
+    _store(table, "designer-1", AiProvider.OPENAI, "sk-hers", "gpt-6-luna")
 
     resolved = await user_ai_keys.resolve(None, AiTask.PROOFREAD)
 
@@ -204,7 +204,7 @@ async def test_a_claude_key_does_not_capture_transcription(table, monkeypatch):
     re-take, and it would look like a broken app rather than a wrong setting.
     """
     _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key", GEMINI_API_KEY="sk-the-organisations-key")
-    _store(table, "designer-1", AiProvider.ANTHROPIC, "sk-ant-hers", "claude-opus-5")
+    _store(table, "designer-1", AiProvider.ANTHROPIC, "sk-ant-hers", "claude-sonnet-5-5")
 
     transcription = await user_ai_keys.resolve("designer-1", AiTask.TRANSCRIBE)
     assert transcription is not None
@@ -219,7 +219,7 @@ async def test_a_claude_key_does_not_capture_transcription(table, monkeypatch):
 
 async def test_a_designer_holding_two_keys_gets_the_one_that_can_do_the_job(table, no_app_keys):
     """Anthropic for the prose, Gemini for the recording — chosen per task, not per person."""
-    _store(table, "designer-1", AiProvider.ANTHROPIC, "sk-ant-hers", "claude-opus-5")
+    _store(table, "designer-1", AiProvider.ANTHROPIC, "sk-ant-hers", "claude-sonnet-5-5")
     _store(table, "designer-1", AiProvider.GEMINI, "AIzaHers", "gemini-3.7-flash")
 
     assert (await user_ai_keys.resolve("designer-1", AiTask.TRANSCRIBE)).provider is AiProvider.GEMINI
@@ -317,7 +317,7 @@ async def test_an_undecryptable_key_is_flagged_and_stepped_over(table, monkeypat
         userId="designer-1",
         provider=AiProvider.OPENAI.value,
         valueEnc=stranger.encrypt(b"sk-hers").decode("ascii"),
-        model="gpt-5.6-terra",
+        model="gpt-6-luna",
     )
     table.rows.append(row)
 
@@ -412,4 +412,4 @@ async def test_an_operator_who_selects_openai_gets_the_cost_parity_model(table, 
     monkeypatch.setattr(config, "get_settings", lambda: SimpleNamespace(ai_text_provider="OPENAI"))
     _app_key(monkeypatch, OPENAI_API_KEY="sk-org", GEMINI_API_KEY="AIza-org")
     resolved = await user_ai_keys.resolve(None, AiTask.PROOFREAD)
-    assert resolved.provider is AiProvider.OPENAI and resolved.model == "gpt-5.6-luna"
+    assert resolved.provider is AiProvider.OPENAI and resolved.model == "gpt-6-luna"

@@ -11304,7 +11304,7 @@ private fun suppressAiCostReminder(context: Context) {
 
 /**
  * "Refine transcript" / "Refine & translate to English" buttons + the cost-confirmation dialog,
- * spinner, and the Markdown-rendered result. Calls the gpt-4o-mini backed endpoint on demand. The
+ * spinner, and the Markdown-rendered result. Calls the gpt-6-luna backed endpoint on demand. The
  * refined conversation is held in local state (not persisted) so it shows immediately and a re-press
  * is the only thing that incurs another cost.
  */

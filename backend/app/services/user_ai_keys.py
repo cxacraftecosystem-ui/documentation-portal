@@ -130,8 +130,8 @@ def _model_for_task(provider: AiProvider, chosen: str | None, task: AiTask) -> s
     paying for their transcription and the organisation paying for it silently.
 
     A designer supplies a key to say *"use my account for my AI work"*, and picks a model to say
-    *"prefer this one"*. Those are different statements. Somebody who picked GPT-5.6 Terra has said
-    nothing about transcription, because Terra does not transcribe and the picker's transcription
+    *"prefer this one"*. Those are different statements. Somebody who picked GPT-6 Luna has said
+    nothing about transcription, because Luna does not transcribe and the picker's transcription
     models are a separate group — so honouring the preference literally would mean their recordings
     quietly went on the organisation's bill while every proofread went on theirs. Reaching for
     ``gpt-transcribe`` **on their own key** is what they meant.

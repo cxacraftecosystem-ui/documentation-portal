@@ -630,7 +630,7 @@ interface FieldRepositoryApi {
     @POST("media/{id}/relink")
     suspend fun relinkMedia(@Path("id") id: String, @Body body: MediaRelinkRequest): MediaFileDto
 
-    // AI transcript refinement (gpt-4o-mini): turn a raw transcript into a clean interviewer/
+    // AI transcript refinement (gpt-6-luna): turn a raw transcript into a clean interviewer/
     // interviewee conversation, optionally translated to English. Billable — gated behind a cost
     // confirmation in the UI.
     @POST("media/{id}/refine-transcript")

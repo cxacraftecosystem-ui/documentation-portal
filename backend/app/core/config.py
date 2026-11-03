@@ -300,8 +300,8 @@ class Settings(BaseSettings):
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     openai_transcription_model: str = Field(default="whisper-1", alias="OPENAI_TRANSCRIPTION_MODEL")
     # Chat model used to refine a raw transcript into a clean interviewer/interviewee conversation
-    # (and optionally translate it to English). Defaults to the cost-efficient gpt-4o-mini.
-    openai_chat_model: str = Field(default="gpt-5.6-luna", alias="OPENAI_CHAT_MODEL")
+    # (and optionally translate it to English). Defaults to the cost-efficient gpt-6-luna.
+    openai_chat_model: str = Field(default="gpt-6-luna", alias="OPENAI_CHAT_MODEL")
     # The deployment's Claude key: the app-level fallback for the text verbs and photo captions when
     # a designer has not brought their own (see services/user_ai_keys). Deliberately has no model
     # setting beside it — unlike the OpenAI and Gemini pairs above, the model for a Claude call comes
