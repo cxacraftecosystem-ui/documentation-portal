@@ -253,6 +253,36 @@ def test_a_summary_or_a_dropped_number_is_not_a_translation() -> None:
     assert translate.suspicious("", "") is False
 
 
+def _gemini_json(data: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "candidates": [{"content": {"parts": [{"text": json.dumps(data, ensure_ascii=False)}]}, "finishReason": "STOP"}],
+        "usageMetadata": {"promptTokenCount": 100, "candidatesTokenCount": 10},
+    }
+
+
+def test_speech_the_model_marks_unclear_is_translated_not_failed() -> None:
+    garbled = "ಅದು ಹೇಗೆ ಮಾಡುತ್ತೀರಿ ಎಂದು ಹೇಳಿ ನೋಡೋಣ ಅಮ್ಮ " * 4
+    turns = [translate.TurnIn("A", "Speaker 1", "kn", garbled)]
+    answer = {"translations": [{"id": "t1", "english": "[unclear]", "alreadyEnglish": False}], "summary": ["Unclear."]}
+    result = translate.run_pass(turns, keys=KEYS, post=FakePost((200, _gemini_json(answer))))
+    assert result.translations["A"].status == translate.TRANSLATED
+    assert result.translations["A"].english == "[unclear]"
+    assert result.failed_ids == [] and result.calls == 1
+
+
+def test_a_partly_unclear_turn_is_kept_and_a_bare_summary_still_is_not() -> None:
+    long = "हम यह काम बहुत सालों से करते आ रहे हैं " * 6
+    assert translate.suspicious(long, "We have [unclear] for many years [unclear].") is False
+    assert translate.suspicious(long, "[ Unclear ]") is False
+    assert translate.suspicious(long, "We do.") is True
+    assert translate.suspicious(long, "") is True
+
+
+def test_digits_from_any_script_are_read_as_ascii_numbers() -> None:
+    assert translate.numbers_in("๔ and ৫ and ௭") == {"4", "5", "7"}
+    assert translate.suspicious("๔ วัน", "4 days") is False
+
+
 def test_long_transcripts_split_on_turn_boundaries_and_gloss_a_term_once() -> None:
     turns = [translate.TurnIn(f"id{i}", "S", "hi", "क" * 30) for i in range(5)]
     parts = translate.batches(turns, limit=70)

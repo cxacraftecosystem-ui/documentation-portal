@@ -40,7 +40,7 @@ from typing import Any
 import requests
 
 from app.services import anthropic_verbs, user_ai_keys
-from app.services.ai_providers import AiProvider, AiTask
+from app.services.ai_providers import AiProvider, AiTask, openai_message_text, openai_sampling
 
 logger = logging.getLogger(__name__)
 
@@ -147,14 +147,14 @@ def _chat_sync(system: str, user: str, credential: Any, settings: Any) -> dict[s
         json={
             "model": model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            "temperature": 0.0,
+            **openai_sampling(model, 0.0),
             "response_format": {"type": "json_object"},
         },
         timeout=TIMEOUT_SECONDS,
     )
     response.raise_for_status()
     return {
-        "text": str(response.json()["choices"][0]["message"]["content"]),
+        "text": openai_message_text(response.json()),
         "provider": "openai",
         "model": model,
     }

@@ -16,7 +16,7 @@ from app.services import (
     managed_secrets,
     user_ai_keys,
 )
-from app.services.ai_providers import AiProvider, AiTask
+from app.services.ai_providers import AiProvider, AiTask, openai_message_text, openai_sampling
 from app.services.measurement_provenance import (
     MeasurementProvenance,
     vision_model_provenance,
@@ -836,13 +836,12 @@ def _post_openai_chat(messages: list[dict[str, str]], settings: Settings) -> str
         json={
             "model": settings.openai_chat_model,
             "messages": messages,
-            "temperature": 0.2,
+            **openai_sampling(settings.openai_chat_model, 0.2),
         },
         timeout=120,
     )
     response.raise_for_status()
-    payload = response.json()
-    return str(payload["choices"][0]["message"]["content"]).strip()
+    return openai_message_text(response.json())
 
 
 def _refine_sync(text: str, translate_to_english: bool, settings: Settings) -> dict[str, Any]:
@@ -940,7 +939,7 @@ MEASUREMENT_PROVIDER = "gemini"
 
 
 def _measurement_provenance(
-    analysis: dict[str, Any] | None, settings: Settings
+    analysis: dict[str, Any] | None, settings: Settings, model_id: str | None = None
 ) -> MeasurementProvenance:
     """The provenance of whatever this endpoint just did, INCLUDING when it failed.
 
@@ -960,7 +959,7 @@ def _measurement_provenance(
     return vision_model_provenance(
         analysis,
         provider=MEASUREMENT_PROVIDER,
-        model_id=settings.gemini_measurement_model,
+        model_id=model_id or settings.gemini_measurement_model,
     )
 
 
@@ -981,6 +980,16 @@ def _measurement_prompt(dimension: str | None) -> str:
         "lengthInches, breadthInches, confidence from 0 to 1, and notes. If the grid "
         "or object is unclear, return null values and explain in notes."
     )
+
+
+GEMINI_VISION_FALLBACK_MODEL = "gemini-3.7-flash"
+
+
+def measurement_models(settings: Settings) -> tuple[str, ...]:
+    configured = settings.gemini_measurement_model
+    if configured == GEMINI_VISION_FALLBACK_MODEL:
+        return (configured,)
+    return (configured, GEMINI_VISION_FALLBACK_MODEL)
 
 
 def _post_gemini_measurement(content: bytes, mime_type: str, settings: Settings, dimension: str | None = None) -> dict[str, Any]:
@@ -1012,73 +1021,78 @@ def _post_gemini_measurement(content: bytes, mime_type: str, settings: Settings,
     ordered_keys = keys[start:] + keys[:start]
     last_error: Exception | None = None
 
-    for attempt, key in enumerate(ordered_keys):
-        try:
-            response = requests.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_measurement_model}:generateContent",
-                # The key goes in the header the API documents for it, NOT in ``?key=`` — a query
-                # parameter is part of the prepared URL, which means it is inside the message of
-                # every requests exception this call can raise, and those messages were being
-                # returned to the caller and stored on the media row. It also lands in any proxy or
-                # access log between here and Google. Every other provider in this module already
-                # authenticates by header; this was the one that did not.
-                headers={"x-goog-api-key": key},
-                json=body,
-                timeout=90,
-            )
-        except requests.RequestException as exc:
-            last_error = exc
-            logger.info(
-                "Gemini key #%s network error, rotating: %s",
-                (start + attempt) % len(keys),
-                redact_secrets(str(exc)),
-            )
-            continue
+    for model_id in measurement_models(settings):
+        for attempt, key in enumerate(ordered_keys):
+            try:
+                response = requests.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent",
+                    # The key goes in the header the API documents for it, NOT in ``?key=`` — a query
+                    # parameter is part of the prepared URL, which means it is inside the message of
+                    # every requests exception this call can raise, and those messages were being
+                    # returned to the caller and stored on the media row. It also lands in any proxy or
+                    # access log between here and Google. Every other provider in this module already
+                    # authenticates by header; this was the one that did not.
+                    headers={"x-goog-api-key": key},
+                    json=body,
+                    timeout=90,
+                )
+            except requests.RequestException as exc:
+                last_error = exc
+                logger.info(
+                    "Gemini key #%s network error, rotating: %s",
+                    (start + attempt) % len(keys),
+                    redact_secrets(str(exc)),
+                )
+                continue
 
-        if response.status_code in _GEMINI_ROTATE_STATUSES:
-            # The provider's body stays in the log. The raised error carries only the status, and
-            # the caller's message repeats none of it.
-            last_error = requests.HTTPError(
-                f"Gemini rejected the request (HTTP {response.status_code})", response=response
-            )
-            logger.info(
-                "Gemini key #%s returned HTTP %s, rotating: %s",
-                (start + attempt) % len(keys),
-                response.status_code,
-                redact_secrets(str(response.text)[:200]),
-            )
-            continue
+            if response.status_code == 404:
+                last_error = requests.HTTPError("Gemini model unavailable (HTTP 404)", response=response)
+                break
 
-        try:
-            response.raise_for_status()
-        except requests.RequestException as exc:
-            last_error = exc
-            continue
+            if response.status_code in _GEMINI_ROTATE_STATUSES:
+                # The provider's body stays in the log. The raised error carries only the status, and
+                # the caller's message repeats none of it.
+                last_error = requests.HTTPError(
+                    f"Gemini rejected the request (HTTP {response.status_code})", response=response
+                )
+                logger.info(
+                    "Gemini key #%s returned HTTP %s, rotating: %s",
+                    (start + attempt) % len(keys),
+                    response.status_code,
+                    redact_secrets(str(response.text)[:200]),
+                )
+                continue
 
-        payload = response.json()
-        text = (
-            payload.get("candidates", [{}])[0]
-            .get("content", {})
-            .get("parts", [{}])[0]
-            .get("text", "")
-        )
-        parsed = _extract_json(text)
-        return {
-            "available": True,
-            "status": "COMPLETED",
-            "analysis": parsed,
-            "keysTried": attempt + 1,
-            "raw": payload,
-            # WHAT PRODUCED THE NUMBER, TRAVELLING WITH THE NUMBER. Until this, the response carried
-            # ``valueInches`` and nothing about where it came from — while
-            # ``settings.gemini_measurement_model`` was in hand two lines above the return — so both
-            # clients auto-filled a form field from a model's estimate and the save stamped it with
-            # the name of whoever pressed Save. ADDITIVE ONLY: ``analysis`` is the provider's own
-            # parsed JSON, untouched, because an installed handset reads
-            # ``response.analysis?.valueInches`` and cannot be updated. See
-            # ``services/measurement_provenance`` for the whole argument and the client half.
-            **_measurement_provenance(parsed, settings).payload(),
-        }
+            try:
+                response.raise_for_status()
+            except requests.RequestException as exc:
+                last_error = exc
+                continue
+
+            payload = response.json()
+            text = (
+                payload.get("candidates", [{}])[0]
+                .get("content", {})
+                .get("parts", [{}])[0]
+                .get("text", "")
+            )
+            parsed = _extract_json(text)
+            return {
+                "available": True,
+                "status": "COMPLETED",
+                "analysis": parsed,
+                "keysTried": attempt + 1,
+                "raw": payload,
+                # WHAT PRODUCED THE NUMBER, TRAVELLING WITH THE NUMBER. Until this, the response carried
+                # ``valueInches`` and nothing about where it came from — while
+                # ``settings.gemini_measurement_model`` was in hand two lines above the return — so both
+                # clients auto-filled a form field from a model's estimate and the save stamped it with
+                # the name of whoever pressed Save. ADDITIVE ONLY: ``analysis`` is the provider's own
+                # parsed JSON, untouched, because an installed handset reads
+                # ``response.analysis?.valueInches`` and cannot be updated. See
+                # ``services/measurement_provenance`` for the whole argument and the client half.
+                **_measurement_provenance(parsed, settings, model_id).payload(),
+            }
 
     raise last_error or RuntimeError("All configured Gemini keys failed")
 

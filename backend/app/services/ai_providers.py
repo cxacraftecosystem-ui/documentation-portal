@@ -372,3 +372,40 @@ def looks_like_key(provider: AiProvider | str, value: str) -> bool:
     if spec is None or not candidate:
         return False
     return spec.key_prefix is None or candidate.startswith(spec.key_prefix)
+
+
+OPENAI_FIXED_SAMPLING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+GEMINI_DECLINE_REASONS = frozenset({"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "RECITATION", "IMAGE_SAFETY"})
+
+
+class ModelDeclined(RuntimeError):
+    pass
+
+
+def openai_sampling(model: str, temperature: float) -> dict[str, float]:
+    if str(model or "").startswith(OPENAI_FIXED_SAMPLING_PREFIXES):
+        return {}
+    return {"temperature": temperature}
+
+
+def openai_message_text(payload: dict) -> str:
+    choices = payload.get("choices") or [{}]
+    message = (choices[0] or {}).get("message") or {}
+    content = message.get("content")
+    if not content and message.get("refusal"):
+        raise ModelDeclined("openai")
+    return str(content or "").strip()
+
+
+def gemini_reply_text(payload: dict) -> str:
+    candidates = payload.get("candidates") or []
+    if not candidates:
+        if (payload.get("promptFeedback") or {}).get("blockReason"):
+            raise ModelDeclined("gemini")
+        return ""
+    first = candidates[0] or {}
+    parts = (first.get("content") or {}).get("parts") or []
+    text = "".join(str(part.get("text", "")) for part in parts if not part.get("thought")).strip()
+    if not text and first.get("finishReason") in GEMINI_DECLINE_REASONS:
+        raise ModelDeclined("gemini")
+    return text

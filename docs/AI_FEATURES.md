@@ -508,3 +508,15 @@ it queues nothing twice.
 `backend/tests/test_transcript_insights_db.py` (real Postgres, opt-in with
 `TRANSCRIPT_INSIGHTS_DB_TESTS=1`); `frontend/e2e/transcript-insights-unit.spec.ts`;
 `android/app/src/test/java/com/fieldrepository/app/data/TranscriptInsightsDtoTest.kt`.
+
+
+## Release 0.0.10: AI fixes
+
+**Translation of unintelligible speech.** Gemini is told to write `[unclear]` when it cannot make out the original. Before 0.0.10 such an answer was shorter than 30% of the original, so the check that catches summaries rejected it twice and marked the turn FAILED. In the Field Repository on 3 November 2026 this happened to 16 single-turn transcripts made from older text transcripts (Hindi, Gujarati, Kannada, Tamil, Telugu and one with no detected language). Their source text was mostly repetitive or garbled speech-to-text output. From 0.0.10, an English answer that contains `[unclear]` skips the length check and the strict number check. An empty answer, or a short answer with no `[unclear]` marker, still fails. Digits in any Unicode script are read as ASCII digits when numbers are compared (`translate.numbers_in`).
+
+**Models.** `GEMINI_MEASUREMENT_MODEL` now defaults to `gemini-3.8-flash`. Grid measurement moves to `gemini-3.7-flash` when the configured model returns 404. Photo captions and identity OCR read the same setting. `OPENAI_CHAT_MODEL` now defaults to the catalogue's OpenAI default (`gpt-5.6-terra`). An OpenAI model in the GPT-5 or o-series is sent no `temperature`, because those models accept only the default (`ai_providers.openai_sampling`). A box that sets either variable keeps its own value.
+
+**Refusals.** A Gemini prompt block (`promptFeedback.blockReason`), an empty candidate that finished for a safety reason, or an OpenAI `refusal` is now reported as declined (`ModelDeclined`), not as an empty answer. Text verbs return `REFUSED`, and the user sees that the model declined. They are not asked to try again. Transcript summaries close with `MODEL_DECLINED` and are not retried. Gemini's internal thought parts are never shown as the answer.
+
+**Billing and timeouts.** A provider's HTTP 402 is reported as "the service's credit has run out", not as a refused request. A summary job that hits 402 is held for 15 minutes and spends no attempt, as the Gemini transcript pipeline already does. A timeout is reported as "took too long to answer".
+

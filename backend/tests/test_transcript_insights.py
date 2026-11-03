@@ -860,3 +860,16 @@ def test_consent_withdrawn_after_the_job_was_queued_fails_the_job_and_sends_noth
     assert stored.status == "FAILED" and stored.error == ti.CONSENT_REFUSED
     assert provider.calls == []
     assert not fake.transcriptinsight.rows
+
+
+def test_a_provider_out_of_credit_holds_the_job_instead_of_closing_it(fake, provider):
+    import requests
+
+    from app.services import media_queue
+
+    provider.fail_on = {1: requests.HTTPError(response=SimpleNamespace(status_code=402))}
+    media = fake.add_media(transcriptText=ENGLISH, transcriptStatus="COMPLETED")
+    job = _insights_job(fake, media, requested_by="usr_owner")
+    asyncio.run(media_queue._process_job(job, SimpleNamespace()))
+    stored = fake.mediaprocessingjob.get(job.id)
+    assert stored.status == "QUEUED" and stored.error == ti.BILLING

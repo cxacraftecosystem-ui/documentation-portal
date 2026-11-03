@@ -46,7 +46,14 @@ from app.ai_features.types import Capability
 from app.core.config import get_settings
 from app.core.db import db
 from app.services import anthropic_verbs, recording_consent, user_ai_keys
-from app.services.ai_providers import AiProvider, AiTask
+from app.services.ai_providers import (
+    AiProvider,
+    AiTask,
+    ModelDeclined,
+    gemini_reply_text,
+    openai_message_text,
+    openai_sampling,
+)
 from prisma import Json
 
 logger = logging.getLogger(__name__)
@@ -140,6 +147,8 @@ class InsightsFailed(RuntimeError):
 KEY_REFUSED = "The AI provider didn't accept the key. An administrator can check it in Settings."
 REQUEST_REFUSED = "The AI provider turned this transcript down."
 MODEL_DECLINED = "The AI model declined to summarise this transcript."
+BILLING = "The AI provider's credit has run out. This resumes by itself once it is topped up."
+BILLING_HOLD_SECONDS = 900
 
 
 # --- Switch and sources -----------------------------------------------------------------------
@@ -360,10 +369,8 @@ def _chat_sync(
         )
         response.raise_for_status()
         body = response.json()
-        candidates = body.get("candidates") or []
-        parts = ((candidates[0].get("content") or {}).get("parts") or []) if candidates else []
         return {
-            "text": "".join(str(p.get("text", "")) for p in parts),
+            "text": gemini_reply_text(body),
             "provider": "gemini",
             "model": model,
             "modelVersion": body.get("modelVersion"),
@@ -374,7 +381,7 @@ def _chat_sync(
     payload: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        "temperature": 0.2 if json_mode else 0.1,
+        **openai_sampling(model, 0.2 if json_mode else 0.1),
     }
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
@@ -387,7 +394,7 @@ def _chat_sync(
     response.raise_for_status()
     body = response.json()
     return {
-        "text": str(body["choices"][0]["message"]["content"] or ""),
+        "text": openai_message_text(body),
         "provider": "openai",
         "model": model,
         "modelVersion": body.get("model"),
@@ -422,6 +429,8 @@ async def _chat(
         )
     except InsightsFailed:
         raise
+    except ModelDeclined:
+        raise InsightsFailed(MODEL_DECLINED, retry=False) from None
     except anthropic_verbs.AnthropicUnavailable:
         raise InsightsUnavailable("Summaries aren't available on this server right now.") from None
     except Exception as exc:  # noqa: BLE001 - a provider error must become a sentence
@@ -433,6 +442,8 @@ async def _chat(
         # key (401, 403) or a request turned down (any other 4xx, 413 included) does not clear by
         # itself. A 5xx or an unreachable provider does, so it retries.
         code = _status_code(exc)
+        if code == 402:
+            raise InsightsFailed(BILLING, hold_seconds=BILLING_HOLD_SECONDS) from None
         if code in (401, 403):
             raise InsightsFailed(KEY_REFUSED, retry=False) from None
         if code is not None and 400 <= code < 500:
