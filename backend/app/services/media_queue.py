@@ -12,6 +12,7 @@ from app.core.fastapi_lazy import jsonable_encoder
 from app.services import (
     audio_isolation,
     recording_consent,
+    transcribe_choice,
     transcript_insights,
     transcript_pipeline,
     transcription_jobs,
@@ -29,7 +30,7 @@ from app.services.app_settings import (
     transcription_paused,
     within_processing_window,
 )
-from app.services.s3 import discard_temp, download_to_temp, get_object_bytes
+from app.services.s3 import ObjectTooLarge, discard_temp, download_to_temp, get_object_bytes
 from app.services.transcription_store import open_key
 from app.transcription import schedule, workdir
 from prisma import Json
@@ -110,12 +111,26 @@ def _value(record: Any, key: str) -> Any:
     return getattr(record, key, None)
 
 
+TRANSCRIBABLE_TYPES = frozenset({"AUDIO", "VIDEO"})
+MAX_TRANSCRIBE_FETCH_BYTES = 1024 * 1024 * 1024
+
+
+def _too_large_result(limit_bytes: int) -> dict[str, Any]:
+    megabytes = limit_bytes / (1024 * 1024)
+    return {
+        "available": False,
+        "status": UNAVAILABLE,
+        "text": None,
+        "formattedTranscript": None,
+        "message": f"This file is too large to transcribe (the limit is {megabytes:,.0f} MB). "
+        "Nothing was spent.",
+    }
+
+
 def _job_requests(media: Any, requested: list[str] | None) -> set[str]:
     media_type = str(_value(media, "mediaType") or "").upper()
     normalized = {str(item).strip().upper() for item in requested or [] if str(item).strip()}
-    if requested is None and media_type == "AUDIO":
-        normalized.add(TRANSCRIPTION)
-    if media_type != "AUDIO":
+    if media_type not in TRANSCRIBABLE_TYPES:
         normalized.discard(TRANSCRIPTION)
     if media_type != "IMAGE":
         normalized.discard(MEASUREMENT)
@@ -407,9 +422,20 @@ async def transcribe_media_now(media: Any, settings: Settings | None = None) -> 
     # bypasses the queue and the window, never the pause.
     if transcription_paused(await load_app_settings()):
         raise transcription_jobs.TranscriptionPaused()
+    await transcribe_choice.mark_requested(media, transcribe_choice.BUTTON)
     media_id = str(_value(media, "id"))
     await db.mediafile.update(where={"id": media_id}, data={"transcriptStatus": PROCESSING})
-    source_path = await workdir.owned(download_to_temp, _value(media, "objectKey"))
+    try:
+        source_path = await workdir.owned(
+            download_to_temp, _value(media, "objectKey"), max_bytes=MAX_TRANSCRIBE_FETCH_BYTES
+        )
+    except ObjectTooLarge as exc:
+        refused = _too_large_result(exc.limit_bytes)
+        await db.mediafile.update(
+            where={"id": media_id},
+            data={"transcriptStatus": UNAVAILABLE, "transcriptError": refused["message"]},
+        )
+        return refused
     try:
         result = await transcription_jobs.transcribe_recording(
             media,
@@ -586,7 +612,13 @@ async def _process_job(job: Any, settings: Settings) -> None:
             await _fail_for_consent(job, verdict.refusal)
             return
         # Streamed to a temp file, never read whole into the heap (the designer-portal shape).
-        source_path = await workdir.owned(download_to_temp, media.objectKey)
+        try:
+            source_path = await workdir.owned(
+                download_to_temp, media.objectKey, max_bytes=MAX_TRANSCRIBE_FETCH_BYTES
+            )
+        except ObjectTooLarge as exc:
+            await _apply_transcription_result(job, _too_large_result(exc.limit_bytes))
+            return
         try:
             result = await transcription_jobs.transcribe_recording(
                 media,

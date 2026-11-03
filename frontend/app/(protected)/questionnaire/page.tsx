@@ -1616,7 +1616,7 @@ function QuestionnairePageBody() {
             location,
             recordedAt,
             recordedTimezone,
-            transcribeAudio: true
+            alwaysTranscribe: true
           },
           // One batch per clip key so the caption and the metadata that place a clip under its
           // answer — or under its whole section — survive the round trip through IndexedDB.
@@ -1631,7 +1631,7 @@ function QuestionnairePageBody() {
                 location,
                 recordedAt,
                 recordedTimezone,
-                transcribeAudio: true,
+                alwaysTranscribe: true,
                 extraMetadata: batch.extraMetadata
               }
             ];
@@ -1682,7 +1682,7 @@ function QuestionnairePageBody() {
           location,
           recordedAt,
           recordedTimezone,
-          transcribeAudio: true,
+          alwaysTranscribe: true,
           onProgress: setInterviewProgress
         })
       );
@@ -1702,7 +1702,7 @@ function QuestionnairePageBody() {
             location,
             recordedAt,
             recordedTimezone,
-            transcribeAudio: true,
+            alwaysTranscribe: true,
             extraMetadata: batch.extraMetadata,
             onProgress: (progress) => setQuestionProgress((current) => ({ ...current, [key]: progress }))
           })
@@ -2476,6 +2476,7 @@ function QuestionnairePageBody() {
             description="Record or upload. Transcribed when available."
             allowDocuments={false}
             allowedTypes={["AUDIO"]}
+            transcribeChoice={false}
           />
         </div>
         <UploadProgress progress={interviewProgress} sectionId={INTERVIEW_SECTION} label={INTERVIEW_SECTION_LABEL} />

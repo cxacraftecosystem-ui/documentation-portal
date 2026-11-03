@@ -505,6 +505,8 @@ data class MediaFileDto(
     val transcriptStatus: String? = null,
     val transcriptText: String? = null,
     val transcriptError: String? = null,
+    val transcribeRequested: Boolean? = null,
+    val transcribeRequestSource: String? = null,
     /**
      * WHEN A PERSON LAST REPLACED THE TRANSCRIPT, and NULL MEANS "NOT STATED" — never "never
      * edited". `POST /media/{id}/transcript` has been able to replace a transcript since long before

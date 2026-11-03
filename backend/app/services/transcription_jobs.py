@@ -16,14 +16,24 @@ so the two queues cannot drift on it:
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
+import os
 import re
 from typing import Any
 
 from app.core.db import db
 from app.services import ai
 from app.services.transcription_store import PrismaTranscriptionStore, cached_result
-from app.transcription import dedup, languages, schedule, service
+from app.transcription import (
+    audio as transcription_audio,
+    dedup,
+    languages,
+    schedule,
+    service,
+    workdir,
+)
 from app.transcription.chain import THROTTLES_PER_JOB, UsageEvent
 from app.transcription.contract import AudioInput
 from prisma import Json
@@ -51,6 +61,41 @@ def paused_result() -> dict[str, Any]:
         "formattedTranscript": None,
         "message": schedule.PAUSED_MESSAGE,
     }
+
+
+NO_SOUND_MESSAGE = "This video has no sound that could be read. Nothing was spent."
+
+
+def no_sound_result() -> dict[str, Any]:
+    return {
+        "available": False,
+        "status": "UNAVAILABLE",
+        "text": None,
+        "formattedTranscript": None,
+        "message": NO_SOUND_MESSAGE,
+    }
+
+
+def video_sound_name(filename: str) -> str:
+    stem = os.path.splitext(os.path.basename(filename or ""))[0] or "recording"
+    return f"{stem}{transcription_audio.VIDEO_AUDIO_SUFFIX}"
+
+
+async def _video_sound(source_path: str | None, content: bytes | None) -> str | None:
+    spill: str | None = None
+    if not source_path:
+        if not content:
+            return None
+        with workdir.named_file(prefix="transcription_source_") as handle:
+            handle.write(content)
+            spill = handle.name
+        source_path = spill
+    try:
+        return await asyncio.to_thread(transcription_audio.extract_to_workdir, source_path)
+    finally:
+        if spill is not None:
+            with contextlib.suppress(OSError):
+                os.remove(spill)
 
 
 def _value(record: Any, key: str) -> Any:
@@ -177,19 +222,32 @@ async def transcribe_recording(
         terms = await transcript_pipeline.keyterms_for(media)
         if terms:
             extra["keyterms"] = terms
-    result = await transcribe(
-        content if not source_path else None,
-        filename,
-        mime_type,
-        settings,
-        source_path=source_path,
-        user_id=user_id,
-        media_id=media_id,
-        job_id=_value(job, "id"),
-        language_bias=bias,
-        skip_providers=skipped_providers(job) if job is not None else None,
-        **extra,
-    )
+    extracted: str | None = None
+    if transcription_audio.is_video(_value(media, "mediaType"), mime_type):
+        extracted = await _video_sound(source_path, content)
+        if extracted is None:
+            return no_sound_result()
+        source_path, content = extracted, None
+        filename = video_sound_name(filename)
+        mime_type = transcription_audio.VIDEO_AUDIO_MIME
+    try:
+        result = await transcribe(
+            content if not source_path else None,
+            filename,
+            mime_type,
+            settings,
+            source_path=source_path,
+            user_id=user_id,
+            media_id=media_id,
+            job_id=_value(job, "id"),
+            language_bias=bias,
+            skip_providers=skipped_providers(job) if job is not None else None,
+            **extra,
+        )
+    finally:
+        if extracted is not None:
+            with contextlib.suppress(OSError):
+                os.remove(extracted)
     if result.get("status") == "COMPLETED":
         await transcript_pipeline.store_transcription(media, result, keyterm_count=len(terms))
         await transcript_pipeline.check_budget()

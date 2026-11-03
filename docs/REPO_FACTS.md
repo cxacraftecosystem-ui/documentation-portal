@@ -27,7 +27,7 @@ Enums: `UserRole`, `AuthProvider`, `AccessStatus`, `RecordStatus`, `WorkshopType
 
 ## API surface
 
-**338 operations** in the working tree — 154 GET, 115 POST, 27 DELETE,
+**340 operations** in the working tree — 156 GET, 115 POST, 27 DELETE,
 20 PATCH, 22 PUT. 2 of them (`/health`, `/health/ready`) are declared
 on the app rather than on a router; the rest are spread across `backend/app/api/routes/`:
 
@@ -62,6 +62,7 @@ on the app rather than on a router; the rest are spread across `backend/app/api/
 | `products.py` | 5 |
 | `secrets.py` | 5 |
 | `settings.py` | 5 |
+| `transcription_admin.py` | 5 |
 | `craft_codes.py` | 4 |
 | `preferences.py` | 4 |
 | `recording_consent.py` | 4 |
@@ -71,7 +72,6 @@ on the app rather than on a router; the rest are spread across `backend/app/api/
 | `feedback.py` | 3 |
 | `reference.py` | 3 |
 | `search.py` | 3 |
-| `transcription_admin.py` | 3 |
 | `cross_portal_search.py` | 2 |
 | `map_points.py` | 2 |
 | `transcript_data.py` | 2 |
@@ -122,10 +122,10 @@ no key is skipped wherever it sits.
 
 | Surface | Files | Cases | Runner |
 |---|---|---|---|
-| Backend unit (`backend/tests/`) | 185 | 2381 `def test_` | `python -m pytest -q` from `backend/` |
-| Web end-to-end (`frontend/e2e/`) | 134 | 1390 `test(` | Playwright, `frontend/playwright.config.ts` |
-| Android unit (`android/app/src/test/`) | 171 | 1397 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
-| Android instrumented | 15 | 58 `@Test` | not run in CI |
+| Backend unit (`backend/tests/`) | 186 | 2398 `def test_` | `python -m pytest -q` from `backend/` |
+| Web end-to-end (`frontend/e2e/`) | 135 | 1403 `test(` | Playwright, `frontend/playwright.config.ts` |
+| Android unit (`android/app/src/test/`) | 173 | 1408 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
+| Android instrumented | 16 | 68 `@Test` | not run in CI |
 
 The backend case count is `def test_` occurrences; pytest reports a larger number because
 parametrised cases expand. Neither the backend suite nor the e2e suite is a CI gate today — see
@@ -135,11 +135,11 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 
 | Area | Tracked files | Tracked lines | Tree files | Tree lines |
 |---|---|---|---|---|
-| `backend/app` | 270 | 91,339 | 270 | 91,339 |
-| `frontend/app` | 81 | 22,637 | 81 | 22,637 |
-| `frontend/components` | 315 | 78,968 | 315 | 78,968 |
-| `frontend/lib` | 169 | 46,021 | 169 | 46,021 |
-| `android/app/src/main/java` | 266 | 120,397 | 266 | 120,397 |
+| `backend/app` | 272 | 91,907 | 272 | 91,907 |
+| `frontend/app` | 81 | 22,638 | 81 | 22,638 |
+| `frontend/components` | 316 | 79,192 | 316 | 79,192 |
+| `frontend/lib` | 170 | 46,201 | 170 | 46,201 |
+| `android/app/src/main/java` | 268 | 120,927 | 268 | 120,927 |
 
 Two columns because the two numbers get quoted interchangeably and disagree by however much work is
 uncommitted. **Tracked** is `git ls-files`, which is the figure to use in a write-up — it is

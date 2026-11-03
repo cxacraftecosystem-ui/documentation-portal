@@ -255,7 +255,7 @@ export const GUIDE_STEPS: GuideStep[] = [
     href: "/questionnaire?new=1",
     summary: "Work through the sections, recording each answer.",
     why:
-      "Audio is transcribed, so you keep their voice and searchable text.",
+      "Tick Transcribe and translate to keep their words as searchable text.",
     // Regenerated against the form on 2026-09-16 and now held to `shared/questionnaire-form-
     // contract.json` by `backend/tests/test_questionnaire_form_contract.py`, together with the
     // Android register and the printed guide. It listed a "Date" the form has not had since the
@@ -300,7 +300,7 @@ export const GUIDE_STEPS: GuideStep[] = [
     ],
     watch: [
       "Pick a record type first, or \"Miscellaneous Media\".",
-      "Audio is transcribed.",
+      "Tick Transcribe and translate on a recording or video to get its text.",
       "You can link it to a record later."
     ]
   },

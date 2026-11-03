@@ -240,7 +240,7 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         icon = Icons.Filled.Quiz,
         destination = NavDestination.TAKE_INTERVIEW,
         body = "Work through the sections, recording each answer.",
-        why = "Audio is transcribed, so you keep their voice and searchable text.",
+        why = "Tick Transcribe and translate to keep their words as searchable text.",
         watch = listOf(
             "One interview per set of artisans; saving adds to an existing one.",
             "Answer only what was asked.",
@@ -257,7 +257,7 @@ internal val walkthroughJourney: List<WalkStep> = listOf(
         why = "Keeps field context with your records, not on a phone.",
         watch = listOf(
             "Pick a record type first, or \"Miscellaneous Media\".",
-            "Audio is transcribed.",
+            "Tick Transcribe and translate on a recording or video to get its text.",
             "You can link it to a record later.",
         ),
     ),

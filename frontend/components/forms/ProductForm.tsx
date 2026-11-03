@@ -631,7 +631,6 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
             location,
             recordedAt,
             recordedTimezone,
-            transcribeAudio: false
           })),
           /*
             THE PHOTOGRAPH THE ON-DEVICE PANEL MEASURED FROM, kept with the record for the same reason
@@ -648,7 +647,6 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
                   location,
                   recordedAt,
                   recordedTimezone,
-                  transcribeAudio: false
                 }
               ]
             : []),
@@ -705,7 +703,6 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
             location,
             recordedAt,
             recordedTimezone,
-            transcribeAudio: false
           });
         } catch {
           /* keep the saved record even if a grid photo fails to store */
@@ -724,7 +721,6 @@ export function ProductForm({ initial }: { initial?: ProductDocumentation }) {
             location,
             recordedAt,
             recordedTimezone,
-            transcribeAudio: false
           });
         } catch {
           /* keep the saved record even if the measurement photo fails to store */

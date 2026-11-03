@@ -47,7 +47,7 @@ export function resolvePreviewKind(item: Pick<PreviewMedia, "mediaType" | "mimeT
 }
 
 function LightboxTranscript({ item }: { item: PreviewMedia }) {
-  if (resolvePreviewKind(item) !== "AUDIO") return null;
+  if (resolvePreviewKind(item) !== "AUDIO" && resolvePreviewKind(item) !== "VIDEO") return null;
   const status = (item.transcriptStatus ?? "").toUpperCase();
   const text = item.transcriptText?.trim();
   if (text) {

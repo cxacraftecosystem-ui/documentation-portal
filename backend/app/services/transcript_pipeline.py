@@ -34,7 +34,7 @@ from typing import Any
 
 from app.core.db import db
 from app.services import transcript_insights, transcript_portal, transcript_store
-from app.transcription import schedule
+from app.transcription import audio as transcription_audio, schedule
 from app.transcription.contract import ApiKey
 from app.transcription.transcript import (
     PROMPT_VERSION,
@@ -931,6 +931,7 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
             # Voice Isolator (0.0.5): the player plays the cleaned copy and offers the recording as made.
             "cleaned": bool(_value(media, "cleanedObjectKey")),
             "originalUrl": transcript_portal.audio_url(media, original=True) if _value(media, "cleanedObjectKey") else None,
+            "video": transcription_audio.is_video(_value(media, "mediaType"), _value(media, "mimeType")),
         },
         "permissions": {
             "edit": edit,

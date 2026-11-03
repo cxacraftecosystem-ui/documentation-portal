@@ -113,7 +113,7 @@ export type Transcript = {
   /** Admins only, else null. */
   cost: { sttUsd: number; translationUsd: number; totalUsd: number } | null;
   /** `url` is the Voice Isolator copy when `cleaned`; `originalUrl` is then the recording as made. */
-  audio: { url: string | null; durationMs: number | null; cleaned?: boolean; originalUrl?: string | null };
+  audio: { url: string | null; durationMs: number | null; cleaned?: boolean; originalUrl?: string | null; video?: boolean };
   permissions: TranscriptPermissions;
   /** Contract 3: one calm notice above the turns while English is missing because Gemini declined; null otherwise. */
   englishNotice?: EnglishNotice;

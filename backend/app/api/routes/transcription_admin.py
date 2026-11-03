@@ -17,8 +17,16 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.core.db import db
-from app.core.deps import require_admin, require_master_admin
-from app.services import ai, app_settings, audio_isolation, managed_secrets, transcription_store
+from app.core.deps import get_current_user, require_admin, require_master_admin
+from app.services import (
+    ai,
+    app_settings,
+    audio_isolation,
+    managed_secrets,
+    transcribe_choice,
+    transcript_backfill,
+    transcription_store,
+)
 from app.transcription.contract import PROVIDER_IDS
 from app.transcription.providers import ADAPTERS
 
@@ -42,6 +50,10 @@ class TranscriptionSettingsUpdate(BaseModel):
     budgets: list[BudgetIn] | None = Field(default=None, max_length=8)
     #: ElevenLabs Voice Isolator on newly transcribed recordings (0.0.5). Off until switched on.
     audioIsolation: bool | None = None
+    autoTranscribeVideo: bool | None = None
+    autoTranscribeAudio: bool | None = None
+    transcriptBackfill: bool | None = None
+    confirmBackfill: bool = False
 
 
 class RetryFailedIn(BaseModel):
@@ -92,6 +104,11 @@ async def _state() -> dict[str, Any]:
             "enabled": bool(getattr(row, "audioIsolationEnabled", False)) if row is not None else False,
             "keyConfigured": bool(managed_secrets.peek_secret(audio_isolation.KEY_NAME)),
         },
+        "autoTranscribe": {
+            "video": bool(getattr(row, "autoTranscribeVideo", False)) if row is not None else False,
+            "audio": bool(getattr(row, "autoTranscribeAudio", False)) if row is not None else False,
+        },
+        "backfill": await transcript_backfill.progress(row),
         **snapshot,
     }
 
@@ -118,19 +135,51 @@ async def update_transcription_settings(
         )
     if payload.audioIsolation is not None:
         await audio_isolation.set_enabled(payload.audioIsolation, current_user.id)
+    if payload.autoTranscribeVideo is not None or payload.autoTranscribeAudio is not None:
+        await transcribe_choice.save_switches(
+            video=payload.autoTranscribeVideo,
+            audio=payload.autoTranscribeAudio,
+            updated_by_id=current_user.id,
+        )
+    if payload.transcriptBackfill is not None:
+        try:
+            await transcript_backfill.set_enabled(
+                payload.transcriptBackfill,
+                confirmed=payload.confirmBackfill,
+                updated_by_id=current_user.id,
+            )
+        except transcript_backfill.ConfirmationNeeded as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     for budget in payload.budgets or []:
         await transcription_store.save_budget(
             budget.provider, budget.period, budget.minutesCap, budget.spendCapUsd, current_user.id
         )
     logger.warning(
-        "AUDIT transcription-settings: paused=%s audioIsolation=%s disabled=%s budgets=%s by=%s",
+        "AUDIT transcription-settings: paused=%s audioIsolation=%s autoVideo=%s autoAudio=%s "
+        "backfill=%s disabled=%s budgets=%s by=%s",
         payload.paused,
         payload.audioIsolation,
+        payload.autoTranscribeVideo,
+        payload.autoTranscribeAudio,
+        payload.transcriptBackfill,
         payload.disabledProviders,
         [b.model_dump() for b in payload.budgets or []],
         current_user.email,
     )
     return await _state()
+
+
+@router.get("/upload-policy")
+async def get_upload_policy(_: Any = Depends(get_current_user)) -> dict[str, bool]:
+    return await transcribe_choice.policy()
+
+
+@router.get("/backfill")
+async def get_backfill(_: Any = Depends(require_admin)) -> dict[str, Any]:
+    return {
+        "estimate": await transcript_backfill.estimate(),
+        "progress": await transcript_backfill.progress(),
+    }
 
 
 @router.post("/retry-failed")

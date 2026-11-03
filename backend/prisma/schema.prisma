@@ -1647,6 +1647,9 @@ model MediaFile {
   cleanedObjectKey   String?
   cleanedMimeType    String?
   cleanedAt          DateTime?
+  transcribeRequested     Boolean?
+  transcribeRequestSource String?
+  transcribeRequestedAt   DateTime?
   /// QUESTIONNAIRE V2 (M1). Soft removal: every reader filters through `live_media_where()`
   /// (services/questionnaire_v2/live.py), so a removed file is invisible but restorable.
   removedAt        DateTime?
@@ -2668,6 +2671,11 @@ model AppSetting {
   transcriptMonthlyBudgetUsd   Float?  @default(100)
   /// 0.0.5: clean each newly transcribed recording with ElevenLabs Voice Isolator. Off by default.
   audioIsolationEnabled        Boolean @default(false)
+  autoTranscribeVideo          Boolean @default(false)
+  autoTranscribeAudio          Boolean @default(false)
+  transcriptBackfillEnabled    Boolean @default(false)
+  transcriptBackfillById       String?
+  transcriptBackfillLastRunAt  DateTime?
   transcriptBudgetAlertedMonth String?
   transcriptBudgetPausedMonth  String?
 

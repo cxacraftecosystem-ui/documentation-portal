@@ -60,6 +60,39 @@ cd backend && python scripts/backfill_transcripts.py --apply --batch 25
 Oldest first; a batch stops at `--batch` recordings or before its estimate passes what is left of
 this month's budget. Recordings whose consent refuses are left out and counted.
 
+## Video, the upload choice and the admin switches (0.0.10)
+
+- **Video is transcribed as its sound only.** `services/transcription_jobs.transcribe_recording` sees a
+  VIDEO row (or a `video/*` MIME type), extracts the first audio track with ffmpeg into the working
+  directory (`transcription/audio.extract_to_workdir`: `-map 0:a:0 -vn`, mono 16 kHz AAC), sends that
+  file and deletes it afterwards. The stored video is never changed. A video with no readable sound
+  ends UNAVAILABLE ("This video has no sound that could be read. Nothing was spent.") and nothing is
+  sent. The fetch ceiling is 1 GiB in both portals. Voice Isolator stays audio-only.
+- **The queue gate** (`media_queue._job_requests`) keeps TRANSCRIPTION for AUDIO and VIDEO and never
+  adds a job nobody asked for: a `/media/complete` body without `processingRequests: ["TRANSCRIPTION"]`
+  queues nothing.
+- **The choice is stored on the row.** `services/transcribe_choice.resolve_upload` runs in
+  `/media/complete` (and on a replayed complete, `resolve_retry`) and writes
+  `MediaFile.transcribeRequested`, `transcribeRequestSource` (`UPLOAD`, `AUTO_AUDIO`, `AUTO_VIDEO`,
+  `BUTTON`, `BACKFILL`) and `transcribeRequestedAt`. `null` means the row predates the choice. The
+  design-workshop stage save (designer-portal) only re-queues clips whose `transcribeRequested` is true.
+- **Consent and the budget apply as before**: the enqueue gate, the send-time re-read, the pause and the
+  monthly budget are unchanged.
+- **Admin switches**, in `AppSetting`, all off by default, changed only by a master admin through
+  `PUT /settings/transcription` with an `AUDIT transcription-settings` journal line:
+  `autoTranscribeVideo` and `autoTranscribeAudio` queue every new upload of that kind whatever the box
+  says; clients read them from `GET /settings/transcription/upload-policy` and show a pre-ticked,
+  locked box with a short note.
+- **The backfill switch** (`transcriptBackfillEnabled`) is the backfill script's logic
+  (`services/transcript_backfill`) run by the queue worker every 15 minutes: at most 25 open backfill
+  jobs at a time, oldest first, inside what is left of the month's budget, never while paused. Turning
+  it on needs `confirmBackfill: true` (a 409 otherwise); the clients show the estimate from
+  `GET /settings/transcription/backfill` (files, hours, cost) and ask first. Rows it queues are marked
+  `BACKFILL`, which is what the progress line counts. It ships OFF and stays off until the owner says
+  so (D40).
+- **Questionnaire takes** keep their own door (`questionnaire_transcription` / `transcription_enqueue`):
+  no box, always queued, consent and budget as before.
+
 ## Old transcripts and declined translations (0.0.9, D38)
 
 - **Old transcripts.** A recording transcribed before the turn pipeline gets its turns the first time

@@ -1,5 +1,6 @@
 import { API_BASE, ApiError, apiFetch, getSessionMarker } from "@/lib/api";
 import { field, questionSequence, recordingFilename, sectionSequence, splitExtension } from "@/lib/naming";
+import { processingFor } from "@/lib/transcript/uploadChoice";
 import type { MediaFile, MediaType } from "@/lib/types";
 
 /**
@@ -1106,10 +1107,8 @@ type CompleteParams = {
   processingRequests: string[];
 };
 
-function resolveProcessing(file: File, transcribeAudio: boolean, requested?: string[]): string[] {
-  const queued = new Set(requested ?? []);
-  if (inferMediaType(file) === "AUDIO" && transcribeAudio) queued.add("TRANSCRIPTION");
-  return Array.from(queued);
+function resolveProcessing(file: File, requested: string[] | undefined, always: boolean, flag?: boolean): string[] {
+  return processingFor(file, requested, { always, flag });
 }
 
 async function completeUpload(file: File, staged: StagedObject, params: CompleteParams): Promise<MediaFile> {
@@ -1190,7 +1189,8 @@ export async function uploadMediaFile({
   extraMetadata,
   recordedAt,
   recordedTimezone,
-  transcribeAudio = true,
+  alwaysTranscribe = false,
+  transcribe,
   processingRequests,
   onProgress
 }: {
@@ -1202,7 +1202,8 @@ export async function uploadMediaFile({
   extraMetadata?: Record<string, unknown>;
   recordedAt?: string;
   recordedTimezone?: string;
-  transcribeAudio?: boolean;
+  alwaysTranscribe?: boolean;
+  transcribe?: boolean;
   processingRequests?: string[];
   onProgress?: (loaded: number, total: number) => void;
 }) {
@@ -1219,7 +1220,7 @@ export async function uploadMediaFile({
       extraMetadata,
       recordedAt,
       recordedTimezone,
-      processingRequests: resolveProcessing(file, transcribeAudio, processingRequests)
+      processingRequests: resolveProcessing(file, processingRequests, alwaysTranscribe, transcribe)
     }
   });
 }
@@ -1260,7 +1261,8 @@ export async function uploadMediaBatch({
   extraMetadata,
   recordedAt,
   recordedTimezone,
-  transcribeAudio = true,
+  alwaysTranscribe = false,
+  transcribe,
   processingRequests,
   onProgress
 }: {
@@ -1274,7 +1276,8 @@ export async function uploadMediaBatch({
   extraMetadata?: Record<string, unknown>;
   recordedAt?: string;
   recordedTimezone?: string;
-  transcribeAudio?: boolean;
+  alwaysTranscribe?: boolean;
+  transcribe?: readonly (boolean | undefined)[];
   processingRequests?: string[];
   onProgress?: (progress: BatchProgress) => void;
 }): Promise<BatchResult> {
@@ -1327,7 +1330,7 @@ export async function uploadMediaBatch({
           extraMetadata,
           recordedAt,
           recordedTimezone,
-          processingRequests: resolveProcessing(file, transcribeAudio, processingRequests)
+          processingRequests: resolveProcessing(file, processingRequests, alwaysTranscribe, transcribe?.[index])
         }
       });
     } catch (error) {

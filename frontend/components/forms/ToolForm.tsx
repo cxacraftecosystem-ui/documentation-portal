@@ -1200,7 +1200,6 @@ function ToolFormBody({
             location,
             recordedAt,
             recordedTimezone,
-            transcribeAudio: false
           })),
           /*
             THE PHOTOGRAPH THE ON-DEVICE PANEL MEASURED FROM, kept with the record for the same reason
@@ -1216,7 +1215,6 @@ function ToolFormBody({
                   location,
                   recordedAt,
                   recordedTimezone,
-                  transcribeAudio: false
                 }
               ]
             : []),
@@ -1227,7 +1225,6 @@ function ToolFormBody({
             location,
             recordedAt,
             recordedTimezone,
-            transcribeAudio: false
           })),
           {
             files: mediaFiles,
@@ -1287,7 +1284,6 @@ function ToolFormBody({
             location,
             recordedAt,
             recordedTimezone,
-            transcribeAudio: false
           });
         } catch {
           /* keep the saved record even if a grid photo fails to store */
@@ -1306,7 +1302,6 @@ function ToolFormBody({
             location,
             recordedAt,
             recordedTimezone,
-            transcribeAudio: false
           });
         } catch {
           /* keep the saved record even if the measurement photo fails to store */

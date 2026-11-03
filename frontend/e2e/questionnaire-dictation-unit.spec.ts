@@ -29,7 +29,7 @@ import { expect, test } from "@playwright/test";
  * reach the microphone only through `OnDeviceDictationButton`, which has no transport at all. The
  * failure this prevents is a one-line "while we are listening anyway, send the audio too" — trivial
  * to write on THIS page and nowhere else, because on this page the uploader is already imported, the
- * recorder already exists and `transcribeAudio: true` is already being passed five lines away. That
+ * recorder already exists and `alwaysTranscribe: true` is already being passed five lines away. That
  * one line would silently convert "the browser is listening" into "this artisan's voice was sent to a
  * third-party transcription provider", with nobody asked and nothing on screen to delete.
  *
@@ -151,10 +151,10 @@ test("the consented recorder stays inside startRecording and nothing dictated ca
   expect(recorder).toMatch(/new MediaRecorder\(/);
   expect(countOf(CODE, /getUserMedia/g), "exactly one microphone stream is opened on this page").toBe(1);
   expect(countOf(CODE, /new MediaRecorder\(/g), "and exactly one recorder is constructed").toBe(1);
-  // The clips that DO leave the device all carry `transcribeAudio: true`, and that is correct: they
+  // The clips that DO leave the device all carry `alwaysTranscribe: true`, and that is correct: they
   // are the interview. Their presence is what makes the absence above meaningful rather than
   // accidental — this page is not transport-free, it is transport-BOUNDED.
-  expect(CODE, "the interview clips are still uploaded and still transcribed").toMatch(/transcribeAudio: true/);
+  expect(CODE, "the interview clips are still uploaded and still transcribed").toMatch(/alwaysTranscribe: true/);
 });
 
 /* ────────────────────────────────────────────────────────────────────────────

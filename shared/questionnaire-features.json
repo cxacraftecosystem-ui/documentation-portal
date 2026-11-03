@@ -3333,6 +3333,264 @@
         "fr-android": "r006"
       },
       "today": {}
+    },
+    {
+      "id": "F1",
+      "name": "Video is transcribed as its sound only, and a video's transcript plays in a video player with karaoke synced to it",
+      "source": "owner, 3 Nov 2026 (0.0.10: video transcription and the choice at upload)",
+      "api": {
+        "designer-portal": [
+          "POST /media/{media_id}/transcribe-now",
+          "GET /transcripts/{media_id}"
+        ],
+        "documentation-portal": [
+          "POST /media/{media_id}/transcribe-now",
+          "GET /transcripts/{media_id}"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r010",
+        "dr-android": "r010",
+        "fr-web": "r010",
+        "fr-android": "r010"
+      },
+      "today": {}
+    },
+    {
+      "id": "F2",
+      "name": "Every non-questionnaire upload shows a per-file 'Transcribe and translate' box for each audio or video file, off by default; only ticked files are queued and the choice is stored on the media row",
+      "source": "owner, 3 Nov 2026 (0.0.10: video transcription and the choice at upload)",
+      "api": {
+        "designer-portal": [
+          "POST /media/complete",
+          "GET /settings/transcription/upload-policy"
+        ],
+        "documentation-portal": [
+          "POST /media/complete",
+          "GET /settings/transcription/upload-policy"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r010",
+        "dr-android": "r010",
+        "fr-web": "r010",
+        "fr-android": "r010"
+      },
+      "today": {}
+    },
+    {
+      "id": "F3",
+      "name": "Each upload batch has one 'Transcribe and translate all' toggle; per-file boxes can still be changed after it",
+      "source": "owner, 3 Nov 2026 (0.0.10: video transcription and the choice at upload)",
+      "api": {
+        "designer-portal": [
+          "POST /media/complete"
+        ],
+        "documentation-portal": [
+          "POST /media/complete"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r010",
+        "dr-android": "r010",
+        "fr-web": "r010",
+        "fr-android": "r010"
+      },
+      "today": {}
+    },
+    {
+      "id": "F4",
+      "name": "Admin switches 'Transcribe and translate all new videos' and '... all new audio' under Voice Isolator, off by default; under them the upload box is pre-ticked and locked with a short note",
+      "source": "owner, 3 Nov 2026 (0.0.10: video transcription and the choice at upload)",
+      "api": {
+        "designer-portal": [
+          "GET /settings/transcription",
+          "PUT /settings/transcription",
+          "GET /settings/transcription/upload-policy"
+        ],
+        "documentation-portal": [
+          "GET /settings/transcription",
+          "PUT /settings/transcription",
+          "GET /settings/transcription/upload-policy"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r010",
+        "dr-android": "r010",
+        "fr-web": "r010",
+        "fr-android": "r010"
+      },
+      "today": {}
+    },
+    {
+      "id": "F5",
+      "name": "Admin switch 'Transcribe and translate all previously uploaded media': ships off, shows files, hours and cost and asks for confirmation before it can be switched on, progress under it",
+      "source": "owner, 3 Nov 2026 (0.0.10: video transcription and the choice at upload)",
+      "api": {
+        "designer-portal": [
+          "GET /settings/transcription/backfill",
+          "PUT /settings/transcription"
+        ],
+        "documentation-portal": [
+          "GET /settings/transcription/backfill",
+          "PUT /settings/transcription"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r010",
+        "dr-android": "r010",
+        "fr-web": "r010",
+        "fr-android": "r010"
+      },
+      "today": {}
+    },
+    {
+      "id": "F6",
+      "name": "Offline uploads carry each file's transcription choice through the outbox",
+      "source": "owner, 3 Nov 2026 (0.0.10: video transcription and the choice at upload)",
+      "api": {
+        "designer-portal": [
+          "POST /media/complete"
+        ],
+        "documentation-portal": [
+          "POST /media/complete"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r010",
+        "dr-android": "r010",
+        "fr-web": "r010",
+        "fr-android": "r010"
+      },
+      "today": {}
+    },
+    {
+      "id": "F7",
+      "name": "Questionnaire takes show no transcription box and are always queued for transcription, consent and budget applying",
+      "source": "owner, 3 Nov 2026 (0.0.10: video transcription and the choice at upload)",
+      "api": {
+        "designer-portal": [],
+        "documentation-portal": []
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r010",
+        "dr-android": "r010",
+        "fr-web": "r010",
+        "fr-android": "r010"
+      },
+      "today": {}
     }
   ]
 }
