@@ -124,7 +124,7 @@ async def list_versions(media_id: str, user: Any = Depends(get_current_user)) ->
     from app.services import transcript_store
 
     media = await _media(media_id, user)
-    admin = transcript_portal.is_admin(user)
+    admin = transcript_portal.may_see_spend(user)
     rows = await transcript_store.versions(str(media.id))
     return {
         "items": [
@@ -133,7 +133,7 @@ async def list_versions(media_id: str, user: Any = Depends(get_current_user)) ->
                 "createdAt": pipeline._iso(v.createdAt),
                 "current": v.supersededAt is None,
                 "status": "READY",
-                "badges": pipeline._badges(v) if transcript_portal.may_see_spend(user) else [],
+                "badges": pipeline._badges(v) if admin else [],
                 "turnCount": v.turnCount,
                 "durationMs": v.durationMs,
                 "costUsd": round((v.sttCostUsd or 0) + (v.translationCostUsd or 0), 4) if admin else None,

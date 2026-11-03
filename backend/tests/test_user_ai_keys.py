@@ -134,7 +134,7 @@ def _store(table: _Table, user: str, provider: AiProvider, key: str, model: str 
 
 async def test_a_designers_own_key_wins_over_the_deployments(table, monkeypatch):
     """The whole feature in one assertion: their key, their model, their bill."""
-    _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key")
+    _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key", GEMINI_API_KEY="sk-the-organisations-key")
     _store(table, "designer-1", AiProvider.OPENAI, "sk-hers", "gpt-5.6-sol")
 
     resolved = await user_ai_keys.resolve("designer-1", AiTask.PROOFREAD)
@@ -148,7 +148,7 @@ async def test_a_designers_own_key_wins_over_the_deployments(table, monkeypatch)
 
 async def test_a_designer_with_no_key_of_their_own_runs_on_the_deployments(table, monkeypatch):
     """The behaviour this backend had before personal keys existed, unchanged."""
-    _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key")
+    _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key", GEMINI_API_KEY="sk-the-organisations-key")
 
     resolved = await user_ai_keys.resolve("designer-2", AiTask.PROOFREAD)
 
@@ -165,7 +165,7 @@ async def test_work_with_no_person_attached_never_reaches_a_personal_key(table, 
     card may be behind it. A resolution that scanned the table for "any key that can do this" would
     pass every other test in this file and fail here.
     """
-    _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key")
+    _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key", GEMINI_API_KEY="sk-the-organisations-key")
     _store(table, "designer-1", AiProvider.OPENAI, "sk-hers", "gpt-5.6-sol")
 
     resolved = await user_ai_keys.resolve(None, AiTask.PROOFREAD)
@@ -177,7 +177,7 @@ async def test_work_with_no_person_attached_never_reaches_a_personal_key(table, 
 
 async def test_one_designers_key_is_never_reached_for_another_designers_work(table, monkeypatch):
     """Two people, two keys, and neither may cross."""
-    _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key")
+    _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key", GEMINI_API_KEY="sk-the-organisations-key")
     _store(table, "designer-1", AiProvider.OPENAI, "sk-hers", None)
     _store(table, "designer-2", AiProvider.OPENAI, "sk-his", None)
 
@@ -203,7 +203,7 @@ async def test_a_claude_key_does_not_capture_transcription(table, monkeypatch):
     prevents does not appear until somebody is standing in a courtyard with a recording they cannot
     re-take, and it would look like a broken app rather than a wrong setting.
     """
-    _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key")
+    _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key", GEMINI_API_KEY="sk-the-organisations-key")
     _store(table, "designer-1", AiProvider.ANTHROPIC, "sk-ant-hers", "claude-opus-5")
 
     transcription = await user_ai_keys.resolve("designer-1", AiTask.TRANSCRIBE)
@@ -237,7 +237,7 @@ async def test_a_picked_model_is_a_preference_and_not_a_restriction(table, monke
     and giving their proofreads to the organisation's key is not what "use my account" meant. The
     fallback stays inside the provider they chose, which is the part they did state.
     """
-    _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key")
+    _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key", GEMINI_API_KEY="sk-the-organisations-key")
     _store(table, "designer-1", AiProvider.OPENAI, "sk-hers", "whisper-1")
 
     transcribe = await user_ai_keys.resolve("designer-1", AiTask.TRANSCRIBE)
@@ -257,7 +257,7 @@ async def test_the_deployments_openai_key_can_still_transcribe(table, no_app_key
     transcription on a server holding a working ``OPENAI_API_KEY`` — the provider's own transcription
     models were never considered. See ``_resolve_app_credential``.
     """
-    _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key")
+    _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key", GEMINI_API_KEY="sk-the-organisations-key")
 
     resolved = await user_ai_keys.resolve(None, AiTask.TRANSCRIBE)
     assert resolved is not None, "a server with an OpenAI key can transcribe"
@@ -285,7 +285,7 @@ async def test_a_model_the_catalogue_no_longer_knows_falls_back_within_the_same_
     key was skipped. Moving somebody's bill to the organisation because a provider retired a model
     is a worse answer than running the current model they would have picked anyway.)
     """
-    _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key")
+    _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key", GEMINI_API_KEY="sk-the-organisations-key")
     _store(table, "designer-1", AiProvider.OPENAI, "sk-hers", "gpt-4-vintage-retired")
 
     resolved = await user_ai_keys.resolve("designer-1", AiTask.PROOFREAD)
@@ -310,7 +310,7 @@ async def test_an_undecryptable_key_is_flagged_and_stepped_over(table, monkeypat
     the path under test is the same decrypt that runs in production. The designer must be told to
     paste it again, and meanwhile the app must keep working on the deployment's key.
     """
-    _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key")
+    _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key", GEMINI_API_KEY="sk-the-organisations-key")
     stranger = Fernet(base64.urlsafe_b64encode(b"x" * 32))
     row = _Row(
         id="rotated",
@@ -330,7 +330,7 @@ async def test_an_undecryptable_key_is_flagged_and_stepped_over(table, monkeypat
 
 async def test_a_database_hiccup_degrades_to_the_deployments_key(table, monkeypatch):
     """A personal key is a convenience; it may never be the reason a verb stops working."""
-    _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key")
+    _app_key(monkeypatch, OPENAI_API_KEY="sk-the-organisations-key", GEMINI_API_KEY="sk-the-organisations-key")
     _store(table, "designer-1", AiProvider.OPENAI, "sk-hers", None)
     table.fail_reads = True
 
@@ -391,3 +391,25 @@ def test_every_managed_provider_key_the_catalogue_names_actually_exists_in_the_s
     """
     for spec in ai_providers.PROVIDERS.values():
         assert managed_secrets.is_managed(spec.managed_key), spec.managed_key
+
+
+async def test_the_deployments_text_verbs_run_on_gemini_and_never_fall_to_openai(table, monkeypatch):
+    _app_key(monkeypatch, OPENAI_API_KEY="sk-org")
+    assert await user_ai_keys.resolve(None, AiTask.PROOFREAD) is None
+    _app_key(monkeypatch, OPENAI_API_KEY="sk-org", GEMINI_API_KEY="AIza-org")
+    for task in (AiTask.PROOFREAD, AiTask.SUMMARISE, AiTask.TRANSLATE, AiTask.CAPTION):
+        resolved = await user_ai_keys.resolve(None, task)
+        assert resolved.provider is AiProvider.GEMINI and resolved.model == "gemini-3.8-flash"
+    transcribe = await user_ai_keys.resolve(None, AiTask.TRANSCRIBE)
+    assert transcribe.provider is AiProvider.OPENAI
+
+
+async def test_an_operator_who_selects_openai_gets_the_cost_parity_model(table, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.core import config
+
+    monkeypatch.setattr(config, "get_settings", lambda: SimpleNamespace(ai_text_provider="OPENAI"))
+    _app_key(monkeypatch, OPENAI_API_KEY="sk-org", GEMINI_API_KEY="AIza-org")
+    resolved = await user_ai_keys.resolve(None, AiTask.PROOFREAD)
+    assert resolved.provider is AiProvider.OPENAI and resolved.model == "gpt-5.6-luna"

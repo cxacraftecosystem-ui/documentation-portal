@@ -110,7 +110,7 @@ test("a 404 hides the section and an id left out of the batch is hidden too", as
   expect(await failed).toBe("error");
 });
 
-test("the edit form keeps at most five summary lines", () => {
+test("@qf:H1 the edit form keeps at most five summary lines", () => {
   expect(cleanSummaryLines(["1", " ", "2", "3", "4", "5", "6"])).toEqual(["1", "2", "3", "4", "5"]);
   expect(cleanSummaryLines(["x".repeat(500)])[0]).toHaveLength(400);
   expect(editRows(["a", "b"])).toEqual(["a", "b", "", "", ""]);
@@ -120,7 +120,7 @@ test("the edit form keeps at most five summary lines", () => {
   ]);
 });
 
-test("the confirm dialog shows only for edited insights", () => {
+test("@qf:H1 the confirm dialog shows only for edited insights", () => {
   expect(needsRegenerateConfirm(view("a"))).toBe(false);
   const edited = view("b");
   edited.insight!.edited = { at: "2026-10-30T11:00:00Z" };

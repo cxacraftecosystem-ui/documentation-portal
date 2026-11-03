@@ -301,7 +301,7 @@ class Settings(BaseSettings):
     openai_transcription_model: str = Field(default="whisper-1", alias="OPENAI_TRANSCRIPTION_MODEL")
     # Chat model used to refine a raw transcript into a clean interviewer/interviewee conversation
     # (and optionally translate it to English). Defaults to the cost-efficient gpt-4o-mini.
-    openai_chat_model: str = Field(default="gpt-4o-mini", alias="OPENAI_CHAT_MODEL")
+    openai_chat_model: str = Field(default="gpt-5.6-luna", alias="OPENAI_CHAT_MODEL")
     # The deployment's Claude key: the app-level fallback for the text verbs and photo captions when
     # a designer has not brought their own (see services/user_ai_keys). Deliberately has no model
     # setting beside it — unlike the OpenAI and Gemini pairs above, the model for a Claude call comes
@@ -309,11 +309,12 @@ class Settings(BaseSettings):
     # models can do which job. A second, env-supplied model id would be a way to configure a model
     # the catalogue does not list and therefore cannot vouch for.
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
+    ai_text_provider: str = Field(default="GEMINI", alias="AI_TEXT_PROVIDER")
     gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
     gemini_api_keys_raw: str = Field(default="", alias="GEMINI_API_KEYS")
     # Vision model for grid measurement. Default is a current "flash lite" model; override via env to
     # any exact id (e.g. a newer flash-lite). The old gemini-1.5-flash id now 404s, so this matters.
-    gemini_measurement_model: str = Field(default="gemini-2.5-flash-lite", alias="GEMINI_MEASUREMENT_MODEL")
+    gemini_measurement_model: str = Field(default="gemini-3.8-flash", alias="GEMINI_MEASUREMENT_MODEL")
     maptiler_api_key: str | None = Field(default=None, alias="NEXT_PUBLIC_MAPTILER_API_KEY")
     media_queue_worker_enabled: bool = Field(default=True, alias="MEDIA_QUEUE_WORKER_ENABLED")
     media_queue_interval_seconds: float = Field(default=5.0, alias="MEDIA_QUEUE_INTERVAL_SECONDS")

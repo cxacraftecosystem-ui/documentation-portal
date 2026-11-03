@@ -167,13 +167,21 @@ def normalise(text: str) -> str:
     return _SPACE.sub(" ", value).strip().strip("\"'“”‘’").strip()
 
 
-_DIGITS = re.compile(r"\d+")
-_INDIC_DIGITS = {ord(c): str(i) for base in (0x0966, 0x09E6, 0x0A66, 0x0AE6, 0x0B66, 0x0BE6, 0x0C66, 0x0CE6, 0x0D66) for i, c in enumerate(chr(base + n) for n in range(10))}
+_DIGITS = re.compile(r"[0-9]+")
+_UNCLEAR = re.compile(r"\[\s*unclear\s*\]", re.IGNORECASE)
+
+
+def _ascii_digits(text: str) -> str:
+    return "".join(str(unicodedata.decimal(ch)) if not ch.isascii() and unicodedata.decimal(ch, None) is not None else ch for ch in text)
 
 
 def numbers_in(text: str) -> set[str]:
     """Digit runs, Indic digits read as ASCII, leading zeros kept."""
-    return set(_DIGITS.findall(str(text or "").translate(_INDIC_DIGITS)))
+    return set(_DIGITS.findall(_ascii_digits(str(text or ""))))
+
+
+def flags_unclear(english: str) -> bool:
+    return bool(_UNCLEAR.search(english or ""))
 
 
 def suspicious(original: str, english: str, *, numbers: bool = True) -> bool:
@@ -183,9 +191,10 @@ def suspicious(original: str, english: str, *, numbers: bool = True) -> bool:
     target = english.strip()
     if not target:
         return bool(source)
-    if len(source) >= SUMMARISED_MIN_CHARS and len(target) < SUMMARISED_RATIO * len(source):
+    unclear = flags_unclear(target)
+    if not unclear and len(source) >= SUMMARISED_MIN_CHARS and len(target) < SUMMARISED_RATIO * len(source):
         return True
-    return numbers and not numbers_in(source) <= numbers_in(target)
+    return numbers and not unclear and not numbers_in(source) <= numbers_in(target)
 
 
 def batches(turns: list[TurnIn], limit: int = BATCH_CHARS) -> list[list[TurnIn]]:

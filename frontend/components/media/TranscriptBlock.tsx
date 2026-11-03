@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { Bot, Loader2, Pencil } from "lucide-react";
 
 import { Markdown } from "@/components/Markdown";
 import { TranscriptInsights } from "@/components/media/TranscriptInsights";
+import { TranscriptRefine } from "@/components/media/TranscriptRefine";
 import { TranscriptViewer } from "@/components/transcript/TranscriptViewer";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
 import { formatDateTime } from "@/lib/format";
@@ -87,11 +89,32 @@ export function EditedFlag({ edited, at }: { edited?: boolean; at?: string | nul
  * turns, copy, downloads, karaoke. A recording with no structured transcript yet (stored before the
  * turn store, or a deployment without it) draws the stored text and states below, unchanged.
  */
-export function TranscriptBlock({ media }: { media: MediaFile }) {
+export function TranscriptBlock({ media: stored, readOnly = false }: { media: MediaFile; readOnly?: boolean }) {
+  const [updated, setUpdated] = useState<MediaFile | null>(null);
+  const media = updated && updated.id === stored.id ? updated : stored;
   const isAudio = media.mediaType === "AUDIO" || (media.mimeType ?? "").toLowerCase().startsWith("audio/");
   const isVideo = media.mediaType === "VIDEO" || (media.mimeType ?? "").toLowerCase().startsWith("video/");
-  if (!isAudio && !isVideo) return <LegacyTranscriptBlock media={media} />;
-  return <TranscriptViewer mediaId={media.id} audioUrl={media.url} video={isVideo} fallback={<LegacyTranscriptBlock media={media} />} />;
+  const refine = <TranscriptRefine media={media} readOnly={readOnly} onUpdated={setUpdated} />;
+  if (!isAudio && !isVideo) {
+    return (
+      <>
+        <LegacyTranscriptBlock media={media} />
+        {refine}
+      </>
+    );
+  }
+  return (
+    <>
+      <TranscriptViewer
+        key={updated?.transcriptText ?? "stored"}
+        mediaId={media.id}
+        audioUrl={media.url}
+        video={isVideo}
+        fallback={<LegacyTranscriptBlock media={media} />}
+      />
+      {refine}
+    </>
+  );
 }
 
 function LegacyTranscriptBlock({ media }: { media: MediaFile }) {
