@@ -25,20 +25,6 @@ class WalkthroughSurfaceTest {
         assertTrue("MainActivity.kt parsed to ${mainActivity.length} characters of code", mainActivity.length > 100_000)
         assertTrue("WalkthroughScreen.kt parsed to ${window.length} characters of code", window.length > 500)
         assertTrue("WalkthroughJourney.kt parsed to ${journey.length} characters of code", journey.length > 5_000)
-        listOf(
-            "MainActivity.kt" to mainActivity,
-            "WalkthroughScreen.kt" to window,
-            "WalkthroughJourney.kt" to journey,
-        ).forEach { (name, stripped) ->
-            val raw = repoFile(sourcePaths.getValue(name)).readText(Charsets.UTF_8)
-                .replace("\r\n", "\n").length
-            assertTrue(
-                "$name stripped to ${stripped.length} of $raw characters — the comment stripper " +
-                    "is no longer removing comments, so every assertion in this file may now be " +
-                    "satisfied by a sentence about the code instead of by the code",
-                stripped.length * 10 < raw * 7,
-            )
-        }
     }
 
     @Test

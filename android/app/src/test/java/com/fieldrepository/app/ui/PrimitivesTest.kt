@@ -127,7 +127,7 @@ class PrimitivesTest {
         assertTrue(screen.contains("cancelTwoFactorSetup()"))
         assertFalse(screen.contains("Text(\"Off.\""))
         val otp = source("android/app/src/main/java/com/fieldrepository/app/ui/OtpCode.kt")
-        assertTrue(otp.contains("FieldDisplayFontFamily"))
+        assertTrue(otp.contains("MaterialTheme.typography.headlineSmall.copy("))
         assertTrue(otp.contains("\"tnum\""))
         assertTrue(otp.contains("KeyboardType.NumberPassword"))
         assertTrue(otp.contains("ContentType.SmsOtpCode"))
