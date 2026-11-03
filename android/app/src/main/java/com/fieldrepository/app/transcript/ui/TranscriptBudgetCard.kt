@@ -6,8 +6,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -20,7 +22,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.transcript.data.AudioIsolationSetting
+import com.fieldrepository.app.transcript.data.BackfillView
 import com.fieldrepository.app.transcript.data.BudgetMeter
+import com.fieldrepository.app.transcript.data.TranscriptBackend
+import com.fieldrepository.app.transcript.data.TranscriptionSwitchBody
+import com.fieldrepository.app.transcript.data.TranscriptionSwitches
 import com.fieldrepository.app.transcript.data.TranscriptStrings
 import com.fieldrepository.app.transcript.data.TranscriptUiText
 import com.fieldrepository.app.transcript.portal.TranscriptPortal
@@ -134,3 +140,125 @@ fun AudioIsolationCard(canChange: Boolean, modifier: Modifier = Modifier) {
         modifier = modifier.testTag("transcript.isolation"),
     )
 }
+
+@Composable
+fun TranscriptAutoSwitchesCard(canChange: Boolean, modifier: Modifier = Modifier, backend: TranscriptBackend? = null) {
+    val context = LocalContext.current
+    val server = remember(backend) { backend ?: TranscriptPortal.backend(context) }
+    val scope = rememberCoroutineScope()
+    var switches by remember { mutableStateOf<TranscriptionSwitches?>(null) }
+    var backfill by remember { mutableStateOf<BackfillView?>(null) }
+    var busy by remember { mutableStateOf<String?>(null) }
+    var confirming by remember { mutableStateOf(false) }
+    LaunchedEffect(server) {
+        switches = try {
+            server.transcriptionSwitches()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+        if (switches != null) {
+            backfill = try {
+                server.backfill()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+        }
+    }
+    val current = switches ?: return
+
+    fun save(key: String, body: TranscriptionSwitchBody) {
+        busy = key
+        scope.launch {
+            val updated = try {
+                server.setTranscriptionSwitches(body)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            if (updated != null) switches = updated
+            busy = null
+        }
+    }
+
+    val estimate = backfill?.estimate
+    val progress = backfill?.progress ?: current.backfill
+    Column(modifier.fillMaxWidth().testTag("transcript.autoSwitches"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        AppToggle(
+            label = TranscriptStrings.settingsAutoVideo,
+            description = if (current.autoTranscribe.video) TranscriptStrings.settingsAutoVideoOn else TranscriptStrings.settingsAutoVideoOff,
+            checked = current.autoTranscribe.video,
+            enabled = canChange,
+            busy = busy == "video",
+            onCheckedChange = { on -> save("video", TranscriptionSwitchBody(autoTranscribeVideo = on)) },
+            modifier = Modifier.testTag("transcript.autoVideo"),
+        )
+        AppToggle(
+            label = TranscriptStrings.settingsAutoAudio,
+            description = if (current.autoTranscribe.audio) TranscriptStrings.settingsAutoAudioOn else TranscriptStrings.settingsAutoAudioOff,
+            checked = current.autoTranscribe.audio,
+            enabled = canChange,
+            busy = busy == "audio",
+            onCheckedChange = { on -> save("audio", TranscriptionSwitchBody(autoTranscribeAudio = on)) },
+            modifier = Modifier.testTag("transcript.autoAudio"),
+        )
+        AppToggle(
+            label = TranscriptStrings.settingsBackfill,
+            description = if (current.backfill.enabled) TranscriptStrings.settingsBackfillOn else TranscriptStrings.settingsBackfillOff,
+            checked = current.backfill.enabled,
+            enabled = canChange && (current.backfill.enabled || estimate != null),
+            busy = busy == "backfill",
+            onCheckedChange = { on ->
+                if (on) confirming = true else save("backfill", TranscriptionSwitchBody(transcriptBackfill = false))
+            },
+            modifier = Modifier.testTag("transcript.backfill"),
+        )
+        Text(
+            estimate?.let { backfillEstimateText(it.recordings, it.hours, it.costUsd) } ?: TranscriptStrings.settingsBackfillCounting,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.field.muted,
+            modifier = Modifier.testTag("transcript.backfill.estimate"),
+        )
+        if (progress.enabled || progress.queued > 0) {
+            Text(
+                TranscriptStrings.settingsBackfillProgress(progress.done, progress.queued, progress.waiting),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.field.muted,
+                modifier = Modifier.testTag("transcript.backfill.progress"),
+            )
+        }
+    }
+    if (confirming) {
+        AlertDialog(
+            onDismissRequest = { confirming = false },
+            title = { Text(TranscriptStrings.settingsBackfillConfirmTitle) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    estimate?.let { Text(backfillEstimateText(it.recordings, it.hours, it.costUsd), style = MaterialTheme.typography.bodyMedium) }
+                    Text(TranscriptStrings.settingsBackfillConfirmBody, style = MaterialTheme.typography.bodyMedium)
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirming = false
+                        save("backfill", TranscriptionSwitchBody(transcriptBackfill = true, confirmBackfill = true))
+                    },
+                    modifier = Modifier.testTag("transcript.backfill.confirm"),
+                ) { Text(TranscriptStrings.settingsBackfillConfirm) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirming = false }, modifier = Modifier.testTag("transcript.backfill.cancel")) {
+                    Text(TranscriptStrings.settingsBackfillCancel)
+                }
+            },
+        )
+    }
+}
+
+fun backfillEstimateText(count: Int, hours: Double, costUsd: Double): String =
+    TranscriptStrings.settingsBackfillEstimate(count, String.format(java.util.Locale.ROOT, "%.1f", hours), String.format(java.util.Locale.ROOT, "%.2f", costUsd))

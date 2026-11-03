@@ -1,5 +1,7 @@
 package com.fieldrepository.app.data
 
+import com.fieldrepository.app.transcript.data.TranscribeChoices
+import com.fieldrepository.app.transcript.data.UploadTranscribe
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
@@ -2797,7 +2799,7 @@ class FieldRepository(
         onProgress: ((sent: Long, total: Long) -> Unit)?
     ): MediaFileDto {
         val resolvedProcessing = processingRequests
-            ?: if (mediaType == "AUDIO") listOf("TRANSCRIPTION") else emptyList()
+            ?: TranscribeChoices.processingFor(uri.toString(), mediaType)
         val filename = mediaFilename(
             recordType = linkedRecordType,
             recordName = titleHint,
@@ -3147,8 +3149,7 @@ class FieldRepository(
             overrideBaseName = overrideBaseName,
             originalName = "media" + (staged.extension?.let { ".$it" } ?: "")
         )
-        val resolvedProcessing = processingRequests
-            ?: if (staged.mediaType == "AUDIO") listOf("TRANSCRIPTION") else emptyList()
+        val resolvedProcessing = processingRequests ?: emptyList()
         val media = completeUpload(
             MediaCompleteRequest(
                 originalFilename = filename,
@@ -3921,7 +3922,7 @@ class FieldRepository(
             linkedRecordId = linkedRecordId,
             onProgress = null
         )
-        val resolvedProcessing = pm.processing ?: if (pm.mediaType == "AUDIO") listOf("TRANSCRIPTION") else emptyList()
+        val resolvedProcessing = pm.processing ?: UploadTranscribe.legacy(pm.mediaType)
         completeUpload(
             MediaCompleteRequest(
                 originalFilename = filename,
