@@ -1493,3 +1493,47 @@ jobs:
         # backup-db.yml's `freshness` job sources this function. The cases include the two checks
         # GitHub started past India midnight on 2026-11-02, which the old rule failed.
         run: shellcheck -x scripts/ci/backup_freshness.sh scripts/ci/test_backup_freshness.sh && bash scripts/ci/test_backup_freshness.sh
+
+  comment-stripper:
+    name: Comment stripper
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.15"
+          check-latest: true
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: frontend/package.json
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install npm 12
+        run: npm install --global npm@12 && npm --version
+
+      - name: Install the frontend's TypeScript
+        working-directory: frontend
+        run: npm ci --ignore-scripts
+
+      - name: Install PyYAML
+        run: python -m pip install pyyaml
+
+      - name: Self-test
+        run: python scripts/tools/test_strip_comments.py -v
+
+      - name: Stripped copies parse the same
+        run: |
+          python scripts/tools/strip_comments.py --out "$RUNNER_TEMP/stripped"
+          node scripts/tools/verify_strip_ts.mjs "$RUNNER_TEMP/stripped"
+          find "$RUNNER_TEMP/stripped" -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
+
+      - name: No comments remain
+        if: false
+        run: python scripts/tools/strip_comments.py --check
