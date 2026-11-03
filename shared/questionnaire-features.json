@@ -3333,6 +3333,44 @@
         "fr-android": "r006"
       },
       "today": {}
+    },
+    {
+      "id": "R1",
+      "name": "Refine transcript: Refine transcript and Refine & translate under a stored transcript, with the cost confirmation, the refined Markdown, and Approve or Reject",
+      "source": "owner rule (every feature on every client), coordinator 3 Nov 2026 (0.0.10)",
+      "api": {
+        "designer-portal": [
+          "POST /media/{id}/refine-transcript",
+          "POST /media/{id}/transcript"
+        ],
+        "documentation-portal": [
+          "POST /media/{id}/refine-transcript",
+          "POST /media/{id}/transcript"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r010",
+        "dr-android": "r010",
+        "fr-web": "r010",
+        "fr-android": "r010"
+      },
+      "today": {}
     }
   ]
 }

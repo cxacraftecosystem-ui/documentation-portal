@@ -48,7 +48,7 @@ export function RecordMediaList({ items, empty = "No files attached." }: { items
               <div className="text-xs text-ink-muted">
                 Uploaded by {media.uploadedBy?.name ?? "Unknown"} · {formatDateTime(media.createdAt)}
               </div>
-              <TranscriptBlock media={media} />
+              <TranscriptBlock media={media} readOnly />
               <MediaRejectAction mediaId={media.id} label={media.caption || media.originalFilename} />
             </div>
           </div>
