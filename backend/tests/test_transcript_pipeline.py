@@ -11,7 +11,6 @@ import asyncio
 import io
 import json
 import logging
-import sys
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -489,15 +488,9 @@ def test_a_completed_result_becomes_turns_whichever_shape_it_arrived_in() -> Non
 
 
 def _backfill() -> Any:
-    import importlib.util
+    from app.services import transcript_backfill
 
-    path = Path(__file__).resolve().parents[1] / "scripts" / "backfill_transcripts.py"
-    spec = importlib.util.spec_from_file_location("backfill_transcripts", path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    sys.modules["backfill_transcripts"] = module  # dataclasses look their module up while defining
-    spec.loader.exec_module(module)
-    return module
+    return transcript_backfill
 
 
 def test_the_backfill_goes_oldest_first_inside_the_budget() -> None:

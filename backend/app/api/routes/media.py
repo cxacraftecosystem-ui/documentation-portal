@@ -40,7 +40,13 @@ from app.schemas.media import (
     TranscriptRefineRequest,
     TranscriptUpdateRequest,
 )
-from app.services import consent_gate, recording_consent, transcript_insights, transcription_jobs
+from app.services import (
+    consent_gate,
+    recording_consent,
+    transcribe_choice,
+    transcript_insights,
+    transcription_jobs,
+)
 from app.services import transcription_enqueue as transcription
 from app.services.ai import (
     analyze_measurement_image_bytes,
@@ -514,6 +520,7 @@ async def analyze_media_measurement(
 async def _finish_pending_media(existing: Any, processing_requests: list[str] | None, user_id: str, settings: Any) -> dict[str, Any]:
     """Return an already-created media row for a retried /complete, enqueuing its processing jobs once
     if the original request died before it could (so a retry never drops transcription)."""
+    processing_requests = await transcribe_choice.resolve_retry(existing, processing_requests)
     if processing_requests and not (existing.processingJobs or []):
         await enqueue_media_processing_jobs(existing, processing_requests, user_id, settings)
         existing = await db.mediafile.find_unique(where={"id": existing.id}, include=INCLUDE)
@@ -626,6 +633,7 @@ async def _complete_old(payload: MediaCompleteRequest, current_user: Any) -> dic
         if racer is not None:
             return await _finish_pending_media(racer, processing_requests, current_user.id, settings)
         raise
+    processing_requests = await transcribe_choice.resolve_upload(created, processing_requests)
     await enqueue_media_processing_jobs(created, processing_requests, current_user.id, settings)
     created = await db.mediafile.find_unique(where={"id": created.id}, include=INCLUDE)
     return await _public(created, current_user)
@@ -920,10 +928,10 @@ async def transcribe_media_now_route(
     FAILED/UNAVAILABLE status when the AI key is missing or the call failed). Declared before
     ``GET /{media_id}`` so the two-segment path resolves here."""
     media = await require_record(db.mediafile, media_id)
-    if str(getattr(media, "mediaType", "") or "").upper() != "AUDIO":
+    if not transcribe_choice.transcribable(media):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only audio files can be transcribed.",
+            detail="Only audio and video files can be transcribed.",
         )
     try:
         await transcribe_media_now(media, get_settings())

@@ -34,7 +34,7 @@ from contextlib import suppress
 from app.core.config import get_settings
 from app.core.db import connect_db, disconnect_db, ensure_db_connected
 from app.questionnaire.sessions import maybe_close_stale_sessions
-from app.services import artisan_duplicates
+from app.services import artisan_duplicates, transcript_backfill
 from app.services.email_outbox import process_next_email_jobs
 from app.services.media_queue import process_next_media_jobs, queue_work_due, run_insights_lane
 from app.services.search_indexer import (
@@ -159,6 +159,10 @@ async def _run() -> None:
                 await maybe_close_stale_sessions()
             except Exception:  # one bad iteration must never kill the worker
                 logger.exception("Nightly session close failed; will retry")
+            try:
+                await transcript_backfill.maybe_run()
+            except Exception:
+                logger.exception("Transcript backfill pass failed; it runs again later")
             # Sleep for the interval but wake immediately on shutdown.
             with suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(stop.wait(), timeout=interval)

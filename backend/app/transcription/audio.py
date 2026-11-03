@@ -11,6 +11,7 @@ audio, so a retry cuts the same parts and only the parts that failed are sent ag
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import shutil
@@ -82,6 +83,57 @@ def normalise_to_wav(source: str, target: str, runner: Runner = _run) -> bool:
         ]
     )
     return done.returncode == 0 and os.path.exists(target)
+
+
+VIDEO_AUDIO_SUFFIX = ".m4a"
+VIDEO_AUDIO_MIME = "audio/mp4"
+
+
+def is_video(media_type: str | None, mime_type: str | None) -> bool:
+    return str(media_type or "").upper() == "VIDEO" or str(mime_type or "").lower().startswith(
+        "video/"
+    )
+
+
+def extract_audio_track(source: str, target: str, runner: Runner = _run) -> bool:
+    done = runner(
+        [
+            "ffmpeg",
+            "-nostdin",
+            "-y",
+            "-v",
+            "error",
+            "-i",
+            source,
+            "-map",
+            "0:a:0",
+            "-vn",
+            "-sn",
+            "-dn",
+            "-ac",
+            "1",
+            "-ar",
+            str(SAMPLE_RATE),
+            "-c:a",
+            "aac",
+            "-b:a",
+            "48k",
+            target,
+        ]
+    )
+    return done.returncode == 0 and os.path.exists(target) and os.path.getsize(target) > 0
+
+
+def extract_to_workdir(source: str, runner: Runner | None = None) -> str | None:
+    runner = runner or _run
+    with workdir.named_file(prefix="transcription_source_", suffix=VIDEO_AUDIO_SUFFIX) as handle:
+        target = handle.name
+    with contextlib.suppress(OSError, subprocess.SubprocessError):
+        if extract_audio_track(source, target, runner):
+            return target
+    with contextlib.suppress(OSError):
+        os.remove(target)
+    return None
 
 
 _SILENCE_START = re.compile(r"silence_start:\s*(-?[\d.]+)")
