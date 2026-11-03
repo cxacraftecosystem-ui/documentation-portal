@@ -1668,20 +1668,27 @@ def apply_edits(text, edits, lang=""):
     return "".join(r["content"] + r["term"] for r, d in zip(out, drop) if not d)
 
 
-def significant(text, lexed):
+def significant(text, lexed, lang=""):
+    glue = "" if lang == "xml" else " "
     spans = [(c.start, c.end, "K" if c.keep else None) for c in lexed.comments]
     spans += [(s, e, "L") for s, e in lexed.literals]
     spans.sort(key=lambda x: (x[0], x[1]))
     out = []
+    buf = []
     pos = 0
     for s, e, kind in spans:
         if s < pos:
             continue
-        out.extend(text[pos:s].split())
-        if kind is not None:
+        buf.append(text[pos:s])
+        if kind is None:
+            buf.append(glue)
+        else:
+            out.extend("".join(buf).split())
+            buf = []
             out.append(kind + text[s:e])
         pos = e
-    out.extend(text[pos:].split())
+    buf.append(text[pos:])
+    out.extend("".join(buf).split())
     return out
 
 
@@ -1775,7 +1782,7 @@ def verify(old, new, lang, path=""):
     left = [c for c in b.comments if not c.keep]
     if left:
         raise StripError(f"comment remains after stripping at offset {left[0].start}")
-    if significant(old, a) != significant(new, b):
+    if significant(old, a, lang) != significant(new, b, lang):
         raise StripError("code outside comments changed")
     semantic_check(old, new, lang, path)
 
