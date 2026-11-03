@@ -1,27 +1,3 @@
-"""The master craft list (2026-10-20): one database list of crafts for both portals.
-
-The list is ``app/data/craft_master_list.json``: 455 crafts in 9 categories and 36 sub-categories,
-taken from the Ministry's "Final list of Craft Category" (Annexure I). Both portals seed the same rows
-from the same file, so a craft's ``slug`` is its identity in either database. See docs/CRAFTS.md.
-
-This module is the same file in the designer portal and the Field Repository, byte for byte, and
-``tests/test_craft_master.py`` compares the two when both checkouts are present. It therefore names
-no model only one portal has: the designer portal's two extra craft links (``DesignWorkshop`` and
-``AnnualPlanEntry``) are reached through ``OPTIONAL_LINKS`` only when the client has them.
-
-What lives here:
-
-* the file, parsed (:func:`load_master`, :func:`master_categories`);
-* the craft-name normaliser and the fuzzy score the mapping report uses;
-* the catalogue every picker reads (:func:`build_catalogue`);
-* the matcher that turns an old client's typed craft name into a craft (:func:`match_craft_name`,
-  :func:`resolve_record_craft`). It never creates a craft;
-* reference counts, and the merge routine that re-points every reference (:func:`merge_craft`);
-* the idempotent seed loader (:func:`sync_master`).
-
-Every database function takes the Prisma client (or a transaction) as ``client``.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -40,7 +16,6 @@ DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 MASTER_FILE = DATA_DIR / "craft_master_list.json"
 ALIASES_FILE = DATA_DIR / "craft_master_aliases.json"
 
-#: Rows in the master list. The brief said 545; the PDF numbers 455 rows, 1 to 455 with no gaps.
 MASTER_COUNT = 455
 
 ACTIVE = "ACTIVE"
@@ -52,10 +27,8 @@ GI = "GI"
 NON_GI = "NON_GI"
 GI_STATUSES = (GI, NON_GI)
 
-#: The two values a state list may hold beyond the 36 states and union territories.
 ALL_INDIA = "All India"
 
-#: Error codes and their sentences, the same in both portals. ``{n}`` is the reference count.
 MESSAGES: dict[str, str] = {
     "CRAFT_EXISTS": "That craft is already in this sub-category.",
     "CRAFT_IN_USE": "Used by {n} records. Merge it into another craft instead.",
@@ -64,26 +37,17 @@ MESSAGES: dict[str, str] = {
     "CRAFT_NOT_IN_LIST": "Pick a craft from the list.",
 }
 
-#: The key under ``Craft.extraMetadata`` that holds a craft's admin aliases (old names, merged names).
 ALIASES_KEY = "aliases"
-#: The key under a record's ``extraMetadata`` that keeps a typed craft name nothing matched.
 LEGACY_TEXT_KEY = "legacyCraftText"
-#: The key under a seeded craft's ``extraMetadata`` that holds what the master file last said about
-#: it, so :func:`sync_master` can tell a file revision from an admin's edit. See that function.
 MASTER_SEED_KEY = "masterSeed"
-#: ``RecordRevision.recordType`` of the tombstone a deleted master craft leaves (``recordId`` is its
-#: slug), so :func:`sync_master` never puts back a craft an admin deleted.
 DELETED_MASTER_TYPE = "craftDeleted"
 
-#: Every column that points at a craft, as (delegate, column). ``ToolCraft`` and ``WorkshopCraft`` are
-#: join tables and are handled by :func:`merge_craft` on their own.
 DIRECT_LINKS: tuple[tuple[str, str], ...] = (
     ("artisan", "craftId"),
     ("productdocumentation", "craftId"),
     ("tooldocumentation", "craftId"),
     ("mediafile", "craftId"),
 )
-#: Links only the designer portal has. Skipped where the client has no such delegate.
 OPTIONAL_LINKS: tuple[tuple[str, str], ...] = (
     ("designworkshop", "craftId"),
     ("annualplanentry", "craftId"),
@@ -91,17 +55,11 @@ OPTIONAL_LINKS: tuple[tuple[str, str], ...] = (
 
 
 def craft_error(code: str, status_code: int, **extra: Any) -> HTTPException:
-    """The ``{detail: {code, message}}`` refusal for one of :data:`MESSAGES`."""
     message = MESSAGES[code].format(n=extra.get("referenceCount", 0))
     return HTTPException(status_code=status_code, detail={"code": code, "message": message, **extra})
 
 
 def etag_matches(if_none_match: str | None, etag: str) -> bool:
-    """True when an ``If-None-Match`` header names ``etag``, by the weak comparison RFC 9110 asks of it.
-
-    A ``W/`` prefix is ignored (a proxy that compresses the body weakens the tag it passes on), and
-    ``*`` matches anything.
-    """
     def bare(tag: str) -> str:
         tag = tag.strip()
         return tag[2:] if tag[:2].upper() == "W/" else tag
@@ -109,10 +67,6 @@ def etag_matches(if_none_match: str | None, etag: str) -> bool:
     tags = [bare(tag) for tag in (if_none_match or "").split(",") if tag.strip()]
     return "*" in tags or bare(etag) in tags
 
-
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The file
-# ──────────────────────────────────────────────────────────────────────────────────────────────
 
 
 @dataclass(frozen=True)
@@ -131,7 +85,6 @@ class MasterCraft:
 
     @property
     def is_catch_all(self) -> bool:
-        """True for the 35 "Others" and "Other ..." rows, which the file marks in ``notes``."""
         return is_catch_all(self.notes)
 
 
@@ -156,7 +109,6 @@ def is_catch_all(notes: Any) -> bool:
 
 @lru_cache(maxsize=1)
 def load_master() -> tuple[MasterCraft, ...]:
-    """The master list, in file order (which is serial order)."""
     rows = json.loads(MASTER_FILE.read_text(encoding="utf-8"))
     return tuple(
         MasterCraft(
@@ -178,7 +130,6 @@ def load_master() -> tuple[MasterCraft, ...]:
 
 @lru_cache(maxsize=1)
 def master_categories() -> tuple[MasterCategory, ...]:
-    """Categories and their sub-categories; ``sort_order`` follows first appearance in the file."""
     order: list[str] = []
     names: dict[str, str] = {}
     subs: dict[str, list[tuple[str, str]]] = {}
@@ -206,31 +157,17 @@ def master_categories() -> tuple[MasterCategory, ...]:
 
 @lru_cache(maxsize=1)
 def load_aliases() -> dict[str, Any]:
-    """``craft_master_aliases.json``: the curated mapping decisions (docs/CRAFTS.md)."""
     return json.loads(ALIASES_FILE.read_text(encoding="utf-8"))
 
 
 def master_id(kind: str, slug: str) -> str:
-    """The deterministic row id of a seeded category (``k``), sub-category (``s``) or craft (``c``).
-
-    The same in both portals, so the migration SQL is the same text in both.
-    """
     return f"cm{kind}{hashlib.md5(f'{kind}:{slug}'.encode()).hexdigest()[:22]}"
 
-
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# Normalising and scoring names
-# ──────────────────────────────────────────────────────────────────────────────────────────────
 
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
 
 
 def normalise(text: Any) -> str:
-    """The folded form two craft names are compared in.
-
-    ``anyascii``, lower case, ``&`` read as ``and``, every run of punctuation or space one space.
-    So "Cane & Bamboo", "cane and bamboo" and "Cane-and-Bamboo" are one name.
-    """
     if text is None:
         return ""
     from anyascii import anyascii
@@ -240,7 +177,6 @@ def normalise(text: Any) -> str:
 
 
 def token_set_ratio(a: Any, b: Any) -> float:
-    """The token-set similarity of two names, 0 to 1 (the fuzzywuzzy definition, on :func:`normalise`)."""
     ta, tb = set(normalise(a).split()), set(normalise(b).split())
     if not ta or not tb:
         return 0.0
@@ -255,7 +191,6 @@ def token_set_ratio(a: Any, b: Any) -> float:
 
 
 def craft_aliases(craft: Any) -> list[str]:
-    """The admin aliases a craft row carries in ``extraMetadata``."""
     meta = getattr(craft, "extraMetadata", None)
     if isinstance(meta, str):
         try:
@@ -267,7 +202,6 @@ def craft_aliases(craft: Any) -> list[str]:
 
 
 def with_alias(meta: Any, alias: str) -> dict[str, Any]:
-    """``meta`` (a craft's ``extraMetadata``) with ``alias`` added once."""
     base = dict(meta) if isinstance(meta, dict) else {}
     values = [str(v) for v in base.get(ALIASES_KEY) or []]
     if alias and normalise(alias) not in {normalise(v) for v in values}:
@@ -281,10 +215,6 @@ def as_json(value: Any) -> Any:
 
     return Json(value)
 
-
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The catalogue
-# ──────────────────────────────────────────────────────────────────────────────────────────────
 
 
 def enum_value(value: Any) -> Any:
@@ -300,10 +230,6 @@ def status_of(craft: Any) -> str:
 
 
 async def category_tree(client: Any) -> tuple[list[Any], list[dict[str, Any]]]:
-    """Categories in order with their sub-categories, as rows and as the wire shape.
-
-    ``craftCount`` counts the ACTIVE crafts of each sub-category.
-    """
     categories = await client.craftcategory.find_many(
         order=[{"sortOrder": "asc"}, {"name": "asc"}], include={"subCategories": True}
     )
@@ -344,12 +270,6 @@ def _group_count(row: Any) -> int:
 
 
 async def build_catalogue(client: Any, *, include_inactive: bool = False) -> dict[str, Any]:
-    """``GET /crafts/catalogue``: the one list every craft picker reads.
-
-    ACTIVE crafts only, ordered by category, sub-category, source serial (nulls last) and name. With
-    ``include_inactive`` (content admins) LEGACY and MERGED rows follow, each with its ``status``,
-    ``mergedIntoId`` and ``referenceCount``. ``version`` changes whenever any row of the list does.
-    """
     from app.services import cross_portal_codes
 
     categories, category_payload = await category_tree(client)
@@ -421,17 +341,12 @@ async def build_catalogue(client: Any, *, include_inactive: bool = False) -> dic
     return {"version": digest.hexdigest(), "categories": category_payload, "crafts": rows}
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# References
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 def _links(client: Any) -> tuple[tuple[str, str], ...]:
     return DIRECT_LINKS + tuple(link for link in OPTIONAL_LINKS if hasattr(client, link[0]))
 
 
 async def reference_count(client: Any, craft_id: str) -> int:
-    """How many records name this craft: every direct link, every tool and every workshop that lists it."""
     total = 0
     for delegate, column in _links(client):
         if delegate == "tooldocumentation":
@@ -445,14 +360,6 @@ async def reference_count(client: Any, craft_id: str) -> int:
 
 
 async def reference_count_map(client: Any, craft_ids: list[str]) -> dict[str, int]:
-    """:func:`reference_count` for many crafts at once, counted EXACTLY as it counts one.
-
-    One grouped read per direct-link table and for the workshops, and one read of the tools that name
-    any of the crafts (with their links), whatever the number of crafts -- where asking
-    :func:`reference_count` craft by craft is seven counts each. A tool counts once for every craft it
-    names through its ``craftId`` or a ``ToolCraft`` row, as the per-craft ``OR`` counts it.
-    (:func:`reference_counts` below is the crafts list's own, cheaper rule for tools.)
-    """
     ids = list(dict.fromkeys(craft_ids))
     counts: dict[str, int] = dict.fromkeys(ids, 0)
     if not ids:
@@ -482,11 +389,6 @@ async def reference_count_map(client: Any, craft_ids: list[str]) -> dict[str, in
 
 
 async def reference_counts(client: Any, craft_ids: list[str]) -> dict[str, int]:
-    """:func:`reference_count` for many crafts in one grouped read per table.
-
-    A tool is counted through its ``ToolCraft`` rows, plus a tool whose ``craftId`` names the craft
-    but which has no join rows at all (one recorded before the join existed).
-    """
     counts: dict[str, int] = dict.fromkeys(craft_ids, 0)
     if not craft_ids:
         return counts
@@ -508,14 +410,12 @@ async def reference_counts(client: Any, craft_ids: list[str]) -> dict[str, int]:
 
 
 def state_choices() -> tuple[str, ...]:
-    """What a state of origin or practice may be: the 36 states and union territories, and All India."""
     from app.services.address import INDIAN_STATES_AND_UNION_TERRITORIES
 
     return (*INDIAN_STATES_AND_UNION_TERRITORIES, ALL_INDIA)
 
 
 def clean_states(values: Any) -> list[str]:
-    """``values`` trimmed and de-duplicated in order; 422 ``UNKNOWN_STATE`` for one off the list."""
     allowed = set(state_choices())
     out: list[str] = []
     for value in values or []:
@@ -532,13 +432,8 @@ def clean_states(values: Any) -> list[str]:
     return out
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# Matching typed names
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 def _index(crafts: list[Any]) -> dict[str, list[Any]]:
-    """normalised name, slug and alias -> the crafts carrying it."""
     found: dict[str, list[Any]] = {}
     for craft in crafts:
         keys = {normalise(craft.name), normalise(getattr(craft, "slug", None))}
@@ -549,14 +444,11 @@ def _index(crafts: list[Any]) -> dict[str, list[Any]]:
 
 
 def exact_matches(text: Any, crafts: list[Any]) -> list[Any]:
-    """The crafts whose name, slug or admin alias normalises to the same form as ``text``."""
     key = normalise(text)
     return list({c.id: c for c in _index(crafts).get(key, [])}.values()) if key else []
 
 
 async def spelling_index(client: Any) -> Any | None:
-    """``cross_portal_codes.SpellingIndex`` for a pass over many names, or ``None`` for a client
-    without the spelling table (a narrow test fake). One read; see :func:`alias_matches`."""
     from app.services import cross_portal_codes
 
     if not hasattr(client, "craftspelling"):
@@ -565,14 +457,8 @@ async def spelling_index(client: Any) -> Any | None:
 
 
 async def alias_matches(client: Any, text: Any, crafts: list[Any], *, index: Any | None = None) -> list[Any]:
-    """Step 3: ``text`` is a known spelling of a shared code that exactly one of ``crafts`` carries.
-
-    ``index`` (:func:`spelling_index`) answers the two spelling reads from memory -- for a caller
-    matching many names in one pass, which otherwise pays both reads per name.
-    """
     from app.services import cross_portal_codes
 
-    # A client without the spelling table (a narrow test fake) still answers from the shared file.
     has_table = hasattr(client, "craftspelling")
     if has_table:
         code = await cross_portal_codes.resolve_craft_code(client, text, spellings=index)
@@ -606,7 +492,6 @@ async def active_crafts(client: Any) -> list[Any]:
 
 
 async def match_craft_name(client: Any, text: Any) -> Any | None:
-    """The ACTIVE craft a typed name means (exact, then alias), or ``None``. Never creates one."""
     if not normalise(text):
         return None
     crafts = await active_crafts(client)
@@ -620,7 +505,6 @@ async def match_craft_name(client: Any, text: Any) -> Any | None:
 
 
 async def match_names(client: Any, names: Any) -> dict[str, Any]:
-    """:func:`match_craft_name` for many names with one read of the list: name -> craft (matched only)."""
     crafts = await active_crafts(client)
     found: dict[str, Any] = {}
     for name in {str(n) for n in names or () if n and str(n).strip()}:
@@ -633,7 +517,6 @@ async def match_names(client: Any, names: Any) -> dict[str, Any]:
 
 
 async def assert_active_craft(client: Any, craft_id: str) -> Any:
-    """The craft, when it is ACTIVE; else 422 ``CRAFT_NOT_IN_LIST``."""
     craft = await client.craft.find_unique(where={"id": craft_id})
     if craft is None or status_of(craft) != ACTIVE:
         raise craft_error("CRAFT_NOT_IN_LIST", 422)
@@ -643,11 +526,6 @@ async def assert_active_craft(client: Any, craft_id: str) -> Any:
 async def assert_active_crafts(
     client: Any, craft_ids: list[str], *, stored: list[str] | None = None, tool: Any | None = None
 ) -> None:
-    """Each listed craft must be ACTIVE, unless the record already links it. One read for the lot.
-
-    An id that names no craft is left to the caller's own refusal (a tool's links answer 404 for
-    it). The stored links of ``tool`` are read only when an inactive craft is actually named.
-    """
     wanted = [craft_id for craft_id in dict.fromkeys(craft_ids) if craft_id]
     if not wanted:
         return
@@ -678,19 +556,6 @@ async def resolve_record_craft(
     keep_name: bool = False,
     strict: bool = False,
 ) -> dict[str, Any]:
-    """The craft of a record write: ``craftId`` from the list, or an old client's ``craftName``.
-
-    * A ``craftId`` that changes must be an ACTIVE craft, else 422 ``CRAFT_NOT_IN_LIST``. An edit
-      that sends the craft the record already has is never refused, whatever its status now.
-    * A ``craftName`` with no ``craftId`` (only old clients send one) is matched exactly, then by
-      alias. A match sets ``craftId``. No match keeps the text in ``extraMetadata.legacyCraftText``
-      for the admin review queue and leaves ``craftId`` unset; nothing is ever created. With
-      ``strict`` (the spreadsheet import) no match is a 422 naming the spelling instead.
-    * ``keep_name`` is for a model where ``craftName`` is a column (products): the column is kept,
-      and set to the matched craft's name. Elsewhere ``craftName`` is not a column and is removed.
-
-    Mutates and returns ``data``.
-    """
     text = data.get("craftName") if keep_name else data.pop("craftName", None)
     craft_id = data.get("craftId")
     stored_id = getattr(stored, "craftId", None) if stored is not None else None
@@ -701,7 +566,6 @@ async def resolve_record_craft(
     if not (isinstance(text, str) and text.strip()):
         return data
     if stored is not None and text.strip() == (getattr(stored, "craftName", None) or "").strip():
-        # An edit sending back the name the record already holds is not a new craft to match.
         return data
     craft = await match_craft_name(client, text)
     if craft is not None:
@@ -722,13 +586,6 @@ async def resolve_record_craft(
 
 
 async def craft_columns(client: Any, sent: dict[str, Any], *, stored: Any | None = None) -> dict[str, Any]:
-    """``craftId`` and its ``craftName`` copy for a row that names a craft in two columns.
-
-    The designer portal's workshop header and plan entry. ``sent`` holds whichever of the two the
-    body carried; the answer holds the columns to write. A ``craftId`` names the craft and the name
-    follows it (null clears both); an old client's bare ``craftName`` is matched onto the list, and
-    kept as typed when nothing matches.
-    """
     out: dict[str, Any] = {}
     if "craftId" in sent:
         craft_id = sent.get("craftId") or None
@@ -758,18 +615,6 @@ async def craft_columns(client: Any, sent: dict[str, Any], *, stored: Any | None
 async def resolve_tool_crafts(
     client: Any, data: dict[str, Any], craft_ids: list[str] | None, *, tool: Any | None = None
 ) -> list[str] | None:
-    """The crafts of a tool write. Returns the ``craftIds`` to link (``None`` when the body sent none).
-
-    A tool's crafts are its ``ToolCraft`` rows, and ``craftId``/``craftName`` are derived from them.
-    Each id not already linked must be ACTIVE (422 ``CRAFT_NOT_IN_LIST``). A typed ``craftName`` with
-    no craft linked is matched onto the list, or kept in ``legacyCraftText`` for the review queue; a
-    create that names no craft at all is refused, because a tool's craft name cannot be empty.
-
-    "No craft linked" is an absent ``craftIds`` (an old client) AND an empty one: the current forms
-    always send the list, so ``craftIds: []`` beside a typed name is the same unresolved text, and
-    leaving it unmatched and unkept would hide it from every admin. Only an absent list may skip a
-    name the tool already holds, since that body says nothing new about the craft.
-    """
     if craft_ids:
         await assert_active_crafts(client, craft_ids, tool=tool)
         return craft_ids
@@ -790,10 +635,6 @@ async def resolve_tool_crafts(
     return craft_ids
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# Merging
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 def _rename_in_list(joined: str | None, old: str, new: str) -> str:
     names: list[str] = []
@@ -808,13 +649,6 @@ def _rename_in_list(joined: str | None, old: str, new: str) -> str:
 
 
 async def merge_craft(client: Any, source: Any, target: Any, *, user_id: str | None = None) -> dict[str, int]:
-    """Re-point every reference from ``source`` to ``target``, then mark ``source`` MERGED.
-
-    Run it inside one transaction. Join rows are re-pointed by inserting the target pair (skipping
-    one that exists) and deleting the source pair, never by deleting the craft, so nothing cascades.
-    Product names and tool name lists are re-derived. ``source`` is kept, as MERGED, so old links and
-    the audit history still resolve, and its name becomes an alias of ``target``.
-    """
     if source.id == target.id:
         raise ValueError("a craft cannot be merged into itself")
     moved: dict[str, int] = {}
@@ -868,11 +702,6 @@ async def merge_craft(client: Any, source: Any, target: Any, *, user_id: str | N
 
 
 async def remember_spelling(client: Any, craft: Any, spelling: str, *, user_id: str | None) -> None:
-    """Keep ``spelling`` as an ADMIN ``CraftSpelling`` of the craft's shared code, when it has one.
-
-    A spelling the table already holds is left as it is: the shared file is the agreement between
-    the portals, and an existing admin row was somebody's decision.
-    """
     from app.services import cross_portal_codes
 
     code = getattr(craft, "craftCode", None)
@@ -893,11 +722,6 @@ async def remember_spelling(client: Any, craft: Any, spelling: str, *, user_id: 
 
 
 async def delete_craft(client: Any, craft: Any, *, user_id: str | None) -> None:
-    """Hard-delete an unreferenced craft. A master craft leaves a tombstone so the seed never restores it.
-
-    The tombstone is a ``RecordRevision`` of type :data:`DELETED_MASTER_TYPE` whose ``recordId`` is
-    the slug: :func:`sync_master` reads them and creates no craft for those slugs.
-    """
     if getattr(craft, "sourceSerial", None) is not None:
         await client.recordrevision.create(
             data={
@@ -912,13 +736,8 @@ async def delete_craft(client: Any, craft: Any, *, user_id: str | None) -> None:
     await client.craft.delete(where={"id": craft.id})
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# Slugs
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 async def unique_slug(delegate: Any, name: str, *, fallback: str = "Craft", exclude_id: str | None = None) -> str:
-    """``naming.field(name)``, with ``-2``, ``-3`` … appended until no other row of ``delegate`` holds it."""
     from app.services.naming import field
 
     base = field(name) or fallback
@@ -931,13 +750,8 @@ async def unique_slug(delegate: Any, name: str, *, fallback: str = "Craft", excl
         candidate = f"{base}-{n}"
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# Seeding
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 def _craft_columns(craft: MasterCraft, sub_category_id: str) -> dict[str, Any]:
-    """What the file says about one craft: the columns :func:`sync_master` owns, and nothing else."""
     return {
         "name": craft.name,
         "subCategoryId": sub_category_id,
@@ -951,8 +765,6 @@ def _craft_columns(craft: MasterCraft, sub_category_id: str) -> dict[str, Any]:
     }
 
 
-#: File columns an admin can edit, by the ``fieldProvenance`` keys that say an admin did. A move
-#: writes the sub-category and its derived category together, so either key covers both.
 _ADMIN_KEYS: dict[str, tuple[str, ...]] = {
     "name": ("name",),
     "subCategoryId": ("subCategoryId", "category"),
@@ -981,12 +793,6 @@ def _same(stored: Any, wanted: Any) -> bool:
 
 
 def without_master_provenance(meta: Any) -> dict[str, Any]:
-    """``meta`` with the ``fieldProvenance`` of the file's columns removed.
-
-    For an old craft moved onto a master craft's identity (``map_crafts``): the master columns it
-    now holds came from the file, not from whoever typed the old craft, so a later file revision
-    must still reach them.
-    """
     base = dict(meta) if isinstance(meta, dict) else {}
     provenance = base.get("fieldProvenance")
     if isinstance(provenance, dict):
@@ -1000,13 +806,6 @@ def without_master_provenance(meta: Any) -> dict[str, Any]:
 
 
 def _file_changes(row: Any, wanted: dict[str, Any]) -> tuple[dict[str, Any], int]:
-    """The file columns to write onto an existing craft, and how many differences were kept.
-
-    The file only revises what it said before. A column whose stored value is no longer what the
-    file last wrote (``extraMetadata.masterSeed``) was changed by an admin and is kept. A craft
-    seeded by the migration has no snapshot yet; there an admin's edit is known from the
-    ``fieldProvenance`` every craft edit stamps, and a column nobody edited follows the file.
-    """
     meta = craft_meta(row)
     seed = meta.get(MASTER_SEED_KEY)
     provenance = meta.get("fieldProvenance") if isinstance(meta.get("fieldProvenance"), dict) else {}
@@ -1028,21 +827,6 @@ def _file_changes(row: Any, wanted: dict[str, Any]) -> tuple[dict[str, Any], int
 
 
 async def sync_master(client: Any, *, dry_run: bool = False) -> dict[str, int]:
-    """Bring the database into line with ``craft_master_list.json``. Idempotent.
-
-    Upserts by slug: categories, sub-categories, then crafts. Never deletes. A seeded craft (one with
-    a ``sourceSerial``) whose slug has left the file becomes LEGACY. A craft with no shared code gets
-    one when its name is a known spelling. Returns what it changed (or would, with ``dry_run``).
-
-    IT NEVER UNDOES AN ADMIN'S DECISION, because it is run whenever the file is revised:
-
-    * an existing craft's ``status`` is never touched, so a master craft an admin MERGED stays merged
-      (it would otherwise come back into every picker beside the craft it was folded into);
-    * a column an admin renamed, moved or edited keeps the admin's value (see :func:`_file_changes`),
-      and is counted in ``kept``;
-    * a master craft an admin deleted is not created again (``skippedDeleted``): the delete route
-      leaves a tombstone (:func:`delete_craft`).
-    """
     from app.services import cross_portal_codes
 
     report = {
@@ -1054,10 +838,6 @@ async def sync_master(client: Any, *, dry_run: bool = False) -> dict[str, int]:
         "skippedDeleted": 0,
         "retired": 0,
     }
-    # READ ONCE, NOT PER ROW. Every category, sub-category and craft the file names, and the spelling
-    # table, are read up front -- four reads where looking each one up by slug was one read per row
-    # (the master list is 455 crafts). Slugs are unique in the file, so no iteration looks up a row an
-    # earlier one wrote; a row created here goes into its map all the same.
     categories = master_categories()
     master_crafts = load_master()
     categories_by_slug = {

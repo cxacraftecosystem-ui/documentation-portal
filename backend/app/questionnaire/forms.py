@@ -1,28 +1,3 @@
-"""A form's sections and questions, written where the sessions read them (UNIFY U5/U10, both portals).
-
-The shared package reads a form's structure from the instrument tables (``QuestionnaireSection``,
-``QuestionnaireQuestion``): coverage, answers, the record and every reader. Designer-portal's
-authoring used to write its own tables (``QuestionnaireFormSection``/``QuestionnaireFormQuestion``)
-and was kept in step by the migration's trigger mirror. Once a form is UNIFIED its authoring writes
-the instrument tables directly, through :func:`tables`, and the old tables are read-only legacy.
-
-UNIFIED, AND WHEN. ``QUESTIONNAIRE_V2`` on, and either the per-form section keys are in place (the
-migration's apply ran: every form lives in the instrument tables, and a new form is made there) or
-this form already has its sections there. Before that, nothing changes.
-
-:func:`tables` hands back one object with ``sections`` and ``questions`` delegates that speak the
-Prisma calls authoring already makes (``find_many``, ``create``, ``create_many``, ``update``,
-``delete``...). On the instrument tables they also keep what those tables need and the old ones did
-not: a question carries its section's code, title and form (denormalised; renaming a section renames
-them), a section's position is unique within its form (an insert or a move shifts the others), and
-a question or section that something in v2 points at is retired rather than deleted. A question's
-lineage and frozen display code come from the U0 triggers, as for every other writer.
-
-Evidence for the reword rule (an answer is evidence, and the words it was given under are part of
-it) is :func:`answered_question_ids`: a current answer with text given under that wording, or a
-take aimed at its lineage.
-"""
-
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -30,7 +5,6 @@ from typing import Any
 
 from app.questionnaire import ports
 
-#: The per-form keys the migration's apply puts in place (deferred section_keys migration).
 PER_FORM_KEY = "QuestionnaireSection_questionnaireId_sortOrder_key"
 _unified_cache: dict[str, bool] = {}
 
@@ -44,8 +18,6 @@ def _db(client: Any) -> Any:
 
 
 async def authoring_unified(client: Any = None) -> bool:
-    """True once every form lives in the instrument tables (v2 on and the per-form keys present).
-    Remembered once true: the keys are never taken away again."""
     if not enabled():
         return False
     if _unified_cache.get("keys"):
@@ -57,7 +29,6 @@ async def authoring_unified(client: Any = None) -> bool:
 
 
 async def form_unified(questionnaire_id: str | None, client: Any = None) -> bool:
-    """This form's authoring writes the instrument tables (see the module docstring)."""
     if not enabled():
         return False
     if await authoring_unified(client):
@@ -83,13 +54,11 @@ class _Passthrough:
     def __init__(self, delegate: Any) -> None:
         self._d = delegate
 
-    def __getattr__(self, name: str) -> Any:  # find_many, find_first, find_unique, count, group_by...
+    def __getattr__(self, name: str) -> Any:
         return getattr(self._d, name)
 
 
 class _Sections(_Passthrough):
-    """``QuestionnaireSection`` with a position unique within its form."""
-
     def __init__(self, client: Any) -> None:
         super().__init__(client.questionnairesection)
         self._client = client
@@ -101,7 +70,6 @@ class _Sections(_Passthrough):
         )
         if not taken:
             return
-        # Two steps, so the shift never trips the per-form key mid-statement.
         await self._client.execute_raw(
             'UPDATE "QuestionnaireSection" SET "sortOrder" = -("sortOrder" + 1) '
             'WHERE "questionnaireId" = $1 AND "sortOrder" >= $2 AND "id" IS DISTINCT FROM $3',
@@ -146,8 +114,6 @@ class _Sections(_Passthrough):
 
 
 class _Questions(_Passthrough):
-    """``QuestionnaireQuestion``, carrying its section's code, title and form."""
-
     def __init__(self, client: Any) -> None:
         super().__init__(client.questionnairequestion)
         self._client = client
@@ -168,7 +134,6 @@ class _Questions(_Passthrough):
         return await self._d.create(data=await self._with_section(data), **kwargs)
 
     async def create_many(self, data: list[dict[str, Any]], **kwargs: Any) -> int:
-        # One row at a time: the U0 insert trigger gives each its lineage and next display code.
         made = 0
         for row in data:
             await self.create(row)
@@ -194,7 +159,6 @@ def ports_now() -> Any:
 
 
 async def question_in_use(client: Any, question_id: str) -> bool:
-    """Something in v2 points at this wording or its lineage: an answer given under it, a take, a draft."""
     rows = await client.query_raw(
         'SELECT 1 AS ok FROM "QuestionnaireQuestion" q WHERE q."id" = $1 AND ('
         'EXISTS (SELECT 1 FROM "QuestionnaireAnswerRevision" rv WHERE rv."askedQuestionId" = q."id") OR '
@@ -218,8 +182,6 @@ async def _section_in_use(client: Any, section_id: str) -> bool:
 
 
 async def answered_question_ids(client: Any, question_ids: list[str]) -> set[str]:
-    """The wordings with evidence: a current answer with text given under that wording (the
-    revision's ``askedQuestionId``), or a live take aimed at its lineage."""
     ids = sorted({str(q) for q in question_ids if q})
     if not ids:
         return set()
@@ -235,16 +197,12 @@ async def answered_question_ids(client: Any, question_ids: list[str]) -> set[str
 
 
 def tables(client: Any, unified: bool) -> SimpleNamespace:
-    """``sections`` and ``questions``: the instrument tables when ``unified``, else the old form
-    tables (legacy, before the migration's apply)."""
     if unified:
         return SimpleNamespace(sections=_Sections(client), questions=_Questions(client), unified=True)
     return _Legacy(client)
 
 
 class _Legacy:
-    """The old form tables, looked up only when used (a caller that never touches them never needs them)."""
-
     unified = False
 
     def __init__(self, client: Any) -> None:
@@ -260,7 +218,6 @@ class _Legacy:
 
 
 async def unified_form_ids(form_ids: list[str], client: Any = None) -> set[str]:
-    """Which of these forms are unified (all of them once the migration's apply ran)."""
     ids = sorted({str(f) for f in form_ids if f})
     if not ids or not enabled():
         return set()

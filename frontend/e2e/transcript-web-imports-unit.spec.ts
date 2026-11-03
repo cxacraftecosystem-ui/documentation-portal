@@ -4,15 +4,6 @@ import { dirname, join, relative, resolve } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-/**
- * THE SHARED WEB TRANSCRIPT VIEWER STAYS COPYABLE AND STAYS ONE COPY. `lib/transcript/**` and
- * `components/transcript/**` are byte-identical in designer-portal and Field Repository
- * (`shared/transcript-web.sha256`, `scripts/sync_transcript_web.py`). A file there may import only
- * the two trees, and what `shared/transcript-web-imports.json` lists; the manifest must describe the
- * files on disk; and with the other portal checked out beside this one (CI clones it), both
- * manifests must be the same text.
- */
-
 const FRONTEND = join(__dirname, "..");
 const REPO = join(FRONTEND, "..");
 const RULES = JSON.parse(readFileSync(join(REPO, "shared", "transcript-web-imports.json"), "utf8")) as {

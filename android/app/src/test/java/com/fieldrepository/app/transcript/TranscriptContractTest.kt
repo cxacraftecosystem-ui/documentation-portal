@@ -24,13 +24,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/**
- * THE PHONE'S COPY TEXT IS THE SERVER'S, BYTE FOR BYTE (`shared/transcript-contract.json`).
- *
- * The contract lets a client build copy text itself only if it reproduces `fixtures.copy` exactly;
- * every fixture is checked here against [TranscriptFormat] over the contract's own example view,
- * which is decoded through the app's models (so a renamed field fails here, not on a handset).
- */
 class TranscriptContractTest {
     companion object {
         val json = Json { ignoreUnknownKeys = true; explicitNulls = false; isLenient = true; coerceInputValues = true }
@@ -147,8 +140,6 @@ class TranscriptContractTest {
         assertEquals(fixtures["vtt_english"]!!.jsonPrimitive.content, TranscriptFormat.vtt(example, CopyTrack.ENGLISH))
     }
 
-    // ── The rules under fixtures.copy, each one ──────────────────────────────────────────────
-
     private val a get() = example.turns.first { it.id == "turn_a" }
 
     @Test fun `already English prints once under both, and is the English`() {
@@ -184,8 +175,6 @@ class TranscriptContractTest {
         for (track in CopyTrack.entries) assertFalse(TranscriptFormat.all(example, track).endsWith("\n"))
         assertTrue(contract["enums"]!!.jsonObject["copyTrack"]!!.jsonArray.map { (it as JsonPrimitive).content } == CopyTrack.entries.map { it.wire })
     }
-
-    // ── Contract 3 (0.0.9, D38): English a person adds, and the notice when Gemini declined ──────
 
     @Test fun `English pasted whole copies exactly as fixtures manualEnglish`() {
         val manual = fixtures["manualEnglish"]!!.jsonObject

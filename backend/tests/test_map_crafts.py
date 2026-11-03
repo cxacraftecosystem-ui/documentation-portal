@@ -1,11 +1,3 @@
-"""``python -m app.scripts.map_crafts`` on a fixture built from the Field Repository's 15 live crafts.
-
-The dry run must equal the curated table in docs/CRAFTS.md; applying it must leave nothing to move
-on a second dry run; and the seeded list is restored afterwards. Also the seed loader
-(``sync_master``), which must never undo an admin's decision. Against a LOCAL database the
-migrations have been applied to; skipped otherwise. The same file in both portals.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -25,7 +17,6 @@ pytestmark = pytest.mark.skipif(
     not _LOCAL, reason="needs a LOCAL database; refuses to run against a remote DATABASE_URL"
 )
 
-#: old name -> (action, target), the table in docs/CRAFTS.md.
 EXPECTED: dict[str, tuple[str, str]] = {
     "Bagru Hand Block Printing": ("inPlace", "Bagru-Hand-Block-Print (#41)"),
     "Bamboo Craft": ("inPlace", "Cane-Bamboo-Craft (#226)"),
@@ -44,7 +35,6 @@ EXPECTED: dict[str, tuple[str, str]] = {
     "Uttarakhand Ringal (GI)": ("inPlace", "Uttarakhand-Ringal-Craft (#223)"),
 }
 
-#: product craftName -> (action, target)
 EXPECTED_TEXT: dict[str, tuple[str, str | None]] = {
     "Bagru Hand Block printing": ("link", "Bagru-Hand-Block-Print (#41)"),
     "Dabu Hand Block printing Balotra": ("link", "Dabu-Hand-Block-Printing-Map-Test"),
@@ -131,12 +121,6 @@ def test_the_report_has_the_agreed_columns(outcome):
 
 
 async def _sync_after_admin_decisions() -> dict[str, Any]:
-    """Five master crafts an admin has decided about, then the seed loader run twice.
-
-    A renamed (after the loader stamped its snapshot), B's states edited (before any snapshot, so
-    only ``fieldProvenance`` says so), C merged, D deleted, and E untouched by any admin while the
-    file "changed" under it. Everything is put back afterwards.
-    """
     masters = cm.load_master()
     a, b, c, d, e = masters[-5:]
     tharu_id = cm.master_id("c", "Tharu-Embroidery")

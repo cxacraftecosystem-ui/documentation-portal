@@ -20,11 +20,6 @@ import com.fieldrepository.app.transcript.data.TranscriptPreview
 import com.fieldrepository.app.transcript.data.TranscriptPreviewDto
 import com.fieldrepository.app.ui.field
 
-/**
- * THE SPEAKER PALETTE (0.0.6, `shared/transcript-contract.json` `speakerPalette`): one colour per
- * diarized speaker for their timeline marks and their label, stable per speaker key. Each value
- * reads at 4.5:1 or better as text on the theme's surface, light and dark.
- */
 object SpeakerPalette {
     val light: Map<String, Long> = linkedMapOf(
         "s0" to 0xFF1D4ED8, "s1" to 0xFFB45309, "s2" to 0xFF047857, "s3" to 0xFFBE185D,
@@ -43,14 +38,9 @@ object SpeakerPalette {
     }
 }
 
-/** [colorKey]'s colour in the current theme. */
 @Composable
 fun speakerColor(colorKey: String?): Color = Color(SpeakerPalette.argb(colorKey, MaterialTheme.field.isDark))
 
-/**
- * A transcript's list preview (0.0.6): each speaker as a coloured label before their words, never
- * markdown, clamped to [maxLines] with an ellipsis. Read aloud as the preview's one-line text.
- */
 @Composable
 fun TranscriptPreviewText(preview: TranscriptPreviewDto, modifier: Modifier = Modifier, maxLines: Int = 3) {
     if (preview.lines.isEmpty()) return
@@ -71,11 +61,6 @@ fun TranscriptPreviewText(preview: TranscriptPreviewDto, modifier: Modifier = Mo
     }
 }
 
-/**
- * A whole stored markdown transcript read as speech (0.0.6): each turn on its own line under its
- * speaker's coloured label, no asterisks, no "Transcript" heading. For a screen that shows a
- * transcript's full text where it used to print the markdown as typed.
- */
 @Composable
 fun TranscriptSpokenText(markdown: String, modifier: Modifier = Modifier, maxLines: Int = Int.MAX_VALUE) {
     val turns = androidx.compose.runtime.remember(markdown) { TranscriptPreview.turnsFromMarkdown(markdown) }

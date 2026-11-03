@@ -1,10 +1,3 @@
-"""The translation lane (0.0.5): English and summaries beside transcription, and the self-clearing hold.
-
-THE SAME FILE IN BOTH PORTALS. ``media_queue`` is each portal's own, but the lane, the hold and the
-revive were written identically into both, and this pins them with a fake job table: nothing here
-reaches a database or Gemini.
-"""
-
 from __future__ import annotations
 
 import asyncio

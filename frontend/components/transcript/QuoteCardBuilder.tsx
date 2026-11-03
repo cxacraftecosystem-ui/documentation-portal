@@ -13,12 +13,6 @@ import { Actions, ICON_BUTTON, PRIMARY, SECONDARY } from "./parts";
 const WIDTH = 1200;
 const PAD = 72;
 
-/**
- * Quote cards (design §10.5). The server assembles the card's words from the chosen turns (the
- * original, the English, the artisan's name, the craft and the date) and refuses with
- * CONSENT_REFUSED when a quoted artisan withdrew; the image is drawn here, on a canvas, from that
- * answer, and the audio clip of those turns comes from the url the server signs.
- */
 export function QuoteCardBuilder({ mediaId, title, turns, onClose }: { mediaId: string; title: string; turns: TranscriptTurn[]; onClose: () => void }) {
   const [card, setCard] = useState<QuoteCard | null>(null);
   const [image, setImage] = useState<{ url: string; blob: Blob } | null>(null);
@@ -114,7 +108,6 @@ function wrap(context: CanvasRenderingContext2D, text: string, width: number): s
   return lines;
 }
 
-/** The page's own face (next/font names it), so the card reads like the app. */
 function fontFamily(): string {
   return getComputedStyle(document.body).fontFamily || "sans-serif";
 }

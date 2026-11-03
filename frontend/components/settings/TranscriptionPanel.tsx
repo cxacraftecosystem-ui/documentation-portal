@@ -1,13 +1,5 @@
 "use client";
 
-/**
- * Settings → API keys → Transcription. The shared transcription service's switches and what it is
- * doing (GET/PUT /settings/transcription), identical in both portals.
- *
- * The pause ships ON (owner hold, 18 Oct 2026) and only a master admin turns it off. Admins read.
- * "Retry failed" reports first (dry run) and is refused by the server while paused.
- */
-
 import { AudioLines } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -41,7 +33,6 @@ type TranscriptionState = {
   providers: ProviderRow[];
   window: { enabled: boolean; start: string; end: string; timezone: string };
   mode: string;
-  /** ElevenLabs Voice Isolator on newly transcribed recordings (0.0.5). Off until switched on. */
   audioIsolation?: { enabled: boolean; keyConfigured: boolean };
   autoTranscribe?: { video: boolean; audio: boolean };
   backfill?: BackfillProgress;
@@ -352,7 +343,6 @@ export function TranscriptionPanel({ canChange }: { canChange: boolean }) {
                             }
                           />
                         </label>
-                        {/* a form-row button aligned to its input, not an action row */}
                         <button
                           type="button"
                           className="field-button-secondary"

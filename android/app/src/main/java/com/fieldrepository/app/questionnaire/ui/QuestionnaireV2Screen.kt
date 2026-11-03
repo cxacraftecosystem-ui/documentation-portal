@@ -88,11 +88,9 @@ private sealed interface QRoute {
     data object Join : QRoute
     data object Coverage : QRoute
     data class ReadView(val sessionId: String) : QRoute
-    /** The recordings list, opened from the menu or by a chip tapped on another screen. */
     data class Recordings(val initial: QuestionnaireFilters? = null) : QRoute
 }
 
-/** One row of the sessions list: a server session, or one still only on this phone. */
 data class SessionListRow(val key: String, val title: String, val note: String?, val meta: String, val local: Boolean, val session: QSession?)
 
 internal fun localRow(unit: SessionUnit, names: Map<String, String>): SessionListRow? {
@@ -124,23 +122,13 @@ internal fun serverRow(s: QSession): SessionListRow = SessionListRow(
     session = s
 )
 
-/** The sessions list's overflow menu: Recordings, Join and Workshop coverage for everyone. */
 internal fun sessionsMenu(): List<String> = listOf("recordings", "sessions.join", "coverage.title")
 
-/** The next page joins the list; a session already listed (a local row, or an earlier page) is not repeated. */
 internal fun appendPage(rows: List<SessionListRow>, page: List<QSession>): List<SessionListRow> =
     rows + page.map(::serverRow).filter { s -> rows.none { it.key == s.key } }
 
-/** The home's two tabs (UNIFY §4.2 Android): Sessions | Forms, with one FAB matching the tab. */
 enum class QuestionnaireTab { SESSIONS, FORMS }
 
-/**
- * The questionnaire home on Android (UNIFY §4.2): a segmented Sessions | Forms with one FAB that
- * matches the tab (New session, New form). Sessions: the server-paged, searchable, filtered list,
- * the start sheet, the workspace, the read view and review, the inbox (badge), joining, the workshop
- * coverage page, and for content admins the Deleted sessions. Forms: the portal's forms library,
- * drawn by [formsTab].
- */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun QuestionnaireHome(
@@ -148,26 +136,16 @@ fun QuestionnaireHome(
     meId: String?,
     meName: String? = null,
     prefillArtisanIds: List<String> = emptyList(),
-    /** Professor and above (FR) or the portal's equivalent: "Make main take" on a take. */
     canMakePrimary: Boolean = false,
-    /** A content admin: changes answers others wrote (U9) and reviews. */
     isAdmin: Boolean = false,
-    /** May approve or return a session in the read view (B27). */
     canReview: Boolean = false,
-    /** The forms library, given "start a session on this form" (A9, D3). */
     formsTab: @Composable (onStartSession: ((questionnaireId: String) -> Unit)?) -> Unit,
     onNewForm: () -> Unit,
     onUpdateApp: () -> Unit,
     onError: (String) -> Unit,
     initialTab: QuestionnaireTab = QuestionnaireTab.SESSIONS,
-    /** The host's way out, when the home owns the whole viewport (its own back control). */
     onBack: (() -> Unit)? = null,
-    /** The home's box: the host gives it a bounded height when it sits in a page that scrolls. */
     modifier: Modifier = Modifier,
-    /**
-     * A session opened from another screen of the app (a form's own sessions on its detail page):
-     * Back from it goes there through this, instead of to the home's list. Null: the home's list.
-     */
     onLeaveSession: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -176,16 +154,10 @@ fun QuestionnaireHome(
     val mayDelete = LocalMayDelete.current
     var tab by rememberKept("q.tab") { initialTab }
     var route by remember { mutableStateOf<QRoute>(QRoute.List) }
-    // BACK FROM A SESSION LANDS WHERE IT WAS OPENED (owner, 1 Nov 2026): the sessions list, the
-    // recordings list or the inbox, on the tab it was opened from, with that list's rows, pages and
-    // scroll as they were left. Each list keeps them in a memory of its own ([ScreenMemory]); a fresh
-    // way in from the menu starts that memory over.
     val origin = remember { SessionOrigin<QRoute>(QRoute.List) }
     val homeMemory = LocalScreenMemory.current ?: remember { ScreenMemory() }
     val sessionsScroll = rememberKeptValue("q.sessions.scroll") { ScrollState(0) }
     val formsScroll = rememberKeptValue("q.forms.scroll") { ScrollState(0) }
-    // "Continue with…" / "Start session" from an artisan's record or a form: held HERE, because the
-    // caller clears its request as soon as this screen takes it (audit M23: it used to be lost).
     var prefill by remember { mutableStateOf(prefillArtisanIds) }
     var prefillForm by remember { mutableStateOf<String?>(null) }
     var starting by remember { mutableStateOf(prefillArtisanIds.isNotEmpty()) }
@@ -195,13 +167,11 @@ fun QuestionnaireHome(
     var forms by remember { mutableStateOf<List<QFormOption>>(emptyList()) }
     var workshops by remember { mutableStateOf<List<QWorkshopOption>>(emptyList()) }
     var defaultWorkshop by remember { mutableStateOf<String?>(null) }
-    // The start sheet reads its defaults (form, workshop) once, when it opens; it waits for the lists.
     var listsLoaded by remember { mutableStateOf(false) }
     var kept by rememberKept("q.sessions.pages") { KeptPages<SessionListRow>() }
     val rows = kept.rows
     val cursor = kept.cursor
     var capped by rememberKept("q.sessions.capped") { false }
-    // B28 and the shared filters (owner, 31 Oct 2026): kept per list across navigation and restarts.
     val (filters, setFilters) = rememberKeptFilters(v2, FilterStore.SESSIONS)
     var offline by remember { mutableStateOf(false) }
     var showDeleted by remember { mutableStateOf(false) }
@@ -223,7 +193,6 @@ fun QuestionnaireHome(
         workshops = v2.workshops()
         defaultWorkshop = v2.defaultWorkshopId()
         listsLoaded = true
-        // P13: a take cut short by a kill comes back first.
         val active = (RecordingService.state.value as? RecordingService.State.Recording)?.draft?.clientClipKey
         val drafts = RecordingDrafts.all(v2.filesDir)
         RecoveryScanner.empty(drafts, active).forEach { RecordingDrafts.delete(v2.filesDir, it, keepAudio = false) }
@@ -241,11 +210,9 @@ fun QuestionnaireHome(
         val local = if (!filters.without("q").isEmpty) emptyList() else units.filter { it.sessionId == null }.mapNotNull { localRow(it, names) }
             .filter { search.isBlank() || it.title.contains(search, ignoreCase = true) || it.note.orEmpty().contains(search, ignoreCase = true) }
         val result = runCatching { page(null) }.getOrNull()
-        // The first page again, with every later page kept for the same filters ([ListPaging]).
         kept = ListPaging.arrive(kept, filters, appendPage(local, result?.items.orEmpty()), result?.nextCursor) { it.key }
         offline = result?.offline == true
         capped = false
-        // The fix tray's way in: sessions with work this phone could not send (audit H20).
         unsent = units.filter { it.failedSteps.isNotEmpty() }.map { it.clientKey }
         inboxCount = runCatching { v2.api.inbox().counts.total }.getOrDefault(0)
         loading = false
@@ -253,7 +220,6 @@ fun QuestionnaireHome(
 
     suspend fun loadInstrument(qid: String): Instrument? = v2.form(qid)?.let(Instrument::from)
 
-    /** Where Back from a session returns: the list it was opened from (see [SessionOrigin]). */
     fun noteOrigin() = origin.note(route, tab, inSession = route is QRoute.Workspace || route is QRoute.ReadView)
 
     fun backFromSession() {
@@ -278,7 +244,6 @@ fun QuestionnaireHome(
         route = QRoute.Workspace(clientKey)
     }
 
-    /** A server session (from the inbox, a merge, "Continue with…"): adopted into the outbox, then opened. */
     suspend fun openServer(session: QSession) {
         openUnit(v2.outbox.adoptSession(session, session.questionnaire?.id.orEmpty(), meId).clientKey)
     }
@@ -289,7 +254,6 @@ fun QuestionnaireHome(
             .onFailure { onError(QuestionnaireCopy.s("record.error")) }
     }
 
-    // A session the top-bar scanner joined: opened once, then forgotten.
     val scannedSession by QuestionnaireV2Nav.openSession.collectAsState()
     LaunchedEffect(scannedSession) {
         val key = scannedSession ?: return@LaunchedEffect
@@ -297,19 +261,15 @@ fun QuestionnaireHome(
         tab = QuestionnaireTab.SESSIONS
         openUnit(key)
     }
-    // A session the server opened elsewhere ("Continue with…" on an artisan's record).
     val serverSession by QuestionnaireV2Nav.openServerSession.collectAsState()
     LaunchedEffect(serverSession) {
         val id = serverSession ?: return@LaunchedEffect
         QuestionnaireV2Nav.openServerSession.value = null
-        // Opened from a form's own sessions (the Forms tab): Back returns to that form. Opened from
-        // another screen that asked for it back (DR's form detail): Back returns there.
         noteOrigin()
         if (onLeaveSession != null) origin.noteHost()
         tab = QuestionnaireTab.SESSIONS
         openServerId(id)
     }
-    // A chip tapped on another screen: the recordings list, filtered by it.
     val chipToShow by QuestionnaireV2Nav.showRecordings.collectAsState()
     LaunchedEffect(chipToShow) {
         val f = chipToShow ?: return@LaunchedEffect
@@ -318,7 +278,6 @@ fun QuestionnaireHome(
         homeMemory.forgetChild("recordings")
         route = QRoute.Recordings(f)
     }
-    // A form's "Start session" from elsewhere in the app.
     val formToStart by QuestionnaireV2Nav.startOnForm.collectAsState()
     LaunchedEffect(formToStart) {
         val id = formToStart ?: return@LaunchedEffect
@@ -345,8 +304,6 @@ fun QuestionnaireHome(
                     if (config?.updateRequired(BuildConfig.VERSION_CODE) == true) UpdateBanner(onUpdateApp)
                 }
                 if (tab == QuestionnaireTab.FORMS) Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(formsScroll).padding(16.dp).testTag("questionnaire.forms")) {
-                    // The forms library keeps its rows and its open form in a memory of its own, so a
-                    // session opened from a form comes back to that form.
                     CompositionLocalProvider(LocalScreenMemory provides homeMemory.child("forms"), LocalFormsScroll provides formsScroll) {
                         formsTab { questionnaireId -> prefillForm = questionnaireId; tab = QuestionnaireTab.SESSIONS; starting = true }
                     }
@@ -378,7 +335,6 @@ fun QuestionnaireHome(
                         filters, setFilters, QuestionnaireCopy.t("filterSearchSessions"),
                         options = { facet, q, ids -> v2.filterOptions(facet, q, ids) }, offline = offline
                     )
-                    // Deleted sessions are the content admins' (owner decision 3), with Restore.
                     if (mayDelete) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(selected = showDeleted, onClick = { showDeleted = !showDeleted }, label = { Text(QuestionnaireCopy.s("sessions.deleted")) })
                     }
@@ -404,7 +360,6 @@ fun QuestionnaireHome(
                             }
                             HorizontalDivider(color = MaterialTheme.field.hairline)
                         }
-                        // Paging on the server (audit M23: only the first page ever showed).
                         if (cursor != null) PromptButtons(listOf(PromptButton(QuestionnaireCopy.s("sessions.loadMore"), primary = true) {
                             if (loadingMore) return@PromptButton
                             loadingMore = true
@@ -489,7 +444,6 @@ fun QuestionnaireHome(
             onDiscard = {
                 recovered = null
                 scope.launch {
-                    // Read again now: a take queued since the prompt opened is the outbox's upload (audit M23).
                     val current = RecordingDrafts.read(v2.filesDir, draft.clientClipKey)
                     val queued = v2.outbox.units().flatMap { it.steps }.mapNotNull { it.clip?.clientClipKey }.toSet()
                     if (current != null && RecoveryScanner.safeToDiscard(current, queued)) RecordingDrafts.delete(v2.filesDir, current, keepAudio = false)
@@ -518,7 +472,6 @@ fun QuestionnaireHome(
     }
 }
 
-/** Work this phone could not send (audit H20): opens the first such session, where the fix tray is. */
 @Composable
 private fun UnsentBanner(sessions: Int, onOpen: () -> Unit) {
     Surface(color = MaterialTheme.field.surface100, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
@@ -542,7 +495,6 @@ private fun markBatteryAsked(context: Context) {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(BATTERY_ASKED, true).apply()
 }
 
-/** The one-time request, with the reason already shown: "So long recordings aren't stopped." */
 @SuppressLint("BatteryLife")
 private fun requestBatteryExemption(context: Context) {
     runCatching {
@@ -550,30 +502,22 @@ private fun requestBatteryExemption(context: Context) {
     }
 }
 
-/** Arrivals from elsewhere in the app, held until the questionnaire home takes them. */
 object QuestionnaireV2Nav {
-    /** "Continue with…" from an artisan's record: the artisan to prefill in a new session. */
     val pending = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 
-    /** A session to open on arrival: the top-bar scanner joined it (its `clientKey`). */
     val openSession = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 
-    /** A server session to open on arrival, by id ("Continue with…" opened it on the server). */
     val openServerSession = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 
-    /** A form's "Start session" (A9, D3): the start sheet opens on this form. */
     val startOnForm = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 
-    /** A chip tapped where there is no list to filter: the recordings list opens filtered by it. */
     val showRecordings = kotlinx.coroutines.flow.MutableStateFlow<QuestionnaireFilters?>(null)
 
-    /** [RecordingChips]' usual `onChip` on a screen with no list of its own. */
     fun openRecordings(filter: ChipFilter, label: String) {
         showRecordings.value = QuestionnaireFilters().applyChip(filter, label)
     }
 }
 
-/** P14's Update: the web app's page that serves the current APK. */
 fun openAppDownloadPage(context: Context) {
     val site = QuestionnairePortal.apiBaseUrl.substringBefore("/api")
     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(site)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }

@@ -1,18 +1,3 @@
-"""Canonical answers (DESIGN 3.6): one per (artisan, question lineage), every change a revision.
-
-``PUT /answers`` is processed PER ITEM and never fails as a whole:
-
-* no ``baseVersion`` means create only: an existing answer is a ``CONFLICT`` carrying its text;
-* a stale ``baseVersion`` is a ``CONFLICT`` (P9);
-* identical text is ``UNCHANGED``;
-* a pinned answer edited below Professor is ``FORBIDDEN``;
-* a PREFILL only ever overwrites an earlier PREFILL revision;
-* an answer with text written by someone else is ``FORBIDDEN`` with ``code: ANSWER_LOCKED`` unless
-  the caller leads the session or is an admin (``answer_lock``; owner decision 2).
-
-Proposals write drafts (``QuestionnaireTakeDraft``), never answers; a person accepts them here.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -36,10 +21,7 @@ def _db(client: Any) -> Any:
     return ports.db()
 
 
-# ── phone (owner correction (b)) ───────────────────────────────────────────────────────────────
 def split_phone(country_code: str | None, phone: str | None) -> tuple[str, str]:
-    """(country code, national digits). The country code column is authoritative; until the
-    value-standardisation stream lands it on this portal, a legacy ``+91...`` in ``phone`` is split."""
     digits = re.sub(r"\D", "", phone or "")
     code = (country_code or "").strip()
     if code and not code.startswith("+"):
@@ -54,7 +36,6 @@ def split_phone(country_code: str | None, phone: str | None) -> tuple[str, str]:
 
 
 def format_phone(country_code: str | None, phone: str | None) -> str | None:
-    """``+91 98765 43210``; other countries ``+<code> <digits>``; nothing for an empty phone."""
     code, digits = split_phone(country_code, phone)
     if not digits:
         return None
@@ -64,7 +45,6 @@ def format_phone(country_code: str | None, phone: str | None) -> str | None:
 
 
 def prefill_value(artisan: Any, field: str, *, session: dict[str, Any] | None = None, interviewer: str | None = None) -> str | None:
-    """The text a question mapped to ``artisanField`` is prefilled with, or None."""
     if field == "phone":
         return format_phone(get(artisan, "phoneCountryCode"), get(artisan, "phone"))
     if field in ("sessionDate", "interviewDate"):
@@ -81,7 +61,6 @@ def prefill_value(artisan: Any, field: str, *, session: dict[str, Any] | None = 
     return value.date().isoformat() if hasattr(value, "date") and callable(value.date) else str(value)
 
 
-# ── reading ────────────────────────────────────────────────────────────────────────────────────
 def answer_out(row: dict[str, Any] | None) -> dict[str, Any] | None:
     if not row:
         return None
@@ -89,10 +68,8 @@ def answer_out(row: dict[str, Any] | None) -> dict[str, Any] | None:
         "id": str(row["id"]), "version": int(row["version"]), "text": row.get("text") or "",
         "origin": row.get("origin") or "TYPED", "attribution": row.get("attribution") or "INDIVIDUAL",
         "pinned": bool(row.get("pinned")), "sourceRecordingId": row.get("sourceRecordingId"),
-        # Who wrote it (the lock's "Answered by", P15) and the answer note (A20), when the read has them.
         "actorId": str(row["actorId"]) if row.get("actorId") else None, "actorName": row.get("actorName"),
         "note": row.get("note"),
-        # Decision C8: the canonical plain text above, and the rich text an editor wrote, when it did.
         "richText": row.get("richText"),
     }
 
@@ -125,14 +102,12 @@ async def answers_for(client: Any, *, artisan_ids: list[str] | None = None, sess
         'rv."attribution"::text AS attribution, rv."sourceRecordingId", rv."sessionId", rv."status"::text AS status, '
         'rv."sourceTranscriptHash", rv."askedQuestionId", rv."languageCode", rv."note", rv."actorId", rv."richText", (SELECT u."name" FROM "User" u WHERE u."id" = rv."actorId") AS "actorName" '
         'FROM "QuestionnaireAnswer" a JOIN "QuestionnaireAnswerRevision" rv ON rv."id" = a."currentRevisionId" '
-        # A soft-deleted session hides the answers it holds (owner decision 3; live.LIVE_SESSION_SQL).
         'JOIN "QuestionnaireInterview" si ON si."id" = rv."sessionId" AND si."deletedAt" IS NULL '
         + ("WHERE " + " AND ".join(where) if where else "") + ' ORDER BY a."artisanId", a."questionLineageId"',
         *params,
     )
 
 
-# ── writing ────────────────────────────────────────────────────────────────────────────────────
 async def _lineage(client: Any, lineage_id: str) -> dict[str, Any] | None:
     rows = await client.query_raw(
         'SELECT q."id", q."questionnaireId", q."artisanField" FROM "QuestionnaireQuestion" q WHERE q."lineageId" = $1 '
@@ -160,11 +135,6 @@ _CURRENT_COLUMNS = (
 
 
 async def _prefetch(items: list[Any], client: Any) -> dict[str, dict[Any, Any]]:
-    """The read-only lookups every item of one ``PUT /answers`` makes, read for the whole batch at
-    once: the live question of each lineage, each pair's current answer, the transcript each
-    source recording carries, and the artisans a PREFILL reads. :func:`_write_one` falls back to its
-    own read for anything not here, and forgets a pair's answer once it has written that pair, so a
-    batch naming one pair twice still sees its own first write exactly as before."""
     pre: dict[str, dict[Any, Any]] = {"lineage": {}, "current": {}, "hash": {}, "artisan": {}}
     lineage_ids = sorted({str(i.questionLineageId) for i in items if i.questionLineageId})
     if not lineage_ids:
@@ -209,20 +179,14 @@ async def _prefetch(items: list[Any], client: Any) -> dict[str, dict[Any, Any]]:
     return pre
 
 
-#: ``code`` of a per-item refusal under the answer lock (``answer_lock``). The status stays FORBIDDEN,
-#: which every client already treats as "not yours to change", so builds that predate the lock refuse
-#: it too.
 ANSWER_LOCKED = answer_lock.CODE
 
 
 def _locked_for(item: Any, user: Any, current: dict[str, Any] | None) -> bool:
-    """The owner's answer lock (21 Oct 2026; UNIFY U9), before the LEAD question: see ``answer_lock``."""
     return answer_lock.locked_for(current, user, text=item.text, origin=item.origin)
 
 
 async def _is_lead(client: Any, session: dict[str, Any], user: Any) -> bool:
-    """Is the caller a LEAD researcher of this session? Read once per session per request, and only
-    when an item meets the lock."""
     if "_lead" not in session:
         rows = await client.query_raw(
             'SELECT 1 FROM "QuestionnaireInterviewResearcher" WHERE "interviewId" = $1 AND "userId" = $2 AND "role" = \'LEAD\' LIMIT 1',
@@ -233,8 +197,6 @@ async def _is_lead(client: Any, session: dict[str, Any], user: Any) -> bool:
 
 
 def _settled_without_write(item: Any, user: Any, base: dict[str, Any], current: dict[str, Any] | None) -> dict[str, Any] | None:
-    """The outcome decided by the answer as it stands, without writing (CONFLICT, a pinned answer's
-    FORBIDDEN, UNCHANGED), or None when the item goes on to its versioned write."""
     if current is None:
         return None
     out_current = answer_out(current)
@@ -273,8 +235,6 @@ async def _write_one(
     if "_people" not in session:
         session["_people"] = await session_people(client, str(session["id"]))
     if item.artisanId not in session["_people"]:
-        # An answer is about somebody who was there: a participant, or a subject of one of its takes
-        # (audit M15). Anyone else is refused, never silently written.
         return {**base, "status": "FORBIDDEN"}
     pair = (str(item.artisanId), lineage_key)
     snapshot = pair in pre["current"]
@@ -284,14 +244,10 @@ async def _write_one(
         current = await current_answer(client, item.artisanId, item.questionLineageId)
     settled = _settled_without_write(item, user, base, current)
     if settled is not None and snapshot:
-        # The batch read may be older than a save that landed since (another device, another tab).
-        # An outcome that writes nothing is reported from a fresh read, never from that snapshot;
-        # one that writes is checked by the versioned UPDATE / INSERT below, which re-reads on a miss.
         current = await current_answer(client, item.artisanId, item.questionLineageId)
         settled = _settled_without_write(item, user, base, current)
     if _locked_for(item, user, current):
         if snapshot and settled is None:
-            # Refuse on a fresh read, never on the batch snapshot alone.
             current = await current_answer(client, item.artisanId, item.questionLineageId)
             settled = _settled_without_write(item, user, base, current)
         if _locked_for(item, user, current) and not await _is_lead(client, session, user):
@@ -307,7 +263,6 @@ async def _write_one(
         field_value = prefill_value(artisan, str(question["artisanField"]), session=session) if artisan else None
     status = "PENDING"
     hash_known = bool(item.sourceRecordingId) and str(item.sourceRecordingId) in pre["hash"]
-    # From here on this pair may change, so a later item naming it reads it afresh.
     pre["current"].pop(pair, None)
     async with client.tx(max_wait=TX_MAX_WAIT, timeout=TX_TIMEOUT) as tx:
         if current is None:
@@ -343,7 +298,6 @@ async def _write_one(
         )
         await tx.execute_raw('UPDATE "QuestionnaireAnswer" SET "currentRevisionId" = $2 WHERE "id" = $1', answer_id, revision_id)
         if session.get("status_t") == "APPROVED":
-            # The revision is PENDING; the session stays APPROVED and goes back to review (audit M13).
             await sessions.note_pending_change(tx, str(session["id"]))
     saved = {
         "id": answer_id, "version": version, "text": item.text, "origin": item.origin, "attribution": item.attribution,
@@ -365,10 +319,6 @@ async def current_respondent_answer(client: Any, respondent_id: str, lineage_id:
 
 
 async def _write_respondent(item: Any, user: Any, client: Any, session_cache: dict[str, Any]) -> dict[str, Any]:
-    """One item of ``PUT /answers`` owned by a guest respondent (owner decision 1): the same rules as
-    an artisan's answer (create-only without ``baseVersion``, P9 conflicts, UNCHANGED, the pinned
-    rule, the answer lock) on the respondent's own answer row. A respondent answers only in the
-    session they belong to; PREFILL has no artisan to read and is refused."""
     base = {"respondentId": item.respondentId, "artisanId": None, "questionLineageId": item.questionLineageId,
             "answer": None, "current": None}
     if item.origin == "PREFILL":
@@ -441,7 +391,6 @@ async def _write_respondent(item: Any, user: Any, client: Any, session_cache: di
 
 
 async def answer_revisions(answer_id: str, *, client: Any = None) -> dict[str, Any]:
-    """``GET /answers/{id}/revisions`` (B21): every revision, newest first, with who wrote it."""
     db = _db(client)
     rows = await db.query_raw(
         'SELECT rv."id", rv."text", rv."origin"::text AS origin, rv."attribution"::text AS attribution, rv."sessionId", '
@@ -468,7 +417,6 @@ async def answer_revisions(answer_id: str, *, client: Any = None) -> dict[str, A
 
 
 async def session_people(client: Any, session_id: str) -> set[str]:
-    """The artisans an answer in this session may be about: its participants and its takes' subjects."""
     rows = await client.query_raw(
         'SELECT "artisanId" FROM "QuestionnaireInterviewArtisan" WHERE "interviewId" = $1 UNION '
         'SELECT s."artisanId" FROM "QuestionnaireRecordingSubject" s JOIN "QuestionnaireRecording" r ON r."id" = s."recordingId" '
@@ -483,9 +431,6 @@ async def put_answers(payload: Any, user: Any, *, client: Any = None) -> dict[st
 
     db = _db(client)
     cache: dict[str, Any] = {}
-    # Decision C8: the plain text is canonical (coverage, the lock, search and exports read it); a
-    # client with an editor sends the document too, and one that sends only the document has it
-    # flattened into the text here.
     for item in payload.items:
         if getattr(item, "richText", None) is not None:
             item.text, item.richText = richtext.normalise(item.text, item.richText)
@@ -515,9 +460,6 @@ async def put_answers(payload: Any, user: Any, *, client: Any = None) -> dict[st
             import logging
 
             logging.getLogger(__name__).exception("answer item failed")
-            # Tried once more (a dropped connection is the usual cause); if it fails again the item
-            # is a CONFLICT that CARRIES the stored answer, so the client always has something to
-            # show and to resolve against, never an empty conflict (audit Low).
             try:
                 results.append(await _write_one(item, user, db, {}))
                 continue
@@ -533,15 +475,12 @@ async def put_answers(payload: Any, user: Any, *, client: Any = None) -> dict[st
     return {"results": results}
 
 
-# ── proposals ──────────────────────────────────────────────────────────────────────────────────
 async def proposals(recording_id: str, user: Any, *, client: Any = None) -> dict[str, Any]:
-    """Drafts from one take's COMPLETED transcript; never answers, never a new transcription."""
     from app.questionnaire import recordings
     from app.questionnaire.ports import answer_drafts
 
     db = _db(client)
     row = await recordings.require_recording(db, recording_id)
-    # Proposals can call an outside model: the same people who may change the take (audit M15).
     await recordings.assert_can_change(db, user, row, reviewers=True)
     rec = (await recordings.serialize_recordings(db, [row], user))[0]
     text = rec["transcript"]["text"]
@@ -553,15 +492,14 @@ async def proposals(recording_id: str, user: Any, *, client: Any = None) -> dict
     elif answered and all(s["named"] for s in answered):
         owners = [s["artisanId"] for s in answered]
     else:
-        owners = None  # "Whose answer is this?" before Accept
-    items: list[tuple[str, str, str]] = []  # (lineage, text, origin)
-    verdict: str | None = None  # one recording, so one consent read however many sections it covers
+        owners = None
+    items: list[tuple[str, str, str]] = []
+    verdict: str | None = None
     for t in rec["targets"]:
         if t["questionLineageId"]:
             items.append((t["questionLineageId"], text, "TRANSCRIPT"))
         elif t["sectionId"]:
             settings = get_settings()
-            # Drafting is an outside service: the consent gate and the off-by-default switch both apply.
             if not getattr(settings, "ai_answer_drafts_enabled", False):
                 continue
             if verdict is None:
@@ -592,8 +530,6 @@ async def proposals(recording_id: str, user: Any, *, client: Any = None) -> dict
             readers, sorted({lineage for lineage, _t, _o in items}),
         ):
             existing_by[(str(row.pop("_artisanId")), str(row.pop("_lineageId")))] = row
-    # Every draft row in ONE upsert. A (lineage, artisan) named twice keeps its last text, as the
-    # one-row-at-a-time upserts did (and as one statement must: it may not touch a row twice).
     drafts: dict[tuple[str, str], tuple[str, str]] = {}
     for lineage_id, draft, origin in items:
         for artisan_key in (owners or [""]):

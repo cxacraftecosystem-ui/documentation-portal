@@ -18,10 +18,6 @@ import com.fieldrepository.app.questionnaire.QFeature
 import org.junit.Test
 import java.time.ZoneOffset
 
-/**
- * 0.0.6: a coverage dot opens its takes (one directly, several through a chooser, none not at all),
- * and a take's list preview is the server's or the same rule over its stored text.
- */
 class CoverageDotTest {
     private fun take(id: String, media: String?, at: String, who: String = "Nandini Rao", ms: Long = 840_000) =
         QCoverageRecording(id, media, "s1", at, ms, QUserRef("u1", who))
@@ -40,7 +36,6 @@ class CoverageDotTest {
         assertFalse(CoverageRecordings.hasTakes(QGridCell(artisanId = "a1")))
         assertFalse(CoverageRecordings.hasTakes(null))
         assertTrue(CoverageRecordings.hasTakes(QGridCell(artisanId = "a1", takes = 1)))
-        // A take with no audio file is listed by the server but cannot be opened.
         assertTrue(CoverageRecordings.ofCell(QGridCell(artisanId = "a1", recordings = listOf(take("r1", null, "2026-07-07T05:12:00Z")))).isEmpty())
     }
 

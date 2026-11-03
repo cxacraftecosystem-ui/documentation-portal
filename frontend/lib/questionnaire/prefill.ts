@@ -1,18 +1,3 @@
-/**
- * Prefill from the artisan's record (UNIFY B24; DESIGN §3.6): a question mapped to an
- * `artisanField` starts with that artisan's value, written with origin PREFILL. The words are the
- * server's `app/questionnaire/answers.prefill_value`, rule for rule, because the server records the
- * column's value beside the answer (`sourceFieldValue`) and the two must agree:
- *
- * - `phone` is the display form `+91 98765 43210`, built from `phoneCountryCode` and the digits;
- *   an empty phone prefills nothing (DESIGN test 35f);
- * - `craft` is the craft's name; `sessionDate` the session's day; `interviewer` the lead's name;
- * - a date column is its yyyy-mm-dd day; every other column its text.
- *
- * A prefill is create-only (no `baseVersion`): it never overwrites an answer somebody wrote, and
- * the server refuses one over a non-PREFILL revision (DESIGN test 19).
- */
-
 import type { AnswerItem } from "@/lib/questionnaire/api";
 
 export type PrefillArtisan = Record<string, unknown> & { id: string };
@@ -40,7 +25,6 @@ export function formatPhone(countryCode: string | null | undefined, phone: strin
   return `${code} ${digits}`;
 }
 
-/** The text a question mapped to `field` is prefilled with for this artisan, or null. */
 export function prefillText(artisan: PrefillArtisan, field: string, context: PrefillContext = {}): string | null {
   if (field === "phone") return formatPhone(artisan.phoneCountryCode as string | null, artisan.phone as string | null);
   if (field === "sessionDate" || field === "interviewDate") return context.sessionDate ? String(context.sessionDate).slice(0, 10) : null;
@@ -56,10 +40,6 @@ export function prefillText(artisan: PrefillArtisan, field: string, context: Pre
   return String(value);
 }
 
-/**
- * The PREFILL items still owed in a session: one per artisan per mapped question that has no
- * answer yet and a value to give. `answered` holds `artisanId|lineageId` of every current answer.
- */
 export function prefillItems(input: {
   sessionId: string;
   questions: { lineageId: string; artisanField: string | null }[];

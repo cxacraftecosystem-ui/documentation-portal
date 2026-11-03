@@ -6,12 +6,6 @@ import { expect, test } from "@playwright/test";
 import { plainSnippet, previewMarkdown, previewOf, type PreviewTurn } from "../lib/transcript/preview";
 import { fnv1a, SPEAKER_FILL, SPEAKER_PALETTE, SPEAKER_TEXT, speakerColorKey } from "../lib/transcript/speakers";
 
-/**
- * A transcript read for a list row, and one colour per speaker (owner, 1 Nov 2026), held to the
- * transcript contract v2 (`fixtures.preview`, `fixtures.speakerColor`, `speakerPalette`), which the
- * server's `preview.py` reproduces too. Pure: shared by both portals (`shared/transcript-web.sha256`).
- */
-
 const CONTRACT = JSON.parse(readFileSync(join(__dirname, "..", "..", "shared", "transcript-contract.json"), "utf8"));
 
 type PreviewCase = { name: string; markdown?: string; turns?: { speakerKey: string | null; speaker: string | null; text: string }[]; expected: unknown };

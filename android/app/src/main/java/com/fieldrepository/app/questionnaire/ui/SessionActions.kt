@@ -40,14 +40,6 @@ import com.fieldrepository.app.ui.field
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
-/**
- * The v2 session actions the backend and the web have and Android lacked (audit §1, "built in the
- * backend but missing on Android"): edit, merge, continue another day, draft answers from a take,
- * and registering an artisan on the phone. Each is a dialog; the workspace and the artisan record
- * decide when to offer it.
- */
-
-/** The fields "Edit session" changes. Never a title: the server generates it. */
 data class SessionEdit(
     val date: LocalDate?,
     val purpose: String,
@@ -56,7 +48,6 @@ data class SessionEdit(
     val languageOther: String,
     val note: String
 ) {
-    /** PATCH with only what changed, on top of [version] (STALE_VERSION when someone else saved first). */
     fun patch(version: Int, before: SessionEdit): QSessionPatch = QSessionPatch(
         version = version,
         sessionDate = date?.takeIf { it != before.date }?.toString(),
@@ -67,7 +58,6 @@ data class SessionEdit(
         note = note.trim().take(80).takeIf { it != before.note }
     )
 
-    /** The same change on a session that has not reached the server: its frozen create. */
     fun applyTo(create: QSessionCreate): QSessionCreate = create.copy(
         sessionDate = (date ?: runCatching { LocalDate.parse(create.sessionDate) }.getOrNull())?.toString() ?: create.sessionDate,
         purpose = purpose,
@@ -124,10 +114,6 @@ fun EditSessionDialog(initial: SessionEdit, onDismiss: () -> Unit, onSave: (Sess
     )
 }
 
-/**
- * Merge into another session (content admins only, owner 2026-10-21): pick the session on the same
- * questionnaire that keeps everything; this one is hidden behind it.
- */
 @Composable
 fun MergeSessionDialog(v2: QuestionnaireV2, sessionId: String, questionnaireId: String, onDismiss: () -> Unit, onMerge: (QSession) -> Unit) {
     var options by remember { mutableStateOf<List<QSession>?>(null) }
@@ -157,11 +143,6 @@ fun MergeSessionDialog(v2: QuestionnaireV2, sessionId: String, questionnaireId: 
     )
 }
 
-/**
- * "Continue with…" another day (DESIGN §3.7, the web's ContinueWithDialog): the artisans, prefilled,
- * One session · One each when there are several, and the date. The server opens the session(s) and
- * the first one opens here.
- */
 @Composable
 fun ContinueWithDialog(
     v2: QuestionnaireV2,
@@ -178,7 +159,6 @@ fun ContinueWithDialog(
     var split by remember { mutableStateOf("ONE") }
     var date by remember { mutableStateOf<LocalDate?>(LocalDate.now(Naming.IST)) }
     var busy by remember { mutableStateOf(false) }
-    // One key for this dialog: a retry after a lost answer gets the same sessions back.
     val key = remember { SessionOutbox.newKey() }
     QuestionnairePromptContent(
         title = title,
@@ -217,11 +197,6 @@ fun ContinueWithDialog(
     )
 }
 
-/**
- * Draft answers from one take's finished transcript (`POST /recordings/{id}/answer-proposals`).
- * Each proposal is accepted into the outbox as an answer from the recording; "Whose answer is this?"
- * first when the take does not say who answered.
- */
 @Composable
 fun ProposalsDialog(
     proposals: List<QProposal>,
@@ -259,7 +234,6 @@ fun ProposalsDialog(
     )
 }
 
-/** The least the server needs to create an artisan, typed on the phone with no signal. */
 data class NewArtisan(
     val name: String = "",
     val place: String = "",
@@ -271,14 +245,8 @@ data class NewArtisan(
     val aadhaarDigits: String get() = aadhaar.filter(Char::isDigit)
     val valid: Boolean get() = name.isNotBlank() && place.isNotBlank() && dos.isNotBlank() && donts.isNotBlank() &&
         (aadhaarNotShared || aadhaarDigits.length == 12)
-    // The create the outbox replays is the portal's own body (QuestionnairePortal.artisanCreateJson).
 }
 
-/**
- * Offline artisan registration (DESIGN §6.1.5): the artisan is created on the phone under a local id,
- * which the session and its takes use; the outbox creates them first, and the server's id replaces
- * the local one everywhere it was named.
- */
 @Composable
 fun RegisterArtisanDialog(onDismiss: () -> Unit, onRegister: (NewArtisan) -> Unit) {
     var form by remember { mutableStateOf(NewArtisan()) }

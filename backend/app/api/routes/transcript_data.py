@@ -1,23 +1,3 @@
-"""Transcripts in "View data" and "Download data" (0.0.6): a paged view and streamed downloads.
-
-IDENTICAL IN BOTH PORTALS (listed in ``shared/transcription.sha256``). Same gate and row visibility as
-the data browser: the dataset-download permission, then the browser's own scope (the download scope
-where the portal has one), so a reader sees exactly the recordings the browser shows them.
-
-* ``GET /data/transcripts``                       one page of recordings as JSON (``cursor``, ``limit``):
-                                                   turns, summary, quotes, glossary, chips
-* ``GET /data/transcripts/{kind}.csv|.ndjson``    every matching row, STREAMED: ``recordings`` (one row
-                                                   per recording), ``turns`` (one per turn), ``glossary``
-                                                   (one per term heard in a recording)
-
-Filters (all optional, repeatable or comma-separated): ``language``, ``status``, ``speaker``,
-``researcherId``, ``since``, ``until``, ``hasEnglish``, ``q``, and every questionnaire filter of
-``app/questionnaire/filters.py`` (form, section, question, artisans, workshop, ...).
-
-Consent and the administrator-only cost and model columns follow ``services/transcript_export``.
-Memory stays flat: one batch of recordings is loaded, encoded, sent and dropped before the next.
-"""
-
 from __future__ import annotations
 
 import csv
@@ -45,7 +25,6 @@ PAGE_MAX = transcript_export.BATCH
 
 
 async def _visible_fn(user: Any) -> Any:
-    """The data browser's media scope as ``ids -> visible ids`` (None when it narrows nothing)."""
     from app.api.routes import data_browser
 
     scope = await data_browser._scope_for(user)
@@ -80,7 +59,6 @@ async def transcripts_page(
     limit: int = Query(20, ge=1, le=PAGE_MAX),
     current_user: Any = Depends(require_dataset_downloader),
 ) -> dict[str, Any]:
-    """One page of recordings with everything the transcript pipeline added, for the data browser."""
     f = await _filters(request)
     visible = await _visible_fn(current_user)
     sees_spend = transcript_portal.may_see_spend(current_user)
@@ -108,7 +86,6 @@ async def transcripts_download(
     request: Request,
     current_user: Any = Depends(require_dataset_downloader),
 ) -> StreamingResponse:
-    """Every matching row, streamed as CSV or NDJSON."""
     if kind not in KINDS or fmt not in ("csv", "ndjson"):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "NOT_FOUND", "message": "Not found"})
     f = await _filters(request)
@@ -127,7 +104,7 @@ async def transcripts_download(
         buffer = io.StringIO()
         writer = csv.writer(buffer) if fmt == "csv" else None
         if writer is not None:
-            buffer.write("﻿")  # Excel opens UTF-8 (Devanagari) correctly with a BOM
+            buffer.write("﻿")
             writer.writerow(columns)
         pending = 0
         async for rec in transcript_export.iter_recordings(f, sees_spend=sees_spend, visible=visible):

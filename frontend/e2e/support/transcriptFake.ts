@@ -3,16 +3,6 @@ import { join } from "node:path";
 
 import type { Page, Route } from "@playwright/test";
 
-/**
- * AN IN-MEMORY TRANSCRIPT API FOR THE BROWSER SPEC (`e2e/transcript-web.spec.ts`), shared by both
- * portals (`shared/transcript-web.sha256`).
- *
- * The page runs for real over a production build; every `/api/...` call is answered here. The
- * transcript is the contract's own example (`shared/transcript-contract.json`), with a playable
- * audio url and, where a test asks for it, hostile markdown where the server's markdown goes. What
- * each request asked is kept in `calls`.
- */
-
 export type Call = { method: string; path: string; query: URLSearchParams; body: unknown };
 type Json = Record<string, unknown>;
 
@@ -22,7 +12,6 @@ export const MEDIA_ID = "cm_media_1";
 export const AUDIO_PATH = "/e2e-audio/interview.wav";
 export const VIDEO_PATH = "/e2e-video/workshop.mp4";
 
-/** Thirty seconds of silence, 8 kHz mono 8-bit PCM: enough for the browser to seek and play. */
 export function silentWav(seconds = 30): Buffer {
   const rate = 8000;
   const samples = rate * seconds;
@@ -58,7 +47,6 @@ export class TranscriptFake {
   view: Json;
   role = "ADMIN";
   hostile = false;
-  /** Pipeline off: every transcript route answers 404 NOT_FOUND and the legacy text shows. */
   off = false;
   video = false;
   policy = { autoTranscribeVideo: false, autoTranscribeAudio: false };
@@ -208,8 +196,6 @@ export class TranscriptFake {
       return { status: 200, json: updated };
     }
     if (path === `${base}/english` && method === "POST") {
-      // The server's rule (add_english): one paragraph per turn that needs English, or per turn, lands on
-      // the turns; anything else is kept whole as manualEnglish. Either way the notice goes.
       if (Number(body?.baseRevision) !== Number(this.view.revision))
         return { status: 409, json: { detail: { code: "STALE_REVISION", message: "Changed on another device." } } };
       const paragraphs = String(body?.text ?? "").split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean);
@@ -290,7 +276,6 @@ export class TranscriptFake {
     await page.route(
       (url) => url.pathname === AUDIO_PATH || url.pathname === VIDEO_PATH,
       (route: Route) => {
-        // Byte ranges, so the browser can seek: a media element seeks a stream without them badly.
         const range = /bytes=(\d+)-(\d*)/.exec(route.request().headers()["range"] ?? "");
         if (!range) return route.fulfill({ status: 200, contentType: "audio/wav", headers: { "accept-ranges": "bytes" }, body: wav });
         const start = Number(range[1]);

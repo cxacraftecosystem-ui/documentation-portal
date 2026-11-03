@@ -36,11 +36,6 @@ import com.fieldrepository.app.ui.field
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-/**
- * The month's transcription spend, read only, where admins already see the AI settings (§4.7).
- * Setting the cap is web-only in the designer portal (ministry and admin authoring is), so the
- * phone shows the meter and never a control. Draws nothing for a reader the route refuses.
- */
 @Composable
 fun TranscriptBudgetCard(modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -93,11 +88,6 @@ fun BudgetMeterCard(meter: BudgetMeter, modifier: Modifier = Modifier) {
     }
 }
 
-/**
- * Settings → API keys (0.0.5): ElevenLabs Voice Isolator on each newly transcribed recording. OFF
- * until a master admin turns it on; the original recording is always kept. Draws nothing for a
- * reader the route refuses. [canChange] is the master admin; the server refuses anyone else anyway.
- */
 @Composable
 fun AudioIsolationCard(canChange: Boolean, modifier: Modifier = Modifier) {
     val context = LocalContext.current

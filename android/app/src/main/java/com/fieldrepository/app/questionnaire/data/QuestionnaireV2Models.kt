@@ -8,30 +8,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
-/**
- * Questionnaire v2 wire models: the frozen contract of BUILD_PLAN_2026-10-18.md §1
- * (`shared/questionnaire-contract.json`). Every response field is defaulted so a server one contract
- * step ahead still decodes; requests carry exactly the contract's fields and NEVER a title or a file
- * name (DESIGN §9 test 61).
- *
- * REQUEST DEFAULTS ARE ALWAYS ENCODED (audit C1, 21 Oct 2026). Retrofit encodes with [ApiClient.json],
- * which leaves `encodeDefaults` off for every legacy model, so a defaulted request field was silently
- * dropped: `linkedRecordType = "questionnaire_session"` never reached the server, which then routed
- * every presign and complete to the legacy path and refused it with a 422. Each defaulted field of a
- * request below carries `@EncodeDefault`, so it is on the wire whatever encoder sends it;
- * `ApiClientEncodingTest` encodes every request through [ApiClient.json] and pins the keys.
- *
- * SUBJECT IDS (UNIFY U6, guest respondents). Inside the app a person in a session is one string: an
- * artisan's id, or `R:<respondentId>` for a guest who is not a registered artisan ([QSubjects]). The
- * client models below carry that string in their `artisanId` field, so the coverage grid, the chips,
- * the answer boxes and the outbox treat both alike. Only the wire forms ([QCompleteRequestWire],
- * [QAnswersPutWire]) split it into `artisanId` or `respondentId`, and only the transport sends them.
- */
-
-/** A session subject: an artisan id, or `R:<respondentId>` for a guest (UNIFY U6). */
 object QSubjects {
     const val GUEST_PREFIX = "R:"
-    /** A guest typed on this phone whose respondent row has not reached the server yet. */
     const val LOCAL_GUEST_PREFIX = "R:local-"
 
     fun isGuest(subjectId: String): Boolean = subjectId.startsWith(GUEST_PREFIX)
@@ -40,11 +18,9 @@ object QSubjects {
     fun guest(respondentId: String): String = GUEST_PREFIX + respondentId
     fun newLocalGuest(): String = LOCAL_GUEST_PREFIX + java.util.UUID.randomUUID().toString()
 
-    /** The subject id of a wire row that names one of the two. */
     fun of(artisanId: String?, respondentId: String?): String =
         artisanId?.ifBlank { null } ?: respondentId?.ifBlank { null }?.let(::guest).orEmpty()
 
-    /** Artisans only: what the routes that know only artisans (coverage check, presign) are sent. */
     fun artisans(subjectIds: Collection<String>): List<String> = subjectIds.filterNot(::isGuest)
 }
 
@@ -65,7 +41,6 @@ object QErrorCodes {
     const val CONSENT_REFUSED = "CONSENT_REFUSED"
     const val CONSENT_NOT_RECORDED = "CONSENT_NOT_RECORDED"
     const val APPROVE_BLOCKED = "APPROVE_BLOCKED"
-    /** U9: an answer with text written by someone else (per item of `PUT /answers`, status FORBIDDEN). */
     const val ANSWER_LOCKED = "ANSWER_LOCKED"
     const val RESPONDENT_HAS_ROWS = "RESPONDENT_HAS_ROWS"
     const val FORM_DELETED = "FORM_DELETED"
@@ -79,9 +54,6 @@ object QErrorCodes {
     )
 }
 
-// RepeatReason, SessionPurpose, SubjectRole and CoverageState are the generated enums in SharedEnums.kt
-// (from shared/enums.json); the wire models carry their `.wire` strings.
-
 @Serializable
 data class QConfig(
     val contractVersion: Int = 0,
@@ -92,18 +64,11 @@ data class QConfig(
     val partSizeBytes: Long = 8L * 1024 * 1024,
     val snapshotPollSeconds: Int = 60,
     val joinCodeLength: Int = 6,
-    /** Legacy: a version NAME. Read only when it is a bare number, which is then a versionCode (C7). */
     val minAppVersionForCreate: String? = null,
-    /** The lowest Android versionCode that may create (audit C7); null when there is no cutoff. */
     val minAndroidVersionCodeForCreate: Int? = null,
     val minWebVersionCodeForCreate: Int? = null,
-    /** "designer-portal" or "documentation-portal": which portal answered (UNIFY §4.1). */
     val portal: String? = null
 ) {
-    /**
-     * P14: whether this build is below the server's cutoff. Codes only: names were reset to 0.0.1, so a
-     * name compare would show the banner for ever on the newest build (audit C7).
-     */
     fun updateRequired(versionCode: Int): Boolean {
         val minimum = minAndroidVersionCodeForCreate ?: minAppVersionForCreate?.trim()?.toIntOrNull() ?: return false
         return versionCode < minimum
@@ -117,16 +82,12 @@ data class QErrorDetail(
     val current: JsonElement? = null,
     val diff: JsonElement? = null,
     val count: Int? = null,
-    /** Why, in a word the client acts on (`UPLOAD_MISSING`: the bytes never reached storage). */
     val reason: String? = null,
-    /** The server says the same request can succeed later (after a re-upload, say). */
     val retry: Boolean = false
 )
 
 @Serializable
 data class QErrorBody(val detail: QErrorDetail? = null)
-
-// ── Sessions (§1.2) ──────────────────────────────────────────────────────────────────────────
 
 @Serializable
 data class QArtisanRef(val artisanId: String)
@@ -149,13 +110,10 @@ data class QSessionCreate(
     val note: String? = null,
     @EncodeDefault val participants: List<QArtisanRef> = emptyList(),
     @EncodeDefault val researchers: List<QResearcherRef> = emptyList(),
-    /** Guests who are not registered artisans (UNIFY U6); a session with only guests is fine. */
     val respondents: List<QRespondentInput> = emptyList(),
-    /** APP, UPLOAD or HANDOFF (`SessionSource`); a phone's own sessions are APP. */
     @EncodeDefault val source: String = SessionSource.APP.wire
 )
 
-/** A guest at the start sheet or "+ Add someone else": a named person, or the researcher themself. */
 @Serializable
 data class QRespondentInput(
     val name: String? = null,
@@ -166,14 +124,12 @@ data class QRespondentInput(
 @Serializable
 data class QRespondentsAdd(val respondents: List<QRespondentInput>)
 
-/** A17: edit a guest's name and notes; an empty name retracts it ("Respondent"). */
 @Serializable
 data class QRespondentPatch(val name: String? = null, val notes: String? = null)
 
 @Serializable
 data class QRespondentRegister(val artisanId: String)
 
-/** One guest of a session (`QuestionnaireRespondent`). */
 @Serializable
 data class QRespondent(
     val id: String,
@@ -182,7 +138,6 @@ data class QRespondent(
     val kind: String = RespondentKind.GUEST.wire,
     val notes: String? = null,
     val userId: String? = null,
-    /** Set once the guest was registered as an artisan; their rows then belong to that artisan. */
     val artisanId: String? = null,
     val subjectKey: String? = null,
     val registeredAt: String? = null
@@ -260,10 +215,8 @@ data class QSession(
     val reviewReasons: List<String> = emptyList(),
     val counts: QSessionCounts = QSessionCounts(),
     val source: String = SessionSource.APP.wire,
-    /** Soft-deleted (content admins see these under Deleted, and restore them). */
     val deletedAt: String? = null,
     val respondents: List<QRespondent> = emptyList(),
-    /** The session's chips: form, artisans, date, workshop, language ([ChipRules]). */
     val chips: QChips? = null
 )
 
@@ -302,7 +255,6 @@ data class QSessionDetail(
     val deletedAt: String? = null,
     val respondents: List<QRespondent> = emptyList()
 ) {
-    /** Everyone the session is about: its artisans, then its guests not yet registered (UNIFY U6). */
     val subjectIds: List<String> get() =
         participants.map { it.artisanId } + respondents.filter { it.artisanId == null }.map { it.subjectId }
 
@@ -323,8 +275,6 @@ data class QJoinRequest(val joinCode: String)
 @Serializable
 data class QParticipantPatch(val joinedAt: String? = null, val leftAt: String? = null)
 
-// ── Recording, coverage and media (§1.3) ─────────────────────────────────────────────────────
-
 @Serializable
 data class QTarget(
     val targetKey: String = "",
@@ -335,7 +285,6 @@ data class QTarget(
     val label: String? = null
 )
 
-/** A target as a request names it: exactly one of the two ids. */
 @Serializable
 data class QTargetRef(val sectionId: String? = null, val questionLineageId: String? = null) {
     val targetKey: String get() = if (questionLineageId != null) "Q:$questionLineageId" else "S:$sectionId"
@@ -360,10 +309,8 @@ data class QTranscript(
     val paused: Boolean = true,
     val text: String? = null,
     val language: String? = null,
-    /** The list preview (0.0.6): speakers as labels, never markdown; rebuilt from [text] when absent. */
     val preview: com.fieldrepository.app.transcript.data.TranscriptPreviewDto? = null,
 ) {
-    /** What a row shows under the take: the server's preview, else the same rule over [text]. */
     fun shownPreview(): com.fieldrepository.app.transcript.data.TranscriptPreviewDto? =
         preview?.takeIf { it.lines.isNotEmpty() } ?: text?.let(com.fieldrepository.app.transcript.data.TranscriptPreview::fromMarkdown)
 }
@@ -395,12 +342,9 @@ data class QRecording(
     val downloadName: String? = null,
     val transcript: QTranscript? = null,
     val consent: QConsentVerdict? = null,
-    /** Guests on the take, beside the artisan [subjects] (UNIFY U6). */
     val respondents: List<QRecordingRespondent> = emptyList(),
-    /** The take's chips: section or question, form, people, dates, workshop, language, duration. */
     val chips: QChips? = null
 ) {
-    /** Every subject as one list, guests as `R:<id>` ([QSubjects]). */
     val allSubjects: List<QSubject> get() =
         subjects + respondents.map { QSubject(QSubjects.guest(it.respondentId), it.role, it.named) }
 }
@@ -473,7 +417,6 @@ data class QSnapshotTake(
     val estimated: Boolean = false,
     val filing: String = "FILED",
     val position: Int = 1,
-    /** Not in contract v1's example; read when a later server sends it, for P2's copy. */
     val durationMs: Long = 0,
     val recordedBy: QUserRef? = null,
     val rosterCount: Int = 1,
@@ -486,7 +429,6 @@ data class QSnapshot(
     val asOfSeq: String = "0",
     val takes: List<QSnapshotTake> = emptyList(),
     val removedRecordingIds: List<String> = emptyList(),
-    /** Takes that changed since `sinceSeq`: their old rows go before [takes] are added (a take now PRESENT-only appears in neither list). */
     val changedRecordingIds: List<String> = emptyList()
 )
 
@@ -503,9 +445,7 @@ data class QPresignRequest(
     @EncodeDefault val subjectArtisanIds: List<String> = emptyList(),
     val deviceCapturedAt: String,
     @EncodeDefault val clockOffsetMs: Long = 0,
-    /** When the offset was measured; a stale one marks the capture time estimated (server-side, §3.9). */
     val clockOffsetMeasuredAt: String? = null,
-    /** The take this one continues, so the name the server mints ends `-P2`, not `-T2`. */
     val continuationOfId: String? = null
 )
 
@@ -515,7 +455,6 @@ data class QPresignResponse(
     val url: String = "",
     val headers: Map<String, String> = emptyMap(),
     val expiresAt: String? = null,
-    /** The upload already landed (its intent is closed): nothing is signed, nothing is PUT again. */
     val closed: Boolean = false
 )
 
@@ -525,7 +464,6 @@ data class QPartDone(val partNumber: Int, val etag: String)
 @Serializable
 data class QMultipartCreateResponse(
     val objectKey: String,
-    /** Empty when [closed]: the upload already landed and nothing is opened again. */
     val uploadId: String = "",
     val partSize: Long = 8L * 1024 * 1024,
     val partsDone: List<QPartDone> = emptyList(),
@@ -583,8 +521,6 @@ data class QCompleteRequest(
     val recording: QCompleteRecording
 )
 
-// ── Answers, consent, inbox, record (§1.4) ───────────────────────────────────────────────────
-
 @Serializable
 data class QAnswer(
     val id: String = "",
@@ -597,16 +533,12 @@ data class QAnswer(
     val artisanId: String? = null,
     val questionLineageId: String? = null,
     val respondentId: String? = null,
-    /** A20: the answerer's note on this answer (the revision's `note`). */
     val note: String? = null,
-    /** C8: the answer with its formatting, in the portal's rich-text format; [text] is always the plain words. */
     val richText: String? = null,
-    /** Who wrote the current revision, when the server says (P15 names them). */
     val actorId: String? = null,
     val actorName: String? = null,
     val actor: QUserRef? = null
 ) {
-    /** The subject this answer belongs to: the artisan, or the guest as `R:<id>`. */
     val subjectId: String get() = QSubjects.of(artisanId, respondentId)
     val authorId: String? get() = actorId ?: actor?.id?.ifBlank { null }
     val authorName: String? get() = actorName?.ifBlank { null } ?: actor?.name?.ifBlank { null }
@@ -622,13 +554,10 @@ data class QAnswerItem(
     val sessionId: String,
     val sourceRecordingId: String? = null,
     val baseVersion: Int? = null,
-    /** A20: the answerer's note. */
     val note: String? = null,
-    /** C8: the formatted answer, when the editor has formatting; null for plain prose. */
     val richText: String? = null
 )
 
-/** [artisanId] is a subject id (an artisan, or `R:<respondentId>`); [wire] splits it for the server. */
 @Serializable
 data class QAnswersPut(val items: List<QAnswerItem>) {
     fun wire(): QAnswersPutWire = QAnswersPutWire(items.map { it.wire() })
@@ -660,17 +589,14 @@ data class QAnswersPutWire(val items: List<QAnswerItemWire>)
 
 @Serializable
 data class QAnswerResult(
-    /** A subject id once read ([normalised]); the server sends null here for a guest. */
     val artisanId: String = "",
     val questionLineageId: String,
     val status: String,
     val answer: QAnswer? = null,
     val current: QAnswer? = null,
     val respondentId: String? = null,
-    /** `ANSWER_LOCKED` when the item is someone else's answer (U9, P15). */
     val code: String? = null
 ) {
-    /** The guest's row reads as `R:<id>` like every other subject id in the app. */
     fun normalised(): QAnswerResult = if (artisanId.isBlank() && respondentId != null) copy(artisanId = QSubjects.guest(respondentId)) else this
     val locked: Boolean get() = status == "FORBIDDEN" && code == QErrorCodes.ANSWER_LOCKED
 }
@@ -679,8 +605,6 @@ data class QAnswerResult(
 data class QAnswersPutResponse(val results: List<QAnswerResult> = emptyList()) {
     fun normalised(): QAnswersPutResponse = copy(results = results.map { it.normalised() })
 }
-
-// ── History, removed takes, recording events (B21, B40) ──────────────────────────────────────
 
 @Serializable
 data class QRevision(
@@ -717,11 +641,9 @@ data class QRecordingEvents(val recordingId: String = "", val events: List<QReco
 @Serializable
 data class QRecordingList(val items: List<QRecording> = emptyList())
 
-/** `GET /questionnaire/recordings`: one page of takes matching the shared filters, newest first. */
 @Serializable
 data class QRecordingPage(val items: List<QRecording> = emptyList(), val nextCursor: String? = null)
 
-/** One value a filter can take (`GET /questionnaire/filters`), most used first. */
 @Serializable
 data class QFilterOption(
     val id: String = "",
@@ -750,15 +672,12 @@ data class QFilterOptions(
     val transcript: List<String> = emptyList()
 )
 
-// ── The start sheet's form and the server grid (UNIFY U5, owner amendment 2) ─────────────────
-
 @Serializable
 data class QBoundForm(val questionnaireId: String, val isPrimary: Boolean = false, val kind: String? = null)
 
 @Serializable
 data class QBoundByKind(val kind: String? = null, val questionnaireIds: List<String> = emptyList())
 
-/** `GET /questionnaire/form-for`: the form a session on this workshop opens with, and why. */
 @Serializable
 data class QFormFor(
     val questionnaireId: String? = null,
@@ -773,7 +692,6 @@ data class QFormBinding(val workshopId: String? = null, val designWorkshopId: St
 @Serializable
 data class QFormBindings(val questionnaireId: String = "", val bindings: List<QFormBinding> = emptyList())
 
-/** One cell of the server's grid: the source of the coverage (● recorded, ✎ typed) and the override. */
 @Serializable
 data class QGridCell(
     val artisanId: String? = null,
@@ -784,21 +702,16 @@ data class QGridCell(
     val covered: Int = 0,
     val total: Int = 0,
     val needsDecision: Boolean = false,
-    /** COMPLETED ("Marked complete"), NEEDS_REVIEW or NEEDS_REDO (`SectionStatus`; D1). */
     val override: String? = null,
-    /** RECORDED or TYPED (`CoverageSource`; D4); null when nothing covers it. */
     val source: String? = null,
     val recordedCount: Int = 0,
     val typedOnlyCount: Int = 0,
-    /** A typed-only cell: "Add a recording?", never blocking. */
     val addRecording: Boolean = false,
-    /** The takes behind the dot (0.0.6), oldest first: one opens directly, several open a chooser. */
     val recordings: List<QCoverageRecording> = emptyList()
 ) {
     val subjectId: String get() = QSubjects.of(artisanId, respondentId)
 }
 
-/** One take behind a coverage cell (transcript contract `CoverageRecording`, 0.0.6). */
 @Serializable
 data class QCoverageRecording(
     val recordingId: String,
@@ -828,11 +741,8 @@ data class QGrid(
     fun cell(sectionId: String, subjectId: String): QGridCell? =
         sections.firstOrNull { it.sectionId == sectionId }?.cells?.firstOrNull { it.subjectId == subjectId }
 
-    /** Subject id -> name, for the column heads. */
     val names: Map<String, String> get() = (artisans + respondents).associate { it.subjectId to it.name }
 }
-
-// ── Wire forms of the take (subjects split into artisan or guest) ────────────────────────────
 
 @Serializable
 data class QCompleteSubjectWire(
@@ -907,7 +817,6 @@ data class QConsentPost(
 @Serializable
 data class QSubjectPatch(val artisanId: String, val role: String)
 
-/** `PATCH /recordings/{id}`: only the fields being changed; nulls are left out on the wire. */
 @Serializable
 data class QRecordingPatch(
     val version: Int,
@@ -972,7 +881,6 @@ data class QRecordInstrument(
     val document: List<QRecordSection> = emptyList(),
     val retired: List<JsonElement> = emptyList()
 ) {
-    /** The roster size of the take a group answer came from, when the record holds that take. */
     fun rosterOf(recordingId: String?): Int? = recordingId?.let { id ->
         sessions.asSequence().flatMap { it.recordings.asSequence() + it.uncertain.asSequence() }.firstOrNull { it.id == id }?.rosterCount
     }
@@ -981,26 +889,20 @@ data class QRecordInstrument(
 @Serializable
 data class QArtisanRecord(val artisanId: String, val instruments: List<QRecordInstrument> = emptyList())
 
-// ── Continue, merge, primary, proposals ──────────────────────────────────────────────────────
-
-/** `POST /sessions/continue`: carry on another day with these artisans, as one session or one each. */
 @Serializable
 data class QContinueRequest(
     val fromSessionId: String,
     val artisanIds: List<String>,
     @EncodeDefault val split: String = "ONE",
     val sessionDate: String,
-    /** Keys the sessions the server makes, so a replay of the same request returns them again. */
     val clientKey: String? = null
 ) {
     companion object {
-        /** A single artisan is always one session, whatever the picker said (the web's `continueBody`). */
         fun of(fromSessionId: String, artisanIds: List<String>, split: String, sessionDate: String, clientKey: String? = null) =
             QContinueRequest(fromSessionId, artisanIds, if (artisanIds.size > 1) split else "ONE", sessionDate, clientKey)
     }
 }
 
-/** "File it" (audit H14): a "To file" clip joins [sessionId] as a take of [targets]; [subjects] when named. */
 @Serializable
 data class QFileMediaRequest(
     val sessionId: String,
@@ -1008,7 +910,6 @@ data class QFileMediaRequest(
     val subjects: List<QSubjectPatch>? = null
 )
 
-/** "File it" for a take the server could not place (a legacy question, a session with nobody in it). */
 @Serializable
 data class QFileRecordingRequest(
     @EncodeDefault val targets: List<QTargetRef> = emptyList(),
@@ -1034,8 +935,6 @@ data class QProposal(
 @Serializable
 data class QProposals(val proposals: List<QProposal> = emptyList())
 
-// ── The form a session is on (the forms library's `GET /questionnaires/{id}`) ─────────────────
-
 @Serializable
 data class QFormQuestion(
     val id: String,
@@ -1045,11 +944,8 @@ data class QFormQuestion(
     val sortOrder: Int = 0,
     val isActive: Boolean = true,
     val retiredAt: String? = null,
-    /** The supersede chain's root; answers and coverage key on it. The row id on an older server. */
     val lineageId: String? = null,
-    /** "F7": generated once per lineage and frozen. */
     val displayCode: String? = null,
-    /** A question prefilled from the artisan's profile (B24). */
     val artisanField: String? = null
 )
 
@@ -1074,7 +970,6 @@ data class QFormDetail(
     val sections: List<QFormSection> = emptyList()
 )
 
-/** A form the start sheet can offer. */
 @Serializable
 data class QFormOption(
     val id: String,
@@ -1088,25 +983,18 @@ data class QFormOption(
     val sectionCount: Int? = null
 )
 
-// ── What the start sheet offers (each portal's own lists, in one shape) ──────────────────────
-
-/** A workshop a session can file under: a design workshop here, a workshop in Field Repository. */
 @Serializable
 data class QWorkshopOption(
     val id: String,
     val title: String,
     val code: String? = null,
-    /** "Venue, District": the place a session takes when none is typed. */
     val place: String? = null,
     val district: String? = null,
     val state: String? = null,
-    /** The workshop's craft, for the generated title (§3.12). */
     val craft: String? = null,
-    /** The last change, for "the most recent workshop you may record in" (B30). */
     val updatedAt: String? = null
 )
 
-/** An artisan the start sheet can pick: a registered one, or one typed on this phone (`local-…`). */
 @Serializable
 data class QArtisanOption(
     val id: String,
@@ -1115,10 +1003,8 @@ data class QArtisanOption(
     val craft: String? = null
 )
 
-/** A colleague the "Add researcher" picker offers (`GET /users/directory`). */
 @Serializable
 data class QDirectoryUser(val id: String, val name: String = "", val role: String? = null, val email: String? = null)
 
-/** Approve or return a session in review (`POST /review/questionnaire/{id}/approve|revise`). */
 @Serializable
 data class QReviewAction(val notes: String? = null)

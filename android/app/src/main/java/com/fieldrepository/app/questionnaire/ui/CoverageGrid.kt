@@ -20,10 +20,6 @@ import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.ui.field
 
-/**
- * The session coverage grid (DESIGN §4.3). Wide windows show one column per artisan; a phone shows
- * one summary per section ("D  Process  2/3 ›"), and a tap opens the per-artisan take sheet.
- */
 @Composable
 fun CoverageGrid(
     rows: List<GridRow>,
@@ -68,7 +64,6 @@ fun CoverageGrid(
                                 color = when {
                                     cell.override != null -> MaterialTheme.colorScheme.primary
                                     cell.mark == CellMark.NEEDS_DECISION -> MaterialTheme.colorScheme.tertiary
-                                    // ✎ typed only is the lighter mark: recording is preferred (D4).
                                     cell.mark == CellMark.NONE || cell.mark == CellMark.VIA_SECTION || cell.mark == CellMark.TYPED -> MaterialTheme.field.muted
                                     else -> MaterialTheme.field.body
                                 },
@@ -80,7 +75,6 @@ fun CoverageGrid(
                 }
             }
             Text(QuestionnaireCopy.s("coverage.legend"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.field.muted)
-            // The three admin overrides (D1), only when one is on the grid.
             val overrides = rows.flatMap { it.cells }.mapNotNull { it.override }.distinct()
             if (overrides.isNotEmpty()) Text(
                 overrides.mapNotNull { o -> QuestionnaireCopy.overrideLabel(o)?.let { "${GridCell("", CellMark.NONE, override = o).glyph} $it" } }.joinToString("  "),

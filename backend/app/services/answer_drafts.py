@@ -1,34 +1,3 @@
-"""AI-drafted interview answers from a transcript (C28). Machine-suggested, never machine-written.
-
-── WHAT A PERSON SEES ───────────────────────────────────────────────────────────────────────────
-
-An interview has a transcript (a recording's, or text pasted in). The researcher opens one SECTION
-and presses "Draft from transcript". The model reads the transcript against that section's
-unanswered questions and drafts what the artisan said, question by question; questions the
-transcript does not answer stay empty. The researcher reads the drafts beside the questions, edits
-any of them, and accepts the section — or dismisses it. Nothing is an answer until then.
-
-── THE RULES, AND WHERE EACH IS HELD ────────────────────────────────────────────────────────────
-
-1. **A draft is a row of its own** (``QuestionnaireAnswerDraft``) with the model's words, the
-   provider and the model. Drafting never writes ``QuestionnaireResponse``; only the accept route
-   (``routes/answer_drafts.accept_section``) writes answers, and only the words the person sent.
-2. **Machine-suggested in the data.** An accepted answer carries ``answerOrigin`` =
-   ``MACHINE_SUGGESTED`` when the person kept the model's words exactly, ``MACHINE_SUGGESTED_EDITED``
-   when they changed them, and a later edit through the ordinary save moves the first to the second
-   (``routes/questionnaire.upsert_responses``). The UI labels both.
-3. **A draft never replaces a person's words.** Only questions with no answer text are drafted, and
-   accepting skips a question that has gained an answer since.
-4. **The model may only report the transcript.** The prompt forbids inference, and :func:`parse_answers`
-   keeps only answers to the questions it was asked, clipped, so a reply cannot write to a question
-   outside the section.
-5. **Off by default.** ``AI_ANSWER_DRAFTS_ENABLED``; the routes answer 404 while it is off.
-
-The provider call reuses the AI plumbing already here: ``user_ai_keys.resolve`` picks the
-researcher's own key (or the deployment's), and ``anthropic_verbs.chat_verb`` / the OpenAI and
-Gemini chat endpoints answer, exactly as the text verbs do in the designer portal.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -60,7 +29,6 @@ STATUS_ACCEPTED = "ACCEPTED"
 STATUS_EDITED = "EDITED"
 STATUS_DISMISSED = "DISMISSED"
 
-#: Longest transcript sent, and longest single drafted answer kept.
 TRANSCRIPT_MAX_CHARS = 48_000
 ANSWER_MAX_CHARS = 4_000
 TIMEOUT_SECONDS = 90
@@ -79,7 +47,6 @@ SYSTEM_PROMPT = (
 
 
 def build_prompt(questions: list[tuple[int, str]], transcript: str) -> str:
-    """The user message: numbered questions, then the transcript (clipped)."""
     lines = [f"{n}. {prompt}" for n, prompt in questions]
     return (
         "Questions:\n"
@@ -93,7 +60,6 @@ _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 
 
 def parse_answers(text: str | None, asked: int) -> dict[int, str]:
-    """``{question number: answer}`` for the non-empty answers to questions 1..asked. Never raises."""
     if not text:
         return {}
     cleaned = _FENCE.sub("", text.strip())
@@ -119,7 +85,6 @@ def parse_answers(text: str | None, asked: int) -> dict[int, str]:
 
 
 def _chat_sync(system: str, user: str, credential: Any, settings: Any) -> dict[str, Any]:
-    """One completion on the resolved credential. Returns ``{text, provider, model}``."""
     model = credential.model
     if credential.provider is AiProvider.ANTHROPIC:
         result = anthropic_verbs.chat_verb(
@@ -144,7 +109,6 @@ def _chat_sync(system: str, user: str, credential: Any, settings: Any) -> dict[s
             "provider": "gemini",
             "model": model,
         }
-    # The deployment's OpenAI key runs the deployment's configured chat model, as everywhere else.
     if not credential.is_user_supplied:
         model = settings.openai_chat_model
     response = requests.post(
@@ -167,13 +131,12 @@ def _chat_sync(system: str, user: str, credential: Any, settings: Any) -> dict[s
 
 
 class DraftUnavailable(RuntimeError):
-    """No provider could be asked; the message is a sentence for the researcher."""
+    pass
 
 
 async def draft_answers(
     questions: list[tuple[int, str]], transcript: str, settings: Any, *, user_id: str | None
 ) -> tuple[dict[int, str], str, str]:
-    """``(answers by number, provider, model)``. Raises :class:`DraftUnavailable` with a sentence."""
     credential = await user_ai_keys.resolve(user_id, AiTask.SUMMARISE)
     if credential is None:
         raise DraftUnavailable("Drafting isn't set up. An administrator can add an AI key in Settings.")
@@ -184,13 +147,11 @@ async def draft_answers(
     except anthropic_verbs.AnthropicUnavailable:
         raise DraftUnavailable("Drafting isn't available on this server right now.") from None
     except Exception as exc:  # noqa: BLE001 - a provider error must become a sentence, never a 500
-        # The CLASS only: an exception from a prepared request can carry the key.
         logger.error("answer drafting failed: %s", type(exc).__name__)
         raise DraftUnavailable("Drafting failed. Try again, or type the answers.") from None
     return parse_answers(result.get("text"), len(questions)), result["provider"], result["model"]
 
 
-#: How an export names an answer's origin. Empty for an answer a person typed.
 ORIGIN_LABELS = {
     ORIGIN_MACHINE: "machine-suggested",
     ORIGIN_MACHINE_EDITED: "machine-suggested, edited",
@@ -198,19 +159,16 @@ ORIGIN_LABELS = {
 
 
 def origin_label(origin: str | None) -> str:
-    """"machine-suggested", "machine-suggested, edited", or "" for a typed answer."""
     return ORIGIN_LABELS.get(origin or "", "")
 
 
 def marked_answer(text: str | None, origin: str | None) -> str:
-    """The answer as a text export prints it: the words, then "(machine-suggested)" when drafted."""
     label = origin_label(origin)
     body = text or ""
     return f"{body} ({label})" if label and body.strip() else body
 
 
 def origin_after_edit(current_origin: str | None, old_text: str | None, new_text: str | None) -> str | None:
-    """The ``answerOrigin`` a person's edit leaves behind (rule 2)."""
     if not (new_text or "").strip():
         return None
     if current_origin == ORIGIN_MACHINE and (new_text or "") != (old_text or ""):

@@ -27,12 +27,6 @@ import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import java.io.File
 import java.nio.file.Files
 
-/**
- * Recording chips and the shared filters on Android (owner, 31 Oct 2026), held to
- * `shared/questionnaire-chips.json`, the vectors the web is held to as well: the chips each take
- * shows, what tapping one does, the query every list sends, the lists' routes, the filters kept per
- * screen and the cached rows a list filters with no signal.
- */
 class RecordingFiltersTest {
     private fun repoRoot(): File =
         generateSequence(File(".").absoluteFile) { it.parentFile }.firstOrNull { File(it, "shared/questionnaire-chips.json").isFile }

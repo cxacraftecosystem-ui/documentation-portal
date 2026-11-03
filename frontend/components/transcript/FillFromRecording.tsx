@@ -10,13 +10,6 @@ import { ts } from "@/lib/transcript/strings";
 
 import { Actions, Badge, PRIMARY, SECONDARY, TimeChip } from "./parts";
 
-/**
- * Fill the questionnaire from a take (design §10.3). The server maps the turns to the form's open
- * questions and drafts each answer in the original and in English, citing the turns. They land in
- * the questionnaire's own drafts flow, so they are accepted or edited in the form's answer boxes
- * ("Review in the form") and are never saved from here; Dismiss hides one from this list. Locked
- * answers and "recordings preferred" questions are skipped by the server and listed.
- */
 export function FillFromRecording({ mediaId, onSeek, onReview }: { mediaId: string; onSeek: (ms: number) => void; onReview?: () => void }) {
   const [result, setResult] = useState<AutoDraftResult | null>(null);
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());

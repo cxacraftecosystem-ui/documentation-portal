@@ -1,14 +1,3 @@
-"""The researcher's inbox (DESIGN 4.7): everything that needs a person, never a silent guess.
-
-Each section is scoped to the caller: their own uploads, and the sessions they created or are a
-researcher on. Admins see every row.
-
-Every decision row names what its buttons act on (audit H13, H14): ``otherRecordingId`` for
-"Keep both / Keep one" (``POST /recordings/{id}/decide``), ``part2OfRecordingId`` for "Part 2"
-(``CONTINUATION``), and ``candidate`` / ``candidates`` for "File it" (``POST /recordings/{id}/file``,
-or ``POST /questionnaire/media/{mediaId}/file`` for a clip that has no recording yet).
-"""
-
 from __future__ import annotations
 
 from collections import defaultdict
@@ -39,8 +28,6 @@ async def inbox(user: Any, *, client: Any = None) -> dict[str, Any]:
     db = _db(client)
     admin = is_admin(user)
     uid = str(user.id)
-    # An admin sees every row; "$1 IS NOT NULL" keeps the parameter referenced (Postgres refuses an
-    # unused one it cannot type).
     everything = "$1::text IS NOT NULL"
     scope_media = everything if admin else 'm."uploadedById" = $1'
     scope_session = everything if admin else _mine_sql("i", "$1")
@@ -97,8 +84,6 @@ async def inbox(user: Any, *, client: Any = None) -> dict[str, Any]:
         'SELECT e."id", e."recordingId", e."after", e."at" FROM "QuestionnaireRecordingEvent" e '
         'JOIN "QuestionnaireRecording" r ON r."id" = e."recordingId" JOIN "MediaFile" m ON m."id" = r."mediaFileId" '
         'JOIN "QuestionnaireInterview" i ON i."id" = m."questionnaireInterviewId" '
-        # The affected researchers (DESIGN 3.5): those of the take that is primary now AND those of
-        # the take that stopped being primary, which a late arrival from another session demotes.
         'WHERE e."kind" = \'PRIMARY_CHANGED\' AND e."at" > now() - interval \'30 days\' AND ('
         + (everything if admin else _mine_sql("i", "$1") + ' OR EXISTS (SELECT 1 FROM "QuestionnaireRecording" fr '
            'JOIN "MediaFile" fm ON fm."id" = fr."mediaFileId" JOIN "QuestionnaireInterview" fi ON fi."id" = fm."questionnaireInterviewId" '
@@ -107,7 +92,6 @@ async def inbox(user: Any, *, client: Any = None) -> dict[str, Any]:
         uid,
     )
 
-    # The chips of every take and clip listed (owner, 31 Oct 2026), in a fixed number of reads.
     from app.questionnaire import chips, recordings
 
     decision_rows = await recordings.recording_rows(db, recording_ids=[str(d["id"]) for d in decisions]) if decisions else []
@@ -115,8 +99,6 @@ async def inbox(user: Any, *, client: Any = None) -> dict[str, Any]:
     clip_chips = await chips.for_media(db, [str(m["id"]) for m in to_file if m.get("sessionId")])
     legacy = [d for d in decisions if d.get("decisionKind") == "UNRESOLVED_LEGACY"]
     needs = [d for d in decisions if d.get("decisionKind") != "UNRESOLVED_LEGACY"]
-    # "Set dates" is one row per workshop DAY (audit Low): the sessions an estimated date put on one
-    # day are fixed together, never a whole workshop's worth at once.
     by_day: dict[tuple[Any, Any, Any], list] = defaultdict(list)
     for s in set_dates:
         day = as_date(s.get("sessionDate"))
@@ -173,8 +155,6 @@ def _list(value: Any) -> list[Any]:
 
 
 async def _other_takes(db: Any, recording_ids: list[str]) -> dict[str, list[str]]:
-    """recordingId -> the other live takes "Keep one" chooses between: same session, a shared target
-    and a shared ANSWERED artisan, earliest first."""
     if not recording_ids:
         return {}
     rows = await db.query_raw(
@@ -186,8 +166,6 @@ async def _other_takes(db: Any, recording_ids: list[str]) -> dict[str, list[str]
         'JOIN "QuestionnaireRecording" o ON o."id" = ot."recordingId" AND o."removedAt" IS NULL '
         'JOIN "MediaFile" om ON om."id" = o."mediaFileId" AND om."removedAt" IS NULL '
         'JOIN "QuestionnaireInterview" oi ON oi."id" = om."questionnaireInterviewId" '
-        # The same session, or (DESIGN 3.3 rule 3) a CONCURRENT take's twin in another session of the
-        # same day, captured within the same two hours: "Keep one" must be able to name it.
         '  AND (om."questionnaireInterviewId" = m."questionnaireInterviewId" OR (r."decisionKind" = \'CONCURRENT\' '
         '       AND oi."sessionDate" = si."sessionDate" AND abs(extract(epoch FROM o."capturedAt" - r."capturedAt")) <= 7200)) '
         'WHERE r."id" = ANY($1::text[]) AND EXISTS (SELECT 1 FROM "QuestionnaireRecordingSubject" s '
@@ -203,7 +181,6 @@ async def _other_takes(db: Any, recording_ids: list[str]) -> dict[str, list[str]
 
 
 async def _part2_recordings(db: Any, decisions: list[dict[str, Any]]) -> dict[str, str]:
-    """recordingId -> the recording a "Part 2" candidate continues (the backfill names its file)."""
     wanted: dict[str, str] = {}
     for d in decisions:
         for c in _list(d.get("candidates")):

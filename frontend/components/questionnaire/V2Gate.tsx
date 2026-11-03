@@ -7,11 +7,6 @@ import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionna
 import { qs } from "@/lib/questionnaire/qs";
 import { FORMS_HREF } from "@/lib/questionnairePortal";
 
-/**
- * The session screens draw only while the server serves them (`GET /questionnaire/config`,
- * `v2Enabled`). With `QUESTIONNAIRE_V2` off there are no sessions, and the forms library is where the
- * work is, so the page goes there instead of drawing a list that can never fill.
- */
 export function V2Gate({ children }: { children: ReactNode }) {
   const router = useRouter();
   const config = useQuestionnaireConfig();

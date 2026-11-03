@@ -1,7 +1,3 @@
-"""One artisan record (DESIGN 4.6, decision D11): a timeline of every recording they were present
-for, plus a by-question document, per instrument. ``GET /api/artisans/{id}/record`` and ``.csv``.
-"""
-
 from __future__ import annotations
 
 import csv
@@ -53,8 +49,6 @@ async def artisan_record(artisan_id: str, user: Any, *, questionnaire_id: str | 
             artisan_id, qid,
         )
         serialized = await sessions.serialize_sessions(db, session_rows)
-        # Every session's recordings in one read and one serialisation, then dealt back out per
-        # session in the order the per-session read returned them (the ORDER BY is the same).
         session_ids = [str(srow["id"]) for srow in session_rows]
         all_rows = await recordings.recording_rows(db, session_ids=session_ids) if session_ids else []
         all_recs = await recordings.serialize_recordings(db, all_rows, user)
@@ -85,9 +79,6 @@ async def artisan_record(artisan_id: str, user: Any, *, questionnaire_id: str | 
         doc: dict[str, list] = defaultdict(list)
         retired = []
         section_order: list[str] = []
-        # ONE entry per lineage (audit M17): a reworded question is listed once, under the wording asked
-        # now; a question the builder deleted (isActive off) or whose section was deleted is not live
-        # and is listed under "retired" only when it holds takes or an answer.
         lineages: dict[str, list[dict[str, Any]]] = {}
         for q in questions:
             lineages.setdefault(str(q.get("lineageId") or q["id"]), []).append(q)
@@ -107,8 +98,6 @@ async def artisan_record(artisan_id: str, user: Any, *, questionnaire_id: str | 
                 "primaryRecordingId": primary,
                 "otherRecordingIds": sorted({str(t["recordingId"]) for t in qtakes} - {primary} if primary else set()),
                 "accountsDiffer": False,
-                # Where this question's coverage comes from (owner, amendment 2 point 4): a recording
-                # when there is one (preferred), else a typed answer, else nothing.
                 "coverageSource": coverage.SOURCE_RECORDED if recorded else (coverage.SOURCE_TYPED if typed else None),
                 "recordedUnderEarlierWording": any(t.get("askedQuestionId") and str(t["askedQuestionId"]) != str(q["id"]) for t in qtakes),
             }
@@ -140,7 +129,6 @@ def _is_live(q: dict[str, Any]) -> bool:
 
 
 async def artisan_record_csv(artisan_id: str, user: Any, *, questionnaire_id: str | None = None, client: Any = None) -> tuple[str, str]:
-    """``(file name, csv text)``: one row per question, with its answer and takes."""
     db = _db(client)
     record = await artisan_record(artisan_id, user, questionnaire_id=questionnaire_id, client=db)
     name_rows = await db.query_raw('SELECT "name", "localName" FROM "Artisan" WHERE "id" = $1', artisan_id)

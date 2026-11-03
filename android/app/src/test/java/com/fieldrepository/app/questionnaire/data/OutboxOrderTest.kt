@@ -9,12 +9,6 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.time.Instant
 
-/**
- * DESIGN §9 tests 52 and 53: one ordered unit per session. Offline: register an artisan, start a
- * session, add a participant, record 3 takes; on reconnect every step goes once, in order, and the
- * bytes sent equal the file sizes. A failed clip blocks nothing; at most 3 clips upload at once and 1
- * on a slow link; a multipart upload resumes from its stored ETags after a drop.
- */
 @QFeature("B38")
 class OutboxOrderTest {
     @get:Rule val tmp = TemporaryFolder()
@@ -44,13 +38,9 @@ class OutboxOrderTest {
         assertEquals(listOf("artisan", "session", "complete:k1", "participant:add:a2", "complete:k2", "complete:k3", "answers"), order)
         assertEquals(1500L, server.bytesPut)
         assertEquals(0, first.remaining)
-        // The offline artisan's local id became the server's id everywhere it was named.
         assertTrue(server.bodies.none { it.contains("local-meena") && !it.contains("Meena\"}") })
-        // The answers typed before the session synced now name the server's session.
         assertTrue(server.bodies.last().contains("\"sessionId\":\"s-2\""))
 
-        // A second pass sends nothing: everything was ticked off. The unit stays while the session is
-        // open (audit C2), and goes once its Finish has landed.
         val callsBefore = server.calls.size
         outbox.sync(server, "u3")
         assertEquals(callsBefore, server.calls.size)
@@ -89,7 +79,6 @@ class OutboxOrderTest {
         val server = FakeSessionTransport().apply { putDelayMs = 80 }
         outbox.sync(server, "u3")
         assertEquals(3, server.maxInFlight)
-        // 100 bytes in about 80 ms is ~1.2 kB/s: far under 50 kbps, so the next pass goes one by one.
         assertEquals(1, outbox.concurrency())
 
         outbox.startSession(body("c-4", listOf("a1")), "u3")

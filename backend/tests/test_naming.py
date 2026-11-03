@@ -1,13 +1,3 @@
-"""THE NAMING CONVENTION (owner correction, 18 Oct 2026; docs/conventions/NAMING_2026-10-18.md).
-
-``app/services/naming.py`` is held here to two tables that ``frontend/lib/naming.ts``
-(``e2e/naming-unit.spec.ts``) and ``data/Naming.kt`` (``NamingTest``) answer to as well:
-``shared/session-title.json`` (the frozen questionnaire contract: titles, recording names,
-transliteration, exports, collisions; DESIGN tests 35a and 35b) and ``shared/naming-golden.json``
-(every other generated name). When the sibling checkout is present, the tables and the three
-implementations must be the same bytes in both portals. No database.
-"""
-
 from __future__ import annotations
 
 import json
@@ -29,13 +19,8 @@ ROWS = CONTRACT["golden"]
 LEAF_KEY = KEY_RE = re.compile(r"^media/[^/]+/[0-9a-f]{32}/[A-Za-z0-9._-]{1,150}$")
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The questionnaire contract (shared/session-title.json)
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 def _here(name: str) -> str:
-    """The contract's rows are written for documentation-portal; designer-portal's word replaces it."""
     return name.replace("FieldRepository_", f"{PORTAL}_", 1)
 
 
@@ -154,10 +139,6 @@ def test_content_disposition_carries_ascii_and_utf8_names() -> None:
     assert "%E0%A4%97" in header
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# Every other generated name (shared/naming-golden.json)
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 def golden() -> dict:
     return json.loads(GOLDEN_FILE.read_text(encoding="utf-8"))
@@ -206,7 +187,6 @@ def test_fields_places_sequences_leaves_and_collisions_match_the_golden_table():
 
 @pytest.mark.parametrize("row", golden()["recordingSequences"], ids=lambda r: json.dumps(r["input"])[:60])
 def test_recording_sequences_read_the_question_after_its_own_section_code(row):
-    # "F21" in section F2 is question 1: the section comes from the target, never from the display code.
     i = row["input"]
     got = naming.recording_sequence(
         i["targets"], part=i.get("part"), position=i.get("position"), roster_count=i.get("rosterCount")
@@ -234,7 +214,7 @@ def test_the_portal_word_is_this_repositorys():
 
 
 def test_exports_are_dated_in_ist_and_templates_are_not():
-    late_utc = datetime(2026, 10, 18, 20, 0, tzinfo=UTC)  # 01:30 on the 19th in IST
+    late_utc = datetime(2026, 10, 18, 20, 0, tzinfo=UTC)
     assert "_2026-10-19_" in naming.export_filename("Dataset", "Export", "zip", at=late_utc)
     assert naming.export_filename("Annual-Plan", "Pro-Forma", "xlsx", dated=False) == (
         f"{PORTAL}_Annual-Plan_Pro-Forma.xlsx"
@@ -269,11 +249,6 @@ def test_content_disposition_carries_an_ascii_name_and_the_utf8_one():
     assert naming.content_disposition("a.pdf", inline=True).startswith("inline; ")
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The two repositories
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
-#: The files that must be the same bytes in both repositories (line endings aside).
 SHARED_FILES = (
     "shared/naming-golden.json",
     "shared/session-title.json",

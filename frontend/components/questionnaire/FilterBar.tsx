@@ -23,25 +23,12 @@ import { languageLabel } from "@/lib/questionnaire/languages";
 import { qs, type QsKey } from "@/lib/questionnaire/qs";
 import { FilterMultiSelect } from "@/lib/questionnairePortal";
 
-/**
- * The search box and filters every questionnaire list shares (owner, 31 Oct 2026): questionnaire,
- * section or question, artisans, researcher, workshop, dates, kind, source, transcript and language.
- * The list itself filters on the server; this only edits the `Filters` its page keeps in the URL
- * (`useUrlFilters`). A filter set by tapping a chip shows here as a removable pill, under the chip's
- * own words.
- *
- * `hide` leaves out the controls a screen fixes (a form's own sessions hide the questionnaire) or
- * cannot use (the forms library has no transcript).
- */
-
-/** Labels of values chosen by tapping a chip, so their pills read as the chip did. */
 const remembered = new Map<string, string>();
 
 export function rememberFilterLabel(filter: ChipFilter, label: string): void {
   remembered.set(`${filter.key}=${filter.value}`, label);
 }
 
-/** The `onChip` of a list: note the chip's words and toggle its filter. */
 export function chipToggler(filters: Filters, setFilters: (next: Filters) => void) {
   return (filter: ChipFilter, chip: DisplayChip) => {
     rememberFilterLabel(filter, chip.label);
@@ -58,12 +45,9 @@ type Pill = { key: MultiKey | "date"; value: string; label: string };
 export type FilterBarProps = {
   filters: Filters;
   onChange: (next: Filters) => void;
-  /** The search box's words (who and what it searches). */
   placeholder: string;
   hide?: FilterKey[];
-  /** Pre-filled labels for values the page knows (a fixed form's title …). */
   labels?: Record<string, string>;
-  /** False where the page keeps its own search box (the forms library); the filters still apply. */
   search?: boolean;
 };
 
@@ -77,7 +61,6 @@ export function FilterBar({ filters, onChange, placeholder, hide = [], labels = 
   }, [filters]);
   const shows = (key: FilterKey) => !hide.includes(key);
 
-  // The box follows the URL (Back, a chip clearing it) without fighting the reader's typing.
   useEffect(() => setText(filters.q ?? ""), [filters.q]);
   useEffect(() => {
     if (!search || (filters.q ?? "") === text.trim()) return;
@@ -113,7 +96,6 @@ export function FilterBar({ filters, onChange, placeholder, hide = [], labels = 
     list.map((o) => ({ value: `${o.type === "DESIGN" ? "d" : "w"}:${o.id}`, label: o.label }));
   const sectionOptions = sectionRows(options.sections, options.questions);
 
-  /** One field's options from the server for what the reader typed. */
   const searchField = (field: FilterField) => (term: string) =>
     questionnaireApi.filterOptions(field, term).then((answer) => opt(answer[field]));
   const searchSections = (term: string) =>
@@ -123,7 +105,6 @@ export function FilterBar({ filters, onChange, placeholder, hide = [], labels = 
     ]).then(([a, b]) => sectionRows(a.sections, b.questions));
   const searchWorkshops = (term: string) => questionnaireApi.filterOptions("workshops", term).then((answer) => workshopOpts(answer.workshops));
 
-  /** The values' own rows (label from what is known), so a search never blanks a chosen one. */
   const selectedRows = (key: string, values: string[]): SelectOption[] =>
     values.map((v) => {
       const [k, id] =

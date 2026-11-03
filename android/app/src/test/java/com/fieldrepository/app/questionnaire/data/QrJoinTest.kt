@@ -7,10 +7,6 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.Instant
 
-/**
- * DESIGN §9 test 55: the join QR round-trips through a real symbol (ZXing runs on the JVM), and two
- * phones that joined offline under one `clientKey` end up in ONE session once both outboxes sync.
- */
 @QFeature("B4")
 class QrJoinTest {
     private val payload = JoinQrPayload(

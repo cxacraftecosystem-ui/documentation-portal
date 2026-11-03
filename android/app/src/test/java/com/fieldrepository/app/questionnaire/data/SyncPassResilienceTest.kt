@@ -11,19 +11,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import com.fieldrepository.app.questionnaire.QFeature
 
-/**
- * Audit M23 (21 Oct 2026), the Android gaps that strand or lose takes:
- * - one stuck legacy entry held every v2 take behind it;
- * - a pass that threw ended the worker with nothing scheduled;
- * - any brief audio-focus loss (a notification, the assistant) ended the take;
- * - P13 Discard could delete a take that had been queued in the meantime.
- */
 @QFeature("B38")
 class SyncPassResilienceTest {
     @Test fun `a legacy entry the server keeps answering without taking no longer holds the v2 queue`() = runBlocking {
         var ran = false
         val outcome = QuestionnaireSync.pass(
-            legacyDrain = { /* the server answered; the entry neither landed nor was refused */ },
+            legacyDrain = { },
             legacyQuestionnaireWaiting = { 1 },
             v2 = { ran = true; SessionOutbox.PassResult(1, 0, 0) },
             serverAnswering = { true }

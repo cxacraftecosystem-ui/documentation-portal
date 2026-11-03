@@ -1,12 +1,3 @@
-/**
- * Recording chips (owner, 31 Oct 2026): what a take answers, on which form, who answered, when, where.
- *
- * The server sends `chips` on every recording, session and inbox row (`backend/app/questionnaire/
- * chips.py`); `displayChips` turns it into the pills every screen draws, with exactly the labels,
- * order and filters of `shared/questionnaire-chips.json` — the vectors Android's twin
- * (`questionnaire/data/RecordingChips.kt`) is held to as well.
- */
-
 import { languageLabel } from "@/lib/questionnaire/languages";
 import { qs } from "@/lib/questionnaire/qs";
 
@@ -41,7 +32,6 @@ export type RecordingChips = {
   source: string;
 };
 
-/** The filter a chip applies: a filter key, or "date" (sets dateFrom and dateTo to that day). */
 export type ChipFilter = { key: string; value: string };
 
 export type ChipKind =
@@ -64,14 +54,12 @@ export const MAX_PEOPLE = 2;
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-/** `2026-07-07` → `7 Jul 2026` (read as a calendar day, never through a time zone). */
 export function chipDay(iso: string): string {
   const [y, m, d] = iso.slice(0, 10).split("-").map((part) => Number(part));
   if (!y || !m || !d) return iso;
   return `${d} ${MONTHS[m - 1]} ${y}`;
 }
 
-/** `m:ss` under an hour, `h:mm:ss` from an hour. */
 export function chipDuration(ms: number): string {
   const total = Math.max(0, Math.round(ms / 1000));
   const h = Math.floor(total / 3600);
@@ -95,7 +83,6 @@ function languageName(code: string): string {
   return label && label !== code ? label : code.toUpperCase();
 }
 
-/** The pills for one recording (or session), in the shared order. */
 export function displayChips(
   chips: RecordingChips | null | undefined,
   options: { maxTargets?: number; maxPeople?: number; targets?: boolean; people?: boolean } = {}
@@ -107,7 +94,6 @@ export function displayChips(
 
   const targets = (chips.targets ?? []).map(targetChip);
   if (options.targets === false) {
-    // A session's chips: nothing about a take.
   } else if (targets.length === 0) {
     out.push({ kind: "target", label: qs("chipWholeSession"), filter: null });
   } else {
@@ -161,7 +147,6 @@ export function displayChips(
   return out;
 }
 
-/** A session's chips: the form, the people, the day, the workshop and the language. */
 export function sessionChips(chips: RecordingChips | null | undefined, options: { maxPeople?: number; people?: boolean } = {}): DisplayChip[] {
   return displayChips(chips, { ...options, targets: false });
 }

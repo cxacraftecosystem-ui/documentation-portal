@@ -1,12 +1,3 @@
-"""The admin Transcription panel: pause, providers on/off, budgets, and what the service is doing.
-
-IDENTICAL IN BOTH PORTALS. Reads are for admins; every change is a master-admin action and leaves
-an ``AUDIT`` line in the journal (the convention ``routes/settings.py`` uses for provider tests).
-
-``POST /settings/transcription/retry-failed`` is DRY-RUN by default and REFUSES to apply while the
-pause is set (owner hold, 18 Oct 2026): nothing here can start a transcription.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -48,7 +39,6 @@ class TranscriptionSettingsUpdate(BaseModel):
     paused: bool | None = None
     disabledProviders: list[Literal["elevenlabs", "deepgram", "whisper", "muse"]] | None = None
     budgets: list[BudgetIn] | None = Field(default=None, max_length=8)
-    #: ElevenLabs Voice Isolator on newly transcribed recordings (0.0.5). Off until switched on.
     audioIsolation: bool | None = None
     autoTranscribeVideo: bool | None = None
     autoTranscribeAudio: bool | None = None
@@ -99,7 +89,6 @@ async def _state() -> dict[str, Any]:
             else app_settings.DEFAULT_TIMEZONE,
         },
         "mode": app_settings.transcription_mode(row),
-        # Voice Isolator (0.0.5): the switch, and whether the ElevenLabs key it needs is set.
         "audioIsolation": {
             "enabled": bool(getattr(row, "audioIsolationEnabled", False)) if row is not None else False,
             "keyConfigured": bool(managed_secrets.peek_secret(audio_isolation.KEY_NAME)),
@@ -115,8 +104,6 @@ async def _state() -> dict[str, Any]:
 
 @router.get("")
 async def get_transcription_settings(_: Any = Depends(require_admin)) -> dict[str, Any]:
-    """The pause, every provider's on/off and key state, the window, budgets, queue depth, minutes
-    and spend (today and this month), active cooldowns and the last 20 failures."""
     return await _state()
 
 
@@ -124,7 +111,6 @@ async def get_transcription_settings(_: Any = Depends(require_admin)) -> dict[st
 async def update_transcription_settings(
     payload: TranscriptionSettingsUpdate, current_user: Any = Depends(require_master_admin)
 ) -> dict[str, Any]:
-    """Pause or resume, switch providers on or off, and set budgets. Master admin only."""
     if payload.paused is not None or payload.disabledProviders is not None:
         await app_settings.save_transcription_switches(
             paused=payload.paused,
@@ -186,7 +172,6 @@ async def get_backfill(_: Any = Depends(require_admin)) -> dict[str, Any]:
 async def retry_failed_transcriptions(
     payload: RetryFailedIn, current_user: Any = Depends(require_master_admin)
 ) -> dict[str, Any]:
-    """Requeue failed transcription jobs. DRY-RUN unless ``dryRun`` is false, and never while paused."""
     jobs = await db.mediaprocessingjob.find_many(
         where={"jobType": "TRANSCRIPTION", "status": "FAILED"},
         order={"createdAt": "asc"},

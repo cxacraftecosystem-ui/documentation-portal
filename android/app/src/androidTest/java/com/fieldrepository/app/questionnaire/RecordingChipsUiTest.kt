@@ -28,12 +28,6 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/**
- * Recording chips on a device (owner, 31 Oct 2026): a list of takes, each with its chips; tapping an
- * artisan's chip filters the list to that artisan's takes, the filter shows as a pill, and removing
- * the pill brings every take back. The filtering is the offline rule ([QuestionnaireFilters.matches])
- * the lists use with no signal.
- */
 @RunWith(AndroidJUnit4::class)
 class RecordingChipsUiTest {
     @get:Rule
@@ -64,14 +58,12 @@ class RecordingChipsUiTest {
                 }
             }
         }
-        // E1: the chips read as the shared vectors say.
         compose.onNodeWithText("A · Materials").assertIsDisplayed()
         compose.onNodeWithText("Meena · present").assertIsDisplayed()
         compose.onNodeWithText("22 Oct 2026").assertIsDisplayed()
         compose.onNodeWithText("25:24").assertIsDisplayed()
         assertEquals(2, compose.onAllNodesWithTag("take-row").fetchSemanticsNodes().size)
 
-        // E2: tapping Giriraj filters the list to his take.
         compose.onAllNodesWithText("Giriraj").onFirst().performClick()
         compose.waitForIdle()
         assertEquals(listOf("a1"), latest["artisanId"])
@@ -79,7 +71,6 @@ class RecordingChipsUiTest {
         compose.onNodeWithText("Interview one").assertIsDisplayed()
         compose.onNodeWithText("Filters (1)").assertIsDisplayed()
 
-        // The pill removes itself and every take is back.
         compose.onNodeWithTag("filter-pill").performClick()
         compose.waitForIdle()
         assertEquals(2, compose.onAllNodesWithTag("take-row").fetchSemanticsNodes().size)

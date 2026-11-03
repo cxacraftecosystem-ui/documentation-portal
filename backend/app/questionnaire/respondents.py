@@ -1,18 +1,3 @@
-"""GUEST RESPONDENTS (owner decision 1, 21 Oct 2026; UNIFY U6): a person who is not a registered
-artisan can answer a form, in both portals.
-
-A respondent belongs to one session: a named GUEST (a market-survey shopper, a visitor) or SELF (the
-signed-in designer or researcher answering their own form). Their answers are ``QuestionnaireAnswer``
-rows owned by ``respondentId`` instead of ``artisanId`` (a CHECK holds exactly one), unique per
-question lineage; their place on a take is a ``QuestionnaireRecordingRespondent`` row beside the
-artisan subjects. The subject key is ``R:<respondentId>`` (``subjects.py``).
-
-Registering a guest as an artisan (``register``) moves their answers, their take subjects and their
-place in the session to that artisan IN ONE TRANSACTION, and refuses with ``RESPONDENT_HAS_ROWS``
-(nothing moved) when the artisan already has an answer on one of the same questions. Personal data
-is retracted by editing the name and notes (A17); a respondent with rows is never deleted.
-"""
-
 from __future__ import annotations
 
 from datetime import timedelta
@@ -25,7 +10,6 @@ from app.questionnaire.common import fail, get, iso
 KINDS = ("GUEST", "SELF")
 NAME_MAX = 120
 NOTES_MAX = 2000
-#: What a retracted name reads as (A17: "retract personal data").
 RETRACTED_NAME = "Respondent"
 TX_TIMEOUT = timedelta(seconds=20)
 TX_MAX_WAIT = timedelta(seconds=15)
@@ -36,8 +20,6 @@ def _db(client: Any) -> Any:
 
 
 def clean(name: Any, kind: Any, notes: Any, user: Any) -> dict[str, Any]:
-    """A respondent's fields, validated: ``{name, kind, notes, userId}``. A SELF respondent is the
-    caller (their name when none is given); a GUEST needs a name."""
     kind_t = str(kind or "GUEST").strip().upper()
     if kind_t not in KINDS:
         fail("VALIDATION_FAILED", f"A respondent is one of {', '.join(KINDS)}.")
@@ -80,7 +62,6 @@ async def require(client: Any, respondent_id: str, session_id: str | None = None
 
 
 async def insert_many(client: Any, session_id: str, items: list[dict[str, Any]], user: Any) -> list[str]:
-    """Write already-cleaned respondents (``clean``) to a session; the caller holds the transaction."""
     ids = []
     for item in items:
         rid = uuid4().hex
@@ -94,7 +75,6 @@ async def insert_many(client: Any, session_id: str, items: list[dict[str, Any]],
 
 
 async def add(session_id: str, items: list[Any], user: Any, *, client: Any = None) -> list[dict[str, Any]]:
-    """``POST /sessions/{id}/respondents``: whoever may work in the session."""
     db = _db(client)
     session = await sessions.require_session(db, session_id)
     await sessions.assert_can_work_in(db, user, session)
@@ -106,8 +86,6 @@ async def add(session_id: str, items: list[Any], user: Any, *, client: Any = Non
 
 
 async def patch(session_id: str, respondent_id: str, payload: Any, user: Any, *, client: Any = None) -> dict[str, Any]:
-    """``PATCH /sessions/{id}/respondents/{rid}`` (A17): the name and the notes. An empty name
-    retracts it ("Respondent"); empty notes clear them."""
     db = _db(client)
     session = await sessions.require_session(db, session_id)
     await sessions.assert_can_work_in(db, user, session)
@@ -141,8 +119,6 @@ async def row_counts(client: Any, respondent_id: str) -> dict[str, int]:
 
 
 async def remove(session_id: str, respondent_id: str, user: Any, *, client: Any = None) -> None:
-    """``DELETE /sessions/{id}/respondents/{rid}``: only a respondent with no answers and no takes
-    (one added by mistake). Anything else is ``RESPONDENT_HAS_ROWS``: retract the name instead."""
     db = _db(client)
     session = await sessions.require_session(db, session_id)
     await sessions.assert_can_work_in(db, user, session)
@@ -154,9 +130,6 @@ async def remove(session_id: str, respondent_id: str, user: Any, *, client: Any 
 
 
 async def register(respondent_id: str, artisan_id: str, user: Any, *, client: Any = None) -> dict[str, Any]:
-    """``POST /respondents/{rid}/register``: the guest IS this artisan. Their answers, take subjects
-    and session place move to the artisan in one transaction; ``RESPONDENT_HAS_ROWS`` (nothing moved)
-    when the artisan already answered one of the same questions."""
     db = _db(client)
     row = await require(db, respondent_id)
     session = await sessions.require_session(db, str(row["sessionId"]))

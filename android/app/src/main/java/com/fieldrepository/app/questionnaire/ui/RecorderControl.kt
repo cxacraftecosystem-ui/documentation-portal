@@ -26,11 +26,9 @@ import com.fieldrepository.app.recording.RecordingService
 import com.fieldrepository.app.ui.field
 import kotlinx.coroutines.delay
 
-/** Below about 500 MB the recorder warns with the minutes left at 64 kbps (8 000 bytes a second). */
 internal fun spaceWarning(freeBytes: Long): String? =
     if (freeBytes >= 500L * 1024 * 1024) null else QuestionnaireCopy.spaceLeft((freeBytes / 8_000 / 60).coerceAtLeast(0))
 
-/** Pause, resume and stop for the running take, its elapsed time, and the storage warning. */
 @Composable
 fun RecorderControl(state: RecordingService.State.Recording) {
     val context = LocalContext.current
@@ -56,10 +54,6 @@ fun RecorderControl(state: RecordingService.State.Recording) {
     }
 }
 
-/**
- * "Answered by" after Stop (§3.4): every artisan in the roster preselected; unticking one makes them
- * PRESENT, never deleted. Remembers the last choice within a section through [initial].
- */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AnsweredByChips(roster: List<HeaderParticipant>, initial: Set<String>, onConfirm: (Set<String>) -> Unit) {

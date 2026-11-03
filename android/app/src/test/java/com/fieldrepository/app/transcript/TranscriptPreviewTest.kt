@@ -18,11 +18,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * 0.0.6: list previews, speaker colours and reading mode. The preview and the colour rule are the
- * server's (`transcript/preview.py`); every case of the contract's `fixtures.preview` and
- * `fixtures.speakerColor` is reproduced here, and the palette is the contract's `speakerPalette`.
- */
 class TranscriptPreviewTest {
     private val contract get() = TranscriptContractTest.contract
     private val fixtures: JsonObject get() = contract["fixtures"]!!.jsonObject
@@ -100,7 +95,6 @@ class TranscriptPreviewTest {
         val paragraphs = TranscriptReading.paragraphs(turns)
         assertEquals(listOf(listOf("a", "b"), listOf("c"), listOf("d")), paragraphs.map { it.turnIds })
         assertEquals("How do you make these?", paragraphs[0].original)
-        // English falls back to the original turn by turn; an all-English run has nothing more to show.
         assertEquals("How do you make these?", paragraphs[0].english)
         assertNull(paragraphs[1].english)
         assertEquals("With clay.", TranscriptReading.text(paragraphs[1], CopyTrack.ENGLISH))

@@ -17,11 +17,6 @@ import org.junit.Test
 import java.time.Instant
 import java.time.LocalDate
 
-/**
- * The start sheet's rules (DESIGN §4.2, UNIFY §2.3 rule 5, owner amendment 2): the default workshop,
- * the form a workshop opens with, the forms grouped by kind, the generated title, guests, and what a
- * create carries.
- */
 class StartSheetRulesTest {
     private val forms = listOf(
         QFormOption("f1", "Toolkit", kind = "WORKSHOP_INTERVIEW", kindLabel = "Workshop interview"),
@@ -35,7 +30,6 @@ class StartSheetRulesTest {
         assertEquals("a form this account cannot see is ignored", "f3", startFormFor("gone", "f3", forms))
         assertEquals("f2", startFormFor(null, "", forms))
         assertEquals("f1", startFormFor(null, "", forms.map { it.copy(isDefault = false) }))
-        // Grouped by kind, a bound form first in its kind and marked.
         val options = formOptions(forms, bound = setOf("f1"))
         assertEquals(listOf("f1", "f2", "f3"), options.map { it.value })
         assertEquals("Workshop interview · Bound to this workshop", options.first().hint)

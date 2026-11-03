@@ -1,27 +1,3 @@
-"""The transcript pipeline: Scribe v2 turns, Gemini 3.8 Flash English, and everything built on them.
-
-IDENTICAL IN BOTH PORTALS (listed in ``shared/transcription.sha256``). Portal differences live in
-``services/transcript_portal.py``. Design: docs/transcription/DESIGN_2026-10-31_Scribe-Gemini-Pipeline.md.
-
-THE QUEUE STEP. ``transcribe -> translate -> insights`` is two jobs on the existing queue:
-
-1. TRANSCRIPTION (unchanged job): the shared ``transcription_jobs.transcribe_recording`` asks Scribe
-   with this recording's key terms (:func:`keyterms_for`) and, on success, stores the answer as a new
-   :class:`TranscriptVersion` of turns (:func:`store_transcription`).
-2. TRANSCRIPT_INSIGHTS (the existing job, behind AI_FEATURES_ENABLED + AI_TRANSCRIPT_INSIGHTS_ENABLED):
-   :func:`generate` sends the turns to Gemini once and writes the English per turn, the summary and
-   the quotes (the existing ``TranscriptInsight`` row, so every existing reader keeps working) and the
-   craft terms heard (the glossary). A recording with no turns falls back to the old
-   ``transcript_insights.generate``.
-
-The queue re-reads consent immediately before each of the two sends; every on-demand send here
-(re-translate a turn, Ask, auto-draft) re-reads it too (:func:`_send_gate`). Transcription stays
-paused while ``AppSetting.transcriptionPaused`` is set, and a used-up monthly budget sets it
-(:func:`check_budget`) and holds translation as well (:func:`holds_translation`).
-
-Logs carry ids, counts and exception classes only: never transcript text or a key.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -70,21 +46,14 @@ KIND_AUTODRAFT = "AUTODRAFT"
 
 BUDGET_NOTICE_KIND = "TRANSCRIPT_BUDGET"
 
-#: ``TranscriptVersion.translationStatus`` once Gemini declined the translation pass (D38, 0.0.9):
-#: the explicit marker the view reads, so nothing depends on matching a job's error sentence.
 DECLINED = "DECLINED"
-#: ``TranscriptVersion.translationProvider`` and ``TranscriptInsight.provider`` for English a person
-#: typed or pasted (:func:`add_english`).
 MANUAL = "manual"
-#: ``TranscriptView.englishNotice``: to whoever may add the English, and to everyone else.
 NOTICE_DECLINED = "DECLINED"
 NOTICE_UNAVAILABLE = "UNAVAILABLE"
-#: The longest English a person may paste for a whole transcript (the old insight's ceiling).
 MANUAL_ENGLISH_MAX_CHARS = transcript_insights.TRANSLATION_MAX_CHARS
 
 
 def enabled() -> bool:
-    """The existing switch: AI_FEATURES_ENABLED and AI_TRANSCRIPT_INSIGHTS_ENABLED."""
     return bool(transcript_insights.enabled())
 
 
@@ -95,7 +64,6 @@ def _value(record: Any, key: str) -> Any:
 
 
 async def gemini_keys() -> list[ApiKey]:
-    """The deployment's Gemini key list (GEMINI_API_KEY, then GEMINI_API_KEYS), UI overrides first."""
     from app.services import managed_secrets
 
     try:
@@ -105,8 +73,6 @@ async def gemini_keys() -> list[ApiKey]:
     return [ApiKey(f"GEMINI_API_KEY#{i + 1}", value) for i, value in enumerate(managed_secrets.gemini_key_pool())]
 
 
-# --- 1. Key terms and turn storage ------------------------------------------------------------
-
 
 async def context_for(media: Any) -> dict[str, Any]:
     context = await transcript_store.recording_context(media)
@@ -115,7 +81,6 @@ async def context_for(media: Any) -> dict[str, Any]:
 
 
 async def keyterms_for(media: Any) -> list[str]:
-    """At most 100 Scribe key terms for this recording, most specific first (``keyterms.assemble``)."""
     try:
         from app.services import ai, craft_master
 
@@ -158,8 +123,6 @@ def turns_from_result(result: dict[str, Any], *, duration_ms: int | None = None)
 
 
 async def store_transcription(media: Any, result: dict[str, Any], *, keyterm_count: int = 0) -> Any | None:
-    """A completed transcription as a new version of turns. Never raises: the transcript itself is
-    already written by the queue, and a turn store that fails costs only the new viewer."""
     media_id = str(_value(media, "id"))
     if result.get("status") != "COMPLETED":
         return None
@@ -188,9 +151,6 @@ async def store_transcription(media: Any, result: dict[str, Any], *, keyterm_cou
 
 
 async def ensure_version(media: Any) -> Any | None:
-    """The current version, made from the stored transcript when a recording was transcribed before
-    the pipeline existed (its segments, else the raw original, else the transcript text). Local
-    only: nothing is sent anywhere. None when there is no transcript."""
     media_id = str(_value(media, "id"))
     version = await transcript_store.current_version(media_id)
     if version is not None:
@@ -208,7 +168,7 @@ async def ensure_version(media: Any) -> Any | None:
         "provider": _value(media, "transcriptProvider"),
         "model": None,
         "languageCode": _value(media, "transcriptLanguage"),
-        "cacheHit": True,  # no new speech-to-text cost: the transcript was paid for long ago
+        "cacheHit": True,
     }
     created = await store_transcription(media, result)
     if created is not None:
@@ -217,15 +177,6 @@ async def ensure_version(media: Any) -> Any | None:
 
 
 async def queue_translation(media: Any) -> Any | None:
-    """Queue the TRANSCRIPT_INSIGHTS job for a version :func:`ensure_version` just made (D38).
-
-    Before 0.0.9 an old transcript opened or exported got its PENDING turns and nothing else: no job
-    ever translated them. Idempotent and safe to call from a read: nothing is queued while the
-    switch is off, while consent refuses the send (re-read now), when a researcher edited the
-    summary (``enqueue_after_transcript``), or while an insights job is queued or running
-    (``enqueue``). That last rule is why ``generate``, which calls :func:`ensure_version` inside its
-    own PROCESSING job, queues no second one. Never raises: the view or export it sits in must work.
-    """
     media_id = str(_value(media, "id"))
     try:
         if not enabled():
@@ -239,11 +190,8 @@ async def queue_translation(media: Any) -> Any | None:
         return None
 
 
-# --- 2. Translation and insights (the TRANSCRIPT_INSIGHTS job) --------------------------------
-
 
 def holds_translation(row: Any) -> bool:
-    """True while the monthly budget has paused transcription: translation waits with it."""
     return bool(
         schedule.is_paused(row)
         and _value(row, "transcriptBudgetPausedMonth")
@@ -272,18 +220,11 @@ def _speaker_labels(turn_rows: list[Any], speakers: dict[str, Any]) -> dict[str,
     return labels
 
 
-#: A speaker's sample clip: long enough to recognise a voice, short enough to play at a tap.
 SAMPLE_MIN_MS = 1_500
 SAMPLE_MAX_MS = 8_000
 
 
 def speaker_samples(turn_rows: list[Any]) -> dict[str, dict[str, int]]:
-    """``{speakerKey: {startMs, endMs}}``: a few seconds of each speaker, to tell voices apart by ear.
-
-    The speaker's longest turn (the clearest stretch of one voice), from its start and at most
-    :data:`SAMPLE_MAX_MS` long. A speaker whose every turn is shorter than :data:`SAMPLE_MIN_MS` still
-    gets their longest one: a short sample beats none.
-    """
     best: dict[str, Any] = {}
     for row in turn_rows:
         key = getattr(row, "speakerKey", None)
@@ -368,12 +309,6 @@ async def _write_insight(media: Any, result: translate.PassResult, turn_rows: li
 
 
 async def generate(media: Any, *, user_id: str | None) -> dict[str, Any]:
-    """The insights job's work. Called by the queue AFTER its consent check.
-
-    With turns: one Gemini pass (English per turn, summary, quotes, craft terms). Without: the old
-    ``transcript_insights.generate``. Raises ``transcript_insights.InsightsUnavailable`` /
-    ``InsightsFailed`` exactly as the old path does, so the queue's handling is unchanged.
-    """
     media_id = str(_value(media, "id"))
     try:
         version = await ensure_version(media)
@@ -448,9 +383,6 @@ async def generate(media: Any, *, user_id: str | None) -> dict[str, Any]:
 
 
 async def _mark_declined(version_id: str, turn_rows: list[Any]) -> None:
-    """Gemini declined the pass (SAFETY, PROHIBITED_CONTENT and the like), and asking again gets the
-    same answer. The version says so (:data:`DECLINED`) and every turn left without English reads
-    FAILED rather than "Translating", so the view can offer a person the English (:func:`add_english`)."""
     outcomes = [
         (r.id, translate.FAILED, None)
         for r in turn_rows
@@ -487,7 +419,6 @@ async def _remember_terms(media_id: str, context: dict[str, Any], terms: list[di
 
 
 async def _index(media_id: str) -> None:
-    """Ask search to rebuild this transcript's document (the indexer applies the consent rules)."""
     try:
         from app.services import search_indexer
 
@@ -497,8 +428,6 @@ async def _index(media_id: str) -> None:
 
 
 async def search_english(media_id: str) -> str:
-    """The English of the current version, for the search document (empty when none), with the
-    whole-transcript English a person pasted (:func:`manual_english`)."""
     version = await transcript_store.current_version(media_id)
     if version is None:
         return ""
@@ -509,8 +438,6 @@ async def search_english(media_id: str) -> str:
         parts.append(manual)
     return "\n".join(parts)
 
-
-# --- 3. The budget meter ----------------------------------------------------------------------
 
 
 async def _settings_row() -> Any | None:
@@ -547,7 +474,6 @@ async def _admins() -> list[Any]:
 
 
 async def check_budget() -> insight.Meter | None:
-    """Alert the admins once a month at 80 %; pause transcription once a month at 100 %. Never raises."""
     try:
         row = await _settings_row()
         current = await meter(row)
@@ -593,8 +519,6 @@ async def check_budget() -> insight.Meter | None:
         return None
 
 
-# --- 4. The view ------------------------------------------------------------------------------
-
 
 async def _latest_job(media_id: str, job_type: str) -> Any | None:
     return await db.mediaprocessingjob.find_first(
@@ -638,7 +562,7 @@ def turn_json(row: Any, labels: dict[str, str], *, declined: bool = False) -> di
     english = _current_english(row)
     status = row.translationStatus
     if declined and status == "PENDING" and not english:
-        status = "FAILED"  # declined before 0.0.9 marked its turns: never "Translating" for ever
+        status = "FAILED"
     return {
         "id": row.id,
         "index": row.position,
@@ -714,9 +638,6 @@ def _job_status(job: Any) -> str | None:
 
 
 def is_declined(version: Any, tr_job: Any) -> bool:
-    """Gemini declined to translate this version (D38). The version's own marker (:data:`DECLINED`,
-    written by :func:`generate` since 0.0.9); before that, the latest insights job FAILED with the
-    declined sentence, which is what a recording declined earlier still carries."""
     if version is None:
         return False
     if _value(version, "translationStatus") == DECLINED:
@@ -725,8 +646,6 @@ def is_declined(version: Any, tr_job: Any) -> bool:
 
 
 def manual_english(row: Any, version_id: str | None = None) -> str | None:
-    """The whole-transcript English a person pasted (a ``TranscriptInsight`` with provider
-    :data:`MANUAL`), for ``version_id`` when given: a re-transcription's new turns are not its text."""
     if row is None or _value(row, "provider") != MANUAL:
         return None
     text = str(_value(row, "translationText") or "").strip()
@@ -746,14 +665,6 @@ def _missing_english(turn_rows: list[Any]) -> list[Any]:
 def english_state(
     version: Any, turn_rows: list[Any], insight_row: Any, *, declined: bool, may_add: bool
 ) -> dict[str, Any]:
-    """``{notice, manual, missing}`` for the view (contract ``englishNotice`` / ``manualEnglish``).
-
-    ``manual`` is the pasted whole-transcript English, shown only while turns still lack their own
-    (English laid on every turn supersedes it). ``notice`` is set only when Gemini declined and no
-    English stands in yet: :data:`NOTICE_DECLINED` for whoever may add it (the editor rule
-    ``guard_write`` refuses by, so the notice never offers a control the server would refuse), and
-    a neutral :data:`NOTICE_UNAVAILABLE` for every other reader.
-    """
     missing = _missing_english(turn_rows)
     manual = manual_english(insight_row, getattr(version, "id", None)) if missing else None
     notice = None
@@ -763,20 +674,10 @@ def english_state(
 
 
 def split_paragraphs(text: str) -> list[str]:
-    """Blank-line separated paragraphs, trimmed, empty ones dropped."""
     return [p.strip() for p in re.split(r"\n\s*\n", str(text or "").replace("\r\n", "\n")) if p.strip()]
 
 
 async def add_english(media: Any, user: Any, *, base_revision: int, text: str) -> str:
-    """A person's English for the whole transcript (``POST /{mediaId}/english``, D38).
-
-    Pasted paragraphs are laid on the turns when they line up: one per turn that needs English, or
-    one per turn of the whole transcript (an English turn keeps its own words). Each becomes that
-    turn's edited English with its history, exactly as an English edit of one turn does. Otherwise
-    the text is kept whole as the transcript's English, a new ``TranscriptInsight`` with provider
-    :data:`MANUAL` (marked edited, so no automatic run replaces it), shown under the turns and in
-    every copy and download. Returns ``"TURNS"`` or ``"TEXT"``. The caller checked ``guard_write``.
-    """
     media_id = str(_value(media, "id"))
     version = await transcript_store.current_version(media_id)
     if version is None:
@@ -881,12 +782,8 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
                 "speaker": q.get("speaker"),
             })
     admin = transcript_portal.is_admin(user)
-    # Cost and the model names are for the three administrator roles only (0.0.5): the portal says
-    # who they are, and the server leaves both out for everyone else, so no client can show them.
     sees_spend = transcript_portal.may_see_spend(user)
     samples = speaker_samples(turn_rows)
-    # The write rule itself (``guard_write``'s), so a control the view offers is one the server takes;
-    # ``readOnly`` names why it is not offered, in the words the portal already uses.
     read_only = await transcript_portal.read_only(user, media)
     edit = read_only is None
     cost = None
@@ -928,7 +825,6 @@ async def build_view(media: Any, user: Any, *, version_number: int | None = None
         "audio": {
             "url": transcript_portal.audio_url(media),
             "durationMs": version.durationMs if version else None,
-            # Voice Isolator (0.0.5): the player plays the cleaned copy and offers the recording as made.
             "cleaned": bool(_value(media, "cleanedObjectKey")),
             "originalUrl": transcript_portal.audio_url(media, original=True) if _value(media, "cleanedObjectKey") else None,
             "video": transcription_audio.is_video(_value(media, "mediaType"), _value(media, "mimeType")),
@@ -972,13 +868,6 @@ async def summary_items(media_rows: list[Any], user: Any = None) -> list[dict[st
 
 
 async def previews(markdown_by_id: dict[str, str | None], *, client: Any = None) -> dict[str, dict[str, Any] | None]:
-    """``{mediaId: preview}`` for a list page (contract ``TranscriptPreview``), in two reads.
-
-    ``markdown_by_id`` is each row's stored transcript text, or None where the list may not show
-    one (the caller's own rule: status, consent): those stay None. A recording with turns previews
-    its first turns under their mapped names; one transcribed before the turn pipeline previews its
-    stored markdown.
-    """
     shown = [mid for mid, text in markdown_by_id.items() if text is not None]
     out: dict[str, dict[str, Any] | None] = dict.fromkeys(markdown_by_id)
     if not shown:
@@ -992,7 +881,6 @@ async def previews(markdown_by_id: dict[str, str | None], *, client: Any = None)
             for number, key in enumerate(speaker_order(rows), start=1):
                 mapped = names.get(key)
                 if mapped and mapped.get("name"):
-                    # The transcript's own label (_speaker_labels), so a row and its page agree.
                     labels[key] = f"{mapped['name']} (researcher)" if mapped.get("role") == "RESEARCHER" else str(mapped["name"])
                 else:
                     labels[key] = f"Speaker {number}"
@@ -1029,7 +917,6 @@ async def render_doc(media: Any) -> tuple[render.RenderDoc, dict[str, Any]]:
             )
             for r in rows
         ],
-        # The pasted whole-transcript English, while the turns still lack their own (D38).
         english_text=manual_english(await transcript_insights.current_insight(media_id), version.id)
         if _missing_english(rows)
         else None,
@@ -1064,8 +951,6 @@ async def requeue_transcription(media: Any) -> None:
 async def transcribe_now(media: Any) -> dict[str, Any]:
     return await transcript_portal.transcribe_now(media)
 
-
-# --- 5. Speakers, edits, re-translate ---------------------------------------------------------
 
 
 def _check_revision(version: Any, base: int) -> None:
@@ -1172,7 +1057,6 @@ async def turn_history(media: Any, turn_id: str) -> list[dict[str, Any]]:
 
 
 async def _send_gate(media: Any) -> list[ApiKey]:
-    """Before any on-demand send: the switch, consent (re-read now), the budget, a key."""
     if not enabled():
         raise PipelineRefused("NOT_FOUND", "Not found", 404)
     may, refusal = await transcript_portal.may_send(media)
@@ -1208,7 +1092,7 @@ async def retranslate_turn(media: Any, user: Any, turn_id: str) -> dict[str, Any
     text = _current_text(row)
     language = row.language
     if language == "en":
-        language = "und"  # asked explicitly: let the model say whether it is English
+        language = "und"
     try:
         result = await asyncio.to_thread(
             translate.run_pass,
@@ -1237,8 +1121,6 @@ async def retranslate_turn(media: Any, user: Any, turn_id: str) -> dict[str, Any
     await check_budget()
     return turn_json(updated, labels)
 
-
-# --- 6. Ask, auto-draft, quote cards, glossary ------------------------------------------------
 
 
 async def _cite_turns(media_id: str) -> tuple[Any, list[citations.CiteTurn], dict[str, str]]:
@@ -1275,7 +1157,6 @@ async def ask(media: Any, question: str) -> dict[str, Any]:
 
 
 async def autodraft(media: Any, user: Any) -> dict[str, Any]:
-    """Drafts for a questionnaire take's questions, through the existing take-drafts flow."""
     from uuid import uuid4
 
     from app.questionnaire import answer_lock, answers as q_answers, recordings
@@ -1420,8 +1301,6 @@ async def glossary(craft_id: str | None, q: str | None, limit: int, cursor: str 
         where["OR"] = [{"craftId": craft_id}, {"linkedCraftId": craft_id}]
     prefix = insight.term_key(q or "").replace("_", " ").strip()
     if prefix:
-        # A prefix of the term's key: term_key keeps letters, digits and spaces only, so nothing
-        # here can reach LIKE as a wildcard or a control byte.
         where["termKey"] = {"startswith": prefix}
     args: dict[str, Any] = {"where": where, "order": [{"occurrences": "desc"}, {"id": "asc"}], "take": limit + 1,
                             "include": {"sightings": {"take": 5, "order_by": {"createdAt": "desc"}}}}

@@ -1,33 +1,3 @@
-"""One filter model for every list of sessions, forms and recordings (owner, 31 Oct 2026).
-
-THIS FILE IS IDENTICAL IN designer-portal AND documentation-portal (shared/questionnaire.sha256).
-
-"Can each recording also have a few informative chips for the sake of easier retrieval ... all of
-these should be searchable filters in the sessions and questionnaires, for both the apps, across all
-surfaces." So the sessions list, the forms library (and each form's sessions), the recordings list
-and the portals' media lists take the SAME query parameters, parsed once here:
-
-=================  ==========================================================================
-``q``              free text (``search`` is the sessions list's old name for it)
-``questionnaireId``  the form; repeatable
-``sectionId``      a section; repeatable. With ``questionLineageId``, one "section or question"
-``questionLineageId``  a question (its lineage); repeatable
-``artisanId``      an artisan who took part (sessions) or answered / was present (takes); repeatable
-``researcherId``   a researcher on the session (sessions) or who recorded the take; repeatable
-``workshopId``     a field workshop; repeatable. ``designWorkshopId`` the same for design workshops
-``dateFrom`` ``dateTo``  the session's date (a take matches on its session's date OR its capture day)
-``kind``           the form's kind (``WORKSHOP_INTERVIEW``, ``MARKET_SURVEY``, ``NONE``); repeatable
-``source``         how the session came in: ``APP``, ``UPLOAD``, ``HANDOFF``; repeatable
-``transcript``     ``HAS``, ``NONE``, ``PENDING``, ``FAILED``; repeatable
-``languageCode``   the session's or the take's language; repeatable
-=================  ==========================================================================
-
-A repeatable parameter is given more than once or as one comma-separated value; values of one
-parameter are OR-ed, parameters are AND-ed. Every predicate is a correlated ``EXISTS`` or a column
-test on an indexed column, so a page costs a fixed number of statements however many rows match
-(``tests/test_questionnaire_filters_db.py`` counts them).
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
@@ -45,7 +15,6 @@ MULTI = (
 SOURCES = ("APP", "UPLOAD", "HANDOFF")
 TRANSCRIPT = ("HAS", "NONE", "PENDING", "FAILED")
 KINDS = (*sorted(KIND_TOKENS), "NONE")
-#: Transcript states by filter token (``TranscriptStatus`` in shared/enums.json; NULL is not sent yet).
 TRANSCRIPT_STATES = {
     "HAS": ("COMPLETED", "SKIPPED_DUPLICATE"),
     "FAILED": ("FAILED", "EMPTY", "REFUSED_CONSENT"),
@@ -79,11 +48,9 @@ class Filters:
         return Filters(**{f.name: (() if f.name in MULTI else None) if f.name in names else getattr(self, f.name) for f in fields(self)})
 
     def session_level(self) -> bool:
-        """Anything a session (not the form itself) must match."""
         return not self.without("q", "questionnaireId", "kind").empty()
 
     def echo(self) -> dict[str, Any]:
-        """The filters as the response repeats them (clients show what the server applied)."""
         out: dict[str, Any] = {}
         for f in fields(self):
             value = getattr(self, f.name)
@@ -138,7 +105,6 @@ def _vocab(values: list[str], allowed: tuple[str, ...], name: str) -> tuple[str,
 
 
 def parse(params: Any) -> Filters:
-    """``Filters`` from query parameters (Starlette's ``QueryParams`` or a dict of values)."""
     q = _text(params, "q") or _text(params, "search")
     out = {name: tuple(_values(params, name)) for name in MULTI if name not in ("kind", "source", "transcript")}
     out["languageCode"] = tuple(v.lower() for v in out["languageCode"])
@@ -155,14 +121,11 @@ def parse(params: Any) -> Filters:
 
 
 def like(text: str) -> str:
-    """``%text%`` with LIKE's own characters escaped (``ESCAPE '\\'`` on every use)."""
     return "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
 @dataclass
 class Sql:
-    """Positional parameters for one statement: ``p(value)`` answers ``$n``."""
-
     params: list[Any] = field(default_factory=list)
 
     def p(self, value: Any) -> str:
@@ -177,15 +140,12 @@ def _design_portal() -> bool:
     return ports.portal() == "designer-portal"
 
 
-# ── sessions (alias i = "QuestionnaireInterview") ─────────────────────────────────────────────
 def _takes_in_session(alias: str = "i") -> str:
     return (f'FROM "QuestionnaireRecording" r2 JOIN "MediaFile" m2 ON m2."id" = r2."mediaFileId" '
             f'WHERE m2."questionnaireInterviewId" = {alias}."id" AND r2."removedAt" IS NULL AND m2."removedAt" IS NULL')
 
 
 def _target_match(f: Filters, b: Sql, alias: str) -> str:
-    """A target row ``alias`` (``QuestionnaireRecordingTarget``) on one of the chosen sections or
-    questions: the section itself, a question of it, or the question's lineage."""
     parts = []
     if f.sectionId:
         sections = b.arr(f.sectionId)
@@ -226,8 +186,6 @@ def _workshop_match(f: Filters, b: Sql, alias: str) -> str:
 
 
 def session_text(term: str, b: Sql, alias: str = "i") -> str:
-    """Free text over a session: its title, note, old title and place; its form; its workshop; its
-    artisans, guests and researchers."""
     t = b.p(like(term))
     esc = "ESCAPE '\\'"
     parts = [
@@ -242,14 +200,11 @@ def session_text(term: str, b: Sql, alias: str = "i") -> str:
         f'WHERE se."interviewId" = {alias}."id" AND su."name" ILIKE {t} {esc})',
     ]
     if _design_portal():
-        # The table exists in designer-portal only; documentation-portal never names it.
         parts.append(f'EXISTS (SELECT 1 FROM "DesignWorkshop" sd WHERE sd."id" = {alias}."designWorkshopId" AND sd."title" ILIKE {t} {esc})')
     return "(" + " OR ".join(parts) + ")"
 
 
 def session_where(f: Filters, b: Sql, *, alias: str = "i", text: bool = True) -> list[str]:
-    """Predicates on a live session row ``alias`` for every filter (``text=False`` leaves ``q`` to
-    the caller, which searches more than the session)."""
     w: list[str] = []
     if f.questionnaireId:
         w.append(f'{alias}."questionnaireId" = ANY({b.arr(f.questionnaireId)})')
@@ -293,10 +248,7 @@ def session_where(f: Filters, b: Sql, *, alias: str = "i", text: bool = True) ->
     return w
 
 
-# ── recordings (aliases r, m, i) ──────────────────────────────────────────────────────────────
 def recording_text(term: str, b: Sql) -> str:
-    """Free text over a take: everything a session matches on, plus its section and question, who
-    answered, who recorded it, its transcript and its file name."""
     t = b.p(like(term))
     esc = "ESCAPE '\\'"
     parts = [
@@ -315,7 +267,6 @@ def recording_text(term: str, b: Sql) -> str:
 
 
 def recording_where(f: Filters, b: Sql) -> list[str]:
-    """Predicates on a live take ``r`` (its media ``m``, its live session ``i``)."""
     w = ['r."removedAt" IS NULL', 'm."removedAt" IS NULL', 'i."deletedAt" IS NULL', 'i."mergedIntoId" IS NULL']
     session_only = f.without("q", "artisanId", "researcherId", "sectionId", "questionLineageId", "dateFrom", "dateTo",
                              "transcript", "languageCode")
@@ -361,8 +312,6 @@ _RECORDING_FROM = (
 
 async def list_recordings(f: Filters, user: Any = None, *, session_id: str | None = None, cursor: str | None = None,
                           limit: int = 30, client: Any = None) -> dict[str, Any]:
-    """Takes matching ``f``, newest capture first, keyset-paged; each with its chips. Two reads find
-    the page, then the serializer's fixed set reads it, however many takes match."""
     from app.questionnaire import recordings
 
     db = client or ports.db()
@@ -398,8 +347,6 @@ async def list_recordings(f: Filters, user: Any = None, *, session_id: str | Non
 
 
 async def media_ids_matching(f: Filters, *, client: Any = None, limit: int = 5000) -> list[str]:
-    """The media rows of the live takes matching ``f``: what a portal's media list narrows to when a
-    questionnaire filter is set. One read."""
     db = client or ports.db()
     b = Sql()
     w = recording_where(f, b)
@@ -411,25 +358,14 @@ async def media_ids_matching(f: Filters, *, client: Any = None, limit: int = 500
 
 
 def media_filtered(f: Filters) -> bool:
-    """Whether a media list should narrow to questionnaire takes: any filter but the free text,
-    which the media list searches itself (file name, caption) and with :func:`media_text_ids`."""
     return not f.without("q").empty()
 
 
 async def media_text_ids(term: str, *, client: Any = None, limit: int = 5000) -> list[str]:
-    """Media whose take matches ``term`` on its chips (section, form, artisans, workshop ...), so a
-    media list's search box finds a take by what its chips say. One read."""
     return await media_ids_matching(Filters(q=term), client=client, limit=limit)
 
 
-# ── forms ─────────────────────────────────────────────────────────────────────────────────────
 async def form_ids_matching(f: Filters, *, client: Any = None) -> set[str] | None:
-    """The forms the library should keep, or ``None`` when nothing narrows it.
-
-    ``q`` matches a form's title, description, sections and questions (and the forms whose sessions
-    match it); ``kind`` the form; everything else keeps the forms that have a live session matching
-    it, and for a workshop also the forms bound to it. One read.
-    """
     if f.empty():
         return None
     db = client or ports.db()
@@ -456,7 +392,6 @@ async def form_ids_matching(f: Filters, *, client: Any = None) -> set[str] | Non
         has = f'EXISTS (SELECT 1 FROM "QuestionnaireInterview" i WHERE i."questionnaireId" = q."id" AND {live} AND ' + " AND ".join(
             session_where(sessions_part, b, alias="i", text=False)) + ")"
         if (f.workshopId or f.designWorkshopId) and sessions_part.without("workshopId", "designWorkshopId").empty():
-            # Only a workshop: the forms bound to it count as well as those used there.
             bound = f'EXISTS (SELECT 1 FROM "QuestionnaireBinding" qb WHERE qb."questionnaireId" = q."id" AND {_workshop_match(f, b, "qb")})'
             clauses.append(f"({has} OR {bound})")
         else:
@@ -465,19 +400,12 @@ async def form_ids_matching(f: Filters, *, client: Any = None) -> set[str] | Non
     return {str(r["id"]) for r in rows}
 
 
-# ── the options a filter offers ───────────────────────────────────────────────────────────────
 FORM_TITLE, ARTISAN_NAME, USER_NAME = 'q."title"', 'a."name"', 'u."name"'
 FACETS = ("questionnaires", "sections", "questions", "artisans", "researchers", "workshops", "languages")
 
 
 async def facets(*, field_name: str | None = None, q: str | None = None, questionnaire_ids: list[str] | None = None,
                  limit: int = 50, client: Any = None) -> dict[str, Any]:
-    """What each filter can be set to, from the live sessions and takes, most used first.
-
-    With ``field_name`` only that list is read, narrowed by ``q`` (a searchable select's typing).
-    ``sections`` and ``questions`` are those of ``questionnaire_ids`` when given (questions only
-    then: a whole library's questions is not a list anyone scrolls). One read per list.
-    """
     db = client or ports.db()
     limit = max(1, min(int(limit or 50), 200))
     wanted = [field_name] if field_name else list(FACETS)
@@ -544,7 +472,6 @@ async def facets(*, field_name: str | None = None, q: str | None = None, questio
 
 
 async def _workshop_facets(db: Any, q: str | None, limit: int) -> list[dict[str, Any]]:
-    """Field workshops (both portals) and design workshops (designer-portal) that have sessions."""
     live = 'i."deletedAt" IS NULL AND i."mergedIntoId" IS NULL'
     b = Sql()
     term = f" AND w.\"title\" ILIKE {b.p(like(q))} ESCAPE '\\'" if q else ""

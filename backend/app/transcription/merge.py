@@ -1,10 +1,3 @@
-"""Stitch the parts of one recording back into one transcript.
-
-Speakers are NOT the same people across parts: each part was diarized on its own, so "Speaker 1"
-in part 2 need not be "Speaker 1" in part 1. Each part keeps its own numbering, segment speakers
-are written ``<part>.<speaker>`` and the result carries a note that says so.
-"""
-
 from __future__ import annotations
 
 from collections import Counter
@@ -45,7 +38,6 @@ def stitch(parts: list[tuple[PartPlan, SttResult]]) -> SttResult:
         for segment in result.segments:
             start = plan.start_ms + segment.start_ms
             end = plan.start_ms + segment.end_ms
-            # The overlap at the head of this part was already heard at the tail of the last one.
             if plan.index and end <= plan.own_start_ms:
                 continue
             label = (

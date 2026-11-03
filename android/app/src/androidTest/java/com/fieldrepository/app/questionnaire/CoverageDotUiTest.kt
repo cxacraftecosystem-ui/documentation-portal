@@ -33,11 +33,6 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/**
- * The coverage grid on a device (0.0.6): a truncated name lifts in full, enlarged, while held, and a
- * screen reader hears it whole; a dot with takes opens them (one directly, several via the chooser);
- * a dot with none takes no tap.
- */
 @RunWith(AndroidJUnit4::class)
 class CoverageDotUiTest {
     @get:Rule

@@ -33,11 +33,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.delay
 
-/**
- * What the viewer needs of a player: where it is, whether it plays, and a seek. Karaoke reads
- * [positionSeconds]; a timestamp, a word or a citation chip calls [seek]. The Compose tests drive a
- * [ManualPlayback] instead of real audio.
- */
 @Stable
 interface TranscriptPlayback {
     val available: Boolean
@@ -45,15 +40,11 @@ interface TranscriptPlayback {
     val positionSeconds: Double
     val durationSeconds: Double
     fun toggle()
-    /** Moves to [seconds] and, unless [play] is false (the scrubber), plays from there. */
     fun seek(seconds: Double, play: Boolean = true)
-    /** A speaker's sample is playing and will stop by itself. */
     val sampling: Boolean get() = false
-    /** Plays from [startSeconds] and stops at [endSeconds] by itself; called while sampling, stops. */
     fun playRange(startSeconds: Double, endSeconds: Double) = seek(startSeconds)
 }
 
-/** A playback the test (or a recording with no audio yet) moves by hand. */
 class ManualPlayback(available: Boolean = true, duration: Double = 0.0) : TranscriptPlayback {
     override var available by mutableStateOf(available)
     override var playing by mutableStateOf(false)
@@ -111,11 +102,6 @@ private class ExoPlayback(val player: ExoPlayer) : TranscriptPlayback {
     }
 }
 
-/**
- * The recording's player, or a [ManualPlayback] that says "no audio" when there is no [uri].
- * Paused when the app leaves the screen, for the reason `ui/MediaPlayers.kt` gives (Android 17
- * silences a hidden app's audio).
- */
 @OptIn(UnstableApi::class)
 @Composable
 fun rememberTranscriptPlayback(uri: Uri?): TranscriptPlayback {
@@ -134,7 +120,6 @@ fun rememberTranscriptPlayback(uri: Uri?): TranscriptPlayback {
     LaunchedEffect(player) {
         while (true) {
             playback.tick()
-            // Fast enough that a word lights as it is said; a turn is several hundred ms a word.
             delay(80)
         }
     }

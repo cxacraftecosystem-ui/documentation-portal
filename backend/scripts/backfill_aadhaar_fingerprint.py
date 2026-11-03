@@ -145,7 +145,7 @@ async def _fill(tally: Tally, rows: list[Any], *, key: str, apply: bool, retract
                 where={"id": row.id, "aadhaarNumber": stored, "aadhaarFingerprint": None},
                 data={"aadhaarFingerprint": expected, "aadhaarLast4": number[-4:]},
             )
-        except Exception as exc:  # the unique index: another artisan already holds this number
+        except Exception as exc:
             if "unique" in str(exc).lower():
                 tally.clashes += 1
                 continue
@@ -156,8 +156,6 @@ async def _fill(tally: Tally, rows: list[Any], *, key: str, apply: bool, retract
         else:
             tally.raced += 1
     if written:
-        # VERIFY BY READING BACK, not by trusting the count: the row must now carry the fingerprint
-        # recomputed from its own legacy value.
         back = await db.artisan.find_many(where={"id": {"in": sorted(written)}})
         for row in back:
             number = normalize_aadhaar(row.aadhaarNumber)

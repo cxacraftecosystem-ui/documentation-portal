@@ -1,11 +1,3 @@
-"""ElevenLabs Scribe: the batch model, diarized, biased towards craft terms.
-
-Takes files up to 1 GB whole, so nothing is chunked locally. ``language_code`` is never sent:
-Scribe auto-detects, and these interviews code-switch into English mid-sentence and include
-regional languages (Marwari, Garhwali) that have no code to name. ``tag_audio_events`` stays off so
-workshop noise is not written into the speech as ``(banging)``.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -37,24 +29,20 @@ class ElevenLabs:
     supports = Capabilities(
         diarize=True, word_timestamps=True, segment_timestamps=True, keyterm_limit=KEYTERM_LIMIT
     )
-    #: Scribe v2 pay-as-you-go (owner, 31 Oct 2026: design section 9).
     price_per_hour_usd = 0.22
 
     def model(self, opts: SttOptions) -> str:
         return opts.models.get(ID) or MODEL
 
     def fields(self, opts: SttOptions, *, conservative: bool) -> list[tuple[str, str]]:
-        """Multipart fields. A list, not a dict: ``keyterms`` repeats one field name per term."""
         fields = [
             ("model_id", LEGACY_MODEL if conservative else self.model(opts)),
             ("diarize", "true"),
             ("tag_audio_events", "false"),
-            # Speakers are reported per word, so word timestamps are what makes diarization readable.
             ("timestamps_granularity", "word"),
         ]
         if conservative:
             return fields
-        # num_speakers stays unset: a wrong count forces voices to merge, which is worse than none.
         return fields + [("keyterms", term) for term in opts.keyterms[:KEYTERM_LIMIT]]
 
     def transcribe(self, audio: AudioInput, opts: SttOptions, key: ApiKey) -> SttResult:
@@ -105,7 +93,6 @@ _WORD_FIELDS = ("text", "start", "end", "type", "speaker_id", "logprob")
 
 
 def parse_words(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """Scribe's words (spacing included, audio events left out), trimmed to the fields turns use."""
     return [
         {name: word.get(name) for name in _WORD_FIELDS if word.get(name) is not None}
         for word in _words(payload)
@@ -113,7 +100,6 @@ def parse_words(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def parse_text(payload: dict[str, Any]) -> tuple[str, int]:
-    """``(transcript, speakers)``: speaker-labelled when several voices spoke, else the flat text."""
     fragments = [(word.get("speaker_id"), str(word.get("text") or "")) for word in _words(payload)]
     turns = speaker_turns(fragments)
     plain = str(payload.get("text") or "").strip()
@@ -121,7 +107,6 @@ def parse_text(payload: dict[str, Any]) -> tuple[str, int]:
 
 
 def parse_segments(payload: dict[str, Any]) -> list[Segment]:
-    """One segment per uninterrupted stretch of a voice, timed from its first and last word."""
     segments: list[Segment] = []
     for word in _words(payload):
         if word.get("type") == "spacing":

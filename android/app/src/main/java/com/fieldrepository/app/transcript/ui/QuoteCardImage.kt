@@ -11,12 +11,6 @@ import android.text.TextPaint
 import com.fieldrepository.app.transcript.data.QuoteCard
 import java.io.ByteArrayOutputStream
 
-/**
- * THE QUOTE CARD AS AN IMAGE (DESIGN §10.5): the original, the English, the artisan's name, the
- * craft and the date, on the brand's deep purple, 1080 px wide for reports and the Ministry. The
- * same layout [QuoteCardFace] draws on screen; painted with the platform's text layout so every
- * Indic script shapes as it does everywhere else on the phone.
- */
 object QuoteCardImage {
     private const val WIDTH = 1080
     private const val PAD = 88f

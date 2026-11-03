@@ -1,9 +1,3 @@
-"""ElevenLabs Voice Isolator (0.0.5): off by default, the original never touched, holds that clear.
-
-IDENTICAL IN BOTH PORTALS (``shared/transcription.sha256``). No network and no database: the
-isolator is answered by a fake ``send``, and the service by fakes for the job table, S3 and consent.
-"""
-
 from __future__ import annotations
 
 import asyncio

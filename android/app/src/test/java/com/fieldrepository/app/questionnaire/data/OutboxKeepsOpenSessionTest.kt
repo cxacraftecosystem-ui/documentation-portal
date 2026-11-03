@@ -14,13 +14,6 @@ import java.io.File
 import java.time.Duration
 import java.time.Instant
 
-/**
- * Audit C2 (21 Oct 2026): the outbox deleted a session's unit after its first take uploaded, so the
- * next take, Present/Away, an answer, an added artisan and Finish all hit a missing unit (and the app
- * crashed). The unit now stays while the session is open, goes once Finish lands (or long after its
- * last change), a missing one is put back from the workspace's copy, and a landed take's audio leaves
- * the phone (audit M23).
- */
 @QFeature("B7")
 class OutboxKeepsOpenSessionTest {
     @get:Rule val tmp = TemporaryFolder()
@@ -45,7 +38,6 @@ class OutboxKeepsOpenSessionTest {
         assertFalse("the landed take's audio left the phone", File(first.localPath).exists())
         assertEquals(listOf("k1"), landed)
 
-        // The calls that used to crash on a missing unit.
         outbox.addClip("c-1", testClip(dir, "k2", 200, "2026-07-01T10:05:00Z", listOf("a2")))
         outbox.addParticipantChange("c-1", ParticipantChange("a2", ParticipantChange.LEAVE, "2026-07-01T10:06:00Z"))
         outbox.addAnswers("c-1", QAnswersPut(listOf(QAnswerItem("a1", "lin1", "Bamboo", sessionId = "c-1"))))

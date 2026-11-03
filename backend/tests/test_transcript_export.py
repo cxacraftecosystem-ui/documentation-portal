@@ -1,10 +1,3 @@
-"""Transcripts in View data / Download data (0.0.6): the pure half of ``services/transcript_export``.
-
-THIS FILE IS IDENTICAL IN designer-portal AND documentation-portal (``shared/transcription.sha256``).
-No database: the manifest settling, the tree settling, the flat rows, the filters and the bundle names.
-The database half (a fixed number of reads, consent, mapped names) is ``test_transcript_export_db.py``.
-"""
-
 from __future__ import annotations
 
 import asyncio

@@ -1,12 +1,3 @@
-"""Ask this interview, and fill the questionnaire from it: answers that cite the turns they came from.
-
-THE INTEGRITY RULE, enforced here and not left to the model: a citation names a turn that EXISTS in
-the transcript it was asked about, and when it quotes, the quote is a verbatim span (casefolded,
-whitespace collapsed) of that turn's original or English. A citation that fails either test is
-dropped. An answer left with no valid citation is not an answer: Ask says the interview does not
-cover the question, and a questionnaire draft is not made.
-"""
-
 from __future__ import annotations
 
 import json
@@ -22,7 +13,6 @@ from app.transcription.transcript.translate import normalise
 ANSWER_MAX_CHARS = 2_000
 QUESTION_MAX_CHARS = 500
 CITATIONS_MAX = 8
-#: Characters of transcript sent to Ask / auto-draft. Flash reads far more; this bounds the bill.
 CONTEXT_MAX_CHARS = 400_000
 NOT_COVERED = "The interview doesn't cover this."
 
@@ -156,7 +146,6 @@ def short_ids_for(turns: list[CiteTurn]) -> dict[str, str]:
 
 
 def verify_citations(raw: Any, turns: list[CiteTurn], by_short: dict[str, str]) -> list[Citation]:
-    """Only citations of turns that exist, and only quotes that are verbatim spans of that turn."""
     by_id = {turn.id: turn for turn in turns}
     out: list[Citation] = []
     seen: set[tuple[str, str | None]] = set()
@@ -237,7 +226,7 @@ def parse_drafts(
         english = item.get("english") if isinstance(item.get("english"), str) else ""
         citations = verify_citations(item.get("citations"), turns, by_short)
         if not original.strip() or not citations:
-            continue  # an answer that cannot point at the recording is not drafted
+            continue
         out[n] = DraftAnswer(n, original.strip()[:ANSWER_MAX_CHARS], english.strip()[:ANSWER_MAX_CHARS], citations)
     return [out[n] for n in sorted(out)]
 

@@ -25,7 +25,6 @@ import { qs } from "@/lib/questionnaire/qs";
 import { RecordingChips } from "@/components/questionnaire/RecordingChips";
 import { useChipNavigator } from "@/components/questionnaire/useUrlFilters";
 
-/** Recordings grouped by section in instrument order; whole-session takes last. */
 export function groupBySection(detail: { recordings: Recording[]; grid: GridView }): { key: string; label: string; recordings: Recording[] }[] {
   const live = detail.recordings.filter((r) => !r.removedAt);
   const sectionOfTarget = (r: Recording) => {
@@ -43,10 +42,6 @@ export function groupBySection(detail: { recordings: Recording[]; grid: GridView
   return [...groups.filter((g) => g.recordings.length), ...(whole.length ? [{ key: "whole", label: qs("wholeSession"), recordings: whole }] : [])];
 }
 
-/**
- * Answers by section order, each with its question and its artisan (audit, read view: they used to
- * print as bare text). A group answer names every artisan it was written for once.
- */
 export function answersBySection(
   answers: Answer[],
   grid: GridView,
@@ -90,11 +85,6 @@ export function answersBySection(
   return groups.map((g) => ({ key: g.key, label: g.label, rows: g.rows.map(({ key, code, prompt, who, text }) => ({ key, code, prompt, who, text })) }));
 }
 
-/**
- * The read view (DESIGN §4.8): fields, recordings by section with take labels, answers by section.
- * No transcript or "Add media" actions here — a re-run replaces a transcript, which is an update.
- * Reviewers also get the flags line and Return · Approve, with Approve held and its reason shown.
- */
 export function SessionReadView({ id }: { id: string }) {
   const goChip = useChipNavigator();
   const { user } = useAuth();
@@ -106,7 +96,6 @@ export function SessionReadView({ id }: { id: string }) {
   const [decideError, setDecideError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [questions, setQuestions] = useState<Record<string, GridQuestion[]>>({});
-  /** `?recording=<id>`: the take a coverage dot opened, brought into view with its transcript open. */
   const [focusId, setFocusId] = useState<string | null>(null);
   useEffect(() => {
     setFocusId(new URLSearchParams(window.location.search).get("recording"));

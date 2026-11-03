@@ -19,23 +19,13 @@ import com.fieldrepository.app.questionnaire.data.SubjectRole
 import java.time.Instant
 import java.time.LocalDate
 
-/**
- * The questionnaire v2 screens' rules, kept out of the composables so the JVM tests can hold them:
- * the instrument's shape, the coverage grid, P2's copy, the transcript line and the artisan
- * timeline. Wording comes from [QuestionnaireCopy] only.
- */
-
-// ── Instrument ──────────────────────────────────────────────────────────────────────────────
-
 data class InstrumentQuestion(
     val lineageId: String,
     val displayCode: String,
     val prompt: String,
     val sectionId: String,
-    /** A19: marked `*`; Finish reports how many are unanswered and never blocks. */
     val required: Boolean = false,
     val helpText: String? = null,
-    /** B24: prefilled from this artisan field. */
     val artisanField: String? = null
 )
 data class InstrumentSection(val id: String, val code: String, val title: String, val questions: List<InstrumentQuestion>)
@@ -46,7 +36,6 @@ data class Instrument(val id: String, val title: String, val sections: List<Inst
     fun section(id: String) = sections.firstOrNull { it.id == id }
     fun question(lineageId: String) = sections.flatMap { it.questions }.firstOrNull { it.lineageId == lineageId }
 
-    /** "Section D" for a section target, "D3" for a question. */
     fun label(targetKey: String): String = when {
         targetKey.startsWith("S:") -> section(targetKey.removePrefix("S:"))?.let { "Section ${it.code}" } ?: "Section"
         targetKey.startsWith("Q:") -> question(targetKey.removePrefix("Q:"))?.displayCode ?: "Question"
@@ -56,12 +45,10 @@ data class Instrument(val id: String, val title: String, val sections: List<Inst
     val labels: Map<String, String> get() =
         sections.flatMap { s -> listOf("S:${s.id}" to "Section ${s.code}") + s.questions.map { "Q:${it.lineageId}" to it.displayCode } }.toMap()
 
-    /** A19: the required questions with no answer for any of [subjectIds] yet. */
     fun requiredUnanswered(subjectIds: Collection<String>, answered: (subjectId: String, lineageId: String) -> Boolean): Int =
         sections.flatMap { it.questions }.filter { it.required }.count { q -> subjectIds.isNotEmpty() && subjectIds.any { !answered(it, q.lineageId) } }
 
     companion object {
-        /** From the form's sections; falls back to row ids and positional codes on an older server. */
         fun from(form: QFormDetail): Instrument = Instrument(
             form.id, form.title,
             form.sections.filter { it.isActive }.sortedBy { it.sortOrder }.map { s ->
@@ -79,26 +66,15 @@ data class Instrument(val id: String, val title: String, val sections: List<Inst
     }
 }
 
-// ── Coverage grid (§3.2, §4.3) ─────────────────────────────────────────────────────────────
-
 enum class CellMark { NONE, RECORDED, PARTIAL, VIA_SECTION, UPLOADING, ON_DEVICE, NEEDS_DECISION, TYPED }
 
-/**
- * One grid cell. [artisanId] is a subject id: an artisan, or a guest as `R:<id>`.
- *
- * Typed or recorded, either counts; recording preferred (owner, amendment 2 point 4): ● recorded,
- * ✎ typed only (a lighter mark, with "Add a recording?"). An admin's override (Marked complete,
- * Needs review, Needs redo) wins on the grid; the takes are still listed.
- */
 data class GridCell(
     val artisanId: String,
     val mark: CellMark,
     val count: Int = 0,
     val partial: Pair<Int, Int>? = null,
-    /** COMPLETED, NEEDS_REVIEW or NEEDS_REDO (`SectionStatus`), from the server's grid. */
     val override: String? = null
 ) {
-    /** ○ ● ●2 ◐ 4/10 ◌ ◎ ⚠ ✎, as the legend reads; ✓ ? ↻ for the three overrides. */
     val glyph: String get() = when (override) {
         "COMPLETED" -> "✓"
         "NEEDS_REVIEW" -> "?"
@@ -113,14 +89,12 @@ data class GridCell(
             CellMark.TYPED -> if (partial != null && partial.first < partial.second) "✎ ${partial.first}/${partial.second}" else "✎"
         }
     }
-    /** "Add a recording?" for a cell only typed answers cover: a gentle prompt, never blocking. */
     val addRecording: Boolean get() = override == null && mark == CellMark.TYPED
     val covered: Boolean get() = override == "COMPLETED" || mark == CellMark.RECORDED || mark == CellMark.NEEDS_DECISION ||
         mark == CellMark.UPLOADING || mark == CellMark.ON_DEVICE || (mark == CellMark.TYPED && partial == null)
 }
 
 data class GridRow(val section: InstrumentSection, val cells: List<GridCell>) {
-    /** The phone summary: "2/3", with ⚠ when any cell needs a decision. */
     val summary: String get() = "${cells.count { it.covered }}/${cells.size}" +
         (if (cells.any { it.mark == CellMark.NEEDS_DECISION }) " ⚠" else "") +
         (if (cells.any { it.mark == CellMark.TYPED }) " ✎" else "") +
@@ -128,18 +102,12 @@ data class GridRow(val section: InstrumentSection, val cells: List<GridCell>) {
 }
 
 object CoverageGridModel {
-    /**
-     * [known] are the server's takes (snapshot plus this session's recordings, de-duplicated by the
-     * caller); [overlay] the takes still on this device.
-     */
     fun rows(
         instrument: Instrument,
         artisanIds: List<String>,
         known: List<QSnapshotTake>,
         overlay: List<OverlayTake>,
-        /** (subject id, question lineage) pairs with a typed answer that has text, here or on the server. */
         typed: Set<Pair<String, String>> = emptySet(),
-        /** The server's grid, for the admin overrides. */
         server: QGrid? = null
     ): List<GridRow> {
         val answered = known.filter { it.role == SubjectRole.ANSWERED.wire }
@@ -150,7 +118,6 @@ object CoverageGridModel {
                 val questionTakes = section.questions.count { q -> answered.any { it.artisanId == artisanId && it.targetKey == "Q:${q.lineageId}" } }
                 val decision = answered.any { it.artisanId == artisanId && it.filing == "NEEDS_DECISION" && (it.targetKey == "S:${section.id}" || section.questions.any { q -> it.targetKey == "Q:${q.lineageId}" }) }
                 val typedQuestions = section.questions.count { q -> (artisanId to q.lineageId) in typed }
-                // A question counts once whether recorded, typed or both (the server's "14 of 24").
                 val coveredQuestions = section.questions.count { q ->
                     (artisanId to q.lineageId) in typed || answered.any { it.artisanId == artisanId && it.targetKey == "Q:${q.lineageId}" }
                 }
@@ -172,7 +139,6 @@ object CoverageGridModel {
         }
     }
 
-    /** A question's own mark for one artisan: its takes, else ◌ when its section has one. */
     fun questionMark(
         question: InstrumentQuestion,
         artisanId: String,
@@ -193,7 +159,6 @@ object CoverageGridModel {
         }
     }
 
-    /** Recordings as snapshot takes, so the grid reads one shape whatever the source. */
     fun takesOf(recordings: List<QRecording>): List<QSnapshotTake> = recordings.filter { it.removedAt == null }.flatMap { r ->
         r.targets.flatMap { t ->
             r.allSubjects.map { s ->
@@ -214,8 +179,6 @@ object CoverageGridModel {
     private fun keyOf(t: QTarget) = if (t.questionLineageId != null) "Q:${t.questionLineageId}" else if (t.sectionId != null) "S:${t.sectionId}" else ""
 }
 
-// ── P2 (§4.4) ──────────────────────────────────────────────────────────────────────────────
-
 data class P2TakeLine(val artisanId: String, val text: String)
 
 data class P2Model(
@@ -229,12 +192,10 @@ data class P2Model(
     val offerPartTwo: Boolean,
     val offerReplace: Boolean,
     val ackedRecordingIds: List<String>,
-    /** The latest earlier take, for "Replace the earlier take" and Part 2. */
     val latestRecordingId: String?
 )
 
 object AlreadyRecorded {
-    /** Null when nobody among [artisanIds] is covered: record straight away, no prompt. */
     fun model(
         response: QCoverageCheckResponse,
         targetLabel: String,
@@ -274,7 +235,6 @@ object AlreadyRecorded {
             SessionPurpose.REDO.wire -> RepeatReason.REDO.wire
             else -> response.suggestedReason ?: RepeatReason.REDO.wire
         }
-        // Part 2 only when the latest take is in this session with the same ANSWERED subjects (§3.3.5).
         val partTwo = latest != null && latest.sameSession && coveredIds == artisanIds.toSet()
         return P2Model(
             title = QuestionnaireCopy.s("p2.title"),
@@ -292,19 +252,11 @@ object AlreadyRecorded {
     }
 }
 
-// ── Transcript status (§3.14) ──────────────────────────────────────────────────────────────
-
 enum class TranscriptTone { NEUTRAL, ERROR }
 
 data class TranscriptLine(val text: String, val tone: TranscriptTone, val retryEnabled: Boolean, val retryReason: String?)
 
 object TranscriptStatus {
-    /**
-     * Paused is neutral, never an error, and no control can start a transcription while it holds.
-     * Consent is assumed by default (19 Oct 2026): only a refusal holds a recording back ("Not sent:
-     * consent refused"); an older take still marked AWAITING_CONSENT reads "Waiting to be sent". The
-     * 18 Oct recordings carry the owner's attestation (verdict ALLOW) and show no consent line at all.
-     */
     fun line(recording: QRecording, paused: Boolean): TranscriptLine? {
         val t = recording.transcript
         val verdict = recording.consent?.verdict
@@ -320,8 +272,6 @@ object TranscriptStatus {
         }
     }
 }
-
-// ── Artisan record timeline (§4.6) ─────────────────────────────────────────────────────────
 
 sealed interface TimelineRow {
     data class SessionHead(val sessionId: String, val text: String) : TimelineRow
@@ -346,7 +296,6 @@ object ArtisanTimeline {
         return out
     }
 
-    /** "24 Jun · Group of 5 with Meena, Ravi +2 · Ankur · Kolkata". */
     fun sessionHead(session: QSession, artisanId: String, names: Map<String, String>): String {
         val date = session.sessionDate?.let { runCatching { LocalDate.parse(it.take(10)) }.getOrNull() }
         val others = session.participants.filter { it.artisanId != artisanId }.map { QuestionnaireCopy.firstName(it.name.ifBlank { names[it.artisanId].orEmpty() }) }
@@ -382,7 +331,6 @@ object ArtisanTimeline {
         return TimelineRow.Take(r.id, time, parts.joinToString(" · "), badges, r.mediaFileId)
     }
 
-    /** "Section A", "F7", "F1–F6", or "Whole session". */
     fun targetsLabel(targets: List<QTarget>): String {
         if (targets.isEmpty()) return QuestionnaireCopy.s("record.wholeSession")
         if (targets.size == 1) {

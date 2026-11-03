@@ -14,12 +14,6 @@ import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.ui.field
 
-/**
- * The consent notice (DESIGN §3.11), inline under the artisan field and on the artisan record. Consent
- * is assumed by default and can be revoked (owner decision, 19 Oct 2026): with no answer on record it
- * says recordings may be sent, Switch off · OK; after a refusal it says so, OK · Switch back on. It
- * never blocks Start session or recording. `onAnswer(null)` is OK; otherwise the state to record.
- */
 @Composable
 fun ConsentQuestion(artisanName: String, onAnswer: (state: String?) -> Unit, modifier: Modifier = Modifier, refused: Boolean = false) {
     Surface(color = MaterialTheme.field.surface50, shape = MaterialTheme.shapes.medium, modifier = modifier.fillMaxWidth()) {
@@ -38,7 +32,6 @@ fun ConsentQuestion(artisanName: String, onAnswer: (state: String?) -> Unit, mod
     }
 }
 
-/** The take row's transcript line. Paused is neutral; Retry is disabled with its reason while paused. */
 @Composable
 fun TranscriptStatusLine(line: TranscriptLine?, onRetry: (() -> Unit)? = null, onRecordConsent: (() -> Unit)? = null) {
     line ?: return

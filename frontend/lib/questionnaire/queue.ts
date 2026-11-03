@@ -1,36 +1,3 @@
-/**
- * THE QUESTIONNAIRE OUTBOX (DESIGN §6.2, BUILD_PLAN §3.1): one ordered unit per session.
- *
- *   session(clientKey) → participant changes → clip(clientClipKey)* → answers
- *
- * The same queue runs online (immediately) and offline (when the signal returns), so there is one
- * code path and the researcher's first press of Record never waits for the network. Each step is
- * ticked off on its own and persisted before the next starts, so a closed tab resumes where it was.
- *
- * - Every create carries an `Idempotency-Key` that was minted ONCE, when the step was queued, and
- *   travels with every retry (`clientKey` for the session, `clientClipKey` for a clip). Bodies are
- *   frozen at queue time.
- * - A clip resumes: before presigning it asks `GET /media/uploads/{clientClipKey}`; the server's
- *   `partsDone` (merged with the parts this browser recorded) decides which parts are left. A clip
- *   that already completed is never uploaded again.
- * - A failed clip blocks nothing: the other clips and the answers keep going. At most 3 clips upload
- *   at once, 1 on a slow link.
- * - The client never names the file: the object key (and its readable leaf) comes from presign.
- *
- * ONE WRITER PER UNIT (audit C5). Every write to a unit — a step appended by the screen, a step
- * ticked off by the runner, a P9 decision — goes through `mutateUnit`, which re-reads the stored
- * unit and applies the change inside a chain held per unit id. The runner writes back only the steps
- * it touched, so a take recorded while another uploads is never overwritten by the runner's stale
- * copy, and a unit is removed only when the STORED unit is all done.
- *
- * A unit is keyed on the session's `clientKey`, or on its id when it has none (audit C4: every session
- * the backfill rebuilt has a null clientKey).
- *
- * The runner takes its API, store and byte transport as arguments so the unit spec drives it with an
- * in-memory store that refuses what IndexedDB refuses, and `e2e/questionnaire-v2-stack.spec.ts`
- * drives it against a real backend and bucket. `indexedDbQueueStore()` is the browser store.
- */
-
 import { ApiError } from "@/lib/api";
 import { ownerKey } from "@/lib/questionnaire/api";
 import type {
@@ -62,19 +29,15 @@ export type ClipStep = {
   kind: "clip";
   status: StepStatus;
   clientClipKey: string;
-  /** Key of the Blob in the blob store (the recorder's assembled take or the picked file). */
   blobKey: string;
-  /** What was recorded ("Section D"), for the missing-file line; never sent. */
   label?: string;
   sizeBytes: number;
   contentType: string;
   extension: string;
   presign: Omit<PresignRequest, "sessionId" | "linkedRecordType" | "clientClipKey" | "sizeBytes" | "contentType" | "extension">;
   recording: CompleteRecording;
-  /** Upload progress the browser itself recorded, merged with the server's on resume. */
   objectKey?: string;
   uploadId?: string | null;
-  /** The part size the SERVER chose for this upload; parts are cut at its boundaries. */
   partSize?: number;
   partsDone?: UploadPart[];
   uploaded?: boolean;
@@ -86,17 +49,13 @@ export type AnswersStep = {
   kind: "answers";
   status: StepStatus;
   items: Omit<AnswerItem, "sessionId">[];
-  /** Minted when the step is queued; how the one writer finds this step again. */
   key?: string;
-  /** `CONFLICT` while items wait for P9 (or a refusal the researcher must see). */
   error?: string;
-  /** The server's answer for each held item: the current text and who changed it. */
   conflicts?: AnswerResult[];
 };
 export type Step = SessionStep | ParticipantStep | ClipStep | AnswersStep;
 
 export type SessionUnit = {
-  /** The session's clientKey, or its id when it has none; one unit per session. */
   id: string;
   sessionId: string | null;
   createdAt: string;
@@ -114,7 +73,6 @@ export interface QueueStore {
 }
 
 export interface ByteTransport {
-  /** PUT bytes to a presigned URL; resolves with the part's ETag where the bucket exposes it. */
   put(url: string, body: Blob, headers: Record<string, string>): Promise<{ etag: string | null }>;
 }
 
@@ -135,7 +93,6 @@ export type QueueApi = Pick<
 export type QueueOptions = {
   multipartThresholdBytes: number;
   partSizeBytes: number;
-  /** Measured link speed; under ~50 kbps clips go one at a time. */
   slowLink?: boolean;
   onProgress?: (clientClipKey: string, fraction: number) => void;
   onRecording?: (recording: Recording) => void;
@@ -144,7 +101,6 @@ export type QueueOptions = {
 
 export const MAX_PARALLEL_CLIPS = 3;
 
-/** The key a session's unit is stored under: its clientKey, else its id (audit C4). */
 export function sessionUnitKey(session: { id: string; clientKey: string | null | undefined }): string {
   return session.clientKey || session.id;
 }
@@ -157,17 +113,14 @@ function freshKey(prefix: string): string {
   return `${prefix}-${random}`;
 }
 
-/** A new unit for a session started on this device. Nothing is sent until `runUnit`. */
 export function newSessionUnit(body: SessionCreate, now = new Date()): SessionUnit {
   return { id: body.clientKey, sessionId: null, createdAt: now.toISOString(), steps: [{ kind: "session", status: "PENDING", body }] };
 }
 
-/** A unit for a session that already exists on the server (opened online, or joined). */
 export function existingSessionUnit(session: Pick<Session, "id" | "clientKey">, now = new Date()): SessionUnit {
   return { id: sessionUnitKey(session), sessionId: session.id, createdAt: now.toISOString(), steps: [] };
 }
 
-/** A step's identity inside its unit; the one writer matches the runner's copy to the stored one by it. */
 export function stepKey(step: Step): string {
   switch (step.kind) {
     case "session":
@@ -181,10 +134,6 @@ export function stepKey(step: Step): string {
   }
 }
 
-/**
- * Participant changes are ordered by device time among themselves; clips keep the order they were
- * recorded in; answers go last. The unit's own array is kept in that order on every append.
- */
 function rank(step: Step): number {
   switch (step.kind) {
     case "session":
@@ -211,7 +160,6 @@ export function appendStep(unit: SessionUnit, step: Step): SessionUnit {
   return { ...unit, steps: indexed.map((x) => x.s) };
 }
 
-/** Steps that still need sending, in order. */
 export function pendingSteps(unit: SessionUnit): Step[] {
   return unit.steps.filter((s) => s.status !== "DONE");
 }
@@ -220,11 +168,8 @@ export function pendingClipCount(units: SessionUnit[]): number {
   return units.reduce((n, u) => n + u.steps.filter((s) => s.kind === "clip" && s.status !== "DONE").length, 0);
 }
 
-// ── the one writer ───────────────────────────────────────────────────────────────────────────────
-
 const chains = new WeakMap<QueueStore, Map<string, Promise<unknown>>>();
 
-/** Runs `work` after every earlier write to the same unit of the same store has settled. */
 export function serialised<T>(store: QueueStore, id: string, work: () => Promise<T>): Promise<T> {
   let byId = chains.get(store);
   if (!byId) {
@@ -241,10 +186,6 @@ export function serialised<T>(store: QueueStore, id: string, work: () => Promise
   return next;
 }
 
-/**
- * The only way a unit is written. `change` sees the STORED unit (a copy; null when there is none)
- * and returns the unit to store, or null to remove it.
- */
 export function mutateUnit(
   store: QueueStore,
   id: string,
@@ -262,12 +203,10 @@ export function mutateUnit(
   });
 }
 
-/** Appends a step to a unit (creating it from `base` when it is not stored yet), through the one writer. */
 export function enqueueStep(store: QueueStore, base: SessionUnit, step: Step): Promise<SessionUnit | null> {
   return mutateUnit(store, base.id, (current) => appendStep(current ?? base, step));
 }
 
-/** The stored unit with the runner's copies of the steps it touched laid over it; new steps stand. */
 function mergeRunner(stored: SessionUnit | null, runner: SessionUnit, touched: ReadonlySet<string>): SessionUnit {
   if (!stored) return structuredClone(runner);
   const mine = new Map(runner.steps.map((s) => [stepKey(s), s] as const));
@@ -279,17 +218,13 @@ function mergeRunner(stored: SessionUnit | null, runner: SessionUnit, touched: R
   return { ...stored, sessionId: runner.sessionId ?? stored.sessionId, steps };
 }
 
-// ── answers held for P9 (audit H18) ──────────────────────────────────────────────────────────────
-
 type ItemKey = AnswerOwner & { questionLineageId: string };
 const sameItem = (a: ItemKey, b: ItemKey) => ownerKey(a) === ownerKey(b) && a.questionLineageId === b.questionLineageId;
 
-/** The results that must not be dropped: a CONFLICT waits for P9, a FORBIDDEN is shown. */
 export function heldAnswerResults(items: ItemKey[], results: AnswerResult[]): AnswerResult[] {
   return results.filter((r) => (r.status === "CONFLICT" || r.status === "FORBIDDEN") && items.some((item) => sameItem(item, r)));
 }
 
-/** Every answer waiting for a decision in a unit, with the step that holds it. */
 export function answerConflicts(unit: SessionUnit | null): { stepKey: string; item: Omit<AnswerItem, "sessionId">; result: AnswerResult }[] {
   if (!unit) return [];
   return unit.steps.flatMap((step) =>
@@ -302,10 +237,6 @@ export function answerConflicts(unit: SessionUnit | null): { stepKey: string; it
   );
 }
 
-/**
- * P9 decided: "mine" re-queues the typed text over the server's current version; "theirs" (or a
- * refusal acknowledged) drops it. The step is done once nothing in it waits.
- */
 export function resolveAnswerConflict(
   store: QueueStore,
   unitId: string,
@@ -339,18 +270,13 @@ export function resolveAnswerConflict(
   });
 }
 
-// ── the fix tray (UNIFY B39) ─────────────────────────────────────────────────────────────────────
-
-/** A step the researcher has to act on: refused (FAILED) or holding answers for P9. */
 export type TrayItem = {
   unitId: string;
   stepKey: string;
   step: Step;
-  /** `failed`: refused and parked; `conflict`: answers changed by someone else. */
   state: "failed" | "conflict";
 };
 
-/** Everything in the outbox that waits for a person rather than for a connection. */
 export function trayItems(units: SessionUnit[]): TrayItem[] {
   return units.flatMap((unit) =>
     unit.steps.flatMap((step): TrayItem[] => {
@@ -362,7 +288,6 @@ export function trayItems(units: SessionUnit[]): TrayItem[] {
   );
 }
 
-/** "Send again": a refused step goes back to waiting, its error and attempts cleared. */
 export function sendStepAgain(store: QueueStore, unitId: string, key: string): Promise<SessionUnit | null> {
   return mutateUnit(store, unitId, (current) => {
     if (!current) return null;
@@ -376,10 +301,6 @@ export function sendStepAgain(store: QueueStore, unitId: string, key: string): P
   });
 }
 
-/**
- * "Discard": the step is dropped from the outbox. A session that never reached the server takes
- * its whole unit with it (nothing after it can land); a clip's bytes are deleted too.
- */
 export function discardStep(store: QueueStore, unitId: string, key: string): Promise<SessionUnit | null> {
   return mutateUnit(store, unitId, (current) => {
     if (!current) return null;
@@ -395,10 +316,6 @@ export function discardStep(store: QueueStore, unitId: string, key: string): Pro
   });
 }
 
-/**
- * "Send without the conflicting answers": the answers someone else changed are dropped from the
- * step (theirs stand) and the rest go up. A step left with nothing to send is done.
- */
 export function sendWithoutConflicts(store: QueueStore, unitId: string, key: string): Promise<SessionUnit | null> {
   return mutateUnit(store, unitId, (current) => {
     if (!current) return null;
@@ -413,20 +330,16 @@ export function sendWithoutConflicts(store: QueueStore, unitId: string, key: str
   });
 }
 
-// ── the runner ───────────────────────────────────────────────────────────────────────────────────
-
 function describe(error: unknown): string {
   if (error instanceof ApiError) return error.message;
   if (error instanceof Error) return error.message;
   return String(error);
 }
 
-/** A 4xx (other than 408/429) will not succeed on retry with the same frozen body. */
 export function isPermanent(error: unknown): boolean {
   return error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429;
 }
 
-/** `POST /media/multipart/presign-parts` answers `{urls: {"2": url, …}}`; the parts asked for, in order. */
 export function signedParts(signed: { urls?: Record<string, string> | null }, wanted: number[]): { partNumber: number; url: string }[] {
   const urls = signed.urls ?? {};
   const parts = wanted.map((partNumber) => ({ partNumber, url: urls[String(partNumber)] })).filter((p): p is { partNumber: number; url: string } => typeof p.url === "string" && p.url.length > 0);
@@ -437,14 +350,12 @@ export function signedParts(signed: { urls?: Record<string, string> | null }, wa
 async function uploadClip(step: ClipStep, sessionId: string, api: QueueApi, store: QueueStore, transport: ByteTransport, opts: QueueOptions, persist: () => Promise<void>) {
   const blob = await store.getBlob(step.blobKey);
   if (!blob) {
-    // The bytes are gone from this browser; nothing can bring them back. Never ticked.
     step.status = "FAILED";
     step.error = "MISSING_FILE";
     return;
   }
 
   if (!step.uploaded) {
-    // Resume first: the server may already hold an intent (and parts) for this clip.
     if (!step.objectKey) {
       try {
         const state = await api.uploadState(step.clientClipKey);
@@ -469,7 +380,6 @@ async function uploadClip(step: ClipStep, sessionId: string, api: QueueApi, stor
     };
 
     if (!step.uploaded && step.sizeBytes <= opts.multipartThresholdBytes) {
-      // A re-presign signs a fresh URL for the SAME object key (the server keys the intent on clientClipKey).
       const signed = await api.presign(request);
       step.objectKey = signed.objectKey;
       await persist();
@@ -486,7 +396,6 @@ async function uploadClip(step: ClipStep, sessionId: string, api: QueueApi, stor
         step.partsDone = mergeParts(step.partsDone ?? [], created.partsDone ?? []);
         await persist();
       }
-      // The server's part size decides the boundaries; the config's is only the fallback.
       const partSize = step.partSize || opts.partSizeBytes;
       const total = Math.max(1, Math.ceil(step.sizeBytes / partSize));
       const done = new Set((step.partsDone ?? []).map((p) => p.partNumber));
@@ -534,12 +443,6 @@ export function mergeParts(a: UploadPart[], b: UploadPart[]): UploadPart[] {
   return [...byNumber.values()].sort((x, y) => x.partNumber - y.partNumber);
 }
 
-/**
- * Sends one unit's pending steps in order. Returns the runner's view of the unit; every change is
- * written back through the one writer as it happens. A session step that fails stops the unit,
- * since nothing after it has a session to point at; a failed clip stops only itself. Steps appended
- * while this runs are kept and sent by the next pass.
- */
 export async function runUnit(
   unit: SessionUnit,
   api: QueueApi,
@@ -553,13 +456,6 @@ export async function runUnit(
     await mutateUnit(store, unit.id, (stored) => mergeRunner(stored, unit, touched));
   };
 
-  // ONLY PENDING STEPS ARE SENT. A FAILED step was refused for good (`isPermanent`: a 4xx other
-  // than 408/429) and re-sending the same frozen body cannot change the answer; doing it on every
-  // drain (every page load) only replaced the real reason in the fix tray ("That artisan was
-  // removed.") with whatever the re-send happened to get back. It waits, reason intact, until the
-  // researcher presses Send again (`sendStepAgain` → PENDING) or Discard — exactly the steps
-  // `useSessionQueue.hasRetryableWork` schedules retries for. Retryable failures (network, 5xx,
-  // 408, 429) never leave PENDING, so they are still retried here.
   for (const step of unit.steps) {
     if (step.status !== "PENDING") continue;
     if (step.kind === "session") {
@@ -591,7 +487,6 @@ export async function runUnit(
     } catch (error) {
       step.error = describe(error);
       if (isPermanent(error)) step.status = "FAILED";
-      // A clip may name this artisan; the server adds non-participant subjects itself, so carry on.
     }
     await persist(step);
   }
@@ -606,7 +501,6 @@ export async function runUnit(
       step.attempts = (step.attempts ?? 0) + 1;
       try {
         await uploadClip(step, sessionId, api, store, transport, opts, () => persist(step));
-        // A missing file is settled inside; its FAILED state still has to reach the store.
         if (step.error === "MISSING_FILE") await persist(step);
       } catch (error) {
         step.error = describe(error);
@@ -618,7 +512,6 @@ export async function runUnit(
   await Promise.all(Array.from({ length: Math.min(width, clips.length) }, worker));
 
   for (const step of unit.steps) {
-    // Held answers wait for the researcher's P9; resending them would only conflict again.
     if (step.kind !== "answers" || step.status !== "PENDING" || step.error === "CONFLICT") continue;
     try {
       const { results } = await api.putAnswers(step.items.map((item) => ({ ...item, sessionId })));
@@ -640,15 +533,12 @@ export async function runUnit(
     await persist(step);
   }
 
-  // Removed only when the STORED unit is all done: a step appended meanwhile keeps it.
   await mutateUnit(store, unit.id, (stored) => {
     const merged = mergeRunner(stored, unit, touched);
     return merged.steps.every((s) => s.status === "DONE") ? null : merged;
   });
   return unit;
 }
-
-// ── what the screens read off the outbox ─────────────────────────────────────────────────────────
 
 export type ClipUploadState =
   | { kind: "UPLOADING"; percent: number }
@@ -657,7 +547,6 @@ export type ClipUploadState =
   | { kind: "FAILED"; error: string }
   | { kind: "UPLOADED" };
 
-/** "Uploading 40%" · "Uploaded" · "Waiting for signal" · "Upload failed. Retrying." (DESIGN §4.3). */
 export function clipUploadState(step: ClipStep, progress: number | undefined, online: boolean): ClipUploadState {
   if (step.status === "DONE") return { kind: "UPLOADED" };
   if (step.status === "FAILED") return { kind: "FAILED", error: step.error ?? "" };
@@ -666,11 +555,6 @@ export function clipUploadState(step: ClipStep, progress: number | undefined, on
   return { kind: "UPLOADING", percent: Math.round(Math.max(0, Math.min(1, progress ?? 0)) * 100) };
 }
 
-/**
- * An in-memory store, for the unit specs and as the fallback where IndexedDB is unavailable. It
- * refuses what IndexedDB refuses: a unit with no key (`keyPath: "id"` on a null id throws a
- * DataError there). The fake that accepted one is how audit C4 shipped.
- */
 export function memoryQueueStore(): QueueStore & { units: Map<string, SessionUnit>; blobs: Map<string, Blob> } {
   const units = new Map<string, SessionUnit>();
   const blobs = new Map<string, Blob>();
@@ -731,7 +615,6 @@ function tx<T>(db: IDBDatabase, store: string, mode: IDBTransactionMode, run: (s
   });
 }
 
-/** The browser store: units and blobs in IndexedDB, surviving a closed tab. */
 export function indexedDbQueueStore(): QueueStore {
   let opened: Promise<IDBDatabase> | null = null;
   const db = () => (opened ??= openQuestionnaireDb());
@@ -760,7 +643,6 @@ export function indexedDbQueueStore(): QueueStore {
   };
 }
 
-/** The browser transport: `fetch` PUT, reading the part ETag the bucket's CORS must expose. */
 export const fetchTransport: ByteTransport = {
   async put(url, body, headers) {
     const response = await fetch(url, { method: "PUT", body, headers });

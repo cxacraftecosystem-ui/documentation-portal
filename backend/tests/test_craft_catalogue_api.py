@@ -1,10 +1,3 @@
-"""The crafts API on the master list (docs/CRAFTS.md, §2.3 of the 2026-10-20 requirements).
-
-The catalogue every picker reads, craft writes and their refusals, merge and adopt, the category and
-sub-category routes, and the matcher that keeps an old client's typed craft name. Against a LOCAL
-database the migrations have been applied to; skipped otherwise. The same file in both portals.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -35,7 +28,6 @@ LOCATION = {"latitude": 23.25, "longitude": 69.67, "state": "Gujarat", "district
 
 
 def _aadhaar() -> str:
-    """A Verhoeff-valid number no other test holds (the column is unique)."""
     while True:
         candidate = "2" + "".join(random.choices("0123456789", k=11))
         if verhoeff_ok(candidate):
@@ -43,8 +35,6 @@ def _aadhaar() -> str:
 
 
 async def _seed_merge_references(stamp: str, admin_id: str) -> dict[str, str]:
-    """A craft that every kind of record points at, for the merge test: artisan, tool (column and
-    ``ToolCraft``), workshop (``WorkshopCraft``) and media file."""
     craft = await db.craft.create(
         data={"name": f"Merge Wide {stamp}", "slug": f"Merge-Wide-{stamp}", "subCategoryId": EMBROIDERY, "status": cm.ACTIVE}
     )
@@ -95,8 +85,6 @@ async def _seed(stamp: str) -> dict[str, Any]:
                 }
             )
         before = await db.craft.count()
-        # The matcher, on the real list: a typed name that is on it, one only an alias reaches, and
-        # one that is on nothing. Nothing is ever created.
         known = await cm.resolve_record_craft(db, {"craftName": "kutch ajrakh"})
         unknown = await cm.resolve_record_craft(db, {"craftName": f"Portrait {stamp}"})
         product_kept = await cm.resolve_record_craft(db, {"craftName": f"Portrait {stamp}"}, keep_name=True)
@@ -120,7 +108,6 @@ async def _seed(stamp: str) -> dict[str, Any]:
 
 async def _cleanup(world: dict[str, Any]) -> None:
     stamp = world["stamp"]
-    # Insensitive: the API title-cases names, so the stamp's letters may come back capitalised.
     has_stamp = {"contains": stamp, "mode": "insensitive"}
     await db.connect()
     try:
@@ -202,7 +189,6 @@ def test_the_catalogue_is_the_whole_list_in_order_with_an_etag(world):
     assert etag == f'"{body["version"]}"'
     again = client.get("/api/crafts/catalogue", headers={**_as(world, "RESEARCHER"), "If-None-Match": etag})
     assert again.status_code == 304
-    # A proxy that compresses the body weakens the tag it passes on; the weak comparison still matches.
     weak = client.get(
         "/api/crafts/catalogue", headers={**_as(world, "RESEARCHER"), "If-None-Match": f'"other", W/{etag}'}
     )
@@ -321,7 +307,6 @@ def test_merge_moves_every_reference_and_keeps_the_source(world):
 
 
 def test_merge_repoints_artisans_tools_workshops_and_media(world):
-    """§2.8: merge re-points artisans, products, tools, ToolCraft, WorkshopCraft and media."""
     client = world["client"]
     wide = world["wide"]
     merged = client.post(f"/api/crafts/{wide['craft']}/merge", json={"intoId": THARU}, headers=_as(world, "ADMIN"))
@@ -345,8 +330,6 @@ def test_merge_repoints_artisans_tools_workshops_and_media(world):
 
 
 def test_an_artisan_with_an_unknown_typed_craft_is_kept_for_review(world):
-    """§2.8: an old client's unknown ``craftName`` on POST /artisans is 201, ``craftId`` null and
-    ``legacyCraftText`` kept, and the admin review queue lists the artisan."""
     client = world["client"]
     text = f"Unlisted Weave {world['stamp']}"
     created = client.post(
@@ -373,7 +356,6 @@ def test_an_artisan_with_an_unknown_typed_craft_is_kept_for_review(world):
 
 
 def test_a_tool_with_no_craft_ticked_keeps_its_typed_name_for_review(world):
-    """The current tool form always sends ``craftIds``; with none ticked a typed name is still kept."""
     client = world["client"]
     text = f"Unlisted Lacquer {world['stamp']}"
     created = client.post(
@@ -399,8 +381,6 @@ def test_a_tool_with_no_craft_ticked_keeps_its_typed_name_for_review(world):
 
 
 def test_a_record_whose_text_now_matches_stays_in_the_queue_until_linked(world):
-    """A typed name that matched nothing, then a craft of that name is added: the record is unlinked
-    still, so the queue keeps it, with the link the mapping would make."""
     client = world["client"]
     text = f"Kantha Revival {world['stamp']}"
     product = client.post(

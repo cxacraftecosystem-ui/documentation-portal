@@ -33,7 +33,6 @@ import com.fieldrepository.app.transcript.data.TranscriptUiText
 import com.fieldrepository.app.ui.AudioPlayer
 import com.fieldrepository.app.ui.field
 
-/** One take as the sheet lists it: "Take 1  14:12 min  Nandini  7 Jul 10:42 / Group of 3 · Transcribed". */
 data class TakeRow(
     val recordingId: String,
     val position: Int,
@@ -42,25 +41,14 @@ data class TakeRow(
     val transcript: TranscriptLine?,
     val local: Boolean,
     val removable: Boolean,
-    /** The take's target this row stands for ("Q:…" or "S:…"), for "Make main take". */
     val targetKey: String? = null,
-    /** The take's chips (owner, 31 Oct 2026): section, form, people, dates, workshop, language. */
     val chips: com.fieldrepository.app.questionnaire.data.QChips? = null,
-    /** "Make main take" is offered (Professor and above, on an artisan's cell). */
     val canMakePrimary: Boolean = false,
-    /** Removed in this visit: shown under "Show removed" with Restore. */
     val removed: Boolean = false,
-    /** A finished transcript: "Draft answers" can read it. */
     val canPropose: Boolean = false,
-    /** The take's media file: the transcript viewer opens on it (DESIGN_2026-10-31 §3). */
     val mediaFileId: String? = null
 )
 
-/**
- * The takes of one cell or section (DESIGN §4.3): play, and per take Retry (transcription), Change
- * consent, Make main take, Draft answers and Remove; removed takes under "Show removed (n)" with
- * Restore; Record take · Upload file. Every action the web's take sheet has (audit M23).
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TakeSheet(
@@ -78,11 +66,8 @@ fun TakeSheet(
     onRestore: (TakeRow) -> Unit = {},
     onMakePrimary: (TakeRow) -> Unit = {},
     onPropose: (TakeRow) -> Unit = {},
-    /** B40: the take's history (moves, refilings, decisions, removals, restores). */
     onHistory: (TakeRow) -> Unit = {},
-    /** Opens the take's transcript (tabs, copy, karaoke, Fill from recording). */
     onTranscript: (TakeRow) -> Unit = {},
-    /** A gentle line under the heading ("Add a recording?" for a typed-only cell). */
     note: String? = null
 ) {
     var showRemoved by remember { mutableStateOf(false) }
@@ -100,7 +85,6 @@ fun TakeSheet(
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(t.first, style = MaterialTheme.typography.bodyMedium)
                         Text(t.second, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.field.muted)
-                        // Tapping a chip opens the recordings list filtered by it.
                         RecordingChips(t.chips, onChip = QuestionnaireV2Nav::openRecordings)
                         TranscriptStatusLine(
                             t.transcript,

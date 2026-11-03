@@ -25,12 +25,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Audit H13 and H14 (21 Oct 2026): "Keep one…" sent KEEP_THIS with no other take (always a 422), and
- * "To file" rows could not be filed at all. Keep one now names the other take, Part 2 makes the later
- * take the continuation, and File it sends the session, target and who answered. "Not needed", "Keep"
- * and "OK" are remembered on the phone.
- */
 @QFeature("B25")
 class InboxActionsTest {
     private fun obj(text: String) = Json.parseToJsonElement(text) as JsonObject

@@ -10,12 +10,6 @@ import { ts } from "@/lib/transcript/strings";
 
 import { SECONDARY } from "./parts";
 
-/**
- * A craft's living glossary (design §10.4): each term heard across its transcripts, its gloss, how
- * often, and where (up to five recordings, linked at the moment). The same list feeds Scribe's key
- * terms and the translator's glossary on the next run, server-side. A refused or failed first read
- * draws nothing: the glossary is extra, never a broken panel.
- */
 export function GlossaryView({ craftId, mediaHref }: { craftId: string; mediaHref: (mediaId: string, startMs: number | null) => string }) {
   const [terms, setTerms] = useState<GlossaryTerm[] | null | undefined>(undefined);
   const [cursor, setCursor] = useState<string | null>(null);

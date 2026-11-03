@@ -1,19 +1,3 @@
-"""SHARED CRAFT AND QUESTION CODES (C26) — one file, both portals, and the migration that seeded it.
-
-This file is identical in the designer portal and the documentation portal. It holds:
-
-* the shared file to itself: codes unique and slug-shaped, no spelling claimed by two crafts, no two
-  questions with one section and wording, and every question of the corpora each portal seeds from;
-* the Python folding to the SQL folding the backfill migration runs, on every spelling and prompt;
-* the migration to the file: every code, spelling and question code the file holds is in the SQL;
-* the service's lookups and an administrator's mapping, against a fake client;
-* the write paths to the codes, read from source: a craft's code is set AFTER its provenance stamp;
-* the two repositories to each other (and to the cxa-cms public site's craft slugs) when the
-  sibling checkouts are present.
-
-No database.
-"""
-
 from __future__ import annotations
 
 import json
@@ -44,10 +28,6 @@ def anyio_backend():
 def raw() -> dict[str, Any]:
     return json.loads(cpc.CODES_FILE.read_text(encoding="utf-8"))
 
-
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The file
-# ──────────────────────────────────────────────────────────────────────────────────────────────
 
 
 def test_craft_codes_are_unique_and_slug_shaped():
@@ -125,10 +105,6 @@ def test_folding_examples():
     assert cpc.question_code("A", "Name of Artisan") is None
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The migration
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 def _sql_literal(text: str) -> str:
     return "'" + text.replace("'", "''") + "'"
@@ -160,10 +136,6 @@ def test_the_migration_is_additive_and_guarded():
             assert "IF NOT EXISTS" in upper
     assert ("QuestionnaireFormQuestion" in sql) == IS_DESIGNER_PORTAL
 
-
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The service, against a fake client
-# ──────────────────────────────────────────────────────────────────────────────────────────────
 
 
 class _Table:
@@ -208,7 +180,6 @@ async def test_a_new_craft_with_a_shared_spelling_gets_its_code_and_the_code_row
     client = _client()
     assert await cpc.code_for_new_craft(client, "Ajrak") == "ajrakh"
     assert [r["code"] for r in client.craftcode.rows] == ["ajrakh"]
-    # Second time: the row exists, nothing is written again.
     assert await cpc.code_for_new_craft(client, "Ajrakh printing") == "ajrakh"
     assert len(client.craftcode.rows) == 1
 
@@ -248,7 +219,6 @@ async def test_mapping_remembers_the_spelling_and_maps_its_twins():
 async def test_mapping_never_writes_a_shared_spelling_and_refuses_an_unknown_code():
     client = _client(craft=_Table("id", [{"id": "c1", "name": "Bandhej", "craftCode": None}]))
     craft = SimpleNamespace(id="c1", name="Bandhej")
-    # An admin may map a shared spelling elsewhere on THIS craft, but the shared row is not touched.
     await cpc.map_craft(client, craft=craft, code="patola", remember_spelling=True, user_id="u1")
     assert client.craftspelling.rows == []
     with pytest.raises(ValueError):
@@ -271,10 +241,6 @@ async def test_reconcile_sets_clears_and_leaves_alone():
     assert codes == {"q1": "CTW2.RESP.01", "q2": None, "q3": "CTW2.RESP.02"}
     assert await cpc.reconcile_question_codes(client) == 0
 
-
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The write paths, read from source
-# ──────────────────────────────────────────────────────────────────────────────────────────────
 
 
 def _src(rel: str) -> str:
@@ -303,14 +269,9 @@ def test_question_writes_reconcile_or_stamp_the_code():
     assert "reconcile_question_codes(" in src
     if IS_DESIGNER_PORTAL:
         forms = _src("app/api/routes/questionnaire_forms.py")
-        # Every write reconciles through one helper, on whichever tables hold the form (UNIFY U5).
         assert forms.count("_reconcile_codes(") >= 8
         assert "reconcile_form_question_codes(" in forms and "reconcile_question_codes(" in forms
 
-
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The two repositories, and the public site
-# ──────────────────────────────────────────────────────────────────────────────────────────────
 
 SHARED_FILES = (
     "backend/app/data/cross_portal_codes.json",
@@ -365,7 +326,6 @@ def test_every_public_site_craft_slug_is_a_shared_code():
 
 
 async def test_an_admins_mapping_is_written_to_the_audit_ledger(monkeypatch):
-    """C26: a code joins two portals' crafts, so the route records who mapped it, from what to what."""
     from app.api.routes import craft_codes as routes
 
     client = _client(craft=_Table("id", [{"id": "c1", "name": "Kota Doria", "craftCode": None}]))
@@ -383,9 +343,6 @@ async def test_an_admins_mapping_is_written_to_the_audit_ledger(monkeypatch):
 
 
 async def test_every_craft_a_remembered_spelling_maps_gets_its_own_audit_entry(monkeypatch):
-    """Remember each spelling maps the picked craft's twins too, and each one is a change to a
-    craft, so each gets a ledger row of its own — not only the craft the admin picked. A craft the
-    call did not change (another spelling, or one already coded) gets none."""
     from app.api.routes import craft_codes as routes
 
     client = _client(
@@ -414,7 +371,6 @@ async def test_every_craft_a_remembered_spelling_maps_gets_its_own_audit_entry(m
         ("c2", None, {"craftCode": "ikat"}, "craft", "admin1"),
     ]
 
-    # Without remembering, the twins are left alone and so is the ledger.
     ledger.clear()
     await routes.assign_craft_code(
         "c4", routes.CraftCodeAssign(code="ikat", rememberSpelling=False), admin
@@ -433,7 +389,6 @@ async def test_mapping_reports_each_changed_craft_as_it_was_before():
         )
     )
     changed: list[Any] = []
-    # c1 already carries the code: re-mapping it changes nothing on c1, but still maps its twin.
     craft = SimpleNamespace(id="c1", name="Kota Doria", craftCode="ikat")
     await cpc.map_craft(
         client, craft=craft, code="ikat", remember_spelling=True, user_id="u1", changed=changed

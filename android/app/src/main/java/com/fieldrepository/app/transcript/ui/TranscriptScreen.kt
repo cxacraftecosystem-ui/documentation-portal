@@ -89,12 +89,6 @@ private sealed interface ScreenState {
     data class Ready(val loaded: LoadedTranscript, val failures: List<String>) : ScreenState
 }
 
-/**
- * A recording's transcript, full screen, over the app (both portals mount it from every place a
- * recording appears). [audio] is the mount's own URI for the file when it has one; the view's
- * signed URL otherwise. [acceptDraft] is the questionnaire's own answer path, given only where the
- * recording is a questionnaire take (Fill from recording).
- */
 @Composable
 fun TranscriptDialog(
     mediaId: String,
@@ -147,7 +141,6 @@ fun TranscriptScreen(
     }
 
     LaunchedEffect(mediaId, reloads) { reload() }
-    // A transcript still on its way is looked at again until it is ready (or needs a person).
     val working = (state as? ScreenState.Ready)?.loaded?.view?.status?.let(PipelineStatus::working) == true
     LaunchedEffect(working) {
         while (working) {
@@ -168,9 +161,7 @@ fun TranscriptScreen(
         is ScreenState.Ready -> {
             val repo = repository!!
             val view = s.loaded.view
-            // Voice Isolator (0.0.5): the cleaned copy unless the reader ticks "the original recording".
             var playingOriginal by remember(view.mediaId) { mutableStateOf(false) }
-            // A cleaned copy wins over the mount's own URI for the file: that URI is the recording as made.
             val cleaned = view.audio.cleaned && view.audio.url != null && view.audio.originalUrl != null
             val uri = if (cleaned) (if (playingOriginal) view.audio.originalUrl else view.audio.url)?.let(Uri::parse)
             else audio ?: view.audio.url?.let(Uri::parse)
@@ -190,7 +181,6 @@ fun TranscriptScreen(
     }
 }
 
-/** The viewer's host over the repository, the clipboard and the share sheet. */
 private class RepositoryHost(
     private val context: Context,
     private val repo: TranscriptRepository,
@@ -205,7 +195,6 @@ private class RepositoryHost(
 
     override fun copy(text: String) = copyToClipboard(context, text)
 
-    /** Every change goes through the queue: applied on the phone now, sent when there is a network. */
     private fun change(edit: TranscriptEdit) {
         scope.launch {
             onChanged(repo.queue(view, edit))
@@ -235,7 +224,6 @@ private class RepositoryHost(
         }
     }
 
-    /** Straight to the server (not the edit queue): the server decides whether it lands on the turns. */
     override suspend fun addEnglish(text: String): String? = try {
         val updated = server.addEnglish(view.mediaId, EnglishBody(view.revision, text))
         repo.accept(updated)
@@ -283,7 +271,6 @@ private class RepositoryHost(
                 File(shareDir(context), got.name ?: TranscriptNames.forView(view, format)).also { it.writeBytes(got.bytes) }
             }.getOrElse { e ->
                 if (e is CancellationException) throw e
-                // No connection: everything but Word is built on the phone from the same turns.
                 val text = when (format) {
                     "md" -> TranscriptFormat.all(view, track, timestamps)
                     "srt" -> TranscriptFormat.srt(view, track)
@@ -296,8 +283,6 @@ private class RepositoryHost(
         }
     }
 }
-
-// ── The mount ──────────────────────────────────────────────────────────────────────────────────
 
 private object Summaries {
     @Volatile private var batcher: TranscriptSummaryBatcher? = null
@@ -315,12 +300,6 @@ private sealed interface EntryState {
     data class Known(val summary: TranscriptSummary) : EntryState
 }
 
-/**
- * WHERE EVERY RECORDING SHOWS ITS TRANSCRIPT, IN BOTH APPS: a compact row with the status and the
- * header badges, and one button that opens [TranscriptDialog]. While the pipeline is switched off
- * the server answers 404, and the row draws [legacy] — the plain transcript this app showed
- * before — exactly as the contract asks.
- */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TranscriptEntry(
@@ -340,7 +319,6 @@ fun TranscriptEntry(
         } catch (e: CancellationException) {
             throw e
         } catch (e: IOException) {
-            // No connection: a transcript kept on the phone still opens.
             TranscriptPortal.repository(context)?.cached(mediaId)?.let {
                 EntryState.Known(TranscriptSummary(it.mediaId, it.status, it.languages, it.durationMs, it.speakerCount, it.badges))
             } ?: EntryState.Legacy
@@ -370,8 +348,6 @@ fun TranscriptEntry(
     }
     if (open) TranscriptDialog(mediaId, audio, onDismiss = { open = false }, acceptDraft = acceptDraft, headerExtra = headerExtra)
 }
-
-// ── Clipboard and share sheet ──────────────────────────────────────────────────────────────────
 
 fun copyToClipboard(context: Context, text: String) {
     val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager

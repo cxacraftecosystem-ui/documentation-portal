@@ -17,11 +17,6 @@ import { questionnaireApi, type Recording } from "@/lib/questionnaire/api";
 import { cleanFilters, type Filters } from "@/lib/questionnaire/filters";
 import { qs } from "@/lib/questionnaire/qs";
 
-/**
- * Every take, newest first, found by what its chips say (owner, 31 Oct 2026): search and filter on
- * the server (`GET /questionnaire/recordings`), the filters in the URL, and a tap on any chip
- * filters by it. A row opens its session.
- */
 export function RecordingsList() {
   const { filters, setFilters, ready } = useUrlFilters();
   const config = useQuestionnaireConfig();
@@ -49,11 +44,9 @@ export function RecordingsList() {
     if (ready) void load(filters, null);
   }, [ready, filters, load]);
 
-  // Back from a session: as many pages as were open, then the scroll (`useListPlace`).
   const { wantsMore } = useListPlace(pages, items !== null, cursor === null);
   useEffect(() => {
     if (cursor && wantsMore(pages)) void load(filters, cursor);
-    // `filters` is read as it stands; a change of filters reloads from page one above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cursor, pages, wantsMore, load]);
 

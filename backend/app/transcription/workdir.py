@@ -1,28 +1,3 @@
-"""The working directory for transcription's temporary files: sized, swept, and under the app.
-
-WHY (D37, 31 Oct 2026). Every recording the queue transcribes is streamed to a temporary file, cut
-into parts by ffmpeg and sent part by part. Those files used to go to the system temp directory.
-On Field Repository that is ``/tmp`` with a per-user quota; a run of failed downloads left about
-200 files (798 MB) behind, the quota filled, and transcription stopped until someone cleaned it.
-
-NOW. Temporary files go to ONE directory under the app (``TRANSCRIPTION_WORK_DIR``, default
-``backend/var/work``), which:
-
-* is created on first use, private to the process user;
-* has a size budget (``TRANSCRIPTION_WORK_DIR_MAX_MB``, default 2048): a new file that would start
-  while the directory already holds that much first sweeps stale files and then, if it is still
-  full, refuses with :class:`WorkDirFull` (the queue retries later) instead of filling the disk;
-* is swept of stale files (older than ``TRANSCRIPTION_WORK_STALE_MINUTES``, default 180, longer than
-  any job runs) when the queue worker starts and before each new file, so a process killed in
-  the middle of a job (deploy, OOM, reboot) cannot leave files behind for ever.
-
-Only names this module hands out are ever swept (the :data:`PREFIXES`), so pointing the variable at
-a shared directory by mistake deletes nothing else.
-
-Pure standard library: part of the shared transcription package (``shared/transcription.sha256``),
-used by both portals' ``services/s3.download_to_temp`` and by ``audio.PartCutter`` / ``chain``.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -42,16 +17,12 @@ ENV_STALE_MINUTES = "TRANSCRIPTION_WORK_STALE_MINUTES"
 DEFAULT_MAX_MB = 2048
 DEFAULT_STALE_MINUTES = 180
 
-#: Every name this module creates starts with one of these; nothing else is ever deleted.
 PREFIXES = ("s3obj-", "transcription_source_", "transcription_parts_", "work-")
 
-#: backend/ (this file is backend/app/transcription/workdir.py).
 _BACKEND = Path(__file__).resolve().parents[2]
 
 
 class WorkDirFull(OSError):
-    """The working directory is at its size budget even after a sweep: try again later."""
-
     def __init__(self, used: int, limit: int) -> None:
         super().__init__(f"Transcription working directory is full ({used} of {limit} bytes).")
         self.used = used
@@ -67,12 +38,6 @@ def _int_env(name: str, default: int) -> int:
 
 
 def path() -> Path:
-    """The directory, created (mode 0700) when missing.
-
-    A read-only app tree (a container whose code belongs to root) cannot hold it; the default then
-    falls back to ``<system temp>/transcription-work``, still sized and swept. A configured
-    directory that cannot be created is an error: someone chose it.
-    """
     configured = str(os.environ.get(ENV_DIR, "")).strip()
     if configured:
         where = Path(configured).expanduser()
@@ -134,8 +99,6 @@ def _remove(entry: Path) -> bool:
 
 
 def sweep(*, older_than_s: int | None = None, now: float | None = None) -> int:
-    """Remove our files and folders last modified more than ``older_than_s`` ago (default: the stale
-    age). Returns how many entries went. Never raises."""
     try:
         where = path()
         entries = list(where.iterdir())
@@ -160,12 +123,10 @@ def sweep(*, older_than_s: int | None = None, now: float | None = None) -> int:
 
 
 def on_worker_start() -> int:
-    """What the queue worker calls once when it starts: create the directory, sweep stale files."""
     return sweep()
 
 
 def _room() -> Path:
-    """The directory, after making sure a new file may start in it."""
     where = path()
     limit = max_bytes()
     if used_bytes(where) < limit:
@@ -178,26 +139,18 @@ def _room() -> Path:
 
 
 def named_file(*, prefix: str = "work-", suffix: str = "") -> IO[Any]:
-    """``NamedTemporaryFile(delete=False)`` in the working directory. The caller removes it."""
     if not _ours(prefix):
         raise ValueError(f"prefix must start with one of {PREFIXES}")
     return tempfile.NamedTemporaryFile(delete=False, prefix=prefix, suffix=suffix, dir=_room())
 
 
 def make_dir(*, prefix: str = "work-") -> str:
-    """``mkdtemp`` in the working directory. The caller removes it."""
     if not _ours(prefix):
         raise ValueError(f"prefix must start with one of {PREFIXES}")
     return tempfile.mkdtemp(prefix=prefix, dir=_room())
 
 
 async def owned(fn: Any, *args: Any, **kwargs: Any) -> Any:
-    """``await asyncio.to_thread(fn, ...)`` for a ``fn`` that returns a temp file's path, safe to cancel.
-
-    A plain ``to_thread`` leaks when the awaiting task is cancelled (a job timeout, a shutdown): the
-    thread cannot be stopped, finishes, and returns a path nobody receives. Here the thread's result
-    is kept, and when the caller has gone by the time it arrives, the file is deleted.
-    """
     import asyncio
     import functools
 
@@ -211,7 +164,6 @@ async def owned(fn: Any, *args: Any, **kwargs: Any) -> Any:
 
 
 def _discard_orphan(future: Any) -> None:
-    """The file a cancelled caller left behind, deleted when its thread finishes."""
     if future.cancelled() or future.exception() is not None:
         return
     result = future.result()

@@ -1,10 +1,3 @@
-"""Questionnaire v2 request and response shapes: the frozen contract (BUILD_PLAN section 1).
-
-Every example in ``shared/questionnaire-contract.json`` validates against the model of the same
-name here (``tests/test_questionnaire_contract.py``). Requests are ``extra="forbid"``; so are the
-response models, because an extra response field needs a ``contractVersion`` bump.
-"""
-
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -41,7 +34,6 @@ def _language(code: str | None) -> str | None:
     return code
 
 
-# ── common ─────────────────────────────────────────────────────────────────────────────────────
 class Ref(Strict):
     id: str
     name: str
@@ -62,12 +54,10 @@ class Config(Strict):
     snapshotPollSeconds: int
     joinCodeLength: int
     minAppVersionForCreate: str | None
-    #: The old-build cutoff on versionCode (audit C7), per platform. Additive: older clients ignore them.
     minAndroidVersionCodeForCreate: int | None = None
     minWebVersionCodeForCreate: int | None = None
 
 
-# ── sessions ───────────────────────────────────────────────────────────────────────────────────
 class ParticipantInput(Strict):
     artisanId: str = Field(min_length=1)
 
@@ -79,9 +69,7 @@ class ResearcherInput(Strict):
     _role = field_validator("role")(_one_of(V.ResearcherRole))
 
 
-#: Guest respondents (owner decision 1; ``app/questionnaire/respondents.py``).
 RESPONDENT_KINDS = ("GUEST", "SELF")
-#: Where a session came from (UNIFY U7): the app, a workbook upload, a phone-to-phone handoff.
 SESSION_SOURCES = ("APP", "UPLOAD", "HANDOFF")
 
 
@@ -123,7 +111,6 @@ class BindingsPut(Strict):
 
 
 class TypeDefaultPut(Strict):
-    #: None clears the type's default.
     questionnaireId: str | None = None
     workshopType: str | None = None
     designWorkshopKind: str | None = Field(default=None, max_length=64)
@@ -138,9 +125,6 @@ class TypeDefaultPut(Strict):
 
 
 class SessionLocation(Strict):
-    """Where the device was when the session started (UNIFY C9): stored as a ``Location`` row and
-    linked by ``locationId``. Captured on the start sheet only, never on an edit (DR audit H1)."""
-
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
     accuracy: float | None = Field(default=None, ge=0)
@@ -162,10 +146,8 @@ class SessionCreate(Strict):
     note: str | None = Field(default=None, max_length=NOTE_MAX)
     participants: list[ParticipantInput] = Field(default_factory=list)
     researchers: list[ResearcherInput] = Field(default_factory=list)
-    #: Guests answering without an artisan record; participants may then be empty (UNIFY 4.1).
     respondents: list[RespondentInput] = Field(default_factory=list, max_length=50)
     source: str = "APP"
-    #: The device's fix when the session started (UNIFY C9), beside the typed ``place``. Optional.
     location: SessionLocation | None = None
 
     _purpose = field_validator("purpose")(_one_of(V.SessionPurpose))
@@ -216,8 +198,6 @@ class JoinRequest(Strict):
 
 
 class JoinByKeyRequest(Strict):
-    """A scanned session QR: join the session its clientKey names (never create it)."""
-
     clientKey: str = Field(min_length=1, max_length=128)
 
 
@@ -226,7 +206,6 @@ class ContinueRequest(Strict):
     artisanIds: list[str] = Field(min_length=1)
     split: Literal["ONE", "EACH"] = "ONE"
     sessionDate: date
-    #: Optional. The sessions made are keyed ``<clientKey>:<n>``, so a replay returns them again.
     clientKey: str | None = Field(default=None, min_length=1, max_length=120)
 
 
@@ -306,7 +285,6 @@ class OpenMatch(Strict):
     items: list[OpenMatchItem]
 
 
-# ── recordings and coverage ────────────────────────────────────────────────────────────────────
 class TargetInput(Strict):
     sectionId: str | None = None
     questionLineageId: str | None = None
@@ -341,8 +319,6 @@ class TranscriptState(Strict):
     paused: bool
     text: str | None
     language: str | None
-    #: The list preview (0.0.6, transcript contract ``TranscriptPreview``): {text, lines:[{speaker,
-    #: speakerKey, colorKey, text}]}, plain text, or None when there is no transcript to show.
     preview: dict[str, Any] | None = None
 
 
@@ -365,7 +341,6 @@ class Recording(Strict):
     recordedBy: Ref
     targets: list[RecordingTarget]
     subjects: list[RecordingSubject]
-    #: Guest respondents on the take (owner decision 1): {respondentId, name, role, named, subjectKey}.
     respondents: list[dict[str, Any]] = Field(default_factory=list)
     continuationOfId: str | None
     filing: str
@@ -410,16 +385,12 @@ class DecideRequest(Strict):
 
 
 class FileRecordingRequest(Strict):
-    """"File it" for a take the server could not place (audit H14)."""
-
     targets: list[TargetInput] = Field(default_factory=list)
     subjects: list[SubjectPatch] | None = None
     sessionId: str | None = None
 
 
 class FileMediaRequest(Strict):
-    """"File it" for an inbox "To file" clip that has no recording yet (audit H14)."""
-
     sessionId: str = Field(min_length=1)
     targets: list[TargetInput] = Field(default_factory=list)
     subjects: list[SubjectPatch] | None = None
@@ -544,11 +515,9 @@ class Snapshot(Strict):
     asOfSeq: str
     takes: list[SnapshotTake]
     removedRecordingIds: list[str]
-    #: Every recording changed since ``sinceSeq`` (audit M3). Additive: older clients ignore it.
     changedRecordingIds: list[str] = Field(default_factory=list)
 
 
-# ── media ──────────────────────────────────────────────────────────────────────────────────────
 class PresignRequest(Strict):
     linkedRecordType: Literal["questionnaire_session"]
     sessionId: str = Field(min_length=1)
@@ -561,9 +530,7 @@ class PresignRequest(Strict):
     subjectArtisanIds: list[str] = Field(default_factory=list)
     deviceCapturedAt: datetime | None = None
     clockOffsetMs: int | None = None
-    #: When the device measured ``clockOffsetMs``: an offset older than 7 days marks the time estimated.
     clockOffsetMeasuredAt: datetime | None = None
-    #: The take this one continues (Part 2), so the minted name ends ``-P2``.
     continuationOfId: str | None = None
 
 
@@ -599,7 +566,6 @@ class UploadState(Strict):
 
 
 class SubjectInput(Strict):
-    #: An artisan, or a guest respondent of the session (owner decision 1; subject key R:<id>).
     artisanId: str | None = Field(default=None, min_length=1)
     respondentId: str | None = Field(default=None, min_length=1)
     role: str = "ANSWERED"
@@ -643,9 +609,7 @@ class CompleteRequest(Strict):
     recording: RecordingInput
 
 
-# ── answers, consent, inbox, record, corpus ────────────────────────────────────────────────────
 class AnswerItem(Strict):
-    #: Exactly one owner: an artisan, or a guest respondent of the session (owner decision 1).
     artisanId: str | None = Field(default=None, min_length=1)
     respondentId: str | None = Field(default=None, min_length=1)
     questionLineageId: str = Field(min_length=1)
@@ -655,10 +619,7 @@ class AnswerItem(Strict):
     sessionId: str = Field(min_length=1)
     sourceRecordingId: str | None = None
     baseVersion: int | None = Field(default=None, ge=1)
-    #: The answer note (A20), kept on the revision.
     note: str | None = Field(default=None, max_length=2000)
-    #: Decision C8: the answer as a rich-text document (designer-portal's stored format), beside the
-    #: canonical plain ``text``. Sent alone (``text`` empty), it is flattened into the text.
     richText: dict[str, Any] | list[Any] | str | None = None
 
     _origin = field_validator("origin")(_one_of(V.AnswerOrigin))
@@ -691,8 +652,6 @@ class AnswerResult(Strict):
     status: str
     answer: AnswerOut | None
     current: AnswerOut | None
-    #: ``ANSWER_LOCKED`` on a FORBIDDEN item that someone else's text holds (the owner's answer lock,
-    #: 21 Oct 2026). Additive: older clients ignore it and read the FORBIDDEN they already know.
     code: str | None = None
 
 
@@ -784,7 +743,6 @@ class CorpusMeta(Strict):
     files: list[str]
 
 
-#: contract example name -> model, read by tests/test_questionnaire_contract.py
 CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "Config": Config,
     "SessionCreate": SessionCreate,

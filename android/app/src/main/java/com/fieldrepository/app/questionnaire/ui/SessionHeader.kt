@@ -27,13 +27,8 @@ import com.fieldrepository.app.questionnaire.data.JoinQr
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.ui.field
 
-/** One person in the session: an artisan, or a guest (`R:<id>`, UNIFY U6) who is not an artisan record. */
 data class HeaderParticipant(val artisanId: String, val name: String, val present: Boolean, val guest: Boolean = false)
 
-/**
- * Title (generated, never typed), the note under it, the join code and QR, and the participant strip
- * with Present / Away per artisan and "+ Add artisan" (DESIGN §4.3).
- */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SessionHeader(
@@ -46,11 +41,8 @@ fun SessionHeader(
     onTogglePresent: (artisanId: String, present: Boolean) -> Unit,
     onAddArtisan: () -> Unit,
     onFinish: () -> Unit,
-    /** "+ Add someone else": a guest who is not a registered artisan (U6). */
     onAddGuest: () -> Unit = {},
-    /** A guest's chip: edit their name and notes (A17), or register them as an artisan. */
     onOpenGuest: (subjectId: String) -> Unit = {},
-    /** The session's researchers, by name (multi-researcher fieldwork). */
     researchers: List<String> = emptyList()
 ) {
     var showQr by remember { mutableStateOf(false) }

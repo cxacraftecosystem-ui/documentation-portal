@@ -7,15 +7,6 @@ import { rememberFilterLabel } from "@/components/questionnaire/FilterBar";
 import type { ChipFilter, DisplayChip } from "@/lib/questionnaire/chips";
 import { applyChip, cleanFilters, FILTER_KEYS, filtersFromQuery, filtersToQuery, type Filters } from "@/lib/questionnaire/filters";
 
-/**
- * The filters of a list page, kept in its URL (owner, 31 Oct 2026): a refresh, Back, a shared link
- * and a return from a record all land on the same filtered list. The query is the canonical one
- * (`filtersToQuery`), so the URL reads exactly as the API call it makes. Any other parameter the
- * page keeps (a tab, `edit=`) is left as it is.
- *
- * Read from `window.location` after mount, not `useSearchParams`, so no page needs a Suspense
- * boundary for it; `ready` is false until then, and a page waits for it before its first fetch.
- */
 export function useUrlFilters(): { filters: Filters; setFilters: (next: Filters) => void; ready: boolean } {
   const router = useRouter();
   const pathname = usePathname();
@@ -46,7 +37,6 @@ export function useUrlFilters(): { filters: Filters; setFilters: (next: Filters)
   return { filters, setFilters, ready };
 }
 
-/** Where a chip tapped outside a list leads: the recordings list, filtered by it. */
 export const RECORDINGS_HREF = "/questionnaire/recordings";
 
 export function chipHref(filter: ChipFilter): string {
@@ -54,7 +44,6 @@ export function chipHref(filter: ChipFilter): string {
   return query ? `${RECORDINGS_HREF}?${query}` : RECORDINGS_HREF;
 }
 
-/** The `onChip` of a screen that shows takes but lists nothing to filter (a take sheet, a record). */
 export function useChipNavigator(): (filter: ChipFilter, chip?: DisplayChip) => void {
   const router = useRouter();
   return useCallback(
@@ -68,10 +57,8 @@ export function useChipNavigator(): (filter: ChipFilter, chip?: DisplayChip) => 
 
 const PLACE_PREFIX = "qv2_list_place:";
 
-/** Where a list was under one URL: how many "Show more" pages it had open, and the scroll. */
 export type ListPlace = { pages: number; scrollY: number };
 
-/** A stored place read back, accepting only the shape written. Pure. */
 export function parseListPlace(raw: string | null | undefined): ListPlace | null {
   if (!raw) return null;
   try {
@@ -97,16 +84,9 @@ function writePlace(url: string, place: ListPlace) {
   try {
     window.sessionStorage.setItem(PLACE_PREFIX + url, JSON.stringify({ pages: place.pages, scrollY: Math.round(place.scrollY) }));
   } catch {
-    // Storage blocked — Back lands at the top of the right list instead.
   }
 }
 
-/**
- * Scroll to `y` and hold it for a few seconds while the page finishes laying out (panels above a
- * list can still grow it after the rows arrive), letting go the moment the reader takes over — a
- * wheel, a touch, a key, a press — or the page navigates away. The portals' `restoreScroll` rule;
- * this tree may not import it.
- */
 function holdScroll(y: number) {
   const path = window.location.pathname;
   const started = performance.now();
@@ -136,15 +116,6 @@ function holdScroll(y: number) {
   requestAnimationFrame(step);
 }
 
-/**
- * Back from a record lands where the reader was in a list (owner, 1 Nov 2026): the filters are
- * already in the URL (`useUrlFilters`); this keeps, under that exact URL, how many "Show more"
- * pages were open and the scroll position, and puts both back on return.
- *
- * `pages` is how many pages the list holds now, `ready` that its rows are drawn, `exhausted` that
- * there is no further page. While `wantsMore(pages)` is true the list loads its next page itself;
- * once it has as many as before (or no more exist), the scroll is restored, once.
- */
 export function useListPlace(pages: number, ready: boolean, exhausted: boolean): { wantsMore: (loaded: number) => boolean } {
   const home = useRef<string | null>(null);
   const wanted = useRef<ListPlace | null>(null);
@@ -158,8 +129,6 @@ export function useListPlace(pages: number, ready: boolean, exhausted: boolean):
     let quietUntil = 0;
     const allowed = () => restored.current && window.location.pathname === home.current;
     const save = () => writePlace(window.location.pathname + window.location.search, { pages: latestPages.current, scrollY: window.scrollY });
-    // A press (click or Enter, capture phase) is the position Back returns to; for a second after it
-    // scroll events are the next page laying out under the same window, not the reader.
     const onPress = (event: Event) => {
       if (event instanceof KeyboardEvent && event.key !== "Enter") return;
       if (allowed()) save();

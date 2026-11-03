@@ -1,10 +1,3 @@
-"""A state's likely spoken language(s), as a BIAS for providers that take one (Muse).
-
-Never a lock: ElevenLabs auto-detects and Deepgram runs ``language=multi`` whatever this says, and
-English is always included because these interviews code-switch into it mid-sentence. Names follow
-the standard spellings both portals use ("Bengali", not "Bangla"). A state not listed gives no hint.
-"""
-
 from __future__ import annotations
 
 STATE_LANGUAGES: dict[str, tuple[str, ...]] = {

@@ -16,11 +16,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/**
- * Every transcript row of `shared/naming-golden.json` — Transcript, Subtitles, Subtitles-With-Speakers,
- * Quote-Card, whoever added it (the web stream adds the viewer's download rows there) — comes out of
- * [TranscriptNames] exactly, so the phone, the web and the server name one file one way.
- */
 class TranscriptNamesTest {
     private val transcriptWhats = setOf("Transcript", "Subtitles", "Subtitles-With-Speakers", "Quote-Card")
 

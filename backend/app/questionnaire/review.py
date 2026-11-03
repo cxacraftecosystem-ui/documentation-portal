@@ -1,13 +1,3 @@
-"""Review of a session (DESIGN 3.10): the approve gate and the cascade.
-
-* Approve is REFUSED, with the reason, for: 0 participants; 0 live recordings and 0 answers; any
-  NEEDS_DECISION take (409 ``APPROVE_BLOCKED`` carrying ``reasons``).
-* Approving a session approves, in the same transaction, its FILED live recordings' files and its
-  answer revisions. A removed take or a NEEDS_DECISION take is never approved with it.
-* New content on an approved session arrives PENDING with a review item; the session stays APPROVED.
-* The consent gate is NEVER consulted here.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -44,7 +34,6 @@ async def assert_may_approve(client: Any, session_id: str) -> None:
 
 
 async def excluded_media_ids(client: Any, session_id: str) -> set[str]:
-    """Files the cascade must not approve: removed, or holding a NEEDS_DECISION take."""
     rows = await client.query_raw(
         'SELECT m."id" FROM "MediaFile" m LEFT JOIN "QuestionnaireRecording" r ON r."mediaFileId" = m."id" '
         'WHERE m."questionnaireInterviewId" = $1 AND (m."removedAt" IS NOT NULL OR r."removedAt" IS NOT NULL '

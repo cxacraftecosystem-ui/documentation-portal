@@ -12,10 +12,6 @@ import retrofit2.HttpException
 import retrofit2.Response
 import java.io.IOException
 
-/**
- * A consent answer is never lost to a struggling server, a typed join code is never called unknown
- * for want of a signal, and the consent date reads as the web's does.
- */
 @QFeature("B33")
 class ConsentQueueRulesTest {
     private fun http(code: Int) = HttpException(Response.error<Any>(code, "{}".toResponseBody(null)))

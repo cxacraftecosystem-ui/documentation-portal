@@ -1,13 +1,3 @@
-/**
- * Crash-safe recording on the web (DESIGN §6.2): MediaRecorder runs with a 10-second timeslice and
- * every chunk is written to IndexedDB as it arrives. The FIRST chunk carries the container header,
- * so a take is reassembled as `[header, ...rest]` in index order and stays playable however it was
- * cut short. A take whose draft is still open when the page loads is offered back through P13.
- *
- * The draft (`TakeDraft`) is written BEFORE the recorder starts, with the clip key, the device time
- * and what is being recorded, so a recovered take can be filed exactly as it would have been.
- */
-
 import { openQuestionnaireDb } from "@/lib/questionnaire/queue";
 
 export const TIMESLICE_MS = 10_000;
@@ -18,18 +8,15 @@ export type TakeDraft = {
   clientClipKey: string;
   deviceCapturedAt: string;
   mimeType: string;
-  /** Human label of what was being recorded ("Section D"), for P13's sentence. */
   targetLabel: string;
   targets: ({ sectionId: string } | { questionLineageId: string })[];
   roster: string[];
   startedAt: number;
-  /** Set when the take was stopped normally; a draft without it after a reload is a recovery. */
   finishedAt?: number | null;
 };
 
 export type TakeChunk = { takeKey: string; index: number; blob: Blob; at: number };
 
-/** Reassembles a take: chunks in index order, the header chunk first, duplicates dropped. */
 export function assembleTake(chunks: TakeChunk[], mimeType: string): Blob {
   const byIndex = new Map<number, TakeChunk>();
   for (const chunk of chunks) if (!byIndex.has(chunk.index)) byIndex.set(chunk.index, chunk);
@@ -40,13 +27,11 @@ export function assembleTake(chunks: TakeChunk[], mimeType: string): Blob {
   );
 }
 
-/** Approximate length of a recovered take from its chunk times, in whole minutes (at least 1). */
 export function recoveredMinutes(draft: TakeDraft, chunks: TakeChunk[]): number {
   const last = chunks.reduce((max, c) => Math.max(max, c.at), draft.startedAt);
   return Math.max(1, Math.round((last - draft.startedAt) / 60_000));
 }
 
-/** Drafts with chunks and no `finishedAt`: what P13 offers on load. */
 export function recoverable(drafts: TakeDraft[], chunks: TakeChunk[]): { draft: TakeDraft; chunks: TakeChunk[] }[] {
   return drafts
     .filter((d) => !d.finishedAt)
@@ -54,7 +39,6 @@ export function recoverable(drafts: TakeDraft[], chunks: TakeChunk[]): { draft: 
     .filter((r) => r.chunks.length > 0);
 }
 
-/** A whole-chunk-per-blob store over the questionnaire IndexedDB. */
 export const recorderStore = {
   async saveDraft(draft: TakeDraft) {
     const db = await openQuestionnaireDb();
@@ -102,7 +86,6 @@ const all = <T>(db: IDBDatabase, store: string) =>
 const del = (db: IDBDatabase, store: string, key: IDBValidKey) =>
   request(() => db.transaction(store, "readwrite").objectStore(store).delete(key));
 
-/** Safari records fragmented MP4; everything else WebM/Opus. Never hard-code one. */
 export function pickRecorderMime(isSupported: (type: string) => boolean): { mimeType: string; extension: string } {
   const candidates: [string, string][] = [
     ["audio/webm;codecs=opus", "webm"],

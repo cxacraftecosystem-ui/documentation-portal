@@ -1,14 +1,3 @@
-"""Recording chips and the shared filters on a real, migrated Postgres (owner, 31 Oct 2026).
-
-THIS FILE IS IDENTICAL IN designer-portal AND documentation-portal (shared/questionnaire.sha256).
-It seeds only tables both portals have, then holds the sessions list, the recordings list, the
-forms library's narrowing and the filter options to what the filters say, and counts the reads:
-a page costs the same number of statements for three takes or eleven (no N+1).
-
-The database is the throwaway one each portal's CI migrates: documentation-portal's
-``QV2_TEST_DATABASE_URL``, designer-portal's ``DATABASE_URL`` through ``conftest.needs_db``.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -22,10 +11,10 @@ from typing import Any
 import pytest
 
 _QV2 = os.environ.get("QV2_TEST_DATABASE_URL", "").strip()
-if _QV2:  # documentation-portal
+if _QV2:
     URL = _QV2
     needs = pytest.mark.skipif(False, reason="")
-else:  # designer-portal
+else:
     try:
         from conftest import (
             DATABASE_URL as URL,  # type: ignore[no-redef]
@@ -39,8 +28,6 @@ pytestmark = needs
 
 
 class Counting:
-    """The Prisma client, counting the statements the package sends through it."""
-
     def __init__(self, inner: Any) -> None:
         self._inner = inner
         self.reads = 0
@@ -182,11 +169,9 @@ async def _world(c: Any) -> SimpleNamespace:
     ids.t1 = await _take(c, ids.s1, ids.lead, "2026-10-20T05:00:00", section=ids.sec["A"],
                          subjects=[(ids.a["a1"], "ANSWERED"), (ids.a["a2"], "PRESENT")], transcript="COMPLETED",
                          text=f"the loom {ids.tag} came from Bagru")
-    # 20:00 UTC on the 21st is the 22nd in India: captured on another day than its session.
     ids.t2 = await _take(c, ids.s1, ids.lead, "2026-10-21T20:00:00", lineage=ids.q["q3"], subjects=[(ids.a["a1"], "ANSWERED")])
     ids.t3 = await _take(c, ids.s2, ids.other, "2026-10-22T06:00:00", section=ids.sec["B"],
                          subjects=[(ids.a["a3"], "ANSWERED")], transcript="FAILED")
-    # A typed answer in s2 on a question of section A: the section filter finds the session by it.
     saved = await answers.put_answers(S.AnswersPut(items=[S.AnswerItem(
         artisanId=ids.a["a3"], questionLineageId=ids.q["q1"], sessionId=ids.s2, text="Cotton")]), ids.other)
     assert saved["results"][0]["status"] == "SAVED", saved
@@ -306,7 +291,6 @@ def test_the_forms_library_and_the_filter_options(monkeypatch: pytest.MonkeyPatc
         sections = await filters.facets(field_name="sections", questionnaire_ids=[ids.form], client=c)
         assert [o["title"] for o in sections["sections"]] == [f"Materials {ids.tag}", f"Tools {ids.tag}"]
 
-        # The media list's chips: a take gets them in full.
         media = (await c.query_raw('SELECT "mediaFileId" AS m FROM "QuestionnaireRecording" WHERE "id" = $1', ids.t3))[0]["m"]
         by_media = await chips.for_media(c, [str(media), "not-a-take"])
         assert set(by_media) == {str(media)} and by_media[str(media)]["artisans"][0]["id"] == ids.a["a3"]

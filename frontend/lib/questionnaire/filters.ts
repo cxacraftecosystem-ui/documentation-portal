@@ -1,12 +1,3 @@
-/**
- * One set of filters for the sessions list, the forms library, a form's sessions, the recordings
- * list and the media list (owner, 31 Oct 2026; `backend/app/questionnaire/filters.py`).
- *
- * The same query string is the page's URL and the API's: `filtersToQuery` writes the keys in the
- * order of `FILTER_KEYS`, each repeatable list comma-joined, encoded as `encodeURIComponent` does —
- * byte for byte what `shared/questionnaire-chips.json`'s `queryCases` say, and what Android writes.
- */
-
 import type { ChipFilter } from "@/lib/questionnaire/chips";
 
 export const MULTI_KEYS = [
@@ -52,7 +43,6 @@ export const TRANSCRIPT_VALUES = ["HAS", "NONE", "PENDING", "FAILED"] as const;
 
 const isMulti = (key: string): key is MultiKey => (MULTI_KEYS as readonly string[]).includes(key);
 
-/** The filters with every empty value dropped, so two spellings of "nothing" are one. */
 export function cleanFilters(f: Filters): Filters {
   const out: Filters = {};
   for (const key of FILTER_KEYS) {
@@ -67,7 +57,6 @@ export function cleanFilters(f: Filters): Filters {
   return out;
 }
 
-/** Filters read from a URL (or API) query. Unknown keys are ignored. */
 export function filtersFromQuery(params: URLSearchParams | string): Filters {
   const search = typeof params === "string" ? new URLSearchParams(params.replace(/^\?/, "")) : params;
   const out: Filters = {};
@@ -89,7 +78,6 @@ export function filtersFromQuery(params: URLSearchParams | string): Filters {
   return out;
 }
 
-/** The canonical query (no leading "?"): `""` when nothing is set. */
 export function filtersToQuery(f: Filters): string {
   const clean = cleanFilters(f);
   const parts: string[] = [];
@@ -101,7 +89,6 @@ export function filtersToQuery(f: Filters): string {
   return parts.join("&");
 }
 
-/** Whether a chip's filter is already applied (the chip then reads as active). */
 export function isChipActive(f: Filters, chip: ChipFilter | null): boolean {
   if (!chip) return false;
   if (chip.key === "date") return f.dateFrom === chip.value && f.dateTo === chip.value;
@@ -109,7 +96,6 @@ export function isChipActive(f: Filters, chip: ChipFilter | null): boolean {
   return false;
 }
 
-/** Tapping a chip: a repeatable key gains the value or loses it; a day sets both ends or clears them. */
 export function applyChip(f: Filters, chip: ChipFilter): Filters {
   const next: Filters = { ...f };
   if (chip.key === "date") {
@@ -129,7 +115,6 @@ export function applyChip(f: Filters, chip: ChipFilter): Filters {
   return cleanFilters(next);
 }
 
-/** How many filters are set, not counting the free text (the "Filters (n)" control). */
 export function activeCount(f: Filters): number {
   const clean = cleanFilters(f);
   let n = 0;
@@ -138,14 +123,12 @@ export function activeCount(f: Filters): number {
   return n;
 }
 
-/** The filters with `keys` removed (a screen that fixes one, e.g. a form's own sessions). */
 export function withoutKeys(f: Filters, keys: readonly FilterKey[]): Filters {
   const next = { ...f } as Record<string, unknown>;
   for (const key of keys) delete next[key];
   return cleanFilters(next as Filters);
 }
 
-/** The filters as flat query parameters (repeatable lists comma-joined), for `buildQuery` callers. */
 export function filtersAsParams(f: Filters): Record<string, string> {
   const clean = cleanFilters(f);
   const out: Record<string, string> = {};

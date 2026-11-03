@@ -5,14 +5,6 @@ import android.media.MediaRecorder
 import android.os.Build
 import java.io.File
 
-/**
- * AAC in an ADTS stream: mono, 64 kbps, 44.1 kHz (DESIGN §6.1.2). ADTS has no index to write at the
- * end, so a file cut short by a process kill or a dead battery still plays up to its last frame;
- * [Remuxer] turns it into the `.m4a` that is uploaded.
- *
- * [onEnded] fires once, for an error or info listener firing (e.g. the disk filling), so the service
- * finalises the take on every exit path.
- */
 class AdtsRecorder(private val context: Context, private val output: File, private val onEnded: (String) -> Unit) {
     private var recorder: MediaRecorder? = null
     var paused: Boolean = false
@@ -45,7 +37,6 @@ class AdtsRecorder(private val context: Context, private val output: File, priva
         recorder?.let { runCatching { it.resume() }.onSuccess { paused = false } }
     }
 
-    /** Stops and releases. Safe to call twice; a stop on a recorder that captured nothing is swallowed. */
     fun stop() {
         val r = recorder ?: return
         recorder = null

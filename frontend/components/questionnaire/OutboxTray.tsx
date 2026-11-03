@@ -9,16 +9,6 @@ import { ButtonRow } from "@/components/ui/ButtonRow";
 import { qs } from "@/lib/questionnaire/qs";
 import { trayItems, type SessionUnit, type Step, type TrayItem } from "@/lib/questionnaire/queue";
 
-/**
- * The outbox fix tray (UNIFY B39): what is waiting for a PERSON rather than for a connection.
- *
- * A step the server refused (FAILED) offers Send again and Discard. Answers someone else changed
- * meanwhile offer Decide each (P9, in the session's workspace), Send without the conflicting
- * answers (theirs stand, the rest go up) and Discard. Discard asks first: what was never sent
- * cannot be brought back. Nothing here is drawn while the outbox only waits for signal.
- *
- * `sessionId` narrows the tray to one session's unit (the workspace); without it every session's.
- */
 export function OutboxTray({ sessionId }: { sessionId?: string | null }) {
   const queue = useSessionQueue();
   const [confirm, setConfirm] = useState<TrayItem | null>(null);

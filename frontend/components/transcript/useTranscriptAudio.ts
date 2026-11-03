@@ -2,21 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-/**
- * The recording behind a transcript: one `<audio>` the viewer owns, so a timestamp, a citation chip
- * or a tapped word can seek it, and karaoke can read where it is.
- *
- * `timeupdate` fires only about four times a second, so while playing a frame loop reads
- * `currentTime` instead; the word highlight then keeps pace with speech. The loop runs only while
- * playing and stops with the component.
- */
 export function useTranscriptAudio(src: string | null | undefined) {
   const audioRef = useRef<HTMLMediaElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   const [durationMs, setDurationMs] = useState(0);
   const frame = useRef<number | null>(null);
-  /** Where a sample stops by itself (a speaker's few seconds); null while playing freely. */
   const stopAt = useRef<number | null>(null);
   const [sampling, setSampling] = useState(false);
 
@@ -60,7 +51,6 @@ export function useTranscriptAudio(src: string | null | undefined) {
     if (play && audio.paused) void audio.play().catch(() => setPlaying(false));
   }, []);
 
-  /** Play from `startMs` and stop at `endMs` by itself: a speaker's sample. Calling it again stops. */
   const playRange = useCallback((startMs: number, endMs: number) => {
     const audio = audioRef.current;
     if (!audio) return;

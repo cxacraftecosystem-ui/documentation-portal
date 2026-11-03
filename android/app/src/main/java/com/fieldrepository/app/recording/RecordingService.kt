@@ -29,18 +29,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.io.File
 
-/**
- * Questionnaire takes record HERE, not in a composable (DESIGN §6.1.1): a foreground service of type
- * `microphone`, started from the Record tap while the app is visible. A locked screen, an app switch
- * or a collapsed sheet no longer ends a 30-minute interview.
- *
- * Every exit path finalises the take, never drops it: Stop, the notification's Stop, the workspace
- * leaving (Back, dispose), a phone call (audio-focus loss), and the recorder's own error or info
- * listener. Finalising remuxes to `.m4a`, hashes it and puts it in the session outbox, so the take is
- * safe even if no screen is open to receive it.
- *
- * The notification reads "Recording Section D · 12:40", with Pause and Stop.
- */
 class RecordingService : Service() {
 
     sealed interface State {
@@ -49,7 +37,6 @@ class RecordingService : Service() {
             fun elapsedMs(now: Long = SystemClock.elapsedRealtime()): Long =
                 (pausedAt ?: now) - startedAtElapsed - pausedMs
         }
-        /** The last take that ended, and why ("stop", "call", "error:…"). The next Record offers Part 2 after a call. */
         data class Finished(val draft: RecordingDraft, val reason: String) : State
     }
 
@@ -88,7 +75,6 @@ class RecordingService : Service() {
             rec.start()
         } catch (failed: Exception) {
             rec.stop()
-            // The workspace reads this reason and says the recorder could not start (audit M23).
             _state.value = State.Finished(draft, REASON_START_FAILED)
             stopForegroundCompat()
             stopSelf()
@@ -132,12 +118,8 @@ class RecordingService : Service() {
             runCatching {
                 val queued = QuestionnaireV2.get(app).queueTake(draft)
                 _state.value = State.Finished(queued, reason)
-                // A group take waits for the workspace's "Answered by" chips (§3.4), which send it;
-                // a solo take, or one whose workspace is gone, goes now.
                 if (queued.subjects.size <= 1 || reason == "leave" || reason == "destroyed") QuestionnaireV2.get(app).requestSync()
             }.onFailure {
-                // Never swallowed (audit C2): the draft stays on the phone unqueued, so P13 offers it
-                // back, and the workspace says so now.
                 _state.value = State.Finished(draft, REASON_QUEUE_FAILED)
             }
             stopSelf()
@@ -149,15 +131,10 @@ class RecordingService : Service() {
     }
 
     override fun onDestroy() {
-        // The system is taking the service away: keep what was recorded.
         if (state.value is State.Recording) finish("destroyed")
         super.onDestroy()
     }
 
-    // Audio focus (audit M23: any brief loss used to end the take). A permanent loss ends the take
-    // cleanly and the next Record offers Part 2. A brief one (a call, the assistant) pauses it and
-    // focus coming back resumes it, so the file stays one take; a brief loss that never comes back
-    // ends it after [TRANSIENT_LOSS_LIMIT_MS]. Ducking is ignored: the microphone is unaffected.
     private var pausedForFocus = false
     private val endAfterLongLoss = Runnable { if (pausedForFocus) finish("call") }
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
@@ -230,14 +207,10 @@ class RecordingService : Service() {
     enum class FocusAction { END, PAUSE, RESUME, NONE }
 
     companion object {
-        /** The recorder could not start; the draft holds nothing. */
         const val REASON_START_FAILED = "error:start"
-        /** The take was recorded but could not be queued; its draft waits on the phone for P13. */
         const val REASON_QUEUE_FAILED = "error:queue"
-        /** A brief focus loss longer than this (a long call) ends the take instead of holding it paused. */
         const val TRANSIENT_LOSS_LIMIT_MS = 10 * 60 * 1000L
 
-        /** What a focus change does to a running take; pure so a JVM test pins it. */
         fun focusAction(change: Int, pausedForFocus: Boolean): FocusAction = when (change) {
             AudioManager.AUDIOFOCUS_LOSS -> FocusAction.END
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> FocusAction.PAUSE
@@ -257,7 +230,6 @@ class RecordingService : Service() {
         private val _state = MutableStateFlow<State>(State.Idle)
         val state: StateFlow<State> = _state
 
-        /** Writes nothing: the caller has already written [draft] with [RecordingDrafts.write]. */
         fun start(context: Context, draft: RecordingDraft) {
             ContextCompat.startForegroundService(context, Intent(context, RecordingService::class.java).setAction(ACTION_START).putExtra(EXTRA_CLIP, draft.clientClipKey))
         }

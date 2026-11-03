@@ -9,11 +9,6 @@ import { ts } from "@/lib/transcript/strings";
 
 import { ICON_BUTTON, PRIMARY } from "./parts";
 
-/**
- * Speaker 1, 2… → the session's people (design §4.1). The roster's suggestions are one-tap pills;
- * "Someone else" takes a typed name. A fix applies to every turn and every copy (the server
- * relabels them).
- */
 export function SpeakerNames({
   transcript,
   onSave,
@@ -24,9 +19,7 @@ export function SpeakerNames({
   transcript: Transcript;
   onSave: (mapping: SpeakerMapping) => Promise<boolean>;
   onClose: () => void;
-  /** Plays a few seconds of this speaker (their `sample`), so a voice can be told apart by ear. */
   onPlaySample?: (speaker: TranscriptSpeaker) => void;
-  /** The speaker whose sample is playing now. */
   playingKey?: string | null;
 }) {
   const [candidates, setCandidates] = useState<Record<string, SpeakerCandidate[]>>({});

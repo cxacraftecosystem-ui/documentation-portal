@@ -16,44 +16,13 @@ import java.io.IOException
 import java.time.Instant
 import java.util.UUID
 
-/**
- * Questionnaire v2 outbox: ONE ordered unit per session (DESIGN §6.1.5).
- *
- * Steps run in this order: `artisan(localId)*` → `session(clientKey)` → `respondent*` →
- * `participant*` and `clip*` by device time → `answers` (UNIFY §4.3; the form, section and question
- * steps of a form made on this phone run first, in the forms' own queue, and a session on such a form
- * waits for it). Online is the same queue running at once; nothing has a second path.
- *
- * GUESTS (UNIFY U6) are subjects like artisans, named `R:<respondentId>` ([QSubjects]). One typed on
- * this phone is `R:local-…` until its row lands: in the session's create when the session has not
- * reached the server yet, else as a `respondent` step. The server's ids replace the local ones as
- * each lands ([SessionUnit.respondentIds]), exactly as an offline-registered artisan's do.
- *
- * - Every step is ticked off as it lands and never sent again ([StepState.DONE]).
- * - Every create carries the Idempotency-Key minted when it was queued, and its body is frozen then.
- * - A failed clip blocks nothing: the next clips and the answers still go. A failed artisan or
- *   session step stops the unit, because everything after it needs the server's id.
- * - Clips between two non-clip steps upload in parallel, at most 3 at once, and 1 once the measured
- *   throughput falls below about 50 kbps.
- * - Above the multipart threshold a clip uploads in parts. Each part's ETag is written to the unit as
- *   it lands, so a dropped network resumes at the next part instead of starting over.
- * - A clip whose file is gone fails with "The file for Section D (7 Jul) is missing on this device."
- *   and is never ticked.
- * - A unit whose steps have all landed STAYS while its session is open (audit C2, 21 Oct 2026). It
- *   used to be deleted after the first take uploaded, and every later take, Present/Away, answer,
- *   added artisan and Finish then hit a missing unit. A unit goes once its Finish has landed, or
- *   [SessionOutbox.STALE_AFTER] after its last change with nothing left to send. A landed take's
- *   audio is deleted from the phone as it lands.
- */
 object StepKind {
     const val ARTISAN = "ARTISAN"
     const val SESSION = "SESSION"
-    /** Guests added to a session that is already on the server (UNIFY U6). */
     const val RESPONDENT = "RESPONDENT"
     const val PARTICIPANT = "PARTICIPANT"
     const val CLIP = "CLIP"
     const val ANSWERS = "ANSWERS"
-    /** Finish, queued last so every take and answer lands before the session closes. */
     const val FINISH = "FINISH"
 }
 
@@ -71,20 +40,16 @@ data class ClipPayload(
     val contentSha256: String? = null,
     val contentType: String = "audio/mp4",
     val extension: String = "m4a",
-    /** For copy only ("Section D (7 Jul)"); never sent as a file name. */
     val label: String,
     val recording: QCompleteRecording,
     val subjectArtisanIds: List<String> = emptyList(),
-    // Upload progress, written back as it lands.
     val objectKey: String? = null,
     val uploadId: String? = null,
     val partSize: Long? = null,
     val partsDone: List<QPartDone> = emptyList(),
     val uploaded: Boolean = false,
-    /** Multipart completes that failed in a row; at [SessionOutbox.COMPLETE_RESTART_AFTER] the upload restarts. */
     val completeFailures: Int = 0
 ) {
-    /** Percent of the bytes on the server, for "Uploading 40%" (audit M23: it read a fixed 50%). */
     val uploadedPercent: Int get() = when {
         uploaded -> 100
         sizeBytes <= 0 -> 0
@@ -105,10 +70,8 @@ data class ParticipantChange(val artisanId: String, val action: String, val at: 
 data class SessionStep(
     val id: String,
     val kind: String,
-    /** Device time the step was made; orders participant and clip steps against each other. */
     val deviceTime: String,
     val idempotencyKey: String,
-    /** The frozen request body (artisan create, session create, answers). */
     val bodyJson: String? = null,
     val localArtisanId: String? = null,
     val participant: ParticipantChange? = null,
@@ -117,11 +80,8 @@ data class SessionStep(
     val failure: String? = null,
     val attempts: Int = 0,
     val resultId: String? = null,
-    /** The server's stable code for [failure], when it sent one (`STALE_VERSION`, `NOT_FOUND`…). */
     val failureCode: String? = null,
-    /** An answers step the server refused per item: what each conflicted answer is now (P9). */
     val conflicts: List<QAnswerResult> = emptyList(),
-    /** A session or respondent step: the local subject id of each guest its body adds, in order. */
     val respondentLocalIds: List<String> = emptyList()
 )
 
@@ -133,36 +93,22 @@ data class SessionUnit(
     val questionnaireId: String,
     val workshopId: String? = null,
     val steps: List<SessionStep> = emptyList(),
-    /** The server's session id once the session step has landed. */
     val sessionId: String? = null,
-    /** Offline-registered artisans: local id → server id, filled as their steps land. */
     val artisanIds: Map<String, String> = emptyMap(),
-    /** The last change to this unit; a settled unit untouched for [SessionOutbox.STALE_AFTER] goes. */
     val touchedAt: String? = null,
-    /**
-     * The version each answer reached when THIS phone saved it ("artisanId|lineageId" → version). A
-     * second save typed before the first one synced was based on the version before it; it is sent on
-     * top of this phone's own first save instead, so it is not a conflict with itself (audit H19).
-     */
     val savedAnswerVersions: Map<String, Int> = emptyMap(),
-    /** Guests typed on this phone: local subject id (`R:local-…`) → `R:<server id>`, filled as they land. */
     val respondentIds: Map<String, String> = emptyMap()
 ) {
-    /** The server's subject id for [subjectId]: an artisan or a guest registered here, else itself. */
     fun resolve(subjectId: String): String = artisanIds[subjectId] ?: respondentIds[subjectId] ?: subjectId
 
-    /** Steps in replay order (§6.1.5). */
     fun ordered(): List<SessionStep> = steps.sortedWith(
         compareBy<SessionStep> { rank(it.kind) }.thenBy { if (rank(it.kind) == 2 || rank(it.kind) == 3) it.deviceTime else "" }
     )
 
     val pendingClips: List<SessionStep> get() = steps.filter { it.kind == StepKind.CLIP && it.state != StepState.DONE }
-    /** Takes still on their way up: queued and not refused (a refused one waits in the fix tray). */
     val uploadingClips: List<SessionStep> get() = steps.filter { it.kind == StepKind.CLIP && it.state == StepState.PENDING }
-    /** Steps the server refused for good: the fix tray's rows (Send again, Discard, P9). */
     val failedSteps: List<SessionStep> get() = steps.filter { it.state == StepState.FAILED }
     val isDone: Boolean get() = steps.all { it.state == StepState.DONE }
-    /** The session's Finish has landed: it is closed and the unit has nothing left to do. */
     val isFinished: Boolean get() = isDone && steps.any { it.kind == StepKind.FINISH && it.state == StepState.DONE }
 
     private fun rank(kind: String) = when (kind) {
@@ -175,7 +121,6 @@ data class SessionUnit(
     }
 }
 
-/** Where units live. A file per unit on the handset; a map in tests. */
 interface SessionUnitStore {
     suspend fun all(): List<SessionUnit>
     suspend fun read(clientKey: String): SessionUnit?
@@ -220,11 +165,9 @@ class InMemorySessionUnitStore : SessionUnitStore {
 
 internal val outboxJson = Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false }
 
-/** The network primitives the engine drives. [QuestionnaireTransport] implements them for real. */
 interface SessionTransport {
     suspend fun createArtisan(idempotencyKey: String, bodyJson: String): String
     suspend fun createSession(idempotencyKey: String, body: QSessionCreate): QSession
-    /** Adds guests to a landed session; returns the rows the server made for them. */
     suspend fun addRespondents(idempotencyKey: String, sessionId: String, respondents: List<QRespondentInput>): List<QRespondent>
     suspend fun addParticipant(idempotencyKey: String, sessionId: String, artisanId: String)
     suspend fun patchParticipant(sessionId: String, artisanId: String, patch: QParticipantPatch)
@@ -232,7 +175,6 @@ interface SessionTransport {
     suspend fun presign(body: QPresignRequest): QPresignResponse
     suspend fun multipartCreate(body: QPresignRequest): QMultipartCreateResponse
     suspend fun presignParts(objectKey: String, uploadId: String, partNumbers: List<Int>): Map<Int, String>
-    /** PUT [length] bytes of [file] from [offset] to [url]; returns the ETag. */
     suspend fun put(url: String, headers: Map<String, String>, file: File, offset: Long, length: Long, contentType: String): String
     suspend fun multipartComplete(objectKey: String, uploadId: String, parts: List<QPartDone>)
     suspend fun complete(idempotencyKey: String, body: QCompleteRequest): QRecording
@@ -240,18 +182,14 @@ interface SessionTransport {
     suspend fun finish(sessionId: String)
 }
 
-/** A refusal that no retry will change (4xx other than 408/429). */
 class PermanentStepFailure(message: String, val code: String? = null) : Exception(message)
 
-/** Storage refused a signed URL as expired (403): sign it again rather than fail the take. */
 class SignedUrlExpired(message: String) : IOException(message)
 
-/** `/complete` answered 404 `UPLOAD_MISSING` (retry: true): the bytes never reached storage, so upload again. */
 class UploadMissing(message: String) : IOException(message) {
     companion object { const val REASON = "UPLOAD_MISSING" }
 }
 
-/** The session's unit is not on this phone (it settled, or was never adopted); see [SessionOutbox.reopen]. */
 class MissingSessionUnit(clientKey: String) : IllegalStateException("No queued session $clientKey")
 
 class SessionOutbox(
@@ -259,22 +197,14 @@ class SessionOutbox(
     private val clock: () -> Instant = Instant::now,
     private val multipartThresholdBytes: Long = 5L * 1024 * 1024,
     private val defaultPartSize: Long = 8L * 1024 * 1024,
-    /** A take has landed; the app forgets its draft record (the outbox has already deleted the audio). */
     private val onClipLanded: (clientClipKey: String) -> Unit = {}
 ) {
     companion object {
         const val MAX_PARALLEL = 3
-        /** About 50 kbps. Below this the clips go one at a time. */
         const val SLOW_LINK_BYTES_PER_SECOND = 6_250.0
-        /** A unit with nothing left to send and no change for this long is forgotten (its session is on the server). */
         val STALE_AFTER: java.time.Duration = java.time.Duration.ofDays(14)
-        /**
-         * A multipart complete that keeps failing (a dead or expired upload) restarts the upload after
-         * this many tries instead of retrying the same dead id for ever (audit Low, 21 Oct 2026).
-         */
         const val COMPLETE_RESTART_AFTER = 3
 
-        /** "The file for Section D (7 Jul) is missing on this device." from the shared table. */
         fun missingFileMessage(label: String): String {
             val open = label.lastIndexOf(" (")
             val (target, date) = if (open > 0 && label.endsWith(")")) label.substring(0, open) to label.substring(open + 2, label.length - 1) else label to ""
@@ -282,11 +212,6 @@ class SessionOutbox(
             return if (date.isEmpty()) text.replace(" ()", "") else text
         }
 
-        /**
-         * The server's row for each guest this phone typed, in order: the first unclaimed row of the
-         * same kind and (for a GUEST) the same name, as the server tidies it. [claimed] are server ids
-         * already given to another local guest. A SELF row is matched by kind alone.
-         */
         fun matchRespondents(localIds: List<String>, inputs: List<QRespondentInput>, server: List<QRespondent>, claimed: Set<String> = emptySet()): Map<String, String> {
             val taken = claimed.toMutableSet()
             val out = LinkedHashMap<String, String>()
@@ -301,10 +226,8 @@ class SessionOutbox(
             return out
         }
 
-        /** A name as the server stores it: one space between words. */
         fun tidyName(name: String?): String = name.orEmpty().split(Regex("\\s+")).filter { it.isNotEmpty() }.joinToString(" ")
 
-        /** An unticked artisan becomes PRESENT, never removed; a subset that answered is `named`. */
         fun withAnswered(subjects: List<QCompleteSubject>, answeredIds: Set<String>): List<QCompleteSubject> = subjects.map {
             it.copy(
                 role = if (it.artisanId in answeredIds) SubjectRole.ANSWERED.wire else SubjectRole.PRESENT.wire,
@@ -316,24 +239,16 @@ class SessionOutbox(
         fun answerKey(artisanId: String, questionLineageId: String) = "$artisanId|$questionLineageId"
     }
 
-    /** Two passes over one queue would send every step twice. */
     private val passLock = Mutex()
     private val unitLocks = HashMap<String, Mutex>()
     private fun lockFor(clientKey: String) = synchronized(unitLocks) { unitLocks.getOrPut(clientKey) { Mutex() } }
 
-    /** Bytes per second over the last upload, or null before anything was measured. */
     @Volatile
     var measuredThroughput: Double? = null
         private set
 
     fun concurrency(): Int = measuredThroughput?.let { if (it < SLOW_LINK_BYTES_PER_SECOND) 1 else MAX_PARALLEL } ?: MAX_PARALLEL
 
-    // ── Enqueue (frozen bodies, keys minted once) ────────────────────────────────────────────
-
-    /**
-     * Queues a new session. [guestIds] are the local subject ids of [body]'s `respondents`, in the same
-     * order; the server's rows replace them when the session lands.
-     */
     suspend fun startSession(
         body: QSessionCreate,
         ownerUserId: String?,
@@ -356,7 +271,6 @@ class SessionOutbox(
         return unit
     }
 
-    /** For a session that already exists on the server (opened from the list, or joined online). */
     suspend fun adoptSession(session: QSession, questionnaireId: String, ownerUserId: String?): SessionUnit {
         val key = session.clientKey ?: session.id
         store.read(key)?.let { return it }
@@ -369,11 +283,6 @@ class SessionOutbox(
         return unit
     }
 
-    /**
-     * Puts [known] back when its unit is gone (audit C2): the workspace still holds the copy it read,
-     * and a unit only ever goes once everything in it has landed, so every step comes back ticked.
-     * A unit that is still there is returned as it is.
-     */
     suspend fun reopen(known: SessionUnit): SessionUnit = lockFor(known.clientKey).withLock {
         store.read(known.clientKey) ?: known.copy(
             steps = known.steps.map { it.copy(state = StepState.DONE) },
@@ -381,10 +290,6 @@ class SessionOutbox(
         ).also { store.write(it) }
     }
 
-    /**
-     * A guest joins the session (UNIFY U6): into the frozen create while the session is still only on
-     * this phone, else as a `respondent` step. [localId] is the subject id the screens use meanwhile.
-     */
     suspend fun addRespondent(clientKey: String, localId: String, input: QRespondentInput) = mutate(clientKey) { unit ->
         val sessionStep = unit.steps.firstOrNull { it.kind == StepKind.SESSION && it.state == StepState.PENDING }
         if (sessionStep != null) {
@@ -405,7 +310,6 @@ class SessionOutbox(
         }
     }
 
-    /** Guests this phone typed for the session and their names, for the screens (local or landed). */
     fun guestsOf(unit: SessionUnit): List<Pair<String, String>> = unit.steps.flatMap { step ->
         val inputs = when (step.kind) {
             StepKind.SESSION -> step.bodyJson?.let { runCatching { outboxJson.decodeFromString(QSessionCreate.serializer(), it).respondents }.getOrNull() }
@@ -423,11 +327,6 @@ class SessionOutbox(
         unit.copy(steps = unit.steps + SessionStep(newKey(), StepKind.CLIP, clip.recording.deviceCapturedAt, newKey(), clip = clip))
     }
 
-    /**
-     * Pending removals of a participant on a session that has not reached the server yet: the frozen
-     * create loses them, and so do their queued joins. Returns false once the session has landed (the
-     * server's `DELETE …/participants/{id}` is the only way then).
-     */
     suspend fun removePendingParticipant(clientKey: String, artisanId: String): Boolean {
         var changed = false
         mutate(clientKey) { unit ->
@@ -447,10 +346,6 @@ class SessionOutbox(
         return changed
     }
 
-    /**
-     * Edits a session that has not reached the server yet: its frozen create body changes. Returns
-     * false once the session has landed (then `PATCH /sessions/{id}` with its version).
-     */
     suspend fun editPendingSession(clientKey: String, edit: (QSessionCreate) -> QSessionCreate): Boolean {
         var changed = false
         mutate(clientKey) { unit ->
@@ -464,7 +359,6 @@ class SessionOutbox(
         return changed
     }
 
-    /** Forget a unit (its session was deleted or merged away on the server). */
     suspend fun forget(clientKey: String) = lockFor(clientKey).withLock { store.delete(clientKey) }
 
     suspend fun addAnswers(clientKey: String, body: QAnswersPut) = mutate(clientKey) { unit ->
@@ -476,11 +370,6 @@ class SessionOutbox(
         else unit.copy(steps = unit.steps + SessionStep(newKey(), StepKind.FINISH, clock().toString(), newKey()))
     }
 
-    /**
-     * The "Answered by" chips after Stop: an unticked artisan becomes PRESENT, never deleted
-     * (§3.4). Only while the clip has not been completed; after that the take is refiled online.
-     * Returns false when the clip already landed.
-     */
     suspend fun updateClipSubjects(clientKey: String, clientClipKey: String, answeredIds: Set<String>): Boolean {
         var changed = false
         mutate(clientKey) { unit ->
@@ -499,25 +388,17 @@ class SessionOutbox(
     suspend fun units(): List<SessionUnit> = store.all()
     suspend fun unit(clientKey: String): SessionUnit? = store.read(clientKey)
 
-    /** "Send again" on a failed step: clears the failure, keeps the key and the body. */
     suspend fun retryStep(clientKey: String, stepId: String) = mutate(clientKey) { unit ->
         unit.copy(steps = unit.steps.map {
             if (it.id == stepId) it.copy(state = StepState.PENDING, failure = null, failureCode = null, attempts = 0) else it
         })
     }
 
-    /** Discard a failed step after the researcher confirms; a clip's file goes too. */
     suspend fun discardStep(clientKey: String, stepId: String) = mutate(clientKey) { unit ->
         unit.steps.firstOrNull { it.id == stepId }?.clip?.localPath?.let { File(it).delete() }
         unit.copy(steps = unit.steps.filterNot { it.id == stepId })
     }
 
-    /**
-     * P9 on one conflicted answer of an answers step. [keepMine] resends this phone's text on top of
-     * the answer the server now holds (its version becomes the base); otherwise the server's answer
-     * stands and this item is dropped. The step goes back to the queue once no conflict is left, and
-     * away when no item is.
-     */
     suspend fun resolveConflict(clientKey: String, stepId: String, artisanId: String, questionLineageId: String, keepMine: Boolean) =
         mutate(clientKey) { unit ->
             val step = unit.steps.firstOrNull { it.id == stepId } ?: return@mutate unit
@@ -536,18 +417,12 @@ class SessionOutbox(
             val encoded = outboxJson.encodeToString(QAnswersPut.serializer(), QAnswersPut(items))
             val next = when {
                 items.isEmpty() -> null
-                // Other conflicts still wait for a person: the step stays in the tray.
                 left.isNotEmpty() -> step.copy(bodyJson = encoded, conflicts = left)
                 else -> step.copy(bodyJson = encoded, conflicts = emptyList(), state = StepState.PENDING, failure = null, failureCode = null, attempts = 0)
             }
             unit.copy(steps = unit.steps.mapNotNull { if (it.id == stepId) next else it })
         }
 
-    /**
-     * "Send without the conflicting answers" (DR audit H4): an answers step holds only the items the
-     * server refused (the rest saved when it answered), so letting them go is dropping the step.
-     * The server keeps what it has; nothing is sent again.
-     */
     suspend fun dropConflicts(clientKey: String, stepId: String) = mutate(clientKey) { unit ->
         unit.copy(steps = unit.steps.filterNot { it.id == stepId && it.kind == StepKind.ANSWERS && it.state == StepState.FAILED })
     }
@@ -560,14 +435,8 @@ class SessionOutbox(
     private suspend fun updateStep(clientKey: String, stepId: String, change: (SessionStep) -> SessionStep): SessionUnit =
         mutate(clientKey) { unit -> unit.copy(steps = unit.steps.map { if (it.id == stepId) change(it) else it }) }
 
-    // ── Replay ───────────────────────────────────────────────────────────────────────────────
-
     data class PassResult(val sent: Int, val failed: Int, val remaining: Int)
 
-    /**
-     * One pass over every unit [ownerUserId] may replay. Units finish independently: an exception in
-     * one unit leaves that unit waiting for the next pass and never ends the pass (audit M23).
-     */
     suspend fun sync(transport: SessionTransport, ownerUserId: String?): PassResult = passLock.withLock {
         var sent = 0; var failed = 0; var remaining = 0
         for (unit in store.all()) {
@@ -592,7 +461,6 @@ class SessionOutbox(
         while (index < ordered.size) {
             val step = ordered[index]
             if (step.kind == StepKind.CLIP) {
-                // A run of clips between two other steps goes up in parallel.
                 val run = ordered.drop(index).takeWhile { it.kind == StepKind.CLIP }
                 index += run.size
                 val todo = run.filter { it.state == StepState.PENDING }
@@ -615,7 +483,7 @@ class SessionOutbox(
             unit = store.read(clientKey) ?: return PassResult(sent, 0, 0)
             if (ok) sent++
             else if (step.kind == StepKind.ARTISAN || step.kind == StepKind.SESSION) break
-            else if (unit.steps.firstOrNull { it.id == step.id }?.state == StepState.PENDING) break // transient: try later
+            else if (unit.steps.firstOrNull { it.id == step.id }?.state == StepState.PENDING) break
         }
         unit = store.read(clientKey) ?: return PassResult(sent, 0, 0)
         val failed = unit.steps.count { it.state == StepState.FAILED }
@@ -624,11 +492,6 @@ class SessionOutbox(
         return PassResult(sent, failed, remaining)
     }
 
-    /**
-     * Whether [unit] can go (audit C2): its Finish has landed, or nothing is left to send and nothing
-     * has touched it for [STALE_AFTER]. A unit whose session is still open keeps its steps, so the next
-     * take, answer or participant change has somewhere to go.
-     */
     internal fun settled(unit: SessionUnit): Boolean {
         if (!unit.isDone) return false
         if (unit.isFinished) return true
@@ -686,14 +549,11 @@ class SessionOutbox(
                 StepKind.ANSWERS -> {
                     val sessionId = unit.sessionId ?: return false
                     val frozen = outboxJson.decodeFromString(QAnswersPut.serializer(), step.bodyJson!!)
-                    // Answers typed before the session synced name it by its clientKey.
                     val body = QAnswersPut(frozen.items.map {
                         val artisanId = unit.resolve(it.artisanId)
                         it.copy(
                             artisanId = artisanId,
                             sessionId = if (it.sessionId.isBlank() || it.sessionId == unit.clientKey) sessionId else it.sessionId,
-                            // The newer of the two: this phone's own last save, or the version the item
-                            // was based on (P9 "Keep mine" bases it on the server's current one).
                             baseVersion = listOfNotNull(unit.savedAnswerVersions[answerKey(artisanId, it.questionLineageId)], it.baseVersion).maxOrNull()
                         )
                     })
@@ -705,7 +565,6 @@ class SessionOutbox(
                     val conflicts = response.results.filter { it.status == "CONFLICT" || it.status == "FORBIDDEN" }
                     updateStep(clientKey, stepId) {
                         if (conflicts.isEmpty()) it.copy(state = StepState.DONE)
-                        // Per item, never as a whole: the saved ones stay saved; the tray asks P9 for the rest.
                         else it.copy(
                             state = StepState.FAILED, failure = "CONFLICT",
                             failureCode = if (conflicts.all { c -> c.status == "FORBIDDEN" }) "FORBIDDEN" else "CONFLICT",
@@ -716,7 +575,6 @@ class SessionOutbox(
                 }
                 StepKind.FINISH -> {
                     val sessionId = unit.sessionId ?: return false
-                    // Wait for every take and answer first; a failed one does not hold the finish.
                     if (unit.steps.any { it.kind != StepKind.FINISH && it.state == StepState.PENDING }) return false
                     transport.finish(sessionId)
                     updateStep(clientKey, stepId) { it.copy(state = StepState.DONE) }
@@ -733,7 +591,6 @@ class SessionOutbox(
         }
     }
 
-    /** Upload then complete one clip. True when it landed. */
     private suspend fun runClip(transport: SessionTransport, clientKey: String, stepId: String): Boolean {
         val unit = store.read(clientKey) ?: return false
         val sessionId = unit.sessionId ?: return false
@@ -756,7 +613,6 @@ class SessionOutbox(
                 QCompleteRequest(objectKey = clip.objectKey!!, clientClipKey = clip.clientClipKey, linkedRecordId = sessionId, recording = recording)
             )
             updateStep(clientKey, stepId) { it.copy(state = StepState.DONE, resultId = done.id) }
-            // The server holds the take now; the phone's copy only filled the disk (audit M23).
             File(clip.localPath).delete()
             onClipLanded(clip.clientClipKey)
             true
@@ -764,8 +620,6 @@ class SessionOutbox(
             updateStep(clientKey, stepId) { it.copy(state = StepState.FAILED, failure = refused.message, failureCode = refused.code, attempts = it.attempts + 1) }
             false
         } catch (missing: UploadMissing) {
-            // The server holds no bytes for this take: forget what the phone thought had landed, so
-            // the next pass uploads it again from the file, which is still here.
             updateStep(clientKey, stepId) {
                 it.copy(
                     attempts = it.attempts + 1,
@@ -798,9 +652,7 @@ class SessionOutbox(
         val startedAt = System.nanoTime()
         var bytesSent = 0L
         if (clip.sizeBytes <= multipartThresholdBytes) {
-            // A signed URL that expired while the phone waited is refused with a 403: sign again once.
             var signed = transport.presign(presign)
-            // A closed intent means the bytes already landed (a replay after a lost answer): go to complete.
             if (!signed.closed) {
                 signAgainOnce(
                     { transport.put(signed.url, signed.headers, file, 0, clip.sizeBytes, clip.contentType) },
@@ -810,14 +662,12 @@ class SessionOutbox(
             }
             clip = save(clip.copy(objectKey = signed.objectKey, uploaded = true))
         } else {
-            // Resume: the server's record of the parts wins over ours when it has one.
             if (clip.uploadId == null) {
                 val known = transport.uploadState(clip.clientClipKey)
                 clip = if (known?.multipartUploadId != null && !known.closed) {
                     save(clip.copy(objectKey = known.objectKey, uploadId = known.multipartUploadId, partSize = known.partSize, partsDone = known.partsDone))
                 } else {
                     val created = transport.multipartCreate(presign)
-                    // A closed intent: the bytes already landed, so nothing is uploaded again; complete next.
                     if (created.closed) return save(clip.copy(objectKey = created.objectKey, uploaded = true))
                     save(clip.copy(objectKey = created.objectKey, uploadId = created.uploadId, partSize = created.partSize, partsDone = created.partsDone))
                 }
@@ -825,8 +675,6 @@ class SessionOutbox(
             val partSize = clip.partSize ?: defaultPartSize
             val partCount = ((clip.sizeBytes + partSize - 1) / partSize).toInt()
             val missing = (1..partCount).filter { n -> clip.partsDone.none { it.partNumber == n } }
-            // Each part is signed just before it goes (audit M23). A part URL lives an hour, and on a
-            // slow link the last parts of a long take used to meet an expired URL and fail for good.
             for (n in missing) {
                 val offset = (n - 1) * partSize
                 val length = minOf(partSize, clip.sizeBytes - offset)
@@ -843,8 +691,6 @@ class SessionOutbox(
                 transport.multipartComplete(clip.objectKey!!, clip.uploadId!!, clip.partsDone.sortedBy { it.partNumber })
             } catch (failure: Exception) {
                 if (failure !is IOException && failure !is PermanentStepFailure) throw failure
-                // A dead upload answers the same way every time: after a few tries start it again (the
-                // next pass asks the server, then opens a fresh upload) instead of looping for ever.
                 val tries = clip.completeFailures + 1
                 save(
                     if (tries >= COMPLETE_RESTART_AFTER) clip.copy(uploadId = null, partsDone = emptyList(), partSize = null, completeFailures = 0)
@@ -859,10 +705,6 @@ class SessionOutbox(
         return clip
     }
 
-    /**
-     * Storage refusing a signed URL (403, usually because it expired while the phone waited) signs it
-     * again once; a second refusal is a real one and fails the take into the fix tray.
-     */
     private suspend fun <T> signAgainOnce(first: suspend () -> T, again: suspend () -> T): T = try {
         first()
     } catch (expired: SignedUrlExpired) {
@@ -874,5 +716,4 @@ class SessionOutbox(
     }
 }
 
-/** Serialise a list of units for the tray's export of a stuck queue. */
 internal fun encodeUnits(units: List<SessionUnit>): String = outboxJson.encodeToString(ListSerializer(SessionUnit.serializer()), units)

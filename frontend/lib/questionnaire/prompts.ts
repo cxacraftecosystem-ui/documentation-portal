@@ -1,35 +1,19 @@
-/**
- * The prompts of DESIGN §4.4–4.5 as DATA: title, body and the buttons in order. `components/
- * questionnaire/Prompts.tsx` draws them through `ButtonRow`, so the button-row rule (one centred,
- * two on a line, more stacked or pills) is decided once; the unit specs read these builders to pin
- * the exact copy.
- */
-
 import { qs } from "@/lib/questionnaire/qs";
 import { shortName } from "@/lib/questionnaire/coverageCache";
 import type { CoverageCheckResponse, CoverageTake, RepeatReason } from "@/lib/questionnaire/api";
 
 export type PromptButton = { id: string; label: string; tone?: "primary" | "secondary" | "danger" };
-/**
- * `dismiss` is what Escape, the backdrop and a lost focus resolve to (audit H16): the button that loses
- * nothing, named per prompt, or null for "close and do nothing". Never derived from the button order —
- * that once made dismissing P13 discard a recovered take and dismissing Finish finish the session.
- */
 export type PromptSpec = { id: string; title: string | null; body: string; buttons: PromptButton[]; more?: PromptButton[]; dismiss: string | null };
 
-/** What a dismissal reports when a prompt's `dismiss` is null; no handler acts on it. */
 export const DISMISSED = "dismissed";
 
-/** "7 Jul" — the take date style used in copy. */
 export function shortDate(iso: string | null | undefined): string {
   if (!iso) return "";
   const date = new Date(iso.length === 10 ? `${iso}T00:00:00Z` : iso);
   if (Number.isNaN(date.getTime())) return "";
-  // en-IN writes September as "Sept"; the copy (DESIGN §4) uses three letters for every month.
   return date.toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" }).replace("Sept", "Sep");
 }
 
-/** "14 min", "0:42" under a minute. */
 export function durationLabel(ms: number | null | undefined): string {
   if (!ms || ms <= 0) return "";
   const seconds = Math.round(ms / 1000);
@@ -44,9 +28,7 @@ export function settingLabel(rosterCount: number): string {
 export type P2Input = {
   check: CoverageCheckResponse;
   names: Record<string, string>;
-  /** "Section D" or "D3". */
   targetLabel: string;
-  /** "D" for a section, "D3" for a question; used in "hasn't been recorded for D". */
   code: string;
   filePick?: boolean;
   part2Allowed: boolean;
@@ -55,7 +37,6 @@ export type P2Input = {
 
 export type P2Row = { artisanId: string; line: string };
 
-/** P2 "Already recorded": the copy variants of §4.4, decided from the check answer. */
 export function alreadyRecorded(input: P2Input): {
   spec: PromptSpec;
   covered: P2Row[];
@@ -129,7 +110,6 @@ export const prompts = {
     title: qs("openMatchTitle"),
     body: qs("openMatchBody", v),
     buttons: two({ id: "new", label: qs("openMatchNew"), tone: "secondary" }, { id: "join", label: qs("openMatchJoin"), tone: "primary" }),
-    // Either button starts or joins a session: a dismissal does neither.
     dismiss: null
   }),
   p3: (v: { target: string; elapsed: string; code: string }): PromptSpec => ({
@@ -139,7 +119,6 @@ export const prompts = {
     buttons: two({ id: "keep", label: qs("p3Keep"), tone: "secondary" }, { id: "stop", label: qs("p3Stop", v), tone: "primary" }),
     dismiss: "keep"
   }),
-  /** P5: same session → add the artisan; other session of the same sitting → merge; otherwise OK. */
   p5: (v: { name: string; date: string; case: "SAME_SESSION" | "OTHER_SESSION" | "OTHER"; addName?: string }): PromptSpec => ({
     id: "P5",
     title: qs("p5Title"),
@@ -178,7 +157,6 @@ export const prompts = {
     title: qs("p9Title"),
     body: qs("p9Body", v),
     buttons: two({ id: "theirs", label: qs("keepTheirs"), tone: "secondary" }, { id: "mine", label: qs("keepMine"), tone: "primary" }),
-    // Both answers are kept until somebody chooses; the typed one waits in the outbox.
     dismiss: null
   }),
   p10: (v: { name: string; count: number }): PromptSpec => ({
@@ -195,11 +173,9 @@ export const prompts = {
     title: qs("p13Title"),
     body: qs("p13Body", v),
     buttons: two({ id: "discard", label: qs("discard"), tone: "secondary" }, { id: "keep", label: qs("keep"), tone: "primary" }),
-    // A recovered take is the only copy there is: dismissing the prompt keeps it.
     dismiss: "keep"
   }),
   p14: (): PromptSpec => ({ id: "P14", title: null, body: qs("p14Banner"), buttons: [{ id: "update", label: qs("update"), tone: "primary" }], dismiss: null }),
-  /** P15 is inline (the answer box): "Answered by Nandini. Only they or a lead can change it." */
   p15: (v: { name: string }): PromptSpec => ({ id: "P15", title: null, body: qs("p15Locked", v), buttons: [], dismiss: null }),
   p16: (): PromptSpec => ({
     id: "P16",
@@ -227,12 +203,10 @@ export const prompts = {
     title: qs("finishTitle"),
     body: qs("finishBody", v),
     buttons: [{ id: "finish", label: qs("finish"), tone: "primary" }],
-    // Finishing closes the session: a dismissal leaves it open.
     dismiss: null
   })
 };
 
-/** "Take 2 · Redo · 6:05 min · Ankur · 9 Jul · Solo" — a take row (§4.3), never a bare file name. */
 export function takeRowLabel(take: {
   position: number | null;
   repeatReason?: RepeatReason | null;

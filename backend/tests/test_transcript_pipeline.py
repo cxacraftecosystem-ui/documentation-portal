@@ -1,10 +1,3 @@
-"""The transcript pipeline's pure half, against recorded Scribe v2 and Gemini responses. No database.
-
-THIS FILE IS IDENTICAL IN designer-portal AND documentation-portal (``shared/transcription.sha256``).
-Nothing here calls ElevenLabs or Google: every provider answer is a file under
-``tests/fixtures/transcript/`` and every HTTP call goes to a fake ``post``.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -52,8 +45,6 @@ class FakeResponse:
 
 
 class FakePost:
-    """Answers each call from a queue of ``(status, payload)``; records model and key per call."""
-
     def __init__(self, *answers: tuple[int, Any]) -> None:
         self.answers = list(answers)
         self.calls: list[dict[str, Any]] = []
@@ -66,8 +57,6 @@ class FakePost:
     def sent_user(self, index: int = 0) -> dict[str, Any]:
         return json.loads(self.calls[index]["body"]["contents"][0]["parts"][0]["text"])
 
-
-# --- Scribe v2: the adapter and the turns -----------------------------------------------------
 
 
 def test_scribe_is_billed_at_the_pay_as_you_go_rate_and_keeps_its_words() -> None:
@@ -100,7 +89,7 @@ def test_scribe_words_become_speaker_turns_with_timings_offsets_and_unsure_spans
     assert [(w.text, w.offset) for w in first.words] == [
         ("आप", 0), ("ये", 3), ("रंग", 6), ("कैसे", 10), ("बनाते", 15), ("हैं?", 21)
     ]
-    for turn in turns:  # every offset points at its word: karaoke depends on it
+    for turn in turns:
         for word in turn.words:
             assert turn.text[word.offset : word.offset + len(word.text)] == word.text
     second = turns[1]
@@ -112,7 +101,7 @@ def test_scribe_words_become_speaker_turns_with_timings_offsets_and_unsure_spans
 def test_a_long_monologue_splits_only_at_a_pause() -> None:
     words = []
     t = 0.0
-    for i in range(80):  # 80 words over 40 s, then a 3 s pause, then more of the same voice
+    for i in range(80):
         words.append({"text": f"w{i}", "start": t, "end": t + 0.4, "type": "word", "speaker_id": "s"})
         words.append({"text": " ", "type": "spacing", "speaker_id": "s"})
         t += 0.5
@@ -143,8 +132,6 @@ def test_language_codes_read_as_the_portals_short_codes() -> None:
     assert turn_language("1 2 3", "gu") == "gu"
 
 
-# --- Key terms --------------------------------------------------------------------------------
-
 
 def test_key_terms_put_the_most_specific_first_and_stop_at_one_hundred() -> None:
     terms = keyterms.assemble(
@@ -159,8 +146,6 @@ def test_key_terms_put_the_most_specific_first_and_stop_at_one_hundred() -> None
     assert len(terms) == keyterms.LIMIT
     assert all(len(t) <= keyterms.MAX_CHARS and len(t.split()) <= keyterms.MAX_WORDS for t in terms)
 
-
-# --- Gemini transport -------------------------------------------------------------------------
 
 
 def test_a_throttled_key_moves_to_the_next_key_and_a_missing_model_to_the_fallback() -> None:
@@ -197,8 +182,6 @@ def test_nothing_the_model_was_sent_reaches_a_log_line(caplog: pytest.LogCapture
     joined = "\n".join(record.getMessage() for record in caplog.records)
     assert "गुप्त" not in joined and "k1" not in joined and "k2" not in joined
 
-
-# --- Translation ------------------------------------------------------------------------------
 
 
 def _turns_in() -> list[translate.TurnIn]:
@@ -302,8 +285,6 @@ def test_long_transcripts_split_on_turn_boundaries_and_gloss_a_term_once() -> No
     assert result.summary == ["one", "two", "three"]
 
 
-# --- Renderers: see test_transcript_contract.py for the byte-for-byte fixtures -----------------
-
 
 def _doc() -> render.RenderDoc:
     return render.RenderDoc(
@@ -342,8 +323,6 @@ def test_the_docx_is_a_word_package_with_every_turn() -> None:
     assert "आप?" in xml and "You?" in xml and "&gt; dry?" in xml and "<w:i/>" in xml
 
 
-# --- Citations: Ask and auto-draft ------------------------------------------------------------
-
 
 def _cite_turns() -> list[citations.CiteTurn]:
     turns = turns_from_scribe(fixture("scribe_v2"))
@@ -358,7 +337,7 @@ def test_ask_keeps_only_citations_of_real_turns_whose_quote_is_in_that_turn() ->
     assert result.covered is True
     assert [(c.turn_id, c.quote) for c in result.citations] == [("turn_1", "मिट्टी और गोंद"), ("turn_3", "2 days in the sun")]
     by_id = {t.id: t for t in turns}
-    for c in result.citations:  # the integrity rule, stated as the test
+    for c in result.citations:
         turn = by_id[c.turn_id]
         assert c.start_ms == turn.start_ms
         assert translate.normalise(c.quote) in translate.normalise(turn.text) or translate.normalise(c.quote) in translate.normalise(turn.english or "")
@@ -378,8 +357,6 @@ def test_auto_draft_keeps_only_cited_answers_to_questions_it_was_asked() -> None
     assert drafts[0].english == "They mix clay and gum." and drafts[1].citations[0].quote is None
     assert reply is not None and reply.model == gemini.MODEL
 
-
-# --- The small rules --------------------------------------------------------------------------
 
 
 def test_the_budget_alerts_at_eighty_and_pauses_at_one_hundred_once_a_month() -> None:
@@ -440,8 +417,6 @@ def test_a_quote_card_clip_is_padded_and_clamped() -> None:
     assert insight.clip_range([_T("a", 4000, 5000, "")], None) == (3500, 5500)
     assert insight.card_date(datetime(2026, 6, 24, 20, 0, tzinfo=UTC)) == "25 Jun 2026"
 
-
-# --- Consent and budget gates before an on-demand send ----------------------------------------
 
 
 def test_every_on_demand_send_re_reads_consent_and_the_budget(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -514,8 +489,6 @@ def test_a_completed_result_becomes_turns_whichever_shape_it_arrived_in() -> Non
     assert pipeline.accepts_keyterms(wide) is True
 
 
-# --- The backfill ------------------------------------------------------------------------------
-
 
 def _backfill() -> Any:
     from app.services import transcript_backfill
@@ -558,8 +531,6 @@ def test_each_speaker_gets_a_few_seconds_of_their_longest_turn_to_be_heard_by() 
     assert samples["speaker_2"] == {"startMs": 40_000, "endMs": 40_600}, "a short sample beats none"
     assert set(samples) == {"speaker_0", "speaker_1", "speaker_2"}
 
-
-# --- D38 (0.0.9): old transcripts queue their translation; a declined one gets a person's English ---
 
 
 def _turn(status: str, *, english: str | None = None, edited: str | None = None) -> Any:

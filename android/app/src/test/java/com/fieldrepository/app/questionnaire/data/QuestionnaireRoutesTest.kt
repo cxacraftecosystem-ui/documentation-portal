@@ -15,11 +15,6 @@ import org.junit.Test
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 
-/**
- * The designer portal's additions to the session routes, through the app's own client: each call
- * reaches the route the server mounts (`backend/app/api/routes/questionnaire_v2.py`), with the body it
- * reads, and the answer decodes into what the screens show.
- */
 class QuestionnaireRoutesTest {
     private data class Seen(val method: String, val path: String, val query: String?, val body: String)
 

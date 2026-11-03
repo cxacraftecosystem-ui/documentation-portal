@@ -1,19 +1,3 @@
-"""A queued recording through the shared transcription service: dedup first, then the chain.
-
-IDENTICAL IN BOTH PORTALS. ``media_queue`` calls :func:`transcribe_recording` for every
-TRANSCRIPTION job and for "Transcribe now"; everything that is the same in both portals lives here
-so the two queues cannot drift on it:
-
-* **The pause** (:func:`paused_result`): a held recording answers with a calm status, not an error.
-* **Dedup**: the recording's SHA-256 (``MediaFile.checksum`` when it is already a SHA-256, else
-  computed from the temp file and written back) plus the options hash. A cache hit copies the stored
-  transcript at no cost and is recorded as a zero-cost usage row.
-* **Throttles per job**: a provider that throttled this job ``THROTTLES_PER_JOB`` times is skipped
-  for it, so the job moves to the next provider instead of spinning.
-* **Language hint**: ``extraMetadata.languageHint`` on the recording, else its location's state.
-* **What is written**: segments, detected language and provider beside the transcript.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -44,15 +28,11 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 class TranscriptionPaused(Exception):
-    """Raised by "Transcribe now" while the pause is set; routes answer 409 with this sentence."""
-
     def __init__(self) -> None:
         super().__init__(schedule.PAUSED_MESSAGE)
 
 
 def paused_result() -> dict[str, Any]:
-    """What an inline dictation answers while paused: UNAVAILABLE, which both clients already
-    render as a calm message (and then fall back to on-device speech where they have it)."""
     return {
         "available": False,
         "status": "UNAVAILABLE",
@@ -115,7 +95,6 @@ def skipped_providers(job: Any) -> set[str]:
 
 
 async def note_throttle(job: Any, provider: str | None) -> None:
-    """Count one throttle against *provider* on this job, in ``MediaProcessingJob.result``."""
     if not provider or job is None:
         return
     counts = throttle_counts(job)
@@ -129,7 +108,6 @@ async def note_throttle(job: Any, provider: str | None) -> None:
 
 
 async def language_hint(media: Any) -> list[str]:
-    """The recording's own hint first, else the language(s) its location's state suggests."""
     metadata = _value(media, "extraMetadata")
     if isinstance(metadata, dict):
         hint = metadata.get("languageHint")
@@ -175,11 +153,6 @@ async def transcribe_recording(
     job: Any = None,
     transcribe: Any = None,
 ) -> dict[str, Any]:
-    """Transcribe one stored recording. Never called while paused (callers check first).
-
-    ``transcribe`` is the portal's ``ai.transcribe_audio_bytes`` as the caller holds it, so a test
-    that replaces the queue's reference still intercepts the call.
-    """
     transcribe = transcribe or ai.transcribe_audio_bytes
     media_id = str(_value(media, "id"))
     filename = _value(media, "originalFilename") or "recording.webm"
@@ -212,8 +185,6 @@ async def transcribe_recording(
                     "could not record a cache hit for media %s (%s)", media_id, type(exc).__name__
                 )
             return result
-    # THE TRANSCRIPT PIPELINE (31 Oct 2026): this recording's own key terms (its artisans, its craft,
-    # the glossary heard for that craft, then the master list), at most 100, most specific first.
     from app.services import transcript_pipeline
 
     extra: dict[str, Any] = {}
@@ -286,7 +257,6 @@ async def transcribe_recording(
 
 
 def transcript_extras(result: dict[str, Any]) -> dict[str, Any]:
-    """The MediaFile columns the service adds beside ``transcriptText``, for a run that produced text."""
     if result.get("status") not in {"COMPLETED", "EMPTY"}:
         return {}
     extras: dict[str, Any] = {}

@@ -56,15 +56,6 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDate
 
-/**
- * TRANSCRIPTS IN VIEW DATA AND DOWNLOAD DATA (0.0.6), the same on both portals.
- *
- * Every recording the reader may see, with what the transcript pipeline added: speakers in their
- * colours, the opening turns with times and English, the summary, quotes and glossary terms. The
- * recording filters narrow both the list and the downloads; the three datasets (recordings, turns,
- * glossary) stream as CSV or NDJSON to the share sheet. [extraFilters] are any questionnaire filters
- * the host already holds.
- */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TranscriptDataPanel(
@@ -141,7 +132,6 @@ fun TranscriptDataPanel(
                     )
                 }
         }
-        // Download data: three datasets, each as CSV or NDJSON, narrowed by the same filters.
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             DataTranscriptFilters.KINDS.forEach { kind ->
                 var menu by remember { mutableStateOf(false) }
@@ -183,7 +173,6 @@ fun TranscriptDataPanel(
 private val DATASET_LABEL = mapOf("recordings" to TranscriptUiText.dataRecordings, "turns" to TranscriptUiText.dataTurns, "glossary" to TranscriptUiText.dataGlossary)
 private val DATASET_WHAT = mapOf("recordings" to "Transcripts", "turns" to "Transcript-Turns", "glossary" to "Transcript-Glossary")
 
-/** One recording as View data shows it. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun DataRecordingCard(r: DataRecording) {
@@ -230,10 +219,6 @@ internal fun DataRecordingCard(r: DataRecording) {
     }
 }
 
-/**
- * A recording's transcript files on its data-browser card (0.0.6): md and Word with and without
- * timestamps, and subtitles when the turns are timed. A tap downloads one to the share sheet.
- */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TranscriptFileChips(mediaId: String, files: List<DataTranscriptFile>, modifier: Modifier = Modifier, backend: TranscriptBackend? = null, onMessage: (String) -> Unit = {}) {

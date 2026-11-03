@@ -1,12 +1,3 @@
-"""Advisory locks for /complete (DESIGN section 3.3, rule 3).
-
-Flagging a take as CONCURRENT or LATE_ARRIVAL compares it with the prior takes of the same artisans,
-so two completes for overlapping subjects must not both read "no prior take". Each takes
-``pg_advisory_xact_lock(hash(artisanId, questionnaireId))`` per subject, ALWAYS IN SORTED ORDER, so
-twenty concurrent completes over overlapping groups queue instead of deadlocking. The locks are
-transaction-scoped: they release on commit or rollback, never leak.
-"""
-
 from __future__ import annotations
 
 from typing import Any

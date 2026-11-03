@@ -38,12 +38,6 @@ import com.fieldrepository.app.ui.SelectOption
 import com.fieldrepository.app.ui.field
 import kotlinx.coroutines.launch
 
-/**
- * Artisan → Questionnaire (DESIGN §4.6): summary, section chips, Continue with…, Timeline | By
- * question, Export CSV. Replaces the consolidated screen and the old answer panel when v2 is on.
- * "Continue with…" carries on another day from the artisan's latest session on this instrument
- * (`POST /sessions/continue`, as on the web); with no session yet it starts one.
- */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ArtisanQuestionnaireRecord(
@@ -52,7 +46,6 @@ fun ArtisanQuestionnaireRecord(
     artisanName: String,
     onContinueWith: (artisanId: String) -> Unit,
     onStartSession: (artisanId: String) -> Unit,
-    /** A session the server opened for "Continue with…": the questionnaire screen opens it. */
     onOpenSession: (sessionId: String) -> Unit = {},
     onMessage: (String) -> Unit = {}
 ) {
@@ -67,13 +60,11 @@ fun ArtisanQuestionnaireRecord(
     var view by remember { mutableStateOf("T") }
     var playing by remember { mutableStateOf<Uri?>(null) }
     var consent by remember { mutableStateOf<String?>("…") }
-    // "Show removed" (B40): this artisan's removed takes, from the server, with Restore.
     var transcriptOf by remember { mutableStateOf<String?>(null) }
     var removed by remember { mutableStateOf<List<com.fieldrepository.app.questionnaire.data.QRecording>>(emptyList()) }
     var showRemoved by remember { mutableStateOf(false) }
     var historyOf by remember { mutableStateOf<Pair<String, String>?>(null) }
     var consentFailed by remember { mutableStateOf(false) }
-    // A chip tapped on a take: the recordings list, filtered by it, over this record.
     var chipFilter by remember { mutableStateOf<com.fieldrepository.app.questionnaire.data.QuestionnaireFilters?>(null) }
 
     LaunchedEffect(artisanId, attempt) {
@@ -87,13 +78,11 @@ fun ArtisanQuestionnaireRecord(
     ElevatedCard(colors = CardDefaults.elevatedCardColors(), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (loading) FieldLinearProgressIndicator(Modifier.fillMaxWidth())
-            // Consent is assumed by default; the record speaks only after a refusal, with Switch back on.
             if (consent == "REFUSED") {
                 ConsentQuestion(artisanName, refused = true, onAnswer = { state ->
                     if (state == null) consent = "SKIPPED" else {
                         consent = state; consentFailed = false
                         scope.launch {
-                            // Refused for good by the server: show what it holds, and say it was not saved.
                             if (!v2.recordConsent(artisanId, state)) { consentFailed = true; consent = v2.consentState(artisanId) }
                         }
                     }
@@ -227,11 +216,9 @@ fun ArtisanQuestionnaireRecord(
     }
 }
 
-/** The session "Continue with…" carries on from: the artisan's latest on this instrument (the web's latestSession). */
 internal fun latestSession(instrument: com.fieldrepository.app.questionnaire.data.QRecordInstrument): com.fieldrepository.app.questionnaire.data.QRecordSession? =
     instrument.sessions.maxByOrNull { it.session.sessionDate.orEmpty() }
 
-/** The chips of one take of the record, wherever in its sessions it sits. */
 internal fun chipsOf(record: QArtisanRecord, recordingId: String): com.fieldrepository.app.questionnaire.data.QChips? =
     record.instruments.asSequence().flatMap { it.sessions.asSequence() }.flatMap { (it.recordings + it.uncertain).asSequence() }
         .firstOrNull { it.id == recordingId }?.chips

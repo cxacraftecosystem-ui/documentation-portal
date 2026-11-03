@@ -1,10 +1,3 @@
-"""The one consent store: the same model, migration and rule in both portals (19 Oct 2026).
-
-THIS FILE IS IDENTICAL IN designer-portal AND documentation-portal (listed in
-``shared/transcription.sha256``), so each portal's CI proves its own copy of the shared rule, the
-shared migration and its own ``schema.prisma`` against the same expectations. No database.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -26,12 +19,8 @@ def _row(state: str, at: datetime | None = None) -> dict[str, Any]:
     return {"state": state, "recordedAt": at}
 
 
-# ── The rule ──────────────────────────────────────────────────────────────────────────────────
-
 
 def test_no_answer_is_consent_assumed_by_default_and_is_sent() -> None:
-    """Owner decision, 19 Oct 2026: "the consent should be assumed by default, people can revoke it
-    if required". Nothing recorded, and a recording with no subject at all, are sent."""
     assert ledger.decide(None, []) == ledger.ALLOW
     assert ledger.decide(None, [None]) == ledger.ALLOW
     assert ledger.decide(None, [_row("GRANTED"), None]) == ledger.ALLOW
@@ -50,7 +39,6 @@ def test_any_refusal_refuses_and_a_later_grant_allows_again() -> None:
     assert ledger.decide(None, [_row("GRANTED"), "GRANTED"]) == ledger.ALLOW
     assert ledger.decide(None, [_row("GRANTED"), _row("REFUSED")]) == ledger.REFUSED
     assert ledger.decide(None, [None, _row("REFUSED")]) == ledger.REFUSED, "one refusal among the unanswered"
-    # Each subject is read at its newest row: a grant recorded after the refusal replaces it.
     assert ledger.decide(None, [None, _row("GRANTED", T0 + timedelta(days=1))]) == ledger.ALLOW
 
 
@@ -65,7 +53,6 @@ def test_the_recordings_own_grant_allows_unless_a_subject_refused_after_it() -> 
     assert ledger.decide(_row("GRANTED", T0), []) == ledger.ALLOW
     assert ledger.decide(_row("GRANTED", T0), [_row("REFUSED", earlier)]) == ledger.ALLOW
     assert ledger.decide(_row("GRANTED", T0), [_row("REFUSED", later)]) == ledger.REFUSED
-    # Raw-query timestamps arrive as text; a bare state carries no moment and cannot be later.
     assert ledger.decide(_row("GRANTED", T0), [_row("REFUSED", later.isoformat())]) == ledger.REFUSED
     assert ledger.decide("GRANTED", ["REFUSED"]) == ledger.ALLOW
 
@@ -76,12 +63,8 @@ def test_the_verdict_reads_as_the_consent_words() -> None:
     assert ledger.state_for(ledger.AWAITING) == "NOT_RECORDED"
 
 
-# ── The one write ─────────────────────────────────────────────────────────────────────────────
-
 
 class _Ledger:
-    """The ``Consent`` table's two unique keys, in memory."""
-
     def __init__(self) -> None:
         self.rows: list[tuple[Any, ...]] = []
 
@@ -144,8 +127,6 @@ def test_a_row_that_says_nothing_is_refused(bad: dict[str, Any]) -> None:
     with pytest.raises(ValueError):
         _append(_Ledger(), **bad)
 
-
-# ── The migration and the model, identical in both portals ──────────────────────────────────
 
 
 def test_the_migration_is_additive_and_safe_to_run_twice() -> None:

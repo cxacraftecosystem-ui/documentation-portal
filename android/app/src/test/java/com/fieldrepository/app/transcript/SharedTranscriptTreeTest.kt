@@ -11,10 +11,6 @@ import org.junit.Test
 import java.io.File
 import java.security.MessageDigest
 
-/**
- * The transcript trees are the same Kotlin in both portals (`scripts/transcript_android.py`), and
- * every sentence is `shared/strings/transcript.json`'s, character for character.
- */
 class SharedTranscriptTreeTest {
     private fun repoRoot(): File = generateSequence(File(".").absoluteFile) { it.parentFile }
         .firstOrNull { File(it, "shared/android-transcript.sha256").isFile }
@@ -49,7 +45,6 @@ class SharedTranscriptTreeTest {
         assertTrue("edited without the sync script: $drifted (run python scripts/transcript_android.py)", drifted.isEmpty())
     }
 
-    /** CI clones the other portal beside this one (android-build.yml); both manifests must agree. */
     @Test fun `the other portal carries the same trees`() {
         val sibling = System.getenv("SIBLING_REPO")?.let(::File)?.takeIf { File(it, "shared/android-transcript.sha256").isFile } ?: return
         assertEquals(

@@ -5,15 +5,6 @@ import java.io.File
 import java.time.Duration
 import java.time.Instant
 
-/**
- * Coverage offline (DESIGN §6.1.9): the server's snapshot per instrument and workshop, plus the
- * outbox overlay, answering `coverage/check` in the server's own response shape so P2 reads the same
- * with or without a signal. Coverage never blocks a replay; this only drives the prompt.
- *
- * The hierarchy rule (§3.1) is the server's: a question is already covered for an artisan when the
- * question, or its parent section, has a take for them. A section after question takes does not
- * prompt; it is Partial.
- */
 @Serializable
 data class CachedSnapshot(
     val questionnaireId: String,
@@ -22,7 +13,6 @@ data class CachedSnapshot(
     val snapshot: QSnapshot
 )
 
-/** One take known only to this device (queued or uploading). */
 data class OverlayTake(
     val clientClipKey: String,
     val sessionKey: String,
@@ -50,12 +40,10 @@ class CoverageCache(private val dir: File?, private val clock: () -> Instant = I
         return loaded
     }
 
-    /** Fold a full snapshot or a `sinceSeq` delta into the cache. */
     fun apply(questionnaireId: String, workshopId: String?, incoming: QSnapshot, delta: Boolean) {
         val k = key(questionnaireId, workshopId)
         val base = if (delta) get(questionnaireId, workshopId)?.snapshot else null
         val merged = if (base == null) incoming else {
-            // A changed take's old rows go too: one that dropped to PRESENT-only is in neither list (M3).
             val replaced = incoming.takes.map { it.recordingId }.toSet() + incoming.changedRecordingIds
             val removed = incoming.removedRecordingIds.toSet()
             QSnapshot(
@@ -72,7 +60,6 @@ class CoverageCache(private val dir: File?, private val clock: () -> Instant = I
         }
     }
 
-    /** "· Checked 2 h ago" when the answer came from the snapshot; null when it is fresh (< 1 min). */
     fun ageLabel(questionnaireId: String, workshopId: String?): String? {
         val fetched = get(questionnaireId, workshopId)?.fetchedAt?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: return null
         return QuestionnaireCopy.checkedAgo(Duration.between(fetched, clock()))
@@ -84,14 +71,11 @@ class CoverageCache(private val dir: File?, private val clock: () -> Instant = I
         val purpose: String = SessionPurpose.FIRST_SITTING.wire,
         val rosterCount: Int = 1,
         val myUserId: String? = null,
-        /** questionLineageId → its section id, from the instrument in use. */
         val sectionOfQuestion: Map<String, String> = emptyMap(),
-        /** sectionId → its active question lineage ids, for Partial. */
         val questionsOfSection: Map<String, List<String>> = emptyMap(),
         val labels: Map<String, String> = emptyMap()
     )
 
-    /** The offline `coverage/check`, from the cached snapshot plus [overlay]. */
     fun check(request: QCoverageCheckRequest, workshopId: String?, overlay: List<OverlayTake>, context: CheckContext): QCoverageCheckResponse {
         val snapshot = get(request.questionnaireId, workshopId)?.snapshot ?: QSnapshot()
         return checkAgainst(snapshot, request, overlay, context, clock())
@@ -152,11 +136,6 @@ class CoverageCache(private val dir: File?, private val clock: () -> Instant = I
             )
         }
 
-        /**
-         * Preselection (§3.3.2 and §4.4): the session purpose decides first; a same-session take by me
-         * within 2 h → Redo; a different setting (solo vs group) → New setting; a different researcher
-         * → Re-interview; otherwise Redo.
-         */
         fun suggestReason(latest: QCheckTake, context: CheckContext, now: Instant): String {
             when (context.purpose) {
                 SessionPurpose.FOLLOW_UP.wire -> return RepeatReason.FOLLOW_UP.wire
@@ -170,7 +149,6 @@ class CoverageCache(private val dir: File?, private val clock: () -> Instant = I
             return if (latest.mine) RepeatReason.REDO.wire else RepeatReason.RE_INTERVIEW.wire
         }
 
-        /** Overlay takes from the outbox: every pending clip × its targets × its ANSWERED subjects. */
         fun overlayFrom(units: List<SessionUnit>, questionnaireId: String): List<OverlayTake> =
             units.filter { it.questionnaireId == questionnaireId }.flatMap { unit ->
                 unit.pendingClips.flatMap { step ->

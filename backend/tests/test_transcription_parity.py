@@ -1,11 +1,3 @@
-"""The shared transcription service is byte-identical in both portals.
-
-THIS FILE IS IDENTICAL IN designer-portal AND documentation-portal. Each repository carries
-``shared/transcription.sha256``, written by designer-portal's ``scripts/sync_transcription.py``;
-both manifests are the same file, so a change made in one portal and not copied to the other fails
-here, in that portal's CI. Digests are over LF-normalised text (Windows checkouts are CRLF).
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -46,7 +38,6 @@ def test_every_package_file_is_listed() -> None:
 
 
 def test_the_package_imports_no_portal_code() -> None:
-    """No FastAPI, no Prisma, no portal module: the package must work unchanged in either portal."""
     for path in (REPO / "backend" / "app" / "transcription").rglob("*.py"):
         text = path.read_text(encoding="utf-8")
         for forbidden in (
@@ -62,8 +53,6 @@ def test_the_package_imports_no_portal_code() -> None:
 
 
 def _sibling() -> Path | None:
-    """The other portal's checkout: $CROSS_PORTAL_PEER_REPO or $SIBLING_REPO (CI clones the other
-    repository's main there), else the checkout beside this one."""
     here_is_designer = (REPO / "android" / "app" / "src" / "main" / "java" / "com" / "designprototype").is_dir()
     other = "documentation-portal" if here_is_designer else "designer-portal"
     for candidate in (
@@ -77,7 +66,6 @@ def _sibling() -> Path | None:
 
 
 def test_the_manifest_is_the_other_portals() -> None:
-    """The two manifests are one file, so a shared change copied to one portal only fails here."""
     sibling = _sibling()
     if sibling is None:
         pytest.skip("no checkout of the other portal beside this one")

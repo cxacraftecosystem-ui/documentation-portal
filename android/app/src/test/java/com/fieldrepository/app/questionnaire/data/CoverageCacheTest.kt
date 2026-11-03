@@ -10,10 +10,6 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.time.Instant
 
-/**
- * DESIGN §9 test 54: offline P2 comes from the snapshot plus the outbox overlay and answers in the
- * server's `CoverageCheckResponse` shape. The hierarchy rule is the server's (§3.1).
- */
 @QFeature("B11")
 class CoverageCacheTest {
     @get:Rule val tmp = TemporaryFolder()
@@ -35,7 +31,6 @@ class CoverageCacheTest {
         )
     )
 
-    /** The server's answer for the same request, the shape of DESIGN §5.2. */
     private val serverFixture = """
         {"asOf":"2026-07-09T09:00:00Z","identical":null,
          "targets":[{"targetKey":"S:secD","label":"Section D","perArtisan":[
@@ -83,7 +78,6 @@ class CoverageCacheTest {
         assertEquals("local:k1", take.recordingId)
         assertTrue(take.sameSession)
         assertTrue(take.mine)
-        // Same session, mine, within 2 h: Redo is preselected.
         assertEquals(RepeatReason.REDO.wire, result.suggestedReason)
     }
 

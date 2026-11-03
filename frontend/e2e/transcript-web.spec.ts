@@ -3,18 +3,6 @@ import { devices, expect, test, type Page } from "@playwright/test";
 import type { Transcript } from "../lib/transcript/contract";
 import { FIXTURES, MEDIA_ID, TranscriptFake } from "./support/transcriptFake";
 
-/**
- * THE SHARED TRANSCRIPT VIEWER IN A REAL BROWSER, both portals (`shared/transcript-web.sha256`).
- *
- * A production build (`next build && next start`, the `transcript-web` job in checks.yml) serves the
- * real record page for one recording; every `/api` call is answered by `support/transcriptFake.ts`
- * from the contract's own example. Each block runs on a desktop, a tablet and a phone viewport:
- * every copy mode lands on the clipboard exactly as `fixtures.copy` says (and through the selection
- * fallback when the Clipboard API is missing), hostile markdown renders inert, and karaoke seeks.
- * 0.0.6 adds reading mode, the all-marks button, the mark's bubble (hover and keyboard), marks on
- * the bar's centre, one colour per speaker, and auto-follow with its "Follow along" pill.
- */
-
 const VIEWPORTS = [
   { name: "desktop", use: { viewport: { width: 1280, height: 900 } } },
   { name: "tablet", use: { viewport: { width: 820, height: 1180 }, hasTouch: true } },
@@ -59,7 +47,6 @@ for (const viewport of VIEWPORTS) {
       await expect(viewer.locator("[data-transcript-facts]")).toContainText("25:24");
       await expect(viewer.locator("[data-turn-id]")).toHaveCount(2);
       await expect(viewer.locator('[data-turn-id="turn_a"] [data-speaker]')).toHaveText("Nandini (researcher)");
-      // The unsure stretch is underlined and says so.
       await expect(viewer.locator('[data-turn-id="turn_b"] [data-low-confidence="true"]')).toHaveText("dabu");
     });
 
@@ -100,8 +87,6 @@ for (const viewport of VIEWPORTS) {
         Object.defineProperty(Navigator.prototype, "clipboard", { configurable: true, get: () => undefined });
       });
       const viewer = await open(page, new TranscriptFake());
-      // Read the clipboard back with a fresh page in the same context, where the API still exists.
-      // A page of the app (a secure context with the API), not about:blank, which has no clipboard.
       const reader = await page.context().newPage();
       await reader.goto("/login");
       await reader.evaluate(() => navigator.clipboard.writeText("sentinel"));
@@ -163,7 +148,6 @@ for (const viewport of VIEWPORTS) {
       await expect(viewer.locator('[data-turn-id="turn_a"] [data-current="true"]').first()).toBeVisible();
       await viewer.locator('[data-tab="side"]').click();
       await expect(viewer.locator('[data-turn-id="turn_a"] [data-active-english="true"]')).toBeVisible();
-      // The clock on the next turn seeks there.
       await viewer.locator('[data-turn-id="turn_b"] [data-seek-ms="9000"]').click();
       await expect.poll(() => audio.evaluate((element: HTMLAudioElement) => element.currentTime), { timeout: 10_000 }).toBeGreaterThanOrEqual(9);
       await expect(viewer.locator('[data-turn-id="turn_b"]')).toHaveAttribute("data-active", "true");
@@ -190,7 +174,6 @@ for (const viewport of VIEWPORTS) {
   });
 }
 
-/** A transcript long enough to scroll: `count` turns, alternating two speakers, across 28 s of audio. */
 function longTranscript(fake: TranscriptFake, count = 40) {
   const view = fake.view as unknown as Transcript;
   const [first, second] = view.turns;
@@ -238,7 +221,6 @@ for (const viewport of VIEWPORTS) {
       await expect(reading).toContainText("आप ये रंग कैसे बनाते हैं?");
       await expect(reading).not.toContainText("How do you make these colours?");
       await expect(reading.locator("[data-reading-block] [data-speaker]")).toHaveText(["Nandini (researcher)", "Giriraj"]);
-      // No clock anywhere in the view, and no turn cards with their tools.
       expect(await reading.innerText()).not.toMatch(/\d{1,2}:\d{2}(:\d{2})?/);
       await expect(reading.locator("[data-seek-ms]")).toHaveCount(0);
       await expect(viewer.locator("[data-turn-id]")).toHaveCount(0);
@@ -256,7 +238,6 @@ for (const viewport of VIEWPORTS) {
       await expect(reading.locator("[data-reading-english]").first()).toContainText("How do you make these colours?");
       expect(await reading.innerText()).not.toMatch(/\d{1,2}:\d{2}(:\d{2})?/);
 
-      // The view copies as it reads: no timestamps.
       await viewer.getByTestId("copy-view").click();
       await expect(viewer.locator('[data-copy-status="ok"]')).toHaveText("Copied");
       expect(await clipboard(page)).toBe(FIXTURES.copy.all_both_no_timestamps);
@@ -294,7 +275,6 @@ for (const viewport of VIEWPORTS) {
       await expect(bubble.locator("[data-bubble-speaker]")).toHaveText("Giriraj");
       await expect(bubble.locator("[data-bubble-original]")).toHaveText("हम dabu के लिए मिट्टी और गोंद मिलाते हैं");
       await expect(bubble.locator("[data-bubble-english]")).toHaveText("We mix clay and gum for dabu (mud-resist printing).");
-      // Inside the viewport, even beside the bar's right end on a phone.
       const box = await bubble.boundingBox();
       const width = page.viewportSize()?.width ?? 0;
       expect(box && box.x >= 0 && box.x + box.width <= width).toBe(true);
@@ -336,12 +316,10 @@ for (const viewport of VIEWPORTS) {
       const viewer = await open(page, fake);
       await expect(viewer.getByTestId("follow-along")).toHaveCount(0);
       await viewer.getByTestId("transcript-play").click();
-      // Following: the page travels with the audio and the lit line stays on screen.
       await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 20_000 }).toBeGreaterThan(300);
       await expect.poll(() => activeInView(page)).toBe(true);
       await expect(viewer.getByTestId("follow-along")).toHaveCount(0);
 
-      // The reader takes over: a touch on a touch screen, a wheel upwards with a mouse.
       if (viewport.name === "desktop") {
         await page.mouse.move(640, 500);
         await page.mouse.wheel(0, -400);
@@ -355,7 +333,6 @@ for (const viewport of VIEWPORTS) {
       await page.waitForTimeout(2500);
       expect(Math.abs((await page.evaluate(() => window.scrollY)) - parked)).toBeLessThanOrEqual(2);
 
-      // "Follow along" picks it up again.
       await pill.click();
       await expect(pill).toHaveCount(0);
       await expect.poll(() => activeInView(page), { timeout: 10_000 }).toBe(true);
@@ -535,7 +512,6 @@ test.describe("desktop actions", () => {
   });
 });
 
-/** The view of a recording Gemini declined to translate (contract 3), for an editor or another reader. */
 function declined(fake: TranscriptFake, notice: "DECLINED" | "UNAVAILABLE"): TranscriptFake {
   const view = fake.view as unknown as Transcript;
   view.turns = view.turns.map((turn) => ({ ...turn, translation: { ...turn.translation, text: null, status: "FAILED" } }));
@@ -546,7 +522,6 @@ function declined(fake: TranscriptFake, notice: "DECLINED" | "UNAVAILABLE"): Tra
   return fake;
 }
 
-/** A click on a neutralised link must not run anything either. */
 async function clickIsHarmless(page: Page, scope: ReturnType<Page["locator"]>) {
   await scope.getByText("click me").click();
   await page.waitForTimeout(200);

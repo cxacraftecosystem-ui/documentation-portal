@@ -1,21 +1,3 @@
-"""``GET /workshops/requestable`` — the wire contract, pinned on the server AND on the web client.
-
-Identical in both portals (they will merge). The route answered a bare array once and answers
-``{"items": [...], "truncated": bool}`` now; the web panel was not told, went on spreading the
-envelope as if it were the array, and Settings → "Request workshop access" died in production with
-"e is not iterable". A shape change that only one side of the wire knows about is the defect, so this
-file holds both sides in one place:
-
-* the server half: the envelope's keys, and each row's keys, exactly — adding a key to a projection
-  that people with no access may read is a decision (see the route's docstring), not a drive-by;
-* the client half: every web reader of the route decodes it through
-  ``frontend/lib/requestableWorkshops.ts::readRequestableAnswer``, and nothing casts the answer to an
-  array directly. The parser's own behaviour (envelope, bare array, junk) is pinned by
-  ``frontend/e2e/requestable-workshops-unit.spec.ts``.
-
-No database: the route is called against fake tables, as ``test_workshops.py`` does.
-"""
-
 from __future__ import annotations
 
 import re
@@ -27,7 +9,6 @@ import pytest
 
 from app.api.routes import workshops as routes
 
-# Both portals' convention that runs everywhere: anyio ships with starlette, pytest-asyncio may not.
 pytestmark = pytest.mark.anyio
 
 REPO = Path(__file__).resolve().parents[2]

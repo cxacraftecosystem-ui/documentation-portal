@@ -11,16 +11,6 @@ import java.io.IOException
 import java.security.MessageDigest
 import java.util.UUID
 
-/**
- * READY TRANSCRIPTS, KEPT ON THE PHONE PER ACCOUNT, AND THE EDITS WAITING TO BE SENT (DESIGN §4.9).
- *
- * `<files>/transcripts/<account>/` holds one JSON file per Ready transcript, for reading and copying
- * with no connection, and `outbox/` the turn edits, speaker names and re-translations made
- * offline, one file per change in the order they were made — the questionnaire queue's pattern
- * (`questionnaire/data/SessionOutbox.kt`): a file per unit, written atomically, drained in order by
- * the app's background pass and replayed until the server answers. The account folder is a digest
- * of the user id, so one person's transcripts never open under another's sign-in.
- */
 class TranscriptStore(root: File, userId: String, private val json: Json) {
     val dir: File = File(root, "transcripts/" + accountKey(userId))
     private val outboxDir = File(dir, "outbox")
@@ -34,7 +24,6 @@ class TranscriptStore(root: File, userId: String, private val json: Json) {
         runCatching { json.decodeFromString(Transcript.serializer(), f.readText()) }.getOrNull()
     }
 
-    /** Keeps a Ready transcript; any other state is not worth reading offline and is dropped. */
     suspend fun keep(view: Transcript) = mutex.withLock {
         val f = file(view.mediaId)
         if (view.status == PipelineStatus.READY) {
@@ -50,8 +39,6 @@ class TranscriptStore(root: File, userId: String, private val json: Json) {
             runCatching { json.decodeFromString(Transcript.serializer(), f.readText()).mediaId }.getOrNull()
         }
     }
-
-    // ── The edit queue ─────────────────────────────────────────────────────────────────────
 
     suspend fun pending(): List<TranscriptEdit> = mutex.withLock { readPending() }
 
@@ -81,22 +68,18 @@ class TranscriptStore(root: File, userId: String, private val json: Json) {
     }
 }
 
-/** One change made on the phone, waiting to reach the server. */
 @Serializable
 data class TranscriptEdit(
     val id: String = UUID.randomUUID().toString(),
     val mediaId: String,
-    /** [TURN], [RETRANSLATE] or [SPEAKERS]. */
     val type: String,
     val turnId: String? = null,
     val text: String? = null,
     val english: String? = null,
     val mappings: List<SpeakerMapping> = emptyList(),
-    /** The turn's revision (a turn edit) or the transcript's (speakers) the change was made on. */
     val baseRevision: Int = 0,
     val createdAt: Long = System.currentTimeMillis(),
     val seq: Int = 0,
-    /** The server refused it (not a network failure): kept for a person to see, never resent alone. */
     val failure: String? = null,
 ) {
     companion object {
@@ -106,16 +89,10 @@ data class TranscriptEdit(
     }
 }
 
-/** What loading gave the viewer: the transcript, whether it is the phone's copy, and what waits. */
 data class LoadedTranscript(val view: Transcript, val offline: Boolean, val waitingEdits: Int)
 
-/** The transcript route answered 404: the pipeline is off (or the reader may not see it). */
 class TranscriptUnavailable : Exception("transcript unavailable")
 
-/**
- * The viewer's one door to transcripts: the server when there is one, the phone's copy when there
- * is not, and every edit applied to the phone's copy at once and queued for the server.
- */
 class TranscriptRepository(
     private val backend: TranscriptBackend,
     private val store: TranscriptStore,
@@ -130,7 +107,6 @@ class TranscriptRepository(
             null
         } catch (e: HttpException) {
             if (e.code() == 404) {
-                // The pipeline is off, or this reader may not see it: never show a stale copy then.
                 throw TranscriptUnavailable()
             }
             if (e.code() < 500) throw e
@@ -145,10 +121,8 @@ class TranscriptRepository(
         return LoadedTranscript(waiting.fold(cached) { acc, e -> applyLocally(acc, e) }, offline = true, waitingEdits = waiting.size)
     }
 
-    /** The phone's copy, if there is one (an entry row with no connection). */
     suspend fun cached(mediaId: String): Transcript? = store.cached(mediaId)
 
-    /** Applies a change to the phone's copy at once and queues it; the caller asks for a sync pass. */
     suspend fun queue(current: Transcript, edit: TranscriptEdit): Transcript {
         store.enqueue(edit)
         val updated = applyLocally(current, edit)
@@ -156,7 +130,6 @@ class TranscriptRepository(
         return updated
     }
 
-    /** Takes a server answer into the phone's copy: a whole view, or one turn of it. */
     suspend fun accept(view: Transcript) = store.keep(view)
 
     suspend fun acceptTurn(mediaId: String, turn: TranscriptTurn): Transcript? {
@@ -166,10 +139,6 @@ class TranscriptRepository(
         return updated
     }
 
-    /**
-     * Sends every waiting change in order. Stops at the first network failure (the rest wait for
-     * the next pass); a refusal is kept with its reason and the queue moves on. Returns how many wait.
-     */
     suspend fun drain(): Int {
         for (edit in store.pending().filter { it.failure == null }) {
             try {
@@ -200,7 +169,6 @@ class TranscriptRepository(
             else -> TranscriptStrings.changedElsewhere
         }
 
-        /** The change as the phone shows it before the server has answered. */
         fun applyLocally(t: Transcript, edit: TranscriptEdit): Transcript = when (edit.type) {
             TranscriptEdit.TURN -> t.copy(turns = t.turns.map { turn ->
                 if (turn.id != edit.turnId) turn else {
@@ -209,7 +177,6 @@ class TranscriptRepository(
                     turn.copy(
                         text = edit.text ?: turn.text,
                         textSource = if (textChanged) TextSource.EDITED else turn.textSource,
-                        // Word timings and doubts belong to the machine's words, not to edited ones.
                         words = if (textChanged) emptyList() else turn.words,
                         lowConfidence = if (textChanged) emptyList() else turn.lowConfidence,
                         translation = when {

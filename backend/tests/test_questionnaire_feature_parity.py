@@ -1,27 +1,3 @@
-"""Every questionnaire feature is served in both portals, on web and Android (UNIFY section 5.3).
-
-THIS FILE IS IDENTICAL IN designer-portal AND documentation-portal. ``shared/questionnaire-features.json``
-lists every row of the spec's matrix (A1-A20, B1-B40, C1-C10) and owner amendment 2 (D1-D4), with a
-value per client: ``required``, or ``{"na": "ministry-admin-authoring"}`` for designer-portal Android
-only (owner: ministry/admin authoring is web-only there). Each check runs against this repository and,
-when CI provides it, the other portal's checkout, so a feature built in one place and not the other
-fails in BOTH repositories.
-
-WHAT "planned" MEANS, AND HOW IT FLIPS. A client is ``tagged`` (its marker exists: a Playwright test
-titled ``@qf:<id>`` under ``frontend/e2e``, or ``@QFeature("<id>")`` under
-``android/app/src/{test,androidTest}``) or ``planned`` (the stream in ``stream`` builds it). ``planned``
-keeps CI green while U1-U4 build, and stops being accepted, for every required client and server:
-
-1. when ``unifiedRelease`` is true in the registry: U5 sets it in the commit that cuts the unified
-   release and switches ``QUESTIONNAIRE_V2`` on in designer-portal (the switch-on and the flip are
-   one commit, so the switch-on cannot ship with a planned feature);
-2. for this portal's own clients, when its ``Settings`` default for ``questionnaire_v2`` is true;
-3. for one feature in every client, when the portal's ``Settings`` default for that feature's
-   ``flag`` (a Settings field named on the feature) is true.
-
-A marker present on a client still marked ``planned`` also fails: the registry must say ``tagged``.
-"""
-
 from __future__ import annotations
 
 import json
@@ -132,7 +108,7 @@ def _mounted() -> set[tuple[str, str]]:
         from fastapi.routing import iter_route_contexts
 
         routes = list(iter_route_contexts(api_router.routes))
-    except ImportError:  # an older FastAPI keeps them on .routes
+    except ImportError:
         routes = list(api_router.routes)
     have = set()
     for route in routes:

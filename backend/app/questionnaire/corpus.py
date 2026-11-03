@@ -1,10 +1,3 @@
-"""The corpus feed (DESIGN 5.4): answers and recordings of one instrument, ``schemaVersion: 1``.
-
-Filters on RECORDING and REVISION status, never on session status (the downstream invariant of
-3.10). It carries the consent state and source per recording but does not filter on it: exporting
-sends the audio nowhere. ``s-cross-portal`` reads this feed now; ``f-search-doc`` when it lands.
-"""
-
 from __future__ import annotations
 
 import csv
@@ -45,8 +38,6 @@ async def corpus(questionnaire_id: str, *, status: str | None = "APPROVED", clie
         'aq."prompt" AS "askedWording", rv."text", rv."languageCode", rv."attribution"::text AS attribution, rv."origin"::text AS origin, '
         'rv."status"::text AS status, rv."sourceRecordingId" FROM "QuestionnaireAnswer" a '
         'JOIN "QuestionnaireAnswerRevision" rv ON rv."id" = a."currentRevisionId" '
-        # Live sessions only (a soft-deleted session hides its answers); guest answers have no
-        # artisan to key the corpus on and stay out of it until they are registered.
         'JOIN "QuestionnaireInterview" si ON si."id" = rv."sessionId" AND si."deletedAt" IS NULL '
         'JOIN "QuestionnaireQuestion" q ON q."id" = a."questionLineageId" JOIN "QuestionnaireQuestion" aq ON aq."id" = rv."askedQuestionId" '
         'WHERE a."questionnaireId" = $1 AND a."artisanId" IS NOT NULL AND ($2::text IS NULL OR rv."status"::text = $2) ORDER BY a."artisanId", q."displayCode"',
@@ -57,7 +48,6 @@ async def corpus(questionnaire_id: str, *, status: str | None = "APPROVED", clie
     for t in takes:
         by_key.setdefault((str(t["artisanId"]), str(t["targetKey"])), []).append(t)
     answer_rows = []
-    # Every answering artisan's primary takes in one batched read, not three round trips each.
     takes_by_artisan: dict[str, list] = {str(a["artisanId"]): [] for a in answers}
     for t in takes:
         if str(t["artisanId"]) in takes_by_artisan:

@@ -1,9 +1,3 @@
-"""Transport helpers shared by every adapter.
-
-``requests.post`` is always looked up on the module at call time, so a test that replaces
-``requests.post`` reaches every adapter without knowing this package exists.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -32,11 +26,6 @@ OPTION_REJECTED_STATUSES = frozenset({400, 422})
 
 @contextmanager
 def upload_body(audio: AudioInput) -> Iterator[Any]:
-    """The audio as ``requests`` should be handed it: a fresh file handle per send, or the bytes.
-
-    A fresh handle per ``with`` block matters for the one conservative retry each adapter makes: a
-    handle the first POST already read to the end would upload nothing.
-    """
     if audio.source_path is not None:
         with open(audio.source_path, "rb") as handle:
             yield handle
@@ -55,7 +44,6 @@ def retry_after(response: Any) -> float | None:
 
 
 def post(provider: str, url: str, **kwargs: Any) -> Any:
-    """``requests.post`` with transport failures turned into :class:`Unreachable`."""
     try:
         return requests.post(url, **kwargs)
     except requests.HTTPError:
@@ -65,7 +53,6 @@ def post(provider: str, url: str, **kwargs: Any) -> Any:
 
 
 def raise_for(provider: str, response: Any) -> None:
-    """Map a provider's HTTP answer to the package's typed errors. 2xx returns quietly."""
     code = getattr(response, "status_code", None)
     if code is not None and code < 400:
         return

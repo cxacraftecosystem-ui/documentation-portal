@@ -25,7 +25,6 @@ import androidx.compose.ui.unit.dp
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
 import com.fieldrepository.app.ui.field
 
-/** What the researcher chose on P2. */
 sealed interface P2Choice {
     data class Again(val reason: String) : P2Choice
     data object PartTwo : P2Choice
@@ -33,10 +32,6 @@ sealed interface P2Choice {
     data object DifferentQuestion : P2Choice
 }
 
-/**
- * P2, "Already recorded" (DESIGN §4.4). Fires on Record press or file pick, from the server's
- * `coverage/check` or, offline, the same shape from [com.fieldrepository.app.questionnaire.data.CoverageCache].
- */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AlreadyRecordedSheet(model: P2Model, onDismiss: () -> Unit, onChoose: (P2Choice) -> Unit) {
@@ -67,7 +62,6 @@ fun AlreadyRecordedSheet(model: P2Model, onDismiss: () -> Unit, onChoose: (P2Cho
                 Text(QuestionnaireCopy.s("p2.more"))
             }
             if (more) {
-                // Three or more choices: stacked on a phone.
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (model.offerPartTwo) TextButton(onClick = { onChoose(P2Choice.PartTwo) }, modifier = Modifier.fillMaxWidth()) { Text(QuestionnaireCopy.s("p2.partTwo")) }
                     if (model.offerReplace) TextButton(onClick = { onChoose(P2Choice.Replace) }, modifier = Modifier.fillMaxWidth()) { Text(QuestionnaireCopy.s("p2.replace")) }

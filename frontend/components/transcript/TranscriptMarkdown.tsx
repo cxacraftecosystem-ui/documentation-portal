@@ -5,18 +5,6 @@ import remarkGfm from "remark-gfm";
 
 import { DISALLOWED_ELEMENTS, safeUrl } from "@/lib/transcript/sanitize";
 
-/**
- * THE SANITISED RENDERER every transcript, translation and answer is drawn through (design §2.4).
- *
- * - Raw HTML is DROPPED (`skipHtml`), not escaped into view and never parsed: a `<script>` or an
- *   `<img onerror>` in a turn renders as nothing.
- * - Images are not drawn at all (`disallowedElements`): a markdown image would fetch a URL of the
- *   writer's choosing the moment the transcript opens.
- * - A link keeps only http(s) and mailto targets; `javascript:`, `data:` and the rest lose the href
- *   and stay as text. Links open in a new tab with no opener and no referrer.
- *
- * `e2e/transcript-web.spec.ts` feeds it hostile markdown and checks the DOM it produced.
- */
 const components: Components = {
   p: ({ children }) => <p className="mb-2 leading-6 last:mb-0">{children}</p>,
   strong: ({ children }) => <strong className="font-semibold text-ink-900">{children}</strong>,

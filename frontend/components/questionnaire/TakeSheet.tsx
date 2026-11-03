@@ -15,7 +15,6 @@ import { qs } from "@/lib/questionnaire/qs";
 import { RecordingChips } from "@/components/questionnaire/RecordingChips";
 import { useChipNavigator } from "@/components/questionnaire/useUrlFilters";
 
-/** A take row's words: position, reason, duration, researcher, date and setting — never a file name. */
 export function takeRow(recording: Recording, artisanId: string | null): string {
   const subject = artisanId ? recording.subjects.find((s) => s.artisanId === artisanId) : recording.subjects[0];
   return takeRowLabel({
@@ -28,7 +27,6 @@ export function takeRow(recording: Recording, artisanId: string | null): string 
   });
 }
 
-/** A take whose transcript is in: its words can be offered as answers (B22). */
 export function canOfferAnswers(recording: Recording): boolean {
   const status = recording.transcript.status;
   return !recording.removedAt && Boolean(recording.transcript.text) && (status === "COMPLETED" || status === "SKIPPED_DUPLICATE");
@@ -41,12 +39,6 @@ const OVERRIDE_KEY: Record<SectionOverride | "", "overrideNone" | "stateMarkedCo
   NEEDS_REDO: "stateNeedsRedo"
 };
 
-/**
- * The take sheet (DESIGN §4.3, B18): every take of one section for one artisan (or the participants),
- * with play, download (the server's `downloadName`), the transcript state and Retry, "Use as answer",
- * Make primary, the take's history (B40), the removed takes with Restore, a decision for a take that
- * needs one, the admin's section override in three states (owner, amendment 2), and Record / Upload.
- */
 export function TakeSheet({
   open,
   title,
@@ -77,12 +69,9 @@ export function TakeSheet({
   onRemove?: (recording: Recording) => void;
   onRecordConsent?: (recording: Recording) => void;
   onUseAsAnswer?: (recording: Recording) => void;
-  /** For "Show removed": the session whose removed takes to list. */
   sessionId?: string;
   override?: SectionOverride | null;
-  /** Content admins: set or clear the section override for this artisan. */
   onOverride?: (status: SectionOverride | null) => Promise<void>;
-  /** A change made here (primary, decision, restore) that the workspace should reload for. */
   onChanged?: () => void;
 }) {
   const goChip = useChipNavigator();

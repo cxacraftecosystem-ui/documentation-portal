@@ -1,14 +1,3 @@
-"""Probe, normalise and cut recordings with ffmpeg, which is already on both boxes.
-
-Every recording that has to go in parts (Muse always, Whisper over 24 MB) is normalised ONCE into
-16 kHz mono PCM16 WAV, then cut near 9.5-minute marks at a silence, with about one second of
-overlap so a word on a cut is heard by both parts. The cut points are a pure function of the
-audio, so a retry cuts the same parts and only the parts that failed are sent again.
-
-``Runner`` is injectable so tests never need ffmpeg. Temp files are named
-``chunk_003_of_009.wav`` (NAMING_2026-10-18: underscores, no dots inside the stem).
-"""
-
 from __future__ import annotations
 
 import contextlib
@@ -25,7 +14,6 @@ Runner = Callable[[list[str]], "subprocess.CompletedProcess[str]"]
 
 SAMPLE_RATE = 16_000
 DEFAULT_PART_MS = 570_000
-#: How far back from the target a silence may be and still be chosen as the cut.
 SEARCH_WINDOW_MS = 45_000
 OVERLAP_MS = 1_000
 SILENCE_NOISE = "-35dB"
@@ -41,7 +29,6 @@ def ffmpeg_available() -> bool:
 
 
 def probe_duration_ms(path: str, runner: Runner = _run) -> int | None:
-    """The recording's length, or None when ffprobe cannot say. Reads headers, not the audio."""
     done = runner(
         [
             "ffprobe",
@@ -141,7 +128,6 @@ _SILENCE_END = re.compile(r"silence_end:\s*([\d.]+)")
 
 
 def detect_silences(path: str, runner: Runner = _run) -> list[tuple[int, int]]:
-    """``(start_ms, end_ms)`` of every silence ffmpeg's silencedetect reports."""
     done = runner(
         [
             "ffmpeg",
@@ -170,11 +156,10 @@ def detect_silences(path: str, runner: Runner = _run) -> list[tuple[int, int]]:
 
 @dataclass(frozen=True)
 class PartPlan:
-    index: int  # 0-based
+    index: int
     count: int
-    start_ms: int  # where this part's audio starts, overlap included
+    start_ms: int
     end_ms: int
-    #: Where this part's own (non-overlap) audio starts; segments before it belong to the last part.
     own_start_ms: int
 
     @property
@@ -189,8 +174,6 @@ def plan_parts(
     window_ms: int = SEARCH_WINDOW_MS,
     overlap_ms: int = OVERLAP_MS,
 ) -> list[PartPlan]:
-    """Cut points near every ``part_ms`` mark, at the middle of the latest silence inside the
-    window before it, or exactly on the mark when there is none. Pure and deterministic."""
     if duration_ms <= part_ms:
         return [PartPlan(0, 1, 0, max(duration_ms, 0), 0)]
     cuts: list[int] = []
@@ -240,8 +223,6 @@ def cut_part(wav_path: str, part: PartPlan, directory: str, runner: Runner = _ru
 
 
 class PartCutter:
-    """Turns one recording into planned parts on disk, once, and removes them afterwards."""
-
     def __init__(self, runner: Runner = _run, part_ms: int = DEFAULT_PART_MS) -> None:
         self.runner = runner
         self.part_ms = part_ms
@@ -250,7 +231,6 @@ class PartCutter:
         self.duration_ms: int | None = None
 
     def prepare(self, source_path: str) -> list[PartPlan] | None:
-        """Normalise and plan. None when ffmpeg cannot read the recording."""
         if self._wav is None:
             self._dir = workdir.make_dir(prefix="transcription_parts_")
             wav = os.path.join(self._dir, "normalised_16k_mono.wav")

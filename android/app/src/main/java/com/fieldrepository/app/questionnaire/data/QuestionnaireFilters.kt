@@ -6,16 +6,6 @@ import java.io.File
 import java.nio.charset.StandardCharsets
 import java.time.Instant
 
-/**
- * One filter model for the sessions list, the forms library, a form's sessions, the recordings list
- * and the media lists (owner, 31 Oct 2026), the same as the server's
- * (`backend/app/questionnaire/filters.py`) and the web's. [toQuery] is the canonical string of
- * `shared/questionnaire-chips.json` (`queryCases`): keys in `filterKeys` order, a repeatable key's
- * values comma-joined in the order chosen, values encoded as `encodeURIComponent` does.
- *
- * [labels] remembers how each chosen value reads (an artisan's name for an id) so the active pills
- * can say it; it never reaches the server.
- */
 @Serializable
 data class QuestionnaireFilters(
     val values: Map<String, List<String>> = emptyMap(),
@@ -28,7 +18,6 @@ data class QuestionnaireFilters(
     val dateFrom: String? get() = one("dateFrom")
     val dateTo: String? get() = one("dateTo")
 
-    /** [key] set to [list] (cleared when empty); a single-valued key keeps the first value only. */
     fun with(key: String, list: List<String>, label: Map<String, String> = emptyMap()): QuestionnaireFilters {
         val clean = list.map { it.trim() }.filter { it.isNotEmpty() }.distinct().let { if (key in MULTI) it else it.take(1) }
         val next = values.toMutableMap()
@@ -41,21 +30,14 @@ data class QuestionnaireFilters(
 
     val isEmpty: Boolean get() = KEYS.none { get(it).isNotEmpty() }
 
-    /** "Filters (n)": every key set except the free text; a date range counts once. */
     val activeCount: Int get() = KEYS.count { it != "q" && it != "dateTo" && get(it).isNotEmpty() } +
         (if (dateFrom == null && dateTo != null) 1 else 0)
 
-    /** On a media list a day chip is no filter (its dates are the upload day); every other chip is. */
     fun appliesToMedia(filter: ChipFilter): Boolean = filter.key != ChipRules.DATE
 
-    /** Whether the chip's filter is already applied (the chip then reads as active). */
     fun isActive(filter: ChipFilter): Boolean =
         if (filter.key == ChipRules.DATE) dateFrom == filter.value && dateTo == filter.value else filter.value in get(filter.key)
 
-    /**
-     * Tapping a chip: a repeatable key gains the value, or loses it when it has it; a day sets both
-     * ends of the range, or clears both when they are already that day (`applyCases`).
-     */
     fun applyChip(filter: ChipFilter, label: String? = null): QuestionnaireFilters {
         val named = label?.let { mapOf(filter.value to it) }.orEmpty()
         if (filter.key == ChipRules.DATE) {
@@ -71,13 +53,8 @@ data class QuestionnaireFilters(
         if (list.isEmpty()) null else "$key=" + list.joinToString(",", transform = ::encode)
     }.joinToString("&")
 
-    /**
-     * What a media list sends (`GET /media`): every filter but the text and the dates, which a
-     * media list reads as its own search box and its upload day.
-     */
     fun mediaParams(): Map<String, String> = without("q", "dateFrom", "dateTo").toParams()
 
-    /** The same, as Retrofit's `@QueryMap(encoded = true)` takes it. */
     fun toParams(): Map<String, String> = KEYS.mapNotNull { key ->
         val list = get(key)
         if (list.isEmpty()) null else key to list.joinToString(",", transform = ::encode)
@@ -97,7 +74,6 @@ data class QuestionnaireFilters(
         val TRANSCRIPT = listOf("HAS", "NONE", "PENDING", "FAILED")
         private const val UNRESERVED = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()"
 
-        /** `encodeURIComponent`: a space is %20, never +. */
         fun encode(value: String): String = buildString {
             value.toByteArray(StandardCharsets.UTF_8).forEach { b ->
                 val c = b.toInt() and 0xff
@@ -134,8 +110,6 @@ data class QuestionnaireFilters(
         }
     }
 
-    // ── offline: does a cached row match? ─────────────────────────────────────────────────────
-
     private fun inRange(day: String?): Boolean {
         if (dateFrom == null && dateTo == null) return true
         val d = day?.take(10) ?: return false
@@ -159,10 +133,6 @@ data class QuestionnaireFilters(
         else -> "PENDING"
     }
 
-    /**
-     * A cached take, read on this phone with no signal: every filter is decided from the take and
-     * its chips, as the server decides it (a take matches a day on its session's date or its capture day).
-     */
     fun matches(r: QRecording): Boolean {
         val c = r.chips
         if (get("questionnaireId").isNotEmpty() && c?.questionnaire?.id !in get("questionnaireId")) return false
@@ -194,11 +164,6 @@ data class QuestionnaireFilters(
         )
     }
 
-    /**
-     * A cached session, with no signal. A session row does not carry its takes, so a section,
-     * question or transcript filter cannot be decided on the phone: such a row is left out rather
-     * than shown as if it matched.
-     */
     fun matches(s: QSession): Boolean {
         if (get("sectionId").isNotEmpty() || get("questionLineageId").isNotEmpty() || get("transcript").isNotEmpty()) return false
         if (get("questionnaireId").isNotEmpty() && s.questionnaire?.id !in get("questionnaireId")) return false
@@ -216,10 +181,6 @@ data class QuestionnaireFilters(
     }
 }
 
-/**
- * Filters kept per screen, across navigation and a restart, for the account that set them only
- * (the caches' owner rule, DR audit M15): another account signed in on the phone starts clean.
- */
 class FilterStore(private val prefs: SharedPreferences, private val owner: () -> String?) {
     @Serializable
     private data class Kept(val ownerId: String? = null, val query: String = "", val labels: Map<String, String> = emptyMap())
@@ -246,10 +207,6 @@ class FilterStore(private val prefs: SharedPreferences, private val owner: () ->
     }
 }
 
-/**
- * The rows this phone last read, kept for the account that read them, so a list still filters with
- * no signal ("Offline: filtering what is on this device."). Rows merge by id, newest first, capped.
- */
 class OfflineRows(private val dir: File, private val owner: () -> String?, private val cap: Int = 500) {
     @Serializable
     private data class Kept(val ownerId: String? = null, val savedAt: String = "", val sessions: List<QSession> = emptyList(), val recordings: List<QRecording> = emptyList())

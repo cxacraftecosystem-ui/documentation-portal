@@ -1,19 +1,6 @@
 import type { PreviewLine, TranscriptPreview } from "./contract";
 import { speakerColorKey } from "./speakers";
 
-/**
- * A TRANSCRIPT, READ FOR A LIST ROW (owner, 1 Nov 2026: the recordings list showed
- * `Transcript **Speaker 1:** Wow! …`, asterisks and all).
- *
- * The server sends each row's `TranscriptPreview` (contract v2): plain text under speaker labels,
- * mapped names included. This is the same builder, ported line for line from the server's
- * `transcription/transcript/preview.py` and held to the contract's `fixtures.preview` by
- * `e2e/transcript-preview-unit.spec.ts`, for a row that carries only the stored Markdown (an older
- * server, a recording read offline). Headings, table rows, rules and `>` lines are skipped; a
- * leading "Transcript" is dropped; `**Name:** text` and `**Name** · \`00:00:04\`` open a line;
- * unlabelled lines join the line above; at most three lines of at most 160 characters.
- */
-
 export const PREVIEW_LINES = 3;
 export const LINE_CHARS = 160;
 const ELLIPSIS = "…";
@@ -29,7 +16,6 @@ const BULLET = /^\s*[-*+]\s+(?=\S)/;
 
 export type PreviewTurn = { speakerKey: string | null; speaker: string | null; text: string };
 
-/** One line of text with Markdown emphasis, code ticks and runs of whitespace removed. */
 export function plain(text: string | null | undefined): string {
   return String(text ?? "")
     .replace(/`([^`\n]*)`/g, "$1")
@@ -40,7 +26,6 @@ export function plain(text: string | null | undefined): string {
     .join(" ");
 }
 
-/** `text` cut to `limit` code points at a word boundary, with an ellipsis when cut. */
 export function clip(text: string, limit = LINE_CHARS): string {
   const points = Array.from(text);
   if (points.length <= limit) return text;
@@ -97,7 +82,6 @@ export function previewMarkdown(markdown: string | null | undefined): Transcript
   return previewOf(turnsFromMarkdown(markdown));
 }
 
-/** Markdown punctuation out of a search snippet's piece, its words untouched. */
 export function plainSnippet(text: string): string {
   return text.replace(/\*\*|`/g, "").replace(/^\s*#{1,6}\s+/, "");
 }

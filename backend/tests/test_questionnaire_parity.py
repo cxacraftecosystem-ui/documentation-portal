@@ -1,11 +1,3 @@
-"""The shared questionnaire package is byte-identical in both portals (UNIFY_2026-10-21.md, U1).
-
-THIS FILE IS IDENTICAL IN designer-portal AND documentation-portal. Each repository carries
-``shared/questionnaire.sha256``, written by designer-portal's ``scripts/sync_questionnaire.py``;
-both manifests are the same file, so a change made in one portal and not copied to the other fails
-here, in that portal's CI. Digests are over LF-normalised text (Windows checkouts are CRLF).
-"""
-
 from __future__ import annotations
 
 import ast
@@ -20,9 +12,7 @@ MANIFEST = REPO / "shared" / "questionnaire.sha256"
 PACKAGE = REPO / "backend" / "app" / "questionnaire"
 SYNC = "python scripts/sync_questionnaire.py --to ../documentation-portal"
 
-#: The only module of the package that may import FastAPI (the error door).
 FASTAPI_DOOR = {"errors.py"}
-#: Portal code the package must never import; it reaches it through ``ports`` instead.
 FORBIDDEN_PREFIXES = ("app.core", "app.api", "app.services", "app.schemas", "app.main", "app.worker")
 
 
@@ -47,7 +37,6 @@ def test_every_shared_file_matches_the_manifest() -> None:
 def test_every_package_file_and_shared_contract_is_listed() -> None:
     listed = {rel for _, rel in _entries()}
     package = {p.relative_to(REPO).as_posix() for p in PACKAGE.rglob("*.py") if "__pycache__" not in p.parts}
-    # questionnaire-form-contract.json is each portal's own capture form (it differs, on purpose).
     contracts = {p.relative_to(REPO).as_posix() for p in (REPO / "shared").glob("questionnaire*")} - {
         "shared/questionnaire.sha256", "shared/questionnaire-form-contract.json"}
     tests = {p.relative_to(REPO).as_posix() for p in (REPO / "backend" / "tests").glob("test_questionnaire_*parity.py")}
@@ -69,8 +58,6 @@ def _imports(path: Path) -> list[str]:
 
 
 def test_the_package_imports_no_portal_code() -> None:
-    """No ``app.core``/``app.api``/``app.services`` import anywhere in the package (``ports`` reaches
-    the portal by name at call time), and FastAPI only through ``errors.py``."""
     for path in sorted(PACKAGE.rglob("*.py")):
         for name in _imports(path):
             assert not name.startswith(FORBIDDEN_PREFIXES), f"{path.name} imports portal code: {name}"
@@ -79,8 +66,6 @@ def test_the_package_imports_no_portal_code() -> None:
 
 
 def test_each_portal_serves_the_ports() -> None:
-    """``app/services/questionnaire_ports.py`` provides every name the package asks for, and each
-    portal module is either served or refused with ``PortUnavailable`` naming the stream."""
     import importlib
 
     from app.questionnaire import ports
@@ -99,8 +84,6 @@ def test_each_portal_serves_the_ports() -> None:
 
 
 def test_a_port_patch_reaches_the_portal_module() -> None:
-    """A monkeypatch made through a port patches the portal's own module, so tests written against
-    either name see the same thing."""
     from app.questionnaire import ports
 
     try:
@@ -117,8 +100,6 @@ def test_a_port_patch_reaches_the_portal_module() -> None:
 
 
 def _sibling() -> Path | None:
-    """The other portal's checkout: $CROSS_PORTAL_PEER_REPO or $SIBLING_REPO (CI clones the other
-    repository's branch of the same name, else its main, there), else the checkout beside this one."""
     here_is_designer = (REPO / "android" / "app" / "src" / "main" / "java" / "com" / "designprototype").is_dir()
     other = "documentation-portal" if here_is_designer else "designer-portal"
     for candidate in (
@@ -132,7 +113,6 @@ def _sibling() -> Path | None:
 
 
 def test_the_manifest_is_the_other_portals() -> None:
-    """The two manifests are one file, so a shared change copied to one portal only fails here."""
     sibling = _sibling()
     if sibling is None:
         pytest.skip("no checkout of the other portal with shared/questionnaire.sha256 beside this one")

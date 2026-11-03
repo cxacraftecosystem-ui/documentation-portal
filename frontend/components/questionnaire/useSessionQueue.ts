@@ -23,13 +23,6 @@ import {
   type Step
 } from "@/lib/questionnaire/queue";
 
-/**
- * The page-side driver of `lib/questionnaireQueue`: one store for the tab, one drain at a time,
- * re-run when the browser comes back online, when a step arrives mid-drain (audit C5), and on a
- * backing-off timer while anything is still waiting (audit M22). Screens subscribe to the units
- * (pending takes and per-clip progress) and append steps; nothing else talks to the outbox.
- */
-
 type State = { units: SessionUnit[]; progress: Record<string, number>; running: boolean; online: boolean };
 let state: State = { units: [], progress: {}, running: false, online: true };
 const listeners = new Set<() => void>();
@@ -53,14 +46,12 @@ async function refresh() {
   emit({ units: await getStore().load() });
 }
 
-/** Retry back-off while steps wait: 15 s, doubling to 5 min; reset by any pass that sends something. */
 export const RETRY_FIRST_MS = 15_000;
 export const RETRY_MAX_MS = 5 * 60_000;
 export function nextRetryDelay(previous: number | null): number {
   return previous === null ? RETRY_FIRST_MS : Math.min(RETRY_MAX_MS, previous * 2);
 }
 
-/** True while a unit still has something the queue will send by itself (not held for a person). */
 export function hasRetryableWork(units: SessionUnit[]): boolean {
   return units.some((u) =>
     u.steps.some((s) => s.status === "PENDING" && !(s.kind === "answers" && s.error === "CONFLICT") && !(s.kind === "clip" && s.error === "MISSING_FILE"))
@@ -87,7 +78,6 @@ function scheduleRetry() {
 
 export function drainQueue(): Promise<void> {
   if (draining) {
-    // A step arrived while a pass runs: run one more pass when this one ends.
     again = true;
     return draining;
   }
@@ -141,16 +131,10 @@ async function ensureLoaded() {
   void drainQueue();
 }
 
-/** The unit a session's steps go into: an offline-started one by clientKey, any other by clientKey or id. */
 function baseUnit(session: Pick<Session, "id" | "clientKey"> | SessionUnit): SessionUnit {
   return "steps" in session ? session : existingSessionUnit(session);
 }
 
-/**
- * Adds a step to a session's unit (creating the unit for an existing session if needed) and drains.
- * Resolves once the step is in the store; rejects when it could not be written, so a caller never
- * treats an unsaved take as saved.
- */
 export async function enqueue(session: Pick<Session, "id" | "clientKey"> | SessionUnit, step: Step, blob?: { key: string; blob: Blob }) {
   const s = getStore();
   if (blob) await s.putBlob(blob.key, blob.blob);
@@ -159,14 +143,12 @@ export async function enqueue(session: Pick<Session, "id" | "clientKey"> | Sessi
   void drainQueue();
 }
 
-/** Saves a whole new unit (an offline-started session) and drains. */
 export async function enqueueUnit(unit: SessionUnit) {
   await mutateUnit(getStore(), unit.id, (current) => current ?? unit);
   await refresh();
   void drainQueue();
 }
 
-/** P9 for an answer held in the outbox (audit H18). */
 export async function resolveQueuedAnswer(
   unitId: string,
   key: string,
@@ -178,7 +160,6 @@ export async function resolveQueuedAnswer(
   void drainQueue();
 }
 
-/** The fix tray (UNIFY B39): send a refused step again, discard it, or send the answers that are not in conflict. */
 export async function trayAct(unitId: string, key: string, act: "again" | "discard" | "without") {
   const s = getStore();
   if (act === "again") await sendStepAgain(s, unitId, key);
@@ -198,7 +179,6 @@ export function onSessionLanded(listener: (s: Session) => void) {
   return () => sessionListeners.delete(listener);
 }
 
-/** `session` is anything carrying the session's id and clientKey; a bare string is a unit key. */
 export function useSessionQueue(session?: Pick<Session, "id" | "clientKey"> | string | null) {
   const snapshot = useSyncExternalStore(
     (l) => {
@@ -212,7 +192,6 @@ export function useSessionQueue(session?: Pick<Session, "id" | "clientKey"> | st
     void ensureLoaded();
   }, []);
   const key = !session ? null : typeof session === "string" ? session : sessionUnitKey(session);
-  // A session that landed after starting offline keeps its clientKey; one opened by id may be stored either way.
   const unit =
     key === null
       ? null

@@ -21,17 +21,7 @@ import { cleanFilters, type FilterKey, type Filters } from "@/lib/questionnaire/
 import { qs } from "@/lib/questionnaire/qs";
 import { FORMS_HREF } from "@/lib/questionnairePortal";
 
-/**
- * The sessions list (DESIGN §4.8): generated titles with the note underneath, artisans and mode,
- * instrument, researchers, coverage ("6 sections · 9 takes", never "0 answers") and status. Search
- * and every filter run on the server (`FilterBar`, kept in the URL); each row carries the session's
- * chips, and tapping one filters by it. The page says when the list is capped.
- *
- * `fixed` pins filters a host screen owns (a form's own sessions pin its questionnaire); `embedded`
- * drops the page header so the list sits inside that screen.
- */
 export function SessionsList({ fixed, embedded = false }: { fixed?: Filters; embedded?: boolean } = {}) {
-  // The Deleted list and Restore are the content admins' (owner decision 3).
   const { canDeleteRecords } = useAdminView();
   const [deleted, setDeleted] = useState(false);
   const [items, setItems] = useState<Session[] | null>(null);
@@ -63,11 +53,9 @@ export function SessionsList({ fixed, embedded = false }: { fixed?: Filters; emb
     if (ready) void load(filters, null);
   }, [ready, filters, load]);
 
-  // Back from a session: as many pages as were open, then the scroll (`useListPlace`).
   const { wantsMore } = useListPlace(pages, items !== null, cursor === null);
   useEffect(() => {
     if (cursor && wantsMore(pages)) void load(filters, cursor);
-    // `filters` is read as it stands; a change of filters reloads from page one above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cursor, pages, wantsMore, load]);
 

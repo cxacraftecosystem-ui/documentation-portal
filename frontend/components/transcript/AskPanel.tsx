@@ -11,11 +11,6 @@ import { ts } from "@/lib/transcript/strings";
 import { PRIMARY, TimeChip } from "./parts";
 import { TranscriptMarkdown } from "./TranscriptMarkdown";
 
-/**
- * Ask this interview (design §10.2). Answered from this transcript only; each answer cites the turns
- * it used as timestamp chips that play the audio. When the transcript does not cover the question
- * the answer says so and carries no chips.
- */
 export function AskPanel({ mediaId, onSeek }: { mediaId: string; onSeek: (ms: number) => void }) {
   const [question, setQuestion] = useState("");
   const [asking, setAsking] = useState(false);

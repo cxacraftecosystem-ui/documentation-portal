@@ -10,12 +10,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Audit C1 (21 Oct 2026): every v2 request, encoded the way Retrofit sends it — through
- * [QuestionnairePortal.json], whose `encodeDefaults` is off for the legacy models — still carries the fields the
- * server needs. Before the fix `linkedRecordType` was a dropped default, so every presign and complete
- * went to the legacy path and came back 422; the contract test encoded with [outboxJson] and passed.
- */
 @QFeature("B10")
 class ApiClientEncodingTest {
     private fun <T> keys(serializer: KSerializer<T>, value: T): JsonObject =
@@ -48,7 +42,6 @@ class ApiClientEncodingTest {
             QSessionCreate(clientKey = "c", questionnaireId = "q", sessionDate = "2026-07-01", startedAt = "x", participants = listOf(QArtisanRef("a1")), researchers = listOf(QResearcherRef("u1")))
         )
         assertEquals("FIRST_SITTING", body["purpose"]!!.jsonPrimitive.content)
-        // ResearcherInput.role has no server default: a dropped role is a 422.
         assertEquals("CONTRIBUTOR", (body["researchers"] as kotlinx.serialization.json.JsonArray).first().jsonObject["role"]!!.jsonPrimitive.content)
         assertTrue("title" !in body.keys)
     }
@@ -57,7 +50,6 @@ class ApiClientEncodingTest {
         val answer = keys(QAnswerItem.serializer(), QAnswerItem("a1", "lin", "text", sessionId = "s1"))
         assertEquals("TYPED", answer["origin"]!!.jsonPrimitive.content)
         assertEquals("INDIVIDUAL", answer["attribution"]!!.jsonPrimitive.content)
-        // An unset baseVersion stays off the wire (a null would still be valid, but the key is not needed).
         assertTrue("baseVersion" !in answer.keys)
         val consent = keys(QConsentPost.serializer(), QConsentPost(state = "GRANTED", clientKey = "k"))
         assertEquals("EXTERNAL_PROCESSING", consent["purpose"]!!.jsonPrimitive.content)

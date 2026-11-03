@@ -4,11 +4,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/**
- * Back from a record restores the exact page (owner, 1 Nov 2026): the first page read again for the
- * same filters refreshes the rows it covers and keeps every later page and its cursor; new filters
- * start over; a failed read keeps what was there.
- */
 class ListPagingTest {
     private data class Row(val id: String, val label: String = id)
 

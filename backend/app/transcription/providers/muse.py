@@ -1,20 +1,3 @@
-"""Meta Muse Voice Transcribe 1.0: the fourth provider, OFF by default.
-
-The design's verdict (section 3): Meta's public speech-to-text API is Muse Voice Transcribe, not
-Muse Spark (Spark is the multimodal LLM; Meta points audio work away from it).
-
-* ``POST https://api.meta.ai/v1/asr/transcribe?sessionId=<id>``, ``Authorization: Bearer <key>``.
-* Multipart: ``request`` (JSON: model, audioEncoding, mode, languageBias, keywords) and ``audio``.
-* Mono 16-bit PCM WAV at 16 kHz, at most 10 minutes and 32 MB per request. The chain normalises
-  and cuts every recording into parts of 9.5 minutes or less before this adapter sees it.
-* Answers ``transcript``, ``audioDurationMs`` and ``turns`` (turn-level timings, no word timings).
-* 400 bad format or too long, 413 too large, 429 rate or concurrency limit, 500 processing budget
-  exceeded (retried once here).
-
-Its processing location is not documented, so it ships disabled until the owner and the Ministry
-accept that, as they did for ElevenLabs and Deepgram. Key: ``META_MODEL_API_KEY``.
-"""
-
 from __future__ import annotations
 
 import json
@@ -37,7 +20,6 @@ URL = "https://api.meta.ai/v1/asr/transcribe"
 MODEL = "muse-voice-transcribe-1.0"
 MAX_DURATION_MS = 10 * 60 * 1000
 MAX_BYTES = 32 * 1024 * 1024
-#: What the chain cuts to: under both ceilings with room for the one-second overlap.
 PART_MS = 570_000
 KEYWORD_LIMIT = 100
 WAV_MIME = "audio/wav"
@@ -50,7 +32,6 @@ class Muse:
     max_bytes: int | None = MAX_BYTES
     max_duration_ms: int | None = MAX_DURATION_MS
     chunkable = True
-    #: Only normalised 16 kHz mono PCM16 WAV is accepted; the chain converts everything first.
     needs_wav = True
     supports = Capabilities(
         diarize=True, segment_timestamps=True, language_bias=True, keyterm_limit=KEYWORD_LIMIT
@@ -74,7 +55,6 @@ class Muse:
 
     def transcribe(self, audio: AudioInput, opts: SttOptions, key: ApiKey) -> SttResult:
         if audio.mime_type != WAV_MIME:
-            # Never upload a format Muse refuses; the chain converts first, so this is a bug guard.
             raise TooLarge(ID, None)
         if audio.size_bytes > MAX_BYTES or (audio.duration_ms or 0) > MAX_DURATION_MS:
             raise TooLarge(ID, None)
@@ -95,7 +75,6 @@ class Muse:
 
         response = send()
         if response.status_code == 500:
-            # Meta documents a 500 as "processing budget exceeded" and says to retry once.
             response = send()
         _http.raise_for(ID, response)
         payload: dict[str, Any] = response.json() or {}

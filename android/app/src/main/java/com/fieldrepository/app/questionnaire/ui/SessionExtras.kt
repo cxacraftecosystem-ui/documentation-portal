@@ -40,18 +40,10 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import java.time.Instant
 
-/**
- * The session actions the designer portal adds to Field Repository's client (UNIFY §1): Add
- * researcher (B6), an answer's History (B21), a take's History (B40), registering a guest as an
- * artisan (U6), and the content admins' Deleted list with Restore (A14).
- */
-
-/** "7 Jul 10:42" for an instant, in IST. */
 internal fun dayAndTime(raw: String?): String? = raw?.let { runCatching { Instant.parse(it) }.getOrNull() }?.let {
     "${QuestionnaireCopy.day(it.atZone(Naming.IST).toLocalDate())} ${QuestionnaireCopy.clock(it)}"
 }
 
-/** One revision as History lists it: "Nandini · 7 Jul 10:42 · Typed". */
 internal fun revisionLine(r: QRevision): String = listOfNotNull(
     r.actor?.name?.ifBlank { null }?.let(QuestionnaireCopy::firstName),
     dayAndTime(r.createdAt),
@@ -59,7 +51,6 @@ internal fun revisionLine(r: QRevision): String = listOfNotNull(
     QuestionnaireCopy.s("answer.current").takeIf { r.current }
 ).joinToString(" · ")
 
-/** The answer origins in the words the record uses. */
 internal fun originLabel(origin: String): String = when (origin) {
     "TYPED" -> QuestionnaireCopy.s("mark.typed")
     "TRANSCRIPT", "MACHINE_SUGGESTED", "MACHINE_SUGGESTED_EDITED" -> QuestionnaireCopy.s("record.fromRecording")
@@ -68,7 +59,6 @@ internal fun originLabel(origin: String): String = when (origin) {
     else -> origin.lowercase().replaceFirstChar { it.uppercase() }
 }
 
-/** One event of a take's history: "Moved · Nandini · 7 Jul 10:42". */
 internal fun eventLine(e: QRecordingEvent): String = listOfNotNull(
     e.kind.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
     e.actor?.name?.ifBlank { null }?.let(QuestionnaireCopy::firstName),
@@ -81,7 +71,6 @@ private fun JsonElement?.shortText(): String? = when (this) {
     else -> toString().take(120)
 }
 
-/** B21: every revision of one answer, newest first, with who wrote it. Online. */
 @Composable
 fun AnswerHistoryDialog(v2: QuestionnaireV2, answerId: String, heading: String, onDismiss: () -> Unit) {
     var revisions by remember { mutableStateOf<List<QRevision>?>(null) }
@@ -117,7 +106,6 @@ fun AnswerHistoryDialog(v2: QuestionnaireV2, answerId: String, heading: String, 
     )
 }
 
-/** B40: a take's history, oldest first: moves, refilings, decisions, removals, restores. Online. */
 @Composable
 fun TakeHistoryDialog(v2: QuestionnaireV2, recordingId: String, onDismiss: () -> Unit) {
     var events by remember { mutableStateOf<List<QRecordingEvent>?>(null) }
@@ -147,10 +135,6 @@ fun TakeHistoryDialog(v2: QuestionnaireV2, recordingId: String, onDismiss: () ->
     )
 }
 
-/**
- * B6: add a researcher to the session, a colleague (Researcher) or a volunteer, who may record into it
- * but never start one. Online: the server keeps the session's researchers.
- */
 @Composable
 fun AddResearcherDialog(v2: QuestionnaireV2, sessionId: String, already: Set<String>, onDismiss: () -> Unit, onAdded: (QSession) -> Unit, onError: (String) -> Unit) {
     val scope = rememberCoroutineScope()
@@ -199,7 +183,6 @@ fun AddResearcherDialog(v2: QuestionnaireV2, sessionId: String, already: Set<Str
     )
 }
 
-/** U6: a guest turns out to be a registered artisan; their answers and takes move to that record. */
 @Composable
 fun RegisterGuestDialog(name: String, artisans: List<QArtisanOption>, onDismiss: () -> Unit, onRegister: (artisanId: String) -> Unit) {
     var pick by remember { mutableStateOf("") }
@@ -223,10 +206,6 @@ fun RegisterGuestDialog(name: String, artisans: List<QArtisanOption>, onDismiss:
     )
 }
 
-/**
- * A14: the content admins' Deleted sessions, newest first, each with Restore. A delete is soft, so a
- * restore brings back the session with its takes and answers.
- */
 @Composable
 fun DeletedSessionsList(v2: QuestionnaireV2, onRestored: (QSession) -> Unit, onError: (String) -> Unit) {
     val scope = rememberCoroutineScope()

@@ -1,10 +1,3 @@
-"""The shared questionnaire package's pure rules, the same in both portals (UNIFY_2026-10-21.md U0).
-
-THIS FILE IS IDENTICAL IN designer-portal AND documentation-portal (shared/questionnaire.sha256). No
-database: the author rule, the answer lock, the subject key, the form resolution order, the kinds and
-section states, the guest respondent's fields, and the shared vocabularies against their JSON.
-"""
-
 from __future__ import annotations
 
 import json
@@ -22,7 +15,6 @@ def user(uid: str, role: str = "RESEARCHER", name: str = "Nandini") -> SimpleNam
     return SimpleNamespace(id=uid, role=role, name=name)
 
 
-# ── the author rule (owner, 22 Oct 2026) ──────────────────────────────────────────────────────
 @pytest.mark.parametrize("role", ["ADMIN", "MASTER_ADMIN", "MINISTRY_ADMIN"])
 def test_a_content_admin_changes_any_form_and_restores(role: str) -> None:
     form = {"ownerId": "someone"}
@@ -71,7 +63,6 @@ def test_the_content_admins_are_the_portals_own() -> None:
     assert CONTENT_DELETE_REFUSAL == authoring.CONTENT_DELETE_REFUSAL
 
 
-# ── the one answer-lock rule (owner decision 2) ───────────────────────────────────────────────
 def test_an_answer_with_text_is_locked_to_others() -> None:
     current = {"text": "Wool from Bikaner", "actorId": "author", "origin": "TYPED"}
     assert answer_lock.answer_locked(current, user("stranger"), text="Silk", origin="TYPED")
@@ -91,7 +82,6 @@ def test_what_is_never_locked() -> None:
     assert answer_lock.lock_message("Nandini") == "Answered by Nandini. Only they or a lead can change it."
 
 
-# ── the subject key ───────────────────────────────────────────────────────────────────────────
 def test_the_subject_key_is_exactly_one_owner() -> None:
     assert subjects.subject_key(artisan_id="a1") == "A:a1"
     assert subjects.subject_key(respondent_id="r1") == "R:r1"
@@ -106,7 +96,6 @@ def test_the_subject_key_is_exactly_one_owner() -> None:
         assert not subjects.is_subject_key(bad)
 
 
-# ── the form a session starts on (owner, amendment 2 point 2) ─────────────────────────────────
 B = bindings.Binding
 
 
@@ -137,7 +126,6 @@ def test_a_form_that_may_not_be_offered_is_skipped() -> None:
     assert (r.questionnaireId, r.reason) == ("t", bindings.TYPE_DEFAULT)
 
 
-# ── kinds and the section override's three states (amendment 2 point 1) ───────────────────────
 def test_kinds_match_the_shared_json() -> None:
     shared = json.loads((SHARED / "questionnaire-kinds.json").read_text(encoding="utf-8"))
     assert {k: v["label"] for k, v in shared["kinds"].items()} == kinds.KIND_LABELS
@@ -179,7 +167,6 @@ def test_the_unify_vocabularies_match_the_shared_json() -> None:
     assert not set(common.UNIFY_MESSAGES) & set(common.MESSAGES), "a pending code is already in the frozen list"
 
 
-# ── guest respondents (owner decision 1) ──────────────────────────────────────────────────────
 def test_a_guest_needs_a_name_and_self_is_the_caller() -> None:
     from fastapi import HTTPException
 
@@ -210,7 +197,6 @@ def test_an_answer_belongs_to_exactly_one_owner() -> None:
         SessionCreate.model_validate(session)
 
 
-# ── decision C8: canonical plain text, optional rich text ───────────────────────────────────────
 def test_rich_text_flattens_with_designer_portal_rules() -> None:
     from app.questionnaire import richtext
 
@@ -239,7 +225,6 @@ def test_an_answer_keeps_its_text_and_flattens_a_document_sent_alone() -> None:
     assert richtext.normalise("", None) == ("", None)
 
 
-# ── the section override: one vocabulary end to end (U3's report, 22 Oct 2026) ─────────────────
 def test_the_override_is_the_shared_status_and_the_old_alias_is_read_as_completed() -> None:
     from app.questionnaire import kinds
 

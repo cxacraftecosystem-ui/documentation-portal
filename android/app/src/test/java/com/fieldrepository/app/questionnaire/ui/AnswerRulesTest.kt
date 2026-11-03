@@ -25,11 +25,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
 
-/**
- * The answer rules the designer portal brings to every client: the one answer lock (U9, P15), notes
- * (A20), required questions on Finish (A19), group answers (B20), and answers taken from a take's
- * transcript or the drafter (B22, B23), which are proposals a person accepts, never imposed.
- */
 class AnswerRulesTest {
     private val t0 = Instant.parse("2026-07-01T10:00:00Z")
     private val nandini = QAnswer(id = "ans1", version = 2, text = "Teak", artisanId = "a1", questionLineageId = "lin1", actor = QUserRef("u3", "Nandini Rao"))
@@ -143,7 +138,6 @@ class AnswerRulesTest {
         val item = AnswerModel.items("Teak from the forest office", setOf("a1"), "lin1", "s1", emptyList(), origin = "TRANSCRIPT", sourceRecordingId = "r1").single()
         assertEquals("TRANSCRIPT", item.origin)
         assertEquals("r1", item.sourceRecordingId)
-        // P8: replacing an answer that came from a recording asks first.
         val fromTake = QAnswer(id = "x", text = "Sal", sourceRecordingId = "r0", artisanId = "a1", questionLineageId = "lin1")
         assertEquals(fromTake, AnswerModel.replacesRecordedAnswer(listOf(fromTake), setOf("a1"), "lin1"))
     }
@@ -158,7 +152,6 @@ class AnswerRulesTest {
     @Test fun `a drafted answer from a section take is accepted per question, never written by itself`() {
         val proposal = com.fieldrepository.app.questionnaire.data.QProposal("lin2", artisanIds = null, text = "Cotton and silk", origin = "MACHINE_SUGGESTED")
         val roster = listOf(HeaderParticipant("a1", "Giriraj", true), HeaderParticipant("a2", "Meena", true))
-        // A take that does not say who answered asks "Whose answer is this?" first; the choice decides.
         val ids = proposal.artisanIds?.toSet() ?: answerForIds(roster, "a1")
         val items = AnswerModel.items(proposal.text, ids, proposal.questionLineageId, "s1", emptyList(), origin = proposal.origin, sourceRecordingId = "r5")
         assertEquals(listOf("a1"), items.map { it.artisanId })

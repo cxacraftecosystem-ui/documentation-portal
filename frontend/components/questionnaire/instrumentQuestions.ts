@@ -1,16 +1,9 @@
 import { questionnaireApi, type FormQuestion, type FormStructure, type GridQuestion } from "@/lib/questionnaire/api";
 
-/** A section as the session screens read it (`GET /questionnaire/forms/{id}/structure`). */
 export type InstrumentSection = { id: string; code: string; title: string; sortOrder: number; questions: FormQuestion[] };
 
-/** A grid question, with what the answer box needs besides the code and prompt. */
 export type InstrumentQuestion = GridQuestion & { required: boolean; helpText: string | null; artisanField: string | null };
 
-/**
- * The form's questions per section, for the workspace's section body and for mapping a question take
- * to its section, from the shared structure route. Each question carries its `lineageId` and frozen
- * `displayCode`; a server that has not frozen a code yet falls back to the section code plus position.
- */
 export async function loadInstrumentQuestions(
   questionnaireId: string
 ): Promise<{ sections: InstrumentSection[]; byId: Record<string, InstrumentQuestion[]>; structure: FormStructure }> {
@@ -32,11 +25,6 @@ export async function loadInstrumentQuestions(
   return { sections: structure.sections, byId, structure };
 }
 
-/**
- * A19: the required questions someone in the room has neither answered (typed, with text) nor been
- * recorded for ("3 required questions unanswered"). Typed or recorded, either counts (owner,
- * amendment 2 point 4). Finish reports the number and never blocks.
- */
 export function requiredUnanswered(
   byId: Record<string, InstrumentQuestion[]>,
   answers: { questionLineageId?: string; text: string; artisanId?: string | null; respondentId?: string | null }[],

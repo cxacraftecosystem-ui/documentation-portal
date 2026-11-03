@@ -1,15 +1,3 @@
-"""The transcript API (``shared/transcript-contract.json``): read, copy, download, edit, Ask, draft.
-
-IDENTICAL IN BOTH PORTALS (listed in ``shared/transcription.sha256``). Who may read, edit and
-send is each portal's own rule, in ``services/transcript_portal.py``.
-
-Every route answers 404 ``{"detail": {"code": "NOT_FOUND"}}`` while the AI transcript switch is
-off (AI_FEATURES_ENABLED + AI_TRANSCRIPT_INSIGHTS_ENABLED), AFTER authentication, and a transcript
-the caller may not read is the same 404.
-
-The static paths (``/batch``, ``/glossary``, ``/budget``) are declared before ``/{media_id}``.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -195,8 +183,6 @@ async def retranslate(media_id: str, turn_id: str, user: Any = Depends(get_curre
 
 @router.post("/{media_id}/english", dependencies=ENABLED)
 async def add_english(media_id: str, body: EnglishBody, user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """English typed or pasted by a person for the whole transcript (D38): laid on the turns when the
-    paragraphs line up with them, else kept whole as the transcript's English. Whoever may edit."""
     media = await _media(media_id, user)
     await transcript_portal.guard_write(user, media)
     try:

@@ -14,7 +14,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
 
-/** P2's copy variants and preselected reason (DESIGN §4.4), and the prompts' button rows. */
 @QFeature("B2")
 class QuestionnairePromptsTest {
     private val now = Instant.parse("2026-07-09T09:00:00Z")
@@ -100,7 +99,6 @@ class QuestionnairePromptsTest {
 
     @Test
     fun `every questionnaire prompt goes through the shared button row`() {
-        // The shared tree's own folder, found from this package wherever the test runs.
         val pkgPath = PromptButton::class.java.name.substringBeforeLast('.').replace('.', '/')
         val dir = generateSequence(java.io.File(".").absoluteFile) { it.parentFile }
             .flatMap { sequenceOf(java.io.File(it, "src/main/java/$pkgPath"), java.io.File(it, "android/app/src/main/java/$pkgPath")) }

@@ -1,14 +1,3 @@
-"""The transcript pipeline's Prisma half: versions, turns, speakers, spend, glossary, context reads.
-
-IDENTICAL IN BOTH PORTALS (listed in ``shared/transcription.sha256``). It reads only tables both
-portals have: MediaFile, Artisan, User, Craft, Location, Workshop/WorkshopCraft, the questionnaire
-interview and recording tables, SttUsage and the tables of migration
-``20261110090000_transcript_turns``. Whatever only one portal has is reached through
-``services/transcript_portal.py`` (one file per portal).
-
-Nothing here calls a provider, and nothing here logs transcript text.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -37,8 +26,6 @@ def _value(record: Any, key: str) -> Any:
         return record.get(key)
     return getattr(record, key, None)
 
-
-# --- Versions and turns -----------------------------------------------------------------------
 
 
 async def current_version(media_id: str) -> Any | None:
@@ -82,7 +69,6 @@ async def turn(turn_id: str) -> Any | None:
 
 
 async def stt_cost_for(media_id: str, since: datetime | None = None) -> float:
-    """What the newest successful speech-to-text call for this recording cost."""
     where: dict[str, Any] = {"mediaFileId": media_id, "cacheHit": False, "outcome": "COMPLETED"}
     if since is not None:
         where["createdAt"] = {"gte": since}
@@ -101,8 +87,6 @@ async def create_version(
     keyterm_count: int = 0,
     stt_cost_usd: float = 0.0,
 ) -> Any:
-    """A new version with its turns; the previous current version is superseded afterwards, so a
-    crash between the two leaves two current rows (readers take the higher) rather than none."""
     previous = await db.transcriptversion.find_first(
         where={"mediaFileId": media_id}, order={"version": "desc"}
     )
@@ -157,8 +141,6 @@ async def create_version(
 async def write_translations(
     version_id: str, outcomes: list[tuple[str, str, str | None]], model: str | None
 ) -> None:
-    """``(turnId, status, english)`` for each turn, in one statement. An English a researcher
-    wrote is never overwritten: only the machine column changes."""
     if not outcomes:
         return
     await db.execute_raw(
@@ -211,8 +193,6 @@ async def history(turn_id: str) -> list[Any]:
     )
 
 
-# --- Speakers ---------------------------------------------------------------------------------
-
 
 async def speakers_of(media_id: str) -> dict[str, Any]:
     rows = await db.transcriptspeaker.find_many(where={"mediaFileId": media_id})
@@ -233,11 +213,6 @@ async def set_speaker(
 
 
 async def opening_turns(media_ids: list[str], *, limit: int = 3, client: Any = None) -> tuple[dict[str, list[dict[str, Any]]], dict[str, dict[str, Any]]]:
-    """The first ``limit`` turns of each recording's current version, and its speaker names.
-
-    TWO reads however many recordings (list previews): ``({mediaId: [turn]}, {mediaId: {speakerKey:
-    speaker}})``. A turn is ``{speakerKey, text}`` with the edited original when there is one.
-    """
     if not media_ids:
         return {}, {}
     conn = client or db
@@ -259,8 +234,6 @@ async def opening_turns(media_ids: list[str], *, limit: int = 3, client: Any = N
         speakers.setdefault(str(row["mediaFileId"]), {})[str(row["speakerKey"])] = row
     return by_media, speakers
 
-
-# --- Spend and the budget meter ---------------------------------------------------------------
 
 
 async def record_spend(
@@ -293,7 +266,6 @@ async def record_spend(
 
 
 async def month_spend(now: datetime | None = None) -> tuple[float, float]:
-    """``(speech-to-text USD, Gemini USD)`` since the start of this India-time month."""
     since = insight.month_start(now).replace(tzinfo=None).isoformat()
     stt = await db.query_raw(
         'SELECT COALESCE(SUM("costUsd"), 0)::float8 AS usd FROM "SttUsage" '
@@ -321,11 +293,8 @@ async def media_cost(media_id: str) -> tuple[float, float]:
     return float((stt[0] if stt else {}).get("usd") or 0.0), float((gem[0] if gem else {}).get("usd") or 0.0)
 
 
-# --- The glossary -----------------------------------------------------------------------------
-
 
 async def glossary_for(craft_ids: list[str], limit: int = 200) -> list[dict[str, str]]:
-    """Terms already heard for these crafts (most heard first), for the prompt and the key terms."""
     scopes = [c for c in craft_ids if c] or [""]
     rows = await db.transcriptglossaryterm.find_many(
         where={"scopeKey": {"in": scopes}}, order={"occurrences": "desc"}, take=limit
@@ -336,7 +305,6 @@ async def glossary_for(craft_ids: list[str], limit: int = 200) -> list[dict[str,
 async def add_sightings(
     media_id: str, craft_id: str | None, sightings: list[insight.Sighting], crafts: list[tuple[str, str]]
 ) -> int:
-    """One glossary row per (craft, term), one sighting per (term, recording). Returns new sightings."""
     added = 0
     now = datetime.now(UTC)
     scope = craft_id or ""
@@ -376,15 +344,8 @@ async def add_sightings(
     return added
 
 
-# --- Context: who is in the recording, which craft, where -------------------------------------
-
 
 async def recording_context(media: Any) -> dict[str, Any]:
-    """Names, crafts and states the recording is about, from the tables both portals share.
-
-    ``{artisans: [{id, name}], researchers: [{id, name}], uploader: {id, name}|None,
-    crafts: [{id, name}], states: [str], places: {district, state}, interviewId, recordingId}``
-    """
     media_id = str(_value(media, "id"))
     out: dict[str, Any] = {
         "artisans": [],
@@ -474,7 +435,6 @@ async def recording_context(media: Any) -> dict[str, Any]:
 
 
 async def master_crafts() -> list[tuple[str, str]]:
-    """``(id, name)`` of every active craft, in the master list's order where it has one."""
     rows = await db.query_raw(
         'SELECT "id", "name" FROM "Craft" WHERE "status"::text = \'ACTIVE\' ORDER BY "name"'
     )

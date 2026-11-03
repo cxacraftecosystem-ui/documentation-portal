@@ -1,10 +1,3 @@
-"""The transcript pipeline against a real, migrated Postgres: turns, translation, edits, Ask, budget.
-
-THIS FILE IS IDENTICAL IN designer-portal AND documentation-portal (``shared/transcription.sha256``).
-It runs in each portal's database CI job (a throwaway Postgres on loopback) and skips anywhere else.
-Gemini answers come from ``tests/fixtures/transcript/``; nothing calls Google or ElevenLabs.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -59,8 +52,6 @@ class _Response:
 
 
 class _Gemini:
-    """Replaces ``requests.post`` for Gemini only; answers from a queue of recorded replies."""
-
     def __init__(self, *payloads: Any) -> None:
         self.payloads = list(payloads)
         self.calls = 0
@@ -194,7 +185,6 @@ def test_the_pipeline_end_to_end_on_a_real_database(wired: Any) -> None:
             assert view["badges"] == [], "the model names are for administrators only"
             assert all(s["sample"] and s["sample"]["endMs"] - s["sample"]["startMs"] <= 8000 for s in view["speakers"])
             assert view["turns"][1]["lowConfidence"] == [[3, 7], [25, 29]]
-            # The uploader may change it; another reader is told why not, and offered no edit control.
             assert view["readOnly"] is None and view["permissions"]["edit"] and view["permissions"]["mapSpeakers"]
             from types import SimpleNamespace
 
@@ -203,7 +193,6 @@ def test_the_pipeline_end_to_end_on_a_real_database(wired: Any) -> None:
             assert other["readOnly"]["code"] == "NOT_EDITOR" and other["readOnly"]["message"]
             assert not any(other["permissions"][k] for k in ("edit", "retry", "autodraft", "mapSpeakers"))
 
-            # The insights job: one Gemini pass gives English per turn, summary, quotes and terms.
             fake = wired.gemini(fixture("gemini_translate"))
             outcome = await pipeline.generate(media, user_id=None)
             assert outcome["status"] == "COMPLETED" and outcome["failed"] == 0 and fake.calls == 1
@@ -222,7 +211,6 @@ def test_the_pipeline_end_to_end_on_a_real_database(wired: Any) -> None:
             assert admin_view["cost"]["translationUsd"] > 0
             assert [b["label"] for b in admin_view["badges"]] == ["Scribe v2", "Gemini 3.8 Flash"]
 
-            # Speakers, then an edit that makes the English stale, with history.
             current = await transcript_store.current_version(media.id)
             from app.transcription.transcript.schema import SpeakerMapping
 
@@ -242,18 +230,15 @@ def test_the_pipeline_end_to_end_on_a_real_database(wired: Any) -> None:
             with pytest.raises(pipeline.PipelineRefused):
                 await pipeline.edit_turn(media, seed["researcher"], rows[0].id, base_revision=rows[0].revision, text="x", english=None)
 
-            # Re-translate that one turn.
             wired.gemini(_reply({"translations": [{"id": "t1", "english": "How do you make these colours?", "alreadyEnglish": False}]}))
             again = await pipeline.retranslate_turn(media, seed["researcher"], rows[0].id)
             assert again["translation"]["status"] == "TRANSLATED"
 
-            # Copies are generated from the stored turns.
             doc, _context = await pipeline.render_doc(media)
             copy = render.copy_all(doc, render.BOTH)
             assert "**Nandini (researcher)** · `00:00:04`\nआप ये रंग कैसे बनाते हो?\n> How do you make these colours?" in copy
             assert "**Giriraj** · `00:00:16`" not in copy and "**Nandini (researcher)** · `00:00:16`\nAnd how long does it dry?\n\n" in copy
 
-            # Ask: every citation is a turn of this transcript and holds its quote.
             wired.gemini(fixture("gemini_ask"))
             answer = await pipeline.ask(media, "How does he make the paste?")
             assert answer["covered"] is True and answer["citations"]
@@ -264,7 +249,6 @@ def test_the_pipeline_end_to_end_on_a_real_database(wired: Any) -> None:
                 assert citation["quote"] is None or citation["quote"] in said
                 assert citation["startMs"] == turn.startMs
 
-            # Withdrawn consent stops every new send.
             wired.refuse()
             with pytest.raises(pipeline.PipelineRefused) as refused:
                 await pipeline.ask(media, "Anything else?")
@@ -293,7 +277,6 @@ def test_a_transcript_made_before_the_pipeline_gets_its_turns_on_first_read(wire
             view = await pipeline.build_view(media, seed["researcher"])
             assert [t["speakerKey"] for t in view["turns"]] == ["Speaker 1", "Speaker 2"]
             assert [t["translation"]["status"] for t in view["turns"]] == ["PENDING", "ALREADY_ENGLISH"]
-            # D38: making the turns queues their translation, so the view says it is on its way.
             assert view["status"] == "TRANSLATING" and view["version"] == 1
             again = await pipeline.build_view(media, seed["researcher"])
             assert again["version"] == 1, "made once, then read"
@@ -400,8 +383,6 @@ def test_the_routes_answer_the_contract_shapes(wired: Any) -> None:
     _run(scenario)
 
 
-# --- D38 (0.0.9): old transcripts get translated; a declined translation gets a person's English ---
-
 
 async def _legacy(seed: dict[str, Any]) -> Any:
     from app.core.db import db
@@ -432,7 +413,7 @@ def test_opening_or_exporting_an_old_transcript_queues_its_translation_once(wire
         seed = await _seed()
         try:
             media = await _legacy(seed)
-            doc, _context = await pipeline.render_doc(media)  # an export makes the version first
+            doc, _context = await pipeline.render_doc(media)
             assert len(doc.turns) == 2
             jobs = await _insight_jobs(media.id)
             assert [str(j.status).split(".")[-1] for j in jobs] == ["QUEUED"] and jobs[0].requestedById is None
@@ -508,7 +489,7 @@ def test_a_declined_translation_is_marked_and_the_running_job_queues_no_second_o
             blocked = fixture("gemini_blocked")
             wired.gemini(blocked, blocked, blocked, blocked)
             with pytest.raises(transcript_insights.InsightsFailed) as failed:
-                await pipeline.generate(media, user_id=None)  # makes the version inside its own job
+                await pipeline.generate(media, user_id=None)
             assert failed.value.retry is False
             assert str(failed.value) == pipeline.gemini.MESSAGES[pipeline.gemini.DECLINED]
             assert [j.id for j in await _insight_jobs(media.id)] == [running.id], "the running job is the only one"
@@ -548,7 +529,6 @@ def test_declined_english_shows_by_role_and_a_person_adds_it_whole_or_per_turn(w
             other = await pipeline.build_view(media, stranger)
             assert other["englishNotice"] == "UNAVAILABLE" and other["permissions"]["addEnglish"] is False
 
-            # Two paragraphs for three turns that need English: kept whole as the transcript's English.
             whole = "How do you make these colours?\n\nWe mix clay and gum."
             with pytest.raises(pipeline.PipelineRefused) as stale:
                 await pipeline.add_english(media, seed["researcher"], base_revision=mine["revision"] - 1, text=whole)
@@ -564,7 +544,6 @@ def test_declined_english_shows_by_role_and_a_person_adds_it_whole_or_per_turn(w
             assert render.ENGLISH_HEADING + "\n\n" + whole in render.copy_all(doc, render.BOTH)
             assert await transcript_insights.enqueue_after_transcript(media.id) is None, "a person's English is never replaced"
 
-            # Three paragraphs for the three turns that need English: laid on them, one each.
             view = await pipeline.build_view(media, seed["researcher"])
             lines = "Line one.\n\nLine two.\n\nLine three."
             assert await pipeline.add_english(media, seed["researcher"], base_revision=view["revision"], text=lines) == "TURNS"
@@ -659,7 +638,7 @@ def test_the_sweep_counts_then_queues_once_and_prints_no_words(wired: Any) -> No
     async def scenario() -> None:
         seed = await _seed()
         try:
-            media = await _legacy(seed)  # never opened: no version yet
+            media = await _legacy(seed)
             dry = await sweep.sweep(apply=False, ids=[media.id])
             assert dry[sweep.CANDIDATES] == 1 and dry[sweep.WOULD_QUEUE] == 1 and dry[sweep.QUEUED] == 0
             assert await _insight_jobs(media.id) == [], "a dry run queues nothing"

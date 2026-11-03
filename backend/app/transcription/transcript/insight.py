@@ -1,8 +1,3 @@
-"""The small rules beside the pipeline: glossary terms, the budget meter, the status, quote cards.
-
-All pure. The store and the routes feed them rows and write back what they decide.
-"""
-
 from __future__ import annotations
 
 import re
@@ -15,14 +10,11 @@ from app.transcription.transcript.translate import normalise
 
 IST = timezone(timedelta(hours=5, minutes=30), name="IST")
 
-# --- The craft glossary -----------------------------------------------------------------------
-
 TERM_MAX_CHARS = 60
 GLOSS_MAX_CHARS = 120
 
 
 def term_key(term: str) -> str:
-    """The identity of a term: accents off, casefolded, letters and digits only."""
     decomposed = unicodedata.normalize("NFKD", str(term or ""))
     plain = "".join(ch for ch in decomposed if not unicodedata.combining(ch)).casefold()
     return re.sub(r"[^\w]+", " ", plain).strip()
@@ -37,11 +29,6 @@ class Sighting:
 
 
 def sightings(terms: list[dict[str, str]], turns: list[Any]) -> list[Sighting]:
-    """Each term the model reported, located in the first turn whose original or English says it.
-
-    A term that appears in no turn is dropped: the glossary records what was HEARD.
-    ``turns`` are objects with ``id``, ``start_ms``, ``text`` and ``english``.
-    """
     out: list[Sighting] = []
     seen: set[str] = set()
     for entry in terms:
@@ -72,8 +59,6 @@ def sightings(terms: list[dict[str, str]], turns: list[Any]) -> list[Sighting]:
 
 
 def match_craft(term: str, crafts: list[tuple[str, str]]) -> str | None:
-    """The id of the master craft whose name is this term, contains it as a word, or is contained
-    in it (``("id", "name")`` pairs). None when nothing matches plainly."""
     key = term_key(term)
     if not key:
         return None
@@ -88,8 +73,6 @@ def match_craft(term: str, crafts: list[tuple[str, str]]) -> str | None:
             return craft_id
     return None
 
-
-# --- The budget meter -------------------------------------------------------------------------
 
 ALERT_AT = 0.8
 PAUSE_AT = 1.0
@@ -159,15 +142,12 @@ class BudgetActions:
 
 
 def budget_actions(meter: Meter, *, alerted_month: str | None, paused_month: str | None) -> BudgetActions:
-    """What to do now: alert once a month at 80 %, pause once a month at 100 %."""
     state = meter.state
     return BudgetActions(
         alert=state in {ALERT, PAUSED} and alerted_month != meter.month,
         pause=state == PAUSED and paused_month != meter.month,
     )
 
-
-# --- The pipeline status ----------------------------------------------------------------------
 
 WAITING_FOR_CONSENT = "WAITING_FOR_CONSENT"
 QUEUED = "QUEUED"
@@ -202,11 +182,6 @@ def pipeline_status(
     in_window: bool,
     consent_refused: bool,
 ) -> Status:
-    """One of the six states the clients draw, from what the database says.
-
-    ``stt_job`` / ``translate_job`` are the latest TRANSCRIPTION / TRANSCRIPT_INSIGHTS job statuses
-    (QUEUED, PROCESSING, COMPLETED, FAILED) or None.
-    """
     if consent_refused or (transcript_status or "").upper() in _REFUSED_TRANSCRIPT_STATUSES:
         return Status(WAITING_FOR_CONSENT, None, "Consent was refused, so this recording stays on this server.")
     if stt_job == "PROCESSING":
@@ -230,8 +205,6 @@ def pipeline_status(
     return Status(READY)
 
 
-# --- Quote cards ------------------------------------------------------------------------------
-
 CLIP_PAD_MS = 500
 
 
@@ -246,7 +219,6 @@ def clip_range(turns: list[Any], duration_ms: int | None) -> tuple[int, int]:
 
 
 def card_date(moment: datetime | None) -> str:
-    """``24 Jun 2026`` in India time."""
     if moment is None:
         return ""
     if moment.tzinfo is None:

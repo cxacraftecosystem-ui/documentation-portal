@@ -3,11 +3,6 @@
 import type { CoverageGridCell, GridView as Grid } from "@/lib/questionnaire/api";
 import { qs } from "@/lib/questionnaire/qs";
 
-/**
- * The mark for a cell (DESIGN §3.2); always paired with a worded label for assistive tech. Typed or
- * recorded, either counts, and recordings are preferred (owner, amendment 2 point 4): a cell covered
- * only by typed answers reads ✎ "Typed", lighter, with "Add a recording?" in its label.
- */
 export function cellMark(cell: Pick<CoverageGridCell, "state" | "count" | "partial" | "source" | "addRecording"> | null): { mark: string; label: string; tone: string } {
   if (!cell) return { mark: "○", label: qs("stateNotRecorded"), tone: "text-ink-300" };
   const typedOnly = cell.source === "TYPED" && (cell.state === "PARTIAL" || cell.state === "RECORDED");
@@ -39,7 +34,6 @@ export function cellMark(cell: Pick<CoverageGridCell, "state" | "count" | "parti
   }
 }
 
-/** Sections covered for an artisan out of the instrument's sections (`2/3` on a phone row). */
 export function rowSummary(grid: Grid, sectionId: string, artisanIds: string[]): { covered: number; of: number; decision: boolean } {
   const cells = grid.cells.filter((c) => c.targetKey === `S:${sectionId}` && artisanIds.includes(c.artisanId));
   return {
@@ -49,21 +43,12 @@ export function rowSummary(grid: Grid, sectionId: string, artisanIds: string[]):
   };
 }
 
-/**
- * A cell with at least one recording behind it that can be opened: the only cells a dot press
- * opens. The server lists them (`recordings`, 0.0.6); an older server's cell is read by its count.
- */
 export function cellHasRecordings(cell: Pick<CoverageGridCell, "count" | "source" | "recordings"> | null): boolean {
   if (!cell) return false;
   if (cell.recordings) return cell.recordings.some((r) => Boolean(r.sessionId));
   return cell.count > 0 && cell.source !== "TYPED";
 }
 
-/**
- * An artisan's name in a column head: truncated to fit, and shown whole, larger, while hovered or
- * focused (owner, 1 Nov 2026; a tap focuses it on a touch screen). The full name is also the
- * accessible name, so nothing is lost to the truncation.
- */
 export function ArtisanName({ name }: { name: string }) {
   return (
     <span
@@ -86,14 +71,6 @@ export function ArtisanName({ name }: { name: string }) {
   );
 }
 
-/**
- * The session coverage grid (DESIGN §4.3): sections down, participants across on a wide screen; on
- * a phone each row is a summary (`2/3 ›`). A cell or row press opens the take sheet.
- *
- * With `onOpenRecordings` (the workshop coverage page) a dot opens that artisan × section's
- * recordings instead, and the table is drawn at every width, scrolling sideways on a phone: only a
- * cell with a recording behind it is a button; any other cell is a plain mark with nothing to press.
- */
 export function CoverageGrid({
   grid,
   artisans,

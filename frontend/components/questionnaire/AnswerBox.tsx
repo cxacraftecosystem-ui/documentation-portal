@@ -28,13 +28,8 @@ import { AnswerTextEditor, answerEditorValue, answerParts } from "@/lib/question
 
 const ALL = "__all__";
 
-/**
- * Someone an answer can belong to: an artisan on the session, or a guest respondent (owner decision
- * 1). `key` is the server's subject key, `A:<artisanId>` or `R:<respondentId>`.
- */
 export type AnswerSubject = { key: string; artisanId: string | null; respondentId: string | null; name: string };
 
-/** The session's answerable people: its present participants, then its guests not yet registered. */
 export function sessionSubjects(session: Pick<Session, "participants" | "respondents">): AnswerSubject[] {
   return [
     ...session.participants.filter((p) => !p.leftAt).map((p) => ({ key: `A:${p.artisanId}`, artisanId: p.artisanId, respondentId: null, name: p.name })),
@@ -44,15 +39,12 @@ export function sessionSubjects(session: Pick<Session, "participants" | "respond
   ];
 }
 
-/** A take's transcript offered as an answer ("Use as answer", B22): never imposed (P8 still asks). */
 export type AnswerProposal = { text: string; origin: AnswerOrigin; sourceRecordingId: string; subjectKeys: string[] | null };
 
-/** The items one save sends: a shared group answer is one GROUP_SHARED item per person (B20). */
 export function answerItems(input: {
   sessionId: string;
   lineageId: string;
   text: string;
-  /** Decision C8: the editor's document, beside the canonical plain `text`; null when it is prose. */
   richText?: string | null;
   note?: string | null;
   forWhom: string;
@@ -80,18 +72,11 @@ export function answerItems(input: {
   });
 }
 
-/**
- * THE ONE ANSWER-LOCK RULE (owner decision 2, U9), as the server applies it: an answer that has text
- * may be changed only by the person who wrote it, a lead researcher of the session, or an admin.
- * Everyone else sees it read-only, with who answered (P15). The server refuses the same item with
- * `ANSWER_LOCKED` whatever the screen showed.
- */
 export function answerLocked(current: Pick<Answer, "text" | "actorId"> | null | undefined, me: string | null, mayOverride: boolean): boolean {
   if (!current || !current.text.trim() || mayOverride) return false;
   return Boolean(current.actorId) && current.actorId !== me;
 }
 
-/** The queue fills `sessionId` when it sends: an offline session has no server id yet. */
 function forQueue(items: AnswerItem[]): Omit<AnswerItem, "sessionId">[] {
   return items.map((item) => {
     const rest: Partial<AnswerItem> = { ...item };
@@ -100,12 +85,6 @@ function forQueue(items: AnswerItem[]): Omit<AnswerItem, "sessionId">[] {
   });
 }
 
-/**
- * What a save becomes when it cannot simply land (audit H18): a failure that might pass later goes
- * to the outbox as it was typed; a CONFLICT is kept in the outbox for P9 rather than dropped. A
- * locked item (`ANSWER_LOCKED`) is shown, not queued: no retry will cure it. Null when nothing needs
- * keeping. A 4xx that no retry will cure is the caller's error.
- */
 export function answerFallback(
   items: AnswerItem[],
   outcome: { error: unknown } | { results: Parameters<typeof heldAnswerResults>[1] }
@@ -120,12 +99,6 @@ export function answerFallback(
   return { kind: "answers", status: "FAILED", error: "CONFLICT", items: forQueue(kept), conflicts: held };
 }
 
-/**
- * One question's answer box (DESIGN §3.4, §3.6): "Answer for: All 3" by default in a group (B20), a
- * per-person switch, an answer note (A20), the lock (A11, P15), the History (B21) and "Use as answer"
- * (B22). Nothing typed is lost (audit H18): offline, on a new session, or when the save fails for a
- * reason that may pass, the answer goes to the outbox; a CONFLICT waits there for the workspace's P9.
- */
 export function AnswerBox({
   session,
   lineageId,
@@ -143,15 +116,10 @@ export function AnswerBox({
   code: string;
   subjects: AnswerSubject[];
   answers: Answer[];
-  /** The session's takes, so P8 can name whose take an answer came from. */
   recordings?: Recording[];
-  /** The signed-in user's id, for the lock. */
   me: string | null;
-  /** A lead researcher of the session, or an admin: may change anyone's answer. */
   mayOverride?: boolean;
-  /** A take's transcript offered for this question ("Use as answer"). */
   proposal?: AnswerProposal | null;
-  /** Marked `*`; Finish counts the unanswered ones and never blocks (A19). */
   required?: boolean;
 }) {
   const [forWhom, setForWhom] = useState(subjects.length > 1 ? ALL : (subjects[0]?.key ?? ALL));
@@ -159,10 +127,8 @@ export function AnswerBox({
   const current = (key: string) => existing.find((a) => ownerKey(a) === key) ?? null;
   const focus = forWhom === ALL ? (subjects.length === 1 ? subjects[0].key : null) : forWhom;
   const focused = focus ? current(focus) : (existing[0] ?? null);
-  // The editor's stored value: prose, or a rich-text document (C8). `plain` is the canonical text.
   const [text, setTextState] = useState(() => answerEditorValue(focused));
   const [editorKey, setEditorKey] = useState(0);
-  /** Sets the box from outside the editor (a subject switch, "Use as answer"): the editor re-seeds. */
   const setText = (value: string) => {
     setTextState(value);
     setEditorKey((k) => k + 1);
@@ -175,7 +141,6 @@ export function AnswerBox({
   const [error, setError] = useState<string | null>(null);
   const [lockedFor, setLockedFor] = useState<string[]>([]);
   const [history, setHistory] = useState<AnswerRevision[] | null>(null);
-  // P8: answers that came from a take wait for "Replace" before they are overwritten.
   const [p8, setP8] = useState<{ artisanId: string; sourceRecordingId: string }[]>([]);
   const [confirmed, setConfirmed] = useState<Set<string>>(() => new Set());
   const [skipped, setSkipped] = useState<Set<string>>(() => new Set());
@@ -186,7 +151,6 @@ export function AnswerBox({
   const locked = focus ? answerLocked(current(focus), me, mayOverride) : subjects.every((s) => answerLocked(current(s.key), me, mayOverride));
   const lockedAnswer = focus ? current(focus) : existing.find((a) => answerLocked(a, me, mayOverride));
   const lockedBy = lockedAnswer?.actorId;
-  // The server names who wrote it (`actorName`); a researcher of the session is named from the roster.
   const lockedByName = session.researchers.find((r) => r.userId === lockedBy)?.name ?? lockedAnswer?.actorName ?? researcherName(lockedBy);
 
   async function keep(step: AnswersStep) {
@@ -204,7 +168,6 @@ export function AnswerBox({
   }
 
   async function save(approved: Set<string> = confirmed, skip: Set<string> = skipped) {
-    // Locked people are left out here; the server would refuse them item by item anyway.
     const open = subjects.filter((s) => !answerLocked(current(s.key), me, mayOverride));
     const items = answerItems({
       sessionId: session.id,
@@ -403,7 +366,6 @@ export function AnswerBox({
             const approved = new Set(confirmed);
             const skip = new Set(skipped);
             const key = `A:${first.artisanId}`;
-            // Replace: overwrite this artisan's answer. Keep current (or a dismissal): leave it; the others still save.
             if (choice === "replace") approved.add(key);
             else {
               skip.add(key);

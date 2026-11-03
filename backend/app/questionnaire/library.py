@@ -1,17 +1,3 @@
-"""The forms library's shared writes and documents (UNIFY A2, A5, A10, A12; both portals).
-
-Moved here from Field Repository's ``services/questionnaire_library.py`` (U3) so both portals behave
-identically: reuse a form as a template, the handoff bundle (export and import, ``.frwq``/``.dpwq``
-and designer-portal Android's v1 file, ``BUNDLE_VERSION`` for a newer major), a hand-filled
-workbook's answers as WORKBOOK sessions, and the workshop annexure in one shape. Everything reads and
-writes the instrument tables (``QuestionnaireSection``/``QuestionnaireQuestion``) and the sessions;
-designer-portal reaches these once a form is unified (``forms.form_unified``).
-
-A portal differs only in what the ports answer: its name (``ports.portal()``, which names the bundle
-file and scopes a workshop: ``workshopId`` on Field Repository, ``designWorkshopId`` here), its
-database, who manages questionnaires, its naming helper and its cross-portal question codes.
-"""
-
 from __future__ import annotations
 
 import gzip
@@ -52,7 +38,6 @@ def bundle_extension() -> str:
 
 
 def may_restore(user: Any, form: Any) -> bool:
-    """Bring a deleted form back: its author or a content admin (one rule in both portals)."""
     return authoring.may_restore_form(user, form)
 
 
@@ -65,10 +50,7 @@ async def require_form(questionnaire_id: str, *, allow_deleted: bool = False) ->
     return row
 
 
-# ── titles and the form row ──────────────────────────────────────────────────────────────────────
 async def free_title(wanted: str) -> str:
-    """The first free ``Title``, ``Title (2)``, ``Title (3)``… (a copy or an import never takes a
-    title another form has)."""
     base = (wanted or "Untitled questionnaire").strip()[:200] or "Untitled questionnaire"
     rows = await ports.db().query_raw('SELECT "title" FROM "Questionnaire" WHERE "title" = $1 OR "title" LIKE $2', base, f"{base} (%)")
     taken = {str(r["title"]) for r in rows}
@@ -86,7 +68,6 @@ async def _next_sort_order() -> int:
 
 
 async def create_form(user: Any, *, title: str, description: str | None, kind: str | None, extra: dict[str, Any] | None = None) -> Any:
-    """A new form owned by ``user``, at the end of the library, under a free title."""
     from prisma.errors import UniqueViolationError
 
     me = _uid(user)
@@ -110,7 +91,6 @@ async def create_form(user: Any, *, title: str, description: str | None, kind: s
 
 
 async def live_structure(questionnaire_id: str, *, client: Any = None) -> tuple[list[Any], list[Any]]:
-    """The live sections in order and their live, current questions in order."""
     db_ = client if client is not None else ports.db()
     sections = await db_.questionnairesection.find_many(
         where={"questionnaireId": questionnaire_id, "isActive": True}, order={"sortOrder": "asc"}
@@ -123,9 +103,6 @@ async def live_structure(questionnaire_id: str, *, client: Any = None) -> tuple[
 
 
 async def write_structure(form_id: str, sections: list[dict[str, Any]], *, tables: Any = None) -> tuple[int, int]:
-    """Create ``sections`` (``{code, title, questions: [{prompt, helpText, isRequired, artisanField}]}``)
-    on a fresh form, in order. Returns ``(sections, questions)`` written. ``tables`` is the form's
-    (``forms.tables``); by default the instrument tables."""
     from app.questionnaire import forms
 
     db = ports.db()
@@ -164,7 +141,6 @@ async def write_structure(form_id: str, sections: list[dict[str, Any]], *, table
 
 
 async def counts_for(form_ids: list[str]) -> dict[str, dict[str, int]]:
-    """Live sections and live questions per form: one statement."""
     if not form_ids:
         return {}
     rows = await ports.db().query_raw(
@@ -195,12 +171,9 @@ def _plan(sections: list[Any], questions: list[Any]) -> list[dict[str, Any]]:
     ]
 
 
-# ── reuse (A5) ──────────────────────────────────────────────────────────────────────────────────
 async def reuse(questionnaire_id: str, user: Any, *, title: str | None = None, description: str | None = None,
                 kind: str | None = None, keep_kind: bool = True, extra: dict[str, Any] | None = None,
                 tables: Any = None) -> tuple[Any, dict[str, int]]:
-    """A new form of your own with this form's questions: sections and questions only, never its
-    sessions, answers, bindings, sharing or default. Returns the new row and ``{sections, questions}``."""
     source = await require_form(questionnaire_id)
     try:
         wanted_kind = kinds.coerce_kind(kind) if kind is not None else (_get(source, "kind") if keep_kind else None)
@@ -215,7 +188,6 @@ async def reuse(questionnaire_id: str, user: Any, *, title: str | None = None, d
     return created, {"sections": n_sections, "questions": n_questions}
 
 
-# ── the handoff bundle (A10; shared/questionnaire-bundle.json) ────────────────────────────────────
 async def bundle_document(questionnaire_id: str) -> dict[str, Any]:
     form = await require_form(questionnaire_id)
     sections, questions = await live_structure(questionnaire_id)
@@ -244,12 +216,10 @@ def bundle_bytes(document: dict[str, Any]) -> bytes:
 
 
 def bundle_filename(title: str | None, *, at: Any = None) -> str:
-    """``<Portal>_Questionnaire_<date>_<Title>_Handoff.<frwq|dpwq>`` (the naming golden table's row)."""
     return ports.naming.export_filename("Questionnaire", "Handoff", bundle_extension(), subject=title or "Questionnaire", at=at)
 
 
 def read_bundle_bytes(raw: bytes) -> dict[str, Any]:
-    """A received file: gzipped JSON (either extension), or plain JSON. Untrusted; size-capped."""
     limit = BUNDLE_LIMITS["maxUncompressedBytes"]
     data = raw
     if raw[:2] == b"\x1f\x8b":
@@ -277,9 +247,6 @@ def _text(value: Any, limit: int = BUNDLE_LIMITS["maxTextChars"]) -> str | None:
 
 
 def normalise_bundle(document: dict[str, Any]) -> dict[str, Any]:
-    """``{bundleId, form: {title, description, kind}, sections: [{code, title, questions: [...]}]}``
-    from a v2 envelope or designer-portal Android's v1 file. A newer major version is
-    ``BUNDLE_VERSION``; anything malformed is ``VALIDATION_FAILED``."""
     version = document.get("v")
     if version is not None:
         try:
@@ -312,7 +279,6 @@ def normalise_bundle(document: dict[str, Any]) -> dict[str, Any]:
             target["questions"].append(q)
         title, description, kind, bundle_id = form.get("title"), form.get("description"), form.get("kind"), document.get("bundleId")
     elif document.get("format") or "sections" in document:
-        # designer-portal Android v1: {format, schemaVersion, title, description, sections: [{code, title, sortOrder, questions}]}
         sections = []
         for s in sorted((s for s in (document.get("sections") or []) if isinstance(s, dict)), key=lambda s: int(s.get("sortOrder") or 0)):
             code = _text(s.get("code"), 20) or f"S{len(sections) + 1}"
@@ -328,7 +294,7 @@ def normalise_bundle(document: dict[str, Any]) -> dict[str, Any]:
     try:
         kind_token = kinds.coerce_kind(kind) if isinstance(kind, str) else None
     except ValueError:
-        kind_token = None  # a newer deployment's kind: imported as "not stated"
+        kind_token = None
     clean_sections = [
         {
             "code": s["code"], "title": s["title"],
@@ -351,8 +317,6 @@ def normalise_bundle(document: dict[str, Any]) -> dict[str, Any]:
 
 
 async def import_bundle(document: dict[str, Any], user: Any, *, tables: Any = None) -> tuple[Any, bool]:
-    """A new form of your own from a received bundle. Idempotent on the bundle id per importer: a
-    second import of the same file returns the first copy (``created`` False)."""
     from prisma.errors import UniqueViolationError
 
     if not ports.can_manage_questionnaire(user):
@@ -378,14 +342,10 @@ async def import_bundle(document: dict[str, Any], user: Any, *, tables: Any = No
     return created, True
 
 
-# ── a hand-filled workbook's answers as WORKBOOK sessions (A2) ─────────────────────────────────────
 async def import_workbook_answers(
     questionnaire_id: str, parsed: Any, user: Any, *, workshop_id: str | None = None, design_workshop_id: str | None = None,
     session_date: date | None = None,
 ) -> dict[str, int]:
-    """Each answer column of a hand-filled pro-forma becomes one UPLOAD session on the form, with the
-    column's heading as its guest respondent, and every filled cell an answer with origin WORKBOOK
-    (UNIFY U7). Matched by position (section order, question order). Returns ``{sessions, answers}``."""
     from app.questionnaire import answers as v2_answers, sessions as v2_sessions
     from app.questionnaire.common import today_ist
     from app.questionnaire.schemas import AnswersPut, SessionCreate
@@ -443,13 +403,7 @@ async def import_workbook_answers(
     return {"sessions": made_sessions, "answers": made_answers}
 
 
-# ── the workshop annexure (A12), one shape in both portals ─────────────────────────────────────────
 async def annexure(*, workshop_id: str | None = None, design_workshop_id: str | None = None, client: Any = None) -> dict[str, Any]:
-    """The forms of one workshop (bound to it, or answered in its sessions), grouped by kind, live
-    sessions only. Each form carries its questions with the current answers (``sections``) and one
-    sitting per respondent (``sittings``: artisan or guest, every question with its answer), so a
-    report can print either. ``workshop_id`` scopes a Field Repository workshop, ``design_workshop_id``
-    a designer-portal design workshop."""
     db = client if client is not None else ports.db()
     if bool(workshop_id) == bool(design_workshop_id):
         fail("VALIDATION_FAILED", "Name one workshopId or designWorkshopId.")
@@ -562,7 +516,6 @@ async def annexure(*, workshop_id: str | None = None, design_workshop_id: str | 
 
 
 def annexure_text(doc: dict[str, Any]) -> str:
-    """The annexure as plain text, for a workshop's export folder and the web download."""
     lines = [f"Questionnaire annexure: {doc.get('workshopTitle') or doc.get('workshopId') or doc.get('designWorkshopId')}", ""]
     if not doc["groups"]:
         lines.append("No questionnaires for this workshop yet.")

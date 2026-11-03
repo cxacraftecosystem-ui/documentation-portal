@@ -30,18 +30,6 @@ import com.fieldrepository.app.ui.SelectOption
 import com.fieldrepository.app.ui.field
 import java.time.Instant
 
-/**
- * The few controls the questionnaire screens draw that the two portals' own `ui/` trees do not both
- * have under one name: the segmented choice, the compact-width test, and the default workshop.
- * Everything else (the searchable selects, the calendar, the toggle, the action row) is the
- * portal's own primitive, which both portals carry with the same signature.
- */
-
-/**
- * A short choice between named modes, every option visible: two to four options in equal cells on one
- * line, 48dp tall (the web's `SegmentedChoice`). Anything longer, or built from records, stays a
- * searchable select.
- */
 @Composable
 fun SegmentedChoice(
     label: String,
@@ -87,7 +75,6 @@ fun SegmentedChoice(
     }
 }
 
-/** True when the window is in the compact width class (< 600dp), as on a phone held upright. */
 @Composable
 fun isCompactWidth(): Boolean {
     val widthPx = LocalWindowInfo.current.containerSize.width
@@ -96,16 +83,10 @@ fun isCompactWidth(): Boolean {
     return widthDp < 600.dp
 }
 
-/**
- * The start sheet's default workshop (B30): the one the server names for this account when it named
- * one in the list, else the most recently changed. Reads only the list it is given, so it holds
- * offline from the cached copy.
- */
 fun mostRecentRecordableWorkshop(list: List<QWorkshopOption>, preferredId: String? = null): QWorkshopOption? =
     list.firstOrNull { it.id == preferredId }
         ?: list.maxByOrNull { w -> w.updatedAt?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: Instant.EPOCH }
 
-/** What Discard says before it deletes a queued step from this phone. */
 fun outboxDiscardSentence(label: String, files: Int, clash: Boolean): String {
     val filesPart = when (files) {
         0 -> ""
