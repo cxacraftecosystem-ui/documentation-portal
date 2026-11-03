@@ -1,27 +1,4 @@
 #!/usr/bin/env python3
-"""Generate every runtime's copy of the shared questionnaire vocabularies, and check for drift.
-
-    python scripts/generate_shared.py           # write the outputs
-    python scripts/generate_shared.py --check   # exit 1 when any output (or the manifest) is stale
-
-Inputs (``shared/``, written once by feature/q-backend and copied verbatim by the other streams):
-
-* ``enums.json``             -> backend ``app/shared_vocab.py``, web ``lib/shared/enums.ts``,
-                                Android ``data/SharedEnums.kt``; and a check that every Prisma enum of
-                                the same name in ``backend/prisma/schema.prisma`` has exactly these values
-* ``languages.json``         -> the same three files (codes, labels, aliases)
-* ``strings/questionnaire.json`` -> web ``lib/strings/questionnaire.ts`` and Android
-                                ``res/values/strings_questionnaire.xml``
-* every file under ``shared/`` -> ``shared/manifest.json`` (sha256 per file), which each stream's
-                                parity test compares its copy against
-
-WHO WRITES WHICH OUTPUT. The backend output and the manifest are committed by the BACKEND stream.
-The web and Android outputs are committed by the WEB and ANDROID streams, who run this script after
-copying ``shared/``; ``--check`` holds an output to the inputs once it exists, and reports a missing
-client output as "not generated yet" without failing, so the backend branch is not red for files that
-belong to the other two.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -171,9 +148,6 @@ def android_strings(strings: dict) -> str:
     return "\n".join(lines)
 
 
-# The files BUILD_PLAN section 0.1 shares byte-for-byte across the three streams. Older shared files
-# (the artisan form contract and friends) have their own enforcing tests and are left out, so an edit
-# to one of them on another branch does not turn this manifest stale.
 MANIFEST_FILES = (
     "enums.json",
     "languages.json",
@@ -185,8 +159,6 @@ MANIFEST_FILES = (
 
 
 def digest(path: Path) -> str:
-    """sha256 of the file with CRLF read as LF: a Windows checkout (core.autocrlf) holds the same
-    blob as Linux CI, and the manifest must say so on both."""
     return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
@@ -196,7 +168,6 @@ def manifest() -> str:
 
 
 def prisma_drift(enums: dict) -> list[str]:
-    """Every Prisma enum that shares a name with shared/enums.json must have exactly its values."""
     if not PRISMA.exists():
         return []
     text = PRISMA.read_text(encoding="utf-8")

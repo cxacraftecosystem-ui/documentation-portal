@@ -34,7 +34,7 @@ def _refuse_remote() -> None:
 
 async def main(out_path: str) -> None:
     _refuse_remote()
-    import app  # noqa: F401  (loads settings and the Prisma client the way the API does)
+    import app  # noqa: F401
     from app.core.db import db
     from app.core.security import create_access_token
     from app.questionnaire import sessions
