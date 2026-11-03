@@ -1,5 +1,6 @@
 package com.fieldrepository.app.data
 
+import com.fieldrepository.app.transcript.data.TranscribeChoices
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -580,7 +581,7 @@ object OfflineOutbox {
             overrideBaseName = overrideBaseName,
             batchIndex = batchIndex,
             stageStep = stageStep,
-            processing = processing,
+            processing = processing ?: TranscribeChoices.processingFor(uri.toString(), inferMediaType(mimeType)),
             linkedType = linkedType,
             stepIndex = stepIndex,
             location = location,

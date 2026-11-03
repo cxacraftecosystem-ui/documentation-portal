@@ -2,6 +2,19 @@ package com.fieldrepository.app.transcript.ui
 
 import android.net.Uri
 import androidx.annotation.OptIn
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -55,7 +68,7 @@ class ManualPlayback(available: Boolean = true, duration: Double = 0.0) : Transc
     }
 }
 
-private class ExoPlayback(private val player: ExoPlayer) : TranscriptPlayback {
+private class ExoPlayback(val player: ExoPlayer) : TranscriptPlayback {
     override val available = true
     override var playing by mutableStateOf(false)
     override var positionSeconds by mutableDoubleStateOf(0.0)
@@ -126,4 +139,34 @@ fun rememberTranscriptPlayback(uri: Uri?): TranscriptPlayback {
         }
     }
     return playback
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+fun TranscriptVideoSurface(playback: TranscriptPlayback, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        modifier
+            .fillMaxWidth()
+            .aspectRatio(16f / 9f)
+            .clip(shape)
+            .background(Color.Black)
+            .testTag("transcript.video")
+    ) {
+        val exo = playback as? ExoPlayback
+        if (exo != null) {
+            AndroidView(
+                factory = { context ->
+                    PlayerView(context).apply {
+                        useController = false
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        player = exo.player
+                    }
+                },
+                update = { view -> view.player = exo.player },
+                onRelease = { view -> view.player = null },
+                modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
+            )
+        }
+    }
 }

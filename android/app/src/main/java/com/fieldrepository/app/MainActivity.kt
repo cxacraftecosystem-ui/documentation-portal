@@ -1,5 +1,9 @@
 package com.fieldrepository.app
 
+import com.fieldrepository.app.transcript.data.TranscribeChoices
+import com.fieldrepository.app.transcript.data.UploadTranscribe
+import com.fieldrepository.app.transcript.ui.TranscribeChoiceItem
+import com.fieldrepository.app.transcript.ui.TranscribeChoiceRows
 import com.fieldrepository.app.data.workshopDisplayTitle
 import com.fieldrepository.app.data.AnswerDrafts
 import com.fieldrepository.app.ui.AnswerDraftsCard
@@ -4370,6 +4374,7 @@ private class MediaCaptureState {
         staged = staged - uri
         stagedProgress = stagedProgress - uri
         stagedFailed = stagedFailed - uri
+        TranscribeChoices.forget(uri.toString())
     }
 
     fun reset() {
@@ -4710,7 +4715,8 @@ private suspend fun uploadAttachments(
                     caption = caption,
                     location = media.location,
                     batchIndex = index + 1,
-                    customSegment = customSegment
+                    customSegment = customSegment,
+                    processingRequests = TranscribeChoices.processingFor(uri.toString(), staged.mediaType)
                 )
             } else {
                 repository.uploadMedia(
@@ -6322,8 +6328,29 @@ private fun MediaCaptureSection(
                     ) { Text("Clear attachments", color = tileInk, fontWeight = FontWeight.SemiBold) }
                 }
             }
+            UriTranscribeChoices(media.uris)
         }
     }
+}
+
+@Composable
+private fun UriTranscribeChoices(uris: List<Uri>, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val items = remember(uris) {
+        uris.map { uri ->
+            val name = runCatching {
+                context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                }
+            }.getOrNull()
+            TranscribeChoiceItem(
+                key = uri.toString(),
+                name = name ?: uri.lastPathSegment ?: "File",
+                typeOrMime = context.contentResolver.getType(uri),
+            )
+        }
+    }
+    TranscribeChoiceRows(items, modifier)
 }
 
 /**
@@ -10248,7 +10275,8 @@ private fun ProcessForm(
                                 caption = "Process step ${serverStep.name.ifBlank { "${index + 1}" }}",
                                 location = local.media.location,
                                 batchIndex = fileIndex + 1,
-                                customSegment = segment
+                                customSegment = segment,
+                                processingRequests = TranscribeChoices.processingFor(uri.toString(), staged.mediaType)
                             )
                         } else {
                             repository.uploadMedia(
@@ -11114,6 +11142,7 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
     }
 
     val isVideo = media.mediaType.equals("VIDEO", ignoreCase = true)
+    val isTimed = isAudio || isVideo
     // The transcript viewer (DESIGN_2026-10-31 §3) wherever the pipeline answers; the plain
     // transcript below wherever it does not (the switch is off, or the file predates it).
     val legacyTranscript: @Composable () -> Unit = {
@@ -11159,24 +11188,29 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
                     onApplied = { newText -> transcriptText = newText }
                 )
             }
-            if (isAdmin && isAudio && repository != null) {
+            if (isAdmin && isTimed && repository != null) {
                 TranscribeNowButton(transcribing = transcribing, hasExisting = true) { transcribeNow() }
             }
         }
-        transcribing || (isAudio && (status == null || status in processing)) -> {
+        transcribing || (isTimed && (status in processing || (status == null && media.transcribeRequested == true))) -> {
             // Still processing — show a buffer icon; the transcript appears here once it's ready.
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 FieldCircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                 Text(if (transcribing) "Transcribing now…" else "Transcribing audio…", color = Muted, style = MaterialTheme.typography.bodySmall)
             }
         }
-        isAudio && status in done -> {
+        isTimed && status in done -> {
             Text("Transcript complete — no speech detected.", color = Muted, style = MaterialTheme.typography.bodySmall)
             if (isAdmin && repository != null) {
                 TranscribeNowButton(transcribing = transcribing, hasExisting = false) { transcribeNow() }
             }
         }
-        isAudio -> {
+        isTimed && status == null -> {
+            if (isAdmin && repository != null) {
+                TranscribeNowButton(transcribing = transcribing, hasExisting = false) { transcribeNow() }
+            }
+        }
+        isTimed -> {
             Text(
                 "Transcript: ${liveStatus ?: "—"}" + (media.transcriptError?.let { " — $it" } ?: ""),
                 color = Muted,
@@ -14355,6 +14389,7 @@ private fun AndroidMediaForm(
                     }
                 }
             }
+            UriTranscribeChoices(selectedUris)
         }
         localMessage?.let { Text(it, color = Muted, style = MaterialTheme.typography.bodySmall) }
         if (uploading) {
@@ -16351,7 +16386,8 @@ private fun QuestionnaireForm(
                                     .let { if (uris.size > 1) "${it}_${index + 1}" else it }
                                 items.add(com.fieldrepository.app.data.OfflineMediaSpec(
                                     uri = uri, caption = caption, recordName = hint,
-                                    overrideBaseName = baseName, batchIndex = index + 1))
+                                    overrideBaseName = baseName, batchIndex = index + 1,
+                                    processing = listOf(UploadTranscribe.TRANSCRIPTION)))
                             }
                         }
                         media.uris.forEachIndexed { i, uri ->
@@ -16552,6 +16588,7 @@ private fun QuestionnaireForm(
                                         caption = caption,
                                         location = null,
                                         batchIndex = index + 1,
+                                        processingRequests = listOf(UploadTranscribe.TRANSCRIPTION),
                                         overrideBaseName = baseName
                                     )
                                 } else {
@@ -16564,6 +16601,7 @@ private fun QuestionnaireForm(
                                         location = null,
                                         titleHint = hint,
                                         batchIndex = index + 1,
+                                        processingRequests = listOf(UploadTranscribe.TRANSCRIPTION),
                                         overrideBaseName = baseName
                                     )
                                 }

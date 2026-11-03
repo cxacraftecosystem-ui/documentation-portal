@@ -55,6 +55,15 @@ interface TranscriptApi {
     @PUT("settings/transcription")
     suspend fun setAudioIsolation(@Body body: AudioIsolationBody): AudioIsolationEnvelope
 
+    @PUT("settings/transcription")
+    suspend fun setTranscriptionSwitches(@Body body: TranscriptionSwitchBody): AudioIsolationEnvelope
+
+    @GET("settings/transcription/upload-policy")
+    suspend fun uploadPolicy(): UploadPolicy
+
+    @GET("settings/transcription/backfill")
+    suspend fun backfill(): BackfillView
+
     @GET("transcripts/{mediaId}/download")
     suspend fun download(
         @Path("mediaId") mediaId: String,
@@ -131,6 +140,10 @@ interface TranscriptBackend {
     /** ElevenLabs Voice Isolator on new recordings (0.0.5): null when this reader may not see it. */
     suspend fun audioIsolation(): AudioIsolationSetting? = null
     suspend fun setAudioIsolation(on: Boolean): AudioIsolationSetting? = null
+    suspend fun uploadPolicy(): UploadPolicy = UploadPolicy()
+    suspend fun transcriptionSwitches(): TranscriptionSwitches? = null
+    suspend fun setTranscriptionSwitches(body: TranscriptionSwitchBody): TranscriptionSwitches? = null
+    suspend fun backfill(): BackfillView? = null
     /** View data (0.0.6): a page of recordings matching [filters]. */
     suspend fun dataPage(filters: Map<String, String>, cursor: String?): DataTranscriptPage = DataTranscriptPage()
     /** Download data (0.0.6): one streamed dataset, written to [sink]; the server's file name, if sent. */
@@ -164,6 +177,10 @@ class RetrofitTranscriptBackend(private val api: TranscriptApi) : TranscriptBack
     override suspend fun budget() = api.budget()
     override suspend fun audioIsolation() = api.transcriptionSettings().audioIsolation
     override suspend fun setAudioIsolation(on: Boolean) = api.setAudioIsolation(AudioIsolationBody(on)).audioIsolation
+    override suspend fun uploadPolicy() = api.uploadPolicy()
+    override suspend fun transcriptionSwitches() = api.transcriptionSettings().switches()
+    override suspend fun setTranscriptionSwitches(body: TranscriptionSwitchBody) = api.setTranscriptionSwitches(body).switches()
+    override suspend fun backfill() = api.backfill()
     override suspend fun dataPage(filters: Map<String, String>, cursor: String?) = api.dataTranscripts(filters, cursor)
     override suspend fun dataFile(kind: String, fmt: String, filters: Map<String, String>, sink: java.io.File): String? {
         val response = api.dataTranscriptsFile(kind, fmt, filters)
@@ -174,6 +191,9 @@ class RetrofitTranscriptBackend(private val api: TranscriptApi) : TranscriptBack
         return contentDispositionName(response.headers()["Content-Disposition"])
     }
 }
+
+fun AudioIsolationEnvelope.switches(): TranscriptionSwitches =
+    TranscriptionSwitches(autoTranscribe ?: AutoTranscribeSetting(), backfill ?: BackfillProgress())
 
 /** The `{detail: {code, message}}` of a refusal, or null when the body is something else. */
 fun HttpException.transcriptError(json: Json): TranscriptErrorDetail? = runCatching {

@@ -211,6 +211,9 @@ fun TranscriptViewer(
     BoxWithConstraints(modifier.fillMaxSize().testTag("transcript.viewer")) {
         val wide = maxWidth >= 600.dp
         Column(Modifier.fillMaxSize()) {
+          if (view.audio.video && playback.available) {
+              TranscriptVideoSurface(playback, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+          }
           Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(
                 Modifier

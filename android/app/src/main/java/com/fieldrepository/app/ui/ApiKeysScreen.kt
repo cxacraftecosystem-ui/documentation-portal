@@ -441,6 +441,7 @@ fun ApiKeysScreen(
 
         // ElevenLabs Voice Isolator (0.0.5), off until the master admin turns it on. Admins read it.
         com.fieldrepository.app.transcript.ui.AudioIsolationCard(canChange = state.secrets != null && !state.restricted)
+        com.fieldrepository.app.transcript.ui.TranscriptAutoSwitchesCard(canChange = state.secrets != null && !state.restricted)
 
         if (state.restricted) {
             ApiKeysRestrictedCard()
