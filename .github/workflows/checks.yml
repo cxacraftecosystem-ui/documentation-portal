@@ -914,5 +914,4 @@ jobs:
           find "$RUNNER_TEMP/stripped" -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
 
       - name: No comments remain
-        if: false
         run: python scripts/tools/strip_comments.py --check

@@ -1,29 +1,4 @@
 #!/usr/bin/env node
-/**
- * check-docs — the thing that stops this documentation set from quietly going stale.
- *
- * A document that confidently states something untrue is worse than a missing document: the reader
- * has no way to tell, and acts on it. Prose cannot be verified mechanically, but the three claims
- * that rot fastest can be, and between them they cover most of the damage:
- *
- *   1. COUNTS — "33 models", "149 endpoints", "6 role tiers". Every one of these changes with a
- *      migration or a route. So no hand-written document is allowed to state one: the numbers live
- *      in the GENERATED file docs/REPO_FACTS.md, which this script rewrites from the repository,
- *      and prose links to it. `--write` regenerates; the default run fails if it is out of date.
- *   2. PATHS — "see backend/app/services/ai.py". Files move. Every `backend/…`, `frontend/…`,
- *      `android/…`, `infra/…`, `docs/…` or `scripts/…` path mentioned in a doc is resolved on disk.
- *   3. LINE CITATIONS — "media.py:198-264". These are the worst offenders, because they are wrong
- *      silently and look precise. A citation into a file that is now shorter than the line it names
- *      is definitely wrong; one that still fits is only possibly right, and is reported as a count
- *      so the number never grows unnoticed.
- *
- * What it deliberately does NOT do: check that a sentence is true. Nothing can. The per-document
- * "How this document is kept true" section names the human check for the rest.
- *
- *   node docs/tools/check-docs.mjs           # verify; exit 1 on any failure
- *   node docs/tools/check-docs.mjs --write   # regenerate docs/REPO_FACTS.md, then verify
- *   node docs/tools/check-docs.mjs --quiet   # only failures
- */
 
 import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync, readdirSync, existsSync, statSync } from "node:fs";
@@ -36,10 +11,6 @@ const FACTS_FILE = join(DOCS, "REPO_FACTS.md");
 const WRITE = process.argv.includes("--write");
 const QUIET = process.argv.includes("--quiet");
 
-// Documents written and owned by a different workstream. Findings in these are reported as
-// warnings rather than failures, so this check's exit code speaks for the documents its owner can
-// actually fix — and so a file being edited in another session cannot make this run red. They are
-// still reported: an unowned problem is a visible problem, not an absent one.
 const OWNED_ELSEWHERE = new Set([
   "SCALABILITY.md",
   "DOCKER.md",
@@ -58,13 +29,7 @@ const ownerOf = (msg) => {
 };
 const fail = (m) => (ownerOf(m) === "here" ? failures : warnings).push(m);
 const note = (m) => notes.push(m);
-// Normalise line endings on the way in. Half these files are CRLF and half are LF, and every regex
-// below that anchors on "\n" silently matched NOTHING in the CRLF half — which is how four documents'
-// mermaid blocks went unchecked while the run stayed green. A check that quietly inspects less than
-// it claims to is worse than no check.
 const read = (p) => readFileSync(p, "utf8").replace(/\r\n/g, "\n");
-
-/* ── ground truth, derived from the repository ──────────────────────────────────────────────── */
 
 function prismaFacts() {
   const src = read(join(REPO, "backend", "prisma", "schema.prisma"));
@@ -85,7 +50,6 @@ function routeFacts() {
     perFile[f] = hits.length;
     for (const h of hits) byMethod[h[1]] += 1;
   }
-  // The two liveness routes are declared on the app, not on a router.
   const appLevel = [...read(join(REPO, "backend", "app", "main.py")).matchAll(/@app\.(get|post)\(/g)];
   for (const h of appLevel) byMethod[h[1]] += 1;
   const total = Object.values(byMethod).reduce((a, b) => a + b, 0);
@@ -99,7 +63,6 @@ function roleFacts() {
   return [...block[1].matchAll(/"(\w+)":\s*(\d+)/g)].map((m) => ({ role: m[1], rank: Number(m[2]) }));
 }
 
-/** What test coverage exists, per surface. Quoted in QA_AUDIT.md, so it is generated. */
 function testFacts() {
   const count = (dir, pred, re) => {
     if (!existsSync(dir)) return { files: 0, cases: 0 };
@@ -118,27 +81,6 @@ function testFacts() {
     (f) => f.endsWith(".spec.ts"),
     /^\s*test\(/gm,
   );
-  /*
-    THE ANDROID ROW USED TO BE A PRESENCE CHECK AND A HARD-CODED SENTENCE.
-
-    It reported `existsSync("src/test")` as "present", and the Runner column said, in a string
-    literal with no input, "`:app:testDebugUnitTest` reports NO-SOURCE". That was true of a tree with
-    an empty source set and it stopped being true a long time before anybody noticed: the task runs
-    526 cases across 26 classes today, including the suites that guard the questionnaire capture
-    form's wiring. A generated document that says a suite does not run is worse than one that omits
-    it — a reader checking whether the handset is covered at all is told, by the file whose whole
-    job is to be true, that it is not.
-
-    So this walks the tree and counts, the way the backend and e2e rows above already do. RECURSIVE
-    because Kotlin tests live under their package path (`src/test/java/com/fieldrepository/app/…`)
-    while `backend/tests` and `frontend/e2e` are flat — which is exactly why the shared `count`
-    helper, a single `readdirSync`, could not be pointed at it and why this grew its own walk rather
-    than a fourth argument to that one.
-
-    `@Test` and not `fun \`…\`()`: the annotation is what JUnit runs. A helper written in the test
-    file is a `fun` and is not a case, and counting funs would have inflated every number here in the
-    one direction a coverage table must not drift.
-  */
   const kotlinCases = (dir) => {
     if (!existsSync(dir)) return null;
     let files = 0;
@@ -167,11 +109,6 @@ function sttFacts() {
   return m ? [...m[1].matchAll(/"(\w+)"/g)].map((x) => x[1]) : [];
 }
 
-/** Line counts per area, reported BOTH ways.
- *
- *  Tracked and working-tree counts differ by however much new work is uncommitted, and the two get
- *  quoted interchangeably in write-ups until somebody notices they disagree by a third. So both are
- *  produced here, labelled, from one walk. */
 function volumeFacts() {
   const areas = {
     "backend/app": [".py"],
@@ -189,7 +126,6 @@ function volumeFacts() {
         .filter(Boolean),
     );
   } catch {
-    /* not a git checkout, or git unavailable — the tree columns still work */
   }
   const out = {};
   for (const [area, exts] of Object.entries(areas)) {
@@ -205,7 +141,6 @@ function volumeFacts() {
           continue;
         }
         if (!exts.some((x) => e.name.endsWith(x))) continue;
-        // A NUL byte in MainActivity.kt makes some tools treat it as binary; count it regardless.
         const n = read(p).split("\n").length;
         acc.files += 1;
         acc.lines += n;
@@ -221,8 +156,6 @@ function volumeFacts() {
   }
   return { areas: out, haveTracked: tracked !== null };
 }
-
-/* ── the generated facts file ───────────────────────────────────────────────────────────────── */
 
 function renderFacts() {
   const { models, enums, indexes, uniques } = prismaFacts();
@@ -341,8 +274,6 @@ reasoning about what is running locally. Neither is wrong; they answer different
 `;
 }
 
-/* ── checks ─────────────────────────────────────────────────────────────────────────────────── */
-
 function docFiles() {
   return readdirSync(DOCS)
     .filter((f) => f.endsWith(".md"))
@@ -350,7 +281,6 @@ function docFiles() {
     .concat([join(REPO, "README.md")].filter(existsSync));
 }
 
-/** 1. The generated facts file is current. */
 function checkFacts() {
   const rendered = renderFacts();
   if (WRITE) {
@@ -367,7 +297,6 @@ function checkFacts() {
   }
 }
 
-/** 2. The web client's role ladder still matches the backend's. */
 function checkRoleParity() {
   const backend = Object.fromEntries(roleFacts().map((r) => [r.role, r.rank]));
   const src = read(join(REPO, "frontend", "lib", "permissions.ts"));
@@ -382,44 +311,14 @@ function checkRoleParity() {
   }
 }
 
-/** 3. Every repository path mentioned in a doc exists. */
 const PATH_RE = /(?<![\w/.-])((?:backend|frontend|android|infra|docs|scripts|\.github)\/[\w./-]*[\w/])/g;
 
-// A runbook writes commands as you would type them, from the directory the runbook told you to be
-// in, so `python scripts/seed_admin.py` after `cd backend` is correct prose and a wrong path. These
-// are the roots a bare path is allowed to be relative to.
 const PATH_ROOTS = [REPO, join(REPO, "backend"), join(REPO, "frontend"), join(REPO, "android")];
 
-// Path-shaped strings that are deliberately NOT paths. Each needs a reason; the point of the list is
-// that adding to it is a decision somebody made on purpose, not a check quietly weakening.
 const NOT_A_PATH = new Map([
   ["frontend/frontend", "CI.md names it as the wrong path a misconfiguration produces"],
 ]);
 
-/*
- * PATHS A DOCUMENT IS RIGHT TO NAME AND A FRESH CHECKOUT IS RIGHT NOT TO HAVE.
- *
- * WHY THIS EXISTS, AND WHY ITS ABSENCE MADE THE WHOLE CHECKER USELESS HERE. Before 2026-09-13 this
- * file reported **27 problems**, and TWENTY-TWO of them were this one mistake repeated: a document
- * correctly telling a reader to create `backend/.env` from `.env.example`, and the checker calling
- * that a broken path because the file is gitignored and therefore absent from a clean tree. The
- * remaining five were real. A gate whose output is 81% false positives is a gate nobody reads, and
- * one nobody reads cannot be wired into CI — which is exactly what happened: this checker is
- * referenced by no workflow and no npm script, so the five REAL failures had been sitting unread.
- *
- * The sibling repository hit the same wall on its first CI run (35 failures, every one a document
- * naming a file the reader is being told to make) and solved it with this list rather than with
- * per-document exemptions, for the reason its comment gives: "A gate that fails for a reason the
- * author cannot reproduce is a gate that gets switched off." This is that fix, with the entries
- * that are true for THIS repository.
- *
- * MATCHED BY PREFIX, so `backend/.venv/Lib/site-packages/prisma/` is covered by `backend/.venv/`
- * without enumerating what a virtualenv happens to contain this week.
- *
- * A path listed here is still checked in one direction: if it EXISTS it is fine, and if it does not
- * that is expected. What this cannot catch is a typo inside one of these prefixes, which is the
- * price of the rule and is cheaper than the alternative.
- */
 const CREATED_BY_THE_DEVELOPER = [
   ["backend/.env", "gitignored (.gitignore:5) — ENVIRONMENT.md tells the reader to create it from .env.example"],
   ["backend/.venv", "gitignored — the virtualenv a developer builds, named in the setup instructions"],
@@ -429,8 +328,6 @@ const CREATED_BY_THE_DEVELOPER = [
   ["frontend/.vercel", "gitignored — written by `vercel link`/`vercel pull`; it is what says which Vercel project a checkout deploys to"],
   ["android/local.properties", "gitignored — written by Android Studio on first open, or by hand with sdk.dir"],
   ["android/app/libs/", "gitignored — AARs fetched at build time rather than committed"],
-  // Named in CI.md on purpose: it is the key an operator holds for THIS repository's API box, and
-  // that document's job is partly to stop somebody reaching for the wrong one.
   ["infra/terraform/fieldrepo-deploy.pem", "a private key, never committed — CI.md names it as the file an operator holds"],
   ["infra/terraform/terraform.tfstate", "gitignored — local Terraform state, including per-workspace copies under terraform.tfstate.d/"],
   ["infra/terraform/.terraform", "gitignored — Terraform's working directory"],
@@ -451,7 +348,7 @@ function checkPaths() {
     const rel = doc.slice(REPO.length + 1).replace(/\\/g, "/");
     for (const m of text.matchAll(PATH_RE)) {
       const p = m[1].replace(/[.,;:)]+$/, "");
-      if (p.includes("*") || p.includes("…")) continue; // globs and elisions are prose, not paths
+      if (p.includes("*") || p.includes("…")) continue;
       if (NOT_A_PATH.has(p)) continue;
       if (expectedAbsent(p)) continue;
       checked += 1;
@@ -461,7 +358,6 @@ function checkPaths() {
   note(`${checked} repository paths resolved`);
 }
 
-/** 4. Line citations (`file.py:120` / `file.py:120-140`) land inside a file that is long enough. */
 const CITE_RE = /([\w./-]+\.(?:py|ts|tsx|kt|kts|mjs|sh|yaml|yml|prisma)):(\d+)(?:-(\d+))?/g;
 function checkCitations() {
   let checked = 0;
@@ -472,14 +368,13 @@ function checkCitations() {
     for (const m of text.matchAll(CITE_RE)) {
       const [, file, startS, endS] = m;
       const end = Number(endS || startS);
-      // Resolve a bare filename against the paths named elsewhere in the same document.
       let full = PATH_ROOTS.map((r) => join(r, file)).find(existsSync) || null;
       if (!full) {
         const base = file.split("/").pop();
         const guess = [...text.matchAll(PATH_RE)].map((x) => x[1]).find((p) => p.endsWith(base));
         if (guess && existsSync(join(REPO, guess))) full = join(REPO, guess);
       }
-      if (!full || !statSync(full).isFile()) continue; // path check already reported real misses
+      if (!full || !statSync(full).isFile()) continue;
       checked += 1;
       const lines = read(full).split("\n").length;
       if (end > lines) fail(`${rel}: citation ${file}:${startS}${endS ? "-" + endS : ""} is past end of file (${lines} lines)`);
@@ -492,15 +387,6 @@ function checkCitations() {
   }
 }
 
-/** 5. Every doc says how it is kept true.
- *
- *  A document with no maintenance story does not meet the brief: nobody knows what to re-check when
- *  the code moves, so nobody does, and it decays into confident misinformation. REPO_FACTS.md is
- *  exempt because it is regenerated wholesale — the script IS its maintenance story.
- *
- *  The five in PENDING were written by a different workstream and are not this one's to rewrite.
- *  They are reported as warnings rather than silently skipped, so the gap stays visible; move each
- *  name out of the set as its owner adds the section. */
 const MAINTENANCE_EXEMPT = new Set(["REPO_FACTS.md"]);
 
 function checkMaintenanceSections() {
@@ -512,18 +398,6 @@ function checkMaintenanceSections() {
   }
 }
 
-/** 6. Mermaid blocks: the failure modes that are cheap to detect without a parser.
- *
- *  A broken diagram renders as a red error box on GitHub, which is worse than no diagram — it makes
- *  the page look abandoned. The authoritative check is a real parse (see below); this catches the
- *  two mistakes that have actually been made here, with no dependency.
- *
- *  For the real thing, in a scratch directory:
- *      npm i mermaid jsdom
- *      # set window/document/DOMParser/Element/Node/SVGElement from a JSDOM instance,
- *      # then `await mermaid.parse(block)` for every fenced block.
- *  That found a semicolon inside a sequenceDiagram message, which mermaid reads as a statement
- *  separator — the rest of the line then parses as a new statement and the diagram dies. */
 const MERMAID_TYPES = /^(flowchart|graph|sequenceDiagram|stateDiagram(-v2)?|erDiagram|classDiagram|journey|gantt|pie|mindmap|timeline|quadrantChart|gitGraph)\b/;
 
 function checkMermaid() {
@@ -541,8 +415,6 @@ function checkMermaid() {
       if (!MERMAID_TYPES.test(first)) {
         fail(`${rel}: mermaid block ${i + 1} does not start with a diagram type — got "${first.slice(0, 40)}"`);
       }
-      // A semicolon in a sequence-diagram message ends the statement; everything after it is parsed
-      // as a new one and the whole diagram fails to render.
       if (/^sequenceDiagram/.test(first)) {
         for (const line of body.split("\n")) {
           const msg = line.match(/^\s*\w+\s*-{1,2}>>?\s*\w+\s*:(.*)$/);
@@ -556,7 +428,6 @@ function checkMermaid() {
   note(`${blocks} mermaid blocks linted (structure only — parse them for certainty)`);
 }
 
-/** 7. Relative markdown links between docs resolve. */
 function checkCrossLinks() {
   let checked = 0;
   for (const doc of docFiles()) {
@@ -570,8 +441,6 @@ function checkCrossLinks() {
   }
   note(`${checked} relative links resolved`);
 }
-
-/* ── run ────────────────────────────────────────────────────────────────────────────────────── */
 
 checkFacts();
 checkRoleParity();
