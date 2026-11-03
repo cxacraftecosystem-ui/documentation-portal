@@ -146,7 +146,7 @@ _OPENAI = ProviderSpec(
             id="gpt-6-luna",
             label="GPT-6 Luna",
             note="The default, and the cheapest by a wide margin. Good for proofreading, weaker on long translation.",
-            price_per_mtok=(0.20, 1.25),
+            price_per_mtok=(0.10, 0.50),
             tasks=TEXT_AND_VISION,
         ),
         AiModel(
