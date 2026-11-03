@@ -205,7 +205,7 @@ class MediaTranscribeUiTest {
             TranscriptTurn(
                 id = "turn_v", index = 0, speakerName = "Giriraj", startMs = 1000, endMs = 4000, language = "hi",
                 text = "ये करघा है",
-                words = listOf(TranscriptWord("ये", 1000, 1500, 0), TranscriptWord("करघा", 1600, 2500, 3), TranscriptWord("है", 2600, 4000, 9)),
+                words = listOf(TranscriptWord("ये", 1000, 1500, 0), TranscriptWord("करघा", 1600, 2500, 3), TranscriptWord("है", 2600, 4000, 8)),
             ),
         ),
         audio = TranscriptAudio(url = null, durationMs = 20_000, video = true),
