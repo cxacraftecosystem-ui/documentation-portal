@@ -1,19 +1,3 @@
-"""Artisan cards: issue, reissue, print and resolve (services/artisan_card.py has the code format).
-
-Every route answers 404 while cards are not active on this server (``artisan_card.active``: the
-flag and ARTISAN_CARD_KEY), except ``/artisan-cards/status``, which answers ``enabled: false`` so
-the clients hide the card without a word.
-
-Reading a card follows reading the artisan: every signed-in account may. Reissuing follows editing
-the artisan. Resolving needs a session, logs every attempt, and answers every kind of miss (unknown,
-forged, revoked-and-gone, a designer card that is not linked) with one 404 sentence, counting it
-towards the account's miss budget.
-
-A designer-portal card (issuer ``D``) resolves here only through the link the designer portal made:
-it pushes its card code at link time and at reissue (``CrossPortalArtisanLink.remoteCardCode``).
-This server never calls the designer portal.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -37,10 +21,8 @@ if TYPE_CHECKING:
 
 router = APIRouter(tags=["artisan-cards"])
 
-#: The portal name printed on every card.
 PORTAL_NAME = "Field Repository"
 
-#: The most cards one sheet request prints.
 SHEET_LIMIT = 200
 
 MISS = "No artisan matches this card."
@@ -49,9 +31,7 @@ UNLINKED_DESIGNER_CARD = (
 )
 BAD_CODE = "Check the code. One character is wrong."
 
-#: A photo larger than this is not fetched for a card at all.
 _PHOTO_MAX_BYTES = 15 * 1024 * 1024
-#: The most photo bytes one PDF request pulls from storage.
 _PHOTO_BUDGET_BYTES = 80 * 1024 * 1024
 _PHOTO_CONCURRENCY = 6
 
@@ -78,11 +58,6 @@ def _source(value: str | None) -> str:
 
 
 async def _photos(artisan_ids: list[str], viewer: Any) -> dict[str, Any]:
-    """The first image of each artisan this viewer may take, as ``{artisanId: MediaFile}``.
-
-    Only images whose uploader the viewer may download from (``media_url_owners``), so a card never
-    hands out a photo the media library would not.
-    """
     if not artisan_ids:
         return {}
     rows = await db.mediafile.find_many(
@@ -101,7 +76,6 @@ async def _photos(artisan_ids: list[str], viewer: Any) -> dict[str, Any]:
 
 
 async def _photo_bytes(media: dict[str, Any]) -> dict[str, bytes]:
-    """Fetch the photos, a few at a time and within a byte budget. A failed fetch prints no photo."""
     from app.services import s3
 
     budget = _PHOTO_BUDGET_BYTES
@@ -127,9 +101,6 @@ async def _photo_bytes(media: dict[str, Any]) -> dict[str, bytes]:
 
 
 def _pdf_module():
-    """app/services/artisan_card_pdf, imported on the first card printed: it loads reportlab, Pillow
-    and segno, about 25 MB the API would otherwise hold from start-up on a server that may never
-    print a card (backend/tests/test_import_footprint.py)."""
     from app.services import artisan_card_pdf
 
     return artisan_card_pdf
@@ -151,7 +122,6 @@ def _face(settings: Any, artisan: Any, card: Any, photo: bytes | None) -> artisa
 
 
 def _card_file_name(faces: list[Any]) -> str:
-    """One card names its artisan; a sheet is the day's artisan cards (services/naming.py)."""
     if len(faces) == 1:
         face = faces[0]
         return naming.file_name(
@@ -171,8 +141,6 @@ def _pdf(content: bytes, filename: str) -> Response:
         },
     )
 
-
-# ──────────────────────────────────────────────────────────────────────────────────────────────
 
 
 @router.get("/artisan-cards/status")
@@ -281,7 +249,6 @@ class SheetIn(BaseModel):
 
     artisanIds: list[str] | None = Field(default=None, max_length=SHEET_LIMIT)
     workshopId: str | None = Field(default=None, max_length=64)
-    # The designer portal's source; accepted so one client contract fits both, refused if sent here.
     designWorkshopId: str | None = Field(default=None, max_length=64)
     size: Literal["id1", "a6"] = "id1"
     photo: bool = True
@@ -361,18 +328,12 @@ async def sheet_pdf(payload: SheetIn, current_user: Any = Depends(get_current_us
     return response
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# Resolve
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 class ResolveIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     input: str = Field(min_length=1, max_length=64)
     source: str | None = Field(default=None, max_length=16)
-    # The designer portal's consent tick for a REMOTE prefill. Accepted and ignored here: this
-    # server never asks the other one.
     consent: bool = False
 
 
@@ -424,7 +385,6 @@ async def resolve_card(
             )
             return {"status": "REPLACED", "artisanId": card.artisanId}
         return await _found(card.artisanId, "LOCAL", card.code, user_id, source)
-    # The other portal's card: only through the link its server told us about.
     link = None
     if cross_portal.active(settings):
         link = await db.crossportalartisanlink.find_first(where={"remoteCardCode": parsed.code})

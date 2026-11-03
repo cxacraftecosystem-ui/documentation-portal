@@ -1,10 +1,3 @@
-"""The release row keeps the versionCode the publisher sent (no database).
-
-Since 2026-10-21 the version NAME restarted at 0.0.1 while the CODE keeps rising, so the server must
-not re-derive the code from the name: 0.0.1 would become code 1, below every installed copy, and no
-phone would ever be offered the update.
-"""
-
 from __future__ import annotations
 
 import asyncio

@@ -1,10 +1,3 @@
-"""The e-mail outbox (``app/services/email_outbox.py``): queueing, the drain, retries, the send log,
-which task moves earn an e-mail, the opt-out, and the access e-mail.
-
-No database: the module's ``db`` is a small in-memory stand-in that answers the calls the outbox
-makes, and SES is replaced at ``mailer.send``.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -81,8 +74,6 @@ class _Lookup:
 
 
 class _Notifications:
-    """The in-app list (``app/services/notifications.notify`` writes one row per notice)."""
-
     def __init__(self) -> None:
         self.rows: list[SimpleNamespace] = []
 
@@ -246,10 +237,6 @@ def test_the_access_e_mail_reaches_an_address_with_no_account_yet(world: Any) ->
     assert row.recipientId is None
 
 
-# --------------------------------------------------------------------------------------
-# The in-app half (C25): every notice is written to the activity list by the same call.
-# --------------------------------------------------------------------------------------
-
 
 def test_a_task_notice_lands_in_app_even_with_mail_off(world: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     off = get_settings().model_copy(update={"mail_from_address": None})
@@ -328,10 +315,6 @@ def test_the_serialized_notice_says_read_in_words() -> None:
     out = notifications.serialize(row)
     assert out["read"] is False and out["readAt"] is None and out["createdAt"].startswith("2026-10-17")
 
-
-# --------------------------------------------------------------------------------------
-# Reserved, non-deliverable addresses (identical in both portals)
-# --------------------------------------------------------------------------------------
 
 
 def _queue_notice(address: str) -> Any:

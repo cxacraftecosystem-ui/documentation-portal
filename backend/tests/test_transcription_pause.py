@@ -1,10 +1,3 @@
-"""Transcription is idle (owner correction (d); DESIGN 3.14, test 35e).
-
-With ``transcriptionPaused = true`` (the shipped state), /media/complete, the sha worker,
-transcribe-now, /recordings/{id}/transcribe and the queue make ZERO provider calls: every provider
-entry point is replaced by one that fails the test, and every job stays QUEUED.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -31,10 +24,8 @@ def test_nothing_reaches_a_provider_while_paused(monkeypatch) -> None:
         retry = await recordings.transcribe(take["id"], ids.lead, client=client)
         assert retry == {"status": "QUEUED", "paused": True}
         media = await client.mediafile.find_unique(where={"id": take["mediaFileId"]})
-        # "Transcribe now" answers the pause (409 at the route) and calls nobody; the clip stays queued.
         with pytest.raises(transcription_jobs.TranscriptionPaused):
             await media_queue.transcribe_media_now(media)
-        # Other suites share this database and leave their own queued jobs; put this clip's first.
         await client.execute_raw('UPDATE "MediaProcessingJob" SET "priority" = 0 WHERE "mediaFileId" = $1', take["mediaFileId"])
         result = await media_queue.process_next_media_jobs(limit=5, worker_id="test")
         jobs = await client.query_raw(

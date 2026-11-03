@@ -1,11 +1,3 @@
-"""The answering side of cross-portal search: ``POST /cross-portal/peer/search`` and ``.../record``
-(routes/cross_portal_search, services/cross_portal_peer; docs/SEARCH.md).
-
-The admission dependency needs no database and runs everywhere. The searches themselves run against
-a real database (opt-in, see ``search_support``), with a TestClient-free request object, so the
-module keeps one event loop.
-"""
-
 from __future__ import annotations
 
 import json
@@ -132,7 +124,6 @@ async def test_off_is_404_and_a_bad_token_or_nonce_is_401(monkeypatch):
     with pytest.raises(HTTPException) as short:
         await cross_portal_peer.require_search_peer(request, f"Bearer {TOKEN}", "abc")
     assert short.value.status_code == 401
-    # No designer URL configured: search is not active, whatever the flag says.
     monkeypatch.setattr(
         cross_portal_peer, "get_settings", lambda: _settings(designer_portal_api_url=None)
     )
@@ -174,7 +165,6 @@ async def test_an_unknown_requester_gets_the_floor_of_shareable_records(world, m
     )
     ids = {i["id"] for i in _items(_body(response))}
     assert world.consented.id in ids and world.craft.id in ids and world.product_title.id in ids
-    # Not shareable: an artisan without consent, a record naming them, a free-text artisan.
     for hidden in (world.unconsented.id, world.product_body.id, world.product_free.id):
         assert hidden not in ids
 
@@ -195,7 +185,6 @@ async def test_a_withdrawal_is_honoured_before_the_indexer_runs(world, monkeypat
     assert (await document("products", world.product_title.id))["shareable"] is True
     await consent(world.consented.id, False)
     try:
-        # The document still says shareable: nothing was drained.
         assert (await document("products", world.product_title.id))["shareable"] is True
         _r, response = await _peer_search(
             world, monkeypatch, requester=_requester(world, email="nobody@example.invalid")
@@ -282,10 +271,10 @@ async def test_a_record_is_a_read_only_card_or_404(world, monkeypatch):
         assert secret not in ok.body.decode()
 
     for kind, entity_id in (
-        ("products", world.product_body.id),  # names an artisan without consent
+        ("products", world.product_body.id),
         ("artisans", world.unconsented.id),
         ("products", "missing"),
-        ("designWorkshops", world.product_title.id),  # not a type this portal holds
+        ("designWorkshops", world.product_title.id),
         ("nonsense", world.product_title.id),
     ):
         missing = await routes.peer_search_record(

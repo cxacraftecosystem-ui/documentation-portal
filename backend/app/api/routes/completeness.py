@@ -1,11 +1,3 @@
-"""``GET /records/completeness-rules`` — the completeness rules file, for clients to cache.
-
-The web bundle and the Android app each ship a copy of ``shared/record-completeness.json`` and judge
-records with it offline; this route hands them the live copy so a newer rules version reaches them
-without a release. The answer is the file's bytes and an ETag, and a client that already holds that
-version gets a bodiless 304.
-"""
-
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request, Response
@@ -27,7 +19,6 @@ def _matches(header: str | None, etag: str) -> bool:
 async def completeness_rules(request: Request, _: Any = Depends(get_current_user)) -> Response:
     headers = {
         "ETag": completeness.RULES_ETAG,
-        # Stored by the client and re-validated on every use: a 304 costs one round trip and no body.
         "Cache-Control": "private, no-cache",
     }
     if _matches(request.headers.get("if-none-match"), completeness.RULES_ETAG):

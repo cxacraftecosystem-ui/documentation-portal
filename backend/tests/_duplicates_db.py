@@ -1,13 +1,3 @@
-"""Shared set-up for the duplicate-artisan tests that need a REAL Postgres.
-
-Opt-in: those tests run only with ``ARTISAN_DUPLICATE_DB_TESTS=1`` and a ``DATABASE_URL`` that is a
-throwaway database with every migration applied (never ``backend/.env``, which points at
-production). CI's placeholder DSN and an ordinary ``pytest`` skip them; what they cover is what only
-a database can show — the partial unique indexes the pair upserts target and the transaction.
-
-Every artisan gets a freshly invented name, so pairs from one test never reach another's scorer.
-"""
-
 from __future__ import annotations
 
 import os
@@ -32,7 +22,6 @@ async def connect() -> Any:
     url = os.environ.get("DATABASE_URL", "")
     assert "supabase" not in url and "pooler" not in url, "refusing to run against a hosted database"
     if not db.is_connected():
-        # A loaded test box can take longer than the engine's default 10 s to answer its first call.
         await db.connect(timeout=timedelta(seconds=180))
     return db
 
@@ -49,7 +38,6 @@ _VOWS = "aeiou"
 
 
 def word(length: int = 7) -> str:
-    """A pronounceable invented word, unlike any other test's."""
     rng = random.SystemRandom()
     letters = [rng.choice(_CONS if i % 2 == 0 else _VOWS) for i in range(length)]
     return "".join(letters).capitalize()
@@ -60,7 +48,6 @@ def person() -> str:
 
 
 def valid_aadhaar() -> str:
-    """A fresh number the app's own Verhoeff routine accepts."""
     from app.services.artisan_identity import verhoeff_ok
 
     rng = random.SystemRandom()
@@ -115,7 +102,6 @@ async def make_artisan(db: Any, user: Any, *, state: str | None = "Gujarat",
 
 def payload(name: str, *, aadhaar: str | None = None, ack: list[str] | None | str = "absent",
             **extra: Any) -> dict[str, Any]:
-    """An ``ArtisanCreate`` body as the form sends it. ``ack="absent"`` leaves the field out."""
     body: dict[str, Any] = {
         "name": name,
         "place": extra.pop("place", "Bhuj"),

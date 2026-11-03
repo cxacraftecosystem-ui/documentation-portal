@@ -1,17 +1,3 @@
-"""WEB CAPTURE (2026-10-17): the server halves of A7, A12, B8, C18 and C22.
-
-* A7  — "Use as answer": a transcript becomes answer text by one shared rule
-  (``shared/transcript-answer-vectors.json``, also run by the web), a clip is matched to its ONE
-  question, and ``apply-transcripts`` fills only EMPTY answers, stamped ``answerSource=TRANSCRIPT``.
-* A12 — a linked product's craft name, artisan name and place come from the linked records.
-* B8  — an interview may be created without a title (the server names it), and a question may name
-  the artisan field it is answered from, from a closed list.
-* C18 — a new artisan carries an Aadhaar or the explicit "Not shared by artisan" outcome.
-* C22 — a process step may be saved without a name.
-
-No database: the routes are driven against fakes, and the migration is read as text.
-"""
-
 from __future__ import annotations
 
 import json
@@ -38,7 +24,7 @@ from app.services import linked_names
 pytestmark = pytest.mark.anyio
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-VALID_AADHAAR = "234123412346"  # passes the Verhoeff check
+VALID_AADHAAR = "234123412346"
 LOCATION = {"latitude": 26.8, "longitude": 75.5, "state": "Rajasthan", "district": "Jaipur"}
 
 
@@ -46,10 +32,6 @@ LOCATION = {"latitude": 26.8, "longitude": 75.5, "state": "Rajasthan", "district
 def anyio_backend():
     return "asyncio"
 
-
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# A7 — transcripts as answers
-# ──────────────────────────────────────────────────────────────────────────────────────────────
 
 
 def test_transcript_answer_text_runs_the_shared_vectors():
@@ -91,14 +73,10 @@ def test_a_section_take_or_a_foreign_question_answers_nothing():
 
 
 def test_m20_a_clip_is_placed_by_its_link_never_by_its_position():
-    """Audit M20: after a reorder "D3" is another question. The caption's number must not place it."""
     reordered = [_q("q-clay", "D", 7, "How is the clay prepared?"), _q("q-kiln", "D", 3, "Who built the kiln?")]
-    # The caption still says D3 (its position on the day), but its prompt names the clay question.
     assert q_routes.clip_question_id(_clip(caption="Question audio: D3 How is the clay prepared?"), reordered) == "q-clay"
-    # A caption with no prompt, or a prompt that no longer exists, is not placed by its number.
     assert q_routes.clip_question_id(_clip(caption="Question audio: D3"), reordered) is None
     assert q_routes.clip_question_id(_clip(caption="Question audio: D3 - A question since deleted"), reordered) is None
-    # The recording's target wins over the caption, by exact wording or by lineage.
     linked = [{"askedQuestionId": None, "questionLineageId": "q-kiln"}]
     assert q_routes.clip_question_id(_clip(caption="Question audio: D3 How is the clay prepared?"), reordered, linked) == "q-kiln"
     rows = [_clip(id="m-1", caption="Question audio: D3", transcriptText="The kiln was built by my father.")]
@@ -237,10 +215,6 @@ def test_the_route_is_mounted_for_the_web_button():
     assert any(path.endswith("/interviews/{interview_id}/apply-transcripts") and "POST" in methods for path, methods in paths)
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# A12 — names from the linked records
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 def _product(**kwargs: Any) -> ProductCreate:
     body: dict[str, Any] = {"productName": "Dabu print stole", "location": LOCATION}
@@ -296,10 +270,6 @@ async def test_an_unlinked_create_keeps_its_typed_names_and_an_edit_without_link
     assert await linked_names.fill_product_names({"remarks": "x"}, stored=stored) == {"remarks": "x"}
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# B8 — automatic title and the question's artisan field
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 def test_an_interview_may_be_created_without_a_title():
     assert QuestionnaireInterviewCreate(location=LOCATION).title is None
@@ -307,7 +277,6 @@ def test_an_interview_may_be_created_without_a_title():
 
 
 def test_the_automatic_title_names_who_what_and_when():
-    """The generated default follows NAMING (Entity_Date_..._Subject), never " · " (audit Low)."""
     when = datetime(2026, 10, 17, 9, 30)
     assert q_routes.interview_title_from(["Ramesh"], when) == "Interview_2026-10-17_Ramesh"
     assert q_routes.interview_title_from([], when) == "Interview_2026-10-17"
@@ -342,10 +311,6 @@ def test_the_question_routes_write_and_clear_the_mapping():
     assert '"artisanField": payload.artisanField' in source
     assert '"artisanField" in payload.model_fields_set and payload.artisanField is None' in source
 
-
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# C18 — "Not shared by artisan"
-# ──────────────────────────────────────────────────────────────────────────────────────────────
 
 
 def _artisan(**kwargs: Any) -> ArtisanCreate:
@@ -394,19 +359,11 @@ def test_an_edit_keeps_the_flag_and_the_number_consistent():
     assert ArtisanUpdate(aadhaarNotShared=True).aadhaarNotShared is True
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# C22 — unnamed steps
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 def test_a_process_step_may_be_saved_without_a_name():
     assert ProcessStepInput().name == ""
     assert ProcessStepInput(name="Second dip").name == "Second dip"
 
-
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# The migration
-# ──────────────────────────────────────────────────────────────────────────────────────────────
 
 
 def test_the_migration_is_additive_and_matches_the_schema():
@@ -421,13 +378,8 @@ def test_the_migration_is_additive_and_matches_the_schema():
         assert column in schema
 
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-# Review fixes (2026-10-17)
-# ──────────────────────────────────────────────────────────────────────────────────────────────
-
 
 def _drive_apply(monkeypatch, interview: Any) -> dict[str, Any]:
-    """Wire ``apply_interview_transcripts`` to fakes: one D3 clip, no answers. Returns what it wrote."""
     captured: dict[str, Any] = {"updates": []}
     media = [_clip(caption="Question audio: D3 - How is the clay prepared?", transcriptText="Clay from the river.")]
     questions = [QUESTIONS[0]]
@@ -507,7 +459,6 @@ async def test_apply_transcripts_runs_the_edit_gate_with_the_filled_answers(monk
     await q_routes.apply_interview_transcripts("i-1", current_user=reviewer)
     assert captured["guarded"] == {"transcriptAnswers": {"q-d3": "Clay from the river."}}
     assert captured["fills"] == ["q-d3"]
-    # Not the creator, not sent back: the status is left alone.
     assert captured["updates"] == []
 
 
@@ -519,7 +470,6 @@ async def test_apply_transcripts_by_the_creator_resubmits_a_sitting_sent_back(mo
 
 
 async def test_the_edit_gate_lets_a_contributor_fill_and_writes_the_revision(monkeypatch):
-    """`guard_record_edit` itself, with the fill's key: a contributor may fill, and a revision is written."""
     from app.services import access
 
     written: list[dict[str, Any]] = []
@@ -570,7 +520,6 @@ async def test_a_linked_create_the_records_cannot_name_is_refused(monkeypatch):
     assert refused.value.status_code == 422
     with pytest.raises(HTTPException, match="place"):
         await linked_names.fill_product_names({"artisanId": "a-2", "craftName": "Weaving", "artisanName": None, "place": None})
-    # A typed value the record cannot supply is kept.
     kept = await linked_names.fill_product_names(
         {"artisanId": "a-2", "craftName": "Weaving", "artisanName": None, "place": "Kutch"}
     )
@@ -588,7 +537,6 @@ async def test_an_unchanged_link_keeps_drifted_names_so_a_contributor_can_edit(m
     from app.core.deps import assert_can_contribute_fields
 
     _patch_links(monkeypatch)
-    # Stored before the artisan was renamed to "Ramesh Chhipa".
     stored = SimpleNamespace(
         id="p-1",
         createdById="u-1",
@@ -610,7 +558,6 @@ async def test_an_unchanged_link_keeps_drifted_names_so_a_contributor_can_edit(m
     data = await linked_names.fill_product_names(dict(body), stored=stored)
     assert data == body
     assert_can_contribute_fields(stored, SimpleNamespace(id="u-9", role="RESEARCHER"), data)
-    # A changed link still re-derives.
     moved = await linked_names.fill_product_names({"artisanId": "a-1"}, stored=SimpleNamespace(artisanId="a-0", craftId="c-1"))
     assert moved["artisanName"] == "Ramesh Chhipa"
 
@@ -627,19 +574,15 @@ def test_the_outcome_cannot_wipe_a_stored_number_or_drop_without_one():
         artisan_routes.reconcile_aadhaar_not_shared({"aadhaarNotShared": False}, stored=flagged)
     with pytest.raises(HTTPException, match="12-digit Aadhaar"):
         artisan_routes.reconcile_aadhaar_not_shared({"aadhaarNotShared": False, "aadhaarNumber": None}, stored=flagged)
-    # A number arriving is the follow-up done.
     assert artisan_routes.reconcile_aadhaar_not_shared(
         {"aadhaarNumber": VALID_AADHAAR, "aadhaarNotShared": False}, stored=flagged
     ) == {"aadhaarNumber": VALID_AADHAAR, "aadhaarNotShared": False}
-    # Leaving the flag alone, or re-sending it on a flagged record, is fine.
     assert artisan_routes.reconcile_aadhaar_not_shared({"phone": "x"}, stored=flagged) == {"phone": "x"}
     assert artisan_routes.reconcile_aadhaar_not_shared({"aadhaarNotShared": True}, stored=flagged)["aadhaarNumber"] is None
-    # A number on file as a fingerprint (the 2026-10-17 register) counts as on file too.
     fingerprinted = SimpleNamespace(aadhaarNumber=None, aadhaarFingerprint="ab" * 32, aadhaarNotShared=False)
     with pytest.raises(HTTPException) as refused_fp:
         artisan_routes.reconcile_aadhaar_not_shared({"aadhaarNotShared": True}, stored=fingerprinted)
     assert refused_fp.value.status_code == 422
-    # An ordinary number edit on an unflagged record is not also a flag edit.
     assert artisan_routes.reconcile_aadhaar_not_shared({"aadhaarNumber": VALID_AADHAAR}, stored=fingerprinted) == {
         "aadhaarNumber": VALID_AADHAAR
     }

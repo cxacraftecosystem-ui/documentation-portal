@@ -1,12 +1,3 @@
-"""The artisan-card store against a REAL Postgres, with the real migration applied.
-
-Opt-in: runs only with ``ARTISAN_CARD_DB_TESTS=1`` and a ``DATABASE_URL`` that is a throwaway test
-database (never ``backend/.env``, which points at production). CI's placeholder DSN and an ordinary
-``pytest`` skip it; the in-memory routes suite covers the same behaviour against a fake. What only a
-real database can show is here: the partial unique index lets exactly one of many racing first reads
-issue a card, and the backfill issues nothing the second time.
-"""
-
 from __future__ import annotations
 
 import asyncio

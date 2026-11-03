@@ -1,13 +1,3 @@
-"""``GET /questionnaires/options`` — the route the shared Android start sheet asks both portals for.
-
-The questionnaire tree on the handset is shared with the designer portal, and its
-``QuestionnaireApi.formOptions`` reads ``questionnaires/options``. This server had no such route, so
-the path fell through to ``/{questionnaire_id}`` with ``"options"`` as the id, answered 404, and the
-start sheet offered no form at all. Pinned here: the route exists, it is declared ABOVE the
-parameterised one (FastAPI matches in declaration order), it answers a bare array with the designer
-portal's row keys, and the handset still asks for exactly this path.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path

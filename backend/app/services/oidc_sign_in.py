@@ -1,62 +1,3 @@
-"""Microsoft and Yahoo sign-in: an authorization code a client brought back, redeemed and proved.
-
-── THE SHAPE, AND WHY IT IS NOT THE GOOGLE SHAPE ───────────────────────────────────────────────
-
-Google hands the CLIENT an ID token (Identity Services on the web, Credential Manager on the
-phone) and the client posts it to ``POST /auth/login``. Microsoft and Yahoo cannot be driven that
-way from both clients: Yahoo's token endpoint authenticates the caller with a client secret only
-(its discovery document lists ``client_secret_basic`` and ``client_secret_post`` and nothing else)
-and answers no cross-origin request, so neither a browser nor a phone can redeem a Yahoo code
-without holding a secret it must not hold. So for these two providers the CLIENT runs the
-authorization-code flow with PKCE and a nonce, and posts what came back — the code, the PKCE
-verifier, the redirect URI it used and the raw nonce — to ``POST /auth/login``. This module redeems
-the code with the client secret and then proves the ID token exactly as if a client had sent it.
-
-Both clients use ONE redirect URI per deployment, the web app's ``/login/callback``. The Android
-app opens the provider in a browser tab with that URI too; the web route recognises the app's
-``state`` and hands the code to the app over its own scheme. One URI per provider registration is
-the whole of what an owner has to configure, and the code is useless to anybody who intercepts it
-without the PKCE verifier, which never leaves the device that started the flow.
-
-── WHAT IS PROVED ABOUT THE ID TOKEN, EVERY TIME ───────────────────────────────────────────────
-
-The token comes back over a TLS back channel from the provider, and it is verified anyway — a
-redemption that some future change routed differently must not become a trust decision nobody
-re-made:
-
-* the signature, against the provider's published JWKS (RS256 or ES256 only; ``none`` and every
-  HMAC algorithm are refused before a key is even looked up, which is what stops an attacker
-  choosing the algorithm);
-* the issuer (Yahoo's fixed one; Microsoft's per-tenant one, bound to the token's own ``tid`` and
-  to the tenant this deployment is configured for);
-* the audience (this deployment's client ID; with several audiences, ``azp`` must name ours);
-* expiry, not-before and issued-at, with a minute of leeway for clock drift;
-* the nonce: the client sent the provider ``base64url(sha256(raw))`` and sends this server the
-  raw value, so a token is accepted only from whoever started the flow that minted it.
-
-── THE EMAIL, AND WHEN IT COUNTS AS VERIFIED ───────────────────────────────────────────────────
-
-Admission and account linking are keyed on the email address, so an address the provider has not
-verified must never reach them — that is the whole "nOAuth" class of takeover, where a tenant
-administrator sets any address they like on an account they control.
-
-* **Yahoo** says so directly: ``email_verified`` must be true.
-* **Microsoft** has no ``email_verified``. A personal Microsoft account (tenant
-  ``9188040d-6c67-4c5b-b112-36a304b66dad``) carries an address Microsoft verified when the
-  account was made. A work or school account's ``email`` is whatever its tenant says, so it is
-  accepted only when the token carries ``xms_edov`` (email domain owner verified) as true — an
-  optional claim the app registration has to ask for (docs/ENVIRONMENT.md says how).
-
-The address is lower-cased and nothing else — the same ``normalise_email`` form every address in
-this application is stored and gated under. No spelling is folded (Gmail dots, ``+tags``): neither
-provider promises anything about another spelling of the address it verified.
-
-── WHAT IS LOGGED ──────────────────────────────────────────────────────────────────────────────
-
-The provider and the CLASS of a failure — never a token, a code, a verifier, a nonce or a response
-body, all of which are credentials or quote one.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -85,22 +26,17 @@ MICROSOFT = "MICROSOFT"
 YAHOO = "YAHOO"
 PROVIDERS = (MICROSOFT, YAHOO)
 
-#: The tenant every personal Microsoft account signs in through.
 MICROSOFT_CONSUMER_TENANT = "9188040d-6c67-4c5b-b112-36a304b66dad"
 MICROSOFT_LOGIN_HOST = "https://login.microsoftonline.com"
-#: The three audiences Microsoft names by keyword rather than by a tenant ID.
 MICROSOFT_TENANT_KEYWORDS = ("common", "organizations", "consumers")
 
 YAHOO_ISSUER = "https://api.login.yahoo.com"
 YAHOO_TOKEN_ENDPOINT = "https://api.login.yahoo.com/oauth2/get_token"
 YAHOO_JWKS_URI = "https://api.login.yahoo.com/openid/v1/certs"
 
-#: Only asymmetric signatures. An HMAC algorithm here would let anybody who knows the client ID's
-#: public key material "sign" with it; ``none`` would need no key at all.
 ALLOWED_ALGORITHMS = ("RS256", "ES256")
 CLOCK_LEEWAY_SECONDS = 60
 JWKS_TTL_SECONDS = 3600
-#: An unknown ``kid`` refetches the key set (providers rotate keys), but not more often than this.
 JWKS_REFETCH_FLOOR_SECONDS = 60
 HTTP_TIMEOUT_SECONDS = 10
 
@@ -108,16 +44,13 @@ _GUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 
 
 class SignInRefused(Exception):
-    """The code or the token was not accepted. ``reason`` is a short internal tag for the log line
-    and for tests; the person is told a provider-named sentence that carries none of it."""
-
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
 
 
 class EmailNotVerified(SignInRefused):
-    """The token is genuine, but the provider has not verified the address on it."""
+    pass
 
 
 @dataclass(frozen=True)
@@ -128,7 +61,6 @@ class Provider:
     client_secret: str
     token_endpoint: str
     jwks_uri: str
-    #: Microsoft only: ``common``, ``organizations``, ``consumers`` or one tenant's ID.
     tenant: str | None = None
     scope: str = "openid email profile"
 
@@ -138,11 +70,6 @@ def label_of(name: str) -> str:
 
 
 def microsoft_tenant(raw: str | None) -> str | None:
-    """The configured tenant in the one form this module accepts, or None when it is unusable.
-
-    A tenant given by DOMAIN NAME (``contoso.onmicrosoft.com``) is refused rather than guessed at:
-    the token names its tenant by ID, and a domain cannot be compared with one without a lookup.
-    """
     value = (raw or "common").strip().lower()
     if value in MICROSOFT_TENANT_KEYWORDS or _GUID.match(value):
         return value
@@ -150,11 +77,6 @@ def microsoft_tenant(raw: str | None) -> str | None:
 
 
 def provider(name: str) -> Provider | None:
-    """The provider as this deployment configured it, or None when it is not configured.
-
-    BOTH THE CLIENT ID AND THE SECRET, because the code cannot be redeemed without the secret and a
-    provider that can start a sign-in and never finish one is worse than no button.
-    """
     settings = get_settings()
     if name == MICROSOFT:
         client_id = (settings.microsoft_client_id or "").strip()
@@ -195,22 +117,17 @@ def provider(name: str) -> Provider | None:
 
 
 def nonce_digest(raw_nonce: str) -> str:
-    """What the client put in the authorization request: ``base64url(sha256(raw))``, unpadded."""
     digest = hashlib.sha256(raw_nonce.encode("utf-8")).digest()
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
 
 def acceptable_redirect_uri(uri: str) -> bool:
-    """HTTPS, or plain HTTP on the developer's own machine. The provider compares the URI with the
-    ones registered for the app as well; this only keeps anything else from being sent on."""
     if len(uri) > 2048 or any(ch.isspace() for ch in uri):
         return False
     if uri.startswith("https://"):
         return True
     return uri.startswith(("http://localhost:", "http://localhost/", "http://127.0.0.1:"))
 
-
-# ── HTTP: the two calls this module makes, each replaceable in a test ────────────────────────────
 
 
 def _post_form(url: str, data: dict[str, str]) -> tuple[int, Any]:
@@ -233,7 +150,6 @@ def _get_json(url: str) -> Any:
 async def redeem_code(
     p: Provider, *, code: str, code_verifier: str, redirect_uri: str
 ) -> str:
-    """Exchange the authorization code for the provider's ID token. Raises :class:`SignInRefused`."""
     data = {
         "grant_type": "authorization_code",
         "code": code,
@@ -250,8 +166,6 @@ async def redeem_code(
         logger.warning("oidc: %s code redemption did not complete (%s)", p.name, type(exc).__name__)
         raise SignInRefused("redemption-unreachable") from exc
     if status_code != 200 or not isinstance(body, dict):
-        # The provider's ``error`` code is a fixed vocabulary (invalid_grant, invalid_client, …)
-        # and names no credential, so it is the one part of the body worth a log line.
         error = body.get("error") if isinstance(body, dict) else None
         logger.info(
             "oidc: %s refused the code redemption (HTTP %s, %s)",
@@ -267,8 +181,6 @@ async def redeem_code(
     return id_token
 
 
-# ── JWKS ─────────────────────────────────────────────────────────────────────────────────────────
-
 
 @dataclass
 class _KeySet:
@@ -281,7 +193,6 @@ _jwks_lock = threading.Lock()
 
 
 def forget_cached_keys() -> None:
-    """For tests: the next verification fetches every key set afresh."""
     with _jwks_lock:
         _jwks_cache.clear()
 
@@ -336,7 +247,6 @@ def _verify_signature(key: Any, alg: str, signing_input: bytes, signature: bytes
         if alg == "RS256":
             key.verify(signature, signing_input, padding.PKCS1v15(), hashes.SHA256())
             return
-        # JWS carries an ES256 signature as r||s, 32 bytes each; cryptography wants DER.
         if len(signature) != 64:
             raise SignInRefused("bad-signature")
         der = encode_dss_signature(
@@ -387,10 +297,6 @@ def _number(value: Any) -> float | None:
 async def verify_id_token(
     p: Provider, token: str, *, raw_nonce: str, now: float | None = None
 ) -> dict[str, Any]:
-    """The claims of a genuine, current ID token minted for this app and this sign-in.
-
-    Raises :class:`SignInRefused` for anything else; see the module docstring for the list.
-    """
     header, claims, signing_input, signature = _split(token)
     alg = header.get("alg")
     if alg not in ALLOWED_ALGORITHMS:
@@ -455,7 +361,6 @@ def _truthy(value: Any) -> bool:
 
 
 def verified_email(p: Provider, claims: dict[str, Any]) -> str:
-    """The address the provider has verified this person controls, lower-cased; never folded."""
     email = claims.get("email")
     if not isinstance(email, str) or "@" not in email.strip():
         raise EmailNotVerified("no-email")
@@ -484,8 +389,6 @@ class ProvedIdentity:
     provider: str
     email: str
     name: str | None
-    #: The ID token's ``sub`` and ``iat``. Sign-in ignores them; setting a first password reads them
-    #: (a provider sign-in younger than five minutes, naming somebody — ``auth._provider_proof``).
     subject: str | None = None
     issued_at: float | None = None
 
@@ -493,7 +396,6 @@ class ProvedIdentity:
 async def prove(
     name: str, *, code: str, code_verifier: str, redirect_uri: str, raw_nonce: str
 ) -> ProvedIdentity:
-    """Redeem, verify, and read the verified address. The caller has checked ``provider(name)``."""
     p = provider(name)
     if p is None:
         raise SignInRefused("not-configured")

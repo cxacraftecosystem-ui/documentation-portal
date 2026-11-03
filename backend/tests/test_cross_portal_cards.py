@@ -1,13 +1,3 @@
-"""Artisan cards across the two portals, on the documentation portal's side.
-
-The designer portal asks this server (signed, ``require_peer``) for the artisan behind one of THIS
-portal's cards, tells it its own card code at link time and at reissue, and reads this portal's code
-back on link and refresh. This server never calls the designer portal: a designer card resolves here
-only through the code it was told (``CrossPortalArtisanLink.remoteCardCode``).
-
-Routes called as functions against ``tests/artisan_card_fakes.FakeDB``; no database.
-"""
-
 from __future__ import annotations
 
 import json
@@ -144,7 +134,6 @@ async def test_peer_card_resolve_answers_a_consenting_artisan_with_the_card_code
     assert answer["match"]["matchedBy"] == "CARD"
     assert answer["match"]["cardCode"] == card.code
     assert "aadhaarNumber" not in answer["match"]["fields"]
-    # The QR's own tag, when the designer portal passes it on, is checked here.
     tag = artisan_card.tag(KEY, "F", 1, card.code)
     assert (await _peer_resolve(world, card.code, tag, 1))["match"]["artisanId"] == "a1"
     forged = ("0" if tag[0] != "0" else "1") + tag[1:]
@@ -162,7 +151,6 @@ async def test_peer_card_resolve_is_null_without_consent_rejected_revoked_or_unk
         if row["code"] == granted.code:
             row["revokedAt"] = datetime.now(UTC)
     assert await _peer_resolve(world, granted.code) == {"match": None}
-    # Consent withdrawn after a card was issued: the same null.
     fresh = await _issue(world.db, "a1")
     world.db.artisansharingconsent.rows[0]["granted"] = False
     assert await _peer_resolve(world, fresh.code) == {"match": None}
@@ -206,7 +194,6 @@ async def test_link_stores_the_designer_card_code_and_answers_with_this_portals(
     assert answer["cardCode"] == live["code"]
     (link,) = world.db.crossportalartisanlink.rows
     assert link["remoteCardCode"] == DESIGNER_CODE and link["matchedBy"] == "CARD"
-    # The designer card now opens this artisan here, typed or scanned.
     found = await card_routes.resolve_card(
         card_routes.ResolveIn(input=artisan_card.short_code("D", DESIGNER_CODE)),
         current_user=SimpleNamespace(id="u9", role="RESEARCHER"),
@@ -303,7 +290,6 @@ async def test_refresh_answers_with_this_portals_card_code(world):
         c for c in world.db.artisancard.rows if c["artisanId"] == "a1" and c["revokedAt"] is None
     )
     assert answer["cardCode"] == live["code"]
-    # With cards off the key is still there, empty, so the designer portal reads one shape.
     off = _settings(artisan_card_key=None)
     answer = _body(await routes.peer_refresh("a1", "dp1", request, off), request)
     assert answer["cardCode"] is None

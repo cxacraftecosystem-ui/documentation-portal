@@ -1,17 +1,3 @@
-"""The four auth limitations closed on 2026-10-17, one section each.
-
-1. ``TWO_FACTOR_ENCRYPTION_KEY``: two-step secrets sealed with a key of their own, named by key id in
-   the ciphertext, previous keys still opening theirs, the legacy JWT-derived key as a loud fallback,
-   re-encryption on use, and an idempotent, dry-run-by-default backfill script.
-2. A provider-only account's FIRST PASSWORD needs that provider's sign-in run again (under five
-   minutes old, for this account's address, naming a subject) — plus the two-step code when it is on.
-3. That code check spends a budget of its own: five per fifteen minutes, never the sign-in's.
-4. ``TRUSTED_PROXY_HOPS`` defaults to 2, and the deploy pins it there beside the CloudFront lock.
-
-Driven through the real routers against ``access_roster_fakes``, with ``test_account_passwords``'s
-harness (its autouse ``environment`` fixture is imported, so it applies here too).
-"""
-
 import asyncio
 import logging
 from pathlib import Path
@@ -21,7 +7,7 @@ import pytest
 from access_roster_fakes import FakeDb, install
 from oidc_fake_idp import FakeIdP, login_body
 from pydantic import ValidationError
-from test_account_passwords import (  # noqa: F401 - ``environment`` is an autouse fixture
+from test_account_passwords import (  # noqa: F401
     NEW_PASSWORD,
     _account,
     _admitted,
@@ -55,8 +41,6 @@ def _keys(monkeypatch: pytest.MonkeyPatch, current: str | None, previous: str | 
     monkeypatch.setattr(settings, "two_factor_encryption_previous_keys", previous)
 
 
-# ── 1. TWO_FACTOR_ENCRYPTION_KEY ────────────────────────────────────────────────────────────────
-
 
 def test_a_key_is_an_id_and_thirty_two_bytes() -> None:
     key_id, raw = parse_key(KEY_A)
@@ -65,7 +49,6 @@ def test_a_key_is_an_id_and_thirty_two_bytes() -> None:
     for bad in ("no-colon", "kA:", "kA:c2hvcnQ", "bad id!:" + KEY_A.split(":")[1], ":" + KEY_A.split(":")[1]):
         with pytest.raises(KeyFormatError):
             parse_key(bad)
-    # One id, two different keys: some secrets would open at random.
     with pytest.raises(KeyFormatError):
         parse_keyring(KEY_A, "kA:" + KEY_B.split(":")[1])
     current, ring = parse_keyring(KEY_B, f"{KEY_A}, ")
@@ -78,7 +61,6 @@ def test_the_api_refuses_to_start_on_a_malformed_key_and_never_prints_it() -> No
     assert "TWO_FACTOR_ENCRYPTION_KEY" in str(caught.value)
     assert "not-a-real-key-at-all" not in str(caught.value)
     assert "input_value" not in str(caught.value)
-    # Nor when ANOTHER setting is the one refused: no error echoes the environment it was read from.
     with pytest.raises(ValidationError) as other:
         Settings(TWO_FACTOR_ENCRYPTION_KEY=KEY_A, JWT_ALGORITHM="none")
     assert KEY_A.split(":", 1)[1] not in str(other.value)
@@ -90,13 +72,11 @@ def test_with_a_key_secrets_are_sealed_under_its_id(monkeypatch) -> None:
     assert sealed.startswith("v2.kA.") and len(sealed.split(".")) == 5
     assert two_factor.decrypt_secret(sealed) == "JBSWY3DPEHPK3PXP"
     assert not two_factor.needs_reencryption(sealed)
-    # The key id is authenticated: relabelling the ciphertext to another configured key fails.
     _keys(monkeypatch, KEY_B, KEY_A)
     parts = sealed.split(".")
     assert two_factor.decrypt_secret(".".join(["v2", "kB", *parts[2:]])) is None
-    assert two_factor.decrypt_secret(sealed) == "JBSWY3DPEHPK3PXP"  # a previous key still opens
+    assert two_factor.decrypt_secret(sealed) == "JBSWY3DPEHPK3PXP"
     assert two_factor.needs_reencryption(sealed)
-    # Retired entirely: unreadable, as None rather than an error.
     _keys(monkeypatch, KEY_B)
     assert two_factor.decrypt_secret(sealed) is None
 
@@ -110,15 +90,13 @@ def test_without_a_key_the_legacy_key_is_used_and_said_out_loud(monkeypatch, cap
     assert legacy.startswith("v1.") and len(legacy.split(".")) == 4
     warnings = [r for r in caplog.records if "TWO_FACTOR_ENCRYPTION_KEY is not set" in r.getMessage()]
     assert len(warnings) == 1 and warnings[0].levelno == logging.WARNING
-    assert not two_factor.needs_reencryption(legacy)  # nothing better to move it to
-    # The day a key is set, the legacy secret still opens, and is due a move.
+    assert not two_factor.needs_reencryption(legacy)
     _keys(monkeypatch, KEY_A)
     assert two_factor.decrypt_secret(legacy) == "JBSWY3DPEHPK3PXP"
     assert two_factor.needs_reencryption(legacy)
 
 
 def _enrolled(monkeypatch: pytest.MonkeyPatch, email: str = "t@example.org", **extra: Any) -> tuple[FakeDb, str]:
-    """An account with two-step on, its secret sealed under whatever key is configured NOW."""
     secret = two_factor.generate_totp_secret()
     fake = install(
         monkeypatch,
@@ -151,7 +129,6 @@ def test_a_secret_is_re_encrypted_the_first_time_it_is_used(monkeypatch) -> None
     after = _row(fake, "t@example.org").twoFactorSecret
     assert after.startswith("v2.kA.") and two_factor.decrypt_secret(after) == secret
 
-    # A wrong code moves nothing; and a write is conditional on the ciphertext read.
     _keys(monkeypatch, KEY_B, KEY_A)
     assert not asyncio.run(two_factor.consume_totp(_row(fake, "t@example.org"), "000000"))
     assert _row(fake, "t@example.org").twoFactorSecret == after
@@ -178,7 +155,7 @@ def test_the_backfill_counts_by_default_writes_with_apply_and_is_idempotent(monk
     dry = asyncio.run(reencrypt_all(fake, apply=False))
     assert (dry.current, dry.would_move, dry.moved) == (1, 2, 0)
     assert dry.unreadable == ["id-d@example.org (twoFactorSecret)"]
-    assert _row(fake, "a@example.org").twoFactorSecret == legacy  # a dry run writes nothing
+    assert _row(fake, "a@example.org").twoFactorSecret == legacy
 
     applied = asyncio.run(reencrypt_all(fake, apply=True))
     assert applied.moved == 2
@@ -204,8 +181,6 @@ def test_the_key_is_documented_and_wired_into_the_deploy() -> None:
     assert "secrets.TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS" in workflow
     assert "TWO_FACTOR_ENCRYPTION_KEY" in (REPO / "docs/ENVIRONMENT.md").read_text(encoding="utf-8")
 
-
-# ── 2. The first password needs the provider sign-in run again ──────────────────────────────────
 
 
 def _google_only(monkeypatch: pytest.MonkeyPatch, email: str = "g@example.org", **extra: Any) -> FakeDb:
@@ -290,8 +265,6 @@ def test_a_password_change_is_untouched_by_the_provider_rule(monkeypatch) -> Non
     assert answer.status_code == 200
 
 
-# ── 3. The first-password code check has a budget of its own ───────────────────────────────────
-
 
 def test_the_first_password_code_check_has_its_own_five_per_quarter_hour_budget(monkeypatch) -> None:
     monkeypatch.setattr(two_factor, "_clock", lambda: T0)
@@ -307,14 +280,12 @@ def test_the_first_password_code_check_has_its_own_five_per_quarter_hour_budget(
     for _ in range(FIRST_PASSWORD_CODE_ATTEMPTS):
         wrong = _call("POST", "/api/auth/change-password", {**body, "twoFactorCode": "000000"}, _session("id-g@example.org"))
         assert wrong.status_code == 400 and wrong.headers["x-two-factor-required"] == "1"
-    # The sixth is refused before it is checked — even the right code.
     sixth = _call(
         "POST", "/api/auth/change-password", {**body, "twoFactorCode": two_factor.current_totp(secret, T0)}, _session("id-g@example.org")
     )
     assert sixth.status_code == 429
     row = _row(fake, "g@example.org")
     assert row.passwordHash is None
-    # Not one of those guesses touched the sign-in's budget: the owner can still sign in.
     assert not getattr(row, "twoFactorFailedAttempts", 0)
     assert not two_factor.is_locked(row)
 
@@ -373,18 +344,15 @@ def test_a_mistyped_code_never_spends_a_microsoft_sign_in(monkeypatch) -> None:
     body = {"newPassword": NEW_PASSWORD, **login_body("MICROSOFT")}
     session = _session(f"id-{email}")
 
-    # No code at all: refused BEFORE the Microsoft code is redeemed, so it is still good.
     missing = _call("POST", "/api/auth/change-password", body, session)
     assert missing.status_code == 400 and missing.headers["x-two-factor-required"] == "1"
     assert idp.redemptions == []
 
-    # A wrong code: redeemed once, and the refusal hands back what stands in for that sign-in.
     wrong = _call("POST", "/api/auth/change-password", {**body, "twoFactorCode": "000000"}, session)
     assert wrong.status_code == 400 and wrong.headers["x-two-factor-required"] == "1"
     carried = wrong.headers["x-sign-in-proof"]
     assert len(idp.redemptions) == 1
 
-    # Another wrong code with it: refused again, with the next one (each is single use).
     again = _call(
         "POST", "/api/auth/change-password", {"newPassword": NEW_PASSWORD, "providerProof": carried, "twoFactorCode": "111111"}, session
     )
@@ -398,7 +366,6 @@ def test_a_mistyped_code_never_spends_a_microsoft_sign_in(monkeypatch) -> None:
     )
     assert reused.status_code == 400 and reused.headers["x-confirm-sign-in"] == "MICROSOFT"
 
-    # The right code with the latest one: set, and Microsoft was asked exactly once.
     right = _call(
         "POST",
         "/api/auth/change-password",
@@ -438,15 +405,11 @@ def test_the_first_password_code_budget_is_kept_on_the_account(monkeypatch) -> N
     proof = _google_proof(monkeypatch, "g@example.org")
     for _ in range(2):
         _call("POST", "/api/auth/change-password", {"newPassword": NEW_PASSWORD, **proof, "twoFactorCode": "000000"}, _session("id-g@example.org"))
-    # In the row, not in this process: a restart hands out nothing new.
     assert _row(fake, "g@example.org").firstPasswordCodeAttempts == 2
-    # A refused sign-in gives its check back: nothing was checked.
     _google_proof(monkeypatch, "g@example.org", seconds_ago=900)
     _call("POST", "/api/auth/change-password", {"newPassword": NEW_PASSWORD, **proof, "twoFactorCode": "000000"}, _session("id-g@example.org"))
     assert _row(fake, "g@example.org").firstPasswordCodeAttempts == 2
 
-
-# ── 4. TRUSTED_PROXY_HOPS ───────────────────────────────────────────────────────────────────────
 
 
 def test_trusted_proxy_hops_defaults_to_cloudfront_then_nginx() -> None:
@@ -462,18 +425,14 @@ def test_the_default_keys_on_the_viewer_cloudfront_saw(monkeypatch) -> None:
 def test_the_deploy_pins_two_hops_only_after_checking_the_cloudfront_lock() -> None:
     workflow = (REPO / ".github/workflows/deploy-backend.yml").read_text(encoding="utf-8")
     pin = workflow.split("- name: Pin the two-step encryption key and the proxy hops", 1)[1].split("- name:", 1)[0]
-    # Two only when the box does not answer the runner directly on either port; one otherwise.
     assert "hops=1" in pin and 'locked "http://$EC2_HOST/health" && locked "https://$EC2_HOST/health"' in pin
     assert "printf 'TRUSTED_PROXY_HOPS=%s\\n' \"$HOPS\"" in pin
 
 
 def test_the_deploy_never_loses_a_two_step_key() -> None:
     workflow = (REPO / ".github/workflows/deploy-backend.yml").read_text(encoding="utf-8")
-    # The box's lines are put aside before BACKEND_ENV replaces the file, and carried forward.
     assert "two-factor-before" in workflow and "earlier keys carried" in workflow
-    # A malformed secret fails on the runner, before the box is touched.
     assert workflow.index("- name: Check the two-step encryption key secrets") < workflow.index("- name: Write .env on the server")
-    # And after the switch, a secret no configured key opens fails the deploy (the release script).
     release = (REPO / "backend/deploy/blue_green.sh").read_text(encoding="utf-8")
     assert "backend/deploy/blue_green.sh" in workflow
     assert '"$py" -m scripts.reencrypt_two_factor_secrets); rc=$?' in release and '[ "$rc" = 3 ]' in release

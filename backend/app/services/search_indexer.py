@@ -1,37 +1,3 @@
-"""Keeps ``SearchDocument`` current: drains ``SearchIndexQueue`` and embeds changed documents.
-
-The ``search_enqueue()`` triggers list every insert and update in the queue (a delete removes the
-document at once, in the same transaction as the record). :func:`drain` reads a small batch,
-builds each record through ``services/search_index.build``, writes or deletes its document, and
-only then deletes the queue rows it read, so a worker that dies mid-batch loses nothing (the next
-pass builds those items again; a build is idempotent). One queue worker runs per deployment
-(``media_queue.acquire_queue_worker_lock``). An artisan is expanded to the
-records whose ``shareable`` depends on their sharing consent. A build that fails puts its item
-back on the queue for the next pass. A product, tool or interview is expanded to the files (and a
-product to the processes) that take their artisans from it (``search_index.dependents_of``).
-
-While UNIFIED_SEARCH_ENABLED is off nothing is built, and :func:`compact_queue` keeps the queue to
-one row per record, so it cannot grow past the number of records however long the switch stays off.
-
-:func:`embed_pending` runs only when meaning ranking is available (``search_embeddings.available``)
-and embeds documents whose text changed since they were last embedded. A batch the provider refuses
-is retried one document at a time: a document that fails alone while others succeed is marked
-(``embeddedHash = 'failed:' || contentHash``) and skipped until its text changes; when every one
-fails the provider is down, and the next pass waits (30 seconds, doubling to an hour).
-
-A TRANSCRIPT OR AN INTERVIEW IS EMBEDDED ONLY WITH CONSENT. Embedding sends the text to OpenAI or
-Gemini, so a ``transcripts`` document asks the one consent store (``consent_gate.verdict``, the question
-every other outside send asks) for its recording first, and an ``interviews`` document (its notes and
-every answer, the artisans' words) asks ``consent_gate.interview_verdict`` for its participants, the
-same question an answer draft from pasted text asks. One that may not leave is marked
-(``embeddedHash = 'consent:' || contentHash``) and skipped, so it never holds up the documents behind
-it; whenever a new row lands in the ``Consent`` ledger every mark is cleared and those documents are
-asked again on the next pass, so a consent given later is picked up by itself.
-
-The queue worker (``app/worker.py``) calls both every 15 seconds while UNIFIED_SEARCH_ENABLED is on,
-in small batches, because the production box is memory-bound.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -46,19 +12,13 @@ from app.services import consent_gate, search_embeddings, search_index
 
 logger = logging.getLogger(__name__)
 
-#: Characters of the body that go into an embedding.
 EMBED_BODY_CHARS = 8_000
 
-#: The wait after a pass in which the provider refused everything, doubling to the ceiling.
 EMBED_BACKOFF_SECONDS = 30.0
 EMBED_BACKOFF_CEILING_SECONDS = 3600.0
-#: The prefix ``embeddedHash`` carries for a document the provider refused on its own.
 EMBED_FAILED_PREFIX = "failed:"
 
-#: The prefix ``embeddedHash`` carries for a document whose consent does not let it leave.
 EMBED_CONSENT_PREFIX = "consent:"
-#: Document types whose text is someone's words, and the consent question each asks of its
-#: ``entityId``: a transcript's recording, an interview's participants.
 CONSENT_QUESTIONS = {
     "transcripts": lambda entity_id: consent_gate.verdict(entity_id),
     "interviews": lambda entity_id: consent_gate.interview_verdict(entity_id),
@@ -66,7 +26,6 @@ CONSENT_QUESTIONS = {
 CONSENT_GATED_TYPES = frozenset(CONSENT_QUESTIONS)
 
 _embed_backoff = {"until": 0.0, "wait": 0.0}
-#: The newest ``Consent`` row seen by the last pass; a change clears the consent marks.
 _consent_seen: dict[str, Any] = {"mark": None}
 
 _UPSERT = """
@@ -125,7 +84,6 @@ async def remove(entity_type: str, entity_id: str) -> None:
 
 
 async def index_one(entity_type: str, entity_id: str) -> bool:
-    """Build and write (or delete) one document. True when a document now exists."""
     doc = await search_index.build(entity_type, entity_id)
     if doc is None:
         await remove(entity_type, entity_id)
@@ -143,7 +101,6 @@ async def enqueue(entity_type: str, entity_id: str) -> None:
 
 
 async def drain(batch: int = 100) -> int:
-    """Index up to ``batch`` queued items (plus their dependents). Returns items handled."""
     claimed = await db.query_raw(
         """
         SELECT "id", "entityType", "entityId" FROM "SearchIndexQueue"
@@ -171,7 +128,6 @@ async def drain(batch: int = 100) -> int:
             logger.exception("search index: %s %s failed; queued again", entity_type, entity_id)
             failed.append((entity_type, entity_id))
         await asyncio.sleep(0)
-    # Only now are the rows read above removed: rows queued while this pass ran stay queued.
     await db.execute_raw(
         """DELETE FROM "SearchIndexQueue"
             WHERE "id" IN (SELECT jsonb_array_elements_text($1::jsonb)::bigint)""",
@@ -183,7 +139,6 @@ async def drain(batch: int = 100) -> int:
 
 
 async def compact_queue() -> int:
-    """Keep the oldest queue row of each record and delete the rest. Returns rows deleted."""
     return await db.execute_raw(
         """
         DELETE FROM "SearchIndexQueue" q
@@ -214,7 +169,6 @@ def reset_backoff() -> None:
 
 
 async def _release_consent_marks() -> None:
-    """Clear every consent mark once the ledger has a row the last pass had not seen."""
     latest = await db.query_raw('SELECT max("createdAt") AS at, count(*) AS n FROM "Consent"')
     mark = (str(latest[0]["at"]), int(latest[0]["n"])) if latest else None
     if mark == _consent_seen["mark"]:
@@ -227,8 +181,6 @@ async def _release_consent_marks() -> None:
 
 
 async def _consented(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
-    """The rows that may be sent, and how many were marked because their consent keeps them here.
-    A consent that cannot be read is neither sent nor marked."""
     allowed: list[dict[str, Any]] = []
     marked = 0
     for row in rows:
@@ -236,7 +188,7 @@ async def _consented(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], 
         if question is not None:
             try:
                 verdict = await question(str(row["entityId"]))
-            except Exception as exc:  # noqa: BLE001 - an unread consent is no consent; asked again later
+            except Exception as exc:  # noqa: BLE001
                 logger.warning("search embeddings: consent of %s unread (%s)", row["entityId"], type(exc).__name__)
                 continue
             if verdict != consent_gate.ALLOW:
@@ -252,9 +204,6 @@ async def _consented(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], 
 
 
 async def embed_pending(batch: int = 32, *, settings: Any | None = None) -> int:
-    """Embed documents whose text changed since their last embedding. No-op unless available.
-
-    A transcript or an interview is sent only when its consent allows it (module docstring)."""
     if not await search_embeddings.available(settings):
         return 0
     if time.monotonic() < _embed_backoff["until"]:
@@ -269,7 +218,6 @@ async def embed_pending(batch: int = 32, *, settings: Any | None = None) -> int:
             return await _embed_rows(rows, settings)
         if not marked:
             return 0
-        # A batch of nothing but marked transcripts reads the next one: the marks keep them out of it.
 
 
 async def _pending(batch: int) -> list[dict[str, Any]]:
@@ -315,7 +263,6 @@ async def _embed_rows(rows: list[dict[str, Any]], settings: Any | None) -> int:
         await _store_vector(row, vector)
         stored += 1
     if not stored:
-        # Nothing went through: the provider is down or refusing the key, not one document.
         logger.warning("search embeddings: provider refused every document; backing off")
         _back_off()
         return 0
@@ -330,7 +277,6 @@ async def _embed_rows(rows: list[dict[str, Any]], settings: Any | None) -> int:
 
 
 async def reindex_all(entity_type: str | None = None) -> int:
-    """Queue every record (or one type) again. Used by ``scripts/search_reindex.py``."""
     tables = {
         "artisans": '"Artisan"',
         "crafts": '"Craft"',

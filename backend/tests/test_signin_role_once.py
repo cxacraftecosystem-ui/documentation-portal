@@ -1,18 +1,3 @@
-"""The sign-in list rule at documentation-portal's own doors (``services/signin_role``, 2026-10-18).
-
-``tests/test_signin_role_contract.py`` holds the shared rule; this file drives the doors that apply
-it here, over the contract's vectors, against fakes:
-
-* the provider sign-in (``auth._sign_in_verified_address``) creates a new account at the list's role
-  and never writes the role of an existing one, while the configured master admin address is still
-  restored to MASTER_ADMIN;
-* the approval (``access_roster._role_kept``) never writes an account and says when one keeps its
-  role;
-* ``PATCH /api/users/{id}`` is the door that changes a role, and it writes the audit entry.
-
-designer-portal's file of the same name drives its own doors over the same vectors.
-"""
-
 from __future__ import annotations
 
 import inspect
@@ -42,8 +27,6 @@ def anyio_backend():
 
 
 class _Users:
-    """``db.user`` over at most one account, recording every write."""
-
     def __init__(self, account: Any | None):
         self.account = account
         self.updates: list[dict[str, Any]] = []
@@ -113,7 +96,6 @@ async def test_a_new_account_is_created_at_the_lists_role(monkeypatch, vector):
 
 
 async def test_the_master_admin_address_is_still_restored(monkeypatch):
-    """The break-glass is not the list: its sign-in writes MASTER_ADMIN, as it always did."""
     master = get_settings().master_admin_email or "master@example.org"
     monkeypatch.setattr(get_settings(), "master_admin_email", master)
     users = _Users(_account("ADMIN", email=master.lower()))
@@ -138,8 +120,6 @@ def test_the_users_patch_is_the_door_that_audits_a_change_of_role():
 
 
 def test_no_sign_in_door_writes_a_role_from_the_list():
-    """Source guard: the only role the provider sign-in writes onto an existing account is the
-    break-glass MASTER_ADMIN. A future ``data["role"] = granted`` would be the rule undone."""
     source = inspect.getsource(auth_routes._sign_in_verified_address)
     writes = [line.strip() for line in source.splitlines() if 'data["role"]' in line]
     assert writes == ['data["role"] = "MASTER_ADMIN"'], writes
@@ -149,7 +129,6 @@ def test_no_sign_in_door_writes_a_role_from_the_list():
 
 @pytest.mark.parametrize("vector", CONTRACT["roleKeptSentence"], ids=lambda v: f"{v['current']}+{v['listed']}")
 async def test_adding_an_address_never_writes_an_account_and_says_when_it_keeps_its_role(monkeypatch, vector):
-    """Adding an address by hand admits it like an approval, so it answers the same sentence."""
     from app.schemas.access_roster import AccessRosterCreate
 
     users = _Users(_account(vector["current"], email=vector["email"]) if vector["current"] else None)

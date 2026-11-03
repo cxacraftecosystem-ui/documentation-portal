@@ -1,16 +1,3 @@
-"""One seeded world for the search tests (docs/SEARCH.md), shared by the database-backed modules.
-
-OPT-IN, LIKE EVERY DATABASE TEST IN THIS REPOSITORY: the modules that import :data:`needs_search_db`
-run only with ``SEARCH_DB_TESTS=1`` and a ``DATABASE_URL`` that is a throwaway database with the
-migrations applied (never ``backend/.env``, which points at production; a hosted DSN is refused
-outright). CI's placeholder DSN and an ordinary ``pytest`` skip them.
-
-Every title carries a per-run ``stamp`` so a query can be scoped to this run's rows on a database
-nobody truncates, and every ranking query is narrowed further by this run's craft. Identity values
-(Aadhaar, phone, Pehchan, e-mail, date of birth, address) are seeded on purpose, distinctive enough
-that an assertion that none reaches the index cannot pass by accident.
-"""
-
 from __future__ import annotations
 
 import os
@@ -26,7 +13,6 @@ from app.services import aadhaar_fingerprint
 _URL = os.environ.get("DATABASE_URL", "")
 _HOSTED = any(marker in _URL for marker in ("supabase", "pooler", "amazonaws"))
 
-#: Mark for the database-backed search modules. See the module docstring.
 needs_search_db = pytest.mark.skipif(
     os.environ.get("SEARCH_DB_TESTS") != "1" or _HOSTED or not _URL,
     reason="needs SEARCH_DB_TESTS=1 and a throwaway, migrated DATABASE_URL",
@@ -40,8 +26,6 @@ DOB = datetime(1971, 3, 9, tzinfo=UTC)
 
 
 def _aadhaar_for(stamp: str) -> str:
-    """A Verhoeff-valid number unique to this seed: the fingerprint is unique and the database is
-    never truncated, so a fixed literal collides with the previous module's seed."""
     from app.services.artisan_identity import verhoeff_ok
 
     body = "2" + str(int(stamp[1:], 16) % 10**10).zfill(10)
@@ -52,7 +36,6 @@ def _aadhaar_for(stamp: str) -> str:
 
 
 def _secrets(w: SimpleNamespace) -> tuple[str, ...]:
-    """Strings that must never appear in a document's title, subtitle or body."""
     return (w.aadhaar, PHONE, w.pehchan, EMAIL, ADDRESS, "1971-03-09")
 
 
@@ -87,13 +70,11 @@ async def consent(artisan_id: str, granted: bool) -> None:
 
 
 async def seed(stamp: str) -> SimpleNamespace:
-    """Every record type, artisans with and without sharing consent, and records naming an artisan
-    by id, by free text and not at all."""
     from app.core.db import db
 
     w = SimpleNamespace(stamp=stamp)
     w.aadhaar = _aadhaar_for(stamp)
-    w.pehchan = "PEHX" + stamp[1:].upper()  # pehchanCardNumber is unique too
+    w.pehchan = "PEHX" + stamp[1:].upper()
     w.secrets = _secrets(w)
     w.professor = await _user(stamp, "professor", "PROFESSOR")
     w.researcher = await _user(stamp, "researcher", "RESEARCHER")
@@ -129,7 +110,6 @@ async def seed(stamp: str) -> SimpleNamespace:
             "localName": "रमेश कुमार",
             "craftId": w.craft.id,
             "workshopId": w.workshop.id,
-            # The register keeps a fingerprint and the last four, never the number (the column is gone).
             "aadhaarFingerprint": aadhaar_fingerprint.fingerprint(w.aadhaar, "search-test-only-key"),
             "aadhaarLast4": w.aadhaar[-4:],
             "phone": PHONE,
@@ -303,7 +283,6 @@ async def document(entity_type: str, entity_id: str) -> dict[str, Any] | None:
     from app.core.db import db
 
     rows = await db.query_raw(
-        # Not SELECT *: the engine cannot deserialize the tsvector (or the raw-SQL-only embedding).
         'SELECT "id", "entityType", "entityId", "title", "subtitle", "body", "place", "craftIds",'
         ' "craftCodes", "workshopIds", "artisanIds", "designWorkshopId", "audience", "shareable",'
         ' "openPath", "recordDate", "contentHash", "embeddedHash", "updatedAt"'

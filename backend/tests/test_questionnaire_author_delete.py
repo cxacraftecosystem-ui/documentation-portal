@@ -1,13 +1,3 @@
-"""A questionnaire's author edits and deletes from it, as a content admin does (owner, 22 Oct 2026).
-
-"The author should be able to edit/delete the questionnaire apart from the admins", applied strictly.
-Against a real, migrated Postgres (``QV2_TEST_DATABASE_URL``, the Backend database tests job): the
-form's author (``Questionnaire.createdById``) and a content admin rename the form, add, edit and
-reorder its sections and questions, delete and switch off sections and questions, and retire, delete
-and restore the form; another questionnaire manager is refused 403 on every one of those paths; and
-deleting a session stays a content admin's, the form's author included.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -22,7 +12,6 @@ async def _setup(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any, Any]:
     patch_db(monkeypatch, client)
     no_outside_calls(monkeypatch)
     ids = await seed(client)
-    # The professor is the AUTHOR; a second professor, with the same questionnaire powers, is not.
     await client.execute_raw('UPDATE "Questionnaire" SET "createdById" = $1 WHERE "id" = $2', ids.prof.id, ids.q)
     other = f"uprof2{ids.tag}"
     await client.execute_raw(
@@ -54,17 +43,14 @@ def test_the_author_or_an_admin_deletes_questions_and_sections_and_nobody_else(m
     async def go() -> None:
         client, ids, other = await _setup(monkeypatch)
         try:
-            # Another questionnaire manager: refused on every removal path, and nothing changes.
             await _refused(lambda: questionnaire.delete_question(ids.questions["D1"], other))
             await _refused(lambda: questionnaire.delete_section(ids.sections["B"], other))
             await _refused(lambda: questionnaire.update_section(ids.sections["B"], QuestionnaireSectionUpdate(isActive=False), other))
             await _refused(lambda: questionnaire.update_question(ids.questions["D2"], QuestionnaireQuestionUpdate(isActive=False), other))
             assert await _active(client, "QuestionnaireQuestion", ids.questions["D1"])
             assert await _active(client, "QuestionnaireSection", ids.sections["B"])
-            # Nor may the other manager EDIT it: editing is the author's or a content admin's too.
             await _refused(lambda: questionnaire.update_section(ids.sections["F"], QuestionnaireSectionUpdate(title="Renamed by a manager"), other))
 
-            # The author: a question deleted, one switched off through its PATCH, a section taken out.
             await questionnaire.delete_question(ids.questions["D1"], ids.prof)
             assert not await _active(client, "QuestionnaireQuestion", ids.questions["D1"])
             await questionnaire.update_question(ids.questions["D2"], QuestionnaireQuestionUpdate(isActive=False), ids.prof)
@@ -72,7 +58,6 @@ def test_the_author_or_an_admin_deletes_questions_and_sections_and_nobody_else(m
             await questionnaire.update_section(ids.sections["B"], QuestionnaireSectionUpdate(isActive=False), ids.prof)
             assert not await _active(client, "QuestionnaireSection", ids.sections["B"])
 
-            # A content admin, on the same form.
             await questionnaire.delete_question(ids.questions["D3"], ids.admin)
             assert not await _active(client, "QuestionnaireQuestion", ids.questions["D3"])
             await questionnaire.delete_section(ids.sections["F"], ids.admin)
@@ -91,7 +76,6 @@ def test_the_author_or_an_admin_deletes_and_restores_the_form_and_nobody_else(mo
     async def go() -> None:
         client, ids, other = await _setup(monkeypatch)
         try:
-            # The instrument names its author, which is what the clients draw the controls from.
             assert (await questionnaire.get_questionnaire(ids.q, other))["createdById"] == ids.prof.id
             listed = {row["id"]: row for row in await questionnaire.list_questionnaires(other, activeOnly=False)}
             assert listed[ids.q]["createdById"] == ids.prof.id
@@ -99,7 +83,6 @@ def test_the_author_or_an_admin_deletes_and_restores_the_form_and_nobody_else(mo
             await _refused(lambda: questionnaire.update_questionnaire(ids.q, QuestionnaireUpdate(isActive=False), other))
             assert await _active(client, "Questionnaire", ids.q)
 
-            # The author deletes it softly and restores it; another manager may do neither.
             await questionnaire.delete_questionnaire(ids.q, ids.prof)
             assert not await _active(client, "Questionnaire", ids.q)
             gone = await client.query_raw('SELECT "deletedAt", "deletedById" FROM "Questionnaire" WHERE "id" = $1', ids.q)
@@ -109,12 +92,10 @@ def test_the_author_or_an_admin_deletes_and_restores_the_form_and_nobody_else(mo
             back = await questionnaire.restore_questionnaire(ids.q, ids.prof)
             assert back["deletedAt"] is None and back["isActive"] is True
             assert await _active(client, "Questionnaire", ids.q)
-            # And through the PATCH, as Android sends it.
             await questionnaire.delete_questionnaire(ids.q, ids.prof)
             await questionnaire.update_questionnaire(ids.q, QuestionnaireUpdate(isActive=True), ids.prof)
             assert await _active(client, "Questionnaire", ids.q)
 
-            # A content admin retires it through the PATCH and restores it.
             await questionnaire.update_questionnaire(ids.q, QuestionnaireUpdate(isActive=False), ids.admin)
             assert not await _active(client, "Questionnaire", ids.q)
             await questionnaire.update_questionnaire(ids.q, QuestionnaireUpdate(isActive=True), ids.admin)
@@ -154,7 +135,6 @@ def test_the_author_or_an_admin_edits_the_form_and_another_manager_is_refused(mo
                 ids.sections["D"],
             )]
 
-            # Another questionnaire manager: refused on every edit path, and nothing changes.
             await _refused(lambda: questionnaire.update_questionnaire(ids.q, QuestionnaireUpdate(title="Taken over"), other))
             await _refused(lambda: questionnaire.create_section(
                 QuestionnaireSectionCreate(questionnaireId=ids.q, code="Z", title="Not theirs"), other))
@@ -170,7 +150,6 @@ def test_the_author_or_an_admin_edits_the_form_and_another_manager_is_refused(mo
                 'SELECT 1 FROM "QuestionnaireSection" WHERE "questionnaireId" = $1 AND "code" = $2', ids.q, "Z"
             ) == []
 
-            # The author: renames the form, adds a section and a question, edits and reorders them.
             await questionnaire.update_questionnaire(ids.q, QuestionnaireUpdate(title=f"Renamed by its author {ids.tag}"), ids.prof)
             assert (await title("Questionnaire", ids.q, "title")).lower() == f"renamed by its author {ids.tag}".lower()
             made = await questionnaire.create_section(QuestionnaireSectionCreate(questionnaireId=ids.q, code="Z", title="Added"), ids.prof)
@@ -183,7 +162,6 @@ def test_the_author_or_an_admin_edits_the_form_and_another_manager_is_refused(mo
                 QuestionnaireQuestionReorder(sectionId=ids.sections["D"], questionIds=list(reversed(d_questions))), ids.prof)
             await questionnaire.reorder_sections(QuestionnaireSectionReorder(sectionIds=list(reversed(section_order))), ids.prof)
 
-            # A content admin, on somebody else's form.
             await questionnaire.update_section(made["id"], QuestionnaireSectionUpdate(title="Renamed by an admin"), ids.admin)
             assert (await title("QuestionnaireSection", made["id"], "title")).lower() == "renamed by an admin"
             await questionnaire.update_question(asked["id"], QuestionnaireQuestionUpdate(helpText="Edited by an admin."), ids.admin)

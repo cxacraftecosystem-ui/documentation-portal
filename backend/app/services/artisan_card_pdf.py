@@ -1,18 +1,3 @@
-"""The artisan card as a PDF: one ID-1 card, one A6 card, or a sheet of them for a workshop.
-
-Pages are drawn at physical size, so a print at 100% gives a card that is 85.6 x 54 mm (ID-1, the
-bank-card size) or an A6 page. A sheet of ID-1 cards is A4 portrait, two columns of five, with crop
-marks; a sheet of A6 cards is one card per page.
-
-What a card face carries, and nothing more: the photo (optional, per print), the name and local
-name, the craft and cluster, ``Aadhaar XXXX XXXX 9012`` (left out when the last four are not
-known), the portal's name, the QR and the short code under it. Never the fingerprint, phone,
-address, date of birth or Pehchan number; the QR carries only the opaque token.
-
-The QR is segno's matrix drawn as vector squares at 24 mm or more (29 modules, so each module is
-at least 0.8 mm), with a two-module quiet zone kept white.
-"""
-
 from __future__ import annotations
 
 import io
@@ -27,12 +12,10 @@ ID1 = (85.6 * mm, 54 * mm)
 A6 = (105 * mm, 148 * mm)
 SIZES = ("id1", "a6")
 
-#: Cards per A4 sheet of ID-1 cards: two columns of five.
 SHEET_COLUMNS = 2
 SHEET_ROWS = 5
 PER_SHEET = SHEET_COLUMNS * SHEET_ROWS
 
-#: The largest side a photo is placed at, in pixels. Bigger originals are scaled down first.
 PHOTO_MAX_PX = 600
 
 INK = (0.11, 0.11, 0.12)
@@ -53,7 +36,6 @@ class CardFace:
 
 
 def _printable(text: str | None) -> str | None:
-    """Helvetica draws Latin-1 only; a line in another script is left out rather than drawn as boxes."""
     if not text:
         return None
     try:
@@ -79,7 +61,6 @@ def _qr_matrix(token: str) -> list[list[bool]]:
 
 
 def _draw_qr(c: Any, token: str, x: float, y: float, side: float) -> None:
-    """The QR with its bottom-left corner at (x, y), ``side`` wide, quiet zone outside it."""
     matrix = _qr_matrix(token)
     n = len(matrix)
     module = side / n
@@ -93,7 +74,6 @@ def _draw_qr(c: Any, token: str, x: float, y: float, side: float) -> None:
             if dark and start is None:
                 start = col
             elif not dark and start is not None:
-                # One rectangle per dark run, slightly overdrawn so no hairline shows between runs.
                 c.rect(
                     x + start * module, top, (col - start) * module, module + 0.01, stroke=0, fill=1
                 )
@@ -117,7 +97,6 @@ def _photo_reader(photo: bytes | None) -> Any | None:
 
 
 def _draw_photo(c: Any, reader: Any, x: float, y: float, w: float, h: float) -> None:
-    """Centre-crop the photo into the w x h box."""
     iw, ih = reader.getSize()
     scale = max(w / iw, h / ih)
     dw, dh = iw * scale, ih * scale
@@ -159,7 +138,6 @@ def _draw_refusal(c: Any, ox: float, oy: float, w: float, h: float) -> None:
 
 
 def draw_id1(c: Any, face: CardFace, ox: float, oy: float, portal: str) -> None:
-    """One ID-1 face with its bottom-left corner at (ox, oy)."""
     w, h = ID1
     pad = 4 * mm
     c.setFillColorRGB(*MUTED)
@@ -255,8 +233,6 @@ def render(
     sheet: bool = False,
     title: str = "Artisan card",
 ) -> bytes:
-    """The PDF for ``faces``. A6: one card per page. ID-1: one card-sized page, or with ``sheet``
-    A4 pages of ten with crop marks."""
     buffer = io.BytesIO()
     if size == "a6":
         c = pdf_canvas.Canvas(buffer, pagesize=A6)

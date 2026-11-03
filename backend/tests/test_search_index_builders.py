@@ -1,10 +1,3 @@
-"""What one record becomes in the search index (services/search_index; docs/SEARCH.md).
-
-Against a real database (opt-in, see ``search_support``): the builders read relations, and the
-shareable rule reads the artisan's sharing consent. Every type is built from one seeded world;
-identity values are seeded on purpose and must reach no title, subtitle, body or place.
-"""
-
 from __future__ import annotations
 
 import uuid
@@ -72,13 +65,11 @@ async def test_shareable_follows_the_artisans_consent(world):
     assert docs[("artisans", world.unconsented.id)]["shareable"] is False
     assert docs[("products", world.product_title.id)]["shareable"] is True
     assert docs[("products", world.product_body.id)]["shareable"] is False
-    # Named only as free text: never shareable.
     assert docs[("products", world.product_free.id)]["shareable"] is False
     assert docs[("tools", world.tool.id)]["shareable"] is True
     assert docs[("interviews", world.interview.id)]["shareable"] is True
     assert docs[("transcripts", world.transcript_consented.id)]["shareable"] is True
     assert docs[("processes", world.process.id)]["shareable"] is True
-    # Names no artisan.
     assert docs[("crafts", world.craft.id)]["shareable"] is True
     assert docs[("workshops", world.workshop.id)]["shareable"] is True
     assert docs[("transcripts", world.transcript_open.id)]["shareable"] is True
@@ -160,7 +151,6 @@ async def test_a_file_takes_the_artisans_of_the_record_it_hangs_off(world):
 
     on_product = await _file(world, productId=world.product_body.id)
     on_interview = await _file(world, questionnaireInterviewId=world.interview.id)
-    # Tagged only, the typed column never filled: the tag still names the record.
     tagged_free = await _file(
         world, linkedRecordType="product", linkedRecordId=world.product_free.id
     )
@@ -172,9 +162,7 @@ async def test_a_file_takes_the_artisans_of_the_record_it_hangs_off(world):
             doc = await search_index.build(kind, on_interview.id)
             assert doc["artisanIds"] == [world.consented.id], kind
             assert doc["shareable"] is True, kind
-            # The product names its artisan only as free text: never shareable.
             assert (await search_index.build(kind, tagged_free.id))["shareable"] is False, kind
-        # A change to the artisan or the product reaches the file.
         on_artisan = await search_index.dependents_of_artisan(world.unconsented.id)
         assert ("media", on_product.id) in on_artisan
         assert ("transcripts", on_product.id) in on_artisan

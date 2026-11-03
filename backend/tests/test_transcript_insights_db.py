@@ -1,11 +1,3 @@
-"""Transcript insights against a REAL Postgres with the migration applied.
-
-Opt-in: runs only with ``TRANSCRIPT_INSIGHTS_DB_TESTS=1`` and a ``DATABASE_URL`` that is a throwaway
-test database (never ``backend/.env``, which points at production). What only a real database can
-show is here: the unique ``(mediaFileId, version)`` index, the cascade on media delete, the new job
-type being accepted, and enqueue/generate/supersede running through the real client.
-"""
-
 from __future__ import annotations
 
 import os
@@ -38,7 +30,6 @@ async def client(monkeypatch):
     prisma = Prisma(datasource={"url": url})
     await prisma.connect()
     monkeypatch.setattr(ti, "db", prisma)
-    # The consent gate reads the ledger through the app's client.
     import app.core.db as core_db
 
     monkeypatch.setattr(core_db, "db", prisma)
@@ -119,14 +110,12 @@ async def test_enqueue_and_generate_through_the_real_client(client, monkeypatch)
 
     media_id = await _media(client)
     uploader = (await client.mediafile.find_unique(where={"id": media_id})).uploadedById
-    # Consent is assumed by default (19 Oct 2026): a refusal on record queues nothing, and a later
-    # grant allows it again.
     await consent_gate.record_recording_consent(media_id, state="REFUSED", actor_id=uploader, client=client)
     assert await ti.enqueue(media_id) is None, "consent refused: nothing is queued"
     await consent_gate.record_recording_consent(media_id, state="GRANTED", actor_id=uploader, client=client)
     job = await ti.enqueue(media_id)
     assert job is not None and job.jobType == "TRANSCRIPT_INSIGHTS" and job.priority == 80
-    assert await ti.enqueue(media_id) is None  # one active job at a time
+    assert await ti.enqueue(media_id) is None
 
     media = await client.mediafile.find_unique(where={"id": media_id})
     first = await ti.generate(media, user_id=None)
@@ -140,7 +129,6 @@ async def test_enqueue_and_generate_through_the_real_client(client, monkeypatch)
 
 
 async def test_the_drain_filter_on_the_job_type_is_valid_sql(client):
-    """``not_in`` on the enum column, as the drain sends it with both kinds held back."""
     rows = await client.mediaprocessingjob.find_many(
         where={"jobType": {"not_in": ["TRANSCRIPTION", "TRANSCRIPT_INSIGHTS"]}}, take=1
     )
@@ -157,7 +145,7 @@ async def test_a_regenerate_claims_an_automatic_job_once(client):
     job = await ti.enqueue(media_id)
     assert job is not None
     assert await ti.claim_for_requester(job.id, owner) is True
-    assert await ti.claim_for_requester(job.id, owner) is False  # already claimed
+    assert await ti.claim_for_requester(job.id, owner) is False
     assert await ti.job_requester(job) == owner
 
 

@@ -1,13 +1,3 @@
-"""Microsoft and Yahoo sign-in through ``POST /auth/login``: the gate, the account, the refusals.
-
-A PROVED Microsoft or Yahoo identity is gated exactly as a proved Google one is — the roster decides
-before anything is written, an unknown address becomes a PENDING row and gets no account, a refused
-one is answered in the roster's own words — and an admitted one signs in to the account at its
-normalised address or gets a new one at the tier the roster grants. Every request carries a real
-signed token from ``oidc_fake_idp``; only the provider's two HTTP answers and the database are fakes
-(``access_roster_fakes``), so this runs without Postgres.
-"""
-
 import asyncio
 from typing import Any
 
@@ -119,7 +109,7 @@ def test_an_existing_password_account_is_signed_in_to_and_keeps_its_password_and
     [account] = fake.user.rows
     assert account.passwordHash is not None
     assert account.avatarUrl == "https://pic"
-    assert account.authProvider == "YAHOO"  # it had none of its own: LOCAL
+    assert account.authProvider == "YAHOO"
 
 
 def test_a_google_account_keeps_google_as_its_provider(monkeypatch):

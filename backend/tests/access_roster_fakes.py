@@ -1,17 +1,3 @@
-"""An in-memory stand-in for the two tables the sign-in gate touches, shared by the gate tests.
-
-NOT A TEST MODULE (no ``test_`` prefix), so pytest imports it rather than collecting it.
-
-WHY A FAKE AND NOT A DATABASE. There is no local Postgres on this machine and ``backend/.env``
-points at the LIVE production pooler; a test suite that connected to it would be running the gate's
-migrations against real users. So the tables are modelled here, in about a hundred lines, with the
-handful of query shapes the gate actually issues. The rule this file lives by: it implements the
-QUERIES, never the DECISIONS. ``find_first(where={"email": ..., "status": "ACTIVE"})`` filters on
-both keys here exactly as Postgres would, which is what makes
-``test_a_row_that_is_not_active_does_not_admit`` a real test of ``roster_admits`` rather than a test
-of a helper that was told the answer.
-"""
-
 import sys
 from datetime import UTC, datetime
 from itertools import count
@@ -30,8 +16,6 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-#: Column defaults, mirroring prisma/schema.prisma. Kept here rather than sprinkled through the
-#: fake's ``create`` so that a column added to the model shows up in one place.
 USER_DEFAULTS: dict[str, Any] = {
     "name": "Someone",
     "passwordHash": None,
@@ -60,7 +44,6 @@ USER_DEFAULTS: dict[str, Any] = {
     "twoFactorRecoveryLockouts": 0,
     "firstPasswordCodeAttempts": 0,
     "firstPasswordCodeWindowStartedAt": None,
-    # Passwords and sessions (20261018090000_account_passwords).
     "passwordSetAt": None,
     "mustChangePassword": False,
     "firstLoginAt": None,
@@ -96,7 +79,6 @@ EMAIL_MESSAGE_DEFAULTS: dict[str, Any] = {
     "status": "QUEUED",
     "attempts": 0,
     "maxAttempts": 5,
-    # The column defaults to now() in Postgres: a fresh row is due at once.
     "runAfter": datetime(2000, 1, 1, tzinfo=UTC),
     "lockedAt": None,
     "lockedBy": None,
@@ -125,17 +107,12 @@ ROSTER_DEFAULTS: dict[str, Any] = {
 
 
 def _matches(row: Any, where: dict[str, Any] | None) -> bool:
-    """Equality matching, plus the operator shapes the gate's and two-step verification's queries
-    use. ``OR`` and the comparison operators exist for the conditional updates that make a TOTP code
-    and a challenge attempt single-use; they compare exactly as Postgres would (NULL matches no
-    comparison)."""
     for field, expected in (where or {}).items():
         if field == "OR":
             if not any(_matches(row, clause) for clause in expected):
                 return False
             continue
         if field == "AND":
-            # ``live_media_where`` composes its ``removedAt`` clause under AND (audit M19).
             if not all(_matches(row, clause) for clause in expected):
                 return False
             continue
@@ -145,8 +122,6 @@ def _matches(row: Any, where: dict[str, Any] | None) -> bool:
                 if actual not in expected["in"]:
                     return False
             elif "has" in expected:
-                # A scalar-list column holding the value (``AssignedTask.artisanIds``), as Postgres's
-                # ``= ANY`` reads it. Added for ``services/artisan_merge``.
                 if expected["has"] not in (actual or []):
                     return False
             elif "contains" in expected:
@@ -171,7 +146,7 @@ def _matches(row: Any, where: dict[str, Any] | None) -> bool:
             elif "lte" in expected:
                 if actual is None or not actual <= expected["lte"]:
                     return False
-            else:  # pragma: no cover - a query shape the fake has not been taught
+            else:  # pragma: no cover
                 raise NotImplementedError(f"fake db cannot match {field}={expected!r}")
         elif actual != expected:
             return False
@@ -179,9 +154,6 @@ def _matches(row: Any, where: dict[str, Any] | None) -> bool:
 
 
 class FakeTable:
-    """One table. Rows are ``SimpleNamespace`` so handler code reads them by attribute, as it does
-    with prisma models."""
-
     def __init__(
         self,
         defaults: dict[str, Any],
@@ -191,24 +163,11 @@ class FakeTable:
         self.defaults = defaults
         self.rows: list[SimpleNamespace] = []
         self.writes: list[tuple[str, dict[str, Any]]] = []
-        #: Composite unique indexes this table carries, as tuples of column names. EMPTY by default,
-        #: so every caller that predates this sees no behaviour change at all. A test that is ABOUT
-        #: a unique index must declare it, or it is not testing anything: the fake would otherwise
-        #: accept two rows the database refuses and the test goes green over a bug. That is not
-        #: hypothetical — the seeder's whole reordering design exists because
-        #: `@@unique([questionnaireId, sortOrder])` refuses a mid-corpus collision, and against a
-        #: fake with no uniqueness the unsound version of that design passes.
         self.unique_keys = unique_keys
         for values in seed or []:
             self.rows.append(self._materialise(values))
 
     def _refuse_duplicate(self, values: dict[str, Any], exclude_id: str | None = None) -> None:
-        """Raise as Postgres would.
-
-        NULLs are exempt — Postgres treats them as distinct under a unique index, which is exactly
-        why `artisanSetKey IS NULL` interviews are not deduped and why
-        `@@unique([questionnaireId, artisanSetKey])` still allows several per instrument.
-        """
         for key in self.unique_keys:
             probe = tuple(values.get(field) for field in key)
             if any(part is None for part in probe):
@@ -242,8 +201,6 @@ class FakeTable:
         row.update(values)
         return SimpleNamespace(**row)
 
-    # --- reads ---------------------------------------------------------------------------------
-
     async def find_unique(self, where: dict[str, Any], **_: Any) -> Any:
         return next((row for row in self.rows if _matches(row, where)), None)
 
@@ -260,10 +217,6 @@ class FakeTable:
     ) -> list[Any]:
         found = [row for row in self.rows if _matches(row, where)]
         if order:
-            # A LIST of order clauses is the multi-key form prisma-client-py accepts
-            # (`order=[{"sortOrder": "asc"}, {"createdAt": "asc"}]`) and the resolver's default
-            # lookup uses it. Applied last-key-first so the first clause is the primary sort, which
-            # is what a stable sort gives for free.
             clauses = order if isinstance(order, list) else [order]
             for clause in reversed(clauses):
                 field, direction = next(iter(clause.items()))
@@ -274,19 +227,14 @@ class FakeTable:
     async def count(self, where: dict[str, Any] | None = None, **_: Any) -> int:
         return len([row for row in self.rows if _matches(row, where)])
 
-    # --- writes --------------------------------------------------------------------------------
-
     async def create(self, data: dict[str, Any], **_: Any) -> Any:
         row = self._materialise(dict(data))
-        # BEFORE the append, so a refusal leaves no row behind — which is what makes "raised before
-        # the first write" an assertable property rather than a hope.
         self._refuse_duplicate(vars(row))
         self.rows.append(row)
         self.writes.append(("create", dict(data)))
         return row
 
     async def create_many(self, data: list[dict[str, Any]], **_: Any) -> int:
-        """Added for the legacy create's link rows (audit M21), written in its transaction."""
         for values in data:
             await self.create(values)
         return len(data)
@@ -324,15 +272,6 @@ class FakeTable:
         return row
 
     async def delete_many(self, where: dict[str, Any] | None = None, **_: Any) -> int:
-        """The set-shaped delete, beside the set-shaped ``update_many`` already above it.
-
-        Added for ``routes/questionnaire.merge_interview_into``, which clears the response rows that
-        cannot travel (``@@unique([interviewId, questionId])`` allows one row per question per
-        interview, so a row moving onto a question the survivor already holds has to be reconciled
-        first) in ONE statement rather than one per answer. Modelled exactly as ``update_many`` is:
-        it implements the QUERY — ``_matches`` decides membership, including the ``{"in": [...]}``
-        shape that route uses — and it decides nothing.
-        """
         doomed = [row for row in self.rows if _matches(row, where)]
         for row in doomed:
             self.rows.remove(row)
@@ -340,8 +279,6 @@ class FakeTable:
         return len(doomed)
 
 
-#: Column defaults for the questionnaire container and its children, mirroring prisma/schema.prisma
-#: exactly as USER_DEFAULTS does. A column added to a model shows up in one place.
 QUESTIONNAIRE_DEFAULTS: dict[str, Any] = {
     "title": "An instrument",
     "description": None,
@@ -388,16 +325,6 @@ INTERVIEW_DEFAULTS: dict[str, Any] = {
 
 
 class FakeDb:
-    """``db``, with the tables the gate and the questionnaire seeder read. Anything else raises
-    rather than returning None — a silent ``None`` from an unmodelled table is how a test passes for
-    the wrong reason.
-
-    THE SAME SENTENCE IS THE ARGUMENT FOR THE UNIQUE KEYS BELOW. A fake that models a table but not
-    its unique indexes accepts writes the database refuses, so a test about a unique index passes
-    over broken code — which is a subtler version of exactly the failure the docstring rule above
-    exists to prevent.
-    """
-
     def __init__(
         self,
         users: list[dict[str, Any]] | None = None,
@@ -424,9 +351,6 @@ class FakeDb:
             sections,
             unique_keys=(("questionnaireId", "code"), ("questionnaireId", "sortOrder")),
         )
-        # NO unique index, by design: the (sectionId, sortOrder) one was dropped by
-        # 20260616120000_questionnaire_sections/migration.sql:52 so questions could move between
-        # sections, and adding it now would force a two-pass into `reorder_questions`.
         self.questionnairequestion = FakeTable(QUESTION_DEFAULTS, questions)
         self.questionnaireresponse = FakeTable(
             RESPONSE_DEFAULTS, responses, unique_keys=(("interviewId", "questionId"),)
@@ -436,16 +360,9 @@ class FakeDb:
         )
 
     def tx(self, **_: Any) -> "_FakeTransaction":
-        """``db.tx()``: the same tables, rolled back to how they were if the block raises.
-
-        Every row is copied on entry and the copies are put back on an exception, which is what makes
-        "a failure in the second write leaves no first row" an assertable property here, as it is in
-        Postgres. The block writes through the object it is handed, exactly as real code writes
-        through ``tx`` and not through the module ``db``.
-        """
         return _FakeTransaction(self)
 
-    def __getattr__(self, name: str) -> Any:  # pragma: no cover - a guard, not a path
+    def __getattr__(self, name: str) -> Any:  # pragma: no cover
         raise AssertionError(
             f"The sign-in gate touched db.{name}, which this fake does not model. If that is "
             f"deliberate, teach the fake; if it is not, the gate just grew a dependency."
@@ -471,10 +388,6 @@ class _FakeTransaction:
 
 
 class PassThroughTx:
-    """``db.tx()`` and ``query_raw`` for the auto-vivifying fakes: the block writes through the same
-    tables, and an advisory-lock ``query_raw`` answers nothing. Mixed into a fake's class, so
-    ``__getattr__`` (which only sees missing names) never turns ``tx`` into a table."""
-
     def tx(self, **_: Any) -> Any:
         fake = self
 
@@ -495,13 +408,6 @@ class PassThroughTx:
 
 
 def install(monkeypatch: pytest.MonkeyPatch, fake: FakeDb) -> FakeDb:
-    """Rebind every already-imported ``app.*`` module's ``db`` to *fake*.
-
-    The modules do ``from app.core.db import db``, so each holds its OWN reference and patching the
-    source alone would miss all of them. Rebinding BY IDENTITY finds every one already imported and
-    keeps finding them when a new module is added — the same technique
-    ``tests/test_permission_matrix.py`` uses, and for the same reason.
-    """
     real_db = core_db.db
     monkeypatch.setattr(core_db, "db", fake)
     for module in list(sys.modules.values()):

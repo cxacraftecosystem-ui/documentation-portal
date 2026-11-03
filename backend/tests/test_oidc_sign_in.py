@@ -1,11 +1,3 @@
-"""Microsoft and Yahoo ID tokens: what is accepted, and every way one is refused. No database.
-
-Every token here is genuinely signed by ``oidc_fake_idp.FakeIdP`` and verified by the production
-code against a published JWKS, so a refusal below is the verifier refusing, not a stub answering.
-The admission and account-linking half — what a PROVED identity may do — is
-``test_oidc_sign_in_admission.py``.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -47,8 +39,6 @@ def _refusal(name: str, token: str, **kwargs) -> str:
     return caught.value.reason
 
 
-# ── what is accepted ─────────────────────────────────────────────────────────────────────────────
-
 
 def test_a_genuine_microsoft_token_is_accepted(idp):
     claims = _verify(MICROSOFT, idp.sign(idp.microsoft_claims("meera@outlook.com")))
@@ -65,12 +55,9 @@ def test_keys_are_cached_and_refetched_only_for_an_unknown_key(idp):
     _verify(MICROSOFT, token)
     _verify(MICROSOFT, token)
     assert idp.jwks_fetches == 1
-    # A rotated key: one more fetch is allowed, then the token is refused as unknown.
     assert _refusal(MICROSOFT, idp.sign(idp.microsoft_claims("m@outlook.com"), kid="rotated")) == "unknown-key"
-    assert idp.jwks_fetches == 1  # within the refetch floor, the cached set answers
+    assert idp.jwks_fetches == 1
 
-
-# ── signature and algorithm ──────────────────────────────────────────────────────────────────────
 
 
 def test_a_token_signed_by_an_unpublished_key_is_refused(idp):
@@ -94,8 +81,6 @@ def test_a_tampered_payload_is_refused(idp):
 def test_a_malformed_token_is_refused(idp, token):
     assert _refusal(MICROSOFT, token) == "malformed-token"
 
-
-# ── issuer, audience, time, nonce ───────────────────────────────────────────────────────────────
 
 
 def test_the_wrong_audience_is_refused(idp):
@@ -157,14 +142,11 @@ def test_a_token_without_exp_is_refused(idp):
 def test_the_nonce_must_be_the_digest_of_the_raw_value_the_caller_holds(idp):
     token = idp.sign(idp.microsoft_claims("m@outlook.com"))
     assert _refusal(MICROSOFT, token, raw_nonce="somebody-elses-raw-nonce-value") == "nonce-mismatch"
-    # Sending the digest itself (what an eavesdropper on the authorization request saw) is refused.
     assert _refusal(MICROSOFT, token, raw_nonce=oidc_sign_in.nonce_digest(RAW_NONCE)) == "nonce-mismatch"
     claims = idp.microsoft_claims("m@outlook.com")
     del claims["nonce"]
     assert _refusal(MICROSOFT, idp.sign(claims)) == "nonce-mismatch"
 
-
-# ── the email, and when it counts as verified ────────────────────────────────────────────────────
 
 
 def _email(name: str, claims: dict) -> str:
@@ -197,8 +179,6 @@ def test_no_email_at_all_is_unverified(idp):
     with pytest.raises(EmailNotVerified):
         _email(YAHOO, claims)
 
-
-# ── the redemption ───────────────────────────────────────────────────────────────────────────────
 
 
 def test_prove_redeems_with_the_secret_and_the_verifier_then_verifies(idp):
@@ -252,8 +232,6 @@ def test_an_unconfigured_provider_cannot_prove_anything(monkeypatch):
 def test_redirect_uris(uri, ok):
     assert oidc_sign_in.acceptable_redirect_uri(uri) is ok
 
-
-# ── the request body ─────────────────────────────────────────────────────────────────────────────
 
 
 def test_the_login_body_takes_exactly_one_credential():

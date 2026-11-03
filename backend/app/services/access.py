@@ -1,10 +1,3 @@
-"""Cross-researcher tiered data access + edit auditing.
-
-A DataAccessGrant lets one researcher (the GRANTEE) act on another researcher's (the OWNER's) uploaded
-records at a tier: DOWNLOAD (download/export) < COMMENT (+ comment) < EDIT (+ change fields). Admins and
-a record's own creator always have full (EDIT) access. Every field-changing edit is captured in a
-RecordRevision so an admin can reconstruct the original values and every subsequent edit, with author.
-"""
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -14,10 +7,8 @@ from prisma import Json
 from app.core.db import db
 from app.services.measurement_provenance import MARKER_BODY_KEY
 
-# Strictly increasing privilege. A tier includes every action of the tiers below it.
 TIER_ORDER = {"DOWNLOAD": 1, "COMMENT": 2, "EDIT": 3}
 
-# Human-readable, shown in UIs so a user knows exactly what each tier confers when requesting/granting.
 TIER_DESCRIPTIONS = {
     "DOWNLOAD": "Minimum — download this researcher's data (the whole set, or the shared subset).",
     "COMMENT": "Medium — everything in Download, plus leave comments on their entries.",
@@ -37,7 +28,6 @@ def tier_at_least(tier: str | None, minimum: str) -> bool:
 
 
 async def active_grant(grantee_id: str, owner_id: str) -> Any:
-    """The (owner, grantee) DataAccessGrant row, with its subset items, or None."""
     if not grantee_id or not owner_id:
         return None
     return await db.dataaccessgrant.find_unique(
@@ -58,12 +48,6 @@ def _grant_covers(grant: Any, record_type: str, record_id: str) -> bool:
 async def effective_tier_for_record(
     user: Any, owner_id: str | None, record_type: str, record_id: str | None
 ) -> str | None:
-    """The highest tier `user` holds over one record owned by `owner_id`.
-
-    Admins and the record's own creator implicitly have EDIT. Otherwise it's the tier of an active
-    GRANTED grant from the owner to the user that covers this record (all-data, or the subset list).
-    Returns None when the user has no access beyond plain viewing.
-    """
     from app.core.roles import get_value, is_content_admin
 
     if is_content_admin(user):
@@ -79,31 +63,6 @@ async def effective_tier_for_record(
     return _enum_str(grant.tier)
 
 
-# Infrastructural fields whose churn should not be logged as a meaningful edit.
-#
-# ── WHY ``measurementMethods`` IS IN HERE, AND WHY IT HAD TO ARRIVE BEFORE THE SCHEMAS DID ────────
-#
-# Every other entry is a COLUMN whose churn is noise. ``measurementMethods`` is a request-body key
-# that names no column on any table: it is a per-dimension hint about HOW ``lengthInches`` /
-# ``breadthInches`` / ``heightInches`` came to be known, popped off the payload by
-# ``records.merge_field_provenance`` and merged into each dimension's ``{by, byName, at}`` stamp.
-# ``services/measurement_provenance`` holds the whole argument.
-#
-# WHAT THIS ENTRY PREVENTS. ``guard_record_edit`` runs ``record_revision`` on the raw ``data``
-# BEFORE ``merge_field_provenance`` pops the key, and the loop below diffs every key not in this set
-# against the stored row. ``get_value(product, "measurementMethods")`` is None and
-# ``values_match(None, {...})`` is False — so without this entry EVERY marker-bearing PATCH appends a
-# RecordRevision for a key that is not a value, breaking ``record_revision``'s own contract ("No-op
-# when nothing meaningful changed") and filling an admin audit trail with an edit nobody made.
-#
-# THE TABLE IS APPEND-ONLY, which is why the ORDER matters and not just the entry: landing the
-# schema declaration that makes the key sendable before this line would write rows that adding the
-# line afterwards cannot retract. Moving the pop earlier is not available — the merge must still see
-# the marker. The marker is a hint about how a value was produced, not a value. Re-check the other
-# two halves with::
-#
-#     grep -n "measurementMethods" backend/app/schemas/records.py
-#     grep -n "MARKER_BODY_KEY" backend/app/services/records.py
 REVISION_SKIP_FIELDS = {
     "extraMetadata",
     "location",
@@ -113,18 +72,12 @@ REVISION_SKIP_FIELDS = {
     "createdById",
     "recordedAt",
     "recordedTimezone",
-    # When a creator's edit resubmits a record — bookkeeping about the queue, not a field anybody typed.
     "submittedAt",
     MARKER_BODY_KEY,
 }
 
 
 async def record_revision(record: Any, user: Any, data: dict[str, Any], record_type: str) -> None:
-    """Append an immutable RecordRevision for whichever fields in `data` actually change `record`.
-
-    Call with the cleaned update payload BEFORE field-provenance is merged in, so provenance bookkeeping
-    is not mistaken for a content edit. No-op when nothing meaningful changed.
-    """
     from app.core.roles import get_value, values_match
 
     changes: dict[str, Any] = {}
@@ -134,10 +87,6 @@ async def record_revision(record: Any, user: Any, data: dict[str, Any], record_t
         old_value = get_value(record, field)
         if not values_match(old_value, new_value):
             changes[field] = {"old": jsonable_encoder(old_value), "new": jsonable_encoder(new_value)}
-    # THE AADHAAR IS RECORDED AS CHANGED, NEVER BY VALUE (2026-10-17). It is one answer stored in two
-    # columns (services/aadhaar_fingerprint.py) plus the legacy one, and the ledger keeps one
-    # valueless entry under the field the editor touched. Before the backfill a row's number may
-    # still sit in the legacy column, so "had one" asks every column.
     aadhaar_keys = ("aadhaarFingerprint", "aadhaarLast4", "aadhaarNumber")
     if any(key in changes for key in aadhaar_keys):
         from app.services.aadhaar_fingerprint import has_aadhaar, ledger_entry
@@ -161,30 +110,12 @@ async def record_revision(record: Any, user: Any, data: dict[str, Any], record_t
 
 
 async def record_edit_privilege(record: Any, user: Any, record_type: str) -> bool:
-    """May `user` change this record's POPULATED fields and relations? Reads nothing, writes nothing.
-
-    The question :func:`guard_record_edit` has always answered on its way past, lifted out so a route
-    can ASK IT BEFORE ANYTHING COMMITS. `guard_record_edit` ends in `record_revision`, which writes a
-    ledger row, and this backend has no transaction to roll one back with — so a route whose own
-    refusals depend on the answer (`routes/tools`' two link relations) could only raise them AFTER
-    the ledger entry, and after the column write beyond it, unless it could get the answer first.
-    It takes the same two queries in the same order, and the caller hands the result back to
-    `guard_record_edit` so the pair costs exactly what the single call used to.
-
-    Privileged means: an admin, the record's own author, a Professor+ outranking that author, or the
-    holder of an EDIT-tier grant over it. Everyone else is an ordinary contributor, who may FILL what
-    nobody has answered yet and may not change or clear what somebody has.
-    """
     from app.core.deps import get_value, is_content_admin, may_edit_lower_ranked_record
 
     owner_id = get_value(record, "createdById")
     uid = get_value(user, "id")
-    # Content admins are privileged editors of every record (owner's ruling, 2026-10-20).
     if is_content_admin(user) or (owner_id is not None and uid == owner_id):
         return True
-    # "A professor may edit the data of anyone ranked below them" — checked before the grant
-    # lookup because it costs nothing for the ranks it does not apply to, so nobody below
-    # Professor pays an extra query for a clause that can only ever answer no for them.
     if await may_edit_lower_ranked_record(user, owner_id):
         return True
     return await effective_tier_for_record(user, owner_id, record_type, get_value(record, "id")) == "EDIT"
@@ -198,21 +129,6 @@ async def guard_record_edit(
     *,
     privileged: bool | None = None,
 ) -> bool:
-    """Authorize a field-changing edit and audit it. Returns True if the user is privileged (admin,
-    owner, a professor+ outranking the record's author, or an EDIT-tier grantee) and may change any
-    populated field/relation; False for an ordinary contributor (who may only fill empty fields —
-    enforced here, raising 403 on a locked field). Always records a revision of the fields that
-    change. Pass the cleaned `data` before provenance is merged.
-
-    `privileged` IS THE ANSWER :func:`record_edit_privilege` ALREADY GAVE, for a caller that had to
-    ask early. Omit it and this asks for itself, which is what every route but `routes/tools` does;
-    pass it and the two queries are not repeated. It cannot be used to GRANT privilege that the
-    function would not have found on its own — a route computing it any other way would be inventing
-    a second answer to the one question this module exists to answer once. ONE NAMED EXCEPTION:
-    ``routes/artisans`` passes True for the creator of an artisan merged into this one, writing
-    under the old id (``artisan_merge.created_merged_record``): they owned that record before the
-    merge folded it in here.
-    """
     from app.core.deps import assert_can_contribute_fields
 
     if privileged is None:
@@ -224,7 +140,6 @@ async def guard_record_edit(
 
 
 async def assert_can_comment(user: Any, owner_id: str | None, record_type: str, record_id: str) -> None:
-    """COMMENT tier (or owner/admin) required to comment on a record."""
     tier = await effective_tier_for_record(user, owner_id, record_type, record_id)
     if not tier_at_least(tier, "COMMENT"):
         raise HTTPException(
@@ -234,12 +149,6 @@ async def assert_can_comment(user: Any, owner_id: str | None, record_type: str, 
 
 
 async def owner_download_scope(user: Any, owner_id: str) -> dict[str, set[str]] | None:
-    """Authorize downloading `owner_id`'s data and return what is covered.
-
-    Returns None when ALL of the owner's data is allowed (admin, the global dataset-download
-    permission, the owner themselves, or an active all-data DOWNLOAD+ grant). Returns
-    {recordType: {recordIds}} when only a subset grant applies. Raises 403 when there is no access.
-    """
     from app.core.roles import can_download_dataset, get_value, is_admin
 
     if is_admin(user) or can_download_dataset(user) or get_value(user, "id") == owner_id:

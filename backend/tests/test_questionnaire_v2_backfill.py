@@ -1,11 +1,3 @@
-"""The legacy backfill (DESIGN 7.3; tests 28 and 29) on a seeded fixture of 30 interviews modelled on
-the assessment: burst copies in one interview, copies across interviews, artisan-less interviews,
-empty approved ones and a batch uploaded outside its workshop's window.
-
-It needs a database of its own, because the script reads every legacy row: point
-``QV2_BACKFILL_DATABASE_URL`` at a freshly migrated throwaway database (never production).
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -74,21 +66,17 @@ async def seed_legacy(client) -> dict:
         return mid
 
     base = datetime(2026, 6, 20, 5, 0)
-    # 24 ordinary interviews, one artisan each, two distinct clips each
     for i in range(24):
         iid = f"i{i:02d}"
         await interview(iid, [f"a{i}"])
         await clip(iid, "Section audio: A", f"{i:02d}a" * 16, (base + timedelta(minutes=i)).isoformat())
         await clip(iid, "Section audio: B", f"{i:02d}b" * 16, (base + timedelta(minutes=i, hours=1)).isoformat())
-    # a burst: 5 byte-identical copies in one interview
     await interview("i24", ["a24"])
     for k in range(5):
         await clip("i24", "Section audio: F", "ff" * 32, (base + timedelta(seconds=k)).isoformat(), transcript="COMPLETED" if k == 3 else None)
-    # one file uploaded to three interviews (cross-interview copies)
     for iid, a in (("i25", "a25"), ("i26", "a26"), ("i27", "a27")):
         await interview(iid, [a])
         await clip(iid, "Section audio: A", "cc" * 32, base.isoformat())
-    # artisan-less, empty approved, out-of-window (the 30 Jun batch)
     await interview("i28", [])
     await clip("i28", "Section audio: A", "28" * 32, base.isoformat())
     await interview("i29", ["a29"], status="APPROVED")
@@ -180,7 +168,7 @@ def test_the_purge_takes_only_verified_copies_older_than_30_days(tmp_path: Path)
         recent = (datetime.now(UTC) - timedelta(days=3)).replace(tzinfo=None).isoformat()
         await client.execute_raw('UPDATE "MediaFile" SET "removedAt" = $1::timestamp, "extraMetadata" = \'{"removedAs": "VERIFIED_DUPLICATE"}\' WHERE "id" IN (\'m049\', \'m050\')', old)
         await client.execute_raw('UPDATE "MediaFile" SET "removedAt" = $1::timestamp, "extraMetadata" = \'{"removedAs": "VERIFIED_DUPLICATE"}\' WHERE "id" = \'m051\'', recent)
-        await client.execute_raw('UPDATE "MediaFile" SET "removedAt" = $1::timestamp WHERE "id" = \'m001\'', old)  # a distinct take, removed
+        await client.execute_raw('UPDATE "MediaFile" SET "removedAt" = $1::timestamp WHERE "id" = \'m001\'', old)
         dupes = await purge.duplicate_candidates(client, now=datetime.now(UTC))
         await client.disconnect()
         return dupes
@@ -195,7 +183,6 @@ def test_the_purge_takes_only_verified_copies_older_than_30_days(tmp_path: Path)
                                             out=str(tmp_path), orphans_csv=None))) == 0
 
 
-# ── 21 Oct audit: C6 (catch-up), M1 (undecided takes stay PENDING), M25 (undo restores) ──────
 async def _clip(client, mid: str, iid: str, caption: str, sha: str, *, status: str = "PENDING") -> None:
     await client.execute_raw(
         "INSERT INTO \"MediaFile\" (\"id\", \"originalFilename\", \"mediaType\", \"mimeType\", \"sizeBytes\", \"bucket\", \"objectKey\", \"caption\", "
@@ -213,7 +200,6 @@ def test_undecided_takes_stay_pending_catch_up_files_late_clips_and_undo_restore
     async def setup():
         client = await _connect()
         await seed_legacy(client)
-        # Two different clips of one section in one sitting, already APPROVED: both wait for a decision.
         await client.execute_raw(
             "INSERT INTO \"QuestionnaireInterview\" (\"id\", \"title\", \"questionnaireId\", \"workshopId\", \"createdById\", \"status\", \"createdAt\", \"updatedAt\") "
             "VALUES ('i40', 'two takes', 'q', 'w2', 'u1', 'APPROVED', '2026-06-21', now())"
@@ -224,7 +210,6 @@ def test_undecided_takes_stay_pending_catch_up_files_late_clips_and_undo_restore
         plan = await backfill.dry_plan(client)
         await backfill.apply_plan(client, plan, "r9")
         status = await client.query_raw('SELECT "id", "status"::text AS s FROM "MediaFile" WHERE "id" IN (\'m400\', \'m401\') ORDER BY "id"')
-        # Clips that arrive into reconstructed sessions after the backfill (audit C6).
         await _clip(client, "m900", "i00", "Section audio: F", "90" * 32)
         await _clip(client, "m901", "i01", "an unplaceable clip", "91" * 32, status="APPROVED")
         await client.disconnect()
@@ -266,7 +251,6 @@ def test_undecided_takes_stay_pending_catch_up_files_late_clips_and_undo_restore
     assert run(backfill.run(_args(tmp_path, undo=True, run_id="c1"))) == 0
     assert run(missing()) == 2, "the catch-up undoes on its own run id"
 
-    # The fix-up for the live rows (M1): dry run, approval, apply, undo.
     async def approve_one() -> None:
         client = await _connect()
         await client.execute_raw('UPDATE "MediaFile" SET "status" = \'APPROVED\' WHERE "id" = \'m400\'')
@@ -291,7 +275,6 @@ def test_undecided_takes_stay_pending_catch_up_files_late_clips_and_undo_restore
     assert run(fixup.run(argparse.Namespace(**{**fix_args, "undo": True, "run_id": "f1"}))) == 0
     assert run(m400()) == "APPROVED"
 
-    # Undo of the backfill (M25): refused while a reconstructed session holds native content...
     async def native(add: bool) -> None:
         client = await _connect()
         if add:
@@ -303,7 +286,6 @@ def test_undecided_takes_stay_pending_catch_up_files_late_clips_and_undo_restore
         else:
             await client.execute_raw("DELETE FROM \"QuestionnaireRecording\" WHERE \"id\" = 'r950'")
             await client.execute_raw("DELETE FROM \"MediaFile\" WHERE \"id\" = 'm950'")
-            # ...and somebody joined i02 after the backfill.
             await client.execute_raw(
                 "INSERT INTO \"QuestionnaireInterviewResearcher\" (\"interviewId\", \"userId\", \"role\") VALUES ('i02', 'u2', 'CONTRIBUTOR') "
                 "ON CONFLICT DO NOTHING"

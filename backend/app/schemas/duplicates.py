@@ -1,5 +1,3 @@
-"""Request bodies for the duplicate-artisan finder (routes/artisan_duplicates.py)."""
-
 from __future__ import annotations
 
 from pydantic import Field
@@ -8,9 +6,6 @@ from app.schemas.common import APIModel
 
 
 class DuplicateCheckIn(APIModel):
-    """What the artisan form knows so far. The Aadhaar travels in the body only, is fingerprinted
-    and dropped; it is never stored or echoed."""
-
     name: str = Field(min_length=1, max_length=180)
     localName: str | None = Field(default=None, max_length=180)
     gender: str | None = Field(default=None, max_length=40)

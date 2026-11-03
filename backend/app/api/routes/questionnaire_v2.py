@@ -1,15 +1,3 @@
-"""Questionnaire v2 routes: the frozen contract of BUILD_PLAN section 1.
-
-``/api/questionnaire/...`` (sessions, coverage, recordings, answers, inbox, corpus, config) and
-``/api/artisans/{id}/consent|record``. The media routes (presign, multipart, uploads, complete,
-download) live in ``routes/media.py`` and call ``app/questionnaire/recordings.py``.
-
-EVERY v2 ROUTE ANSWERS 404 WHILE ``QUESTIONNAIRE_V2`` IS FALSE, except ``GET /config`` (which says
-so) and the consent routes (consent gates outside sends whatever screens a client draws). Bodies are
-parsed here rather than by FastAPI so that every refusal has the contract's shape,
-``{"detail": {"code", "message", ...}}``, and a ``title`` gets ``TITLE_IS_GENERATED``.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -57,7 +45,7 @@ async def require_v2() -> None:
 async def parse(request: Request, model: type[BaseModel], *, forbid_title: bool = False) -> Any:
     try:
         body = await request.json()
-    except Exception:  # noqa: BLE001 - a body that is not JSON is a validation failure
+    except Exception:  # noqa: BLE001
         fail("VALIDATION_FAILED", "The body is not JSON.")
     if forbid_title and isinstance(body, dict) and "title" in body:
         fail("TITLE_IS_GENERATED")
@@ -68,7 +56,6 @@ async def parse(request: Request, model: type[BaseModel], *, forbid_title: bool 
         fail("VALIDATION_FAILED", errors[0]["msg"] if errors else None, errors=errors)
 
 
-# ── config ─────────────────────────────────────────────────────────────────────────────────────
 @router.get("/config")
 async def questionnaire_config(_: Any = Depends(get_current_user)) -> dict[str, Any]:
     settings = get_settings()
@@ -81,15 +68,12 @@ async def questionnaire_config(_: Any = Depends(get_current_user)) -> dict[str, 
         "partSizeBytes": PART_SIZE,
         "snapshotPollSeconds": 60,
         "joinCodeLength": 6,
-        # The version NAME was reset to 0.0.1 (21 Oct 2026), so a name minimum can no longer be
-        # compared (audit C7): always null; clients compare their build number with the two below.
         "minAppVersionForCreate": None,
         "minAndroidVersionCodeForCreate": settings.questionnaire_min_android_version_code_for_create,
         "minWebVersionCodeForCreate": settings.questionnaire_min_web_version_code_for_create,
     }
 
 
-# ── sessions ───────────────────────────────────────────────────────────────────────────────────
 V2 = [Depends(require_v2)]
 
 
@@ -114,10 +98,6 @@ async def sessions_list(
     request: Request, cursor: str | None = None, limit: int = Query(20, ge=1, le=100), deleted: bool = False,
     user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """The sessions list. Every filter of ``app/questionnaire/filters.py`` (form, section or question,
-    artisans, researchers, workshops, dates, kind, source, transcript, language, ``q``); a repeatable
-    one is given more than once or comma-separated. ``search`` is the older name of ``q``."""
-    # The Deleted list (soft-deleted sessions, owner decision 3) is the content admins'.
     if deleted and not authoring.may_list_deleted_sessions(user):
         fail("FORBIDDEN", "Only an admin can see deleted sessions.")
     return await sessions.list_sessions(
@@ -130,8 +110,6 @@ async def recordings_list(
     request: Request, sessionId: str | None = None, cursor: str | None = None, limit: int = Query(30, ge=1, le=100),
     user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Every live take matching the shared filters, newest first, each with its chips: the
-    recordings list and search (owner, 31 Oct 2026)."""
     return await filters.list_recordings(
         filters.parse(request.query_params), user, session_id=sessionId, cursor=cursor, limit=limit,
     )
@@ -142,8 +120,6 @@ async def filter_options(
     field: str | None = None, q: str | None = None, questionnaireId: list[str] = Query(default=[]),
     limit: int = Query(50, ge=1, le=200), _: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """What each filter can be set to (forms, sections, questions, artisans, researchers,
-    workshops, languages), most used first; ``field`` and ``q`` answer a searchable select."""
     ids = [v for value in questionnaireId for v in value.split(",") if v]
     return await filters.facets(field_name=field, q=q, questionnaire_ids=ids or None, limit=limit)
 
@@ -209,7 +185,6 @@ async def sessions_restore(session_id: str, user: Any = Depends(get_current_user
     return await sessions.restore_session(session_id, user)
 
 
-# ── guest respondents (owner decision 1; UNIFY U6, A17, A18) ───────────────────────────────────
 @router.post("/sessions/{session_id}/respondents", dependencies=V2)
 async def sessions_add_respondents(session_id: str, request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
     payload = await parse(request, S.RespondentsAdd)
@@ -236,7 +211,6 @@ async def respondents_register(respondent_id: str, request: Request, user: Any =
     return await respondents.register(respondent_id, payload.artisanId, user)
 
 
-# ── the start sheet's form, bindings and type defaults (UNIFY U5; owner amendment 2) ───────────
 @router.get("/form-for", dependencies=V2)
 async def form_for(
     workshopId: str | None = None, designWorkshopId: str | None = None, questionnaireId: str | None = None,
@@ -247,7 +221,6 @@ async def form_for(
 
 @router.get("/forms/{questionnaire_id}/structure", dependencies=V2)
 async def form_structure_get(questionnaire_id: str, includeRetired: bool = False, _: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """A form's sections and questions as the shared session screens read them (UNIFY 4.2)."""
     from app.questionnaire import structure
 
     return await structure.form_structure(questionnaire_id, include_retired=includeRetired)
@@ -268,7 +241,6 @@ async def form_bindings_put(questionnaire_id: str, request: Request, user: Any =
 
 @router.get("/type-defaults", dependencies=V2)
 async def type_defaults_get(_: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """Each workshop type's default form (owner, amendment 2 point 2), for the library's admin card."""
     from app.core.db import db
 
     rows = await db.query_raw(
@@ -290,9 +262,6 @@ async def type_defaults_get(_: Any = Depends(get_current_user)) -> dict[str, Any
 async def annexure_get(
     workshopId: str, format: str = Query("json", pattern="^(json|txt)$"), user: Any = Depends(get_current_user),
 ) -> Any:
-    """The workshop's questionnaire annexure, grouped by kind, live sessions only (UNIFY A12): what
-    the workshop export prints. Answers in it are research data, so it is for questionnaire managers
-    and dataset downloaders."""
     from app.core.deps import can_download_dataset, can_manage_questionnaire
     from app.services import questionnaire_library
     from app.services.naming import content_disposition
@@ -353,10 +322,6 @@ async def sessions_merge(session_id: str, target_id: str, user: Any = Depends(ge
 
 @router.get("/sessions/{session_id}/insights", dependencies=V2)
 async def sessions_insights(session_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """The summaries of the session's live takes, one item per take that has a transcript (audit
-    M27): ``{"recordingId", "mediaId", "state", "stale", "canEdit", "canRegenerate", "error",
-    "insight"}``, the per-clip view of ``GET /api/media/{id}/insights`` without the translation
-    text. ``{"items": []}`` while the insights switch is off."""
     from app.api.routes.transcript_insights import may_edit
     from app.core.db import db
     from app.services import transcript_insights
@@ -384,7 +349,6 @@ async def sessions_insights(session_id: str, user: Any = Depends(get_current_use
     return {"items": items}
 
 
-# ── coverage ───────────────────────────────────────────────────────────────────────────────────
 @router.post("/coverage/check", dependencies=V2)
 async def coverage_check(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
     payload = await parse(request, S.CoverageCheckRequest)
@@ -406,7 +370,6 @@ async def coverage_snapshot(
     return await coverage.snapshot(questionnaireId, workshopId, sinceSeq)
 
 
-# ── recordings ─────────────────────────────────────────────────────────────────────────────────
 @router.patch("/recordings/{recording_id}", dependencies=V2)
 async def recordings_patch(recording_id: str, request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
     payload = await parse(request, S.RecordingPatch)
@@ -432,27 +395,23 @@ async def recordings_decide(recording_id: str, request: Request, user: Any = Dep
 @router.get("/recordings/removed", dependencies=V2)
 async def recordings_removed(sessionId: str | None = None, artisanId: str | None = None,
                              user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """Removed takes of one session or one artisan, newest first ("Show removed"; audit M12)."""
     return await recordings.removed_takes(user, session_id=sessionId, artisan_id=artisanId)
 
 
 @router.post("/recordings/{recording_id}/file", dependencies=V2)
 async def recordings_file(recording_id: str, request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """"File it" for a take waiting for a place (audit H14): targets, optionally subjects and session."""
     payload = await parse(request, S.FileRecordingRequest)
     return await recordings.file_recording(recording_id, payload, user)
 
 
 @router.post("/media/{media_id}/file", dependencies=V2)
 async def media_file(media_id: str, request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """"File it" for an inbox "To file" clip with no recording yet (audit H14)."""
     payload = await parse(request, S.FileMediaRequest)
     return await recordings.file_media(media_id, payload, user)
 
 
 @router.post("/media/{media_id}/not-needed", dependencies=V2)
 async def media_not_needed(media_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """"Not needed" on an inbox "To file" clip, kept on the server (audit M22, H14)."""
     return await recordings.not_needed(media_id, user)
 
 
@@ -469,7 +428,6 @@ async def recordings_proposals(recording_id: str, user: Any = Depends(get_curren
 
 @router.post("/recordings/{recording_id}/transcribe", status_code=status.HTTP_202_ACCEPTED, dependencies=V2)
 async def recordings_transcribe(recording_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """Take-level Retry. While paused: 202 ``{"status": "QUEUED", "paused": true}``, never an error."""
     return await recordings.transcribe(recording_id, user)
 
 
@@ -480,9 +438,6 @@ async def recordings_download(recording_id: str, user: Any = Depends(get_current
 
 
 async def assert_may_download_recording(recording_id: str, user: Any) -> None:
-    """The media-owner gate every other file download keeps (audit H3): the uploader, Professor and
-    above, a dataset downloader, or a holder of the uploader's data-access grant. Any signed-in user,
-    volunteers included, could download any recording."""
     from app.core.db import db
     from app.services.records import media_url_owners
 
@@ -492,13 +447,12 @@ async def assert_may_download_recording(recording_id: str, user: Any) -> None:
         recording_id,
     )
     if not rows:
-        return  # download_url answers the 404
+        return
     owners = await media_url_owners(user)
     if owners is not None and str(rows[0]["uploader"]) not in owners:
         fail("FORBIDDEN", "You need download access to this researcher's recordings. Request it from them.")
 
 
-# ── answers, inbox, corpus ─────────────────────────────────────────────────────────────────────
 @router.put("/answers", dependencies=V2)
 async def answers_put(request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
     payload = await parse(request, S.AnswersPut)
@@ -540,7 +494,6 @@ async def corpus_jsonl(
     questionnaireId: str, status_filter: str | None = Query("APPROVED", alias="status"),
     kind: str = Query("answers", pattern="^(answers|recordings|meta)$"), _: Any = Depends(require_dataset_downloader),
 ) -> Response:
-    # A whole-instrument dump: the dataset-download gate /export/*.csv keeps (audit H3).
     return await _corpus(questionnaireId, status_filter, kind, "jsonl")
 
 
@@ -552,7 +505,6 @@ async def corpus_csv(
     return await _corpus(questionnaireId, status_filter, kind, "csv")
 
 
-# ── artisans: consent (always on) and the record (v2) ──────────────────────────────────────────
 @artisans_router.get("/{artisan_id}/consent")
 async def artisan_consent_get(
     artisan_id: str, purpose: str = "EXTERNAL_PROCESSING", _: Any = Depends(get_current_user)
@@ -577,10 +529,6 @@ async def artisan_consent_get(
 
 @artisans_router.post("/{artisan_id}/consent", status_code=status.HTTP_201_CREATED)
 async def artisan_consent_post(artisan_id: str, request: Request, user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """Append one consent row (append-only: a change is a new row). Never blocks recording; it only
-    decides whether a recording of this artisan may be SENT OUTSIDE. Consent is assumed by default
-    (19 Oct 2026), so a refusal is what stops a send; recording GRANTED after one re-enqueues their
-    held recordings (still subject to the pause, and to anyone else's refusal)."""
     from app.core.db import db
     from app.services.access import record_edit_privilege
 
@@ -588,8 +536,6 @@ async def artisan_consent_post(artisan_id: str, request: Request, user: Any = De
     artisan = await db.artisan.find_unique(where={"id": artisan_id})
     if not artisan:
         fail("NOT_FOUND", "No such artisan.")
-    # The edit privilege the older /recording-consent route asks (audit H12): any signed-in user
-    # could change any artisan's consent here.
     if not await record_edit_privilege(artisan, user, "artisan"):
         fail("FORBIDDEN", "Only someone who may edit this artisan can record their consent.")
     await consent_gate.record_artisan_consent(
@@ -597,7 +543,6 @@ async def artisan_consent_post(artisan_id: str, request: Request, user: Any = De
         note=payload.note, evidence_media_id=payload.evidenceMediaId, client=db,
     )
     if payload.state == "GRANTED" and payload.purpose == "EXTERNAL_PROCESSING":
-        # Every recording of theirs that consent held back, by every link the gate reads (audit M7).
         await transcription.requeue_held(artisan_id=artisan_id, requested_by_id=user.id, client=db)
     return await artisan_consent_get(artisan_id, payload.purpose, user)
 
@@ -613,8 +558,6 @@ async def artisan_record_csv(artisan_id: str, questionnaireId: str | None = None
     from app.services.access import owner_download_scope
     from app.services.naming import content_disposition
 
-    # The gate the legacy consolidated CSV keeps (audit H3): download access to the artisan's owner,
-    # and a subset grant has to name this artisan.
     artisan = await db.artisan.find_unique(where={"id": artisan_id})
     if not artisan:
         fail("NOT_FOUND", "No such artisan.")

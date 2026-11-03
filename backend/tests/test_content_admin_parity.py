@@ -1,15 +1,3 @@
-"""The content-admin set is written once on the server and copied into the web and the handset.
-
-Owner's ruling, 2026-10-20: ADMIN, MASTER_ADMIN and MINISTRY_ADMIN add, edit and delete every
-content type; every other role adds and edits and never deletes. ``app/core/roles.py::
-CONTENT_ADMIN_ROLES`` decides it, ``frontend/lib/permissions.ts::CONTENT_ADMIN_ROLES`` hides the
-controls and ``FieldPermissions.CONTENT_ADMIN_ROLES`` does the same on the phone. Nothing compiles the
-three against each other, so this file reads the two copies as text and holds them to the server.
-
-The designer-portal carries the identical set by the identical names (its ``core/deps.py``); with
-``CROSS_PORTAL_PEER_REPO`` set, the last test reads it from there too.
-"""
-
 import os
 import re
 from pathlib import Path

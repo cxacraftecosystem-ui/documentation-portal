@@ -1,9 +1,3 @@
-"""The duplicate finder's API: the form's check, the hold at create, re-scoring, and decisions.
-
-The rate limit and the wire shape run everywhere (the scorer is replaced). Everything that needs
-the pair store runs against a throwaway Postgres (see ``tests/_duplicates_db.py``).
-"""
-
 from __future__ import annotations
 
 import json
@@ -27,8 +21,6 @@ def anyio_backend():
     return "asyncio"
 
 
-# ── Everywhere ────────────────────────────────────────────────────────────────────────────────
-
 
 async def test_check_is_rate_limited_per_user(monkeypatch):
     async def no_candidates(*_a, **_k):
@@ -48,7 +40,6 @@ async def test_check_is_rate_limited_per_user(monkeypatch):
         await routes.check_duplicates(body, current_user=user)
     assert caught.value.status_code == 429
     assert "Retry-After" in caught.value.headers
-    # Another user's budget is their own.
     assert await routes.check_duplicates(body, current_user=SimpleNamespace(id="u-other")) == {"candidates": []}
     routes.reset_check_budget()
 
@@ -68,8 +59,6 @@ def test_create_accepts_at_most_twenty_acknowledged_ids():
     body.pop("duplicateAcknowledged")
     assert ArtisanCreate(**body).duplicateAcknowledged is None
 
-
-# ── Against a real database ───────────────────────────────────────────────────────────────────
 
 
 @pytest.fixture(scope="module")
@@ -206,7 +195,7 @@ async def test_create_with_the_candidate_acknowledged_saves_and_remembers_it(wor
 @dbt.skip_without_db
 async def test_a_below_hold_candidate_never_holds(world):
     name = dbt.person()
-    await dbt.make_artisan(world.db, world.admin, name=name, place="Mandvi")  # name + district = 0.70
+    await dbt.make_artisan(world.db, world.admin, name=name, place="Mandvi")
     created = await _create(world, dbt.payload(name, craftId=world.craft.id, place="Rapar", ack=[]))
     assert created["id"]
 
@@ -236,7 +225,6 @@ async def test_an_idempotent_replay_returns_the_stored_answer_and_does_not_hold(
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         first = await client.post("/api/artisans", json=body, headers=headers)
         assert first.status_code == 201, first.text
-        # The same create again: by now the first record would hold it, but the replay never runs it.
         again = await client.post("/api/artisans", json=body, headers=headers)
     assert again.status_code == 201
     assert again.headers.get("Idempotent-Replayed") == "true"
@@ -274,7 +262,7 @@ async def test_a_dismissed_pair_stays_dismissed_through_a_rescan(world):
     await dup.rescore_artisan(a.id)
     after = await world.db.artisanduplicatecandidate.find_unique(where={"id": pair.id})
     assert str(after.status).endswith("NOT_DUPLICATE")
-    assert after.score > 0.61  # the score is refreshed, the decision is not
+    assert after.score > 0.61
     reopened = await routes.reopen_pair(pair.id, current_user=world.admin)
     assert reopened["status"] == "OPEN"
 

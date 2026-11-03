@@ -1,12 +1,3 @@
-"""The verifier's backend findings of 18 Oct, pinned without a database.
-
-* the web client's Approve / Return post ``questionnaire_session``: it resolves to the interview;
-* Return with a coded reason and no comments is accepted (the reason's label is logged);
-* dictation sends no audio out while transcription is paused;
-* ``--sha-only`` is a dry run unless ``--apply`` is given, and ``--apply`` of the backfill is refused
-  while any clip has no checksum (copies would be undercounted).
-"""
-
 from __future__ import annotations
 
 import argparse

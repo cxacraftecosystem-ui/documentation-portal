@@ -1,13 +1,3 @@
-"""Where the documentation portal e-mails from: admitting an address with "send an invitation", a task's
-status move, and the notification preference routes.
-
-The roster routes run over HTTP against ``access_roster_fakes.FakeDb`` (the harness the roster's own
-tests use) with ``notify_access_granted`` replaced by a recorder. The task route is called directly with
-its database seams replaced, so what is asserted is that the move is handed to
-``notify_task_change`` with the right before/after and who moved it. Which move earns which e-mail is
-``test_email_outbox.py``.
-"""
-
 from __future__ import annotations
 
 import asyncio

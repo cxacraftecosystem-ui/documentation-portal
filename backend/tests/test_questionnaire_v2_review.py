@@ -1,5 +1,3 @@
-"""Approving a session (DESIGN 3.10; test 21). Real Postgres."""
-
 from __future__ import annotations
 
 import pytest

@@ -1,14 +1,3 @@
-"""Two media routes that send to an outside service, held to the one consent store.
-
-* ``POST /media/transcribe`` carries a clip that names no recording, interview or artisan, so no
-  consent can be asked about it. It is admin-only: a researcher the gate refuses on a stored
-  recording cannot post the downloaded file here to get the words back.
-* ``POST /media/{id}/refine-transcript`` sends a stored transcript to the language model. It asks
-  ``consent_gate.verdict`` for that recording first, and a withdrawal stops the next refinement.
-
-No database and no provider: the record read, the verdict and both provider calls are stand-ins.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -84,7 +73,6 @@ def test_an_admin_still_can(sends: dict[str, list[Any]]):
 
 @pytest.fixture
 def recording(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
-    """One stored recording uploaded by the researcher, and its consent verdict (changeable)."""
     state = {"verdict": consent_gate.ALLOW}
     media = SimpleNamespace(id="m1", uploadedById=RESEARCHER.id, transcriptText="the artisan's words")
 

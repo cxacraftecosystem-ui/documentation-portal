@@ -1,21 +1,3 @@
-"""Routes for AI-drafted interview answers (C28). See ``services/answer_drafts`` for the rules.
-
-``/questionnaire/interviews/{id}/drafts`` — list, draft one section, accept one section, dismiss one
-section. All answer 404 while ``AI_ANSWER_DRAFTS_ENABLED`` is off. Drafting, accepting and READING
-the drafts need the same standing as editing the interview (``access.record_edit_privilege``): a
-pending draft is unfinished work for the people who may accept it, and the transcript names it lists
-are the interview's recordings. Anyone else, inside the interview read scope, is told there is
-nothing to show; outside it, the interview does not exist.
-
-Drafting SENDS the transcript to an AI provider, so it asks the one consent store first
-(``services/consent_gate``, the question ``questionnaire_v2/answers.proposals`` asks too): a draft
-from a recording needs that recording's verdict, a draft from pasted text the interview's
-participants' (``consent_gate.interview_verdict``). Anything but ALLOW answers 409 and sends nothing.
-
-Accepting is one transaction, and every question it writes must belong to the section it names and
-that section to the interview's questionnaire.
-"""
-
 from datetime import UTC, datetime
 from typing import Any
 
@@ -67,9 +49,7 @@ class DraftIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     sectionId: str = Field(min_length=1, max_length=64)
-    #: A recording attached to this interview whose transcript is the source...
     mediaId: str | None = Field(default=None, max_length=64)
-    #: ...or the transcript text itself.
     transcript: str | None = Field(default=None, max_length=ad.TRANSCRIPT_MAX_CHARS)
 
 
@@ -77,7 +57,6 @@ class AcceptedAnswer(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     questionId: str = Field(min_length=1, max_length=64)
-    #: What the person kept: the draft as written, their edit of it, or empty to leave it unanswered.
     answerText: str = Field(default="", max_length=ad.ANSWER_MAX_CHARS * 2)
 
 
@@ -100,7 +79,6 @@ async def answer_drafts_status(_: Any = Depends(get_current_user)) -> dict[str, 
 
 
 async def _readable_interview(interview_id: str, user: Any) -> Any:
-    """The interview, inside the same read scope as the interview list; 404 outside it."""
     vis = await viewable_where(user)
     if not vis:
         return await require_record(db.questionnaireinterview, interview_id)
@@ -216,10 +194,6 @@ async def draft_section(
 async def accept_section(
     interview_id: str, payload: AcceptIn, current_user: Any = Depends(get_current_user)
 ) -> dict[str, Any]:
-    """Write the section's kept answers, each labelled machine-suggested (edited or not).
-
-    One transaction: a failure part-way leaves no answer written and every draft still pending.
-    """
     _enabled_or_404()
     interview = await _editable_interview(interview_id, current_user)
     section = await db.questionnairesection.find_unique(where={"id": payload.sectionId})
@@ -263,13 +237,12 @@ async def _accept_in(
     for answer in answers:
         draft = drafts.get(answer.questionId)
         if draft is None:
-            continue  # not a pending draft of this section: nothing to accept
+            continue
         text = answer.answerText.strip()
         existing = await tx.questionnaireresponse.find_unique(
             where={"interviewId_questionId": {"interviewId": interview_id, "questionId": answer.questionId}}
         )
         if not text or (existing is not None and (existing.answerText or "").strip()):
-            # Left empty by the person, or answered by a person since the draft: the draft goes.
             await tx.questionnaireanswerdraft.update(
                 where={"id": draft.id},
                 data={"status": ad.STATUS_DISMISSED, "decidedById": user_id, "decidedAt": now},

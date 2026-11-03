@@ -11,13 +11,6 @@ class LoginRequest(APIModel):
     email: EmailStr | None = None
     password: str | None = Field(default=None, min_length=8)
     googleIdToken: str | None = None
-    # ── MICROSOFT AND YAHOO: an authorization code, and what proves this caller started the flow ──
-    #
-    # Not an ID token, unlike Google: see ``app/services/oidc_sign_in.py`` for why these two
-    # providers' codes are redeemed here. All five travel together or not at all. The verifier's
-    # alphabet and length are RFC 7636's; the nonce is the RAW value whose SHA-256 the client put in
-    # the authorization request. The bounds are budgets: nothing longer is ever legitimate, so
-    # nothing longer is ever forwarded.
     oidcProvider: Literal["MICROSOFT", "YAHOO"] | None = None
     oidcCode: str | None = Field(default=None, min_length=1, max_length=4096)
     oidcCodeVerifier: str | None = Field(
@@ -59,15 +52,12 @@ class TokenResponse(APIModel):
 
 
 class TwoFactorChallengeResponse(APIModel):
-    """What sign-in answers instead of a session when the account has two-step verification on."""
-
     two_factor_required: bool = True
     challenge_token: str
 
 
 class TwoFactorVerifyRequest(APIModel):
     challenge_token: str = Field(min_length=1, max_length=4096)
-    #: A six-digit code or a recovery code; told apart by shape.
     code: str = Field(min_length=1, max_length=64)
 
 
@@ -76,40 +66,20 @@ class TwoFactorCodeRequest(APIModel):
 
 
 class DatasetTokenRequest(LoginRequest):
-    """``POST /datasets/token``: an admin's email and password, and — when that account has two-step
-    verification on — a current 6-digit code or a recovery code. Without it the password alone would
-    mint a 30-day credential, which is exactly what the second factor exists to stop."""
-
     code: str | None = Field(default=None, min_length=1, max_length=64)
 
 
-# ── PASSWORDS: links, the link redemption, the change, and "Forgot your password?" ─────────────────
-#
-# Ported on 2026-10-16 from the Design Prototype Workshop's app/schemas/auth.py — same class names,
-# same field names, so the two portals' clients send one body. Every NEW password goes through
-# ``schemas.users._storable_password`` (bcrypt's 72-byte rule, as a 422), the one rule the admin forms
-# use, so a temporary password an administrator can set is one these forms can accept back.
-
 
 class IssuePasswordLinkRequest(APIModel):
-    """An administrator asking for a password link for somebody else's account. No ``purpose``: it is
-    derived (``credential_links.purpose_for``) from whether the account has a password and has ever
-    signed in."""
-
     userId: str = Field(min_length=1, max_length=64)
     delivery: Literal["COPY_LINK", "EMAIL"] = "COPY_LINK"
 
 
 class PasswordLinkCheckRequest(APIModel):
-    """Asking whether a link is still good, with the token in the BODY so no request line carries it.
-    No length bound: an over-long token is "malformed" from ``credential_links.verify_token``."""
-
     token: str | None = None
 
 
 class SetPasswordRequest(APIModel):
-    """Redeeming a link. Unauthenticated by necessity: the token is the entire authority."""
-
     token: str = Field(min_length=1, max_length=1024)
     password: str = Field(min_length=8, max_length=BCRYPT_MAX_PASSWORD_BYTES)
 
@@ -120,24 +90,9 @@ class SetPasswordRequest(APIModel):
 
 
 class ChangePasswordRequest(APIModel):
-    """The signed-in account changing its own password, or setting its first one.
-
-    ``currentPassword`` is required for every account that HAS a password, even one carrying
-    ``mustChangePassword``. An account with NO password (Google, Microsoft or Yahoo only) sends none
-    and SETS a first password instead, allowed only with a provider sign-in run again in the last
-    five minutes (``auth.PROVIDER_PROOF_MAX_AGE_SECONDS``; see ``routes/auth.change_password``).
-    """
-
     currentPassword: str = Field(default="", max_length=256)
     newPassword: str = Field(min_length=8, max_length=BCRYPT_MAX_PASSWORD_BYTES)
-    #: A six-digit authenticator code or a recovery code. REQUIRED when an account with two-step on
-    #: sets its FIRST password (security review, 2026-10-16): a recent session alone is not enough to
-    #: add a permanent way in. Ignored when changing an existing password, which asks for that one.
     twoFactorCode: str | None = Field(default=None, max_length=64)
-    #: THE PROVIDER SIGN-IN, RUN AGAIN (2026-10-17). An account with no password proves it is the
-    #: person at the keyboard NOW by signing in with its provider again just before setting one: a
-    #: Google ID token, or a Microsoft / Yahoo authorization code with what proves this caller started
-    #: that flow (the same five fields, and bounds, as ``LoginRequest``). Ignored for a password change.
     googleIdToken: str | None = Field(default=None, max_length=8192)
     oidcProvider: Literal["MICROSOFT", "YAHOO"] | None = None
     oidcCode: str | None = Field(default=None, min_length=1, max_length=4096)
@@ -146,8 +101,6 @@ class ChangePasswordRequest(APIModel):
     )
     oidcRedirectUri: str | None = Field(default=None, min_length=1, max_length=2048)
     oidcNonce: str | None = Field(default=None, min_length=16, max_length=256)
-    #: What a refusal for a wrong two-step code handed back in ``X-Sign-In-Proof``: it stands in for
-    #: the provider sign-in that was already accepted, so the next try needs only the right code.
     providerProof: str | None = Field(default=None, min_length=1, max_length=2048)
 
     @property
@@ -163,7 +116,4 @@ class ChangePasswordRequest(APIModel):
 
 
 class ForgotPasswordRequest(APIModel):
-    """``POST /auth/forgot-password``: the address a signed-out person asks a link for. A malformed
-    address is the one refusal this door gives about its body (422)."""
-
     email: EmailStr = Field(max_length=320)

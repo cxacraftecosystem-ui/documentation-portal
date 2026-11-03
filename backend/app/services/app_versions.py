@@ -1,26 +1,3 @@
-"""Which app builds are in use (audit H22; DESIGN 5.6, owner decision 5).
-
-Owner decision 5 stops old builds CREATING sessions 30 days after every active device runs the new
-build. That needs a measurement, and this is it: a pure-ASGI middleware notes, for every signed-in
-request, the account, the platform and the build NUMBER the client sends, and the last time it was
-seen. ``GET /api/admin/app-versions`` reads it back.
-
-THE HEADER CONTRACT, the same on every request from both clients (``app/questionnaire/shims_fr``
-compares the same headers for the cutoff):
-
-* ``X-App-Platform``: ``android`` or ``web``;
-* ``X-App-Version-Code``: the build number, a positive integer (Android ``BuildConfig.VERSION_CODE``;
-  the web's build number). Only the number rises: the version NAME was reset to 0.0.1 on 21 Oct;
-* ``X-App-Version``: the version name, for people to read; never compared.
-
-A build that sends none of them predates the contract. An Android one (an ``okhttp`` user agent) is
-noted as version code 0; anything else without the headers (a script, a dataset token) is not noted.
-
-Cheap by design on a swap-bound box: nothing is written on the request path. One row per (account,
-platform, code) is upserted after the response, at most once per ten minutes per process, and a
-failure is logged and dropped.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -30,7 +7,6 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-#: Where ``get_current_user`` leaves the signed-in account's id for the middleware.
 SCOPE_USER_KEY = "appVersionUserId"
 THROTTLE_SECONDS = 600
 _last_write: dict[tuple[str, str, int], float] = {}
@@ -38,12 +14,11 @@ _pending: set[asyncio.Task[Any]] = set()
 
 
 def note_user(connection: Any, user_id: str | None) -> None:
-    """Called by ``get_current_user``: remember who this request is, for the middleware."""
     if not user_id:
         return
     try:
         connection.scope.setdefault("state", {})[SCOPE_USER_KEY] = str(user_id)
-    except Exception:  # noqa: BLE001 - telemetry never fails a request
+    except Exception:  # noqa: BLE001
         return
 
 
@@ -55,7 +30,6 @@ def _header(scope: dict[str, Any], name: bytes) -> str:
 
 
 def build_of(scope: dict[str, Any]) -> tuple[str, int, str | None] | None:
-    """``(platform, versionCode, versionName)`` for this request, or None when it is not an app."""
     from app.questionnaire.shims_fr import client_build
 
     headers = {
@@ -95,13 +69,11 @@ async def record(user_id: str, platform: str, code: int, name: str | None, *, cl
 async def _record_quietly(user_id: str, platform: str, code: int, name: str | None) -> None:
     try:
         await record(user_id, platform, code, name)
-    except Exception as exc:  # noqa: BLE001 - telemetry never fails anything
+    except Exception as exc:  # noqa: BLE001
         logger.info("app version not recorded (%s)", type(exc).__name__)
 
 
 class AppVersionMiddleware:
-    """Pure ASGI: runs the request untouched, then notes the build of a signed-in caller."""
-
     def __init__(self, app: Any) -> None:
         self.app = app
 
@@ -130,14 +102,11 @@ class AppVersionMiddleware:
             task = asyncio.get_running_loop().create_task(_record_quietly(str(user_id), platform, code, name))
             _pending.add(task)
             task.add_done_callback(_pending.discard)
-        except Exception:  # noqa: BLE001 - telemetry never fails a request
+        except Exception:  # noqa: BLE001
             return
 
 
 async def summary(*, days: int = 30, client: Any = None) -> dict[str, Any]:
-    """``GET /api/admin/app-versions``: per platform and build, how many accounts used it in the last
-    ``days`` and when it was last seen, and how many accounts are still below each platform's
-    create cutoff (the number decision 5 waits on to reach zero)."""
     from app.core.config import get_settings
 
     if client is None:
@@ -187,6 +156,5 @@ async def summary(*, days: int = 30, client: Any = None) -> dict[str, Any]:
             for r in latest
         ],
         "minimumVersionCodeForCreate": minimums,
-        # Accounts whose latest build is below the cutoff (or, with none set, below the newest build seen).
         "accountsBelow": below,
     }

@@ -1,10 +1,3 @@
-"""Field Repository's side of the shared questionnaire package's ports (``app/questionnaire/ports.py``).
-
-The package is byte-identical in both portals and never imports portal code; it reaches this module
-by its well-known name instead. Every function looks its target up at call time, so a test that
-patches ``app.core.db.db`` or a service module is seen by the package.
-"""
-
 from __future__ import annotations
 
 import importlib

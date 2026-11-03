@@ -1,5 +1,3 @@
-"""Every session join code carries a digit, so the top-bar scanner never takes a word for one."""
-
 from app.questionnaire.common import JOIN_ALPHABET, JOIN_CODE_LENGTH, new_join_code
 
 

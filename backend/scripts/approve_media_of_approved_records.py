@@ -48,11 +48,8 @@ from app.api.routes.review import (
 )
 from app.core.deps import get_value
 
-#: The audit line each file approved here carries — the live note, marked as the backfill's.
 BACKFILL_NOTE = "Approved with its {kind} record (backfill)."
-#: One batch's transaction: up to ``--batch-size`` records and two statements per file.
 BATCH_TX_TIMEOUT = timedelta(seconds=120)
-#: How long to wait for a connection to start a batch; Prisma's 2 s default is short on the slow box.
 BATCH_TX_MAX_WAIT = timedelta(seconds=15)
 
 
@@ -60,9 +57,7 @@ BATCH_TX_MAX_WAIT = timedelta(seconds=15)
 class TypeCounts:
     records: int = 0
     files: int = 0
-    #: Pending files the ladder, the late rule or a missing reviewer keeps out.
     left_pending: int = 0
-    #: Pending files uploaded after their record was approved: left for a reviewer to see.
     uploaded_later: int = 0
     no_reviewer: int = 0
 
@@ -163,7 +158,6 @@ async def run(client: Any, *, apply: bool, batch_size: int = 200, kinds: tuple[s
                         get_value(row, "reviewedAt"),
                         note=BACKFILL_NOTE.format(kind=kind),
                     )
-            # A file decided between the read and the write is skipped by the write; count what landed.
             counts.files -= sum(len(eligible) for _row, eligible in plan) - written
     return report
 

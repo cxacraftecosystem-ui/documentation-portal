@@ -1,5 +1,3 @@
-"""A formatted answer reaches an export as its words, never as its stored JSON (audit DC-A10)."""
-
 import json
 
 from app.services.record_fields import cell, flatten_rich_text

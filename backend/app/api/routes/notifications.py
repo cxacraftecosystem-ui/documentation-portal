@@ -1,31 +1,3 @@
-"""The in-app activity list: a person's own notices, the unread count, and marking them read.
-
-Every route reads or writes only the CALLER's rows — there is no way to name another account — so
-the gate is a login and nothing else. The same four routes, with the same shapes, exist in the
-designer portal; both web clients and both Android clients are written against them.
-
-    GET  /api/notifications?limit=30&before=<id>&unreadOnly=false
-         -> {"items": [notice...], "unreadCount": n, "hasMore": bool}
-    GET  /api/notifications/unread-count          -> {"unreadCount": n}
-    POST /api/notifications/{id}/read             -> {"item": notice, "unreadCount": n}
-    POST /api/notifications/read  {"ids": [...]} or {"all": true}
-                                                  -> {"updated": n, "unreadCount": n}
-
-THE MONDAY SUMMARY (``app/services/weekly_digest.py``) rides the same prefix:
-
-    GET  /api/notifications/digest                -> {"eligible", "enabled", "emailAvailable",
-                                                      "schedule", "latest": summary | null}
-    PUT  /api/notifications/digest  {"enabled": b} -> the same shape; 403 for an account that gets none
-    GET  /api/notifications/digests/{id}          -> one summary; the caller's own, else 404
-
-The switch has its own route (not ``/preferences/notifications``) so it shows and saves while mail
-is off: the in-app half still goes.
-
-Marking read is idempotent (an already-read notice keeps its first ``readAt``), so the handset's
-offline queue may replay a mark as often as it likes. An id that is not the caller's is ignored by
-the batch route and is a 404 on the single one — never a 403, which would confirm it exists.
-"""
-
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -43,9 +15,7 @@ from app.services.notifications import serialize, wants_email
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
-#: The most one page holds. The handset asks for its whole offline copy in one page of this size.
 MAX_PAGE = 100
-#: The most ids one batch mark may name.
 MAX_IDS = 500
 
 
@@ -65,12 +35,6 @@ async def list_notifications(
     unreadOnly: bool = Query(False),
     current_user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Newest first. ``before`` is the id of the last notice already shown (the next page starts
-    after it); an id that is not the caller's, or no longer exists, starts from the top.
-
-    The next page is found from the anchor's OWN ``createdAt`` and ``id`` (keyset), not with a
-    Prisma cursor and ``skip=1``. With ``unreadOnly`` the anchor is often the notice the person just
-    opened, so it no longer matches the filter; a cursor would then skip the first real older notice."""
     where: dict[str, Any] = {"userId": current_user.id}
     if unreadOnly:
         where["readAt"] = None
@@ -95,10 +59,6 @@ async def list_notifications(
         "hasMore": len(rows) > limit,
     }
 
-
-# ---------------------------------------------------------------------------------------------
-# The Monday summary. Literal paths, declared before any ``/{notification_id}`` route.
-# ---------------------------------------------------------------------------------------------
 
 
 async def _digest_state(user: Any) -> dict[str, Any]:
@@ -132,7 +92,6 @@ async def digest_preference(current_user: Any = Depends(get_current_user)) -> di
 async def save_digest_preference(
     payload: DigestPreferenceUpdate, current_user: Any = Depends(get_current_user)
 ) -> dict[str, Any]:
-    """Save the switch. Stored even while mail is off; read again at send time."""
     if not weekly_digest.is_authority(current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=weekly_digest.NOT_ELIGIBLE_DETAIL)
     fields = {weekly_digest.PREFERENCE: payload.enabled}
@@ -145,7 +104,6 @@ async def save_digest_preference(
 
 @router.get("/digests/{digest_id}")
 async def read_digest(digest_id: str, current_user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """One delivered summary, the caller's own. Anybody else's — or one never sent — is a 404."""
     row = await db.weeklydigest.find_first(
         where={"id": digest_id, "userId": current_user.id, "status": weekly_digest.DELIVERED}
     )
@@ -161,7 +119,6 @@ async def unread_count(current_user: Any = Depends(get_current_user)) -> dict[st
 
 @router.post("/read")
 async def mark_read(payload: MarkReadRequest, current_user: Any = Depends(get_current_user)) -> dict[str, int]:
-    """Mark the named notices read, or every one with ``all``. Already-read ones are left alone."""
     where: dict[str, Any] = {"userId": current_user.id, "readAt": None}
     if not payload.all:
         ids = [value for value in dict.fromkeys(payload.ids) if value]

@@ -1,14 +1,3 @@
-"""Record whether an artisan's recordings may be sent for transcription (the consent rule).
-
-``/artisans/{id}/recording-consent`` answers for every recording of that artisan;
-``/media/{id}/recording-consent`` for one recording, and wins over the artisan's grant. Anyone who
-may edit the record may record the answer, and every change is appended, never overwritten.
-
-Both write the ONE consent store, the ``Consent`` ledger (``services/recording_consent.py``): the artisan
-route is the same row ``/artisans/{id}/consent`` writes. The web and Android apps now use that route;
-these stay for the Android builds already installed.
-"""
-
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -66,7 +55,6 @@ async def set_artisan_recording_consent(
         decision=body.decision, actor_id=get_value(current_user, "id"), artisan_id=artisan_id, note=body.note
     )
     if body.decision == "GRANTED":
-        # What consent held back goes out again, by the same rule as /artisans/{id}/consent (audit M7).
         await transcription_enqueue.requeue_held(artisan_id=artisan_id, requested_by_id=get_value(current_user, "id"))
     return recording_consent.payload(row, body.decision)
 

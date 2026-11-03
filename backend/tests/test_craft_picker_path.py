@@ -1,11 +1,3 @@
-"""Every craft picker prints "Category › Sub-category" — checked without a database.
-
-``craft_master.build_catalogue`` is what the shared pickers (``CraftSelect`` on the web,
-``CraftPickerField`` on Android, and the Android offline cache that stores the same JSON) read, so
-every craft row must carry ``categoryId`` and ``subCategoryId`` and every category its
-``subCategories``.
-"""
-
 from __future__ import annotations
 
 import asyncio

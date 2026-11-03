@@ -1,10 +1,3 @@
-"""This portal's wiring of the shared transcription service: pause, providers, dedup, budget, consent.
-
-No database and no provider: ``db`` is replaced with small fakes, and ``requests.post`` with a
-tripwire wherever a test claims that nothing is sent. The same cases exist in designer-portal's
-``tests/test_transcription_service_portal.py`` against that portal's own consent rule.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -20,15 +13,12 @@ from app.services import ai, app_settings, media_queue, recording_consent, trans
 
 @pytest.fixture(autouse=True)
 def _insights_on(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The insights hold is lifted so only the pause decides what the drain selects."""
     monkeypatch.setattr(media_queue.transcript_insights, "enabled", lambda: True)
 
 
 def _never(*_a: Any, **_k: Any) -> Any:
     raise AssertionError("a provider was called")
 
-
-# --- The pause ---------------------------------------------------------------------------------
 
 
 def test_a_missing_settings_row_reads_as_paused_and_a_row_can_unpause() -> None:
@@ -91,7 +81,7 @@ def test_unpaused_and_inside_the_window_transcription_is_selected(monkeypatch) -
 
 def test_transcribe_now_refuses_while_paused_and_sends_nothing(monkeypatch) -> None:
     async def _row(*_a: Any, **_k: Any) -> Any:
-        return None  # no settings row at all: paused
+        return None
 
     class _Gate:
         async def verdict(self, _media: Any) -> Any:
@@ -116,8 +106,6 @@ def test_the_paused_answer_is_a_calm_unavailable() -> None:
     assert answer["message"] == "Transcription is paused."
 
 
-# --- Providers ---------------------------------------------------------------------------------
-
 
 def test_muse_is_off_by_default_even_with_a_key(monkeypatch) -> None:
     monkeypatch.setattr(ai.managed_secrets, "peek_secret", lambda name: "k")
@@ -139,8 +127,6 @@ def test_an_older_client_may_save_a_ranking_without_muse() -> None:
 def test_the_catalogue_names_muse_for_both_clients() -> None:
     assert ("muse", "Meta Muse", "META_MODEL_API_KEY") in ai.transcription_provider_catalog()
 
-
-# --- One open job per clip ---------------------------------------------------------------------
 
 
 def test_enqueue_reuses_the_open_job_instead_of_paying_twice(monkeypatch) -> None:
@@ -179,8 +165,6 @@ def test_enqueue_reuses_the_open_job_instead_of_paying_twice(monkeypatch) -> Non
     assert created == []
 
 
-# --- Budget: wait for the window, never fail ----------------------------------------------------
-
 
 def test_a_budget_deferral_requeues_without_spending_an_attempt(monkeypatch) -> None:
     updates: list[dict[str, Any]] = []
@@ -207,8 +191,6 @@ def test_a_budget_deferral_requeues_without_spending_an_attempt(monkeypatch) -> 
     assert job_write["data"]["attempts"] == 1
     assert job_write["data"]["runAfter"] > datetime.now(UTC)
 
-
-# --- Dedup: same bytes, one provider call --------------------------------------------------------
 
 
 def test_a_cache_hit_copies_the_transcript_and_calls_no_provider(monkeypatch, tmp_path) -> None:
@@ -267,11 +249,8 @@ def test_the_language_hint_prefers_the_recording_then_the_state() -> None:
 
 
 
-# --- The consent rule: per recording, else per artisan, else not sent -------------------------
-
 
 def _verdict(monkeypatch, rows: dict[tuple[str, str], str], media: Any) -> Any:
-    """The one consent store, faked at the gate's two reads: current rows and a recording's subjects."""
     from app.services import consent_gate
 
     async def _states(subject_type: str, ids: list[str], **_k: Any) -> dict[str, Any]:
@@ -351,8 +330,6 @@ def test_enqueue_keeps_the_recording_and_notes_why_it_was_not_sent(monkeypatch) 
     assert notes[0]["data"]["transcriptStatus"] == media_queue.FAILED
     assert notes[0]["data"]["transcriptError"].startswith("The consent record could not be read")
 
-
-# --- The data script that merges RecordingConsent into the ledger: dry run first, copies once ----
 
 
 def _load_merge():

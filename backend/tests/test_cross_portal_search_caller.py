@@ -1,10 +1,3 @@
-"""The asking side of cross-portal search: who may ask, what is asked, and what happens when the
-designer portal is slow, missing or untrusted (routes/search, services/unified_search,
-services/cross_portal_client; docs/SEARCH.md).
-
-No database and no network: the local ranking, the peer call and ``requests`` are fakes.
-"""
-
 from __future__ import annotations
 
 import json
@@ -197,7 +190,6 @@ async def test_remote_items_merge_after_local_on_a_tie(world):
     assert first_remote["href"] == "/remote/artisans/dp9"
     assert first_remote["openUrl"].startswith("https://")
     assert local["score"] == first_remote["score"]
-    # Only the projection crosses; unknown types are dropped; designer-only types come through.
     assert "phone" not in first_remote and "linkedArtisanIds" not in first_remote
     assert [g["type"] for g in result["groups"]] == ["artisans", "designWorkshops"]
     sent = world.peer_calls[0]
@@ -216,7 +208,6 @@ async def test_designer_items_naming_an_unconsented_artisan_are_dropped(world):
     ids = [i["id"] for i in group["items"]]
     assert "dp9" in ids and "dp-consented" in ids
     assert "dp-withdrawn" not in ids
-    # The remote total loses what was dropped.
     assert (group["localTotal"], group["remoteTotal"], group["total"]) == (1, 3, 4)
 
 

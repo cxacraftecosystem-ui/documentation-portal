@@ -1,10 +1,3 @@
-"""The Monday summary without a database: the IST calendar, who gets one, the e-mail, and the page's
-shape (``app/services/weekly_digest.py``, ``app/services/mailer.py``).
-
-The database half — idempotency, the opt-out at send time, the counts — is
-``test_weekly_digest_db.py``.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -22,14 +15,11 @@ def ist(year: int, month: int, day: int, hour: int, minute: int = 0) -> datetime
     return datetime(year, month, day, hour, minute, tzinfo=mailer.IST)
 
 
-# --- the calendar --------------------------------------------------------------------------------
-
 
 def test_sunday_late_utc_is_already_monday_in_india() -> None:
-    sunday_utc = datetime(2026, 10, 18, 23, 0, tzinfo=UTC)  # Monday 04:30 IST
+    sunday_utc = datetime(2026, 10, 18, 23, 0, tzinfo=UTC)
     assert sunday_utc.astimezone(mailer.IST).weekday() == 0
     assert weekly_digest.week_start_for(sunday_utc) == date(2026, 10, 19)
-    # Sunday 23:29 IST is still the week before.
     assert weekly_digest.week_start_for(datetime(2026, 10, 18, 17, 59, tzinfo=UTC)) == date(2026, 10, 12)
 
 
@@ -47,8 +37,6 @@ def test_this_week_is_the_seven_days_before_monday_eight_ist() -> None:
     assert start == datetime(2026, 10, 12, 2, 30, tzinfo=UTC)
 
 
-# --- who -----------------------------------------------------------------------------------------
-
 
 @pytest.mark.parametrize(
     ("role", "can_review", "expected"),
@@ -65,8 +53,6 @@ def test_this_week_is_the_seven_days_before_monday_eight_ist() -> None:
 def test_who_gets_a_summary(role: str, can_review: bool, expected: bool) -> None:
     assert weekly_digest.is_authority(SimpleNamespace(role=role, canReview=can_review)) is expected
 
-
-# --- the e-mail ----------------------------------------------------------------------------------
 
 
 def _params(*, overdue: int = 2, title: str = "Records") -> dict[str, Any]:
@@ -106,7 +92,6 @@ def test_the_plain_text_says_what_the_html_says() -> None:
     rendered = mailer.render(mailer.WEEKLY_DIGEST, _params())
     for figure in ("Waiting for you: 4", "Overdue: 2", "New this week: 11", "Districts documented: 41"):
         assert figure in rendered.text
-    # The same four figures sit in the HTML's large type.
     big = re.findall(r'font-size:22px;[^"]*">([^<]+)<', rendered.html)
     assert big == ["4", "2", "11", "41"]
     assert "/digest/dg1" in rendered.text and "/digest/dg1" in rendered.html
@@ -124,8 +109,6 @@ def test_a_percentage_coverage_reads_as_a_percentage() -> None:
     assert mailer.coverage_figure({"value": 41, "of": 58, "percent": 71}) == "71%"
     assert mailer.coverage_figure({"value": 41, "of": None, "percent": None}) == "41"
 
-
-# --- the page ------------------------------------------------------------------------------------
 
 
 def test_the_page_leaves_out_empty_lines_and_foreign_links() -> None:
@@ -157,8 +140,6 @@ def test_the_page_leaves_out_empty_lines_and_foreign_links() -> None:
 def test_the_android_line_carries_all_four_figures() -> None:
     assert weekly_digest.body_line(_params()) == "4 waiting · 2 overdue · 11 new · Districts documented 41"
 
-
-# --- the scheduler's cheap exits -----------------------------------------------------------------
 
 
 class _NoDatabase:

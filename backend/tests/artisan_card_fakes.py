@@ -1,11 +1,3 @@
-"""An in-memory stand-in for the Prisma client, just wide enough for the artisan-card routes.
-
-It keeps the two constraints the card code depends on: ``ArtisanCard.code`` is unique, and at most
-one card per artisan has ``revokedAt`` null (the partial index ``ArtisanCard_one_live_per_artisan``).
-Both raise an exception named ``UniqueViolationError``, as prisma-client-py's does. ``tx()`` is a
-real snapshot-and-restore, so a transaction that fails part-way leaves nothing behind.
-"""
-
 from __future__ import annotations
 
 import asyncio

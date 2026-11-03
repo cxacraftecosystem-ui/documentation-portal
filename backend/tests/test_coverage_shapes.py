@@ -1,9 +1,3 @@
-"""The coverage map's district shapes against the register, the depiction and the national outline.
-
-Runs the same checks ``scripts/build_boundaries.py --shapes`` refuses to write without, over the
-committed file, so a hand edit or a stale copy fails the suite. Pure Python; no shapely, no database.
-"""
-
 from __future__ import annotations
 
 import importlib.util
@@ -41,7 +35,6 @@ def test_the_shapes_decode_and_key_by_register_codes(built):
         assert reg.district_row[row["lgd"]][0] == row["stateLgd"], row["lgd"]
         rings = [script.decode_ring(encoded) for encoded in row["rings"]]
         assert all(ring and ring[0] == ring[-1] for ring in rings)
-        # A sliver can quantise to fewer than three corners; the web skips it, so one real ring is owed.
         assert any(len(ring) >= 4 for ring in rings), row["lgd"]
 
 
@@ -55,7 +48,7 @@ def test_the_depiction_points_named_in_the_design(built):
     outline = script.EdgeIndex(script.outline_rings())
     for lon, lat in ((74.31, 35.92), (79.60, 35.20), (73.47, 34.36)):
         assert outline.contains(lon, lat), (lon, lat)
-    for lon, lat in ((91.17, 29.65), (67.01, 24.86)):  # Lhasa, Karachi
+    for lon, lat in ((91.17, 29.65), (67.01, 24.86)):
         assert not outline.contains(lon, lat)
 
 

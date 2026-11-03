@@ -1,17 +1,3 @@
-"""Count the round trips a piece of code makes to the database, for the tests that pin them.
-
-Every Prisma call, ``query_raw`` and ``execute_raw`` included, reaches the query engine through ONE
-method, ``engine.query``, and a transaction's client shares its parent's engine. Wrapping that method
-therefore counts every statement batch the code sends, inside transactions or not, without touching
-the code under test. Starting and committing an interactive transaction are separate engine calls and
-are counted on their own (``transactions``), so a pinned number says exactly what it covers.
-
-WHY ROUND TRIPS. The database sits in another region from the API: a round trip costs hundreds of
-milliseconds while the statements behind it cost well under one (services/concurrency.py has the
-measurements). The number that moves a page is how many round trips it makes, and the number that
-says a list endpoint is N+1 is whether that count grows with the list.
-"""
-
 from __future__ import annotations
 
 import os
@@ -35,7 +21,6 @@ class QueryCount:
 
 @contextmanager
 def counting(client: Any) -> Iterator[QueryCount]:
-    """``with counting(client) as seen: ...`` then ``seen.count``."""
     engine = client._engine
     original_query = engine.query
     original_start = engine.start_transaction
@@ -59,7 +44,6 @@ def counting(client: Any) -> Iterator[QueryCount]:
 
 
 def report(name: str, **numbers: int) -> None:
-    """Append ``name key=value ...`` to ``$QUERY_COUNT_REPORT`` when it is set (before/after tables)."""
     path = os.environ.get("QUERY_COUNT_REPORT", "").strip()
     if not path:
         return
