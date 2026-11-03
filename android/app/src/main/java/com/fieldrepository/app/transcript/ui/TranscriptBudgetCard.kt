@@ -186,7 +186,7 @@ fun TranscriptAutoSwitchesCard(canChange: Boolean, modifier: Modifier = Modifier
     }
 
     val estimate = backfill?.estimate
-    val progress = backfill?.progress ?: current.backfill
+    val progress = current.backfill
     Column(modifier.fillMaxWidth().testTag("transcript.autoSwitches"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         AppToggle(
             label = TranscriptStrings.settingsAutoVideo,
@@ -213,7 +213,11 @@ fun TranscriptAutoSwitchesCard(canChange: Boolean, modifier: Modifier = Modifier
             enabled = canChange && (current.backfill.enabled || estimate != null),
             busy = busy == "backfill",
             onCheckedChange = { on ->
-                if (on) confirming = true else save("backfill", TranscriptionSwitchBody(transcriptBackfill = false))
+                if (on) {
+                    confirming = true
+                } else {
+                    save("backfill", TranscriptionSwitchBody(transcriptBackfill = false))
+                }
             },
             modifier = Modifier.testTag("transcript.backfill"),
         )

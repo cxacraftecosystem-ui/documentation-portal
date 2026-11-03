@@ -129,7 +129,7 @@ object TranscriptStrings {
     const val settingsBackfillCounting = "Counting…"
     fun settingsBackfillEstimate(count: Any, hours: Any, cost: Any): String = "{count} files, about {hours} h, about \${cost}".replace("{count}", count.toString()).replace("{hours}", hours.toString()).replace("{cost}", cost.toString())
     fun settingsBackfillProgress(done: Any, queued: Any, waiting: Any): String = "{done} of {queued} done, {waiting} waiting".replace("{done}", done.toString()).replace("{queued}", queued.toString()).replace("{waiting}", waiting.toString())
-    fun settingsBackfillLastRun(when: Any): String = "Last batch {when}".replace("{when}", when.toString())
+    fun settingsBackfillLastRun(`when`: Any): String = "Last batch {when}".replace("{when}", `when`.toString())
     const val settingsBackfillConfirmTitle = "Start the backfill?"
     const val settingsBackfillConfirmBody = "Every earlier recording and video with consent is sent, oldest first, within this month's budget. You can turn it off at any time."
     const val settingsBackfillConfirm = "Start backfill"
