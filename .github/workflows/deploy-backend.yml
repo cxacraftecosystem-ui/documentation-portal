@@ -1,74 +1,10 @@
 name: Deploy backend to EC2
 
-# Auto-deploys the FastAPI backend to the EC2 box. Requires these repository secrets
-# (Settings → Secrets and variables → Actions):
-#   EC2_HOST              Elastic IP of the API box (terraform output api_public_ip)
-#   EC2_SSH_KEY           contents of the .pem private key for the EC2 key pair
-#   BACKEND_ENV           the full backend/.env file contents (DATABASE_URL, JWT_SECRET,
-#                         AWS_* keys, OPENAI_API_KEY, GEMINI_API_KEYS, BACKEND_CORS_ORIGINS …)
-#   DEPLOY_SG_AWS_ACCESS_KEY_ID / DEPLOY_SG_AWS_SECRET_ACCESS_KEY
-#                         IAM user `fieldrepo-ci-sg`: may only add and remove rules on DEPLOY_SG_ID
-#   DEPLOY_SG_ID          the API box's security group (sg-0a3ffc8a00c9246f1), opened on port 22
-#                         for this runner's /32 for the length of the deploy
-#   TWO_FACTOR_ENCRYPTION_KEY            (optional) "<key id>:<key>" sealing two-step secrets;
-#   TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS  (optional) the keys it replaced, during a rotation
-#
-# Nothing secret is stored in this file — values come from the secrets above.
-#
-# ─── THIS WORKFLOW IS THE HEAD OF THE RELEASE PIPELINE ────────────────────────────────
-#   deploy-backend.yml  →  deploy-frontend.yml  →  android-build.yml
-#         (push)              (workflow_run)          (workflow_run)
-#
-# The order is a real dependency, not a preference:
-#   • The web app calls API endpoints that only exist after the backend is deployed and
-#     migrated. Ship the frontend first and the live site spends the gap between the two
-#     deploys calling routes that answer 404/422 — visible to users as blank lists and
-#     failed saves. Backend first, frontend second.
-#   • The Android APK is built (not deployed) last: it is a compile/lint gate whose output
-#     is an artifact, so it is the cheapest thing to run and the least urgent.
-#
-# WHY THE `paths:` FILTER IS GONE (this used to be `paths: [backend/**]`):
-# `workflow_run` can only fire when the upstream workflow actually RUNS. With a paths
-# filter, a frontend-only push never starts this workflow, so the frontend workflow would
-# never be triggered either — the pipeline would dead-lock on exactly the change it most
-# needs to ship. So this workflow now starts on EVERY push to main and does the path
-# filtering itself, in the `changes` job below: when nothing under backend/ changed, the
-# `deploy` job is skipped (the run still completes successfully and still triggers the
-# frontend workflow), and nothing is touched on EC2.
-#
-# ─── EDITING THIS FILE REDEPLOYS THE BACKEND, SO EDITS WAIT FOR A REAL BACKEND CHANGE ──────────
-# `changes` counts this file itself as a backend change, so even a comment edit stops and restarts
-# the production API on the t3.micro. That is why three edits were held back on the morning of
-# 2026-10-09 and went in later that day WITH a real backend change, the move of the box to Python
-# 3.14 on a venv built from backend/requirements.lock (the `deploy` job's steps say how and why):
-# every `uses:` pinned to the commit SHA of its latest release, the release in a trailing comment,
-# as in every other workflow here; `wait-for-checks` given the cancelled-run verdict and the run
-# selection deploy-frontend.yml had carried since that morning, copied from it; and
-# `runs-on: ubuntu-26.04` in every job rather than whatever `ubuntu-latest` resolves to (it moves to
-# 26.04 by itself in November 2026). Batch the next cosmetic edit the same way.
-
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
-# cancel-in-progress is deliberately OFF. This workflow now starts on every push to main,
-# so overlapping runs are far more likely than they were with the old paths filter — and
-# cancelling mid-deploy is still worth avoiding: backend/deploy/blue_green.sh keeps the live API
-# serving until the new one answers /health, but its one fallback (no pooler session left for the
-# migration) stops the live API first, and a run killed there leaves it to the script's exit trap.
-# Queueing is slower and safe; cancelling is not.
-# ─── LEAST PRIVILEGE, AND `actions: read` IS NOT OPTIONAL HERE ───────────────────────────────
-# This file had no `permissions:` block, so the token every step received was the repository
-# default — historically read/WRITE on contents, i.e. a token that can push to main, sitting in a
-# job that also opens a port and holds the production .env. Nothing here writes to the repository.
-#
-#   contents: read   the checkout, and nothing more.
-#   actions: read    `wait-for-checks` and the live-commit lookup read this repository's own
-#                    workflow runs and their jobs through the REST API. That is the only reason
-#                    this scope is here; without it both get a 404 that looks exactly like
-#                    "nothing has run yet" — the live lookup would fail open (harmless, it just
-#                    stops closing the hole) and the wait would sit out its full budget and fail.
 permissions:
   contents: read
   actions: read
@@ -78,10 +14,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Works out which parts of the monorepo this push touched, so each stage of the pipeline
-  # can skip work it does not need. The result is also uploaded as an artifact because the
-  # downstream workflows run in a separate `workflow_run` context and cannot read job
-  # outputs across workflows — only artifacts cross that boundary.
   changes:
     runs-on: ubuntu-26.04
     outputs:
@@ -94,27 +26,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      # ─── WHAT THIS WORKFLOW LAST ACTUALLY PUT ON THE BOX ──────────────────────────────────
-      #
-      # FAIL OPEN, EXACTLY AS deploy-frontend.yml's GATE DOES, AND FOR THE IDENTICAL REASON. Every
-      # path that cannot answer writes an empty string, and an empty answer makes `detect` below
-      # fall back to the push range alone — i.e. to the behaviour this step is fixing, which is
-      # strictly no worse than what shipped before it. Over-deploying costs a build minute;
-      # under-deploying cost two days on f4f6740 and, on 2026-09-20, a 404 in production.
-      #
-      # ⚠ "SUCCEEDED" IS NOT ENOUGH — THE `deploy` JOB MUST HAVE RUN. That is the whole finding. A
-      # run whose `deploy` job was SKIPPED still concludes `success`, and treating it as deployed
-      # would put the baseline on a commit the box has never seen and re-open the hole one level
-      # deeper. So each candidate run's jobs are read and the one named `deploy` is required to
-      # have concluded `success` itself.
-      #
-      # THE CURRENT RUN IS EXCLUDED BY ID. On a re-run of this very workflow the API can already
-      # list it, and a baseline of "this commit" makes every diff empty — the gate would then skip
-      # the deploy it exists to perform, and would do it only on re-runs, which is the worst
-      # possible place for a bug to hide.
-      #
-      # `actions: read` is granted at the workflow level and is already what `wait-for-checks`
-      # uses; this job declares no permissions of its own and needs no new secret.
       - name: Read the commit this workflow last deployed
         id: live
         continue-on-error: true
@@ -127,8 +38,6 @@ jobs:
           live=""
           reason="no successful deploy of this workflow was found in the last 50 runs"
 
-          # Newest first. `status=success` drops the runs that failed outright; the jobs read below
-          # is what separates "deployed" from "skipped the deploy and went green anyway".
           runs="$(gh api "${api}/workflows/deploy-backend.yml/runs?status=success&per_page=50" 2>/dev/null || echo '{"workflow_runs":[]}')"
           candidates="$(printf '%s' "$runs" | jq -r --arg this "$THIS_RUN" '
             [ .workflow_runs[] | select((.id|tostring) != $this) ] | .[] | "\(.id) \(.head_sha)"
@@ -155,16 +64,10 @@ jobs:
           EVENT: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
-          # Empty whenever the step above could not answer, or died. An unwritten output reads as
-          # '' and folds into the push-range-only path below, which is the behaviour that shipped
-          # before this change — strictly no worse.
           LIVE: ${{ steps.live.outputs.sha }}
           LIVE_REASON: ${{ steps.live.outputs.reason }}
         run: |
           set -euo pipefail
-          # Fail SAFE: anything we cannot diff (manual dispatch, first push of a branch,
-          # force-push that orphaned the old head) is treated as "everything changed", so
-          # the pipeline over-deploys rather than silently skipping a real change.
           if [ "$EVENT" != "push" ] \
             || [ -z "${BEFORE:-}" ] \
             || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] \
@@ -178,17 +81,6 @@ jobs:
             echo "Changed files in this push:"; printf '%s\n' "$files"
           fi
 
-          # ── AND EVERYTHING THE BOX HAS NOT SEEN YET ───────────────────────────────────────
-          #
-          # UNIONED, NEVER SUBSTITUTED. The push range answers "what did this push touch" and is
-          # what the step summary reports to a human; this answers "what has changed since the box
-          # was last written to", which is the only question a DEPLOY decision may be made on.
-          # Adding lines to `files` can only turn an area from false to true, so this cannot
-          # introduce a skipped deploy — the failure mode it exists to remove.
-          #
-          # `git cat-file -e` because the baseline may genuinely be absent from this checkout: a
-          # force-push can orphan it, and the commit of a deploy older than the repository's
-          # history rewrite is not reachable. Absent means UNKNOWN, and unknown means deploy.
           echo "Last deployed: ${LIVE_REASON:-unknown}"
           if [ "$all" != "true" ]; then
             if [ -z "${LIVE:-}" ]; then
@@ -202,19 +94,12 @@ jobs:
             else
               undeployed="$(git diff --name-only "$LIVE" "$AFTER")"
               echo "Changed since the box was last written to (${LIVE}):"; printf '%s\n' "$undeployed"
-              # A newline between them, and `printf` rather than an echo of two variables, so an
-              # empty half cannot glue two filenames into one line that matches neither pattern.
               files="$(printf '%s\n%s\n' "$files" "$undeployed" | sort -u)"
             fi
           fi
 
           area() {
             if [ "$all" = "true" ]; then echo true; return; fi
-            # A HERESTRING, NOT A PIPE. `grep -q` exits at its FIRST match; if `printf` still holds
-            # bytes the 64 KiB pipe buffer cannot take, it dies of SIGPIPE, `pipefail` (set at the
-            # top of this step) makes the pipeline non-zero even though grep MATCHED, and this
-            # function then answers `false` for an area that DID change — silently skipping the
-            # deploy. The sister repository fixed the identical line for the identical reason.
             if grep -Eq "$1" <<< "$files"; then echo true; else echo false; fi
           }
           backend=$(area '^(backend/|\.github/workflows/deploy-backend\.yml$)')
@@ -244,19 +129,12 @@ jobs:
   wait-for-checks:
     name: Wait for Checks on this commit
     needs: changes
-    # Push only, and only when a deploy would actually follow. A frontend-only push skips this
-    # for the same reason it skips `deploy` — there is nothing to gate.
     if: ${{ needs.changes.outputs.backend == 'true' && github.event_name != 'workflow_dispatch' }}
     runs-on: ubuntu-26.04
-    # A hair over the poll's own 20-minute budget, so the loop's error message (which names what
-    # it was still waiting for) is what a reader sees rather than a bare job cancellation.
     timeout-minutes: 25
     permissions:
       contents: read
       actions: read
-    # `true` only when the Checks run for this commit was cancelled AND main has moved past it; the
-    # `deploy` job's `if:` refuses on it. Unset on every other path, which reads as "not superseded".
-    # 2026-10-09: until then a cancelled run read as a failed one; the step says why it no longer does.
     outputs:
       superseded: ${{ steps.poll.outputs.superseded }}
     steps:
@@ -265,29 +143,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SHA: ${{ github.sha }}
-          # The three checks.yml jobs branch protection names (see that file's header). JSON
-          # because jq consumes it as a list; a shell string of names with spaces in them is how
-          # this kind of loop quietly starts matching nothing.
           GATING_JOBS: '["Backend tests","Web typecheck, lint and unit specs","Docs check"]'
         run: |
           set -euo pipefail
           api="repos/${GITHUB_REPOSITORY}/actions"
-          # What the last poll saw, for the message at the end: a cancelled run that nothing re-ran
-          # is not a slow suite, and the timeout must not say it is.
           last=""
-          # 60 × 20 s. Twenty minutes is roughly double the measured wall clock of the three
-          # gating jobs, which leaves room for a queued runner without letting a stuck run hold
-          # the box's deploy open indefinitely.
           for attempt in $(seq 1 60); do
-            # `checks.yml` BY FILENAME. Looking the workflow up by its display name would break
-            # the day somebody edits `name:` at the top of that file, and would break silently —
-            # an empty result is indistinguishable from "not started yet".
             runs="$(gh api "${api}/workflows/checks.yml/runs?head_sha=${SHA}&per_page=30" 2>/dev/null || echo '{"workflow_runs":[]}')"
-            # Prefer a run for this SHA that was not CANCELLED, the `push` run first among those, and
-            # fall back to whatever run exists for it. A re-run or a dispatch of Checks against the same
-            # commit is just as good an answer, and on main a dispatch is also what cancels a push run
-            # still in flight (both land in checks.yml's concurrency group), so preferring `push`
-            # outright graded the cancelled run and never looked at the green one beside it.
             run_id="$(printf '%s' "$runs" | jq -r '([.workflow_runs[] | select(.conclusion != "cancelled")] | ([.[] | select(.event == "push")][0] // .[0])) // .workflow_runs[0] | .id // ""')"
             if [ -z "$run_id" ]; then
               echo "attempt ${attempt}/60: no Checks run for ${SHA} yet"
@@ -296,11 +158,6 @@ jobs:
               continue
             fi
             jobs="$(gh api "${api}/runs/${run_id}/jobs?per_page=100" 2>/dev/null || echo '{"jobs":[]}')"
-            # A CANCELLED JOB IS NOT A FAILED ONE, and since 2026-10-09 it has its own verdict. Checks
-            # cancels a run in progress when a newer push to main starts its own, and this loop used to
-            # file that under "failed": two merges a few minutes apart turned the earlier commit's run
-            # red with a diagnosis that was not true. Every other conclusion that is not `success`
-            # (failure, timed_out, skipped, …) still fails, and still wins over a cancelled job.
             verdict="$(printf '%s' "$jobs" | jq -r --argjson want "$GATING_JOBS" '
               [ .jobs[] | select(.name | IN($want[])) ]                       as $g
               | ($want - [ $g[].name ])                                        as $missing
@@ -325,15 +182,6 @@ jobs:
                 exit 1
                 ;;
               cancelled)
-                # SUPERSEDED, OR CANCELLED WITH NOTHING NEWER BEHIND IT? Only main's tip can say. If
-                # main has moved on, the newer commit's own run of this pipeline carries this one's
-                # changes with it (every push to main starts deploy-backend.yml, and the frontend stage
-                # chains off that), so the honest end is green, with nothing shipped and a notice
-                # saying why. `superseded=true` is what the `deploy` job's `if:` refuses on, so a
-                # cancelled commit never ships from here. If this SHA is still the tip, nothing newer
-                # will ship it: keep polling, because a re-run or a dispatch of Checks may yet finish
-                # (the selection above prefers it). A tip that cannot be read counts as "still the
-                # tip", which is the direction that waits rather than the one that skips.
                 tip="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha 2>/dev/null || true)"
                 if ! grep -Eq '^[0-9a-f]{40}$' <<< "$tip"; then tip=""; fi
                 if [ -n "$tip" ] && [ "$tip" != "$SHA" ]; then
@@ -357,8 +205,6 @@ jobs:
             esac
             sleep 20
           done
-          # Cancelled at the tip, and nothing re-ran it: say that, not "timed out", or the reader goes
-          # looking for a slow suite that never ran.
           if [ "$last" = "cancelled" ]; then
             echo "::error::Checks on ${SHA} was CANCELLED, not failed (${detail}), and nothing re-ran it within 20 minutes. Main's tip read '${tip:-unreadable}' at the last look, so no newer run will ship this commit, and nothing has been shipped from this one. Re-run that Checks run (or dispatch Checks on main), then re-run this workflow. A gating job that hits its own timeout-minutes also ends as cancelled: if one did, the suite is the problem."
             {
@@ -376,23 +222,6 @@ jobs:
 
   deploy:
     needs: [changes, wait-for-checks]
-    # ─── THE CONDITION HAS TO NAME THE SKIP CASE EXPLICITLY ──────────────────────────────
-    # Skipped (not failed) when the push did not touch backend/ AND the box already runs this
-    # tree's backend. A skipped job still lets the workflow run finish as a success, which is what
-    # keeps the frontend stage moving on a frontend-only change. Manual dispatch always deploys.
-    #
-    # `wait-for-checks` SKIPS ITSELF on a manual dispatch, and GitHub's default is that a job whose
-    # dependency was skipped is skipped too — which would silently turn the emergency override into
-    # "dispatch never deploys". Writing an `if` that contains a status function (`!cancelled()`) is
-    # what removes the implicit `success()` and lets this job judge the results itself, so:
-    #   • wait-for-checks succeeded            → deploy (the normal, gated path)
-    #   • wait-for-checks was skipped          → deploy (manual dispatch, or nothing to gate)
-    #   • wait-for-checks failed or cancelled  → DO NOT deploy
-    #   • wait-for-checks said `superseded`    → DO NOT deploy. Its job succeeded, because Checks
-    #                                            on this commit was cancelled by a newer push and
-    #                                            that push's own run deploys both (2026-10-09). This
-    #                                            run's `deploy` is then skipped, so `changes` never
-    #                                            counts it as the commit last deployed.
     if: >-
       ${{ !cancelled()
           && needs.changes.result == 'success'
@@ -400,33 +229,14 @@ jobs:
           && needs.wait-for-checks.outputs.superseded != 'true'
           && (needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-26.04
-    # A backstop over the slowest honest run (a venv rebuild, then the release's own ten-minute
-    # health limit), so a hung ssh cannot hold the deploy group for the default six hours.
     timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # ─── THE RELEASE VENV AND ITS PRISMA CLIENT ARE BUILT HERE, ON THE RUNNER (2026-10-19) ─────────
-      # The box used to build them itself while the old release served: pip installing the lock into a
-      # new venv, then `pip install -e .`, then `prisma generate`, whose CLI and generator processes
-      # each imported the previous generated client, 28 MB of `prisma/types.py` (84,774 TypedDicts),
-      # hundreds of megabytes apiece. On the t3.small (1.9 GB, the API and the queue already deep in
-      # swap) that is what failed deploys. Now the box receives a finished venv and installs nothing:
-      #   * The interpreter is the box's own pinned build, unpacked at the box's own path, read from
-      #     the pin in the box step below so there is one pin; the venv is built at its final path on
-      #     the box (/home/ubuntu/app/venvs/<name>), so every absolute path inside it (the python
-      #     symlink, script shebangs, the query-engine path the generated client records) is already
-      #     right where it lands. Runner and box are both Ubuntu 26.04 on x86_64.
-      #   * The name carries the interpreter build, the lock's hash AND the schema's hash: a release
-      #     that changed neither ships nothing (the box already has it), and a schema change gets a
-      #     venv of its own instead of regenerating the client inside the one the live API runs on.
-      #   * Proved here before it ships: `pip check`, and the application's own imports.
       - name: Build the release venv and its Prisma client on the runner
         run: |
           set -euo pipefail
-          # The interpreter pin, read from where it is written once (the box step below);
-          # backend/tests/test_interpreter_pin.py holds that one copy to user_data.sh and checks.yml.
           eval "$(sed -nE 's/^[[:space:]]*(cpython|pbs_release|pbs_url|pbs_sha256)=([^[:space:]]+)[[:space:]]*$/\1=\2/p' .github/workflows/deploy-backend.yml)"
           node_pin="$(sed -n 's/^NODE_PIN=//p' backend/deploy/blue_green.sh)"
           [ -n "${cpython:-}" ] && [ -n "${pbs_sha256:-}" ] && [ -n "$node_pin" ] || { echo "::error::could not read the interpreter or Node pin"; exit 1; }
@@ -455,26 +265,15 @@ jobs:
           "$target/bin/python" -m pip install --quiet --disable-pip-version-check -r "$lock"
           "$target/bin/python" -m pip check
 
-          # The client, generated as user ubuntu's home would: prisma-client-py keeps its Node, its CLI
-          # and the query engine under $HOME/.cache/prisma-python, and the generated client records
-          # the engine's absolute path. The engine and CLI ship with the venv; Node does not (the box
-          # keeps its own pinned copy, blue_green.sh).
           export PRISMA_USE_GLOBAL_NODE=false
-          # Node 26's official binary links libatomic.so.1 (the box step below says the same).
           if ! ldconfig -p | grep -q 'libatomic\.so\.1'; then sudo apt-get -qq update && sudo apt-get -qq install -y --no-install-recommends libatomic1; fi
           HOME=/home/ubuntu "$target/bin/python" -m nodeenv --prebuilt --node="$node_pin" "$cache/nodeenv"
           (cd backend && HOME=/home/ubuntu PATH="$target/bin:$PATH" "$target/bin/python" -m prisma generate)
           site="$target/lib/python${cpython%.*}/site-packages"
           engine="$(grep -oE "/home/ubuntu/\.cache/prisma-python/binaries/[^']+/query-engine-[^']+" "$site/prisma/client.py" | head -n1)"
           [ -x "$engine" ] || { echo "::error::the generated client names a query engine that is not there: '${engine}'"; exit 1; }
-          # Bytecode for the generated client, so the box does not compile it at the first start. Not
-          # for types.py: nothing at run time loads it (app/prisma_lazy_types.py), and its bytecode is
-          # 40 MB.
           "$target/bin/python" -m compileall -q -x '[/\\]types\.py$' "$site/prisma"
 
-          # What the API and the queue import to start, with this commit's code: the compiled wheels
-          # (uvloop, httptools, pydantic's core, audioop-lts for pydub, bcrypt, cryptography) and the
-          # generated client, through app/__init__.py as the services load it.
           (cd backend && "$target/bin/python" -c 'import fastapi, uvicorn, uvloop, httptools, pydantic_core, pydantic_settings, jwt, bcrypt, cryptography, boto3, pydub, audioop, anthropic, openpyxl, reportlab, segno; import app; from prisma import Prisma; from app import prisma_lazy_types; assert not prisma_lazy_types.is_loaded(); print("imports ok")')
 
           sha256sum "$schema" | cut -d' ' -f1 > "$target/.schema-sha256"
@@ -483,13 +282,6 @@ jobs:
           du -sh "$target" "$cache/binaries" "$RUNNER_TEMP/release-venv.tar.gz"
           echo "VENV_WANTED=$want" >> "$GITHUB_ENV"
 
-      # ─── PORT 22 OPENS FOR THIS RUNNER ONLY, AND ONLY FOR THIS DEPLOY (2026-10-17) ──────────────
-      # The API box's security group used to keep port 22 open to 0.0.0.0/0. It now has no standing
-      # SSH rule at all, as on the designer portal: this step adds a /32 for the address AWS sees
-      # this runner on, and "Close the deploy window" at the end of the job takes it out again
-      # whatever happened. The IAM user behind DEPLOY_SG_AWS_* is `fieldrepo-ci-sg`, allowed to add
-      # and remove rules on that one group and nothing else. People reach the box with
-      # `aws ssm start-session --target i-012eae3e379fbbeac` (instance profile `fieldrepo-ssm`).
       - name: Open the deploy window for this runner
         id: sgwindow
         env:
@@ -505,8 +297,6 @@ jobs:
           esac
           echo "runner=$ip"
           echo "cidr=${ip}/32" >> "$GITHUB_OUTPUT"
-          # A rule left by a killed run makes this call fail as a duplicate; the rule being there
-          # is the state wanted, so that must not fail the deploy.
           aws ec2 authorize-security-group-ingress \
             --group-id "$SG_ID" \
             --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=${ip}/32,Description='github-actions deploy window'}]" \
@@ -522,58 +312,10 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
 
-      # ─── UPSTREAM CPYTHON ON THE BOX, AND A VENV REBUILT WHEN IT HAS TO BE ───────────────────────
-      #
-      # WHAT THIS REPLACED. The install step at the end of this job used to open with
-      # `if [ ! -d .venv ]; then python3.12 -m venv .venv; fi` and then run `pip install -e .`, and
-      # both halves were wrong in ways nothing reported. The guard asks only whether a directory
-      # exists, so the venv built on 2026-06-17 was never rebuilt, for a new interpreter or for
-      # anything else; and `pip install -e .` never upgrades a dependency that is already satisfied,
-      # so production sat on June's versions, advisories included (anyio, cryptography, pyasn1,
-      # pydantic-settings, urllib3), while CI installed whatever the index offered that day. The
-      # first fix, on 2026-10-09, took python3.14 from apt: the deadsnakes PPA on 24.04, Ubuntu's own
-      # archive on 26.04. Those are not the same interpreter — deadsnakes carried upstream 3.14.8,
-      # Ubuntu 26.04 carries 3.14.4 with its own fixes backported — so the approved rebuild onto 26.04
-      # would have moved production off the release CI tests. The same evening the owner chose
-      # upstream 3.14.8, exactly what CI tests, on both releases, and apt left the picture.
-      #
-      # WHAT IT DOES NOW, AND WHY IN THIS ORDER:
-      #   1. The interpreter: upstream CPython, the exact release checks.yml tests, from a pinned
-      #      python-build-standalone build whose SHA-256 is checked before a byte of it is unpacked,
-      #      installed once into a root-owned /opt/cpython/<version>+<build> that nothing changes
-      #      afterwards. The same bytes on 24.04 and on 26.04. A box that already has it downloads
-      #      nothing, and infra/terraform/user_data.sh installs the same pin on a new box, so the
-      #      first deploy there finds it in place. The script says what this leaves alone on the live
-      #      24.04 box (deadsnakes, python3.12) and why; backend/DEPLOY_AWS.md §9 has the layout.
-      #   2. The venv, named after what it is built FROM: venvs/cpython-<version>+<build>-<sha256 of
-      #      requirements.lock>-<sha256 of prisma/schema.prisma>, and since 2026-10-19 BUILT ON THE
-      #      RUNNER ("Build the release venv ..." above) and shipped here only when the box does not
-      #      already have it. A different interpreter build, lock or schema is a different name; the
-      #      same name is reused, so a deploy that changed only code ships nothing. The reuse is
-      #      CHECKED, not inferred from the name: a venv whose python is not the pinned interpreter is
-      #      refused rather than adopted.
-      #   3. UNPACKED BEFORE THE CODE SYNC, BESIDE THE LIVE VENV. The API serves from the old one the
-      #      whole time, and nothing it can see changes until the release points `.venv` at the new
-      #      directory, so a failed unpack fails THIS step and leaves the box as it was: old code, old
-      #      venv, API up. The venv takes its name in one rename, after its python and its compiled
-      #      wheels have answered on this box, so a half-unpacked one is never adopted.
-      #   4. Nothing is installed here, so nothing is paused: the box runs no pip and no Prisma
-      #      generator any more (that was the deploy's memory peak).
-      #
-      # WHY A NEW DIRECTORY AND A SYMLINK, NOT A `.venv-new` RENAMED OVER `.venv`. A venv cannot be
-      # moved: pip writes its absolute path into the shebang of every script it installs, and
-      # `prisma generate` runs one of those scripts (`prisma-client-py`) from PATH. A venv built as
-      # `.venv-new` and then renamed would leave the generator pointing at a directory that no longer
-      # exists. Built at its final path and reached through the `.venv` symlink, nothing moves.
-      #
-      # The lock travels on its own, over stdin like `.env` below, because the code sync is the NEXT
-      # step: the venv is decided before anything the running API can see has changed.
       - name: Install the pinned CPython, and put the runner-built venv beside the live one
         run: |
           set -euo pipefail
           case "$VENV_WANTED" in cpython-*[!A-Za-z0-9.+_-]*|"") echo "::error::unexpected venv name '$VENV_WANTED'"; exit 1 ;; esac
-          # Shipped only when the box does not already have this venv: most releases change neither the
-          # lock nor the schema, and send nothing.
           if ssh ubuntu@${{ secrets.EC2_HOST }} "test -f '/home/ubuntu/app/venvs/$VENV_WANTED/.complete'"; then
             echo "the box already has venv $VENV_WANTED"
           else
@@ -793,16 +535,6 @@ jobs:
           printf '%s\n' "$want" > "$app/venv-wanted"
           REMOTE
 
-      # ─── ZERO DOWNTIME: THE RELEASE GOES TO THE IDLE PORT'S TREE (2026-10-19) ─────────────────────
-      # Every deploy used to stop the API, migrate, restart it and wait for /health: three to eight
-      # minutes of 502s on this swap-bound box. The API now runs on one of two loopback ports, each
-      # with its own tree under /home/ubuntu/app/slots/<port>/backend, and nginx proxies to one of
-      # them. `prepare` names the idle port, gives its tree a copy of the live .env and points
-      # /home/ubuntu/app/next at it; every step below writes there, never to the live tree; the last
-      # step starts the idle port, waits for /health and only then switches nginx. The layout,
-      # rollback and the one fallback that still stops the API: backend/deploy/blue_green.sh and
-      # backend/DEPLOY_AWS.md, "Zero-downtime releases". The script travels over stdin, so the box
-      # runs the copy from this commit.
       - name: Pick the idle port for this release
         run: |
           set -euo pipefail
@@ -811,8 +543,6 @@ jobs:
           echo "CAND_PORT=$port" >> "$GITHUB_ENV"
           echo "this release goes to port $port"
 
-      # Into the idle tree. `.env` and the deploy's own files there are excluded, so `--delete` keeps
-      # the .env `prepare` just copied in.
       - name: Sync code to the server
         run: |
           rsync -az --delete \
@@ -820,9 +550,6 @@ jobs:
             --exclude '/.env' --exclude '/.env.two-factor-before' --exclude '/.dburl' \
             ./backend/ "ubuntu@${{ secrets.EC2_HOST }}:/home/ubuntu/app/slots/${CAND_PORT}/backend/"
 
-      # A malformed two-step key would stop the API starting (app/core/config.py refuses it), on a box
-      # that is slow to come back. So the Actions secrets are checked HERE, on the runner, before the
-      # box's .env is touched at all. The values are never printed.
       - name: Check the two-step encryption key secrets
         env:
           TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.TWO_FACTOR_ENCRYPTION_KEY }}
@@ -844,9 +571,6 @@ jobs:
           done
           echo "two-step key entries checked: $n"
 
-      # The box's two-step key lines are put aside (mode 600) BEFORE BACKEND_ENV replaces the file, so
-      # the pin step below can carry a key that was set on the box forward instead of losing it. A file
-      # already there is a deploy that stopped before the pin step: it holds the truer lines, and stays.
       - name: Write .env on the server (piped over the SSH tunnel, never on the command line)
         run: |
           printf '%s' "$BACKEND_ENV" | ssh ubuntu@${{ secrets.EC2_HOST }} \
@@ -854,43 +578,6 @@ jobs:
         env:
           BACKEND_ENV: ${{ secrets.BACKEND_ENV }}
 
-      # ─── PIN THE DATABASE URL, FOR THE SAME REASON CORS IS PINNED BELOW ────────────────────
-      #
-      # WHAT THIS CLOSES. `BACKEND_ENV` is a write-only secret: it can be replaced wholesale and
-      # never read back or edited a line at a time. So on 2026-09-13, when this project's database
-      # moved from Supabase `ap-northeast-1` to a new project in `ap-south-1` — same account, same
-      # organisation, next to the EC2 box and the S3 bucket instead of 5,000 km from them — the
-      # step ABOVE became the thing that would quietly undo the move. It writes `BACKEND_ENV`
-      # verbatim over `/home/ubuntu/app/backend/.env`, so the first deploy after the cutover would
-      # have restored the OLD Tokyo DSN on top of the corrected one, and the API would have gone
-      # back to reading and writing a database that everybody had stopped watching. Nothing would
-      # have failed. The health check would have been green. The only symptom would have been
-      # records saved after the cutover quietly going missing from the live database.
-      #
-      # WHY NOT JUST REWRITE THE SECRET. Because rewriting `BACKEND_ENV` means retyping every other
-      # key in it — JWT_SECRET, the AWS pair, OPENAI_API_KEY, GEMINI_API_KEYS, the Google client
-      # ids — from a copy nobody can diff against the original. The comment on the CORS step below
-      # already says how that ends: "A wholesale rewrite of a secret nobody can print is how a
-      # database URL gets lost." This step is that sentence taken seriously for the database URL
-      # itself.
-      #
-      # WHAT IT BUYS BEYOND THE MIGRATION. `DATABASE_URL` now has exactly ONE source of truth: the
-      # `DATABASE_URL` Actions secret, which is ALSO what `backup-db.yml` dumps from. Before this
-      # step there were two — that secret and the line buried inside `BACKEND_ENV` — and nothing
-      # compared them, so the nightly backup could have been faithfully copying a database the API
-      # was no longer using. One key, one secret, one answer.
-      #
-      # It is authoritative and not additive: the inherited line is deleted before the new one is
-      # appended, so whatever `BACKEND_ENV` carries is irrelevant by the time the app starts. It
-      # runs BEFORE "Install deps, migrate, restart", so `prisma migrate deploy` in that step
-      # targets the pinned database and not the inherited one.
-      # TWO COMMANDS AND NOT ONE, BECAUSE OF WHERE THE SECRET TRAVELS. The DSN must never appear in
-      # an `ssh` argument: arguments are visible in `ps` on the remote box to every local user, and
-      # they land in the shell history of the runner. The existing "Write .env" step solves this by
-      # piping the value over STDIN — but a `bash -s` heredoc already OWNS stdin, so the two
-      # techniques cannot be combined in one command. So: first hand the value over on stdin to a
-      # 0600 temp file, then run the script that consumes it. The temp file is removed by the
-      # script itself, including on failure, via `trap`.
       - name: Pin the database URL
         run: |
           set -euo pipefail
@@ -926,22 +613,6 @@ jobs:
         env:
           DB_URL: ${{ secrets.DATABASE_URL }}
 
-      # Pin CORS to the origins that actually exist, in the workflow rather than in BACKEND_ENV.
-      #
-      # The deployed API answered `access-control-allow-origin: *`. That is not the hole it looks
-      # like — auth is a Bearer token from localStorage, not a cookie, and app/core/config.py forces
-      # `allow_credentials=False` whenever a wildcard is present, so a hostile page could reach only
-      # unauthenticated endpoints and could never read a signed-in user's data. It is still worth
-      # closing, and pinning is what lets credentialed CORS be true rather than silently downgraded.
-      #
-      # Set HERE and not in the secret because these origins are public knowledge — they are in every
-      # browser's address bar — and because BACKEND_ENV cannot be read to edit one line of it. A
-      # wholesale rewrite of a secret nobody can print is how a database URL gets lost.
-      #
-      # Both entries earn their place. The Vercel alias is production. `http://localhost:3000` is the
-      # local dev server, which is routinely pointed at THIS deployed API rather than a local backend
-      # — omitting it would break every developer's browser while looking like an API fault. The
-      # Android client is unaffected either way: a native HTTP client does not do CORS.
       - name: Pin the CORS origins
         run: |
           ssh ubuntu@${{ secrets.EC2_HOST }} 'bash -s' <<'REMOTE'
@@ -961,9 +632,6 @@ jobs:
           echo "CORS origins pinned"
           REMOTE
 
-      # The sender address and SES region are Actions VARIABLES, not lines inside BACKEND_ENV: they
-      # are not secret, and BACKEND_ENV can only be replaced wholesale. Authoritative, like the CORS
-      # pin above: any inherited value is deleted first. An unset variable leaves mail switched off.
       - name: Pin the mail sender
         env:
           MAIL_FROM_ADDRESS: ${{ vars.MAIL_FROM_ADDRESS }}
@@ -979,10 +647,6 @@ jobs:
           echo "mail sender pinned: ${FROM:-off}"
           REMOTE
 
-      # Microsoft and Yahoo sign-in. Client ids and the tenant are Actions VARIABLES; the client
-      # secrets are Actions SECRETS. The fragment travels on ssh's STDIN, never in an argument (an
-      # argument is visible in `ps` on the box). Authoritative: every inherited line for these keys
-      # is deleted first; a provider whose id or secret is unset is left out and stays switched off.
       - name: Pin the Microsoft and Yahoo sign-in settings
         env:
           MICROSOFT_CLIENT_ID: ${{ vars.MICROSOFT_CLIENT_ID }}
@@ -1007,17 +671,6 @@ jobs:
             echo \"sign-in providers pinned: \$(grep -c -E \"^(MICROSOFT|YAHOO)_CLIENT_ID=\" \"\$ENVFILE\" || true)\"
           '"
 
-      # ─── THE BOX ANSWERS CLOUDFRONT AND NOTHING ELSE ────────────────────────────────────────────
-      # CloudFront sends `X-Origin-Verify: <ORIGIN_VERIFY_SECRET>` to this origin (a custom origin
-      # header on the distribution) and nginx answers 403 to any request without it, so somebody who
-      # finds the box's address cannot skip CloudFront and hand the API a forged X-Forwarded-For. The
-      # security group also admits port 80 only from CloudFront's origin-facing prefix list. Both are
-      # in docs/INFRA_ORIGIN_LOCK.md. Rewritten on every deploy so a rebuilt box converges. The value
-      # rides ssh's STDIN as the first line of the script, never an argument (visible in `ps`). It is
-      # also written to the .env, per the rule that every secret lives in Actions AND the box's .env.
-      # A missing secret fails here rather than shipping a box that turns CloudFront away. nginx is
-      # RELOADED, never restarted; a config that fails `nginx -t`, or that CloudFront itself cannot get
-      # a 200 through, is put back as it was.
       - name: Require CloudFront's origin header in nginx
         env:
           ORIGIN_VERIFY_SECRET: ${{ secrets.ORIGIN_VERIFY_SECRET }}
@@ -1057,9 +710,6 @@ jobs:
           sed -i '/^ORIGIN_VERIFY_SECRET=/d' "$ENVFILE"
           printf 'ORIGIN_VERIFY_SECRET=%s\n' "$secret" >> "$ENVFILE"
           REMOTE
-          # Loopback is exempt from the check, so only CloudFront's own answer proves the secret
-          # matches its header. The old API is still serving here, so anything but 200 (403 is a
-          # mismatch) puts the previous nginx config back and fails the deploy before the switch.
           code=000
           for i in $(seq 1 12); do
             code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$PUBLIC_API/health?origin-check=$GITHUB_RUN_ID-$i" || true)"
@@ -1081,33 +731,12 @@ jobs:
             echo "::error::CloudFront got $code from the box after the origin check went in, so the previous nginx config was put back. ORIGIN_VERIFY_SECRET must equal the X-Origin-Verify header on the CloudFront origin: docs/INFRA_ORIGIN_LOCK.md."
             exit 1
           fi
-      # The two-step encryption key and the proxy-hop count. The keys are Actions SECRETS and travel
-      # on ssh's STDIN, never in an argument, like the provider secrets above.
-      #
-      # TWO_FACTOR_ENCRYPTION_KEY (and _PREVIOUS_KEYS during a rotation) seal every authenticator
-      # secret (app/core/two_factor_keys.py), so NO KEY THAT WAS IN USE MAY GO MISSING. The current key
-      # comes from the Actions secret when it is set, else from BACKEND_ENV, else from the box's .env
-      # as it was before this deploy (put aside by the "Write .env" step, so a key set there by hand
-      # survives). Every other key seen in those places is CARRIED into _PREVIOUS_KEYS, so rotating
-      # the Actions secret without also filling the previous-keys secret strands nothing. A key id
-      # that turns up with two different keys fails the deploy here, before anything restarts. With
-      # no key anywhere the legacy JWT-derived one stays in use, with a WARNING in the journal. After
-      # the restart, a dry run of scripts/reencrypt_two_factor_secrets fails the deploy if any secret
-      # cannot be opened. Rotation: docs/ENVIRONMENT.md.
-      #
-      # TRUSTED_PROXY_HOPS — CloudFront appends the viewer, nginx appends CloudFront, and with 2 the
-      # per-client limits key on the viewer. That is safe ONLY while nobody can reach nginx without
-      # passing CloudFront (docs/SECURITY.md P1): otherwise a caller chooses the entry 2 reads. So the
-      # lock is CHECKED here, not assumed: the runner (never a CloudFront address) tries ports 80 and
-      # 443 on the box directly. Refused, timed out, or turned away with a 403 by the origin check is
-      # locked; anything else (a 200, any other answer) pins 1 and warns.
       - name: Pin the two-step encryption key and the proxy hops
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.TWO_FACTOR_ENCRYPTION_KEY }}
           TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS: ${{ secrets.TWO_FACTOR_ENCRYPTION_PREVIOUS_KEYS }}
         run: |
-          # curl exits 7 when refused and 28 when it times out.
           locked() {
             local code rc
             set +e
@@ -1165,15 +794,6 @@ jobs:
           REMOTE
           } | ssh ubuntu@$EC2_HOST 'bash -s'
 
-      # The transcript pipeline's two keys (31 Oct 2026, docs/transcription/DESIGN_2026-10-31_Scribe-Gemini-
-      # Pipeline.md section 9): ELEVENLABS_API_KEY (Scribe v2; this portal's own key, IP-locked by
-      # ElevenLabs to this box) and GEMINI_API_KEY (Gemini 3.8 Flash, AI Studio). Both are Actions
-      # secrets with an SSM backup, and they reach the release .env only through this pin, never by
-      # hand. On ssh's STDIN, never an argument, and never echoed. Unset: the box's own line is kept and
-      # the step warns, because transcription stays paused until the coordinator un-pauses it.
-      # The same pin switches the approved transcript features on (0.0.4): AI_FEATURES_ENABLED and
-      # AI_TRANSCRIPT_INSIGHTS_ENABLED are written true, so BACKEND_ENV cannot leave them off.
-      # A key may hold '.': Google's newer AI Studio keys do (measured on this portal's key, 31 Oct).
       - name: Pin the speech-to-text and Gemini keys and the transcript switch
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
@@ -1212,15 +832,6 @@ jobs:
           REMOTE
           } | ssh ubuntu@$EC2_HOST 'bash -s'
 
-      # The web app's proxy secret (2026-10-17). The web app keeps the sign-in session in an HttpOnly
-      # cookie and relays every browser call through its own server (frontend/proxy.ts), so the API
-      # sees a Vercel address as the client. The proxy names the visitor in X-Viewer-Address beside
-      # this secret, and the rate limits believe the address only when it matches
-      # (backend/app/scale/rate_limit.py::trusted_viewer_address). The same value is the Vercel
-      # server variable WEB_PROXY_SECRET; backup in SSM
-      # /iit/documentation-portal/web-proxy-secret (docs/SECURITY.md).
-      # On ssh's STDIN, never an argument. Unset: the line is left out and the API ignores the header,
-      # which costs per-visitor limits for web callers and nothing else, so it warns and goes on.
       - name: Pin the web proxy secret
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
@@ -1246,20 +857,12 @@ jobs:
           REMOTE
           } | ssh ubuntu@$EC2_HOST 'bash -s'
 
-      # The artisan register's Aadhaar fingerprint key (2026-10-17): the HMAC key every stored
-      # Aadhaar fingerprint is made with (backend/app/services/aadhaar_fingerprint.py), ONE value shared
-      # with the designer portal so the two registers match. An Actions SECRET, on ssh's STDIN. It
-      # FAILS rather than ships a key that differs from the one on the box (every stored fingerprint
-      # would stop matching, duplicates included); an empty secret keeps the box's key, and a box
-      # with none answers 503 to an artisan save carrying an Aadhaar. Shape-checked on the runner.
-      # Backup: SSM /iit/shared/aadhaar-fingerprint-key.
       - name: Pin the Aadhaar fingerprint key
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           AADHAAR_FINGERPRINT_KEY: ${{ secrets.AADHAAR_FINGERPRINT_KEY }}
         run: |
           key="$(printf '%s' "$AADHAAR_FINGERPRINT_KEY" | tr -d '[:space:]')"
-          # Shape-checked on the runner, before anything reaches the box.
           if [ -n "$key" ]; then KEY="$key" python3 - <<'PY' || exit 1
           import base64, binascii, os
           try:
@@ -1293,12 +896,6 @@ jobs:
           REMOTE
           } | ssh ubuntu@$EC2_HOST 'bash -s'
 
-      # The artisan card key (2026-10-21): signs the QR on this portal's artisan cards
-      # (backend/app/services/artisan_card.py). THIS portal's own value, never the designer portal's.
-      # An Actions SECRET, on ssh's STDIN, shape-checked on the runner. An empty secret keeps the box's
-      # key; a box with none draws no cards (every card route answers 404). Unlike the fingerprint key
-      # it may change: a rotation sets ARTISAN_CARD_KEY_VERSION and ARTISAN_CARD_KEY_PREVIOUS in the box
-      # .env first (backend/DEPLOY_AWS.md, "Artisan cards"). Backup: SSM /iit/documentation-portal/artisan-card-key.
       - name: Pin the artisan card key
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
@@ -1334,10 +931,6 @@ jobs:
           REMOTE
           } | ssh ubuntu@$EC2_HOST 'bash -s'
 
-      # The Monday summary's switch (2026-10-22; docs/ENVIRONMENT.md, "The Monday summary"). Not a
-      # secret: the Actions VARIABLE WEEKLY_DIGEST_ENABLED, `true` or `false`, written to the box .env
-      # so the queue worker and the API read the same answer. Unset keeps whatever the box has (the
-      # code's default is on); any other value stops the deploy before anything is written.
       - name: Pin the Monday summary switch
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
@@ -1361,33 +954,11 @@ jobs:
           REMOTE
           } | ssh ubuntu@$EC2_HOST 'bash -s'
 
-      # ─── THE PROJECT, THE PRISMA CLIENT, THE MIGRATION, THE SWITCH ──────────────────────────────
-      # backend/deploy/blue_green.sh `release`, from this commit: the venv the runner built (Prisma
-      # client included, and refused if it was generated from another schema) copied (`cp -a`) to the
-      # idle port's own slots/<port>/venv, the pinned Node for the Prisma CLI, then `prisma migrate
-      # deploy` (through `python -m app.prisma_cli`) with the queue paused and the live port still
-      # serving, the idle port started, /health waited for (ten minutes by the clock, a line every
-      # twenty seconds), nginx reloaded onto it, and only then the old port stopped and the queue
-      # started on the new tree. Any failure before the switch leaves nginx on the old port, which
-      # never stopped, and fails the run. After it, the two-step dry run (exit 3 fails the deploy)
-      # and the tidy of venvs, Node and interpreters no tree uses.
-      #
-      # THE FALLBACK. Migrations talk to the Supabase pooler in session mode, and the schema engine
-      # once found no session left (EMAXCONNSESSION) with the API holding its share. The queue is
-      # stopped first, which frees its sessions; if three tries still fail, FOR ANY REASON (the
-      # script does not read the error, so a broken migration takes this path too), the script stops
-      # the live API, tries five more times, as every deploy did before, and says so in the log.
       - name: Migrate, start the new release beside the live one, switch when healthy
         run: |
           set -euo pipefail
           ssh ubuntu@${{ secrets.EC2_HOST }} "bash -s -- release '${CAND_PORT}'" < backend/deploy/blue_green.sh
 
-      # The transcript keys, asked FROM THE BOX (31 Oct 2026). ElevenLabs keys are IP-locked to each
-      # portal's server, so CI must never call ElevenLabs itself: this step runs curl over ssh, with the
-      # key read from the live .env on the box and handed to curl as a header file (never an argument,
-      # never printed). ElevenLabs speech-to-text (no audio) and Gemini `models.get gemini-3.8-flash`; only the
-      # HTTP status codes are printed. It fails ONLY on an auth refusal (401/403, or Google's
-      # API_KEY_INVALID); a busy or unreachable provider warns, because the release itself is fine.
       - name: Smoke the speech-to-text and Gemini keys from the box
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
@@ -1436,8 +1007,6 @@ jobs:
           REMOTE
           } | ssh ubuntu@$EC2_HOST 'bash -s'
 
-      # `if: always()`: a deploy that fails or is cancelled must not leave port 22 open to a runner
-      # address that will be handed to somebody else. An already-absent rule is the state wanted.
       - name: Close the deploy window
         if: always() && steps.sgwindow.outputs.cidr != ''
         env:

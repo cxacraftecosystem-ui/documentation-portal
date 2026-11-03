@@ -1,39 +1,5 @@
 name: Uptime probe
 
-# ─── WHAT THIS IS ────────────────────────────────────────────────────────────────────────
-# Every 15 minutes, from a GitHub runner, four questions about production:
-#
-#   1. Is the API process up?                       GET <CloudFront>/health
-#   2. Can the API reach its database, quickly?     GET <CloudFront>/health/ready
-#   3. Does the web app serve its home page?        GET field-repository.vercel.app/
-#   4. Is the Android App Link file intact?         GET field-repository.vercel.app/.well-known/assetlinks.json
-#
-# A red check fails the run (GitHub emails the failed run to collaborators) AND opens an issue
-# labelled `outage`. While the outage lasts the same issue is updated rather than a new one opened
-# every quarter hour; the first all-green run comments "recovered" and closes it. The issue is the
-# record of when it started, what broke and when it came back; the email is the nudge.
-#
-# Same shape as designer-portal's `.github/workflows/monitor.yml` — keep the two in step.
-#
-# ─── IT IS A FLOOR, NOT THE ANSWER ───────────────────────────────────────────────────────
-# This runs ON GitHub. A GitHub Actions incident takes the monitor down together with the ability to
-# notice it is down. A free external checker (UptimeRobot, Better Stack) pointed at
-#
-#     https://d2b34i3e92al6i.cloudfront.net/health/ready
-#
-# is strictly better: several regions, and it can page rather than email. Keep this file when that
-# lands, or delete it — but do not keep it and believe it is the alerting.
-#
-# ─── THE CRON IS BEST-EFFORT ─────────────────────────────────────────────────────────────
-# `*/15` asks for four runs an hour; GitHub's scheduler drifts (ten or more minutes late under load)
-# and drops runs during its own incidents. The real detection window is "usually a quarter of an
-# hour, sometimes worse". Cost: about 96 runs a day, each well under a minute, on a public
-# repository — free.
-#
-# ─── THE BOX ONLY ANSWERS THROUGH CLOUDFRONT ─────────────────────────────────────────────
-# Since the origin lock (docs/INFRA_ORIGIN_LOCK.md) the EC2 box refuses web traffic that did not come
-# through CloudFront, so the probes go to the CloudFront address and never to the box's own IP.
-
 on:
   schedule:
     - cron: "*/15 * * * *"
@@ -41,11 +7,9 @@ on:
 
 permissions:
   contents: read
-  issues: write # open, update and close the `outage` issue — nothing else
+  issues: write
 
 concurrency:
-  # Deliberately NOT cancel-in-progress: a run cancelled by its successor reports as cancelled, not
-  # failed, which would hide exactly the slow-response case this exists to catch.
   group: monitor
   cancel-in-progress: false
 
@@ -61,13 +25,6 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      # NO CHECKOUT — nothing here reads the repository. curl, jq and gh are all on the runner image.
-      #
-      # Every probe after the first carries `if: ${{ !cancelled() }}` so one red check does not hide
-      # the others: the API and the web app are deployed by different pipelines onto different
-      # infrastructure and fail independently. Each probe writes its one-line reason to
-      # $RUNNER_TEMP/failures before failing; a probe that dies before it can (a curl timeout under
-      # `set -e`) is still caught by the report step, which reads every step's outcome.
 
       - name: The API process is up
         id: live
@@ -88,17 +45,10 @@ jobs:
       - name: The API is ready (database reachable, and fast enough)
         id: ready
         if: ${{ !cancelled() }}
-        # `/health/ready` touches the database; `/health` deliberately does not, and reports 200
-        # through a total data outage. The 2000 ms ceiling is the half that earns its keep: this
-        # deployment's history of connection-pool exhaustion shows up first as a probe that still
-        # succeeds and takes seconds (see the `/health/ready` docstring in backend/app/main.py). A
-        # warm box answers in tens of milliseconds.
         run: |
           set -euo pipefail
           url="${API}/health/ready"
           fail() { echo "- **API database** (\`${url}\`): $1" >> "$RUNNER_TEMP/failures"; echo "::error::$1"; exit 1; }
-          # One request for status AND body: two could straddle a restart. No -f: a 503 here has a
-          # body worth printing.
           out="$(curl -sS --max-time 25 -w '\n%{http_code}' "$url")" || fail "no answer within 25 s (curl exit $?)."
           code="$(printf '%s' "$out" | tail -n1)"
           body="$(printf '%s' "$out" | sed '$d')"
@@ -117,8 +67,6 @@ jobs:
       - name: The web app serves its home page
         id: web
         if: ${{ !cancelled() }}
-        # No -L: the home page answers 200 itself, so a redirect is a change worth hearing about.
-        # No -f: the status goes into the error text, so the alert says "503" instead of "failed".
         run: |
           set -euo pipefail
           url="${WEB}/"
@@ -132,13 +80,6 @@ jobs:
       - name: The Android App Link file is intact
         id: assetlinks
         if: ${{ !cancelled() }}
-        # Android checks this file to decide whether links to the site open in the app. Android
-        # requires a direct 200 (no redirects) served as JSON; the file must name this app's package
-        # and the release signing certificate. If any of that breaks, links quietly open in the
-        # browser instead of the app — nothing errors, which is why it is probed.
-        #
-        # The certificate is compared with the ANDROID_RELEASE_CERT_SHA256 secret that
-        # publish-android.yml signs against (colons and case ignored). The value is never printed.
         env:
           EXPECTED_CERT_SHA256: ${{ secrets.ANDROID_RELEASE_CERT_SHA256 }}
         run: |
@@ -161,7 +102,6 @@ jobs:
             || fail "the file does not grant link handling to ${ANDROID_PACKAGE}."
           if [ -n "${EXPECTED_CERT_SHA256}" ]; then
             want="$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d ': ' | tr 'A-F' 'a-f')"
-            # Into a variable first: `grep -q` closing a pipe early would trip pipefail on a match.
             have="$(jq -r --arg pkg "$ANDROID_PACKAGE" '.[] | select(.target.package_name == $pkg) | .target.sha256_cert_fingerprints[]' \
               "$RUNNER_TEMP/assetlinks.json" | tr -d ': ' | tr 'A-F' 'a-f')"
             printf '%s\n' "$have" | grep -qx "$want" \
@@ -172,8 +112,6 @@ jobs:
           echo "assetlinks: ok"
 
       - name: Open, update or close the outage issue
-        # Runs whatever the probes did, but not when the run was cancelled — a cancelled run proves
-        # nothing either way and must not close an open outage.
         if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
@@ -185,7 +123,6 @@ jobs:
           set -euo pipefail
           now="$(date -u '+%Y-%m-%d %H:%M UTC')"
           touch "$RUNNER_TEMP/failures"
-          # A probe that failed without writing its reason (it died mid-command) still counts.
           IFS=';' read -ra pairs <<< "$OUTCOMES"
           for p in "${pairs[@]}"; do
             name="${p%%=*}"; outcome="${p#*=}"
@@ -194,14 +131,8 @@ jobs:
             fi
           done
           failures="$(cat "$RUNNER_TEMP/failures")"
-          # Which checks are red, as a stable signature, so a long outage gets one comment per change
-          # rather than one every quarter hour.
-          # `|| true`: an all-green run has no lines to match, and grep's exit 1 would trip pipefail.
           signature="$( (grep -o '^- \*\*[^*]*\*\*' "$RUNNER_TEMP/failures" || true) | sort | tr '\n' ' ' | sed 's/ *$//')"
 
-          # Only an issue this probe opened counts: it carries the `outage-signature` marker. An issue a
-          # person labelled `outage` by hand is never edited or closed by this step.
-          # One retry: a brief GitHub API blip on an all-green run must not turn the run red.
           find_open() {
             gh issue list --label outage --state open --json number,body --limit 50               --jq '[.[] | select(.body | contains("<!-- outage-signature:"))] | sort_by(.number) | .[0].number // empty'
           }

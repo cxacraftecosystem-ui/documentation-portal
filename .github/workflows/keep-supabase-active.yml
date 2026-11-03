@@ -2,11 +2,9 @@ name: Keep Supabase Active
 
 on:
   schedule:
-    # Run every day at 8:00 PM UTC (1:30 AM IST).
     - cron: "0 20 * * *"
   workflow_dispatch:
 
-# Read-only token: this job only checks the code out and pings the database.
 permissions:
   contents: read
 
@@ -21,8 +19,6 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          # The repository's one Node major, `engines.node` in frontend/package.json (24.x). This
-          # job read "20" until 2026-10-09, five months after Node 20 reached end of life.
           node-version-file: frontend/package.json
           check-latest: true
           cache: "npm"
