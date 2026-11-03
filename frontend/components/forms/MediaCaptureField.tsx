@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Camera, FolderOpen, Mic, Square, Video } from "lucide-react";
 
 import { MediaLightbox, MediaPreviewTile, type PreviewMedia } from "@/components/media/MediaLightbox";
+import { TranscribeChoices } from "@/components/transcript/TranscribeChoices";
 import { RecordingStrip } from "@/components/media/Waveform";
 import {
   audioExtensionForMimeType,
@@ -65,9 +66,10 @@ export function MediaCaptureField({
   files,
   onFilesChange,
   title = "Attach media",
-  description = "Photos, video, audio and files. Audio is transcribed.",
+  description = "Photos, video, audio and files.",
   allowDocuments = true,
-  allowedTypes
+  allowedTypes,
+  transcribeChoice = true
 }: {
   files: File[];
   onFilesChange: (files: File[]) => void;
@@ -75,6 +77,7 @@ export function MediaCaptureField({
   description?: string;
   allowDocuments?: boolean;
   allowedTypes?: MediaType[];
+  transcribeChoice?: boolean;
 }) {
   const [recording, setRecording] = useState(false);
   // The live stream is state, not just a ref, because <Waveform> needs to re-render on it.
@@ -250,6 +253,7 @@ export function MediaCaptureField({
           Or drag files here. Uploads start right away.
         </p>
       </div>
+      {transcribeChoice ? <TranscribeChoices files={files} /> : null}
       {previewItems.length ? (
         <div className="grid gap-2">
           <div className="flex flex-wrap items-center justify-between gap-2">

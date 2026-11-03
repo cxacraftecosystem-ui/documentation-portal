@@ -551,3 +551,111 @@ async function clickIsHarmless(page: Page, scope: ReturnType<Page["locator"]>) {
   await scope.getByText("click me").click();
   await page.waitForTimeout(200);
 }
+
+test.describe("media transcription choice", () => {
+  test.use({ viewport: { width: 1280, height: 900 } });
+
+  const clip = (name: string, mimeType: string) => ({ name, mimeType, buffer: Buffer.from(`${name}-bytes`) });
+
+  async function pickOnMediaPage(page: Page, fake: TranscriptFake) {
+    await fake.install(page);
+    await page.goto("/media");
+    const picker = page.locator("label.file-trigger", { hasText: "Pick files" }).locator('input[type="file"]');
+    await expect(picker).toHaveCount(1, { timeout: 30_000 });
+    await picker.setInputFiles([clip("artisan-talk.m4a", "audio/mp4"), clip("loom-demo.mp4", "video/mp4"), clip("notes.pdf", "application/pdf")]);
+    const choices = page.getByTestId("transcribe-choices");
+    await expect(choices).toBeVisible();
+    return choices;
+  }
+
+  test("@qf:F1 a video plays in the transcript viewer and karaoke follows the video", async ({ page }) => {
+    const fake = new TranscriptFake().asVideo();
+    const viewer = await open(page, fake);
+    const video = viewer.getByTestId("transcript-video");
+    await expect(video).toBeVisible();
+    await expect(viewer.locator("audio[data-transcript-audio]")).toHaveCount(0);
+    await viewer.locator('[data-turn-id="turn_a"] [data-word="3"]').click();
+    await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.currentTime), { timeout: 10_000 }).toBeGreaterThanOrEqual(5.1);
+    await expect(viewer.locator('[data-turn-id="turn_a"]')).toHaveAttribute("data-active", "true");
+    await viewer.locator('[data-turn-id="turn_b"] [data-seek-ms="9000"]').click();
+    await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.currentTime), { timeout: 10_000 }).toBeGreaterThanOrEqual(9);
+    await expect(viewer.locator('[data-turn-id="turn_b"]')).toHaveAttribute("data-active", "true");
+    await video.evaluate((element: HTMLVideoElement) => element.pause());
+  });
+
+  test("@qf:F2 each audio and video file has its own Transcribe and translate box, off by default", async ({ page }) => {
+    const choices = await pickOnMediaPage(page, new TranscriptFake());
+    const boxes = choices.getByTestId("transcribe-choice");
+    await expect(boxes).toHaveCount(2);
+    await expect(choices.locator('[data-file="notes.pdf"]')).toHaveCount(0);
+    await expect(boxes.nth(0)).not.toBeChecked();
+    await expect(boxes.nth(1)).not.toBeChecked();
+    await choices.locator('[data-file="loom-demo.mp4"]').check();
+    await expect(choices.locator('[data-file="loom-demo.mp4"]')).toBeChecked();
+    await expect(choices.locator('[data-file="artisan-talk.m4a"]')).not.toBeChecked();
+  });
+
+  test("@qf:F3 Transcribe and translate all ticks every file, and each box can still be changed", async ({ page }) => {
+    const choices = await pickOnMediaPage(page, new TranscriptFake());
+    const all = choices.getByRole("switch", { name: "Transcribe and translate all" });
+    await expect(all).toHaveAttribute("aria-checked", "false");
+    await all.click();
+    await expect(choices.locator('[data-file="artisan-talk.m4a"]')).toBeChecked();
+    await expect(choices.locator('[data-file="loom-demo.mp4"]')).toBeChecked();
+    await expect(all).toHaveAttribute("aria-checked", "true");
+    await choices.locator('[data-file="artisan-talk.m4a"]').uncheck();
+    await expect(choices.locator('[data-file="artisan-talk.m4a"]')).not.toBeChecked();
+    await expect(choices.locator('[data-file="loom-demo.mp4"]')).toBeChecked();
+    await expect(all).toHaveAttribute("aria-checked", "false");
+  });
+
+  test("@qf:F4 under the admin's auto switch the box is ticked, locked and says so", async ({ page }) => {
+    const fake = new TranscriptFake();
+    fake.policy = { autoTranscribeVideo: true, autoTranscribeAudio: false };
+    const choices = await pickOnMediaPage(page, fake);
+    const video = choices.locator('[data-file="loom-demo.mp4"]');
+    await expect(video).toBeChecked();
+    await expect(video).toBeDisabled();
+    await expect(choices.getByTestId("transcribe-auto-note")).toHaveText("Every new video is transcribed and translated. An admin set this.");
+    const audio = choices.locator('[data-file="artisan-talk.m4a"]');
+    await expect(audio).not.toBeChecked();
+    await expect(audio).toBeEnabled();
+    await expect(choices.getByTestId("transcribe-all")).toHaveCount(0);
+  });
+
+  test("@qf:F4 the master admin turns on the auto switches under Voice Isolator", async ({ page }) => {
+    const fake = new TranscriptFake();
+    fake.role = "MASTER_ADMIN";
+    await fake.install(page);
+    await page.goto("/settings/api-keys");
+    const videos = page.getByRole("switch", { name: "Transcribe and translate all new videos" });
+    const audio = page.getByRole("switch", { name: "Transcribe and translate all new audio" });
+    await expect(videos).toHaveAttribute("aria-checked", "false", { timeout: 30_000 });
+    await expect(audio).toHaveAttribute("aria-checked", "false");
+    await videos.click();
+    await expect(videos).toHaveAttribute("aria-checked", "true");
+    expect(fake.calledWith("PUT", "/settings/transcription").map((call) => call.body)).toContainEqual({ autoTranscribeVideo: true });
+  });
+
+  test("@qf:F5 the backfill ships off, shows its estimate and starts only after the confirmation", async ({ page }) => {
+    const fake = new TranscriptFake();
+    fake.role = "MASTER_ADMIN";
+    await fake.install(page);
+    await page.goto("/settings/api-keys");
+    const panel = page.getByTestId("transcript-backfill");
+    const backfill = panel.getByRole("switch", { name: "Transcribe and translate all previously uploaded media" });
+    await expect(backfill).toHaveAttribute("aria-checked", "false", { timeout: 30_000 });
+    await expect(panel.getByTestId("transcript-backfill-estimate")).toHaveText("42 files, about 10.5 h, about $3.57");
+    await backfill.click();
+    const confirm = panel.getByTestId("transcript-backfill-confirm");
+    await expect(confirm).toBeVisible();
+    await confirm.getByRole("button", { name: "Cancel" }).click();
+    await expect(confirm).toHaveCount(0);
+    await expect(backfill).toHaveAttribute("aria-checked", "false");
+    expect(fake.calledWith("PUT", "/settings/transcription")).toHaveLength(0);
+    await backfill.click();
+    await panel.getByTestId("transcript-backfill-confirm").getByRole("button", { name: "Start backfill" }).click();
+    await expect(backfill).toHaveAttribute("aria-checked", "true");
+    expect(fake.calledWith("PUT", "/settings/transcription").map((call) => call.body)).toEqual([{ transcriptBackfill: true, confirmBackfill: true }]);
+  });
+});

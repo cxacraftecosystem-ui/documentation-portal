@@ -85,7 +85,7 @@ export function ExistingMedia({
   // While any audio transcript is still in flight, re-fetch every 15s so the transcript block
   // updates without a manual page reload. The interval is cleared as soon as nothing is in flight.
   const anyTranscriptInFlight = (items ?? []).some(
-    (media) => media.mediaType === "AUDIO" && IN_FLIGHT_TRANSCRIPT.has((media.transcriptStatus ?? "").toUpperCase())
+    (media) => (media.mediaType === "AUDIO" || media.mediaType === "VIDEO") && IN_FLIGHT_TRANSCRIPT.has((media.transcriptStatus ?? "").toUpperCase())
   );
 
   useEffect(() => {
