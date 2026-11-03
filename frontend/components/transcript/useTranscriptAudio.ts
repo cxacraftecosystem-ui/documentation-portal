@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * playing and stops with the component.
  */
 export function useTranscriptAudio(src: string | null | undefined) {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioRef = useRef<HTMLMediaElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   const [durationMs, setDurationMs] = useState(0);
@@ -90,8 +90,12 @@ export function useTranscriptAudio(src: string | null | undefined) {
     else audio.pause();
   }, []);
 
+  const attach = useCallback((node: HTMLMediaElement | null) => {
+    audioRef.current = node;
+  }, []);
+
   const bind = {
-    ref: audioRef,
+    ref: attach,
     src: src ?? undefined,
     preload: "metadata" as const,
     onPlay: () => setPlaying(true),

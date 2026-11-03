@@ -1149,7 +1149,7 @@ export function ProcessForm({
             files={preFiles}
             onFilesChange={setPreFiles}
             title="Attach media"
-            description="Photos, video, audio and files link to this record automatically. Audio is queued for transcription after upload."
+            description="Photos, video, audio and files link to this record automatically."
           />
           {preMediaError ? <p className="text-xs text-error-600">{preMediaError}</p> : null}
         </div>
@@ -1229,7 +1229,7 @@ export function ProcessForm({
                 files={step.files}
                 onFilesChange={(files) => updateStep(step.key, { files })}
                 title="Attach media"
-                description="Photos, video, audio and files link to this record automatically. Audio is queued for transcription after upload."
+                description="Photos, video, audio and files link to this record automatically."
               />
             </div>
           ))}

@@ -89,8 +89,9 @@ export function EditedFlag({ edited, at }: { edited?: boolean; at?: string | nul
  */
 export function TranscriptBlock({ media }: { media: MediaFile }) {
   const isAudio = media.mediaType === "AUDIO" || (media.mimeType ?? "").toLowerCase().startsWith("audio/");
-  if (!isAudio) return <LegacyTranscriptBlock media={media} />;
-  return <TranscriptViewer mediaId={media.id} audioUrl={media.url} fallback={<LegacyTranscriptBlock media={media} />} />;
+  const isVideo = media.mediaType === "VIDEO" || (media.mimeType ?? "").toLowerCase().startsWith("video/");
+  if (!isAudio && !isVideo) return <LegacyTranscriptBlock media={media} />;
+  return <TranscriptViewer mediaId={media.id} audioUrl={media.url} video={isVideo} fallback={<LegacyTranscriptBlock media={media} />} />;
 }
 
 function LegacyTranscriptBlock({ media }: { media: MediaFile }) {
@@ -127,7 +128,9 @@ function LegacyTranscriptBlock({ media }: { media: MediaFile }) {
     );
   }
 
-  if (PROCESSING.has(status) || (isAudio && !status)) {
+  if (!status) return player;
+
+  if (PROCESSING.has(status)) {
     return (
       <>
         {player}

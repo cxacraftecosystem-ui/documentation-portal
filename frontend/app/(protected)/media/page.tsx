@@ -410,7 +410,7 @@ function MediaPageBody() {
     <>
       <PageHeader
         title="Miscellaneous Media"
-        description="Photos, video, audio and files. Audio is transcribed."
+        description="Photos, video, audio and files."
         icon={<Images className="h-5 w-5" aria-hidden />}
       />
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
@@ -425,7 +425,7 @@ function MediaPageBody() {
           files={selectedFiles}
           onFilesChange={setSelectedFiles}
           title="Capture media"
-          description="Photos, video, audio and files. Audio is transcribed."
+          description="Photos, video, audio and files."
         />
         {/*
           THE ONE PLACE THIS FORM EXPLAINS A MISSING MICROPHONE — see `DictationUnavailableNotice`.

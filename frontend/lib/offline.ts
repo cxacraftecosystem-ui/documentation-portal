@@ -57,6 +57,7 @@
 import { ApiError, apiFetch } from "@/lib/api";
 import { holdFromPayload } from "@/lib/duplicates";
 import { uploadMediaBatch } from "@/lib/media";
+import { transcribeFlags } from "@/lib/transcript/uploadChoice";
 import { countNoun } from "@/lib/format";
 
 const DB_NAME = "field-repo-outbox";
@@ -162,6 +163,8 @@ export type OutboxMediaBatch = {
   recordedTimezone?: string | null;
   extraMetadata?: Record<string, unknown>;
   transcribeAudio?: boolean;
+  alwaysTranscribe?: boolean;
+  transcribe?: boolean[];
   /**
    * Link this batch to the Nth CHILD of the created record instead of the record itself — the
    * process form's per-step media, whose `processstep` ids do not exist until the server has made
@@ -175,6 +178,17 @@ export type OutboxMediaBatch = {
    */
   linkedRecordId?: string | null;
 };
+
+export function withTranscribeFlags(batch: OutboxMediaBatch): OutboxMediaBatch {
+  return batch.transcribe ? batch : { ...batch, transcribe: transcribeFlags(batch.files) };
+}
+
+export function transcribeFlagsFor(batch: OutboxMediaBatch, subset: readonly File[]): boolean[] {
+  return subset.map((file) => {
+    const position = batch.files.indexOf(file);
+    return position >= 0 ? Boolean(batch.transcribe?.[position]) : false;
+  });
+}
 
 export type OutboxEntry = {
   id?: number;
@@ -352,7 +366,7 @@ export async function refreshOutbox(): Promise<OutboxEntry[]> {
 
 export async function queueOffline(entry: Omit<OutboxEntry, "id" | "createdAt" | "attempts" | "failure">): Promise<void> {
   await tx("readwrite", (store) =>
-    store.add({ ...entry, createdAt: Date.now(), attempts: 0, failure: null } as OutboxEntry)
+    store.add({ ...entry, media: (entry.media ?? []).map(withTranscribeFlags), createdAt: Date.now(), attempts: 0, failure: null } as OutboxEntry)
   );
   await refreshOutbox();
 }
@@ -538,7 +552,8 @@ async function runSync(): Promise<SyncResult> {
             recordedAt: batch.recordedAt ?? undefined,
             recordedTimezone: batch.recordedTimezone ?? undefined,
             extraMetadata: batch.extraMetadata,
-            transcribeAudio: batch.transcribeAudio ?? true
+            alwaysTranscribe: batch.alwaysTranscribe ?? batch.transcribeAudio === true,
+            transcribe: transcribeFlagsFor(batch, batch.files)
           });
           mediaFailed.push(...result.failed);
           // Returning at all means this batch got as far as it ever will: `uploadMediaBatch` only

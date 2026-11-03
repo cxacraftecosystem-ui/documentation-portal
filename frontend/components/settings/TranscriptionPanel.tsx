@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 
 import { Toggle } from "@/components/ui/Toggle";
 import { ApiError, apiFetch, describeApiDetail } from "@/lib/api";
+import { ts } from "@/lib/transcript/strings";
 
 type ProviderRow = {
   id: string;
@@ -42,12 +43,18 @@ type TranscriptionState = {
   mode: string;
   /** ElevenLabs Voice Isolator on newly transcribed recordings (0.0.5). Off until switched on. */
   audioIsolation?: { enabled: boolean; keyConfigured: boolean };
+  autoTranscribe?: { video: boolean; audio: boolean };
+  backfill?: BackfillProgress;
   queue?: Record<string, number>;
   usage?: UsageRow[];
   cooldowns?: { provider: string; until: string }[];
   budgets?: Budget[];
   failures?: Failure[];
 };
+
+type BackfillProgress = { enabled: boolean; queued: number; done: number; waiting: number; lastRunAt: string | null };
+
+type BackfillEstimate = { recordings: number; hours: number; costUsd: number; leftOutForConsent?: number };
 
 type RetryAnswer = { dryRun: boolean; failed: number; wouldRequeue: number; requeued: number };
 
@@ -79,6 +86,8 @@ export function TranscriptionPanel({ canChange }: { canChange: boolean }) {
   const [saving, setSaving] = useState<string | null>(null);
   const [budgetDraft, setBudgetDraft] = useState<Record<string, string>>({});
   const [retry, setRetry] = useState<RetryAnswer | null>(null);
+  const [estimate, setEstimate] = useState<BackfillEstimate | null>(null);
+  const [confirmingBackfill, setConfirmingBackfill] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,6 +98,11 @@ export function TranscriptionPanel({ canChange }: { canChange: boolean }) {
       .catch((caught) => {
         if (!cancelled) setError(errorText(caught, "Couldn't load transcription settings."));
       });
+    apiFetch<{ estimate: BackfillEstimate }>("/settings/transcription/backfill")
+      .then((next) => {
+        if (!cancelled) setEstimate(next.estimate);
+      })
+      .catch(() => undefined);
     return () => {
       cancelled = true;
     };
@@ -201,6 +215,103 @@ export function TranscriptionPanel({ canChange }: { canChange: boolean }) {
               busy={saving === "isolation"}
               onChange={(on) => void save("isolation", { audioIsolation: on })}
             />
+          ) : null}
+
+          {state.autoTranscribe ? (
+            <>
+              <Toggle
+                label={ts("settingsAutoVideo")}
+                description={state.autoTranscribe.video ? ts("settingsAutoVideoOn") : ts("settingsAutoVideoOff")}
+                checked={state.autoTranscribe.video}
+                disabled={!canChange}
+                busy={saving === "autoVideo"}
+                onChange={(on) => void save("autoVideo", { autoTranscribeVideo: on })}
+              />
+              <Toggle
+                label={ts("settingsAutoAudio")}
+                description={state.autoTranscribe.audio ? ts("settingsAutoAudioOn") : ts("settingsAutoAudioOff")}
+                checked={state.autoTranscribe.audio}
+                disabled={!canChange}
+                busy={saving === "autoAudio"}
+                onChange={(on) => void save("autoAudio", { autoTranscribeAudio: on })}
+              />
+            </>
+          ) : null}
+
+          {state.backfill ? (
+            <div className="grid gap-1" data-testid="transcript-backfill">
+              <Toggle
+                label={ts("settingsBackfill")}
+                description={state.backfill.enabled ? ts("settingsBackfillOn") : ts("settingsBackfillOff")}
+                checked={state.backfill.enabled}
+                disabled={!canChange || (!state.backfill.enabled && !estimate)}
+                busy={saving === "backfill"}
+                onChange={(on) => {
+                  if (on) setConfirmingBackfill(true);
+                  else void save("backfill", { transcriptBackfill: false });
+                }}
+              />
+              <p className="px-1 text-xs text-ink-500" data-testid="transcript-backfill-estimate">
+                {estimate
+                  ? ts("settingsBackfillEstimate", {
+                      count: estimate.recordings,
+                      hours: estimate.hours.toFixed(1),
+                      cost: estimate.costUsd.toFixed(2)
+                    })
+                  : ts("settingsBackfillCounting")}
+              </p>
+              {state.backfill.enabled || state.backfill.queued > 0 ? (
+                <p className="px-1 text-xs text-ink-500" data-testid="transcript-backfill-progress">
+                  {ts("settingsBackfillProgress", {
+                    done: state.backfill.done,
+                    queued: state.backfill.queued,
+                    waiting: state.backfill.waiting
+                  })}
+                  {state.backfill.lastRunAt ? ` · ${ts("settingsBackfillLastRun", { when: when(state.backfill.lastRunAt) })}` : null}
+                </p>
+              ) : null}
+              {confirmingBackfill && estimate ? (
+                <div
+                  role="alertdialog"
+                  aria-labelledby="transcript-backfill-confirm-title"
+                  aria-describedby="transcript-backfill-confirm-body"
+                  className="mt-1 grid gap-3 rounded-md border border-line-200 bg-surface-50 p-3"
+                  data-testid="transcript-backfill-confirm"
+                >
+                  <div>
+                    <h3 id="transcript-backfill-confirm-title" className="text-sm font-semibold text-ink-900">
+                      {ts("settingsBackfillConfirmTitle")}
+                    </h3>
+                    <p id="transcript-backfill-confirm-body" className="mt-1 text-xs leading-5 text-ink-500">
+                      {ts("settingsBackfillConfirmBody")}
+                    </p>
+                    <p className="mt-1 text-xs font-medium text-ink-700">
+                      {ts("settingsBackfillEstimate", {
+                        count: estimate.recordings,
+                        hours: estimate.hours.toFixed(1),
+                        cost: estimate.costUsd.toFixed(2)
+                      })}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 sm:flex sm:justify-center">
+                    <button type="button" className="field-button-secondary" onClick={() => setConfirmingBackfill(false)}>
+                      {ts("settingsBackfillCancel")}
+                    </button>
+                    <button
+                      type="button"
+                      className="field-button"
+                      disabled={saving === "backfill"}
+                      onClick={() => {
+                        setConfirmingBackfill(false);
+                        void save("backfill", { transcriptBackfill: true, confirmBackfill: true });
+                      }}
+                    >
+                      {ts("settingsBackfillConfirm")}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           ) : null}
 
           <div className="grid gap-2">

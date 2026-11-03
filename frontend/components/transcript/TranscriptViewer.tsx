@@ -70,6 +70,7 @@ export type TranscriptViewerProps = {
   chips?: ReactNode;
   /** False on a dense list (questionnaire takes): the header and player show, the turns wait for a tap. */
   initiallyOpen?: boolean;
+  video?: boolean;
 };
 
 /**
@@ -79,7 +80,7 @@ export type TranscriptViewerProps = {
  * per-turn copy; Copy all; Select turns → Copy selected / Make a quote card; downloads; speaker
  * names; turn edits; karaoke; Ask this interview; Fill the questionnaire on a take.
  */
-export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionnaire, initiallyOpen = true, chips = null }: TranscriptViewerProps) {
+export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionnaire, initiallyOpen = true, chips = null, video }: TranscriptViewerProps) {
   const [transcript, setTranscript] = useState<Transcript | null | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -327,13 +328,22 @@ export function TranscriptViewer({ mediaId, audioUrl, fallback = null, questionn
         {chips}
       </header>
 
+      {audio.hasAudio && (video ?? transcript.audio.video) ? (
+        <video
+          {...audio.bind}
+          playsInline
+          className="max-h-[60vh] w-full rounded-md bg-black"
+          data-transcript-video
+          data-testid="transcript-video"
+        />
+      ) : null}
       {audio.hasAudio ? (
         <div
           ref={playerRef}
           className="relative flex items-center gap-3 rounded-md border border-line-200 bg-card px-3 py-2"
           data-transcript-player
         >
-          <audio {...audio.bind} className="hidden" data-transcript-audio />
+          {(video ?? transcript.audio.video) ? null : <audio {...audio.bind} className="hidden" data-transcript-audio />}
           <button
             type="button"
             onClick={audio.toggle}
