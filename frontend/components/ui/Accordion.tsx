@@ -1,22 +1,5 @@
 "use client";
 
-/**
- * Collapsible panel with a rotating chevron. Collapsed by default; `onOpenChange` lets a panel
- * lazy-load its contents the first time it is opened.
- *
- * LIFTED OUT OF THE QUESTIONNAIRE PAGE, where it was module-private and had one caller. It has three
- * now — the completion matrix, and the two workshop-scoped panels beside it — and a second hand-rolled
- * copy would have been a second set of chevron directions, header paddings and open-state semantics.
- *
- * IT UNMOUNTS ITS CHILDREN WHEN CLOSED (`{open ? … : null}`), which is load-bearing for two reasons and
- * a trap for a third:
- *   * a closed panel costs nothing — no effects, no timers, no fetch;
- *   * `onOpenChange` fires on every toggle, so a lazy loader must guard with a ref rather than relying
- *     on a mount effect, or it re-fetches on every open;
- *   * anything with in-progress local state inside will LOSE it on collapse. Hold that state in the
- *     parent.
- */
-
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 
@@ -32,7 +15,6 @@ export function Accordion({
   subtitle?: string;
   defaultOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
-  /** Sits outside the toggle button, so a control here does not also collapse the panel. */
   headerRight?: React.ReactNode;
   children: React.ReactNode;
 }) {

@@ -1,8 +1,3 @@
-/**
- * Interview summaries, key quotes and translations — the pure half of `lib/transcriptInsights.ts`
- * plus source assertions for what lives in JSX (there is no React renderer in devDependencies).
- */
-
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -189,7 +184,6 @@ function fakeTimers() {
     },
     clear: (handle) => void pending.delete(handle as number)
   };
-  /** Moves the clock forward, firing every timer that falls due on the way. */
   async function advance(ms: number) {
     const until = now + ms;
     for (;;) {

@@ -5,8 +5,6 @@ import { expect, test } from "@playwright/test";
 
 import { RECORDING_CONSENT_DESCRIPTION, recordingConsentStatus } from "@/components/forms/RecordingConsentToggle";
 
-/** Consent is assumed by default and can be revoked (owner decision, 19 Oct 2026). */
-
 test("the switch is on by default and off only after a refusal", () => {
   const src = readFileSync(join(__dirname, "..", "components", "forms", "RecordingConsentToggle.tsx"), "utf8");
   expect(src).toContain('checked={consent.state !== "REFUSED"}');

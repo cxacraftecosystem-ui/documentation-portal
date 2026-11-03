@@ -1,54 +1,27 @@
 "use client";
 
-/**
- * B6 — THE WEB KEEPS UNFINISHED FORMS, by the same rules as the handset's `DraftStore`.
- *
- * The outbox protects a record from the moment it is saved; this protects it before that. A closed
- * tab, a crash or an expired session used to lose every field and every attached file. Now a record
- * form autosaves here — debounced, only while it has unsaved changes and only once any earlier draft
- * has been answered — and on the next open offers "Continue" or "Discard".
- *
- * THE RULES, ported from `android/.../data/DraftStore.kt` and `ui/FormDrafts.kt`:
- *
- *  - Keyed by (account, form, record): an edit by `rec-<id>`, a new record by `new-<parent>-<uuid>`
- *    minted when the form opens, where the parent is the record the form was opened from (`p_<id>`,
- *    or `none`) — so a draft for one artisan's product is never offered on another's form.
- *  - Per account and kept across sign-out, like the outbox.
- *  - A clean form writes nothing: merely opening a form never leaves a draft.
- *  - Saving or queueing the record deletes its draft; a form that stays open starts a fresh one.
- *  - "Unsaved draft for <parent> (“<label>”), last changed 17 Oct, 09:30." with Continue / Discard.
- *
- * WHERE: IndexedDB, not localStorage — attached `File`s are kept by structured clone, exactly as the
- * outbox keeps them. REGULATED IDENTITY NEVER ENTERS A DRAFT: `stripIdentity` drops every Aadhaar and
- * Pehchan key before a write, because field laptops are shared (the `sanitizeCarryContext` rule).
- */
-
 const DB_NAME = "field-repo-drafts";
 const DB_VERSION = 1;
 const STORE = "drafts";
 
 export type FormDraftRecord = {
-  /** `${account}|${formKind}|${recordKey}` — the store's key. */
   key: string;
   account: string;
   formKind: string;
   recordKey: string;
   label: string;
-  /** ISO-8601. */
   savedAt: string;
   fields: Record<string, unknown>;
   parentId: string | null;
   parentLabel: string | null;
 };
 
-/** The keys a draft must never carry, whatever a form hands it. */
 const IDENTITY_KEY = /aadhaar|pehchan/i;
 
 export function stripIdentity(fields: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(fields).filter(([key]) => !IDENTITY_KEY.test(key)));
 }
 
-/** `new-<parent>-` — the handset's `newDraftPrefix`, character for character. */
 export function newDraftPrefix(parentId: string | null | undefined): string {
   return `new-${parentId ? `p_${parentId.replace(/[^A-Za-z0-9_-]/g, "_")}` : "none"}-`;
 }
@@ -69,7 +42,6 @@ export function draftStoreKey(account: string, formKind: string, recordKey: stri
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-/** "Unsaved draft for Ramesh (“Dabu stole”), last changed 17 Oct, 09:30." — the handset's sentence. */
 export function draftOfferSentence(draft: Pick<FormDraftRecord, "label" | "savedAt" | "parentLabel">): string {
   const at = new Date(draft.savedAt);
   const when = Number.isFinite(at.getTime())
@@ -83,7 +55,6 @@ export function draftOfferSentence(draft: Pick<FormDraftRecord, "label" | "saved
   );
 }
 
-/** The newest NEW-record draft of a form for this parent, from a list — the handset's `latestNew`. */
 export function latestNewDraft(
   drafts: readonly FormDraftRecord[],
   account: string,
@@ -97,10 +68,6 @@ export function latestNewDraft(
       .sort((a, b) => b.savedAt.localeCompare(a.savedAt))[0] ?? null
   );
 }
-
-// ---------------------------------------------------------------------------
-// IndexedDB
-// ---------------------------------------------------------------------------
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 

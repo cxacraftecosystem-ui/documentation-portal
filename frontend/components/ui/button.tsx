@@ -4,10 +4,6 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-// Radius is set once in the base: `rounded-md` is 12px in this config and matches `.field-button`
-// and `.field-input`, so every control on a form lines up. The size variants used to re-declare
-// `rounded-lg` (16px here, not Tailwind's stock 8px), which quietly made small buttons rounder
-// than the inputs beside them.
 const buttonVariants = cva(
   "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors outline-offset-2 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-ring/70 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
   {
@@ -19,8 +15,6 @@ const buttonVariants = cva(
         secondary: "bg-secondary text-secondary-foreground shadow-sm shadow-black/5 hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
-        // Third-party sign-in chrome. Tinted rather than filled so it reads as part of the
-        // frosted auth card instead of sitting on top of it.
         provider: "gap-2.5 border border-line-200 bg-card/60 text-ink-900 shadow-sm shadow-black/5 hover:bg-card/85"
       },
       size: {
@@ -28,11 +22,6 @@ const buttonVariants = cva(
         sm: "h-8 px-3 text-xs",
         lg: "h-10 px-8",
         icon: "h-9 w-9",
-        // Matches the 52px inputs on the auth card so every control there is one height. No font size
-        // of its own: this size carried `text-[15px]` until Tailwind 4, but `cn()` is a plain join
-        // and Tailwind 3 printed `text-[15px]` before the base `text-sm`, so the auth buttons have
-        // always rendered at 14px. Tailwind 4 prints arbitrary values last and would have made them
-        // 15px; the shipped size is the one kept.
         auth: "h-[52px] px-4"
       }
     },

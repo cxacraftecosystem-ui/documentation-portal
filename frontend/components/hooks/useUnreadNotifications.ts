@@ -1,14 +1,5 @@
 "use client";
 
-/**
- * The bell's unread count, shared by every component that shows it (the island's bell, the
- * Notifications page), so marking a notice read on the page clears the badge at once.
- *
- * One module-level value and one in-flight request, the shape `useOpenTaskCount` uses. It is re-read
- * when the tab comes back to the front and every two minutes while it is visible; a failed read keeps
- * the last number rather than dropping the badge to nothing.
- */
-
 import { useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/api";
@@ -28,7 +19,6 @@ function publish() {
   subscribers.forEach((notify) => notify(cached));
 }
 
-/** Set the count from an answer that already carries it (every mark-read route returns it). */
 export function setUnreadNotificationCount(value: number) {
   if (!Number.isFinite(value) || value < 0) return;
   cached = value;
@@ -41,7 +31,6 @@ export async function refreshUnreadNotificationCount(): Promise<void> {
   inFlight = apiFetch<{ unreadCount: number }>(UNREAD_COUNT_PATH)
     .then((answer) => setUnreadNotificationCount(Number(answer?.unreadCount ?? 0)))
     .catch(() => {
-      /* keep the last number: a dropped connection is not an empty list */
     })
     .finally(() => {
       inFlight = null;

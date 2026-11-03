@@ -1,14 +1,5 @@
 "use client";
 
-/**
- * What is behind one pin, and the way out of the map into the records.
- *
- * A map you cannot leave is an ornament, so every row here is a link to the record itself, at the
- * same destination the search results use. The records are fetched only when a pin is opened —
- * `/map/points` carries counts, not contents, because the aggregate is what draws the picture and
- * the contents are wanted for exactly one pin at a time.
- */
-
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowUpRight, X } from "lucide-react";
@@ -46,26 +37,9 @@ export function MapPointPanel({
         setError(cause instanceof Error ? cause.message : "These records could not be loaded.");
       });
     return () => controller.abort();
-    // `query` is rebuilt on every render of the parent, so depending on the object itself would
-    // refetch forever. What actually changes the answer is the pin, the filters, the workshop scope
-    // and the level — the level because a point key names an administrative unit and the level decides
-    // which records sit in it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [point.key, JSON.stringify(query.filters), query.q, query.workshopIds, query.level]);
 
-  /**
-   * "Everything here" as a Search link.
-   *
-   * The `place` parameter is a free-text CONTAINS filter on the records' OWN place column, so it is
-   * only a faithful stand-in when the string actually appears there. `point.places` holds exactly
-   * that: the raw spellings the records were typed with, which is why it is used in preference to
-   * `point.label` — a district pin is labelled "Jaipur" while its records say "Bagru", and
-   * `place=Jaipur` would return none of them.
-   *
-   * When there is no typed spelling to send, the link carries the shared filters alone. A slightly
-   * wider list is a correct answer to a slightly wider question; a `place` filter that silently drops
-   * the rows the pin was counting would be a wrong answer to this one.
-   */
   const browseHref = `/search${buildQuery({
     ...filtersToLinkParams(query.filters),
     workshopIds: query.workshopIds,
@@ -83,8 +57,6 @@ export function MapPointPanel({
             {point.label}
           </h2>
           <p className="mt-0.5 text-xs text-ink-500">{point.region}</p>
-          {/* Every finer place name that folded into this point. Grouping to a district does not lose
-              the town it was documented in — it says so here. */}
           {point.places?.length ? (
             <p className="mt-1 wrap-break-word text-[11px] leading-4 text-ink-500">
               Covers {point.places.slice(0, 4).join(", ")}

@@ -1,26 +1,11 @@
 import { GrayF, Mask } from './buffers';
 
-/**
- * Binary and grey morphology. See ALGORITHMS.md §9.
- *
- * Border policy for the **binary** operators is "out of bounds is background", the opposite of the
- * analytic filters. That is deliberate: replicating the edge would grow every shape that touches the
- * frame outwards forever, and it is what makes `erode` correctly eat into a subject that runs off the
- * side of the photograph.
- *
- * Rectangular elements are decomposed into a horizontal then a vertical pass with a running count,
- * which is **exact** for dilate and erode because both are separable over a rectangle. Cross and
- * ellipse are not separable and use the direct offset-list form.
- */
-
-/** Structuring element shape. */
 export enum SeShape {
   RECT = 'RECT',
   CROSS = 'CROSS',
   ELLIPSE = 'ELLIPSE',
 }
 
-/** Flat `[dx0, dy0, dx1, dy1, ...]` offsets of a structuring element, built once per call. */
 function seOffsets(radius: number, shape: SeShape): Int32Array {
   const r = radius;
   const list: number[] = [];
@@ -89,9 +74,6 @@ function rectErode(src: Mask, r: number): Mask {
 
   for (let y = 0; y < h; y++) {
     const row = y * w;
-    // Count foreground inside the window and compare against the window's *full* width: a window that
-    // overhangs the border is short by exactly the number of out-of-bounds cells, and those read as
-    // background, so the pixel must erode.
     let count = 0;
     for (let i = 0; i <= r && i < w; i++) count += d[row + i];
     for (let x = 0; x < w; x++) {
@@ -177,11 +159,6 @@ function offsetErode(src: Mask, offsets: Int32Array): Mask {
   return new Mask(w, h, out);
 }
 
-/**
- * Morphological dilation.
- * @param radius <= 0 returns `src.copy()`
- * @returns a new Mask; out-of-bounds neighbours are background, so nothing grows in from the frame.
- */
 export function dilate(src: Mask, radius: number, shape: SeShape = SeShape.ELLIPSE): Mask {
   const r = radius | 0;
   if (r <= 0) return src.copy();
@@ -189,12 +166,6 @@ export function dilate(src: Mask, radius: number, shape: SeShape = SeShape.ELLIP
   return offsetDilate(src, seOffsets(r, shape));
 }
 
-/**
- * Morphological erosion.
- * @param radius <= 0 returns `src.copy()`
- * @returns a new Mask; a pixel whose element overhangs the image border always erodes, because
- *          out-of-bounds is background.
- */
 export function erode(src: Mask, radius: number, shape: SeShape = SeShape.ELLIPSE): Mask {
   const r = radius | 0;
   if (r <= 0) return src.copy();
@@ -202,47 +173,28 @@ export function erode(src: Mask, radius: number, shape: SeShape = SeShape.ELLIPS
   return offsetErode(src, seOffsets(r, shape));
 }
 
-/**
- * Opening — erode then dilate. Removes specks smaller than the element while leaving everything larger
- * at its original size.
- */
 export function open(src: Mask, radius: number, shape: SeShape = SeShape.ELLIPSE): Mask {
   const r = radius | 0;
   if (r <= 0) return src.copy();
   return dilate(erode(src, r, shape), r, shape);
 }
 
-/**
- * Closing — dilate then erode. Bridges gaps up to roughly `2 * radius` that are already nearly
- * touching; wider gaps need {@link module:thinning}'s endpoint bridging instead.
- */
 export function close(src: Mask, radius: number, shape: SeShape = SeShape.ELLIPSE): Mask {
   const r = radius | 0;
   if (r <= 0) return src.copy();
   return erode(dilate(src, r, shape), r, shape);
 }
 
-/** Morphological gradient — `dilate - erode`, i.e. the one-element-thick boundary of every region. */
 export function gradient(src: Mask, radius: number, shape: SeShape = SeShape.ELLIPSE): Mask {
   const r = radius | 0;
   if (r <= 0) return src.blank();
   return dilate(src, r, shape).subtract(erode(src, r, shape));
 }
 
-/**
- * Grey dilation (local maximum) over a square of the given radius, via separable running extrema.
- *
- * Grey morphology is an *analytic* operator here and therefore **clamps to the edge**, unlike its
- * binary counterpart: a local maximum that treats out-of-bounds as 0 would carve a dark frame around
- * an image whose content runs to the border.
- *
- * @param radius <= 0 returns `src.copy()`
- */
 export function dilateGray(src: GrayF, radius: number): GrayF {
   return extremumGray(src, radius | 0, true);
 }
 
-/** Grey erosion (local minimum) over a square of the given radius, edge-clamped. */
 export function erodeGray(src: GrayF, radius: number): GrayF {
   return extremumGray(src, radius | 0, false);
 }

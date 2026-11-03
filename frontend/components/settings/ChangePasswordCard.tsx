@@ -1,21 +1,5 @@
 "use client";
 
-/**
- * SETTINGS → PASSWORD: change your own, or set a first one.
- *
- * Ported from the Design Prototype Workshop's card of the same name, with one more branch:
- *
- *  - An account WITH a password changes it, entering the current one.
- *  - An account WITHOUT one (it signs in with Google, Microsoft or Yahoo) may SET a first password,
- *    so it can sign in either way. The server asks for that provider's sign-in RUN AGAIN first
- *    (`lib/providerReauth.ts`): this card offers the provider's button, keeps what it answers for
- *    five minutes, and sends it with the password. A refusal carrying `X-Confirm-Sign-In` drops the
- *    confirmation and asks again.
- *
- * Either way the server ends every other session of the account and hands this one a fresh token in
- * `X-Session-Token`, which is adopted BEFORE `/me` is re-read.
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, Eye, EyeOff, KeyRound } from "lucide-react";
 
@@ -93,11 +77,6 @@ export function ChangePasswordCard() {
     if (currentRefusals > 0) currentBox.current?.focus();
   }, [currentRefusals]);
 
-  /**
-   * BACK FROM MICROSOFT OR YAHOO with a code for this card (a `reauth.` state). Taken off the address
-   * bar first — a code is single use — and kept, unredeemed, as the confirmation: the server redeems
-   * it when the password is saved. Anything else in the fragment is the sign-in page's business.
-   */
   useEffect(() => {
     const callback = parseCallbackFragment(window.location.hash);
     if (!callback || !callback.state.startsWith(REAUTH_STATE_PREFIX)) return;
@@ -133,15 +112,9 @@ export function ChangePasswordCard() {
 
   if (!user) return null;
   const setting = !hasOwnPassword(user);
-  // A first password on an account with two-step on needs a code from the authenticator app: the
-  // session alone is not enough to add a second way in (the server refuses it with
-  // `X-Two-Factor-Required`).
   const needsCode = setting && Boolean(user.twoFactorEnabled);
-  // Which provider to run again: the one the server last named, else the account's own.
   const wanted = confirmAsked ?? reauthProviderFor(user);
   const confirmed = setting && proofIsFresh(proof);
-  // The buttons this build can draw: the wanted provider's when it is configured here, else every
-  // configured one (any provider that vouches for this address is accepted).
   const googleOffered = Boolean(googleClientId);
   const offersWanted = wanted === "GOOGLE" ? googleOffered : oidcProviders.some((p) => p.id === wanted);
   const showGoogle = googleOffered && (!offersWanted || wanted === "GOOGLE");
@@ -176,7 +149,6 @@ export function ChangePasswordCard() {
       setConfirm("");
       setShow(false);
       if (fresh) {
-        // Renewed: the fresh session is already in the cookie (this site's change-password route).
         void refreshMe();
         setChanged(setting ? FIRST_SET : CHANGED_HERE_ONLY);
       } else {
@@ -186,12 +158,9 @@ export function ChangePasswordCard() {
     } catch (err) {
       const askedFor = asksToConfirmSignIn(err);
       if (askedFor) {
-        // The confirmation was missing, stale or for another address: drop it and ask again.
         setProof(null);
         setConfirmAsked(asReauthProvider(askedFor));
       } else if (asksForTwoFactorCode(err)) {
-        // The form is kept; only the code is cleared, so the next one can be typed straight in. The
-        // confirmation stays good: a sign-in already accepted comes back as what stands in for it.
         setCode("");
         const carried = signInProofFrom(err);
         if (carried && sending) setProof(carriedProof(sending, carried));
@@ -220,10 +189,8 @@ export function ChangePasswordCard() {
       </p>
 
       <form onSubmit={submit} className="mt-3 grid max-w-md gap-3">
-        {/* For a password manager: the account this password belongs to. */}
         <input type="text" name="username" autoComplete="username" value={user.email} readOnly hidden />
 
-        {/* Both regions mounted from first paint, so what lands in them is announced. */}
         <div
           role="alert"
           aria-live="assertive"
@@ -251,8 +218,6 @@ export function ChangePasswordCard() {
                 <p className="text-sm text-ink-700">{confirmPrompt(wanted)}</p>
                 <div className="mt-2.5 grid gap-2">
                   {showGoogle && googleClientId ? (
-                    // Google's own button, drawn visibly; its answer is an ID token, kept as the
-                    // confirmation. It signs nobody in.
                     <GoogleSignInButton
                       clientId={googleClientId}
                       onCredential={confirmWithGoogle}

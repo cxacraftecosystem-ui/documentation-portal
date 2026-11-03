@@ -27,33 +27,12 @@ import {
 } from "@/lib/twoFactor";
 import { exportFilename } from "@/lib/naming";
 
-/**
- * Two-step verification for THIS account, as ONE switch (owner, 2026-10-17).
- *
- * - Off → switch on → setup opens (QR, key, six code boxes). The switch reads "Setting up…" and
- *   stays OFF until the server has checked a code (`/enable` succeeded). Only then is it On.
- * - Leaving setup without a verified code DISCARDS it: Cancel, closing or reloading the page and
- *   navigating away all call `POST /auth/two-factor/setup/cancel`; a tab hidden for longer than
- *   `AWAY_LIMIT_MS` (the reader went somewhere else, not merely to the authenticator app) does too.
- *   The server also drops a pending secret older than 15 minutes, and reports `pending` so a page
- *   that finds a setup left over from an earlier visit shows Off and clears it — never On.
- * - On → switch off → asks for a current code (six boxes) or, behind "Use a recovery code instead",
- *   a recovery code; then it is off.
- * - The line under the switch says the state in plain words: "On since 17 Oct 2026 · 8 recovery
- *   codes left".
- *
- * Everything is decided on the server: the QR square arrives drawn, a code is checked and SPENT
- * there, and the recovery codes exist in plain text only in the one response that issues them —
- * which is why the codes step refuses to be left by accident.
- */
-
 type Step =
   | { kind: "idle" }
   | { kind: "setup"; setup: TwoFactorSetup }
   | { kind: "codes"; codes: string[] }
   | { kind: "confirm"; action: "disable" | "regenerate" };
 
-/** Hidden this long, a setup is abandoned rather than paused for a look at the authenticator app. */
 const AWAY_LIMIT_MS = 5 * 60 * 1000;
 
 export function TwoStepVerificationCard() {
@@ -70,7 +49,6 @@ export function TwoStepVerificationCard() {
   const [saved, setSaved] = useState(false);
   const recoveryBox = useRef<HTMLInputElement | null>(null);
 
-  // Whether a setup is open on THIS screen, readable from the leave handlers without re-binding.
   const settingUp = useRef(false);
   useEffect(() => {
     settingUp.current = step.kind === "setup";
@@ -91,7 +69,6 @@ export function TwoStepVerificationCard() {
     void (async () => {
       try {
         let answer = await fetchTwoFactorStatus();
-        // A setup somebody started on an earlier visit and never finished: it is Off, so forget it.
         if (!answer.enabled && answer.pending) {
           await cancelTwoFactorSetup().catch(() => undefined);
           answer = { ...answer, pending: false };
@@ -106,8 +83,6 @@ export function TwoStepVerificationCard() {
     };
   }, []);
 
-  // Every way out of the page while setting up discards the pending secret. `keepalive` lets the
-  // request finish after the page is gone; the server is idempotent, so a double call is harmless.
   useEffect(() => {
     let hiddenAt: number | null = null;
     function onPageHide() {
@@ -133,7 +108,6 @@ export function TwoStepVerificationCard() {
     return () => {
       window.removeEventListener("pagehide", onPageHide);
       document.removeEventListener("visibilitychange", onVisibility);
-      // Navigating to another page inside the app unmounts the card without a pagehide.
       if (settingUp.current) void cancelTwoFactorSetup({ keepalive: true }).catch(() => undefined);
     };
   }, [reload]);
@@ -161,7 +135,6 @@ export function TwoStepVerificationCard() {
       setRecovery("");
       setErrorNonce((n) => n + 1);
       setError(err instanceof ApiError ? err.message : "Couldn't connect. Check your connection and try again.");
-      // A setup the server has already dropped (expired): back to Off with the server's sentence.
       if (err instanceof ApiError && err.status === 409 && step.kind === "setup") {
         setStep({ kind: "idle" });
         await reload();
@@ -227,14 +200,10 @@ export function TwoStepVerificationCard() {
 
   function download(codes: string[]) {
     const blob = new Blob([recoveryCodesFileText(codes, user?.email ?? "")], { type: "text/plain" });
-    // Through the shared helper, which revokes the object URL a minute later rather than on the
-    // next line (that race made Safari save nothing, silently). See lib/saveToDevice.ts.
-    // NAMING 2.1: FieldRepository_Account_2026-10-18_Recovery-Codes.txt — never the e-mail address.
     saveBlobToDevice(blob, exportFilename("Account", "Recovery-Codes", "txt"));
     setSaved(true);
   }
 
-  /** Six boxes for a 6-digit code; for "turn off", a recovery code in its own field behind a switch. */
   const codeForm = (hint: string, submitLabel: string, acceptsRecovery: boolean, onCancel: () => void) => (
     <form
       onSubmit={(event) => {
@@ -325,7 +294,6 @@ export function TwoStepVerificationCard() {
         Use an authenticator app for a code at each sign-in.
       </p>
 
-      {/* Mounted from first paint and emptied rather than removed, so the sentence is announced. */}
       <div
         role="alert"
         className={error ? "mt-3 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-error-600" : "sr-only"}
@@ -350,7 +318,6 @@ export function TwoStepVerificationCard() {
 
       {status === null ? null : step.kind === "setup" ? (
         <div className="mt-4 grid gap-4 border-t border-line-200 pt-4 md:grid-cols-[auto_minmax(0,1fr)] md:items-start">
-          {/* The server draws the square; it is shown as an image so nothing in it is ever markup here. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(step.setup.qr_svg)}`}

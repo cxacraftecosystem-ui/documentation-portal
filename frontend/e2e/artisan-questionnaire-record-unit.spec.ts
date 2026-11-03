@@ -7,12 +7,6 @@ import type { Recording, RecordSession, Session } from "@/lib/questionnaireApi";
 import { artisanTimeline, subjectRoleFor } from "@/lib/questionnaireView";
 import { CONTRACT } from "./questionnaire-contract-fixture";
 
-/**
- * DESIGN test 44: the artisan timeline orders by capturedAt across solo and group sessions, shows
- * PRESENT and whole-session takes, puts estimated items in the uncertain band, and a failed fetch
- * shows the error state with Try again.
- */
-
 const session = CONTRACT.examples.Session as Session;
 const rec = CONTRACT.examples.Recording as Recording;
 
@@ -48,7 +42,6 @@ test("error and empty states, with the centred buttons", () => {
   expect(src).toContain('qs("noSessionsYet")');
   expect(src).toContain('qs("startSession")');
   expect(src).toContain('data-record-state="error"');
-  // The panel on /artisans/[id] hands over to the record under v2.
   const panel = readFileSync(join(__dirname, "..", "components", "ArtisanQuestionnairePanel.tsx"), "utf8");
   expect(panel).toContain("if (config?.v2Enabled) {");
   expect(panel).toContain("<ArtisanQuestionnaireRecord");

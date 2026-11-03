@@ -3,7 +3,6 @@ import { ArrowRight, MessageSquareWarning } from "lucide-react";
 
 import { sentBackNote, sentBackTitle } from "@/lib/review";
 
-/** The dashboard's "Sent back to you (N)" card (A2): one tap to every record a reviewer returned. */
 export function SentBackCard({ sentBack, rejected }: { sentBack: number; rejected: number }) {
   return (
     <Link

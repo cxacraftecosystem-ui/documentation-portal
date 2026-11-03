@@ -1,15 +1,6 @@
 import { FillRule, LineCap, LineJoin, VecDocument, VecShape, VecStyle } from './path';
 import { toD } from './svgPathData';
 
-/**
- * SVG serialisation.
- *
- * Colours are written as `#rrggbb` with a separate `*-opacity` attribute whenever alpha is below 255.
- * `#rrggbbaa` is valid CSS Color 4 but is not understood by several cutting-plotter and CNC tool chains
- * that are a primary target of this app, and a silently ignored alpha there means a stroke that plots as
- * fully opaque.
- */
-
 export interface SvgOptions {
   readonly precision: number;
   readonly includeMetadata: boolean;
@@ -28,12 +19,10 @@ export const DEFAULT_SVG_OPTIONS: SvgOptions = {
   title: 'Offline Tracer export',
 };
 
-/** @returns {@link DEFAULT_SVG_OPTIONS} with `over` applied. */
 export function svgOptions(over: Partial<SvgOptions> = {}): SvgOptions {
   return { ...DEFAULT_SVG_OPTIONS, ...over };
 }
 
-/** Escapes the five XML metacharacters. Applied to every string that reaches the output. */
 export function escapeXml(s: string): string {
   let out = '';
   for (let i = 0; i < s.length; i++) {
@@ -43,10 +32,6 @@ export function escapeXml(s: string): string {
     else if (c === '>') out += '&gt;';
     else if (c === '"') out += '&quot;';
     else if (c === "'") out += '&apos;';
-    // XML 1.0 cannot represent the C0 controls other than tab, newline and carriage return at all —
-    // not even as a numeric entity — so they are dropped rather than escaped. A layer name pasted
-    // from a spreadsheet routinely carries one, and a single stray 0x01 makes the whole file
-    // unopenable in every parser.
     else if (c >= ' ' || c === '\t' || c === '\n' || c === '\r') out += c;
   }
   return out;
@@ -61,13 +46,6 @@ function colourHex(argb: number): string {
   return `#${hex2(argb >>> 16)}${hex2(argb >>> 8)}${hex2(argb)}`;
 }
 
-/**
- * Fixed-point, locale-independent, and **never non-finite**.
- *
- * A single `NaN` or `Infinity` anywhere in an SVG attribute makes the renderer drop the element that
- * carries it — silently, and only in some renderers — so a finite substitute is always emitted. A wrong
- * pixel is debuggable; a blank export is not.
- */
 function num(v: number, precision: number): string {
   const finite = Number.isFinite(v) ? v : 0;
   const clamped = finite > MAX_COORD ? MAX_COORD : finite < -MAX_COORD ? -MAX_COORD : finite;
@@ -76,10 +54,8 @@ function num(v: number, precision: number): string {
   return s === '-0' ? '0' : s;
 }
 
-/** Beyond this a coordinate is meaningless and some renderers overflow their fixed-point maths. */
 const MAX_COORD = 1e7;
 
-/** A non-positive or non-finite canvas dimension falls back to 1 unit so the file still opens. */
 function sanitizeDimension(v: number): number {
   if (!Number.isFinite(v) || v <= 0) return 1;
   return v > MAX_COORD ? MAX_COORD : v;
@@ -131,15 +107,6 @@ function shapeElement(shape: VecShape, options: SvgOptions, indent: string): str
   return `${indent}<path${id} ${attrs} d="${d}"/>`;
 }
 
-/**
- * Serialise a document.
- *
- * The `viewBox` is always `0 0 width height` — the document's own canvas, not the shapes' bounding box.
- * Cropping to the content would move the artwork relative to the source image, and a user who traces a
- * photo and then imports the SVG over it expects the two to line up.
- *
- * @returns a complete standalone SVG document with an XML declaration.
- */
 export function write(doc: VecDocument, options: SvgOptions = DEFAULT_SVG_OPTIONS): string {
   const p = Math.max(0, Math.min(8, options.precision | 0));
   const opts: SvgOptions = { ...options, precision: p };
@@ -179,7 +146,6 @@ export function write(doc: VecDocument, options: SvgOptions = DEFAULT_SVG_OPTION
       for (const shape of layer.shapes) parts.push(shapeElement(shape, opts, ind + ind));
       parts.push(`${ind}</g>`);
     } else {
-      // Flattened output drops layer visibility, so a hidden layer must not silently become visible.
       if (!layer.visible) continue;
       for (const shape of layer.shapes) parts.push(shapeElement(shape, opts, ind));
     }

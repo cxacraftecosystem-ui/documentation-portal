@@ -18,23 +18,6 @@ import { canManageQuestionnaire, mayDeleteQuestionnaire, mayEditQuestionnaire } 
 import { qs } from "@/lib/strings/qs";
 import type { Questionnaire, QuestionnaireSection } from "@/lib/types";
 
-/**
- * `/questionnaire/builder` (DESIGN §4.1, audit H15): the instrument builder and nothing else. It used
- * to be the legacy capture page reached at another path, so under v2 a researcher pressing "Builder"
- * landed in the old interview form. Managers only (`canManageQuestionnaire`); the page header
- * carries the one Back control.
- *
- * DELETING FROM A FORM IS ITS AUTHOR'S OR A CONTENT ADMIN'S (owner, 22 Oct 2026): the selected
- * instrument's Delete, its sections' and questions' Remove, and the Restore of a deleted one are drawn
- * for `mayDeleteQuestionnaire(user, createdById)`. The list is read with `activeOnly=false` so the
- * deleted forms this account may restore are on the same screen; the picker offers the live ones.
- *
- * EDITING A FORM IS ITS AUTHOR'S OR A CONTENT ADMIN'S TOO (owner, 22 Oct 2026; the server's
- * `assert_may_edit_form`): `mayEditQuestionnaire(user, createdById)` draws the editor, and anybody
- * else who manages questionnaires sees the selected form read-only. The same editors get the form's
- * own workbook here — Download .xlsx and Re-upload — because `/questionnaire/workbooks` stays an admin
- * route (creating a form from a workbook is admin-only) while re-uploading over a form is its author's.
- */
 export function BuilderScreen() {
   const { user } = useAuth();
   const confirm = useConfirm();

@@ -69,10 +69,6 @@ import { exportFilename } from "@/lib/naming";
 import { fileNameFromDisposition } from "@/components/questionnaires/workbookApi";
 import { workshopDisplayTitle } from "@/lib/workshopTitle";
 
-// ---------------------------------------------------------------------------
-// Local types for the /data browsing endpoints
-// ---------------------------------------------------------------------------
-
 type RecordType = "workshop" | "artisan" | "product" | "tool" | "process" | "interview" | "user" | "category";
 
 type TreeEntry = {
@@ -85,9 +81,7 @@ type TreeEntry = {
   url?: string | null;
   sizeBytes?: number | string | null;
   transcriptAvailable?: boolean;
-  /** 0.0.6: the recording's transcript files (md, docx, srt, vtt; with and without timestamps), when it has turns. */
   transcriptFiles?: { name: string; format: string; track: string; timestamps: boolean; url: string }[];
-  /** Inline body for generated text files (details.txt / answers.txt). */
   content?: string | null;
 };
 
@@ -97,7 +91,6 @@ type InfoField = { label: string; value: string };
 
 type FolderInfo = { title: string; fields: InfoField[] };
 
-/** One of the three ways the repository can be browsed (served with every tree level). */
 type Taxonomy = {
   id: string;
   name: string;
@@ -113,7 +106,6 @@ type TreeResponse = {
   info?: FolderInfo | null;
   truncated?: boolean;
   taxonomies?: Taxonomy[];
-  /** Which taxonomy the current path sits in; null at the root. */
   taxonomy?: string | null;
 };
 
@@ -145,11 +137,6 @@ const INCLUDE_OPTIONS = [
 
 type IncludeKey = (typeof INCLUDE_OPTIONS)[number]["key"];
 
-// ---------------------------------------------------------------------------
-// Small helpers
-// ---------------------------------------------------------------------------
-
-/** Folder icon per record type (skill: Android-parity records, purple visual language). */
 const RECORD_ICONS: Record<string, typeof Folder> = {
   workshop: UsersRound,
   craft: Brush,
@@ -182,7 +169,6 @@ function fileIcon(entry: TreeEntry) {
   }
 }
 
-/** Swap a manifest path's extension for .mp4, keeping any directory part. */
 function mp4Path(path: string) {
   return `${path.replace(/\.[^./\\]+$/, "")}.mp4`;
 }
@@ -191,14 +177,9 @@ function zipFilename(folderName: string) {
   return exportFilename("Dataset", "Export", "zip", { subject: folderName });
 }
 
-/** Filename without its extension — used to pair a transcript with its media file. */
 function stem(name: string) {
   return name.replace(/\.[^.]+$/, "");
 }
-
-// ---------------------------------------------------------------------------
-// Markdown renderer for transcripts (react-markdown + remark-gfm, prose-styled)
-// ---------------------------------------------------------------------------
 
 function TranscriptMarkdown({ children }: { children: string }) {
   return (
@@ -245,35 +226,23 @@ function TranscriptMarkdown({ children }: { children: string }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Data tables accordion — lazy /data/report?format=json per folder, styled
-// sheets + a session-authenticated .xlsx download of the same subtree.
-// ---------------------------------------------------------------------------
-
 type ReportSheet = {
   name: string;
   color?: string | null;
   columns: string[];
   rows: Array<Array<string | number | null>>;
-  /** The screen shows fewer rows than exist: the preview cut it, or the download's own cap did. */
   truncated?: boolean;
-  /** The preview cut this sheet (`PREVIEW_ROWS` on the server); the .xlsx has the rest. */
   preview?: boolean;
-  /** The .xlsx itself stops at the server's row cap. The last row is then a note, not data. */
   capped?: boolean;
-  /** Rows in the .xlsx, or null where the server did not count them. */
   totalRows?: number | null;
-  /** Why this sheet is cut, when the server names a reason other than the row cap. */
   truncatedNote?: string | null;
 };
 
 type ReportResponse = {
   sheets: ReportSheet[];
-  /** Rows per sheet in this preview. */
   previewRows?: number;
 };
 
-/** The line over a sheet the screen does not show in full; null when it is whole. */
 function sheetCutNote(sheet: ReportSheet): string | null {
   const shown = sheet.rows.length - (sheet.capped ? 1 : 0);
   if (sheet.capped) {
@@ -285,13 +254,11 @@ function sheetCutNote(sheet: ReportSheet): string | null {
   return `Preview: first ${shown}${of} rows. The download has every row.`;
 }
 
-/** The count on a sheet's tab: every row when the server counted them. */
 function sheetCount(sheet: ReportSheet): string {
   if (typeof sheet.totalRows === "number") return sheet.totalRows.toLocaleString();
   return sheet.preview ? `${sheet.rows.length}+` : String(sheet.rows.length);
 }
 
-/** A refused report download's own sentence (the busy answer says when to try again). */
 async function reportRefusal(response: Response, fallback: string): Promise<string> {
   try {
     const body = (await response.json()) as { detail?: unknown };
@@ -301,7 +268,6 @@ async function reportRefusal(response: Response, fallback: string): Promise<stri
   }
 }
 
-/** Normalize a sheet color (accepts `RRGGBB`, `AARRGGBB`, or `#RRGGBB`) to a CSS color. */
 function sheetColor(raw?: string | null) {
   const fallback = "#58068c";
   if (!raw) return fallback;
@@ -312,7 +278,6 @@ function sheetColor(raw?: string | null) {
   return value;
 }
 
-/** White text on dark pills, ink on light ones. */
 function pillTextColor(cssHex: string) {
   const match = /^#([0-9A-Fa-f]{6})$/.exec(cssHex);
   if (!match) return "#ffffff";
@@ -322,7 +287,6 @@ function pillTextColor(cssHex: string) {
   return (r * 299 + g * 587 + b * 114) / 1000 > 160 ? "#1e1b2e" : "#ffffff";
 }
 
-/** The server names the workbook (NAMING 2.1); this is only the fallback when no header arrives. */
 function reportFilename(folderName: string, disposition: string | null) {
   return (
     fileNameFromDisposition(disposition) ??
@@ -330,17 +294,6 @@ function reportFilename(folderName: string, disposition: string | null) {
   );
 }
 
-/**
- * The tabular half of a folder.
- *
- * Every folder in the browser has a spreadsheet behind it — the records that live under
- * that path — and this panel is where it is read. It opens expanded, because the whole
- * point is that the tabular entry is visible alongside the media folders rather than
- * hidden behind a click.
- *
- * Sheets are switched with tabs rather than stacked: a whole-repository report is 14
- * sheets and stacking them all put up to 14 x 5000 rows in one DOM pass.
- */
 function DataTablesPanel({
   path,
   folderName,
@@ -349,7 +302,6 @@ function DataTablesPanel({
 }: {
   path: string;
   folderName: string;
-  /** The review status the page is narrowed to (`statusQuery`), or undefined for every status. */
   status?: string;
   defaultOpen?: boolean;
 }) {
@@ -361,12 +313,8 @@ function DataTablesPanel({
   const [activeSheet, setActiveSheet] = useState(0);
   const [filter, setFilter] = useState("");
 
-  // THE WHOLE REPOSITORY LOADS ON A CLICK (D39). The root and each taxonomy's top level are every
-  // record at once; opening the page used to build two of them together (the root, then the
-  // default taxonomy this page lands on a moment later), which ratcheted the API's memory.
   const wholeRepository = path.split("/").filter(Boolean).length <= 1;
   const [requested, setRequested] = useState(!wholeRepository);
-  // The one request in flight. A second load while it is out is dropped, never sent.
   const inFlight = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
@@ -385,7 +333,6 @@ function DataTablesPanel({
       setFilter("");
     } catch (err) {
       if (abort.signal.aborted) return;
-      // The server's own sentence, the busy answer included.
       setError(err instanceof Error ? err.message : "Unable to load the data tables for this folder");
     } finally {
       if (inFlight.current === abort) inFlight.current = null;
@@ -397,8 +344,6 @@ function DataTablesPanel({
     if (open && requested && !report) void load();
   }, [open, requested, report, load]);
 
-  // Leaving the folder cancels its request. Releasing the guard here is what lets StrictMode's
-  // setup, cleanup, setup send it again rather than deadlock on an aborted attempt.
   useEffect(
     () => () => {
       inFlight.current?.abort();
@@ -412,15 +357,12 @@ function DataTablesPanel({
     else setRequested(true);
   }
 
-  // Sheets that carry no rows are noise in the tab strip — a folder with only products
-  // should not offer eight empty tabs.
   const sheets = useMemo(
     () => (report?.sheets ?? []).filter((sheet) => sheet.rows.length > 0),
     [report]
   );
   const sheet = sheets[activeSheet];
 
-  /** Case-insensitive match across every cell of a row. */
   const rows = useMemo(() => {
     if (!sheet) return [];
     const needle = filter.trim().toLowerCase();
@@ -498,7 +440,6 @@ function DataTablesPanel({
                 <div className="p-4 text-sm text-ink-500">No tabular data under this folder.</div>
               ) : (
                 <>
-                  {/* Sheet tabs — the same tabs as the downloaded workbook, same colours. */}
                   <div
                     className="flex gap-1 overflow-x-auto border-b border-line-200 bg-surface-50 px-2 py-2"
                     role="tablist"
@@ -567,8 +508,6 @@ function DataTablesPanel({
                         </p>
                       ) : null}
 
-                      {/* The grid scrolls horizontally inside its own box so a 27-column
-                          tool sheet never makes the page itself scroll sideways. */}
                       <div
                         className="max-h-128 overflow-auto border-t border-line-200"
                         tabIndex={0}
@@ -637,11 +576,6 @@ function DataTablesPanel({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Browse by type — jump straight to a record type's rows (most recent first),
-// optionally narrow to one record and see it with its linked media.
-// ---------------------------------------------------------------------------
-
 type BrowseRow = { id: string; name: string; creator: string; createdAt?: string };
 
 type WithCreator = { createdBy?: { name?: string | null } | null };
@@ -650,55 +584,19 @@ function sortRecent<T extends { createdAt?: string }>(items: T[]) {
   return [...items].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
 }
 
-/**
- * One type's rows, plus what the request could not reach.
- *
- * THE CUT TRAVELS WITH THE ROWS because it is the same defect one layer up that
- * `components/data/cappedList` exists to end: every arm below asks for `pageSize: 100`, which is the
- * server's ceiling (`normalize_pagination`), and every one of them used to keep `.items` and drop
- * `total` on the floor. A browse list that silently stops at a hundred rows is indistinguishable from
- * a repository that holds a hundred records, and this screen is literally called "View Data" — it is
- * the screen a researcher opens to find out what exists.
- *
- * Only the questionnaire arm reports one today, because it is the only arm whose Android twin does
- * (see [BrowseTypeDef.scoped]); the others return null and are unchanged. `CappedListNotice` renders
- * nothing for a null, so adding the rest later is a one-line change per arm and no change here.
- */
 type BrowseResult = {
   rows: BrowseRow[];
   cut: ListCut | null;
 };
 
-/** What a `load` is allowed to narrow by. One field today; it is a record so adding a second is not a signature change. */
 type BrowseScope = {
-  /** The workshop scope's wire value — comma-joined ids, or undefined for every workshop. */
   workshopIds: string | undefined;
 };
 
 type BrowseTypeDef = {
   label: string;
-  /** linkedRecordType value used by /media for this record type. */
   linkedType: string;
   editHref: (id: string) => string;
-  /**
-   * DOES THIS ARM READ THE WORKSHOP SCOPE? It decides whether the control is on screen, whether the
-   * first request waits for the scope to settle, and whether changing the scope re-runs the load.
-   *
-   * ── WHY EXACTLY ONE ARM IS TRUE, AND WHY THAT IS NOT ARBITRARY ─────────────────────────────────
-   *
-   * This screen is "View Data" (`components/DynamicIslandNav.tsx`) and its handset twin is
-   * `ViewDataScreen` in `MainActivity.kt`: pick a record type, then an entry. The handset's
-   * questionnaire arm was given `rememberWorkshopScope` plus `repository.interviewsPage(scope.workshopIds)`
-   * and a cut notice, defaulting to the most recent workshop — and this one was left listing the
-   * newest hundred interviews from every workshop, silently. Two researchers at the third workshop,
-   * one on a phone and one on a laptop, got two different answers to *"what was recorded here"* off
-   * the same named screen.
-   *
-   * The other seven arms have no scoped Android counterpart, so scoping them here would CREATE the
-   * divergence rather than close it, in seven places, on a screen nobody asked us to change. They
-   * ignore the scope and the control does not claim to narrow them: it is only rendered for an arm
-   * that reads it. When one of them is scoped on the handset, it is turned on here in the same pass.
-   */
   scoped?: boolean;
   load: (scope: BrowseScope) => Promise<BrowseResult>;
 };
@@ -749,11 +647,6 @@ const BROWSE_TYPES: Record<string, BrowseTypeDef> = {
   workshop: {
     label: "Workshops",
     linkedType: "workshop",
-    // Workshops, crafts and processes are edited INLINE on their list page rather than at a
-    // `/[id]/edit` route, so the id travels as `?edit=` — read by `useEditDeepLink` on each of those
-    // pages. Every one of these three used to discard the id this signature declares and return the
-    // bare list route, which rendered the CREATE form: "Edit record" on a record the researcher had
-    // already drilled into showed them an empty form, and filling it in made a second record.
     editHref: (id) => `/workshops?edit=${id}`,
     load: async () => ({
       rows: sortRecent((await listResource<Workshop>("/workshops", { pageSize: 100 })).items).map((x) => ({
@@ -782,23 +675,9 @@ const BROWSE_TYPES: Record<string, BrowseTypeDef> = {
   questionnaire: {
     label: "Questionnaire",
     linkedType: "questionnaire",
-    // The fourth inline-form page, and the last one still discarding the id the signature above
-    // declares. `/questionnaire` rendered the CREATE form, so "Edit record" on an interview the
-    // researcher had just drilled into opened an empty capture form — and filling it in filed a
-    // SECOND sitting rather than correcting the one they clicked. The questionnaire page now reads
-    // `?edit=` through the same `useEditDeepLink` as workshops, crafts and processes.
     editHref: (id) => `/questionnaire?edit=${id}`,
-    // THE ONE SCOPED ARM. See `BrowseTypeDef.scoped` for why it is the one, and the handset twin it
-    // is matching (`MainActivity.ViewDataScreen`, questionnaire mode).
     scoped: true,
     load: async ({ workshopIds }) => {
-      // THE PLURAL, because this control is the multi-select `WorkshopScopeSelect` and it can hold
-      // several ids and the reserved `none`. `list_interviews` declares both spellings; the singular
-      // could not say either of those things, and `singleWorkshopIdOrNull`'s argument on the Kotlin
-      // side is the same one in reverse — a scope that cannot be said exactly must not be said
-      // approximately. The questionnaire page's own list sends the SINGULAR for the opposite reason:
-      // its control is `FunnelFilters`, which is single-select and has no unassigned option, so it
-      // has exactly one real id to say and the singular is understood by every deployed API.
       const page = await listResource<QuestionnaireInterview>("/questionnaire/interviews", {
         pageSize: 100,
         workshopIds
@@ -810,10 +689,6 @@ const BROWSE_TYPES: Record<string, BrowseTypeDef> = {
           creator: x.createdBy?.name ?? "-",
           createdAt: x.createdAt
         })),
-        // OFF THE ENVELOPE AND NOT OFF `rows.length`: `sortRecent` copies the array and the map keeps
-        // its length, but reading the count from the envelope is what makes the sentence survive an
-        // arm that ever filters. `listCut` returns null when the page holds everything, which is the
-        // ordinary case for one workshop.
         cut: listCut(page, "interviews")
       };
     }
@@ -883,34 +758,10 @@ function BrowseByTypePanel() {
   const [downloadingDataset, setDownloadingDataset] = useState(false);
   const [datasetNote, setDatasetNote] = useState<string | null>(null);
 
-  /**
-   * WHICH WORKSHOP'S RECORDS THIS BROWSER IS LOOKING AT — the same control, with the same default,
-   * that the handset's `ViewDataScreen` mounts over the identical pair of dropdowns.
-   *
-   * DECLARED FOR EVERY TYPE, DISPLAYED FOR ONE, and that is not tidiness — it is the argument the
-   * Android twin already carries in its own comment. `typeKey` is state in this component, so a hook
-   * behind `if (def?.scoped)` would break the rules of hooks outright; and even as a child component
-   * it would be unmounted and rebuilt every time somebody flipped record type and came back, silently
-   * throwing away the scope they had chosen and re-applying the most-recent default under them.
-   *
-   * THE DEFAULT IS THE MOST RECENT WORKSHOP, which is `useWorkshopScope`'s default and the handset's.
-   * A browser opened during or just after a workshop is asking about that workshop; "All records" is
-   * one click away and says so in the summary line under the control.
-   */
   const scope = useWorkshopScope();
 
   const def = typeKey ? BROWSE_TYPES[typeKey] : null;
-  // THE SCOPE ONLY EXISTS FOR AN ARM THAT READS IT. Spelled out as a variable rather than inlined
-  // into the effect twice, because the load and the effect key have to agree about it: a request sent
-  // with a workshop but keyed without one would not re-run when the workshop moved, which is the
-  // "loaded once and never refreshed" defect this whole change is about, wearing a different hat.
   const scopeValue = def?.scoped ? scope.queryValue : undefined;
-  // HOLD THE FIRST REQUEST UNTIL THE DEFAULT IS IN. `useWorkshopScope` settles asynchronously, and
-  // "nothing chosen yet" and "the researcher chose All records" are the same value — an empty array
-  // — so a request fired during that window goes out unscoped, comes back, and is replaced a moment
-  // later by the scoped answer. Two requests, and a visible flash of every workshop's interviews
-  // under a control that is about to read like one workshop. `CompletionMatrixPanel`, the
-  // questionnaire picker and Android's own consumers all hold on the same flag.
   const scopeSettling = Boolean(def?.scoped) && scope.settling;
 
   useEffect(() => {
@@ -922,10 +773,6 @@ function BrowseByTypePanel() {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    // HOLDING COUNTS AS LOADING, because the control below cannot tell the two apart and would
-    // otherwise say "No records" about a request that has not been sent yet — the same claim-before-
-    // the-answer this whole change is about, one control over. The effect re-runs the moment the
-    // scope settles, so this is a pause and not a branch.
     if (scopeSettling) return;
     BROWSE_TYPES[typeKey]
       .load({ workshopIds: scopeValue })
@@ -943,9 +790,6 @@ function BrowseByTypePanel() {
     return () => {
       cancelled = true;
     };
-    // `scopeValue` is in the list so a workshop change RE-FETCHES. A list loaded once and never
-    // refreshed is the same defect as a list never scoped at all: right when it arrived, wrong from
-    // the next tap on.
   }, [typeKey, scopeValue, scopeSettling]);
 
   useEffect(() => {
@@ -974,12 +818,10 @@ function BrowseByTypePanel() {
     setDatasetNote(null);
     setError(null);
     try {
-      // Same zip pattern as sharing/page.tsx, but over the WHOLE repository (no ownerId).
       const manifest = await apiFetch<{
         files: Array<{ path: string; url?: string | null; content?: string | null }>;
         totalFiles: number;
         totalMedia: number;
-        /** The server hit a per-table row cap: this archive is a prefix of the data, not all of it. */
         truncated?: boolean;
       }>("/export/dataset");
       const { default: JSZip } = await import("jszip");
@@ -1012,11 +854,7 @@ function BrowseByTypePanel() {
         );
       }
       const blob = await zip.generateAsync({ type: "blob" });
-      // NAMING 2.1: FieldRepository_Dataset_2026-10-18_All-Records_Export.zip — dated, so a second
-      // download never collides with the first.
       saveBlobToDevice(blob, exportFilename("Dataset", "Export", "zip", { subject: "All Records" }));
-      // A capped export that presents itself as complete is the worst outcome here — the researcher
-      // archives it and never learns what is missing — so the server's flag is always surfaced.
       const capNote = manifest.truncated
         ? " Not every record is included."
         : "";
@@ -1037,18 +875,10 @@ function BrowseByTypePanel() {
 
   return (
     <section className="panel mb-5 p-4">
-      {/*
-        ABOVE BOTH DROPDOWNS, because it decides what each of them is a list OF — the same placement,
-        and the same sentence, as the handset's `ViewDataScreen`. Rendered only for an arm that reads
-        it: a control that appears to narrow a list it does not touch is worse than no control, and
-        seven of the eight arms here do not touch it. See `BrowseTypeDef.scoped`.
-      */}
       {def?.scoped ? <WorkshopScopeSelect scope={scope} label="Workshops in this list" className="mb-3" /> : null}
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-56 flex-1">
           <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">Record type</div>
-          {/* A taxonomy switcher, not a form field: it re-renders the browser below, so focus must
-              stay put rather than jumping to the "Narrow to one record" box beside it. */}
           <Dropdown
             value={typeKey}
             onChange={setTypeKey}
@@ -1067,14 +897,6 @@ function BrowseByTypePanel() {
               onChange={setRecordId}
               placeholder={loading ? "Loading…" : recordOptions.length === 0 ? "No records" : "Type to filter records"}
             />
-            {/*
-              WHAT THIS LIST IS NOT SHOWING. `components/data/cappedList`'s standing rule, and it bites
-              hardest on this screen of all of them: the box beside it filters the rows already
-              loaded, so a record past the hundredth is not merely hard to find here, it cannot be
-              reached by typing its own name — and the empty result of that typing reads as a fact
-              about the repository. `reach="none"` says exactly that, and is the honest answer for a
-              `ComboBox` that never sends a term to the server.
-            */}
             <CappedListNotice cuts={[cut]} />
           </div>
         ) : null}
@@ -1114,10 +936,6 @@ function BrowseByTypePanel() {
               </thead>
               <tbody className="divide-y divide-line-200">
                 {(rows ?? []).map((row) => {
-                  // The row opens the record's read-only view; Update is the one way into its form.
-                  // Media has no view of its own and keeps its single link to the media page.
-                  // Update only where the server would take the save: below Professor a craft or a
-                  // workshop opens read-only and its form is not drawn, so the link would lead nowhere.
                   const viewHref = recordViewHref(typeKey, row.id);
                   const showLink = !viewHref || canUpdateRecord(user, typeKey);
                   const cells = (
@@ -1230,17 +1048,6 @@ function BrowseByTypePanel() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Record info card — surfaces the current folder's fields (artisan bio etc.)
-// ---------------------------------------------------------------------------
-
-/**
- * The taxonomy switcher — the same repository, re-rooted three ways.
- *
- * Before this existed the three taxonomies were just three folders sitting at the root,
- * indistinguishable from any other folder, so nobody knew they were alternative views of
- * the same data rather than three different data sets.
- */
 function TaxonomySwitcher({
   taxonomies,
   active,
@@ -1279,8 +1086,6 @@ function TaxonomySwitcher({
           );
         })}
       </div>
-      {/* The descriptions are the only place the folder shapes are spelled out, so keep
-          the active one visible rather than hiding it in a tooltip. */}
       <p className="mt-3 text-xs leading-5 text-ink-500">
         {current?.description ?? "Choose how to group the records."}
       </p>
@@ -1288,17 +1093,6 @@ function TaxonomySwitcher({
   );
 }
 
-/**
- * The open folder's record, as a two-column table.
- *
- * A researcher opening an artisan's folder is almost always checking ONE value — the pincode, the
- * phone number, what the artisan said not to do — and a label column they can run their eye down
- * answers that far faster than the same fields reflowed as a paragraph of prose.
- *
- * Only fields the record actually carries become rows. The registry behind `info` already drops
- * empty values, and padding the table back out with "Notes —" would say nothing except that the
- * table is padded.
- */
 function RecordInfoCard({ info }: { info: FolderInfo }) {
   const fields = (info.fields ?? []).filter((field) => field.value != null && String(field.value).trim() !== "");
   if (fields.length === 0) return null;
@@ -1310,13 +1104,8 @@ function RecordInfoCard({ info }: { info: FolderInfo }) {
           {fields.length} recorded field{fields.length === 1 ? "" : "s"}
         </span>
       </div>
-      {/* Two columns of wrapping text can never be wider than their container, so this table gets
-          no horizontal scroller — the page stays put and the values wrap in place. */}
       <table className="w-full table-fixed border-collapse border-t border-line-200 text-left text-sm">
         <colgroup>
-          {/* A share of the width on a phone and a fixed column from `sm` up: a fixed label column
-              on a narrow screen leaves the value one word per line, and a proportional one on a
-              wide screen wastes half the card on the word "Phone". */}
           <col className="w-[38%] sm:w-56" />
           <col />
         </colgroup>
@@ -1340,9 +1129,6 @@ function RecordInfoCard({ info }: { info: FolderInfo }) {
                 {field.label}
               </th>
               <td className="px-5 py-2.5 text-ink-700">
-                {/* `pre-line` keeps the paragraph breaks in a 7,000-character interview note instead
-                    of running it into one line; `wrap-break-word` keeps a bare URL inside the column.
-                    The cap only bites on values that long — everything shorter shows in full. */}
                 <div className="max-h-72 overflow-y-auto whitespace-pre-line wrap-break-word leading-6">{field.value}</div>
               </td>
             </tr>
@@ -1352,10 +1138,6 @@ function RecordInfoCard({ info }: { info: FolderInfo }) {
     </section>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Lazy-loading directory tree (custom recursive tree, Tailwind + framer-motion)
-// ---------------------------------------------------------------------------
 
 type TreeState = {
   treeByPath: Record<string, TreeResponse>;
@@ -1429,10 +1211,6 @@ function TreeBranch({ parentPath, depth, state }: { parentPath: string; depth: n
   );
 }
 
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
-
 export default function DataBrowserPage() {
   const { user, loading: authLoading } = useAuth();
   const permitted = canDownloadDataset(user);
@@ -1461,10 +1239,6 @@ export default function DataBrowserPage() {
   const [transcriptLoading, setTranscriptLoading] = useState<Set<string>>(new Set());
   const [openTranscripts, setOpenTranscripts] = useState<Set<string>>(new Set());
   const [openInline, setOpenInline] = useState<Set<string>>(new Set());
-  /**
-   * WHICH REVIEW STATUS THE PAGE SHOWS (C21). Approved by default, because an export means
-   * approved records; the empty folder says so and offers every status in one tap.
-   */
   const [reviewStatus, setReviewStatus] = useState<string>(DEFAULT_DATA_STATUS);
   const statusParam = statusQuery(reviewStatus);
 
@@ -1491,7 +1265,6 @@ export default function DataBrowserPage() {
 
   function changeReviewStatus(next: string) {
     if (next === reviewStatus) return;
-    // Every listed folder answered for the old status; drop them and re-read what is open.
     setTreeByPath({});
     setTranscriptsByFolder({});
     setReviewStatus(next);
@@ -1500,7 +1273,6 @@ export default function DataBrowserPage() {
   useEffect(() => {
     if (!permitted || selectedPath === "") return;
     loadFolder(selectedPath);
-    // Only on a status change: `loadFolder` changes identity exactly then.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadFolder]);
 
@@ -1522,14 +1294,6 @@ export default function DataBrowserPage() {
     if (!(path in treeByPath)) loadFolder(path);
   }
 
-  /**
-   * Open a folder the user did not walk to — a search hit's "Show in folders".
-   *
-   * Selecting the leaf alone is not enough: the tree on the left renders a child only under an
-   * EXPANDED parent, and it only fetches a level it has been asked for, so a deep path would select
-   * a folder that is nowhere on screen. Expand and fetch every ancestor as well, and the row is
-   * visible in the tree at the same moment its contents appear on the right.
-   */
   function revealPath(path: string) {
     const segments = path.split("/").filter(Boolean);
     const ancestors: string[] = [""];
@@ -1548,16 +1312,12 @@ export default function DataBrowserPage() {
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  // Taxonomy metadata rides along with every tree level, so read it off whichever level is
-  // loaded — the current one first, falling back to the root.
   const taxonomies = useMemo<Taxonomy[]>(
     () => treeByPath[selectedPath]?.taxonomies ?? treeByPath[""]?.taxonomies ?? [],
     [treeByPath, selectedPath]
   );
   const activeTaxonomy = treeByPath[selectedPath]?.taxonomy ?? null;
 
-  // The bare root is only a chooser, so drop the user straight into the default taxonomy
-  // the first time it resolves. The ref guard means navigating back to the root still works.
   const landedRef = useRef(false);
   useEffect(() => {
     if (landedRef.current) return;
@@ -1565,7 +1325,6 @@ export default function DataBrowserPage() {
     if (!fallback) return;
     landedRef.current = true;
     selectFolder(fallback.path);
-    // selectFolder is re-created each render; the ref guard is what keeps this to one run.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [treeByPath]);
 
@@ -1590,7 +1349,6 @@ export default function DataBrowserPage() {
       }
       return next;
     });
-    // Transcript bodies come from the manifest (content entries); fetch once per folder.
     if (!(folder in transcriptsByFolder)) {
       setTranscriptLoading((prev) => new Set(prev).add(folder));
       try {
@@ -1647,12 +1405,10 @@ export default function DataBrowserPage() {
           if (file.content != null) {
             zip.file(file.path, file.content);
           } else if (file.convertToMp4 && file.mediaId) {
-            // Audio needing conversion is streamed from the backend as MP4 (the session cookie authenticates it).
             const response = await fetch(`${API_BASE}/api/data/media/${file.mediaId}/download?format=mp4`);
             if (response.ok) {
               zip.file(mp4Path(file.path), await response.blob());
             } else if (file.url) {
-              // Conversion failed (odd codec, oversized, ffmpeg missing) — keep the original.
               const original = await fetch(file.url);
               if (!original.ok) {
                 throw new Error("The video couldn’t be downloaded. Try again.");
@@ -1711,7 +1467,6 @@ export default function DataBrowserPage() {
 
   const currentTree = treeByPath[selectedPath];
 
-  // Breadcrumbs come from the server response — clean names, never path segments.
   const crumbs = useMemo<Crumb[]>(() => {
     const fromServer = currentTree?.crumbs ?? [];
     if (fromServer.some((crumb) => crumb.path === "")) return fromServer;
@@ -1771,11 +1526,8 @@ export default function DataBrowserPage() {
       {header}
       {error ? <div className="mb-4 rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-red-800">{error}</div> : null}
 
-      {/* Search first, then the taxonomy chooser, then the browser — the order the Android data
-          screen uses, and the order a researcher works in: they usually know the NAME. */}
       <DataSearchPanel onReveal={revealPath} />
 
-      {/* The same repository, re-rooted three ways. */}
       <TaxonomySwitcher taxonomies={taxonomies} active={activeTaxonomy} onSelect={selectFolder} />
 
       <div className="mb-5 grid gap-1">
@@ -1788,14 +1540,11 @@ export default function DataBrowserPage() {
         />
       </div>
 
-      {/* Jump straight to a record type without walking the tree. */}
       <BrowseByTypePanel />
 
-      {/* Every recording's transcript data, filtered by its recording fields, and its streamed downloads. */}
       <TranscriptDataPanel />
 
       <div className="grid items-start gap-5 lg:grid-cols-[290px_minmax(0,1fr)]">
-        {/* Left pane: lazy-loading directory tree */}
         <section className="panel p-3 lg:sticky lg:top-4">
           <div className="mb-2 flex items-center justify-between px-1">
             <span className="text-xs font-semibold uppercase tracking-wide text-ink-500">Folders</span>
@@ -1823,11 +1572,9 @@ export default function DataBrowserPage() {
           </div>
         </section>
 
-        {/* Right pane: record info + data tables + download panel + current folder contents */}
         <div className="grid gap-5">
           {currentTree?.info ? <RecordInfoCard info={currentTree.info} /> : null}
 
-          {/* Every folder level gets a spreadsheet view of its subtree (collapsed by default). */}
           <DataTablesPanel
             key={`${selectedPath || "__root"}:${reviewStatus}`}
             path={selectedPath}
@@ -2019,7 +1766,6 @@ export default function DataBrowserPage() {
                             </p>
                           ) : null}
                           {file.mediaType === "AUDIO" && file.url ? (
-                            // Preview always plays the original object, never the MP4 conversion.
                             <audio controls preload="none" src={file.url} className="mt-2 h-9 w-full max-w-md" />
                           ) : null}
                           {inlineOpen && file.content != null ? (

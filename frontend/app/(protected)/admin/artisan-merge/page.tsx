@@ -1,16 +1,5 @@
 "use client";
 
-/**
- * /admin/artisan-merge — fold two records of one person into one (C24). Admins only: the page sits
- * under `/admin`, whose ROUTE_GUARDS and ADMIN_CHROME_ROUTES rows already cover it, and every call
- * behind it is `require_admin` on the server.
- *
- * Three steps on one screen: pick the pair (or take a suggested one), compare them field by field and
- * choose which answer the kept record ends with, then merge. Everything linked to the other record
- * moves to the kept one, and the merge can be undone from the list at the bottom for 30 days. The
- * server decides what differs, what moves and what blocks; this page only draws it.
- */
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowRight, GitMerge, RotateCcw, Users } from "lucide-react";
 
@@ -41,14 +30,12 @@ import { isAdmin } from "@/lib/permissions";
 
 type ArtisanRow = { id: string; name: string; place?: string | null; craft?: { name?: string | null } | null };
 
-/** How many artisans one search asks for — the picker's own drawing cap. */
 const PICKER_PAGE = 80;
 
 function errorText(cause: unknown, fallback: string): string {
   return cause instanceof Error && cause.message ? cause.message : fallback;
 }
 
-/** An artisan picker over the server's search, so a record past the first page can still be found. */
 function ArtisanPicker({
   label,
   value,
@@ -142,7 +129,6 @@ export default function ArtisanMergePage() {
     loadLists();
   }, [authLoading, permitted, loadLists]);
 
-  // A pair handed over by the duplicates queue (`/admin/duplicates`): `?keep=<id>&merge=<id>`.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const keep = params.get("keep")?.trim() ?? "";
@@ -153,7 +139,6 @@ export default function ArtisanMergePage() {
     }
   }, []);
 
-  // A fresh comparison whenever the pair changes; a stale answer for the previous pair is dropped.
   const previewTicket = useRef(0);
   useEffect(() => {
     setPreview(null);
@@ -166,7 +151,6 @@ export default function ArtisanMergePage() {
         if (ticket !== previewTicket.current) return;
         setPreview(result);
         setPicks(defaultPicks(result.fields));
-        // The pickers show the pair by name even when it arrived by id alone (the duplicates queue).
         const seedOf = (side: MergePreview["keep"]): SelectOption => ({
           value: side.id,
           label: [side.name, side.place, side.craft].filter(Boolean).join(" · ")

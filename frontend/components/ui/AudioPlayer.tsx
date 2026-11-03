@@ -11,17 +11,12 @@ function formatTime(seconds: number) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-/**
- * Themed inline audio player (play/pause, seek bar, elapsed/total time) — replaces the
- * grey browser `<audio controls>` everywhere recordings are played back.
- */
 export function AudioPlayer({ src, className }: { src: string; className?: string }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [current, setCurrent] = useState(0);
 
-  // A new src is a new recording: reset the transport.
   useEffect(() => {
     setPlaying(false);
     setCurrent(0);
@@ -49,9 +44,6 @@ export function AudioPlayer({ src, className }: { src: string; className?: strin
 
   const max = duration > 0 ? duration : Math.max(current, 1);
   const pct = Math.min(100, Math.max(0, (current / max) * 100));
-  // The progress tokens every bar uses (globals.css). This was a literal purple-700 over a literal
-  // `#e4e2ef` — 1.28:1 on this white card (the voice note whose bar "disappears"), never inverting,
-  // and the purple fill 2.32:1 on the dark card.
   const fill =
     `linear-gradient(to right, rgb(var(--progress-fill)) 0%, rgb(var(--progress-fill)) ${pct}%, ` +
     `rgb(var(--progress-track)) ${pct}%, rgb(var(--progress-track)) 100%)`;
@@ -71,7 +63,6 @@ export function AudioPlayer({ src, className }: { src: string; className?: strin
           const audio = audioRef.current;
           if (!audio) return;
           setCurrent(audio.currentTime);
-          // Streams (e.g. fresh WebM recordings) report Infinity until played through.
           if (Number.isFinite(audio.duration)) setDuration(audio.duration);
         }}
         className="hidden"

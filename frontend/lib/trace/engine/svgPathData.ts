@@ -1,19 +1,5 @@
 import { CubicSeg, VecPath, VecPoint, VecSeg } from './path';
 
-/**
- * SVG path data: serialise and parse.
- *
- * The parser implements the **full** grammar — every command, relative forms, arcs, implicit repeated
- * commands and the reflection rules for S and T — because a partial parser fails on real-world SVG in a
- * way that looks like a corrupt file rather than an unsupported feature.
- */
-
-/**
- * Format a number with at most `precision` decimals, trailing zeros removed.
- *
- * Never emits exponent notation. `1e-7` written as `1e-7` is legal SVG but `1e-7` read back by a naive
- * tokeniser becomes three tokens, and round-tripping through our own parser has to be exact.
- */
 function fmt(v: number, precision: number): string {
   if (!Number.isFinite(v)) return '0';
   let s = v.toFixed(precision);
@@ -24,34 +10,10 @@ function fmt(v: number, precision: number): string {
   return s;
 }
 
-/**
- * Serialise one path to a `d` attribute, in the **compact canonical form** ALGORITHMS.md §10 fixes for
- * both engines:
- *
- *  - no whitespace after a command letter — the letter is already a delimiter;
- *  - the command letter is omitted for a run of segments of the same type;
- *  - exactly one space between two numbers, and nothing before `Z`.
- *
- * The form is not cosmetic. A `d` attribute is the product's main export and a traced path carries
- * thousands of segments, so the two elisions remove roughly one character in eight of the largest thing
- * this app writes; it is also what every SVG optimiser emits, so a diff against one is a diff about
- * geometry rather than about whitespace. Both engines must spell it identically because §14 compares
- * this string **exactly**.
- *
- * The one space between numbers is deliberately kept rather than dropped before a leading `-`
- * (`11-0.62` is legal SVG and {@link parse} reads it): a single unconditional separator is one rule
- * instead of two, and it cannot become the one place where two independent implementations disagree
- * about when a delimiter is required.
- *
- * @param precision decimal places, clamped to 0..8
- * @returns a `d` string beginning with `M`; `""` for a path with no segments and no meaningful start.
- */
 export function toD(path: VecPath, precision = 2): string {
   const p = Math.max(0, Math.min(8, precision | 0));
   const parts: string[] = [];
   parts.push(`M${fmt(path.start.x, p)} ${fmt(path.start.y, p)}`);
-  // '' rather than 'M': a repeated coordinate pair after a moveto is an implicit *lineto*, so the first
-  // L has to be written even though the letter before it was also a "move".
   let last = '';
   for (const seg of path.segments) {
     if (seg.kind === 'line') {
@@ -75,7 +37,6 @@ export function toD(path: VecPath, precision = 2): string {
   return parts.join('');
 }
 
-/** Tokeniser state; a class so the number scanner can advance the cursor without returning a tuple. */
 class Scanner {
   pos = 0;
 
@@ -84,7 +45,6 @@ class Scanner {
   skipSeparators(): void {
     while (this.pos < this.s.length) {
       const c = this.s.charCodeAt(this.pos);
-      // space, tab, LF, CR, FF, comma
       if (c === 32 || c === 9 || c === 10 || c === 13 || c === 12 || c === 44) this.pos++;
       else break;
     }
@@ -102,14 +62,6 @@ class Scanner {
     return /[MmLlHhVvCcSsQqTtAaZz]/.test(c) ? c : null;
   }
 
-  /**
-   * Scan one number.
-   *
-   * Handles `10-5` as two numbers, `1e2`, `.5`, `+3` and `1.5.5` as `1.5` then `.5`, all of which are
-   * legal SVG and all of which a naive `split(/[\s,]+/)` gets wrong.
-   *
-   * @returns the value, or null when no number starts here.
-   */
   number(): number | null {
     this.skipSeparators();
     const s = this.s;
@@ -138,8 +90,6 @@ class Scanner {
         j++;
         expDigit = true;
       }
-      // A bare trailing `e` is not part of the number; leaving it for the command scanner is the only
-      // reading that keeps `M1e` from silently becoming NaN.
       if (expDigit) i = j;
     }
     const text = s.slice(start, i);
@@ -149,7 +99,6 @@ class Scanner {
     return v;
   }
 
-  /** Arc flags are single characters `0` or `1` and may be written with no separator at all. */
   flag(): boolean | null {
     this.skipSeparators();
     const c = this.s[this.pos];
@@ -165,7 +114,6 @@ class Scanner {
   }
 }
 
-/** Accumulates segments for one subpath while parsing. */
 interface Builder {
   startX: number;
   startY: number;
@@ -173,13 +121,6 @@ interface Builder {
   closed: boolean;
 }
 
-/**
- * Parse a `d` attribute.
- *
- * @returns one {@link VecPath} per subpath, in document order. Malformed input yields the subpaths that
- *          parsed cleanly rather than throwing: a single bad token in a 4 000-path file should not lose
- *          the other 3 999.
- */
 export function parse(d: string): VecPath[] {
   const out: VecPath[] = [];
   const sc = new Scanner(d);
@@ -188,7 +129,6 @@ export function parse(d: string): VecPath[] {
   let cy = 0;
   let sx = 0;
   let sy = 0;
-  // Reflection state: the previous cubic's second control point and the previous quad's control point.
   let lastCubicC2x = 0;
   let lastCubicC2y = 0;
   let hadCubic = false;
@@ -214,7 +154,6 @@ export function parse(d: string): VecPath[] {
     } else if (cmd === '') {
       break;
     } else if (cmd === 'M') {
-      // A repeated coordinate pair after M is an implicit L, per the grammar.
       cmd = 'L';
     } else if (cmd === 'm') {
       cmd = 'l';
@@ -251,8 +190,6 @@ export function parse(d: string): VecPath[] {
     }
 
     if (cur === null) {
-      // A drawing command with no preceding moveto: start a subpath at the origin rather than dropping
-      // the geometry, which is what every renderer does with this malformed but common input.
       cur = { startX: cx, startY: cy, segments: [], closed: false };
     }
 
@@ -302,8 +239,6 @@ export function parse(d: string): VecPath[] {
       const x = sc.number();
       const y = sc.number();
       if (x2 === null || y2 === null || x === null || y === null) break;
-      // Reflection rule: the first control point mirrors the previous C/S second control about the
-      // current point, and equals the current point when the previous command was not a C or S.
       const c1 = hadCubic
         ? { x: 2 * cx - lastCubicC2x, y: 2 * cy - lastCubicC2y }
         : { x: cx, y: cy };
@@ -367,16 +302,6 @@ export function parse(d: string): VecPath[] {
   return out;
 }
 
-/**
- * Endpoint-parameterised elliptical arc to cubic Beziers.
- *
- * Follows the SVG implementation notes: out-of-range radii are scaled up, a zero radius degenerates to a
- * straight line, and the sweep is split into pieces of at most 90 degrees, each approximated with
- * `k = 4/3 * tan(delta/4)`.
- *
- * @returns one or more cubics ending exactly at `(x, y)`; a single line-shaped cubic when the arc is
- *          degenerate.
- */
 export function arcToCubics(
   x0: number,
   y0: number,
@@ -408,7 +333,6 @@ export function arcToCubics(
   const x1p = cosPhi * dx2 + sinPhi * dy2;
   const y1p = -sinPhi * dx2 + cosPhi * dy2;
 
-  // Scale the radii up when they are too small to span the chord, exactly as the spec requires.
   const lambda = (x1p * x1p) / (rxa * rxa) + (y1p * y1p) / (rya * rya);
   if (lambda > 1) {
     const s = Math.sqrt(lambda);
@@ -457,8 +381,6 @@ export function arcToCubics(
     const d2y = -rxa * sinPhi * sin2 + rya * cosPhi * cos2;
     const c1: VecPoint = { x: (i === 0 ? px : e1x) + k * d1x, y: (i === 0 ? py : e1y) + k * d1y };
     const c2: VecPoint = { x: e2x - k * d2x, y: e2y - k * d2y };
-    // The final anchor is snapped to the requested endpoint so a round trip is exact rather than a
-    // rounding error away, which matters because the endpoint is what the next command is relative to.
     const to: VecPoint = i === pieces - 1 ? { x, y } : { x: e2x, y: e2y };
     out.push(VecSeg.cubic(c1, c2, to));
     t = t2;

@@ -14,19 +14,11 @@ import { ARTISAN_FIELD_OPTIONS, artisanPrefill, automaticInterviewTitle, guessed
 import { applyTranscripts, transcriptAnswerText, transcriptOffer } from "@/lib/transcriptAnswer";
 import type { Artisan } from "@/lib/types";
 
-/**
- * WEB CAPTURE (2026-10-17) — the pure halves of A7, A9, A11, B5–B8, C17, C18 and C22, plus the
- * source facts each screen owes. No browser: every rule a screen applies lives in a module this file
- * can call, and the screens are read as text for the wiring.
- */
-
 const ROOT = join(__dirname, "..", "..");
 const read = (...parts: string[]) => readFileSync(join(ROOT, ...parts), "utf-8");
 const FRONTEND = (...parts: string[]) => read("frontend", ...parts);
 
 const file = (name: string, lastModified = 0) => new File(["x"], name, { type: "image/jpeg", lastModified });
-
-// ── A7 ─────────────────────────────────────────────────────────────────────────────────────────
 
 test("a transcript becomes answer text by the shared vectors the server also runs", () => {
   const table = JSON.parse(read("shared", "transcript-answer-vectors.json")) as { vectors: { transcript: string; answer: string }[] };
@@ -54,8 +46,6 @@ test("the interview page marks, sends and un-marks a transcript answer", () => {
   expect(view).toContain("/apply-transcripts");
   expect(view).toContain("Use transcripts as answers");
 });
-
-// ── B8 ─────────────────────────────────────────────────────────────────────────────────────────
 
 test("the question builder offers exactly the server's artisan fields", () => {
   const schema = read("backend", "app", "schemas", "questionnaire.py");
@@ -99,8 +89,6 @@ test("the automatic interview title is the server's, word for word", () => {
   expect(page).toContain("placeholder={automaticTitle}");
 });
 
-// ── C17 ────────────────────────────────────────────────────────────────────────────────────────
-
 const EMPTY: StatedAddress = { state: "", district: "", village: "", pincode: "" };
 const BAGRU = { key: "a-1", label: "Ramesh", state: "Rajasthan", district: "Jaipur", village: "Bagru", pincode: "303007" };
 
@@ -108,10 +96,8 @@ test("the artisan's address fills an empty card, and a typed field blocks it", (
   const filled = statedPrefillFor(BAGRU, EMPTY, null);
   expect(filled).toEqual({ state: "Rajasthan", district: "Jaipur", village: "Bagru", pincode: "303007" });
   expect(statedPrefillFor(BAGRU, { ...EMPTY, village: "Sanganer" }, null)).toBeNull();
-  // A different artisan replaces what the last prefill wrote…
   const other = { key: "a-2", label: "Sita", state: "Gujarat", district: "Kachchh", village: "Bhuj" };
   expect(statedPrefillFor(other, filled!, filled)?.state).toBe("Gujarat");
-  // …and beats this device's passive GPS guess, but never a person's choice.
   expect(statedPrefillFor(BAGRU, { ...EMPTY, state: "West Bengal" }, null, ["state"])?.state).toBe("Rajasthan");
   expect(statedPrefillFor(BAGRU, { ...EMPTY, state: "West Bengal" }, null, [])).toBeNull();
   expect(prefillStillStands(filled!, filled)).toBe(true);
@@ -125,8 +111,6 @@ test("product, tool and interview forms hand the artisan to the location card", 
   expect(FRONTEND("components", "forms", "ToolForm.tsx")).toContain("prefillFrom={");
   expect(FRONTEND("components", "forms", "LocationFields.tsx")).toContain("&rsquo;s record.");
 });
-
-// ── B5 / A8 / B7 ───────────────────────────────────────────────────────────────────────────────
 
 test("the product form picks the artisan first and offers the next step", () => {
   const form = FRONTEND("components", "forms", "ProductForm.tsx");
@@ -146,8 +130,6 @@ test("a retry sends exactly the files that failed, duplicates included", () => {
   expect(failedFilesOf([a1, a2, b], [{ name: "a.jpg" }])).toEqual([a1]);
   expect(failedFilesOf([a1, a2, b], [{ name: "a.jpg" }, { name: "a.jpg" }, { name: "zzz" }])).toEqual([a1, a2]);
 });
-
-// ── A9 / A11 ───────────────────────────────────────────────────────────────────────────────────
 
 test("the media page opens on the linked record, then the carried one", () => {
   expect(initialMediaTarget(new URLSearchParams("linkedType=product&linkedId=p-1"), null)).toEqual({ type: "product", id: "p-1", label: null });
@@ -172,8 +154,6 @@ test("the media page keeps its target, queues offline and searches the server", 
   expect(FRONTEND("components", "forms", "ProcessForm.tsx")).toContain("onSearch={artisanList.setQuery}");
 });
 
-// ── C18 ────────────────────────────────────────────────────────────────────────────────────────
-
 test("the lookup tells an Aadhaar from a name and carries it into the form", () => {
   expect(lookupKind("2341 2341 2346")).toBe("aadhaar");
   expect(lookupKind("234123412346")).toBe("aadhaar");
@@ -191,8 +171,6 @@ test("the artisan form finds first, starts Pehchan unanswered and offers Not sha
   expect(form).toContain("initialAvailable={initial ? (initial.pehchanCardAvailable ?? true) : null}");
   expect(form).toContain('<option value="">Select…</option>');
 });
-
-// ── C22 ────────────────────────────────────────────────────────────────────────────────────────
 
 test("steps from photos follow capture time, then modified time, then pick order", () => {
   expect(exifTimeToMs("2026:10:17 09:30:12")).toBe(new Date(2026, 9, 17, 9, 30, 12).getTime());
@@ -221,8 +199,6 @@ test("a template keeps names and kinds in order and drops blanks; unnamed steps 
   expect(form).toContain("Start from last process");
   expect(form).toContain("Unnamed step");
 });
-
-// ── B6 ─────────────────────────────────────────────────────────────────────────────────────────
 
 test("draft keys are the handset's, and identity never enters a draft", () => {
   const kotlin = read("android", "app", "src", "main", "java", "com", "fieldrepository", "app", "data", "DraftStore.kt");
@@ -274,8 +250,6 @@ test("a draft notices a changed file but not a re-render", () => {
     expect(source, `${name} clears it on save`).toMatch(/[dD]raft\.clear\(\)/);
   }
 });
-
-// ── Review fixes (2026-10-17) ──────────────────────────────────────────────────────────────────
 
 test("an artisan draft never reads an identity box from the form", () => {
   const form = FRONTEND("components", "forms", "ArtisanForm.tsx");

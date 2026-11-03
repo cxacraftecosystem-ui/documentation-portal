@@ -1,8 +1,3 @@
-/**
- * ISD dial-code directory for the phone prefix picker (PhoneField). Every ITU-assigned country /
- * territory (~240) with its ISO 3166-1 alpha-2 code and primary dial code. Flag emoji are derived
- * from the iso2 code via regional-indicator codepoints, so no image assets are needed.
- */
 export type Country = { name: string; iso2: string; dialCode: string };
 
 export const DEFAULT_ISO2 = "IN";
@@ -257,7 +252,6 @@ export const COUNTRIES: Country[] = [
   { name: "Zimbabwe", iso2: "ZW", dialCode: "+263" }
 ];
 
-/** Country whose flag should represent a dial code that several territories share (+1, +7, +44 …). */
 const PREFERRED_FOR_DIAL: Record<string, string> = {
   "+1": "US",
   "+7": "RU",
@@ -276,7 +270,6 @@ const PREFERRED_FOR_DIAL: Record<string, string> = {
   "+672": "NF"
 };
 
-/** Flag emoji from an iso2 code via regional-indicator codepoints (e.g. "IN" → 🇮🇳). */
 export function flagEmoji(iso2: string): string {
   return iso2
     .toUpperCase()
@@ -289,17 +282,12 @@ export function countryByIso2(iso2: string): Country | undefined {
   return COUNTRIES.find((country) => country.iso2 === upper);
 }
 
-/** Resolve a dial code to one country, preferring the primary holder of shared codes. */
 export function countryForDialCode(dialCode: string): Country | undefined {
   const preferred = PREFERRED_FOR_DIAL[dialCode];
   if (preferred) return countryByIso2(preferred);
   return COUNTRIES.find((country) => country.dialCode === dialCode);
 }
 
-/**
- * Longest-dial-code-prefix split for stored numbers without a separating space
- * (e.g. "+919876543210" → India + "9876543210"). Returns null when nothing matches.
- */
 export function splitDialPrefix(value: string): { country: Country; rest: string } | null {
   const digits = value.replace(/\D/g, "");
   let bestCode = "";

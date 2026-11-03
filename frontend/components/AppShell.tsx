@@ -41,11 +41,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   if (!user) return null;
 
-  /**
-   * THE FORCED PASSWORD CHANGE, ABOVE EVERYTHING ELSE. An account that must choose a new password
-   * gets the form INSTEAD of the navigation and the page — above the route guards and admin view —
-   * because the server refuses every other route until it is done.
-   */
   if (mustChangePassword(user)) {
     return (
       <AuthCard title="Choose a new password" subtitle={user.email}>
@@ -58,33 +53,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  /**
-   * Page-level enforcement for the whole protected tree. Hiding a nav entry only removes the link —
-   * /users, /review, /data and the create forms are still one typed URL away — so the guard table in
-   * lib/permissions.ts is applied HERE, above every page, and the page never renders at all when the
-   * user fails it. Pages that also guard themselves are simply defended twice.
-   */
   const guard = routeGuardFor(pathname);
   const blocked = Boolean(guard && !guard.can(user));
 
-  /**
-   * The second, softer gate: admin view. It is consulted only AFTER the real one has passed, so a
-   * user who genuinely may not open the route always gets the honest permission copy and never the
-   * "you turned this off" copy. Because it is a preference and not a permission it can only ever
-   * subtract — `adminChromeVisible` returns true for everyone who has no toggle, so a professor
-   * keeps /users and a forged `adminMode` in localStorage unlocks nothing (the guard above still
-   * ran, and `adminMode` itself is recomputed from the server-issued role every render).
-   */
   const chrome = blocked ? null : adminChromeRouteFor(pathname);
-  // One commit exists where the account is known but its stored preference is not. Deciding then
-  // would flash a lock at every admin who browses with admin view ON, so we hold the frame instead.
   const chromeSettling = Boolean(chrome) && isAdmin(user) && !adminViewResolved;
   const chromeHidden = Boolean(chrome) && !adminChromeVisible(user, adminMode);
 
   return (
     <div className="min-h-screen bg-bg-0">
-      {/* The island is a floating pill and comes first in the tab order — give the keyboard a way
-          past it straight to the page content. Visible only while focused. */}
       <a
         href="#main-content"
         className="sr-only left-3 top-3 z-60 rounded-md bg-purple-700 px-3 py-2 text-sm font-medium text-white focus:not-sr-only focus:fixed"
@@ -92,9 +69,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         Skip to content
       </a>
       <DynamicIslandNav />
-      {/* Decorative only — see PageSelvedge. It is `fixed z-0`, so `main` below carries an
-          explicit `relative z-10`: a positioned element paints above ordinary flow content
-          regardless of source order, and without that the strips would sit ON the page. */}
       <PageSelvedge />
       <motion.main
         id="main-content"
@@ -119,10 +93,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-/**
- * What a user sees instead of a page they may not open. It names their tier and points at the two
- * routes that are always available — the dashboard and the walkthrough — rather than dead-ending.
- */
 function RouteLocked({ title, message, role }: { title: string; message: string; role: string }) {
   return (
     <section className="panel px-6 py-14 text-center" aria-live="polite">
@@ -146,15 +116,6 @@ function RouteLocked({ title, message, role }: { title: string; message: string;
   );
 }
 
-/**
- * What an ADMIN sees on an admin route while their own admin view is off.
- *
- * Deliberately not RouteLocked: this is self-inflicted and one click from being undone, so it must
- * not borrow the padlock, the "access required" title or the "an admin can raise your access" line
- * that a genuine non-admin sees — telling an admin they lack access they in fact hold is the worse
- * error of the two. The primary action turns the toggle back on and leaves them exactly where they
- * are, so the page they asked for appears in place rather than after a detour.
- */
 function AdminViewHidden({ route, onEnable }: { route: AdminChromeRoute; onEnable: () => void }) {
   return (
     <section className="panel px-6 py-14 text-center" aria-live="polite">

@@ -2,13 +2,6 @@
 
 import { Lock } from "lucide-react";
 
-/**
- * What an admin surface renders when the signed-in account is not entitled to it.
- *
- * The LINK to these pages is hidden rather than disabled, so this panel is only ever reached by
- * typing the URL or following a stale bookmark — but it has to exist, because a client-side route
- * guard that merely hides a nav item is not a guard at all.
- */
 export function RestrictedPanel({ title, body }: { title: string; body: string }) {
   return (
     <section className="panel px-6 py-12 text-center">

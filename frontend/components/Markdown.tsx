@@ -3,11 +3,6 @@
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-/**
- * Markdown renderer for transcripts and AI-generated text (design-system rule: these are
- * Markdown — bold speaker labels, `---` rules — never raw text in a <pre>). GitHub-flavoured
- * markdown via remark-gfm; raw HTML stays escaped (no rehype-raw on purpose).
- */
 const components: Components = {
   p: ({ children }) => <p className="mb-2 leading-6 last:mb-0">{children}</p>,
   strong: ({ children }) => <strong className="font-semibold text-ink-900">{children}</strong>,
@@ -50,7 +45,6 @@ const components: Components = {
   td: ({ children }) => <td className="border-b border-line-200 py-1.5 pr-4 align-top">{children}</td>
 };
 
-/** Render markdown `text` with the app's tokens: ink-900 body, purple-700 links, line-200 rules, 14px base. */
 export function Markdown({ text, className }: { text: string; className?: string }) {
   return (
     <div className={`text-sm leading-6 text-ink-900 ${className ?? ""}`.trim()}>

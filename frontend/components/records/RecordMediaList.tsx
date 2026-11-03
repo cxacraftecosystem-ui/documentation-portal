@@ -24,13 +24,6 @@ function toPreview(media: MediaFile): PreviewMedia {
   };
 }
 
-/**
- * Files that arrived INSIDE a record (an interview's recordings, a process step's photographs),
- * drawn read-only for its view: a preview tile per file that opens the lightbox — which carries the
- * Download button — and the transcript under any audio. Nothing here removes or replaces a file;
- * that is the edit form's job, behind "Update". A reviewer's one decision on a single file — Reject —
- * appears on its card when the page provides it (`MediaReviewProvider`).
- */
 export function RecordMediaList({ items, empty = "No files attached." }: { items: MediaFile[]; empty?: string }) {
   const [active, setActive] = useState<PreviewMedia | null>(null);
   if (items.length === 0) return <p className="text-sm text-ink-muted">{empty}</p>;

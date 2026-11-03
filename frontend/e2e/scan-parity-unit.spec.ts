@@ -3,13 +3,6 @@ import { join, resolve } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-/**
- * The top-bar scanner's shared files (REQUIREMENTS_2026-10-20 §6) are the same in both portals:
- * byte-identical on the web, identical apart from the Kotlin package on Android. This file is itself
- * identical in both repositories. Point `CROSS_PORTAL_PEER_REPO` at a checkout of the other one to
- * compare across them; without it only the in-repository rules run.
- */
-
 const REPO = resolve(__dirname, "..", "..");
 
 const WEB_SHARED = [
@@ -30,7 +23,6 @@ function read(path: string): string {
   return readFileSync(path, "utf8").replace(/\r\n/g, "\n");
 }
 
-/** The repository's Android source root, whichever app this is. */
 function kotlinRoot(repo: string): string {
   for (const pkg of PACKAGES) {
     const root = join(repo, "android", "app", "src", "main", "java", pkg);
@@ -39,7 +31,6 @@ function kotlinRoot(repo: string): string {
   throw new Error(`no Android source root under ${repo}`);
 }
 
-/** The Kotlin text with its own package spelled as a placeholder. */
 function packageless(text: string): string {
   return text.replace(/com\.designprototype\.workshop|com\.fieldrepository\.app/g, "PKG");
 }

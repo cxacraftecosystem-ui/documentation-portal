@@ -2,7 +2,6 @@
 
 import { useSyncExternalStore } from "react";
 
-/** The words on a library button that needs the server (UNIFY 4.3). */
 export const NEEDS_CONNECTION = "Needs a connection";
 
 function subscribe(onChange: () => void): () => void {
@@ -14,11 +13,6 @@ function subscribe(onChange: () => void): () => void {
   };
 }
 
-/**
- * Whether the browser says it is online. Workbook upload and download, deletes, restores, sharing,
- * the default and bundles need a connection; their buttons are disabled with "Needs a connection"
- * while this is false. True on the server and the first render, so nothing flashes disabled.
- */
 export function useOnline(): boolean {
   return useSyncExternalStore(
     subscribe,

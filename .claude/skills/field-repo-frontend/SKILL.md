@@ -611,7 +611,7 @@ One MotionValue feeds the fill's `scaleY`, the travelling node's `top`, and the 
 them re-render React. **The 65% figures are measured, not chosen:** the fill reads 100% with the last
 step's bottom edge still on screen (~58vh at 1280px, ~43vh at 360px), i.e. the spine completes while
 you are looking at the last step. The identical instrument is reused on the public landing page
-(`components/hero/HowItWorks.tsx:63`) with the same numbers, so both teach the same gesture.
+(`components/hero/HowItWorks.tsx:36`) with the same numbers, so both teach the same gesture.
 
 ### 9.2 Spine DOM
 

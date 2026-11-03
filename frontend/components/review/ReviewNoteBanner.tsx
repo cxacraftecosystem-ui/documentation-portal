@@ -12,14 +12,6 @@ import {
   type LatestReview
 } from "@/lib/review";
 
-/**
- * The reviewer's note, at the top of the record a reviewer sent back or did not accept (A1).
- *
- * Until this existed the note was required, saved, and shown on no screen: the uploader phoned the
- * reviewer to ask what was wrong. It is asked for only when the record's status says there is one
- * to show, so an ordinary edit form costs no extra request. A failed read draws nothing — the form
- * underneath is what the person came for.
- */
 export function ReviewNoteBanner({
   recordType,
   recordId,

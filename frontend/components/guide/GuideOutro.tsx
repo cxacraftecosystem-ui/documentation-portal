@@ -18,8 +18,6 @@ import { riseItem, slideItem, springy, staggerParent } from "@/components/guide/
 import { GUIDE_STEPS } from "@/components/guide/steps";
 import { useAppReducedMotion } from "@/components/guide/useAppReducedMotion";
 
-/** The last-thing-before-you-pack-up checklist. Each item is a decision that is expensive to
- *  reverse once you are back from the field. */
 const CHECKLIST = [
   "Every artisan you spoke to has a record, with Do's and Don'ts filled in.",
   "Every product you photographed has its dimensions, cost of making and selling price.",
@@ -38,13 +36,6 @@ const NEXT: Array<{ label: string; href: string; icon: LucideIcon; note: string 
   { label: "Give app feedback", href: "/feedback", icon: MessageSquare, note: "Tell us what to improve" }
 ];
 
-/**
- * The closing section: a compact recap of the ten steps as a single readable line, the
- * pre-departure checklist, and the screens a researcher goes to once the walkthrough is done.
- *
- * Everything here reveals on scroll with the same staggered vocabulary as the step cards, so
- * the end of the page feels like the same document rather than a footer bolted on.
- */
 export function GuideOutro() {
   const reduce = useAppReducedMotion();
 

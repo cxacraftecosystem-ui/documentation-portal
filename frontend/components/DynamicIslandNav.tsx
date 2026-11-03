@@ -65,11 +65,6 @@ import { Toggle } from "@/components/ui/Toggle";
 import { cn } from "@/lib/utils";
 import type { User } from "@/lib/types";
 
-/**
- * Dropdown groups in the desktop bar, in render order. `null` = a standalone link in the bar
- * (Dashboard and the Walkthrough, the two places a newcomer starts). "Account" sits last because it
- * holds what belongs to the person rather than to the repository — their own settings and feedback.
- */
 export const NAV_GROUPS = ["Record", "Browse", "Admin", "Account"] as const;
 export type NavGroup = (typeof NAV_GROUPS)[number];
 
@@ -78,53 +73,25 @@ export type NavItem = {
   label: string;
   icon: LucideIcon;
   group: NavGroup | null;
-  /**
-   * The entitlement this destination needs. When it returns false the entry is NOT RENDERED —
-   * never rendered disabled — so the menu only ever offers what the API would actually allow.
-   */
   can: (user: User) => boolean;
-  /** The backend dependency `can` mirrors (app/core/deps.py); keep the two in step. */
   gate: string;
-  /** Admin-tier chrome: admins additionally need admin view ON. Never widens `can`. */
   adminSurface?: boolean;
 };
 
 const everyone = () => true;
 
-/**
- * The one destination in this menu that carries a live count, named once so the entry below and the
- * badge lookup in the renderer cannot drift apart.
- */
 const ACCESS_ROSTER_HREF = "/admin/access-roster";
-/** Under questionnaire v2 the interview entry also carries the inbox's waiting count. */
 const QUESTIONNAIRE_HREF = "/questionnaire";
 
-/**
- * The single source of truth for navigation. Every destination carries its own predicate, so the
- * gate lives next to the item instead of being scattered across the JSX, and one list drives both
- * the desktop dropdowns and the full sheet. Labels are the EXACT Android drawer/action names
- * (MainActivity EntryMode.actionTitle) so both clients speak one language.
- */
 export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: Gauge, group: null, can: everyone, gate: "get_current_user" },
-  // Onboarding, deliberately ungated: the Walkthrough teaches the documentation process itself, so
-  // it has to reach the people who have not earned any capability yet — a crowdsource volunteer on
-  // their first day needs it MORE than an admin does. It is a static page that calls no API.
   { href: "/guide", label: "Walkthrough", icon: Compass, group: null, can: everyone, gate: "none (static page)" },
 
-  // Record — every entry here creates something, so it follows the CREATE dependency, not the list
-  // one. Hiding an entry therefore never hides the DATA behind it: the list endpoints stay open to
-  // any signed-in user, and "Search" / "View Data" remain the read route to the same records.
   { href: "/artisans", label: "Record artisan", icon: Users, group: "Record", can: canCreateRecords, gate: "require_record_creator" },
   { href: "/products", label: "Record product", icon: Boxes, group: "Record", can: canCreateRecords, gate: "require_record_creator" },
   { href: "/processes", label: "Document process", icon: GitBranch, group: "Record", can: canCreateRecords, gate: "require_record_creator" },
   { href: "/tools", label: "Record tool", icon: Wrench, group: "Record", can: canCreateRecords, gate: "require_record_creator" },
-  // Answering an interview is open to everyone — volunteers contribute answers and media.
   { href: "/questionnaire", label: "Take interview", icon: ClipboardList, group: "Record", can: everyone, gate: "get_current_user" },
-  // THE FORMS LIBRARY (UNIFY U3): your forms, shared forms and each workshop's forms, with the
-  // workbook, reuse and bundles. Open to every record creator; writing a form is a questionnaire
-  // manager's and the page draws those controls from the server's `can`. Designer-portal's entry
-  // carries the same label.
   {
     href: "/questionnaires",
     label: "My questionnaires",
@@ -137,26 +104,12 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/crafts", label: "Add craft", icon: Brush, group: "Record", can: canManageCrafts, gate: "require_craft_manager" },
   { href: "/workshops", label: "Record workshop", icon: Users, group: "Record", can: canManageWorkshops, gate: "require_workshop_manager" },
 
-  // Browse
   { href: "/activity", label: "My Activity", icon: Activity, group: "Browse", can: everyone, gate: "get_current_user" },
-  // Everyone can be a task assignee; the "assign" half of the page is gated inside it.
   { href: "/tasks", label: "Tasks", icon: ClipboardCheck, group: "Browse", can: everyone, gate: "get_current_user" },
   { href: "/search", label: "Search", icon: Search, group: "Browse", can: everyone, gate: "get_current_user" },
-  // The scanner's desktop route, as in the designer portal's menu. Ungated like /search: every code
-  // it reads resolves through endpoints that scope the answer per viewer on the server. Below 1024px
-  // the search header's scan button opens the same reader.
   { href: "/scan", label: "Scan a code", icon: QrCode, group: "Browse", can: everyone, gate: "get_current_user" },
-  // The third way of reading the whole corpus, and it sits next to the other two on purpose:
-  // /search reads it as a list, /data as a folder tree, /map as a place. Ungated to match /search,
-  // because GET /map/points takes any signed-in caller and has already filtered every pin through
-  // `visibility_where` — so a volunteer and a professor open the same page and see different
-  // numbers on it. Built and reachable only by typing the URL until this line existed.
   { href: "/map", label: "Map", icon: MapPinned, group: "Browse", can: everyone, gate: "get_current_user" },
   { href: "/data", label: "View Data", icon: FolderTree, group: "Browse", can: canDownloadDataset, gate: "require_dataset_downloader" },
-  // Browse rather than Record: an interview is STORED once per exact set of artisans, so one
-  // artisan's answers are scattered over several entries and this is the only surface that reads
-  // them back as one document. "Take interview" above writes; this one only reads, and
-  // GET /questionnaire/artisans/{id}/consolidated asks for nothing but a login.
   {
     href: "/questionnaire/consolidated",
     label: "Consolidated questionnaire",
@@ -166,23 +119,10 @@ export const NAV_ITEMS: NavItem[] = [
     gate: "get_current_user"
   },
   { href: "/sharing", label: "Share data access", icon: Share2, group: "Browse", can: everyone, gate: "get_current_user" },
-  // Linking a tool to an artisan needs a tool or an artisan of your own — both need record creation.
-  // The endpoint itself only requires a login and then checks ownership per artisan, so this is the
-  // closest STATIC mirror of a dynamic rule: nobody below Field Contributor owns either side.
   { href: "/tools?assign=1", label: "Assign tools to artisans", icon: Wrench, group: "Browse", can: canCreateRecords, gate: "get_current_user + owner/EDIT-grant/admin per artisan" },
 
-  // Admin — capability holders below admin (professors, grantees) keep these permanently; admins,
-  // who own the toggle, see them only while admin view is ON.
-  // NOT adminSurface. Reviewing is a Field Contributor+ capability, not admin chrome, and AppShell's
-  // ADMIN_CHROME_ROUTES deliberately leaves /review open while admin view is off. Flagging it here
-  // too removed the link from an admin who still had the route — an open page with no way to reach it.
   { href: "/review", label: "Review", icon: Eye, group: "Browse", can: canReview, gate: "require_reviewer" },
   { href: "/admin", label: "Settings hub", icon: SlidersHorizontal, group: "Admin", can: isAdmin, gate: "require_admin", adminSurface: true },
-  // The sign-in gate's admin side, and the only nav entry in this app that carries a count. It sits
-  // directly above "Manage users" because the two answer one question from opposite ends: /users is
-  // who HAS an account, the roster is who is allowed to have one. An admin chasing "why can this
-  // person not log in?" reaches for the users screen, finds no row, and needs the next line of the
-  // menu to be the answer.
   {
     href: ACCESS_ROSTER_HREF,
     label: "Access roster",
@@ -194,30 +134,12 @@ export const NAV_ITEMS: NavItem[] = [
   },
   { href: "/users", label: "Manage users", icon: UserCog, group: "Admin", can: canManageUsers, gate: "require_professor", adminSurface: true },
 
-  // Account — personal, so nothing here is role-gated.
-  // /settings is TWO pages in one: the left column is the repository's global configuration
-  // (require_master_admin, and it renders its own lock panel for everyone else) while the right
-  // column is this account's theme, reduced motion, larger text and high contrast, saved through
-  // PUT /preferences/me, which asks for nothing but a login. Gating the entry on isMasterAdmin left
-  // every other user with NO route to their own accessibility switches, so it is `everyone` — the
-  // master admin's global column is also linked from the /admin hub tile "App settings".
-  // The activity list (C25): every notice the server sends, in-app, mail or no mail. The bell in the
-  // island opens the same page; this row is the keyboard and sheet route to it. Android: "Notifications".
   { href: "/notifications", label: "Notifications", icon: Bell, group: "Account", can: everyone, gate: "get_current_user (GET /notifications)" },
   { href: "/settings", label: "Settings", icon: SettingsIcon, group: "Account", can: everyone, gate: "get_current_user (PUT /preferences/me)" },
-  // Android's Workshop access entry, which the menu had no equivalent for: the destination is the
-  // fork, and for anyone below admin it opens their own request page directly. Ungated because
-  // asking is not an admin act (POST /workshops/access-requests takes any signed-in caller) — the
-  // console behind the admin half of the fork carries `require_admin` on its own route instead.
   { href: "/workshop-access", label: "Workshop access", icon: KeyRound, group: "Account", can: everyone, gate: "get_current_user (POST /workshops/access-requests)" },
   { href: "/feedback", label: "Give app feedback", icon: MessageSquare, group: "Account", can: everyone, gate: "get_current_user (PUT /feedback/me)" }
 ];
 
-/**
- * Entitlement first, admin view second: `can` is consulted before the toggle is even looked at, so
- * switching admin view ON can never surface a destination the API would 403 — it only hides admin
- * chrome from an admin browsing as an ordinary user.
- */
 export function isNavItemVisible(item: NavItem, user: User | null | undefined, adminMode: boolean): boolean {
   if (!user || !item.can(user)) return false;
   if (item.adminSurface && isAdmin(user)) return adminMode;
@@ -226,17 +148,6 @@ export function isNavItemVisible(item: NavItem, user: User | null | undefined, a
 
 const spring = { type: "spring" as const, stiffness: 260, damping: 30 };
 
-/**
- * A count beside a menu entry.
- *
- * Amber and not red: a pending access request is not an incident, it is work waiting for somebody.
- * `amber-100`/`amber-800` are the two brand rungs of that scale in this config (`amber-50`/`-200`
- * deep-merge with stock Tailwind and do not pair with them).
- *
- * THE NUMBER IS WORDED FOR A SCREEN READER. A bare "3" announced after "Access roster" says nothing
- * — three what? — so the digits are `aria-hidden` and a real sentence sits beside them. Colour and
- * a bare numeral never carry the meaning on their own anywhere in this app.
- */
 function NavBadge({ count }: { count: number | null }) {
   if (count === null) return null;
   return (
@@ -251,21 +162,8 @@ export function DynamicIslandNav() {
   const { user, logout } = useAuth();
   const adminView = useAdminView();
   const { adminMode, canAdmin, toggleAdminView } = adminView;
-  /**
-   * Whether this account has the admin-view control at all. The permissions stream adds `available`
-   * (content admins) to the provider; until it lands the control follows `canAdmin`, which is
-   * today's `isAdmin(user)`.
-   */
   const adminAvailable = (adminView as { available?: boolean }).available ?? canAdmin;
-  /** The island's admin-view switch, which its pill labels (so the whole pill is the target). */
   const adminSwitchId = useId();
-  /**
-   * The access roster's pending count. THE NOTIFICATION: there is no email and no push in this
-   * codebase, so "admins should be notified to approve or reject" is a number on the surfaces they
-   * already have open — and the nav is on every single protected page, which makes it the one
-   * surface that cannot be missed. The hook gates itself on the admin predicate and makes no
-   * request for anybody else, so calling it unconditionally here costs a non-admin nothing.
-   */
   const { pending: pendingAccess } = usePendingAccessCount();
   const inboxWaiting = useInboxCount();
   const router = useRouter();
@@ -277,14 +175,8 @@ export function DynamicIslandNav() {
   const { scrollY } = useScroll();
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
-  /**
-   * The button that opened the sheet — the island's menu button on a desktop, the bottom bar's on a
-   * phone or tablet — so dismissal hands focus back to the control the reader actually pressed.
-   */
   const sheetOpenerRef = useRef<HTMLButtonElement | null>(null);
 
-  // Compact while travelling downward, expand at the top or on any upward scroll —
-  // so the full menu is always one flick away without returning to the top.
   useMotionValueEvent(scrollY, "change", (latest) => {
     const previous = scrollY.getPrevious() ?? 0;
     if (latest < 24) setCompact(false);
@@ -298,9 +190,6 @@ export function DynamicIslandNav() {
     setActive(null);
   }, [pathname]);
 
-  // Dismissal always hands focus back to the hamburger, whichever way the sheet was shut. Losing it
-  // to <body> would strand a keyboard user at the top of the document, several tab stops from where
-  // they were.
   const closeSheet = useCallback(() => {
     setSheetOpen(false);
     (sheetOpenerRef.current ?? menuButtonRef.current)?.focus();
@@ -311,14 +200,6 @@ export function DynamicIslandNav() {
     setSheetOpen((value) => !value);
   }, []);
 
-  /**
-   * The open sheet freezes the page behind it.
-   *
-   * Two regressions this deliberately avoids. The scroll POSITION survives — a reader who opened the
-   * menu halfway down a long record comes back to the same paragraph, not to the top. And nothing
-   * moves sideways: locking the document takes the desktop scrollbar with it, so its width is
-   * measured first and handed back as padding by the rules keyed on `--nav-scroll-gutter`.
-   */
   useEffect(() => {
     if (!sheetOpen) return;
     const root = document.documentElement;
@@ -329,15 +210,10 @@ export function DynamicIslandNav() {
     return () => {
       root.classList.remove("nav-scroll-locked");
       root.style.removeProperty("--nav-scroll-gutter");
-      // Every engine we target keeps the offset across an `overflow: hidden` spell, but one that
-      // clamped it to zero would dump the reader back at the top; the guarantee is nearly free.
       if (window.scrollY !== restoreTo) window.scrollTo(0, restoreTo);
     };
   }, [sheetOpen]);
 
-  // Keyboard path: opening the sheet moves focus into it, Tab cycles WITHIN it, and Escape closes it
-  // and hands focus back to the button that opened it — the desktop dropdowns are pointer-only, so
-  // this sheet is the keyboard route to every destination.
   useEffect(() => {
     if (!sheetOpen) return;
     const panel = sheetRef.current;
@@ -359,8 +235,6 @@ export function DynamicIslandNav() {
       if (event.key !== "Tab") return;
       const stops = focusable();
       if (stops.length === 0) return;
-      // The sheet is aria-modal: tabbing out of it would walk a screen reader through a page it has
-      // just been told is inert, so both ends of the list wrap round instead.
       const first = stops[0];
       const last = stops[stops.length - 1];
       const focused = document.activeElement as HTMLElement | null;
@@ -378,7 +252,6 @@ export function DynamicIslandNav() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [closeSheet, sheetOpen]);
 
-  // One filtered list feeds both renderers, so a hidden entry cannot reappear in the other menu.
   const visibleItems = useMemo(
     () => NAV_ITEMS.filter((item) => isNavItemVisible(item, user, adminMode)),
     [user, adminMode]
@@ -389,11 +262,6 @@ export function DynamicIslandNav() {
     items: visibleItems.filter((item) => item.group === label)
   })).filter((group) => group.items.length > 0);
 
-  /**
-   * The unread count the bottom bar carries on the slot holding "Notifications" (and on its row in
-   * a menu or the "More" sheet). One store with the desktop bell, so the two never disagree; the
-   * bell itself stays desktop-only, as on Android.
-   */
   const unreadNotifications = useUnreadNotificationCount(Boolean(user));
 
   if (!user) return null;
@@ -403,15 +271,6 @@ export function DynamicIslandNav() {
     router.replace("/login");
   }
 
-  /**
-   * The one entry that is "current", resolved most-specific-first.
-   *
-   * A prefix test on its own marks two entries at once as soon as a destination NESTS under another
-   * — /questionnaire/consolidated is inside /questionnaire — and `aria-current="page"` on two links
-   * tells a screen reader the reader is in two places. Longest matching base wins, the same way
-   * ROUTE_GUARDS resolves an overlap. Two entries sharing one base (/tools and /tools?assign=1) both
-   * still light up, which is right: they are the same page.
-   */
   let activeBase: string | null = null;
   for (const item of visibleItems) {
     const base = item.href.split("?")[0];
@@ -421,20 +280,12 @@ export function DynamicIslandNav() {
 
   const isActivePath = (href: string) => href.split("?")[0] === activeBase;
 
-  /**
-   * The count to draw beside a menu entry, or null for none.
-   *
-   * Only a POSITIVE number draws: null from the hook means "not known yet" and zero means the
-   * server said nobody is waiting, and neither deserves a badge — a "0" rendered while the request
-   * is still in flight would tell an admin the queue is empty at the exact moment it might not be.
-   */
   const badgeFor = (href: string): number | null => {
     if (href === ACCESS_ROSTER_HREF) return typeof pendingAccess === "number" && pendingAccess > 0 ? pendingAccess : null;
     if (href === QUESTIONNAIRE_HREF) return inboxWaiting;
     return null;
   };
 
-  // The bottom bar's model: the same `visibleItems`, so it can offer nothing the sheet would not.
   const islandEntry = (item: NavItem) => ({
     label: item.label,
     href: item.href,
@@ -457,7 +308,6 @@ export function DynamicIslandNav() {
             compact ? "px-3 py-1.5" : "px-4 py-2"
           )}
         >
-          {/* Brand: swoops in from the left every time the island compacts on a downward scroll. */}
           <motion.div
             key={compact ? "brand-compact" : "brand-full"}
             initial={{ x: -32, opacity: 0 }}
@@ -472,7 +322,6 @@ export function DynamicIslandNav() {
             </Link>
           </motion.div>
 
-          {/* Desktop navigation, hidden while compact. */}
           <AnimatePresence initial={false}>
             {!compact ? (
               <motion.nav
@@ -516,14 +365,7 @@ export function DynamicIslandNav() {
           </AnimatePresence>
 
           <div className="ml-1 flex items-center gap-1.5">
-            {/* Offered to admins only — and it can merely hide admin chrome, never unlock it. */}
             {adminAvailable && !compact ? (
-              // The pill footprint it had before it became a switch (`px-2.5 py-1.5 text-xs`, an eye
-              // and "Admin view"), restored 2026-10-20 — still the shared switch inside (`Toggle`, this
-              // portal's `ToggleSwitch`): its position and `aria-checked` say on or off, never an
-              // "ON"/"OFF" word. The track is drawn at three quarters so the pill keeps its old height,
-              // as in the designer portal's island. The pill is the switch's <label>, so a click
-              // anywhere on it flips the switch.
               <label
                 data-testid="island-admin-view"
                 htmlFor={adminSwitchId}
@@ -559,7 +401,6 @@ export function DynamicIslandNav() {
         </motion.header>
       </div>
 
-      {/* Full navigation sheet: keyboard-reachable path to every destination the user qualifies for. */}
       <AnimatePresence>
         {sheetOpen ? (
           <motion.div
@@ -569,9 +410,6 @@ export function DynamicIslandNav() {
             transition={{ duration: 0.18 }}
             className="nav-sheet-overlay fixed inset-0 z-40"
           >
-            {/* The scrim is its own element rather than the sheet's parent: `touch-action: none` is
-                what stops a drag on the dimmed page from panning it on iOS, and from an ancestor
-                that same declaration would also cancel the scroll gesture inside the sheet. */}
             <div
               aria-hidden
               onClick={closeSheet}
@@ -632,17 +470,9 @@ export function DynamicIslandNav() {
         ) : null}
       </AnimatePresence>
 
-      {/* MOBILE AND TABLET (< 1024 CSS px): Android's search header and bottom island, in place of
-          the island above (REQUIREMENTS_2026-10-20 §4). CSS alone decides which set is drawn —
-          `max-lg:hidden` on the island frame, `lg:hidden` on these — so nothing reads the window
-          width and nothing flashes on hydration. The bar's menu button opens the sheet above, so
-          the admin-view switch and Logout have one home at every width. */}
       <AppSearchHeader
         appName={APP_NAME}
         logo={(className) => <FieldRepoLogo className={className} />}
-        // Search opens over a clean page: the menu sheet's scrim sits under the header (`z-40`, so
-        // the bar's menu button stays lit, as the island's does), so a tap on the header while the
-        // sheet is open closes the sheet first rather than stacking the panel on top of it.
         onOpenSearch={() => {
           setSheetOpen(false);
           setSearchOpen(true);
@@ -667,5 +497,4 @@ export function DynamicIslandNav() {
   );
 }
 
-/** The name the search header prints — Android's `APP_SEARCH_NAME`, word for word. */
 const APP_NAME = "Field Repository";

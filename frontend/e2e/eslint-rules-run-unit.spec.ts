@@ -3,34 +3,6 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { ESLint } from "eslint";
 
-/**
- * THE LINT CONFIG'S RULES RUN — NOT JUST LOAD.
- *
- * `npm run lint` exiting 0 says two different things depending on the day: "nothing in the tree breaks
- * a rule", or "the rules are not running". The second is not hypothetical here. ESLint 10 removed the
- * rule-context methods eslint-plugin-react 7.37.5 and eslint-plugin-import 2.32.0 still call
- * (`context.getFilename()`, `getSourceCode()`, `parserOptions`); under eslint-config-next 16.3 that
- * crashed every lint (vercel/next.js#89764), and 16.4.0 survives it only through its own
- * `fixupPluginRules` shim (eslint-config-next/dist/rule-context.js). eslint-plugin-jsx-a11y 6.10.2 is
- * NOT shimmed. A shim that stopped wrapping, or a plugin release that degraded a rule to a no-op,
- * would turn the lint step green and empty at the same time, and nothing else in CI would notice.
- *
- * So this lints a source string full of deliberate violations, through the repository's own
- * `eslint.config.mjs`, as if it were a file under components/, and requires every one of the rules
- * below to fire. The list is one rule per violation in PROBE and covers every plugin the config
- * loads: eslint-plugin-react (both shimmed and context-free rules), react-hooks (the classic two and
- * a React Compiler rule), all six jsx-a11y rules eslint-config-next enables, @next/next, and import.
- * Measured on 2026-10-09: ESLint 9.39.5 and 10.12.0 report exactly these 25 messages, at the same
- * lines and columns.
- *
- * IF THIS FAILS after a dependency bump, a rule that used to run no longer does: read which one, and
- * do not "fix" it by deleting the name. If it fails because the config deliberately dropped a rule or
- * a plugin, delete that rule's violation from PROBE and its name from EXPECTED in the same change.
- *
- * A rule that fires and is NOT listed does not fail this: a plugin release that adds a rule which the
- * probe happens to break is not a rule that stopped running. Add it to EXPECTED if it should be kept.
- */
-
 const FRONTEND = join(__dirname, "..");
 
 const PROBE = `import React, { memo, useEffect, useRef, useState } from "react";
@@ -110,7 +82,6 @@ const EXPECTED = [
 ];
 
 test("every plugin the lint config loads reports its probe violation", async () => {
-  // Loading every plugin and linting one file takes a few seconds; the default 90 s is plenty.
   const eslint = new ESLint({ cwd: FRONTEND });
   const [result] = await eslint.lintText(PROBE, { filePath: join(FRONTEND, "components", "__eslint_probe__.tsx") });
 

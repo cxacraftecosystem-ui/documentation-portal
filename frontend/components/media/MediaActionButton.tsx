@@ -4,19 +4,6 @@ import { Download, RotateCw } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-/**
- * The visible action buttons on a media card — "Retry" and "Download" — drawn ONE way everywhere
- * (capture tiles, the upload tray, the outbox banner, upload-progress rows).
- *
- * Owner, 2026-10-17: these were hard to see. They were 20px-tall outline chips in 12px type on a
- * tinted tile. Now each is a TONAL button with an icon AND a word: purple-800 on purple-50 in light,
- * purple-100 on purple-900 in dark (both far above 4.5:1), a 1px border of the next rung for the
- * edge, 36px tall on a mouse and 44px on a touch screen, 14px semibold type. "Retry" uses the same
- * shape with the error rung, because it sits next to a failure line and must read as the way out.
- *
- * Always `type="button"` (every caller sits inside a record `<form>`) and it stops propagation, so a
- * click never also opens the lightbox behind it.
- */
 export function MediaActionButton({
   kind,
   onClick,
@@ -25,7 +12,6 @@ export function MediaActionButton({
 }: {
   kind: "download" | "retry";
   onClick: () => void;
-  /** The accessible name, e.g. "Download photo.jpg". The visible word stays short. */
   label: string;
   className?: string;
 }) {

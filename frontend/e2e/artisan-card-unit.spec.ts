@@ -7,10 +7,6 @@ import { lookUpCard } from "@/components/artisans/CardCodeLookup";
 import { CARD_ALPHABET, CARD_CHECK_MESSAGE, cardShortCode, looksLikeArtisanCard, parseArtisanCard } from "@/lib/artisanCard";
 import { maskedLast4, qrImageSrc, sheetRequestBody, type CardResolution } from "@/lib/artisanCardApi";
 
-/**
- * The artisan card on the web: the parser against the vectors both portals share (the backend and
- * Android read the same file), the typed-code lookup, and where the card is mounted. No browser.
- */
 type Vectors = {
   alphabet: string;
   shortCodes: { issuer: string; code: string; check: string; shortCode: string }[];

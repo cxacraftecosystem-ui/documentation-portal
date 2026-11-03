@@ -5,10 +5,6 @@ import { expect, test } from "@playwright/test";
 
 import { codeOptions, unmappedHeading } from "@/components/crafts/UnmappedCraftsPanel";
 
-/**
- * C26 on the web: an administrator maps a craft to the shared code from the crafts page, and the
- * panel is drawn for administrators only. Same spec in both portals. No browser.
- */
 test("the code picker names the craft first and sorts by name", () => {
   expect(
     codeOptions([
@@ -28,7 +24,6 @@ test("the heading counts what is left", () => {
 
 test("the crafts page draws the panel for administrators in admin view only", () => {
   const page = readFileSync(join(__dirname, "../app/(protected)/crafts/page.tsx"), "utf8");
-  // Under the Needs review tab, which only content admins see; the panel itself needs admin view.
   expect(page).toContain("const contentAdmin = canAdministerCraftList(user);");
   expect(page).toContain('{tab === "review" && contentAdmin ? (');
   expect(page).toContain("{adminMode ? <UnmappedCraftsPanel /> : null}");

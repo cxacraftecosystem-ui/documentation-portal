@@ -1,11 +1,5 @@
 "use client";
 
-/**
- * /digest/[id] — one Monday summary, the reader's own. A snapshot taken at 08:00 IST; every row links
- * to the live queue it counted. The Field Repository's summary is counts only (artisan records are
- * personal data held under consent), so sections carry rows and no titles.
- */
-
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";

@@ -16,13 +16,6 @@ import {
   type CraftCatalogue
 } from "@/lib/craftCatalogue";
 
-/*
-  THE CRAFT LIST EVERY PICKER READS (REQUIREMENTS_2026-10-20 §2.3-§2.4), held against a mock of the
-  frozen `GET /crafts/catalogue` answer built from the master list: 9 categories, 36 sub-categories,
-  455 crafts, 209 of them GI. The fixture is the contract's shape, so these rules hold whatever the
-  server's ids are. Android's `CraftCatalogueTest` reads the same fixture.
-*/
-
 const FIXTURE = join(__dirname, "fixtures", "craft-catalogue.json");
 const catalogue = normaliseCatalogue(JSON.parse(readFileSync(FIXTURE, "utf8"))) as CraftCatalogue;
 
@@ -48,10 +41,8 @@ test("search folds case, accents, hyphens and '&', and ranks the name first", ()
   expect(foldCraftText("  Kútch–AJRAKH & Co ")).toBe("kutch ajrakh and co");
   const byName = searchCraftCatalogue(catalogue, "Tharu Embroidery");
   expect(byName[0].name).toBe("Tharu Embroidery");
-  // A state matches too, ranked below every name match.
   const byState = searchCraftCatalogue(catalogue, "gujarat");
   expect(byState.length).toBeGreaterThan(0);
-  // Several words that no single field holds still match when every word is found somewhere.
   expect(searchCraftCatalogue(catalogue, "ajrakh gujarat").some((craft) => craft.name === "Kutch Ajrakh")).toBe(true);
   expect(searchCraftCatalogue(catalogue, "zzzz-not-a-craft")).toHaveLength(0);
   expect(CRAFT_NO_MATCH("zzzz")).toBe("No craft matches “zzzz”.");

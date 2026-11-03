@@ -1,27 +1,5 @@
 import { Children, Fragment, isValidElement, type ReactElement, type ReactNode } from "react";
 
-/**
- * The one layout for buttons that sit together. Every button row in the app goes through this, so
- * the rule is decided here and not re-styled per screen:
- *
- * - ONE button on its line is centred.
- * - TWO share one line at equal widths and never overflow; below `sm` (640px) a long label wraps
- *   inside its own button instead of pushing the other off the edge.
- * - THREE OR MORE stack full width below `sm`, and from `sm` up become one row of pills
- *   (`rounded-full`, one height), wrapping only when the row genuinely runs out of room.
- * - `destructive` is always drawn last, and from `sm` up is set apart from the rest by a rule.
- *
- * `align` places a row of two or more on wide screens (a form footer sits `end`, beside nothing);
- * a single button is always centred, whatever `align` says, because a lone button off to one side
- * reads as something missing beside it.
- * `size="sm"` is the compact density of a list row's actions; the default is the form height.
- *
- * `fill` is for a card's footer (owner ruling 2026-10-20): at every width ONE button spans the
- * card's content width and TWO split it in half around the same `gap-2`, the left one reaching the
- * left padding edge and the right one the right. Only the width grows: the height stays whatever the
- * buttons carry. Three or more ignore it.
- */
-
 type Align = "center" | "end" | "start";
 
 const ALIGN_MANY: Record<Align, string> = {
@@ -30,7 +8,6 @@ const ALIGN_MANY: Record<Align, string> = {
   start: "sm:justify-start"
 };
 
-/** Fragments are unwrapped so `<>{a}{b}</>` counts as two buttons, not one. */
 function flatten(children: ReactNode): ReactNode[] {
   const out: ReactNode[] = [];
   for (const child of Children.toArray(children)) {
@@ -57,14 +34,11 @@ export function ButtonRow({
   fill = false
 }: {
   children?: ReactNode;
-  /** Delete / remove / reject — always last, and set apart on wide screens. */
   destructive?: ReactNode;
   align?: Align;
   size?: "sm" | "md";
   className?: string;
-  /** Names the group for assistive technology when the buttons need context. */
   label?: string;
-  /** A card footer: one or two buttons stretch to the card's content edges at every width. */
   fill?: boolean;
 }) {
   const items = flatten(children);

@@ -1,8 +1,3 @@
-/**
- * The coverage routes, typed. Every call goes through `apiFetch`; nothing here reaches a map tile
- * server or any third party — the coverage view draws only bundled geometry.
- */
-
 import { apiFetch, buildQuery } from "@/lib/api";
 import { coverageParams } from "@/components/map/coverage/coverageMath";
 import type {

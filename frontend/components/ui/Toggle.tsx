@@ -1,51 +1,19 @@
 "use client";
 
-/**
- * `Toggle` — the ONE on/off control. Every setting that is on or off uses it, on every surface:
- * never a bare "On"/"Off" sentence, never a checkbox standing in for a setting (owner, 2026-10-17).
- * A checkbox is still right for PICKING rows (bulk select in a table) — that is a selection, not a
- * setting.
- *
- * Two shapes, one control:
- *
- * - **Row** (the default when `label` is shown): a full-width `<button role="switch">` holding the
- *   label, an optional description and the track. The whole row toggles, so the target is the row,
- *   not a 44×24 pill. `aria-labelledby` names it with the label alone and `aria-describedby` adds the
- *   description, so a screen reader hears "Two-step verification, switch, off, <description>".
- * - **Bare** (`hideLabel`): the track alone, named by `aria-label`, for a place whose visible label
- *   already sits beside it. Its hit area is still 44px on a touch screen.
- *
- * Space and Enter both toggle (native `<button>` behaviour). The focus ring is the global outline.
- * Off is an OUTLINED track with an ink knob and on is a filled purple track with a white knob, so the
- * state reads in greyscale and in forced-colours mode, not only by hue; both meet 3:1 non-text
- * contrast against `card` in light and dark. The knob slides with a CSS transition, which the global
- * reduced-motion rules already zero.
- *
- * `busy` keeps the switch where it is and marks it `aria-busy` — for a change that is waiting on the
- * server (two-step verification shows Off with "Setting up…" until the code is verified).
- *
- * Android's twin is `ui/AppToggle.kt` (`AppToggle`).
- */
-
 import { useId, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
 export type ToggleProps = {
-  /** Controlled state. Omit (with `defaultChecked`) for an uncontrolled toggle inside a `<form>`. */
   checked?: boolean;
   defaultChecked?: boolean;
   onChange?: (next: boolean) => void;
-  /** What the setting is. Always required: it is the switch's accessible name. */
   label: string;
-  /** One plain sentence under the label (row shape only). */
   description?: React.ReactNode;
-  /** Draw the track alone; `label` becomes its `aria-label`. */
   hideLabel?: boolean;
   disabled?: boolean;
   busy?: boolean;
   id?: string;
-  /** Submit with a form: a hidden input carrying "on" while the toggle is on, like a checkbox. */
   name?: string;
   className?: string;
 };
@@ -148,7 +116,6 @@ function Track({ on, busy }: { on: boolean; busy: boolean }) {
         busy && "opacity-70"
       )}
     >
-      {/* bg-white rather than bg-card on the ON knob: it sits on a filled purple track in both themes. */}
       <span
         className={cn(
           "absolute top-1/2 grid -translate-y-1/2 place-items-center rounded-full transition-all",

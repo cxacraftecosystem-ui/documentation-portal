@@ -1,21 +1,5 @@
 import { Mask } from './buffers';
 
-/**
- * Connected components. See ALGORITHMS.md §9.
- *
- * Two-pass union-find with path compression and union by rank. The alternative — flood filling from
- * every unlabelled pixel — needs a frontier the size of the image and is measurably slower for the
- * many-small-blobs case that dominates here (dust on a scan is thousands of 2 px components).
- */
-
-/**
- * Labelling result. Labels run `1..count`; 0 is background.
- *
- * `area[label]` and `bounds[4 * label .. 4 * label + 3]` are indexed **by label**, so both arrays have
- * `count + 1` entries' worth of room and slot 0 describes the background. Indexing by label rather
- * than by a dense 0-based index is what lets callers keep a label from `labels` and look it up without
- * an offset, and an off-by-one there silently attributes one blob's area to its neighbour.
- */
 export class Labels {
   constructor(
     readonly width: number,
@@ -26,7 +10,6 @@ export class Labels {
     readonly bounds: Int32Array,
   ) {}
 
-  /** @returns a Mask that is `true` exactly where `labels` equals `label`; blank for an unknown label. */
   maskOf(label: number): Mask {
     const out = new Uint8Array(this.labels.length);
     if (label >= 1 && label <= this.count) {
@@ -35,7 +18,6 @@ export class Labels {
     return new Mask(this.width, this.height, out);
   }
 
-  /** @returns the pixel count of `label`, or 0 for an unknown label. */
   areaOf(label: number): number {
     if (label < 0 || label > this.count) return 0;
     return this.area[label];
@@ -45,7 +27,6 @@ export class Labels {
 function findRoot(parent: Int32Array, x: number): number {
   let root = x;
   while (parent[root] !== root) root = parent[root];
-  // Path compression on the way back, which is what keeps the second pass linear on a spiral shape.
   let cur = x;
   while (parent[cur] !== root) {
     const next = parent[cur];
@@ -69,13 +50,6 @@ function union(parent: Int32Array, rank: Int32Array, a: number, b: number): void
   }
 }
 
-/**
- * Label the foreground.
- *
- * @param connectivity 8 (default) or 4; anything else is treated as 8
- * @returns labels numbered in raster order of their first pixel, so the result is reproducible and
- *          independent of the union-find's internal root choices.
- */
 export function label(src: Mask, connectivity = 8): Labels {
   const w = src.width;
   const h = src.height;
@@ -84,7 +58,6 @@ export function label(src: Mask, connectivity = 8): Labels {
   const eight = connectivity !== 4;
 
   const prov = new Int32Array(n);
-  // Provisional labels start at 1; capacity is bounded by the checkerboard worst case.
   const cap = (n >> 1) + 2;
   const parent = new Int32Array(cap);
   const rank = new Int32Array(cap);
@@ -97,9 +70,7 @@ export function label(src: Mask, connectivity = 8): Labels {
       const i = row + x;
       if (d[i] === 0) continue;
       let best = 0;
-      // West
       if (x > 0 && prov[i - 1] !== 0) best = prov[i - 1];
-      // North
       if (y > 0 && prov[rowUp + x] !== 0) {
         const l = prov[rowUp + x];
         if (best === 0) best = l;
@@ -126,7 +97,6 @@ export function label(src: Mask, connectivity = 8): Labels {
     }
   }
 
-  // Second pass: resolve to roots, then renumber roots by first appearance in raster order.
   const remap = new Int32Array(next);
   const labels = new Int32Array(n);
   let count = 0;
@@ -150,8 +120,6 @@ export function label(src: Mask, connectivity = 8): Labels {
     bounds[4 * l + 2] = -1;
     bounds[4 * l + 3] = -1;
   }
-  // The background slot is a normalised empty box rather than an inverted one, which reads as a
-  // nonsense rectangle in a debugger and in any UI overlay that draws it.
   bounds[0] = 0;
   bounds[1] = 0;
   bounds[2] = -1;
@@ -160,8 +128,6 @@ export function label(src: Mask, connectivity = 8): Labels {
     const row = y * w;
     for (let x = 0; x < w; x++) {
       const l = labels[row + x];
-      // Slot 0 stays at zero. It is the background's slot, and callers sum `area` to get the total ink
-      // count — counting the background there silently doubles that answer.
       if (l === 0) continue;
       area[l]++;
       const b = 4 * l;
@@ -174,10 +140,6 @@ export function label(src: Mask, connectivity = 8): Labels {
   return new Labels(w, h, labels, count, area, bounds);
 }
 
-/**
- * Drop 8-connected components smaller than `minArea`.
- * @param minArea <= 1 returns `src.copy()` (every component has at least one pixel)
- */
 export function removeSmallBlobs(src: Mask, minArea: number): Mask {
   if (minArea <= 1) return src.copy();
   const lab = label(src, 8);
@@ -186,14 +148,6 @@ export function removeSmallBlobs(src: Mask, minArea: number): Mask {
   return applyKeep(lab, keep);
 }
 
-/**
- * Keep only the `n` largest components — the "only the subject" control.
- *
- * Ties are broken by the lower label, i.e. by raster order of the first pixel, so the choice is
- * reproducible rather than dependent on a sort's stability.
- *
- * @param n <= 0 returns a blank mask of the same size
- */
 export function keepLargest(src: Mask, n: number): Mask {
   if (n <= 0) return src.blank();
   const lab = label(src, 8);
@@ -207,7 +161,6 @@ export function keepLargest(src: Mask, n: number): Mask {
   return applyKeep(lab, keep);
 }
 
-/** Drop every component with a pixel on the image border — for scans that include a frame. */
 export function removeBorderTouching(src: Mask): Mask {
   const lab = label(src, 8);
   const keep = new Uint8Array(lab.count + 1);
@@ -236,14 +189,6 @@ function applyKeep(lab: Labels, keep: Uint8Array): Mask {
   return new Mask(lab.width, lab.height, out);
 }
 
-/**
- * Clear any foreground pixel with fewer than `minNeighbours` foreground 8-neighbours, iterated to a
- * fixed point.
- *
- * @param maxPasses hard bound so a pathological input cannot loop; 8 is enough for every real case
- *                  because each pass strictly shrinks the mask
- * @returns a new Mask; `src.copy()` when `minNeighbours <= 0`
- */
 export function removeIsolated(src: Mask, minNeighbours = 1, maxPasses = 8): Mask {
   if (minNeighbours <= 0) return src.copy();
   const w = src.width;
@@ -273,22 +218,11 @@ export function removeIsolated(src: Mask, minNeighbours = 1, maxPasses = 8): Mas
       }
     }
     if (count === 0) break;
-    // Deletions are applied after the whole pass. Deleting in place makes the result scan-order
-    // dependent, and it would then differ between the Kotlin and TypeScript engines.
     for (let k = 0; k < count; k++) cur[doomed[k]] = 0;
   }
   return new Mask(w, h, cur);
 }
 
-/**
- * Fill enclosed background regions up to `maxHoleArea` pixels.
- *
- * The background is labelled **4-connected** while the foreground is 8-connected. That pairing is the
- * standard one and it is what makes a diagonal chain of ink count as a closed loop: with 8-connected
- * background, a hole leaks out through the diagonal and never gets filled.
- *
- * @param maxHoleArea <= 0 returns `src.copy()` (the feature is off)
- */
 export function fillHoles(src: Mask, maxHoleArea: number): Mask {
   if (maxHoleArea <= 0) return src.copy();
   const w = src.width;

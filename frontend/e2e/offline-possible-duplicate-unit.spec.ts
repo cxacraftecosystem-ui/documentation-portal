@@ -10,14 +10,6 @@ import {
   type OutboxEntry
 } from "@/lib/offline";
 
-/**
- * A queued artisan the server held as a likely duplicate when the outbox drained.
- *
- * It is NOT a clash and NOT a rejection, so it gets its own state (`possibleDuplicate`) and its own
- * two answers: "Same person" skips the create and lets the media go to the existing artisan;
- * "Different person" re-sends the create with the candidates acknowledged. Discard stays.
- */
-
 const read = (...parts: string[]) => readFileSync(join(__dirname, "..", ...parts), "utf8").replace(/\r\n/g, "\n");
 
 function held(body: Record<string, unknown> = { name: "Giriraj", duplicateAcknowledged: [] }): OutboxEntry {
@@ -56,7 +48,6 @@ test("Same person: no create, the media goes to the existing artisan", () => {
   expect(next.attachedToExisting).toBe(true);
   expect(next.failure).toBeNull();
   expect(next.possibleDuplicate).toBeNull();
-  // The queued fields are not copied anywhere: the body is left exactly as it was.
   expect(next.body).toBe(held().body);
 });
 

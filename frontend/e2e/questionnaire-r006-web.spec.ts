@@ -2,16 +2,6 @@ import { devices, expect, test, type Page, type Route } from "@playwright/test";
 
 import { QuestionnaireFake } from "./support/qv2Fake";
 
-/**
- * 0.0.6 ON THE SHARED QUESTIONNAIRE SCREENS, IN A REAL BROWSER, BOTH PORTALS (this file is the same
- * in designer-portal and documentation-portal; each portal's `QuestionnaireFake` answers the API).
- *
- * On a desktop, a tablet and a phone: a take's transcript preview reads as speaker-labelled text
- * (mapped names, no asterisks, no "Transcript" prefix, a clean clamp); on workshop coverage an
- * artisan's truncated name shows whole on hover or focus, and a dot opens that artisan × section's
- * recording — one directly, several through a short chooser, none not at all.
- */
-
 const VIEWPORTS = [
   { name: "desktop", use: { viewport: { width: 1280, height: 900 } } },
   { name: "tablet", use: { viewport: { width: 820, height: 1180 }, hasTouch: true } },
@@ -39,7 +29,6 @@ function cell(artisanId: string, state: string, takes: number, source: string | 
   return { artisanId, subjectKey: `A:${artisanId}`, state, takes, covered: takes ? 1 : 0, total: 1, needsDecision: false, override: null, source, addRecording: source === "TYPED", recordings };
 }
 
-/** The grid as contract v2 sends it: each cell lists the takes behind it, oldest first. */
 function coverageGrid(): Json {
   return {
     questionnaireId: "f1",
@@ -73,7 +62,6 @@ async function openCoverage(page: Page) {
   fake.grid = coverageGrid;
   fake.recordings.push({ ...fake.recordings[0], id: "rec-2", mediaFileId: "m-rec-2", capturedAt: "2026-10-25T05:10:00Z" });
   await fake.install(page);
-  // The cells list their takes, so a dot never needs the coverage check.
   const checks: unknown[] = [];
   await page.route(
     (url) => url.pathname === "/api/questionnaire/coverage/check",
@@ -94,7 +82,6 @@ for (const viewport of VIEWPORTS) {
 
     test("@qf:E9 a take's transcript preview reads as speaker-labelled text, with mapped names and no Markdown", async ({ page }) => {
       const fake = new QuestionnaireFake();
-      // The server's preview (mapped names, colour keys) on one take; only the stored Markdown on another.
       fake.recordings[0].transcript = {
         status: "COMPLETED",
         paused: false,
@@ -121,7 +108,6 @@ for (const viewport of VIEWPORTS) {
         const text = await preview.innerText();
         expect(text).not.toMatch(/[*`]/);
         expect(text.trim().startsWith("Transcript")).toBe(false);
-        // Labels are styled as labels, each speaker in their own colour; the block clamps cleanly.
         const speakers = preview.locator("[data-preview-speaker]");
         expect(await speakers.nth(0).evaluate((element) => getComputedStyle(element).fontWeight)).toBe("600");
         const colour = (index: number) => speakers.nth(index).evaluate((element) => getComputedStyle(element).color);
@@ -137,7 +123,6 @@ for (const viewport of VIEWPORTS) {
       expect(await short.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
       const full = name.locator("[data-artisan-full-name]");
       await expect(full).toBeHidden();
-      // A pointer that hovers shows it on hover; a touch screen has no hover, so a tap (focus) does.
       if (viewport.name === "desktop") await name.hover();
       else await name.tap();
       await expect(full).toBeVisible();
@@ -155,7 +140,6 @@ for (const viewport of VIEWPORTS) {
     test("@qf:E8 a dot opens its recording, several open a chooser, and an empty cell is not a button", async ({ page }) => {
       const { grid, checks } = await openCoverage(page);
 
-      // None: no button, nothing to press, nowhere to go.
       await expect(grid.getByRole("button", { name: `A ${LONG_NAME}: Not recorded` })).toHaveCount(0);
       await expect(grid.getByRole("button", { name: `B ${LONG_NAME}: Typed · Add a recording?` })).toHaveCount(0);
       const empty = grid.locator('[data-coverage-cell="s1:a2"]');
@@ -164,7 +148,6 @@ for (const viewport of VIEWPORTS) {
       await expect(page.locator("[data-recording-chooser]")).toHaveCount(0);
       await expect(page).toHaveURL(/\/questionnaire\/coverage$/);
 
-      // Several: a chooser, oldest first, by date, researcher and duration.
       await grid.getByRole("button", { name: "B Giriraj Prasad Chhipa: Recorded" }).click();
       const chooser = page.locator("[data-recording-chooser]");
       await expect(chooser).toBeVisible();
@@ -177,7 +160,6 @@ for (const viewport of VIEWPORTS) {
       await expect(page).toHaveURL(/\/questionnaire\/sessions\/s-1\/view\?recording=rec-2$/);
       await expect(page.locator('[data-recording="rec-2"]')).toHaveAttribute("data-focused", "true");
 
-      // One: straight to it.
       await page.goBack();
       const again = page.locator('[data-coverage-grid="recordings"]');
       await expect(again).toBeVisible({ timeout: 30_000 });

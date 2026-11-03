@@ -3,15 +3,6 @@ import { join, relative } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-/**
- * THE SHARED WEB QUESTIONNAIRE STAYS COPYABLE (UNIFY 2.4, Web). `lib/questionnaire/**` and
- * `components/questionnaire/**` are byte-identical in designer-portal and Field Repository
- * (`shared/questionnaire.sha256`, `scripts/sync_questionnaire.py`), so a file there may import only
- * the two trees, the portal's own `lib/questionnairePortal`, and what
- * `shared/questionnaire-web-imports.json` lists — modules both portals carry with the same exports.
- * Anything else would make the copy fail to build in the other portal.
- */
-
 const ROOT = join(__dirname, "..");
 const RULES = JSON.parse(readFileSync(join(ROOT, "..", "shared", "questionnaire-web-imports.json"), "utf8")) as {
   trees: string[];

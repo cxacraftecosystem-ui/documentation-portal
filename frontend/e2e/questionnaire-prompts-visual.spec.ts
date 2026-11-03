@@ -10,13 +10,6 @@ import { ButtonRow } from "@/components/ui/ButtonRow";
 import { alreadyRecorded, prompts, type PromptSpec } from "@/lib/questionnairePrompts";
 import { CONTRACT } from "./questionnaire-contract-fixture";
 
-/**
- * DESIGN test 48: every prompt, light and dark, at 360 px, follows the button-row rule (one button
- * centred, two on one line, more stacked). Each prompt is drawn through the real `ButtonRow` and
- * `promptButtonClass` with the app's built stylesheet, so no server or sign-in is needed; it needs
- * only `npm run build` first. Screenshots land in SHOT_DIR for a person to look at.
- */
-
 const SHOT_DIR = process.env.SHOT_DIR ?? "test-results/questionnaire-prompts-visual";
 
 function builtCss(): string | null {

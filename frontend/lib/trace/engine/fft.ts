@@ -1,15 +1,3 @@
-/**
- * Radix-2 Cooley-Tukey FFT. See ALGORITHMS.md §8.
- *
- * Exists solely for the spectral-residual saliency matte, which needs a complex 2-D transform of a
- * 64x64 proxy. Decimation in time with an explicit bit-reversal permutation, in place, no allocation
- * beyond the twiddle tables.
- *
- * Sign convention: forward is `X[k] = sum x[n] e^(-2*pi*i*k*n/N)`; inverse is the same sum with `+i`
- * and a `1/N` scale, so `transform(re, im, true)` after `transform(re, im, false)` is the identity.
- */
-
-/** @returns the smallest power of two >= `n`, and 1 for any `n <= 1`. */
 export function nextPowerOfTwo(n: number): number {
   if (n <= 1) return 1;
   let p = 1;
@@ -21,20 +9,12 @@ function isPowerOfTwo(n: number): boolean {
   return n > 0 && (n & (n - 1)) === 0;
 }
 
-/**
- * In-place complex FFT.
- * @param real length must be a power of two
- * @param imag same length as `real`
- * @param inverse true applies the `+i` kernel and divides by N
- * @throws if the lengths differ or the length is not a power of two.
- */
 export function transform(real: Float32Array, imag: Float32Array, inverse: boolean): void {
   const n = real.length;
   if (imag.length !== n) throw new Error('transform(): real and imag must be the same length');
   if (!isPowerOfTwo(n)) throw new Error(`transform(): length ${n} is not a power of two`);
   if (n === 1) return;
 
-  // Bit-reversal permutation.
   for (let i = 1, j = 0; i < n; i++) {
     let bit = n >> 1;
     for (; j & bit; bit >>= 1) j ^= bit;
@@ -50,10 +30,6 @@ export function transform(real: Float32Array, imag: Float32Array, inverse: boole
   }
 
   const sign = inverse ? 1 : -1;
-  // Twiddles come from a table computed with direct cos/sin per stage rather than from an angle
-  // recurrence. The recurrence is faster and drifts: over the 2048 steps of the last stage of a 4096
-  // point transform the accumulated error is large enough to break a 1e-4 round-trip assertion, which
-  // is exactly the tolerance the two engines are held to.
   const tw = new Float64Array(n);
   for (let len = 2; len <= n; len <<= 1) {
     const half = len >> 1;
@@ -87,12 +63,6 @@ export function transform(real: Float32Array, imag: Float32Array, inverse: boole
   }
 }
 
-/**
- * In-place complex 2-D FFT: every row, then every column.
- * @param w must be a power of two, and `w * h` must equal the array lengths
- * @param h must be a power of two
- * @throws if either dimension is not a power of two or the lengths disagree.
- */
 export function transform2d(
   real: Float32Array,
   imag: Float32Array,

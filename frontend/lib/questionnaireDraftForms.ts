@@ -1,17 +1,3 @@
-/**
- * Offline form authoring with temporary ids (UNIFY A15, section 4.3: steps `form` → `section` →
- * `question`, temporary ids remapped as each lands).
- *
- * A form written with no connection lives on this device as a draft, stamped with the account that
- * wrote it (another account's drafts are never shown or sent). Every section and question carries a
- * temporary id; when the device is online the draft is sent in order — the form, then each section
- * under the form's real id, then each question under its section's real id — and each real id is
- * written onto the draft the moment it lands, so a send cut off half way resumes where it stopped
- * and never makes a second copy. A draft that has fully landed is removed.
- *
- * Field Repository's own module (the library and its builder are this portal's).
- */
-
 import { apiFetch } from "@/lib/api";
 import type { JsonFetcher } from "@/lib/questionnaireApi";
 
@@ -28,9 +14,7 @@ export type DraftForm = {
   kind: string | null;
   createdAt: string;
   sections: DraftSection[];
-  /** The real id once the form has landed. */
   serverId?: string;
-  /** The server's sentence when a step was refused (shown on the draft; the draft is kept). */
   error?: string;
 };
 
@@ -70,11 +54,9 @@ function writeAll(drafts: DraftForm[], store: KeyStore | null): void {
     if (drafts.length) store.setItem(DRAFT_FORMS_KEY, JSON.stringify(drafts));
     else store.removeItem(DRAFT_FORMS_KEY);
   } catch {
-    // A full store: the drafts already held stay; the new change is not kept.
   }
 }
 
-/** This account's drafts, oldest first. */
 export function listDrafts(owner: string | null | undefined, store: KeyStore | null = browserStore()): DraftForm[] {
   if (!owner) return [];
   return readAll(store).filter((d) => d.owner === owner);
@@ -122,17 +104,11 @@ export function addDraftQuestion(draft: DraftForm, sectionTempId: string, prompt
   );
 }
 
-/** "2 sections · 5 questions", for the draft's row. */
 export function draftSummary(draft: DraftForm): string {
   const questions = draft.sections.reduce((n, s) => n + s.questions.length, 0);
   return `${draft.sections.length} ${draft.sections.length === 1 ? "section" : "sections"} · ${questions} ${questions === 1 ? "question" : "questions"}`;
 }
 
-/**
- * Send one draft in order, remapping each temporary id as its step lands. Returns the form's real id
- * once everything has landed (the draft is then removed), or null with the draft kept (and its
- * `error` set when the server refused a step) so the next attempt resumes.
- */
 export async function sendDraft(
   draft: DraftForm,
   fetchJson: JsonFetcher = apiFetch,
@@ -175,7 +151,6 @@ export async function sendDraft(
     }
   } catch (err) {
     const status = (err as { status?: number })?.status;
-    // A refusal is kept with its sentence; a dropped connection is simply tried again later.
     if (typeof status === "number" && status >= 400 && status < 500) {
       current = { ...current, error: err instanceof Error ? err.message : "Not accepted." };
       keep();

@@ -25,27 +25,6 @@ import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { readRequestableAnswer, requestableCeilingSentence } from "@/lib/requestableWorkshops";
 
-/**
- * "Request workshop access" — the ONE panel on /settings that everybody sees, whatever their role.
- *
- * Multi-select because that is how the need arrives: a researcher joining a project wants the same
- * access to a whole season of workshops, and filing them one at a time produces a queue nobody works
- * through. The backend is idempotent per workshop, so pressing this twice is safe — it reports back
- * per workshop whether the row was created, re-requested, already pending, or already granted, and
- * that summary is what the toast repeats.
- *
- * The picker is fed by `GET /workshops/requestable`, NOT by `GET /workshops`. That distinction is the
- * whole feature: the plain list is visibility-filtered and, below professor, returns only workshops
- * the caller CREATED — so for a newly onboarded researcher or volunteer, who has created none, this
- * panel showed "No workshops to ask about" and there was no way to ask for anything. The people the
- * panel exists for were the only people it did not work for. `requestable` is unfiltered but carries
- * only the identifying fields plus the caller's own standing, so naming a workshop never leaks what
- * is inside it.
- *
- * Below the form is the caller's own history — held, waiting, and refused in one place, which is the
- * difference between "ask again" and "stop asking".
- */
-
 const OUTCOME_TEXT: Record<WorkshopAccessRequestResult["outcomes"][number]["outcome"], string> = {
   CREATED: "requested",
   RE_REQUESTED: "requested again",
@@ -57,10 +36,7 @@ export function WorkshopAccessRequestPanel() {
   const { toast } = useToast();
   const levels = useWorkshopAccessLevels();
 
-  // null = still loading. Distinguished from [] so the picker can say "loading" rather than the far
-  // more discouraging "no workshops to ask about" while the fetch is in flight.
   const [workshops, setWorkshops] = useState<RequestableWorkshop[] | null>(null);
-  /** The server read past its cap and found more: the picker states the ceiling under itself. */
   const [workshopsTruncated, setWorkshopsTruncated] = useState(false);
   const [mine, setMine] = useState<WorkshopAccessRow[] | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
@@ -80,15 +56,10 @@ export function WorkshopAccessRequestPanel() {
 
   const loadWorkshops = useCallback(async () => {
     try {
-      // An ENVELOPE, `{items, truncated}` — see `lib/requestableWorkshops.ts` for why every reader
-      // of this route goes through the one parser (the designer portal's panel sorted the envelope
-      // itself and threw "e is not iterable" in production).
       const answer = readRequestableAnswer<RequestableWorkshop>(await apiFetch<unknown>("/workshops/requestable"));
       setWorkshops(sortWorkshopsByOccurrence(answer.items));
       setWorkshopsTruncated(answer.truncated);
     } catch (err) {
-      // Surfaced rather than swallowed: an empty picker that is empty because the call failed reads
-      // exactly like an empty picker that is empty because there is nothing to ask about.
       setError(err instanceof Error ? err.message : "Unable to load the workshops you can ask about");
       setWorkshops([]);
       setWorkshopsTruncated(false);
@@ -101,12 +72,8 @@ export function WorkshopAccessRequestPanel() {
   }, [loadMine, loadWorkshops]);
 
   const options = useMemo(() => requestableOptions(workshops ?? []), [workshops]);
-  // The flag and no total: the route reads one row past its cap rather than counting, so the
-  // sentence states the ceiling and never a number it was not given.
   const ceilingNote = requestableCeilingSentence(options.length, workshopsTruncated);
 
-  // What is already settled, said once under the picker. Both counts are things a user would
-  // otherwise discover only by asking and being told nothing happened.
   const standingNote = useMemo(() => {
     const held = (workshops ?? []).filter((workshop) => workshop.accessStatus === "GRANTED").length;
     const open = (workshops ?? []).filter((workshop) => !workshop.restricted && !workshop.accessStatus).length;
@@ -130,8 +97,6 @@ export function WorkshopAccessRequestPanel() {
         method: "POST",
         body: JSON.stringify({ workshopIds: selected, accessLevel: level, note: note.trim() || null })
       });
-      // Group the per-workshop outcomes so the toast reads "2 requested, 1 already granted" rather
-      // than repeating a line per workshop.
       const tally = new Map<string, number>();
       result.outcomes.forEach((outcome) => tally.set(outcome.outcome, (tally.get(outcome.outcome) ?? 0) + 1));
       const summary = Array.from(tally.entries())
@@ -144,8 +109,6 @@ export function WorkshopAccessRequestPanel() {
       });
       setSelected([]);
       setNote("");
-      // Reload the picker too, not just the history: the rows just filed are now PENDING, and an
-      // option that still offers itself as un-asked invites the same request twice.
       await Promise.all([loadMine(), loadWorkshops()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to send the request");

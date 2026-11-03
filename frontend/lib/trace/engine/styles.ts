@@ -9,18 +9,6 @@ import {
   withOverrides,
 } from './params';
 
-/**
- * The twenty output styles of FEATURES.md §6.
- *
- * **The ids are binding.** They are written into project files and carried in `TraceParams.styleId`, so
- * renaming one silently breaks every saved project that used it. Names and descriptions are display text
- * and may change; ids may not.
- *
- * A style is a complete parameter tree, not a diff, because a user who switches styles expects the second
- * one to look like itself rather than like a blend of the two. The tables below are expressed as overrides
- * on the documented defaults purely so the interesting values are visible.
- */
-
 export interface StylePreset {
   readonly id: string;
   readonly name: string;
@@ -29,7 +17,6 @@ export interface StylePreset {
   readonly params: TraceParams;
 }
 
-/** The five groups of FEATURES.md §6, in the order the table introduces them. */
 const GROUP_LINE_ART = 'Line art';
 const GROUP_DRAWING = 'Drawing';
 const GROUP_TECHNICAL = 'Technical';
@@ -43,8 +30,6 @@ function preset(
   description: string,
   over: TraceParamsInput,
 ): StylePreset {
-  // styleId is forced to the preset's own id rather than trusted from the override table, so a
-  // copy-pasted entry cannot ship a style that reports itself as a different one.
   return {
     id,
     name,
@@ -54,7 +39,6 @@ function preset(
   };
 }
 
-/** All twenty presets, in FEATURES.md §6 display order. */
 export const ALL: readonly StylePreset[] = [
   preset(
     'clean-line',
@@ -75,9 +59,6 @@ export const ALL: readonly StylePreset[] = [
       'distance transform.',
     {
       preprocess: { denoise: DenoiseMode.BILATERAL, denoiseStrength: 0.4 },
-      // phi = 6 shifts the ink level down by 0.09 on its own, so epsilon carries that back: 0.19
-      // puts the level at 0.10, a little above the line styles because a sketch is allowed to find
-      // the faintest marks.
       edge: { engine: EdgeEngine.XDOG, dogSigma: 1.2, xdogEpsilon: 0.19, xdogPhi: 6 },
       cleanup: { minBlobArea: 16, pruneSpurs: 3 },
       output: {
@@ -95,11 +76,6 @@ export const ALL: readonly StylePreset[] = [
     GROUP_TECHNICAL,
     'Uniform hairline with corners protected and smoothing switched off, from Canny edges.',
     {
-      // Explicit hysteresis rather than the auto rule. `detectAuto` puts its thresholds at
-      // (1 +- 0.33) x the MEDIAN gradient magnitude, and on a photograph the median gradient *is*
-      // the sensor noise: measured on the pot the median was 0.00045 while the painted bands sat at
-      // 0.036 and the smooth body at 0.001, so auto seeded half the frame. 0.004/0.012 sits above
-      // the body's 99th percentile and below the weakest real edge, and hysteresis grows the rest.
       edge: { engine: EdgeEngine.CANNY, blurSigma: 1.4, cannyLow: 0.004, cannyHigh: 0.012 },
       cleanup: { closeRadius: 1, pruneSpurs: 3 },
       output: {
@@ -156,9 +132,6 @@ export const ALL: readonly StylePreset[] = [
     {
       edge: { engine: EdgeEngine.LOG, logSigma: 1.1, logSlope: 0.01 },
       cleanup: { minBlobArea: 8, closeRadius: 0, removeIsolated: false, pruneSpurs: 2 },
-      // These two are in WORKING pixels, and the working long edge is 2048 by default. A 2 px path
-      // there is a tenth of a millimetre on a printed page: not fine detail, arithmetic residue.
-      // 6 px is still far below the thinnest thing ornament is made of.
       output: { simplify: 0.5, strokeWidth: 1, minPathLength: 6 },
     },
   ),
@@ -168,9 +141,6 @@ export const ALL: readonly StylePreset[] = [
     GROUP_DRAWING,
     'Hard XDoG lines with filled black masses.',
     {
-      // The one line style that keeps a real tone response, because "filled black masses" is the
-      // whole point of it. 0.185 puts the level at 0.18, so a genuinely dark mass fills and a lit
-      // mid-tone body does not.
       edge: { engine: EdgeEngine.XDOG, xdogEpsilon: 0.185, xdogPhi: 120 },
       cleanup: { skeletonize: false, closeRadius: 2, minBlobArea: 40, fillHolesUpTo: 32 },
       output: {
@@ -264,8 +234,6 @@ export const ALL: readonly StylePreset[] = [
     'High-contrast chunky shapes with thick outlines.',
     {
       preprocess: { contrast: 0.45, claheClip: 3 },
-      // Tonal on purpose, like `comic`: a woodcut is solid blocks, so the level stays high enough
-      // (0.18) to fill a genuinely dark mass. Every other style here drops it to 0.05.
       edge: { engine: EdgeEngine.XDOG, dogSigma: 1.8, xdogEpsilon: 0.183, xdogPhi: 200 },
       cleanup: {
         skeletonize: false,
@@ -304,9 +272,6 @@ export const ALL: readonly StylePreset[] = [
         simplify: 2,
         fitError: 2.4,
         minPathLength: 20,
-        // A stencil is a cut file: closed paths a blade follows, with the holes that survive
-        // `fillHolesUpTo` kept as their own closed paths. Painting the regions solid would both hide
-        // those holes and give the operator a black rectangle to cut around.
         fillClosed: false,
       },
     },
@@ -321,7 +286,6 @@ export const ALL: readonly StylePreset[] = [
       cleanup: {
         skeletonize: false,
         closeRadius: 4,
-        // Every hole is filled: a silhouette by definition has no interior.
         fillHolesUpTo: Limits.MAX_AREA,
         keepLargest: 3,
         minBlobArea: 400,
@@ -341,9 +305,6 @@ export const ALL: readonly StylePreset[] = [
     GROUP_PRINT,
     'Fine dense line work: high sensitivity, minimal blob removal, thin uniform strokes.',
     {
-      // `sensitivity` moves the ink level by only atanh(t-1)/phi, i.e. 0.009 across its whole travel
-      // at phi = 20, so the "fine dense line work" promise has to be spent on epsilon: 0.138 is a
-      // level of 0.12, the highest of the line styles, which is what resolves the faintest hatching.
       edge: {
         engine: EdgeEngine.FDOG,
         sensitivity: 0.75,
@@ -356,8 +317,6 @@ export const ALL: readonly StylePreset[] = [
         fitError: 1,
         smoothIterations: 0,
         strokeWidth: 0.7,
-        // Working pixels, as in `mandala`: the finest hatching this preset exists for is hundreds of
-        // pixels long at 2048, so nothing 2 px long is hatching.
         minPathLength: 6,
       },
     },
@@ -382,10 +341,6 @@ export const ALL: readonly StylePreset[] = [
         simplify: 1.6,
         fitError: 2,
         minPathLength: 10,
-        // A colouring page is an outline with a WHITE interior for a child to fill in. Filling the
-        // regions instead hands them a solid black silhouette of the subject with every band and
-        // motif inside it painted over — which is what this style shipped as. See
-        // `VectorizeParams.fillRegions`.
         fillClosed: false,
       },
     },
@@ -445,9 +400,6 @@ export const ALL: readonly StylePreset[] = [
         simplify: 1.8,
         fitError: 2.2,
         minPathLength: 12,
-        // "Mid-simplification OUTLINES sized for transfer printing" — a transfer pattern is a line
-        // you iron on and draw inside, not a solid block of ink. This also matches the Kotlin
-        // preset, which had it right.
         fillClosed: false,
       },
     },
@@ -458,8 +410,6 @@ export const ALL: readonly StylePreset[] = [
     GROUP_LINE_ART,
     'Extreme simplification: the fewest paths that still read as the subject.',
     {
-      // The lowest ink level in the set (0.03), which is what "the fewest paths" actually costs:
-      // only the strongest edges answer at all.
       edge: {
         engine: EdgeEngine.FDOG,
         sensitivity: 0.35,
@@ -480,24 +430,20 @@ export const ALL: readonly StylePreset[] = [
 
 const BY_ID = new Map<string, StylePreset>(ALL.map((s) => [s.id, s]));
 
-/** @returns the preset with that id, or null. Ids are binding and case sensitive. */
 export function byId(id: string): StylePreset | null {
   return BY_ID.get(id) ?? null;
 }
 
-/** @returns the default preset, `clean-line`. Never null: it is the first entry of {@link ALL}. */
 export function defaultPreset(): StylePreset {
   return byId(Limits.DEFAULT_STYLE_ID) ?? ALL[0];
 }
 
-/** @returns the group names in display order, each once. */
 export function groups(): string[] {
   const seen: string[] = [];
   for (const s of ALL) if (!seen.includes(s.group)) seen.push(s.group);
   return seen;
 }
 
-/** @returns the presets in a group, in display order; empty for an unknown group name. */
 export function inGroup(group: string): StylePreset[] {
   return ALL.filter((s) => s.group === group);
 }

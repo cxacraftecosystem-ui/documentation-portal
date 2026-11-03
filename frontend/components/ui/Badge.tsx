@@ -1,12 +1,5 @@
 import type { ReactNode } from "react";
 
-/**
- * A small worded mark beside a value: where an answer came from ("From transcript", "From last
- * process") or what still needs doing ("Unnamed step"). One recipe so the marks read as one family.
- *
- * `note` is a fact about the value; `attention` is something somebody should come back to. Both carry
- * a word, never colour alone. The tones are literal (they do not invert), each pair at 4.5:1 or better.
- */
 export type BadgeTone = "note" | "attention";
 
 const TONE_CLASS: Record<BadgeTone, string> = {
@@ -21,7 +14,6 @@ export function Badge({
   children
 }: {
   tone?: BadgeTone;
-  /** `dd` inside a description list; `span` everywhere else. */
   as?: "span" | "dd";
   className?: string;
   children: ReactNode;

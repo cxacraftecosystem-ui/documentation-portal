@@ -5,12 +5,6 @@ import { expect, test } from "@playwright/test";
 
 import { alreadyRecorded, DISMISSED, prompts, type PromptSpec } from "@/lib/questionnairePrompts";
 
-/**
- * DESIGN §4.5 copy, exactly, and the button-row rule for every prompt (test 48's rule half; the
- * pixel snapshots need a running app and are not part of the unit run). Every prompt draws through
- * `ButtonRow`, which lays one button centred, two on a line, more stacked or as pills.
- */
-
 const ALL: [string, PromptSpec][] = [
   ["P1", prompts.p1({ researcher: "Nandini", artisans: "Giriraj and Meena", time: "10:12" })],
   ["P3", prompts.p3({ target: "Section D", elapsed: "12:40", code: "F3" })],
@@ -58,9 +52,6 @@ test("button rows: 0 inline, 1 centred, 2 on one line; destructive last", () => 
 });
 
 test("every prompt names a safe dismissal; P13 keeps the take and Finish does nothing (audit H16)", () => {
-  // Escape, the backdrop and a lost focus resolve to `spec.dismiss`. It used to be "the first
-  // secondary button", which made a dismissed P13 DISCARD the recovered take and a dismissed Finish
-  // finish the session.
   const byId = Object.fromEntries(ALL);
   expect(byId.P13.dismiss).toBe("keep");
   expect(byId.FINISH.dismiss).toBeNull();
@@ -89,7 +80,6 @@ test("every prompt names a safe dismissal; P13 keeps the take and Finish does no
   const dialog = readFileSync(join(__dirname, "..", "components", "questionnaire", "Prompts.tsx"), "utf8");
   expect(dialog).toContain("const safe = spec.dismiss ?? DISMISSED;");
   expect(DISMISSED).toBe("dismissed");
-  // And the workspace acts on P13's Discard only when Discard was pressed.
   const workspace = readFileSync(join(__dirname, "..", "components", "questionnaire", "SessionWorkspace.tsx"), "utf8");
   expect(workspace).toContain('} else if (choice === "discard") {');
 });

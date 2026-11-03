@@ -8,22 +8,13 @@ import { failedFilesOf, type FailedUpload } from "@/components/media/failedUploa
 
 export { failedFilesOf, type FailedUpload } from "@/components/media/failedUploads";
 
-/**
- * B7 — "Retry N files" in one tap, after a save whose record landed and some files did not.
- *
- * The forms used to say "Saved, but 2 files didn't upload … Reopen to retry", which meant opening
- * the record and picking the files from disk again. The files are still in memory, so this keeps
- * them, retries exactly those, and — on a partial retry — keeps only the ones that failed again.
- */
 export function RetryFailedUploads({
   files,
   upload,
   onDone
 }: {
   files: File[];
-  /** Upload these files to the saved record again; resolves with what still failed. */
   upload: (files: File[]) => Promise<{ failed: FailedUpload[] }>;
-  /** Every file is up, or the researcher chose to go on without them. */
   onDone: () => void;
 }) {
   const [pending, setPending] = useState(files);

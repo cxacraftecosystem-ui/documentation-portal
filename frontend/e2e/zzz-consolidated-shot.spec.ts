@@ -1,38 +1,14 @@
 import { test, expect, type Page } from "@playwright/test";
 import fs from "node:fs";
 
-/**
- * Screenshot probe for the consolidated per-artisan questionnaire.
- *
- * The dev server that is running was built against the DEPLOYED API, which does not yet carry this
- * feature's route, so the one new endpoint is served from a local backend instead. That backend
- * reads the SAME production database, and every other request on the page still goes to the
- * deployed API — so what these shots capture is the real page, the real styles and real data, with
- * only the transport for the new endpoint redirected.
- */
-
 const EMAIL = process.env.E2E_EMAIL ?? "admin@example.com";
 const PASSWORD = process.env.E2E_PASSWORD ?? "";
 const ARTISAN_ID = process.env.E2E_ARTISAN_ID ?? "cmqiz1mmb0005kb59dydk6g49";
 const OUT = process.env.E2E_SHOT_DIR ?? "shots";
 const LOCAL_API = process.env.E2E_LOCAL_API ?? "http://127.0.0.1:8000";
 
-/**
- * Opt-in, matching `zz-map-scopes`.
- *
- * This file is a screenshot probe, not a regression test: it needs a local backend carrying the
- * consolidated route, which no clean checkout has. Left unguarded it FAILED the suite by default,
- * and a suite that is red on a fresh clone teaches everyone to ignore red. Point E2E_LOCAL_API at a
- * backend that serves /api/questionnaire/artisans/** to run it.
- */
 const LOCAL_BACKEND_PROVIDED = Boolean(process.env.E2E_LOCAL_API);
 
-/**
- * ThemeProvider applies, in order: the localStorage boot paint, then the SERVER row from
- * GET /preferences/me — which lands last and wins. Setting only localStorage therefore gets
- * overwritten with the account's stored (light) theme a moment after load, which is why the first
- * run of this probe produced two identical "light" shots. Both sources are set here.
- */
 async function setTheme(page: Page, theme: "light" | "dark") {
   const preferences = { theme, reducedMotion: false, largerText: false, highContrast: false };
   await page.route("**/api/preferences/me", async (route) => {
@@ -96,14 +72,6 @@ test("consolidated questionnaire screenshots", async ({ page, request }) => {
   await page.screenshot({ path: `${OUT}/consolidated-index-1280.png` });
 });
 
-/**
- * FIXTURE, NOT LIVE DATA — and labelled as such wherever these shots are shown.
- *
- * The production database currently holds no typed questionnaire answers at all (every answer in it
- * is an audio clip), so the divergent-answer case cannot be photographed from real rows however long
- * one looks. It is also the case the whole view exists for, so it is rendered here from a fixture
- * shaped exactly like the endpoint's response.
- */
 test("conflict rendering, from a fixture", async ({ page }) => {
   fs.mkdirSync(OUT, { recursive: true });
 
@@ -122,8 +90,6 @@ test("conflict rendering, from a fixture", async ({ page }) => {
   const fixture = {
     artisan: { id: "fix", name: "Vikram Lal", craftName: "Cane and Bamboo", place: "Basar, Almora" },
     generatedAt: new Date().toISOString(),
-    // NOTE the different shape: `interviews[]` is the SOURCE list (id/title/date), while the block
-    // copied onto each answer is the provenance shape (interviewId/interviewTitle/interviewDate).
     interviews: [
       {
         id: "iv-b",

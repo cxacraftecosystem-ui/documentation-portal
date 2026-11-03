@@ -43,30 +43,11 @@ type Tile = {
   href: string;
   icon: LucideIcon;
   visible?: boolean;
-  /**
-   * A count rendered on the tile — how many things behind it are waiting for this admin.
-   *
-   * `null` means "not known yet" and renders nothing; `0` means the server said there is nothing
-   * waiting and also renders nothing, because a "0" badge is visual noise on nine tiles. Only a
-   * positive number draws. The distinction between the two still matters upstream — see
-   * `usePendingAccessCount`.
-   */
   badge?: number | null;
 };
 
-/** /media/orphans returns the whole recovery list, so the table pages client-side. */
 const PAGE_SIZE = 20;
 
-/**
- * /admin — the hub, ADMIN and MASTER ADMIN.
- *
- * Two gates sit above this page and neither lives here. `require_admin` is mirrored by ROUTE_GUARDS
- * and by the `permitted` check below, and admin view is mirrored by ADMIN_CHROME_ROUTES: the whole
- * hub is admin chrome, so an admin browsing with admin view off gets AppShell's "hidden while admin
- * view is off" panel and this component never mounts — no /media/orphans call, no flash of tiles.
- * Both gates keep their role check, so the toggle can only ever subtract.
- */
-/** A recovered file, in the shape the preview takes. */
 function previewOf(item: MediaFile): PreviewMedia {
   return {
     key: item.id,
@@ -86,16 +67,9 @@ function previewOf(item: MediaFile): PreviewMedia {
 export default function AdminHubPage() {
   const { user, loading: authLoading } = useAuth();
   const permitted = isAdmin(user);
-  /**
-   * The access roster's pending count, for the tile below.
-   *
-   * Called unconditionally, above the early returns, because a hook cannot be called conditionally
-   * — it gates itself on the same admin predicate internally and makes no request for anybody else.
-   */
   const { pending: pendingAccess } = usePendingAccessCount();
 
   const [orphans, setOrphans] = useState<MediaFile[] | null>(null);
-  // Open likely-duplicate pairs, for the Duplicates tile. Null until known; a failure leaves it so.
   const [openDuplicates, setOpenDuplicates] = useState<number | null>(null);
   const [activePreview, setActivePreview] = useState<PreviewMedia | null>(null);
   const [page, setPage] = useState(1);
@@ -172,8 +146,6 @@ export default function AdminHubPage() {
       icon: MessageSquare
     },
     {
-      // C24. Beside the tool assignment because both are about one artisan's record; the merge
-      // itself is admin-only on the server (`require_admin`), as the hub is.
       label: "Merge duplicate artisans",
       description: "Combine two records of one person.",
       href: "/admin/artisan-merge",
@@ -186,24 +158,12 @@ export default function AdminHubPage() {
       icon: Wrench
     },
     {
-      // Replaces the old "Workshop assignments" tile, which pointed at /workshops and only told an
-      // admin to go and open a record. Everything it hinted at — the request queue, each roster and
-      // its access levels — is done properly on /workshop-access/manage, the tile below. Two doors
-      // onto one job, one of which was a signpost rather than a page, is worse than one door.
       label: "Task assignment",
       description: "Assign and track work.",
       href: "/settings/tasks",
       icon: ClipboardList
     },
     {
-      // THE HUB IS WHERE ADMINS ACTUALLY NAVIGATE FROM; the nav sheet is the keyboard route. A
-      // feature registered in ROUTE_GUARDS, ADMIN_CHROME_ROUTES and NAV_ITEMS but not here is
-      // reachable and unfindable — the same defect as an unregistered route wearing a different
-      // hat, and the one most likely to be reported as "the upload never shipped".
-      //
-      // It sits after Task assignment because the two are read together: an admin who has just
-      // switched a section off with an upload is told, in the report, how many assigned tasks still
-      // name it, and the next thing they open is the board.
       label: "My questionnaires",
       description: "Forms, workbooks and bundles.",
       href: "/questionnaires",
@@ -212,21 +172,10 @@ export default function AdminHubPage() {
     {
       label: "Workshop access",
       description: "Requests and rosters.",
-      // Straight to the console: this hub is admin-only, so the fork at /workshop-access would ask
-      // an admin a question it already knows the answer to.
       href: "/workshop-access/manage",
       icon: ShieldCheck
     },
     {
-      // The tile the sign-in gate hangs off. It sits NEXT TO "Manage users" on purpose: the two
-      // answer the same question from opposite ends — /users is who has an account, the roster is
-      // who is allowed to have one — and an admin chasing "why can this person not log in?" reaches
-      // for the users screen first and finds nothing there, because the refusal is not on the
-      // account, it is on the address.
-      //
-      // The badge is the whole notification. There is no email and no push in this codebase, so a
-      // count on a surface admins already open is how "the admins should be notified to approve or
-      // reject the user" is delivered.
       label: "Access roster",
       description: "Who may sign in.",
       href: "/admin/access-roster",
@@ -241,8 +190,6 @@ export default function AdminHubPage() {
     },
     {
       label: "API keys",
-      // Admin-visible because the transcription provider ranking lives behind this tile; the key
-      // list itself is still master-admin-only once the page opens.
       description: "Transcription providers and keys.",
       href: "/settings/api-keys",
       icon: KeyRound,
@@ -279,11 +226,6 @@ export default function AdminHubPage() {
                 <div className="grid h-10 w-10 place-items-center rounded-md bg-purple-800">
                   <tile.icon className="h-5 w-5 text-white" aria-hidden />
                 </div>
-                {/* Only a POSITIVE count draws. Null is "not known yet" and zero is "nothing is
-                    waiting" — both render nothing, because a row of "0" badges is noise and a "0"
-                    shown while the request is still in flight would say the queue is empty at the
-                    exact moment it might not be. The number is also worded for a screen reader,
-                    since a bare "3" beside a tile title announces nothing. */}
                 {typeof tile.badge === "number" && tile.badge > 0 ? (
                   <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
                     <span aria-hidden>{tile.badge}</span>
@@ -299,7 +241,6 @@ export default function AdminHubPage() {
           ))}
       </div>
 
-      {/* This month's transcription spend against the portal's budget (shared transcript tree). */}
       <div className="mt-6">
         <BudgetMeterCard />
       </div>
@@ -332,9 +273,6 @@ export default function AdminHubPage() {
               </thead>
               <tbody className="divide-y divide-line-200">
                 {visibleOrphans.map((item) => (
-                  // As on the media page: a file's read-only view is its preview, so a click anywhere
-                  // on the row opens it (with Download). Open is the keyboard route; Relink keeps its
-                  // own click (`rowClickOpensRecord`).
                   <tr
                     key={item.id}
                     className={item.url ? "cursor-pointer transition hover:bg-field-100" : undefined}

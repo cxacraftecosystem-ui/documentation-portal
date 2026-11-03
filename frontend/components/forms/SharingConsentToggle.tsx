@@ -1,18 +1,5 @@
 "use client";
 
-/**
- * C27 — the artisan's agreement that the Designer Portal may look up their identity details.
- *
- * Drawn only while the server says the cross-portal feature is on. A SETTING on the record, so a
- * switch (§11.11), saved the moment it is pressed and shown ON only once the server says so. Turning
- * it off withdraws the agreement and unlinks every Designer Portal record. The Aadhaar number never
- * leaves this portal either way; the label says so because it is the question an artisan asks.
- *
- * WHAT IT NAMES IS WHAT IS SENT. The list comes from the server (`/cross-portal/status` →
- * `sharedFields`, built from the same list the lookup answer is), so the artisan never agrees to
- * less than the Designer Portal receives. `SHARED_FIELDS_FALLBACK` is that phrase as of this build,
- * held to the server's by `backend/tests/test_cross_portal_identity.py`.
- */
 import { useEffect, useState } from "react";
 
 import { Toggle } from "@/components/ui/Toggle";
@@ -50,7 +37,6 @@ export function crossPortalEnabled(): Promise<boolean> {
   return crossPortalStatus().then((status) => status.enabled);
 }
 
-/** The switch's description: every item a lookup shares, from the server's one list. */
 export function consentDescription(sharedFields: string): string {
   return `The artisan agrees designers may look up their ${sharedFields}. Aadhaar never leaves this portal.`;
 }

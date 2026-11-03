@@ -16,19 +16,6 @@ import { handleFormEnter } from "@/lib/formNav";
 import type { UserRole } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 
-/**
- * The assignment builder — one scope, many people, one POST.
- *
- * Every dimension the backend accepts is expressible here (record types, assignees, an optional
- * artisan subset, questionnaire sections, a target count, title/description/due date) and the panel
- * at the bottom says the combination back in a sentence before anything is written. That preview is
- * not decoration: five independent multi-selects produce combinations nobody can verify by reading
- * the controls, and an assignment sent to fifteen people is fifteen rows to unpick if it was wrong.
- *
- * The workshop lives one level up, on the page, because it scopes the accountability and batch views
- * too — this component receives it and narrows its own pickers to match.
- */
-
 function Step({ n, title, hint, children }: { n: number; title: string; hint?: string; children: React.ReactNode }) {
   return (
     <section className="grid gap-3">
@@ -46,7 +33,6 @@ function Step({ n, title, hint, children }: { n: number; title: string; hint?: s
   );
 }
 
-/** What a multi-select has actually got in it — the trigger only ever says "N selected". */
 function Picked({ labels, empty }: { labels: string[]; empty: string }) {
   if (!labels.length) return <p className="text-xs text-ink-500">{empty}</p>;
   const shown = labels.slice(0, 6);
@@ -88,8 +74,6 @@ export function AssignmentBuilder({
   const allArtisans = useMemo(() => options?.artisans ?? [], [options]);
   const allSections = useMemo(() => options?.sections ?? [], [options]);
 
-  // Switching workshop reloads a narrower artisan list; anything picked from the previous workshop
-  // has to go, or the batch would silently carry artisans who are not at this workshop at all.
   useEffect(() => {
     const available = new Set(allArtisans.map((artisan) => artisan.id));
     setArtisanIds((prev) => {
@@ -98,7 +82,6 @@ export function AssignmentBuilder({
     });
   }, [allArtisans]);
 
-  /** The hierarchy filter: the roles that actually appear below this admin, highest tier first. */
   const roleOptions = useMemo(() => {
     const counts = new Map<string, number>();
     allAssignees.forEach((user) => counts.set(user.role, (counts.get(user.role) ?? 0) + 1));
@@ -178,7 +161,6 @@ export function AssignmentBuilder({
           targetCount: validTarget ?? undefined,
           title: title.trim() || undefined,
           description: description.trim() || undefined,
-          // The date input yields YYYY-MM-DD; send a full ISO instant at local midnight.
           dueAt: dueDate ? new Date(`${dueDate}T00:00:00`).toISOString() : undefined
         })
       });
@@ -200,7 +182,6 @@ export function AssignmentBuilder({
       >
         <div className="grid gap-3 md:grid-cols-2">
           <FieldBlock label="Filter by tier">
-            {/* Filters the list beside it rather than filling a field, so it must not steal focus. */}
             <Dropdown
               value={roleFilter}
               onChange={setRoleFilter}
@@ -368,8 +349,6 @@ export function AssignmentBuilder({
             />
           </Field>
           <div className="grid gap-3 md:grid-cols-2">
-            {/* Not <Field>, which wraps its child in a <label>: CalendarField contains a calendar
-                button, and a wrapping label merges its text into that button's accessible name. */}
             <div className="grid gap-1">
               <label className="field-label" htmlFor="task-due-date">
                 Due date

@@ -11,24 +11,17 @@ import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import type { EntryComment, RecordRevision } from "@/lib/types";
 
-/**
- * Comments + edit history for a single record, powered by the data-access API.
- * - Anyone who can see the record can read comments; posting requires COMMENT-tier access (or owner/admin).
- * - Edit history is visible to the record's owner and admins (the API returns 403 otherwise, which we hide).
- */
 export function CollabPanel({ recordType, recordId }: { recordType: string; recordId: string }) {
   const [comments, setComments] = useState<EntryComment[]>([]);
   const [revisions, setRevisions] = useState<RecordRevision[] | null>(null);
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  /** The comment being edited by its author, and the draft in the box. */
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const { user } = useAuth();
-  // Deleting is the content admins' alone, admin view or not (owner, 2026-10-21).
   const { canDeleteRecords } = useAdminView();
   const confirm = useConfirm();
 
@@ -39,7 +32,6 @@ export function CollabPanel({ recordType, recordId }: { recordType: string; reco
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load comments");
     }
-    // Edit history is owner/admin-only; silently skip if not permitted.
     try {
       const r = await apiFetch<RecordRevision[]>(`/data-access/revisions?recordType=${recordType}&recordId=${recordId}`);
       setRevisions(r);
@@ -67,7 +59,6 @@ export function CollabPanel({ recordType, recordId }: { recordType: string; reco
     }
   }
 
-  /** The author's edit — `PATCH /data-access/comments/{id}`, which 403s for anybody else. */
   async function saveEdit(comment: EntryComment) {
     const next = draft.trim();
     if (!next || next === comment.body) {
@@ -87,7 +78,6 @@ export function CollabPanel({ recordType, recordId }: { recordType: string; reco
     }
   }
 
-  /** `DELETE /data-access/comments/{id}` — content admins only, so drawn for them alone, admin view or not. */
   async function removeComment(comment: EntryComment) {
     const ok = await confirm(deleteConfirm("Delete this comment?", comment.body, "This cannot be undone."));
     if (!ok) return;

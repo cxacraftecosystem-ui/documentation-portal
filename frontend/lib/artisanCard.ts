@@ -1,11 +1,3 @@
-/**
- * Artisan QR card codes: parse and format only (the server signs; no client ever holds a key).
- *
- * QR payload `CXA1:<issuer><keyVersion>:<code>:<tag>`; short code `D-7K3QM-9XA2F-HQ`. The rules are
- * `backend/app/services/artisan_card.py`'s, held together by `shared/artisan-card-vectors.json`
- * (`e2e/artisan-card-unit.spec.ts`). Both portals carry this file byte for byte.
- */
-
 export const CARD_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 export const CARD_PREFIX = "CXA1";
 export const CARD_ISSUERS = ["D", "F"] as const;
@@ -40,18 +32,15 @@ function fnv1a32(text: string): number {
   return hash >>> 0;
 }
 
-/** The two check characters: FNV-1a 32-bit over `CXA1:<issuer>:<code>`, mod 1024. */
 export function cardCheck(issuer: string, code: string): string {
   const value = fnv1a32(`${CARD_PREFIX}:${issuer}:${code}`) % 1024;
   return CARD_ALPHABET[value >> 5] + CARD_ALPHABET[value & 31];
 }
 
-/** `D-7K3QM-9XA2F-HQ`, what is printed under the QR. */
 export function cardShortCode(issuer: string, code: string): string {
   return `${issuer}-${code.slice(0, 5)}-${code.slice(5)}-${cardCheck(issuer, code)}`;
 }
 
-/** A QR payload or a typed short code. Anything that is not a card (an old DPW1 code) is NOT_A_CARD. */
 export function parseArtisanCard(raw: string | null | undefined): CardParse {
   if (typeof raw !== "string") return { ok: false, reason: "NOT_A_CARD" };
   const cleaned = raw.toUpperCase().replace(/[\s\-.]/g, "");
@@ -83,15 +72,12 @@ export function parseArtisanCard(raw: string | null | undefined): CardParse {
   return { ok: true, card: { issuer, code: body, keyVersion: null, tag: null, typed: true } };
 }
 
-/** Is this meant as an artisan card, even if mistyped? (A DPW1 code and free text are not.) */
 export function looksLikeArtisanCard(raw: string | null | undefined): boolean {
   const parsed = parseArtisanCard(raw);
   if (parsed.ok || parsed.reason === "BAD_CHECK" || parsed.reason === "BAD_CHARACTER") return true;
   return parsed.reason === "BAD_ISSUER" && (raw ?? "").trim().toUpperCase().startsWith(`${CARD_PREFIX}:`);
 }
 
-/** The sentence for a code that is a card but cannot be right. Same words as the server's 422. */
 export const CARD_CHECK_MESSAGE = "Check the code. One character is wrong.";
 
-/** The typed box's placeholder. */
 export const CARD_PLACEHOLDER = "D-XXXXX-XXXXX-XX";

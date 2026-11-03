@@ -1,95 +1,17 @@
-/**
- * The tracing controls this application offers a researcher, as a table rather than as JSX.
- *
- * WHERE THE LIST CAME FROM. The upstream tracer this engine was vendored from builds its dock from
- * `web/src/state/paramSpecs.ts`, and this file is that table, re-expressed for this repository. The
- * labels, hints, ranges and group names are the upstream's own words, kept verbatim wherever they
- * still read correctly on a fieldwork handset, because somebody who has used the other application
- * should not have to learn a second vocabulary for the same slider.
- *
- * HOW MANY CONTROLS, COUNTED RATHER THAN REMEMBERED. Upstream declares sixteen sliders, nine toggles
- * and five choices — thirty controls in four groups. This table keeps ALL THIRTY and adds the two
- * sharpening sliders of difference 1 below, in five groups. The counts on both sides were produced by
- * running, in each directory:
- *
- *     awk '/^export const TOGGLES/,/^\];/' <file> | grep -cE "^\s+key: "
- *
- * **The number lives in `PARAM_COUNT` and nowhere else.** A total written into a comment is a second
- * register of one fact, and the upstream's own header carried one that was three out while the button
- * in the panel printed the real figure — a reader reconciling the two went hunting for three controls
- * that had never been dropped. If you find yourself writing a total into a comment, write the command
- * instead.
- *
- * WHAT IS DELIBERATELY DIFFERENT, AND WHY EACH DIFFERENCE EXISTS
- *
- *  1. **Sharpening is exposed here and is not exposed upstream.** `engine/params.ts` declares
- *     `preprocess.unsharpAmount` (0..5, default 0) and `preprocess.unsharpSigma` (0.05..32, default
- *     1.5), and `engine/pipeline.ts` runs them — `if (p.preprocess.unsharpAmount > 0) grey =
- *     Contrast.unsharpMask(grey, p.preprocess.unsharpSigma, p.preprocess.unsharpAmount)`. Upstream's
- *     own UI never offers them, so the capability ships in the engine and no user can reach it. A
- *     photograph taken in a workshop under one tube light is soft far more often than it is noisy, so
- *     the two controls get a group of their own.
- *  2. **`write` is a PATCH, not a call to `withOverrides`.** Upstream's specs call the engine's
- *     `withOverrides` directly, which is free there because the whole application is the tracer. Here
- *     a value import of `engine/params` from a table a page imports statically would put ~8 KB gzipped
- *     of engine source into that page's bundle — the exact thing `lib/trace/traceClient.ts`'s header
- *     forbids. So every entry returns a plain `TraceParamsInput` tree and the merge happens in
- *     {@link mergeParams}, which is pure and imports nothing at runtime. Every import in this file is
- *     `import type` and TypeScript erases all of them.
- *  3. **Choice values are plain strings cast to the engine's enum types.** The enums are string enums
- *     whose values equal their names, so `'FDOG'` IS `EdgeEngine.FDOG` at run time — but naming the
- *     enum as a *value* to say so would be the same static import point 2 removes. The cast is safe in
- *     the direction that matters: the worker runs `sanitizeTraceParams` on arrival, and its `enumOf`
- *     helper answers an unrecognised string with the documented default rather than throwing. A typo
- *     here would therefore be silent, which is why `e2e/trace-options-unit.spec.ts` round-trips every
- *     option value through the real sanitiser and fails on one that does not survive.
- *
- * THE GROUPING IS THE POINT, NOT DECORATION. Every control in one column is a wall, and a wall reads
- * as "this screen is for somebody else" — upstream says so in its own `ESSENTIAL_KEYS` comment and
- * leads with six. This table keeps that idea and keeps those six, because the reasoning behind them is
- * about the engine rather than about the other app's layout: each of the six changes the KIND of
- * drawing that comes out, while the rest tune a drawing the researcher already has.
- */
-
 import type { TraceParams, TraceParamsInput } from "@/lib/trace/traceClient";
 
-/**
- * The five enum-valued settings, typed by INDEXING `TraceParams` rather than by importing the enums.
- *
- * `lib/trace/README.md` §3 states the rule this obeys: "Import `traceClient.ts` and nothing else.
- * Outside this directory, `engine/` and `worker/` are named in exactly one file" — its own spec. But
- * `traceClient.ts` re-exports only `TraceParams` and `TraceParamsInput`, not `EdgeEngine` and its four
- * siblings, so a table that needs to write one of them appears to need a second import path.
- *
- * It does not. The enums are reachable THROUGH the type that is exported, and an indexed access says
- * exactly what is meant: whatever `edge.engine` is declared to hold. That keeps the engine unnamed
- * outside its directory, survives the enums being renamed upstream, and — being types — erases to
- * nothing. The values themselves are written as the plain strings they are; see the header.
- */
 type EdgeEngineValue = TraceParams["edge"]["engine"];
 type DenoiseModeValue = TraceParams["preprocess"]["denoise"];
 type MatteModeValue = TraceParams["matte"]["mode"];
 type VectorModeValue = TraceParams["output"]["vectorMode"];
 type ThinningModeValue = TraceParams["cleanup"]["thinning"];
 
-/* ────────────────────────────────────────────────────────────────────────────
- * Groups
- * ──────────────────────────────────────────────────────────────────────────── */
-
 export const GROUP_SOURCE = "Source";
-/** Not an upstream group. See this file's header, difference 1. */
 export const GROUP_SHARPEN = "Sharpening";
 export const GROUP_EDGES = "Edges";
 export const GROUP_CLEANUP = "Cleanup";
 export const GROUP_OUTPUT = "Output";
 
-/**
- * Display order.
- *
- * Sharpening sits directly after Source because it IS a source-stage operation — the pipeline applies
- * the unsharp mask to the grey plane before any edge engine runs — and a researcher who has just told
- * the panel the photograph is soft should not have to scroll past the edge controls to say how soft.
- */
 export const PARAM_GROUPS: readonly string[] = [
   GROUP_SOURCE,
   GROUP_SHARPEN,
@@ -98,14 +20,9 @@ export const PARAM_GROUPS: readonly string[] = [
   GROUP_OUTPUT
 ];
 
-/* ────────────────────────────────────────────────────────────────────────────
- * Spec shapes
- * ──────────────────────────────────────────────────────────────────────────── */
-
 export interface SliderSpec {
   readonly key: string;
   readonly label: string;
-  /** One sentence on what raising it does — never a restatement of the label. */
   readonly hint: string;
   readonly group: string;
   readonly min: number;
@@ -139,10 +56,6 @@ export interface ChoiceSpec {
   readonly patch: (v: string) => TraceParamsInput;
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
- * The table
- * ──────────────────────────────────────────────────────────────────────────── */
-
 export const SLIDERS: readonly SliderSpec[] = [
   {
     key: "preprocess.workingLongEdge",
@@ -150,10 +63,6 @@ export const SLIDERS: readonly SliderSpec[] = [
     hint: "Higher catches finer detail but takes longer.",
     group: GROUP_SOURCE,
     min: 256,
-    // The engine allows 8192. This stops at 4096 for the reason upstream's dock stops there — asking
-    // the pipeline to work above the resolution the pixels actually have only upsamples them — and for
-    // one this repository adds: these are handsets, and a 4096 trace is already several seconds of a
-    // worker thread on the phones this application is used from.
     max: 4096,
     step: 64,
     read: (p) => p.preprocess.workingLongEdge,
@@ -182,7 +91,6 @@ export const SLIDERS: readonly SliderSpec[] = [
     patch: (v) => ({ preprocess: { claheClip: v } })
   },
 
-  /* ── Sharpening: the two controls the upstream engine has and its UI never offered ── */
   {
     key: "preprocess.unsharpAmount",
     label: "Sharpen amount",
@@ -200,10 +108,6 @@ export const SLIDERS: readonly SliderSpec[] = [
     hint: "Small sharpens fine lines; large sharpens broad edges.",
     group: GROUP_SHARPEN,
     min: 0.05,
-    // The engine's `Limits.MAX_SIGMA` is 32. A radius that large on a line drawing is not sharpening
-    // any more — it is a local contrast boost with a halo the width of a finger — and the control that
-    // does that deliberately is "Local contrast" three rows up. Stopping at 8 keeps this slider's
-    // whole travel useful, which a 0.05–32 range would not.
     max: 8,
     step: 0.05,
     read: (p) => p.preprocess.unsharpSigma,
@@ -355,7 +259,6 @@ export const SLIDERS: readonly SliderSpec[] = [
   }
 ];
 
-/** Packed opaque white — how "a white background" is spelled in `output.background`. */
 const OPAQUE_WHITE = 0xffffffff;
 
 export const TOGGLES: readonly ToggleSpec[] = [
@@ -429,8 +332,6 @@ export const TOGGLES: readonly ToggleSpec[] = [
     hint: "Off gives a transparent background.",
     group: GROUP_OUTPUT,
     read: (p) => p.output.background !== null,
-    // `null` is a meaningful value here — it is how "transparent" is spelled — which is why this patch
-    // cannot be expressed as a number.
     patch: (v) => ({ output: { background: v ? OPAQUE_WHITE : null } })
   }
 ];
@@ -441,9 +342,6 @@ export const CHOICES: readonly ChoiceSpec[] = [
     label: "Edge engine",
     hint: "Each detector suits different drawings. Try another if lines go missing.",
     group: GROUP_EDGES,
-    // MODEL is deliberately absent, and the reason is upstream's and still holds: it needs a
-    // side-loaded edge model, none ships, and choosing it would silently fall back to another engine
-    // plus a note. An option that cannot work is worse than no option.
     options: [
       { value: "FDOG", label: "Flow (long coherent strokes)" },
       { value: "XDOG", label: "XDoG (drawn look, tunable hardness)" },
@@ -473,9 +371,6 @@ export const CHOICES: readonly ChoiceSpec[] = [
     label: "Background matte",
     hint: "Removes the background around the subject. Off unless you choose it.",
     group: GROUP_SOURCE,
-    // SUBJECT is absent from this list for the same reason MODEL is absent above, inverted: it is not
-    // broken, it is what a subject preset selects on the researcher's behalf. Offering it twice would
-    // let the two disagree about which one decided.
     options: [
       { value: "NONE", label: "None" },
       { value: "BORDER_FLOOD", label: "Flood from the border" },
@@ -510,22 +405,6 @@ export const CHOICES: readonly ChoiceSpec[] = [
   }
 ];
 
-/**
- * The controls the panel leads with.
- *
- * A SET, NOT AN ORDER. `TracePanel` renders group by group in `PARAM_GROUPS` order and, inside a
- * group, choices then sliders then toggles — so the collapsed view reads Trace resolution, Sharpen
- * amount, Edge sensitivity, Minimum speck, Vector mode, Simplify, Stroke width, which is not this
- * array's order and is not meant to be. Only {@link isEssential} consumes it, and it asks a
- * membership question. Grouping beats a flat ranking here for the same reason the full view is
- * grouped: "which stage of the pipeline is this" is how a researcher looks for a control.
- *
- * Upstream's six, unchanged, plus sharpen amount as a seventh — because a photograph taken in a
- * workshop under one tube light is soft far more often than it is noisy, and a control nobody can
- * find is the same as a control that does not exist. Everything else stays one press away behind
- * "Show more options", which is the panel's ONE disclosure and holds the download formats as well.
- * What makes a control essential is what it does to the drawing rather than where the panel puts it.
- */
 export const ESSENTIAL_KEYS: readonly string[] = [
   "output.vectorMode",
   "edge.sensitivity",
@@ -538,53 +417,17 @@ export const ESSENTIAL_KEYS: readonly string[] = [
 
 const ESSENTIAL_SET = new Set(ESSENTIAL_KEYS);
 
-/** True for a control the panel shows before the researcher asks for everything. */
 export function isEssential(key: string): boolean {
   return ESSENTIAL_SET.has(key);
 }
 
-/** Total controls in the table. */
 export const PARAM_COUNT = SLIDERS.length + TOGGLES.length + CHOICES.length;
 
-/**
- * How many controls the disclosure actually reveals — the total minus the ones already on screen.
- *
- * THE NUMBER THE BUTTON PRINTS, AND UPSTREAM'S USED TO BE THE WRONG ONE. A button reading "Show all
- * 32 controls" while 7 of the 32 are already in front of the reader promises 32 and reveals 25. The
- * honest number — and the one a researcher can check by looking — counts the ones that are NOT on
- * screen.
- *
- * COUNTED OFF THE TABLE RATHER THAN OFF `ESSENTIAL_KEYS.length`, because those are two different
- * facts: the key list is what the panel ASKS for, and this is what the table HAS. An essential key
- * naming a control that no longer exists would leave the two disagreeing, and the disagreement would
- * surface as a button promising one more control than the press produces.
- */
 export const ADVANCED_COUNT =
   SLIDERS.filter((spec) => !isEssential(spec.key)).length +
   TOGGLES.filter((spec) => !isEssential(spec.key)).length +
   CHOICES.filter((spec) => !isEssential(spec.key)).length;
 
-/* ────────────────────────────────────────────────────────────────────────────
- * Applying a change
- * ──────────────────────────────────────────────────────────────────────────── */
-
-/**
- * Deep-merge a partial override onto a complete tree.
- *
- * THIS IS A COPY OF `engine/params.withOverrides`'s MERGE HALF, AND THE COPY IS DELIBERATE. That
- * function is `sanitizeTraceParams({ ...spread per section... })` — a merge followed by a sanitise.
- * Importing it here as a *value* is the static engine import this file's header exists to avoid, and
- * the sanitise half is already reachable asynchronously through `loadTraceParams()`. So the merge is
- * reproduced and the sanitise is applied by {@link applyParamPatch} using the engine's own function,
- * which means the authority on what is legal is still the engine and only the plumbing is local.
- *
- * A LOCAL COPY OF SOMEBODY ELSE'S RULE DRIFTS UNLESS SOMETHING WATCHES IT.
- * `e2e/trace-options-unit.spec.ts` compares this function's output against the real `withOverrides`
- * for every entry in the table, so the day the upstream adds a nested section this spread does not
- * know about, a spec fails rather than a setting silently stopping working.
- *
- * `edge.flow` is the one nested object in the tree and is spread explicitly for that reason.
- */
 export function mergeParams(base: TraceParams, over: TraceParamsInput): TraceParamsInput {
   return {
     preprocess: { ...base.preprocess, ...over.preprocess },
@@ -597,13 +440,6 @@ export function mergeParams(base: TraceParams, over: TraceParamsInput): TracePar
   };
 }
 
-/**
- * Merge a patch onto the current parameters and hand the result to the engine's own sanitiser.
- *
- * `sanitize` comes from `loadTraceParams()`. Running it on every slider tick is intended rather than
- * wasteful: `engine/params.ts` documents the sanitiser as idempotent precisely so a UI can do this
- * without ever disagreeing with the pipeline about what "legal" means.
- */
 export function applyParamPatch(
   base: TraceParams,
   over: TraceParamsInput,
@@ -612,18 +448,6 @@ export function applyParamPatch(
   return sanitize(mergeParams(base, over));
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
- * Telling the researcher what changed
- * ──────────────────────────────────────────────────────────────────────────── */
-
-/**
- * @returns the labels of every control whose value differs between `a` and `b`.
- *
- * Two jobs, both of them a case of this repository's rule that work done on a researcher's behalf has
- * to be visible: ringing the rows a preset moved, and naming the hand-set values a newly chosen
- * preset overwrote. A preset that silently discards five minutes of tuning is the one failure a
- * preset list can have.
- */
 export function changedLabels(a: TraceParams, b: TraceParams): string[] {
   const out: string[] = [];
   for (const s of SLIDERS) if (s.read(a) !== s.read(b)) out.push(s.label);
@@ -632,13 +456,6 @@ export function changedLabels(a: TraceParams, b: TraceParams): string[] {
   return out;
 }
 
-/**
- * @returns the labels of every changed control that is currently COLLAPSED.
- *
- * Progressive disclosure is only honest if what it hides can still announce itself. A style that
- * moved four advanced values must say so while those rows are folded away, or the panel is lying
- * about what the trace is doing.
- */
 export function changedAdvancedLabels(a: TraceParams, b: TraceParams): string[] {
   return changedLabels(a, b).filter((label) => {
     const spec =
@@ -649,10 +466,6 @@ export function changedAdvancedLabels(a: TraceParams, b: TraceParams): string[] 
   });
 }
 
-/**
- * @returns the value formatted for the numeric readout, with a decimal count derived from `step`, so
- *   an integer control never shows "12.00" and a 0.01 control never shows "0".
- */
 export function formatValue(v: number, step: number): string {
   if (!Number.isFinite(v)) return "0";
   if (step >= 1) return String(Math.round(v));
@@ -660,11 +473,6 @@ export function formatValue(v: number, step: number): string {
   return v.toFixed(decimals);
 }
 
-/**
- * One sentence naming what a preset just overwrote, or null when it overwrote nothing.
- *
- * Null rather than an empty string so a caller cannot accidentally render an empty notice box.
- */
 export function overwriteNotice(source: string, before: TraceParams, after: TraceParams): string | null {
   const overwritten = changedLabels(before, after);
   if (overwritten.length === 0) return null;
@@ -674,75 +482,29 @@ export function overwriteNotice(source: string, before: TraceParams, after: Trac
     : `${source} changed ${overwritten.length} settings: ${list}.`;
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
- * A control that cannot do anything right now
- * ──────────────────────────────────────────────────────────────────────────── */
-
-/**
- * One sentence saying this control has no effect under the current settings, or null.
- *
- * ── THE TRAP THIS EXISTS FOR, WHICH IS NOT HYPOTHETICAL ───────────────────────────────────────
- *
- * `DenoiseMode.MEDIAN`'s branch in `engine/pipeline.ts` reads `preprocess.medianRadius` and never
- * `preprocess.denoiseStrength` — verified at `pipeline.ts:520-534`, where the MEDIAN arm calls
- * `Denoise.median(grey, p.preprocess.medianRadius)` and `strength` is read only by the other three.
- * MEDIAN is what the `sketch` subject selects. So a researcher can drag "Noise reduction" for a
- * minute on the commonest configuration this panel has, watch nothing change, and reasonably conclude
- * the trace is broken — and nothing anywhere said so.
- *
- * ── EVERY REASON WAS READ OFF `pipeline.ts`, NOT INFERRED FROM A LABEL ────────────────────────
- *
- * Each arm below names the condition in the engine that makes it true. That is the only way this can
- * be maintained: a sentence saying "this does nothing" is a strong claim, and one derived from what a
- * control's NAME suggests rather than from what the pipeline reads is a claim that will be wrong the
- * first time a stage is reordered.
- *
- * ── THE CONTROL STAYS DRAWN AND STAYS WRITABLE ────────────────────────────────────────────────
- *
- * A sentence, never a disabled row. Greying it out would stop a researcher setting a value for the
- * configuration they are about to switch to — which is exactly what somebody comparing two engines
- * does — and would say "you may not" where the truth is "not yet".
- *
- * ── WHY THERE IS NO "THE FLAG WAS NEVER SENT" ARM ─────────────────────────────────────────────
- *
- * The parameters here are a typed tree that `sanitizeTraceParams` has already completed, so every
- * leaf exists and "the flag is off" cannot be confused with "the flag is missing". A surface that
- * took a partial map would need that distinction — putting a confident sentence under a control on
- * the strength of a leaf that is not there is how a version skew becomes a lie — and this one does
- * not have to.
- */
 export function inactiveReason(key: string, params: TraceParams): string | null {
   const engine = params.edge.engine;
   const outline = params.output.vectorMode === "OUTLINE";
   switch (key) {
-    // `pipeline.ts:806-808` — blurSigma is passed only in the CANNY arm.
     case "edge.blurSigma":
       return engine === "CANNY" ? null : "Only the Canny engine reads this.";
-    // `pipeline.ts:838-852` — the flow settings are read only in the default (FDOG) arm.
     case "edge.flow.sigmaM":
       return engine === "FDOG" ? null : "Only the Flow engine reads this.";
-    // `pipeline.ts:817` and `:851` — XDoG and FDOG share xdogPhi; nothing else reads it.
     case "edge.xdogPhi":
       return engine === "XDOG" || engine === "FDOG"
         ? null
         : "Only the XDoG and Flow engines read this.";
-    // `pipeline.ts:613` — `p.cleanup.skeletonize && !outlineMode`.
     case "cleanup.skeletonize":
       return outline ? "Outline mode traces the edge of a region, so nothing is thinned." : null;
-    // `pipeline.ts:619` — inside the skeletonize branch only, so BOTH conditions are reported.
     case "cleanup.pruneSpurs":
       if (!params.cleanup.skeletonize) return "“Reduce ink to centrelines” is off, so there is no skeleton to prune.";
       return outline ? "Outline mode traces the edge of a region, so nothing is thinned." : null;
-    // `pipeline.ts:620` and `:631` — both branches require bridgeGaps.
     case "cleanup.maxGap":
       return params.cleanup.bridgeGaps ? null : "“Bridge stroke ends” is off.";
-    // `pipeline.ts:540-545` — the CLAHE call is inside `if (p.preprocess.claheEnabled)`.
     case "preprocess.claheClip":
       return params.preprocess.claheEnabled ? null : "“Equalise local contrast” is off.";
-    // `pipeline.ts:552-553` — the unsharp mask runs only when the amount is above zero.
     case "preprocess.unsharpSigma":
       return params.preprocess.unsharpAmount > 0 ? null : "“Sharpen amount” is 0.";
-    // `pipeline.ts:520-534` — see this function's header. The MEDIAN case is the trap.
     case "preprocess.denoiseStrength":
       if (params.preprocess.denoise === "NONE") return "The noise filter is set to None.";
       if (params.preprocess.denoise === "MEDIAN") {

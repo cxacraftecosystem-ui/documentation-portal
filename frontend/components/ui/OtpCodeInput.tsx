@@ -1,26 +1,5 @@
 "use client";
 
-/**
- * `OtpCodeInput` — the ONE way to type a 6-digit authenticator code, on every surface.
- *
- * Owner's ruling (2026-10-17): six separate boxes, digits only, in Plus Jakarta Sans with tabular
- * figures, large. The rules live in `lib/otp.ts` (pure, unit-tested); this file is the drawing and
- * the keyboard.
- *
- * - Each box is `inputMode="numeric"`, `pattern="[0-9]*"`; the FIRST carries
- *   `autoComplete="one-time-code"` so a phone's SMS/authenticator autofill lands somewhere, and a
- *   whole code arriving in any one box (autofill, paste) fills all six.
- * - Typing a digit advances; Backspace on an empty box steps back; ArrowLeft/Right move; anything that
- *   is not 0-9 is refused at the keystroke AND stripped from whatever input event slips past.
- * - `onComplete` fires the moment the sixth digit lands, with the code.
- * - `error` paints all six boxes red and shakes the row once. The shake is motion; the red border and
- *   `aria-invalid` are the static half that a reduced-motion reader still gets. Both reduced-motion
- *   switches (the OS and the app's own `data-reduced-motion`) are read at the moment of the shake, so
- *   this works on /login, which has no ThemeProvider.
- * - Recovery codes are NOT typed here. They are a different shape; the caller offers a separate text
- *   field behind a "Use a recovery code instead" switch.
- */
-
 import { useEffect, useId, useRef, useState } from "react";
 
 import {
@@ -36,23 +15,16 @@ import {
 import { cn } from "@/lib/utils";
 
 export type OtpCodeInputProps = {
-  /** The digits typed so far (0-6 of them). Controlled. */
   value: string;
   onChange: (code: string) => void;
-  /** Fired once all six boxes hold a digit. */
   onComplete?: (code: string) => void;
-  /** The group's visible label. */
   label?: string;
-  /** Hide the visible label (the surrounding copy already says it); it stays as the group's name. */
   hideLabel?: boolean;
-  /** Ids of hint / error text describing the group. */
   describedBy?: string;
-  /** Red boxes + one shake. Pass a new `errorNonce` to shake again for the same message. */
   error?: boolean;
   errorNonce?: number;
   disabled?: boolean;
   autoFocus?: boolean;
-  /** Submit the code with a form under this name. */
   name?: string;
   className?: string;
 };
@@ -84,9 +56,6 @@ export function OtpCodeInput({
   const boxes = useRef<Array<HTMLInputElement | null>>([]);
   const group = useRef<HTMLDivElement | null>(null);
 
-  // The boxes are local state (a gap in the middle cannot be expressed in a plain string), re-seeded
-  // whenever the caller's value stops matching what was last reported — a cleared code after a wrong
-  // attempt, a reset form.
   const [digits, setDigits] = useState<string[]>(() => splitCode(value));
   const [reported, setReported] = useState(value);
   if (value !== reported) {
@@ -98,14 +67,12 @@ export function OtpCodeInput({
     if (autoFocus) boxes.current[0]?.focus();
   }, [autoFocus]);
 
-  // A focus request after a clear from outside: the first empty box is where the next digit goes.
   useEffect(() => {
     if (value === "" && autoFocus && group.current?.contains(document.activeElement)) {
       boxes.current[0]?.focus();
     }
   }, [value, autoFocus]);
 
-  // The shake: once per error (and per nonce), never under reduced motion.
   useEffect(() => {
     if (!error || !group.current || prefersLessMotion()) return;
     group.current.animate?.(
@@ -135,7 +102,6 @@ export function OtpCodeInput({
   function handleInput(index: number, raw: string) {
     const clean = onlyDigits(raw);
     if (!clean) {
-      // Everything typed was refused; put the box back to the digit it held.
       setDigits([...digits]);
       return;
     }
@@ -143,7 +109,6 @@ export function OtpCodeInput({
       apply(enterDigits(digits, 0, clean));
       return;
     }
-    // The box's old digit is still in `raw` when the caret sat beside it; keep only what is new.
     const previous = digits[index];
     const typed = previous && clean.length > 1 && clean.startsWith(previous) ? clean.slice(1) : clean;
     apply(enterDigits(digits, index, typed));
@@ -182,7 +147,6 @@ export function OtpCodeInput({
       boxes.current[OTP_LENGTH - 1]?.focus();
       return;
     }
-    // A printable key that is not a digit never reaches the box.
     if (event.key.length === 1 && !/[0-9]/.test(event.key) && !event.ctrlKey && !event.metaKey && !event.altKey) {
       event.preventDefault();
     }

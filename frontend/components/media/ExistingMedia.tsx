@@ -11,15 +11,8 @@ import type { MediaFile } from "@/lib/types";
 import { useConfirm } from "@/components/dialogs";
 import { useAdminView } from "@/components/AdminViewProvider";
 
-// Transcript statuses that mean a job is still running (shared vocabulary with the backend).
 const IN_FLIGHT_TRANSCRIPT = new Set(["QUEUED", "PROCESSING", "PENDING", "RUNNING"]);
 
-/**
- * Shows the media already attached to a saved record (by linked type/id), with each item's
- * upload provenance (who uploaded it, when) and — for audio — its transcript / a "transcribing…"
- * spinner while the Whisper job is still running. Used on every edit page so previously uploaded
- * media is always visible.
- */
 export function ExistingMedia({
   linkedRecordType,
   linkedRecordId,
@@ -29,15 +22,9 @@ export function ExistingMedia({
   linkedRecordType: string;
   linkedRecordId: string;
   title?: string;
-  /**
-   * A record's read-only VIEW mounts this too, and there nothing may change: no ✕ on a file and no
-   * sentence offering one. Previews, the lightbox and its Download button all stay.
-   */
   readOnly?: boolean;
 }) {
   const [items, setItems] = useState<MediaFile[] | null>(null);
-  // Removing a file is a delete, and deletes are the content admins' alone, whether or not admin
-  // view is on (owner, 2026-10-21). Everybody else attaches and edits; the ✕ is not drawn for them.
   const { canDeleteRecords } = useAdminView();
   const mayRemove = !readOnly && canDeleteRecords;
   const [active, setActive] = useState<PreviewMedia | null>(null);
@@ -72,7 +59,6 @@ export function ExistingMedia({
       const result = await listResource<MediaFile>("/media", { linkedRecordType, linkedRecordId, pageSize: 100 });
       setItems(result.items);
     } catch {
-      // Keep whatever we already have; only show the empty list on a failed FIRST load.
       setItems((current) => current ?? []);
     }
   }, [linkedRecordType, linkedRecordId]);
@@ -82,8 +68,6 @@ export function ExistingMedia({
     refresh();
   }, [refresh]);
 
-  // While any audio transcript is still in flight, re-fetch every 15s so the transcript block
-  // updates without a manual page reload. The interval is cleared as soon as nothing is in flight.
   const anyTranscriptInFlight = (items ?? []).some(
     (media) => (media.mediaType === "AUDIO" || media.mediaType === "VIDEO") && IN_FLIGHT_TRANSCRIPT.has((media.transcriptStatus ?? "").toUpperCase())
   );

@@ -40,14 +40,6 @@ import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
 
-/**
- * One row of the review queue. The backend only returns records whose creator ranks strictly
- * below the viewer (master admin sees everyone), each annotated with its creator.
- *
- * `needsAdminApproval` is the flag the API actually sends for a record submitted outside its
- * workshop's dates (see review.list_pending_reviews); `outOfWindow` is accepted too because the
- * workshop-access service uses that name on other payloads.
- */
 type PendingItem = {
   recordType: string;
   id: string;
@@ -55,30 +47,19 @@ type PendingItem = {
   place?: string | null;
   status?: string | null;
   createdAt?: string | null;
-  /** When it entered (or came back into) the queue — the order the queue is served in. */
   submittedAt?: string | null;
   createdBy?: { id?: string; name?: string | null; role?: string | null } | null;
   needsAdminApproval?: boolean;
   outOfWindow?: boolean;
-  /** Sent back (or rejected) before and fixed since: the reviewer sees what was asked last time. */
   resubmitted?: boolean;
   previousReview?: PreviousReview | null;
-  /** Files still pending that approving this record approves with it (owner decision 2026-10-18). */
   pendingMediaCount?: number;
 };
 
-/** Identifies one queue row. Type + id, because ids are only unique within a record type. */
 function rowKey(item: PendingItem) {
   return `${item.recordType}-${item.id}`;
 }
 
-/**
- * A pending record's title opens it READ-ONLY, so a reviewer can read the whole record before
- * deciding; the decision buttons and the in-place Update panel stay on this row. On a wide screen
- * the whole row opens it (`OpenableRow`); on a phone the card's body does (`ReviewCardBody`) — the
- * title, the details and the status. The decision buttons and the open panel below that body are
- * marked `data-row-ignore`, so a tap there decides or types and never leaves the page.
- */
 function ReviewTitle({ item }: { item: PendingItem }) {
   const href = recordViewHref(item.recordType, item.id);
   return href ? <RecordTitleLink href={href}>{item.label}</RecordTitleLink> : <>{item.label}</>;
@@ -104,16 +85,9 @@ function ReviewRow({ item, className, children }: { item: PendingItem; className
   );
 }
 
-/**
- * One page of the queue, read from the SERVER (`GET /review/pending?page=&pageSize=`). Until the
- * 2026-10-16 UX audit the queue arrived whole and paged here — "whole" meaning at most 200 rows per
- * record type, with nothing on screen to say a busy queue had stopped. The paged answer carries the
- * true `total` and has no per-type ceiling.
- */
 const PAGE_SIZE = 20;
 
 type DecisionAction = "approve" | "revise" | "reject";
-/** "edit" opens the field editor instead of a note box — the fourth reviewer action (Android parity). */
 type PanelAction = DecisionAction | "edit";
 
 const ACTION_COPY: Record<DecisionAction, { noteLabel: string; confirmLabel: string }> = {
@@ -134,43 +108,20 @@ export default function ReviewPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  /** Generation counter: a late answer for a page the reviewer already left is ignored. */
   const currentLoad = useRef(0);
   const [error, setError] = useState<string | null>(null);
-  // The inline panel currently open: which row, and which of the four actions.
   const [active, setActive] = useState<{ key: string; action: PanelAction } | null>(null);
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  /** Receipt for an edit that left the record pending — the row does not move, so say what happened. */
   const [info, setInfo] = useState<string | null>(null);
-  /**
-   * Rows ticked for a bulk approval, by `rowKey`.
-   *
-   * A workshop's output arrives as one batch and is reviewed as one batch: twenty-five interviews
-   * from the same three days, all fine. One at a time is twenty-five open-panel-read-confirm cycles
-   * of identical work, and the cost of that is not tedium — it is that a reviewer facing it starts
-   * approving without reading.
-   *
-   * Only approve is offered in bulk, deliberately. Reject and Send for revision each need a reason
-   * written for THAT record; a shared note across twenty-five rejections is not feedback.
-   */
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
   const viewerIsAdmin = isAdmin(user);
-  /**
-   * The queue's filters. Seeded once from the URL, because Tasks links here with a task's creator
-   * and record types ("4 pending records · Review"); after that the controls own them.
-   */
   const [filters, setFilters] = useState<QueueFilters | null>(null);
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
   const [reasons, setReasons] = useState<ReviewReason[]>([]);
   const [reasonCode, setReasonCode] = useState("");
 
-  /**
-   * The workshop picker asks the SERVER: a filter box over the first page of workshops answered
-   * "No matches" for every workshop past it. Each answer is one page of matches; the chosen workshop
-   * stays in the list so the trigger can still name it.
-   */
   const [workshopSearch, setWorkshopSearch] = useState("");
   const workshopLoad = useRef(0);
   useEffect(() => {
@@ -187,7 +138,6 @@ export default function ReviewPage() {
         .catch(() => undefined);
     }, workshopSearch ? 250 : 0);
     return () => window.clearTimeout(timer);
-    // The chosen id is read when the answer lands; re-asking on every pick is not wanted.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workshopSearch]);
 
@@ -225,11 +175,9 @@ export default function ReviewPage() {
 
   useEffect(() => {
     load(page);
-    // `load` reads the filters it is handed through state; re-running on them is the point.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, filters]);
 
-  // Approving the last row of the final page must not strand the viewer on an empty page.
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   useEffect(() => {
     if (!loading && page > pages) setPage(pages);
@@ -239,8 +187,6 @@ export default function ReviewPage() {
   const chosen = items.filter((item) => selected.has(rowKey(item)));
   const allEligibleTicked = eligible.length > 0 && eligible.every((item) => selected.has(rowKey(item)));
 
-  // A row decided elsewhere (another reviewer, or this viewer's single-row action) leaves the queue,
-  // and a tick pointing at a row that is gone would silently inflate the "Approve N" count.
   useEffect(() => {
     setSelected((current) => {
       if (current.size === 0) return current;
@@ -250,12 +196,10 @@ export default function ReviewPage() {
     });
   }, [items]);
 
-  /** A row this viewer may approve — the out-of-window ones are admin-only, same rule as Edit. */
   function bulkEligible(item: PendingItem) {
     return !editLocked(item);
   }
 
-  /** Tick or untick every eligible row on this page — the header box and the phone's equivalent. */
   function tickPage(on: boolean) {
     setSelected((current) => {
       const next = new Set(current);
@@ -274,15 +218,6 @@ export default function ReviewPage() {
     });
   }
 
-  /**
-   * Approve every ticked row.
-   *
-   * Sequential, not parallel: each approval is a write against a different table and the queue is
-   * re-read once at the end, so firing twenty-five at the API buys a second and risks rate limits on
-   * a box that also runs the transcription queue. Failures are collected rather than thrown — one
-   * record another admin approved a moment ago must not abandon the other twenty-four — and the rows
-   * that failed stay ticked, so a retry is one more click and nothing is approved twice.
-   */
   async function approveSelected(rows: PendingItem[]) {
     const files = alsoApprovesLine(rows.reduce((sum, row) => sum + (row.pendingMediaCount ?? 0), 0));
     const ok = await confirm({
@@ -297,8 +232,6 @@ export default function ReviewPage() {
     setError(null);
     setInfo(null);
     setBulkProgress({ done: 0, total: rows.length });
-    // ONE request for the whole selection (B9): each record passes the same checks a single
-    // approval does, and the ones refused come back named, so they stay ticked for a retry.
     let failed: string[] = [];
     let approved = 0;
     let filesApproved = 0;
@@ -329,26 +262,16 @@ export default function ReviewPage() {
     setActive((current) => (current && current.key === key && current.action === action ? null : { key, action }));
   }
 
-  /**
-   * A record submitted outside its workshop's dates is admin-only for EVERY review action, the edit
-   * included (review.edit_reviewed_record 403s a non-admin) — so the button is not offered, and the
-   * row says why rather than leaving the reviewer to discover a 403.
-   */
   function editLocked(item: PendingItem) {
     return Boolean(item.needsAdminApproval || item.outOfWindow) && !viewerIsAdmin;
   }
 
   async function submitDecision(item: PendingItem, action: DecisionAction) {
     const notes = note.trim();
-    // "Send for revision" is meaningless without comments — the button stays disabled, but guard anyway.
     if (action === "revise" && !notes) return;
     const reason = reasons.find((r) => r.code === reasonCode) ?? null;
     if (action === "reject" && reasons.length > 0 && !refusalReady(reason, notes)) return;
-    // On "Send for revision" a reason is optional and only a fixable one is offered.
     const sentReason = action === "approve" ? null : action === "revise" ? (reason?.fixable ? reason : null) : reason;
-    // Rejecting is the end of the road for a record (until its creator fixes it), and "Send for
-    // revision" is the softer action — so a final rejection still asks first. A FIXABLE reason is a
-    // send-back, which needs no warning.
     if (action === "reject" && refusalOutcome(reason) === "REJECTED") {
       const ok = await confirm({
         title: "Reject this record?",
@@ -389,7 +312,6 @@ export default function ReviewPage() {
     }
   }
 
-  /** Approve / Edit / Send for revision / Reject — one cluster, drawn in the table row and on the phone card. */
   function decisionButtons(item: PendingItem, activeAction: PanelAction | null) {
     return (
       <RowActions>
@@ -400,8 +322,6 @@ export default function ReviewPage() {
         >
           Approve
         </button>
-        {/* Fix a small mistake in place rather than costing a round trip through
-            the contributor — the same fourth action the Android review card has. */}
         {editLocked(item) || reviewEditableFields(item.recordType).length === 0 ? null : (
           <button
             className={rowAction("edit", activeAction === "edit" ? "bg-field-100" : undefined)}
@@ -429,7 +349,6 @@ export default function ReviewPage() {
     );
   }
 
-  /** The open panel under a row: the field editor, or the note box for a decision. */
   function actionPanel(item: PendingItem, activeAction: PanelAction, fill = false) {
     if (activeAction === "edit") {
       return (
@@ -438,7 +357,6 @@ export default function ReviewPage() {
           recordId={item.id}
           label={item.label}
           onSaved={(message) => {
-            // The status did not move, so the row stays put; only the receipt changes.
             setInfo(message);
             setError(null);
           }}
@@ -532,7 +450,6 @@ export default function ReviewPage() {
     );
   }
 
-  /** The tick box for one row, inside a cell that is a 44px target on a touch screen (DC-06). */
   function rowCheckbox(item: PendingItem) {
     if (!bulkEligible(item)) return null;
     return (
@@ -674,12 +591,6 @@ export default function ReviewPage() {
               </ButtonRow>
             </div>
           ) : null}
-          {/*
-            PHONE: ONE CARD PER RECORD (UX audit DC-06). At 390px the 920px table showed Record and
-            Type and hid every decision button in a sideways scroller with no cue. Below `md` each
-            pending record is a card with its decisions as a wrapping row; the table is unchanged
-            from `md` up. Both read the same page of rows and the same handlers.
-          */}
           <div className="md:hidden">
             {eligible.length ? (
               <label className="flex cursor-pointer items-center gap-3 border-b border-line-200 bg-surface-50 px-4 py-2 text-sm text-ink-700 pointer-coarse:min-h-11">
@@ -727,7 +638,6 @@ export default function ReviewPage() {
                     </div>
                     {activeAction ? (
                       <div data-row-ignore className="mt-3 rounded-md bg-surface-50 p-3">
-                        {/* The phone card: its Confirm and Cancel fill the card. The table row below does not. */}
                         {actionPanel(item, activeAction, true)}
                       </div>
                     ) : null}
@@ -794,8 +704,6 @@ export default function ReviewPage() {
                       </ReviewRow>
                       {activeAction ? (
                         <tr className="bg-surface-50">
-                          {/* Eight, not seven: the bulk-select checkbox added a column ahead of
-                              Record, and the expanded row stopped reaching the end of the table. */}
                           <td className="px-4 py-3" colSpan={8}>
                             {actionPanel(item, activeAction)}
                           </td>

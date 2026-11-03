@@ -5,12 +5,6 @@ import { expect, test } from "@playwright/test";
 
 import { filesStillToSend, settleBatch, unsentMessage } from "@/lib/questionnaireUploads";
 
-/**
- * Audit 21 Oct 2026, phase 1 (the legacy flow users have today):
- * H21 — a partly failed upload was swallowed and the form reset; a resend re-created the interview
- * and re-uploaded every clip. Legacy status — the form defaulted a new sitting to APPROVED.
- */
-
 const PAGE = readFileSync(join(__dirname, "..", "app", "(protected)", "questionnaire", "page.tsx"), "utf8");
 
 function file(name: string): File {
@@ -49,7 +43,6 @@ test("H21: the page settles every batch and turns a partial save into an edit of
   expect(PAGE).toMatch(/const clipBatchOutcome = await settleBatch\(files,/);
   const branch = PAGE.slice(PAGE.indexOf("if (unsent.length) {"));
   expect(branch).toMatch(/seedFromInterview\(saved\);\s*setMediaFiles\(interviewBatch\.left\);\s*setQuestionAudioFiles\(clipsLeft\);/);
-  // No bare `const { uploaded } = await uploadMediaBatch(` left: every result is inspected.
   expect(PAGE).not.toMatch(/const \{ uploaded \} = await uploadMediaBatch\(/);
 });
 

@@ -1,20 +1,5 @@
 "use client";
 
-/**
- * /users/[id] — one person's account, read-only, with an Update button for whoever may change it.
- *
- * Owner ruling, 2026-10-16: opening a record reads it; only Update edits it. Until then the users list
- * WAS the editor — a role picker and two grant checkboxes live in every row, so a stray arrow key on a
- * row changed somebody's access. The list now only reads, a click on a person lands here, and the role
- * and the capability grants change only after Update is pressed (here, or from the row's own Update,
- * which arrives with `?update=1`).
- *
- * Nothing on this page is wider than the list: `GET /users/{id}` is the list's gate and the list's row,
- * and the controls are the ones the list carried, under the same rules — the role for anybody the
- * viewer may manage (`mayUpdateUser`), the grants for an admin with admin view on, and never for a
- * Professor or above, who holds every capability by rank.
- */
-
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { Pencil, UserRound } from "lucide-react";
@@ -67,12 +52,10 @@ function UserView() {
   }, [load]);
 
   const mayUpdate = person ? mayUpdateUser(currentUser, person) : false;
-  // Professors and above hold both capabilities by rank, so there is nothing to switch for them.
   const mayGrant = Boolean(person) && admin && mayUpdate && !hasRank(person, "PROFESSOR");
 
   async function changeRole(role: string) {
     if (!person) return;
-    // A DEMOTION asks first — a slip of the arrow key must not take somebody's access away.
     if (roleRank(role as User["role"]) < roleRank(person.role)) {
       const ok = await confirm({
         title: `Lower ${person.name}'s role to ${roleLabel(role)}?`,
@@ -227,7 +210,5 @@ function Grant({
   label: string;
   onChange: (value: boolean) => void;
 }) {
-  // The shared switch (components/ui/Toggle), never a checkbox for a setting. Read-only is the same
-  // switch, disabled, so "on" looks the same whether or not this viewer may change it.
   return <Toggle hideLabel label={label} checked={on} disabled={!editable} onChange={onChange} />;
 }

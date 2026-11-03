@@ -5,10 +5,6 @@ import { BUNDLED_RULES, pickRules, type CompletenessRules } from "@/lib/complete
 
 export * from "@/lib/completenessCore";
 
-/**
- * The rules in force on this browser — the pure evaluator lives in `completenessCore.ts`, so a unit
- * spec can run it without the API client.
- */
 const STORE_KEY = "field_repo_completeness_rules";
 
 type Stored = { etag: string; rules: CompletenessRules };
@@ -28,7 +24,6 @@ function writeStored(value: Stored) {
   try {
     window.localStorage.setItem(STORE_KEY, JSON.stringify(value));
   } catch {
-    // Blocked storage: the bundled table still answers.
   }
 }
 
@@ -45,13 +40,11 @@ async function refreshRules(): Promise<CompletenessRules> {
     if (etag) writeStored({ etag, rules: answer.body });
     current = pickRules(BUNDLED_RULES, answer.body);
   } catch (err) {
-    // 304 (unchanged), offline, or signed out: what is stored, or the bundled copy, stands.
     if (!(err instanceof ApiError) || err.status !== 304) return current;
   }
   return current;
 }
 
-/** The rules in force: the bundled copy, swapped for the server's when its version is higher. */
 export function useCompletenessRules(): CompletenessRules {
   const [rules, setRules] = useState<CompletenessRules>(current);
   useEffect(() => {

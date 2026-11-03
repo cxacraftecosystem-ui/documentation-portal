@@ -13,20 +13,6 @@ import { readableError } from "@/components/review/reviewErrors";
 import { RequiredMark } from "@/components/ui/RequiredMark";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 
-/**
- * Fix a pending record's field values from inside the review queue, instead of bouncing it back to
- * its creator for what is often a misspelt village.
- *
- * The Android app has had this since the review card shipped (MainActivity `PendingReviewRow`); this
- * is the same editor for the web, against the same endpoint and with the same field list. Two rules
- * it must keep:
- *
- * 1. An edit is NOT an approval. `POST /review/{type}/{id}/edit` leaves the status alone unless
- *    `approve` is set, so "Save" keeps the record pending and "Save and approve" is the explicit,
- *    separately logged second action for the fix-the-typo-and-sign-it-off case.
- * 2. Only CHANGED keys travel. The server writes a RecordRevision from the payload, so posting an
- *    untouched value would put a no-op line in the record's edit history forever.
- */
 export function ReviewEditPanel({
   recordType,
   recordId,
@@ -38,14 +24,11 @@ export function ReviewEditPanel({
   recordType: string;
   recordId: string;
   label: string;
-  /** Saved with the status untouched — the row stays in the queue; the message is the receipt. */
   onSaved: (message: string) => void;
-  /** Saved AND approved — the row leaves the queue, so the parent reloads and closes the panel. */
   onApproved: (message: string) => void;
   onClose: () => void;
 }) {
   const fields = reviewEditableFields(recordType);
-  /** The stored values the diff is taken against; null until the record has loaded. */
   const [baseline, setBaseline] = useState<Record<string, string> | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [note, setNote] = useState("");
@@ -53,8 +36,6 @@ export function ReviewEditPanel({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
 
-  // The queue can be long; the record is fetched when the reviewer actually opens the editor rather
-  // than a request per row for panels nobody opens.
   useEffect(() => {
     let cancelled = false;
     const endpoint = reviewRecordEndpoint(recordType, recordId);
@@ -76,14 +57,12 @@ export function ReviewEditPanel({
     return () => {
       cancelled = true;
     };
-    // `fields` is derived from recordType and is stable for a given row.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recordType, recordId]);
 
   const changedKeys = baseline
     ? fields.map((field) => field.key).filter((key) => (values[key] ?? "") !== (baseline[key] ?? ""))
     : [];
-  /** A column the schema declares `min_length=1` cannot be blanked — catch it before the 422. */
   const blanked = fields.filter((field) => field.required && changedKeys.includes(field.key) && !values[field.key]?.trim());
 
   async function submit(approve: boolean) {
@@ -102,8 +81,6 @@ export function ReviewEditPanel({
         onApproved(`Edited ${count} and approved "${label}".`);
         return;
       }
-      // Re-read so the baseline matches what the server actually stored — it title-cases the
-      // name-like columns, so the box must show the normalised value or the next diff is wrong.
       const endpoint = reviewRecordEndpoint(recordType, recordId);
       if (endpoint) {
         const fresh = reviewValuesFrom(await apiFetch<unknown>(endpoint), fields);
@@ -129,18 +106,6 @@ export function ReviewEditPanel({
       <label key={field.key} className="grid gap-1">
         <span className="field-label">
           {field.label}
-          {/*
-            THE SHARED ASTERISK, not the conditional string literal that used to sit here — see
-            `components/ui/RequiredMark.tsx`. This panel is one of the three call sites that were
-            outside the dictation sweep's reach and therefore held the mark's colour hostage for
-            every form in the product: convert two of three and ship the red, and the artisan form
-            carries two colours of required mark at once.
-
-            IT IS A DIFFERENT RED FROM THE ONE BESIDE IT, AND THAT IS THE POINT. `changed` is
-            `text-purple-700 dark:text-purple-300` because it reports a fact about this editing session (you altered this
-            box) while the asterisk reports a fact about the record (this column cannot be empty).
-            Painting them the same colour would merge a transient state into a standing rule.
-          */}
           <RequiredMark when={field.required} />
           {dirty ? <span className="ml-1.5 font-semibold normal-case text-purple-700 dark:text-purple-300">changed</span> : null}
         </span>
@@ -165,11 +130,6 @@ export function ReviewEditPanel({
     );
   }
 
-  /**
-   * Rendered immediately ABOVE the buttons, not at the top of the panel: the editor is a dozen boxes
-   * tall, so a reviewer who clicks Save at the bottom of a long record would never see a banner
-   * pinned to the top — a rejected 422 would look like a button that simply did nothing.
-   */
   const feedback = (
     <>
       {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
@@ -182,8 +142,6 @@ export function ReviewEditPanel({
   return (
     <div className="grid gap-3">
       <p className="text-xs text-ink-500">
-        {/* The explicit {" "} is load-bearing: the JSX transform drops the leading space of the text
-            node that follows an inline element, so without it this reads "does notapprove it". */}
         Saving does <strong>not</strong> approve it. Edits are logged under your name.
       </p>
       {!baseline ? (

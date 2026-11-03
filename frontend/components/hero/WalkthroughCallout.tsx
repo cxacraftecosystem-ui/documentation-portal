@@ -6,7 +6,6 @@ import { ArrowRight, Compass } from "lucide-react";
 
 import { useHeroReducedMotion } from "@/components/hero/useHeroMotion";
 
-/** The chapters the in-app walkthrough covers, so the link promises something specific. */
 const CHAPTERS = [
   "Recording an artisan and carrying them into a product",
   "Running an interview and reading the transcript back",
@@ -14,11 +13,6 @@ const CHAPTERS = [
   "Sharing data with another researcher"
 ];
 
-/**
- * The walkthrough band. `/guide` sits inside the app (it is the web twin of the Android
- * first-run walkthrough), so this links to it and signing in is the first step — the same journey
- * a new researcher takes anyway.
- */
 export default function WalkthroughCallout() {
   const reduce = useHeroReducedMotion();
 

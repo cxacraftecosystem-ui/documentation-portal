@@ -1,11 +1,3 @@
-/**
- * The duplicate-artisan merge tool (C24) — the API calls and the pure rules the page draws from.
- *
- * The server decides everything that matters: which fields differ, the default pick, what would move,
- * what blocks a merge, and whether a merge can still be undone (`backend/app/services/artisan_merge.py`).
- * This module only words it. Admins only; the page sits under `/admin`, whose guard already says so.
- */
-
 import { apiFetch, buildQuery } from "@/lib/api";
 
 export type MergeChoice = "keep" | "merge" | "both";
@@ -93,12 +85,10 @@ export function postUndoMerge(mergeId: string) {
   return apiFetch<MergeSummary>(`/artisans/merge/${encodeURIComponent(mergeId)}/undo`, { method: "POST" });
 }
 
-/** "1 product record" / "3 product records" — the count first, the noun agreeing with it. */
 export function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : pluralForm}`;
 }
 
-/** The pick the page starts from: the server's default for every field that differs. */
 export function defaultPicks(fields: MergeField[]): Record<string, MergeChoice> {
   const picks: Record<string, MergeChoice> = {};
   for (const field of fields) {
@@ -107,7 +97,6 @@ export function defaultPicks(fields: MergeField[]): Record<string, MergeChoice> 
   return picks;
 }
 
-/** What the kept record will read for one field, given the pick. */
 export function resultValue(field: MergeField, choice: MergeChoice | undefined): string | null {
   const pick = field.same ? "keep" : (choice ?? field.default);
   if (pick === "merge") return field.merge;
@@ -118,13 +107,11 @@ export function resultValue(field: MergeField, choice: MergeChoice | undefined):
   return field.keep;
 }
 
-/** The one-line account of what moves, for the confirm dialog and the history. */
 export function movesSentence(moves: MergeMove[]): string {
   if (!moves.length) return "Nothing else is linked to it.";
   return `Moves ${moves.map((move) => move.label).join(", ")}.`;
 }
 
-/** "Undo until 19 Nov" — or why not. */
 export function undoState(summary: MergeSummary, now: Date = new Date()): { canUndo: boolean; label: string } {
   if (summary.status === "UNDONE") return { canUndo: false, label: "Undone" };
   if (summary.status === "IN_PROGRESS") return { canUndo: summary.canUndo, label: "Did not finish — undo it" };

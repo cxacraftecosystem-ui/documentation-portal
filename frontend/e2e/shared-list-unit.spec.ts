@@ -1,8 +1,3 @@
-/**
- * The record forms read each reference list once per page mount: the workshop list shared by
- * `RecordSwitcher` and `WorkshopSelect`, and the artisan page shared by the two artisan pickers.
- */
-
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -94,14 +89,11 @@ test("user B never receives user A's cached or in-flight workshop list", async (
     return page(lists[who]);
   }, () => 0);
 
-  // Cached: A's answer is fresh, yet B (same tab, within the reuse window) reads its own.
   expect((await loader.load("a")).items).toEqual(lists.a);
   reader = "b";
   expect((await loader.load("b")).items).toEqual(lists.b);
   expect(calls).toBe(2);
 
-  // In flight: B asks while A's request is still out; B is not handed A's promise, and A's late
-  // answer is not kept for anybody.
   loader.invalidate();
   reader = "a";
   const forA = loader.load("a");
@@ -112,7 +104,6 @@ test("user B never receives user A's cached or in-flight workshop list", async (
   expect((await loader.load("b")).items).toEqual(lists.b);
   expect(calls).toBe(4);
 
-  // Nobody known: never served from, nor written to, the cache.
   await loader.load(null);
   await loader.load(null);
   expect(calls).toBe(6);
@@ -141,17 +132,14 @@ test("any successful write through the API client forgets the shared workshop li
     await loadWorkshopList("reader");
     expect(listReads).toBe(1);
 
-    // The review editor's save (not under /workshops) and an outbox replay both go through apiFetch.
     await apiFetch("/review/workshop/w1", { method: "PATCH", body: JSON.stringify({ title: "x" }) });
     await loadWorkshopList("reader");
     expect(listReads).toBe(2);
 
-    // The danger zone's delete answers 204 with no body.
     await apiFetch("/workshops/w1", { method: "DELETE" });
     await loadWorkshopList("reader");
     expect(listReads).toBe(3);
 
-    // A read, or a refused write, changes nothing on the server and keeps the list.
     await apiFetch("/artisans");
     await expect(apiFetch("/fails", { method: "POST" })).rejects.toThrow();
     await loadWorkshopList("reader");

@@ -1,11 +1,3 @@
-/**
- * THE FIVE SHARED PRIMITIVES (owner, 2026-10-17) — Toggle, SearchableSelect, SearchableMultiSelect,
- * CalendarField, OtpCodeInput — and the two-step verification switch built from them.
- *
- * Pure functions from `lib/otp.ts` and `lib/twoFactor.ts`, plus source assertions for what lives in
- * JSX (there is no React renderer in devDependencies). Line-ending agnostic: `\s`, never `\n`.
- */
-
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -35,8 +27,6 @@ const CHALLENGE = read("components", "TwoStepChallengeForm.tsx");
 const PASSWORD = read("components", "settings", "ChangePasswordCard.tsx");
 const ROUTES = read("..", "backend", "app", "api", "routes", "two_factor.py");
 
-// --- OTP: digits only, six boxes, paste, backspace, completion ---------------------------------------
-
 test("the code is exactly six digits", () => {
   expect(OTP_LENGTH).toBe(6);
   expect(emptyDigits()).toEqual(["", "", "", "", "", ""]);
@@ -60,7 +50,6 @@ test("typing advances one box at a time", () => {
   for (const digit of "4826") state = enterDigits(state.digits, state.focus, digit);
   expect(joinDigits(state.digits)).toBe("4826");
   expect(state.focus).toBe(4);
-  // The last box keeps focus rather than walking off the end.
   state = enterDigits(state.digits, 4, "1");
   state = enterDigits(state.digits, state.focus, "9");
   expect(joinDigits(state.digits)).toBe("482619");
@@ -72,7 +61,6 @@ test("a pasted six-digit code fills every box from the first, whichever box had 
   expect(pasted.digits).toEqual(["1", "2", "3", "4", "5", "6"]);
   expect(pasted.focus).toBe(5);
   expect(isCompleteCode(joinDigits(pasted.digits))).toBe(true);
-  // A longer string (an SMS line) still yields only six.
   expect(joinDigits(enterDigits(emptyDigits(), 0, "Your code is 987654, valid 30s").digits)).toBe("987654");
 });
 
@@ -94,7 +82,7 @@ test("the OTP input is six numeric boxes in Plus Jakarta Sans, with autofill and
   expect(OTP).toMatch(/inputMode="numeric"/);
   expect(OTP).toMatch(/pattern="\[0-9\]\*"/);
   expect(OTP).toMatch(/"one-time-code"/);
-  expect(OTP).toMatch(/font-display/); // --font-jakarta, Plus Jakarta Sans
+  expect(OTP).toMatch(/font-display/);
   expect(OTP).toMatch(/tabular-nums/);
   expect(OTP).toMatch(/onComplete\?\.\(code\)/);
   expect(OTP).toMatch(/prefers-reduced-motion: reduce/);
@@ -106,23 +94,17 @@ test("every 6-digit surface uses the OTP input, and recovery codes have their ow
   for (const source of [CARD, CHALLENGE, PASSWORD]) {
     expect(source).toMatch(/<OtpCodeInput/);
     expect(source).toMatch(/Use a recovery code instead/);
-    // No single-box code input left behind.
     expect(source).not.toMatch(/placeholder="123456"/);
   }
 });
-
-// --- Toggle ------------------------------------------------------------------------------------------
 
 test("the toggle is a real switch", () => {
   expect(TOGGLE).toMatch(/role="switch"/);
   expect(TOGGLE).toMatch(/aria-checked=\{on\}/);
   expect(TOGGLE).toMatch(/type="button"/);
-  // Row shape names itself with the label and describes itself with the description.
   expect(TOGGLE).toMatch(/aria-labelledby=\{labelId\}/);
   expect(TOGGLE).toMatch(/aria-describedby=\{description \? descriptionId : undefined\}/);
-  // A 44px target on a touch screen.
   expect(TOGGLE).toMatch(/pointer-coarse:h-11/);
-  // Busy (waiting on the server) cannot be flipped.
   expect(TOGGLE).toMatch(/if \(disabled \|\| busy\) return;/);
 });
 
@@ -142,8 +124,6 @@ test("no setting on the converted surfaces is a checkbox or ON/OFF words", () =>
   expect(read("components", "DynamicIslandNav.tsx")).not.toMatch(/Admin view: ON|Admin view: OFF/);
 });
 
-// --- Selects and the calendar -------------------------------------------------------------------------
-
 test("the searchable selects virtualise long lists, clear, and chip their picks", () => {
   expect(SELECT).toMatch(/const VIRTUALIZE_AT = 200;/);
   expect(SELECT).toMatch(/aria-setsize/);
@@ -161,14 +141,11 @@ test("no native date input or select is left on the converted surfaces", () => {
     ["components", "settings", "MyAiKeysPanel.tsx"],
     ["components", "trace", "TracePanel.tsx"]
   ]) {
-    // A JSX element opens its own line; a comment that NAMES the native control does not count.
     expect(read(...parts), parts.join("/")).not.toMatch(/^\s*<select\b/m);
   }
   expect(CALENDAR).toMatch(/DateField/);
   expect(CALENDAR).toMatch(/Clear date/);
 });
-
-// --- Two-step verification: Off / Setting up / On ---------------------------------------------------
 
 const off: TwoFactorStatus = { enabled: false, pending: false, recovery_codes_remaining: 0, enabled_at: null };
 const pendingOnly: TwoFactorStatus = { ...off, pending: true };
@@ -177,7 +154,6 @@ const on: TwoFactorStatus = { enabled: true, pending: false, recovery_codes_rema
 test("only a verified code turns the switch on", () => {
   expect(twoFactorView(off, false)).toBe("off");
   expect(twoFactorView(off, true)).toBe("setting-up");
-  // A setup left over from an earlier visit is OFF, never on.
   expect(twoFactorView(pendingOnly, false)).toBe("off");
   expect(twoFactorView(on, false)).toBe("on");
   expect(twoFactorView(null, false)).toBe("off");
@@ -200,7 +176,6 @@ test("the two-step card is a switch that discards an unfinished setup on every w
   expect(CARD).toMatch(/cancelTwoFactorSetup\(\{ keepalive: true \}\)/);
   expect(CARD).toMatch(/"pagehide"/);
   expect(CARD).toMatch(/visibilitychange/);
-  // No bare "Off." sentence standing in for the state.
   expect(CARD).not.toMatch(/>Off\.<\/p>/);
   expect(ROUTES).toMatch(/@router\.post\("\/setup\/cancel"/);
   expect(ROUTES).toMatch(/"twoFactorEnabled": False/);

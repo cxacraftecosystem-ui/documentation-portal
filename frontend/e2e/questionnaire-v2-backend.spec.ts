@@ -1,18 +1,5 @@
 import { expect, request as requests, test, type APIRequestContext } from "@playwright/test";
 
-/**
- * The web client's v2 calls against a REAL backend running `feature/q-backend` with
- * QUESTIONNAIRE_V2 on (BUILD_PLAN §3.3, the one end-to-end spec).
- *
- * IT WRITES: it creates a session and returns it for changes. So it runs only against a local stack
- * on a throwaway database: E2E_QV2_BASE_URL must be a localhost URL, and E2E_QV2_QUESTIONNAIRE_ID and
- * E2E_QV2_ARTISAN_ID name a seeded instrument and artisan there. It refuses any other host.
- *
- * REVIEW IS A SECOND ACCOUNT. Nobody reviews a record made at their own tier, so the approve and
- * return steps sign in as E2E_REVIEWER_EMAIL / E2E_REVIEWER_PASSWORD (a master admin over an admin
- * creator, say). Without them those steps are skipped, not faked.
- */
-
 const BASE = process.env.E2E_QV2_BASE_URL ?? "";
 const EMAIL = process.env.E2E_EMAIL ?? "";
 const PASSWORD = process.env.E2E_PASSWORD ?? "";
@@ -25,8 +12,6 @@ const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test(BASE);
 
 test.skip(!BASE || !EMAIL || !PASSWORD || !QUESTIONNAIRE || !ARTISAN, "Set E2E_QV2_BASE_URL, E2E_EMAIL, E2E_PASSWORD, E2E_QV2_QUESTIONNAIRE_ID and E2E_QV2_ARTISAN_ID.");
 test.skip(Boolean(BASE) && !LOCAL, "This spec writes; it runs only against a local stack.");
-// The site's /api proxy refuses a write that does not say it came from this site (lib/server/apiProxy.ts);
-// a browser sends Sec-Fetch-Site itself, an API request context has to say it.
 test.use({ baseURL: BASE, extraHTTPHeaders: SAME_SITE });
 
 async function signIn(request: APIRequestContext, email = EMAIL, password = PASSWORD) {
@@ -62,11 +47,9 @@ test("session create, read, review and inbox speak the backend's shapes", async 
   expect(session.title).toBeTruthy();
   expect(session.title).not.toContain("·");
 
-  // A client title is refused: titles are generated.
   const titled = await request.post("/api/questionnaire/sessions", { data: { ...body, clientKey: `${clientKey}-t`, title: "Mine" } });
   expect((await titled.json()).detail.code).toBe("TITLE_IS_GENERATED");
 
-  // A replayed clientKey returns the same row.
   const again = await request.post("/api/questionnaire/sessions", { data: body, headers: { "Idempotency-Key": clientKey } });
   expect((await again.json()).id).toBe(session.id);
 
@@ -74,7 +57,6 @@ test("session create, read, review and inbox speak the backend's shapes", async 
   expect(Array.isArray(detail.recordings)).toBe(true);
   expect(detail.grid.questionnaireId).toBe(QUESTIONNAIRE);
 
-  // Review uses the `questionnaire` record type; an empty session cannot be approved.
   if (REVIEWER_EMAIL && REVIEWER_PASSWORD) {
     const reviewer = await requests.newContext({ baseURL: BASE, extraHTTPHeaders: SAME_SITE });
     await signIn(reviewer, REVIEWER_EMAIL, REVIEWER_PASSWORD);
@@ -91,6 +73,5 @@ test("session create, read, review and inbox speak the backend's shapes", async 
   }
   expect(typeof inbox.counts.olderThan24h).toBe("number");
 
-  // Clean up: an empty session deletes freely.
   expect((await request.delete(`/api/questionnaire/sessions/${session.id}`)).status()).toBe(204);
 });

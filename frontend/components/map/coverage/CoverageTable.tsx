@@ -1,11 +1,5 @@
 "use client";
 
-/**
- * The coverage map as text: every unit with a record, state then district, with its counts. It
- * stands in for the SVG (which is `aria-hidden`) the way `MapPlaceList` does for the Places map,
- * and a row opens the same unit panel a click on the map does.
- */
-
 import { unitTitle } from "@/components/map/coverage/CoverageUnitPanel";
 import type { CoverageUnit } from "@/components/map/coverage/coverageTypes";
 

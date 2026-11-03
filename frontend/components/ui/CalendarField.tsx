@@ -1,20 +1,5 @@
 "use client";
 
-/**
- * `CalendarField` — the ONE date field: a typed `dd/mm/yyyy` box that opens a month calendar, with
- * `min`/`max`, and a Clear button. Never `<input type="date">` (owner, 2026-10-17): the native
- * picker looks different on every browser, cannot be themed for dark mode, and on Android Chrome
- * hides the typed path entirely.
- *
- * It is `DateField` (components/forms/DateTimeField.tsx) — the typing contract, the anchored
- * calendar, the keyboard model — plus a clear control. The value is a `yyyy-mm-dd` LOCAL date both
- * ways (`toIsoDate` / `fromIsoDate` build from local parts, the `parseDateInput` rule): a date is a
- * day on the wall calendar, never a UTC instant, so it cannot slide a day west of Greenwich.
- *
- * Label it as a SIBLING (`<label htmlFor={id}>` + `<CalendarField id={id}>`), never by wrapping —
- * see the DateTimeField header for why. Android's twin is `ui/CalendarField.kt`.
- */
-
 import { X } from "lucide-react";
 import { useId, useState } from "react";
 
@@ -23,9 +8,7 @@ import { RequiredMark } from "@/components/ui/RequiredMark";
 import { cn } from "@/lib/utils";
 
 export type CalendarFieldProps = DateFieldProps & {
-  /** Offer a Clear button while a date is set (default on; off for a required field). */
   clearable?: boolean;
-  /** A visible label drawn above the field as a sibling `<label htmlFor>` (designer-portal's shape). */
   label?: string;
 };
 

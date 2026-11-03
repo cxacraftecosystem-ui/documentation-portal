@@ -3,23 +3,6 @@ import { join, relative } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-/**
- * PROGRESS INDICATORS: A TINTED TRACK, A 3:1 FILL, IN BOTH THEMES, FROM ONE SOURCE.
- *
- * Owner report, 2026-10-17: the voice-note progress bar disappeared against the white of its card.
- * Its track was `--line-200` (1.28:1 on white) and in dark the purple-700 fill was 2.32:1 on the
- * card. Every bar now reads `--progress-track` / `--progress-fill` / `--progress-done` through
- * `.progress-track` / `.progress-fill` (globals.css) and `components/ui/ProgressBar.tsx`.
- *
- * Pinned here:
- *  1. the tokens, light and dark — track visibly distinct from the card (>= 1.5:1), every fill
- *     >= 3:1 (WCAG 1.4.11) against the track AND the card;
- *  2. the recipe — at least 4px tall, round ends;
- *  3. no hand-rolled bar: a `h-full rounded-full bg-purple-…` fill with an inline width, or a track
- *     drawn in `bg-line-200` / `bg-field-200` around one, outside the shared component.
- * Android holds the same numbers in `ProgressIndicatorSourceTest`.
- */
-
 const FRONTEND = join(__dirname, "..");
 const CSS = readFileSync(join(FRONTEND, "app", "globals.css"), "utf8").split("\r\n").join("\n");
 

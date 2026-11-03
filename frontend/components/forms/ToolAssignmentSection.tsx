@@ -14,11 +14,6 @@ import type { Artisan, ToolDocumentation } from "@/lib/types";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { countNoun } from "@/lib/format";
 
-/**
- * "Assign a tool to multiple artisans": the same documented tool can be mapped to several artisans
- * across the same or different crafts, so the tool need not be re-entered per craft. Pick the tool,
- * choose one or more crafts, then tick the artisans of those crafts to assign.
- */
 export function ToolAssignmentSection() {
   const [tools, setTools] = useState<ToolDocumentation[]>([]);
   const catalogue = useCraftCatalogue();
@@ -31,9 +26,6 @@ export function ToolAssignmentSection() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // "Can I see this artisan?" and "is there any signal?" are different answers, and the carry-
-  // forward prefill treats them differently — see useCarryContext. All three lists land together,
-  // so one state covers every scope built from them.
   const [referenceState, setReferenceState] = useState<CarryScopeState>("pending");
 
   useEffect(() => {
@@ -51,20 +43,12 @@ export function ToolAssignmentSection() {
     });
   }, []);
 
-  // Open with the sitting already loaded: the craft and artisan last documented, and the tool
-  // itself. Documenting a tool and then assigning it to the other artisans in the same courtyard is
-  // one continuous act, so the tool the researcher just wrote up is the one this panel opens on —
-  // it is no longer "this panel's own subject" but a record the bag genuinely holds.
   const carry = useCarryContext({
-    // Each of the three dropdowns is built from exactly one of these lists, so "absent from the
-    // list" answers both "can this researcher still reach it" and "could this panel show it".
     scopes: [
       carryScope("artisan", referenceState, artisans),
       carryScope("craft", catalogue.catalogue ? referenceState : catalogue.loading ? "pending" : "unavailable", crafts),
       carryScope("tool", referenceState, tools)
     ],
-    // The panel assigns a tool to artisans of a craft; it has no workshop, product or process
-    // field, so those are neither filled in nor claimed.
     applies: ["craft", "artisan", "tool"],
     onApply: (context) => {
       if (context.craftId) setCraftIds([context.craftId]);
@@ -73,7 +57,6 @@ export function ToolAssignmentSection() {
     }
   });
   const pruneCarried = carry.prune;
-  /** "Change": drop every carried value so the researcher picks from scratch. */
   function clearCarriedContext() {
     carry.change();
     setToolId("");
@@ -86,7 +69,6 @@ export function ToolAssignmentSection() {
     [artisans, craftIds]
   );
 
-  // Keep the artisan selection within the chosen crafts.
   useEffect(() => {
     setArtisanIds((ids) => ids.filter((id) => artisansForCrafts.some((artisan) => artisan.id === id)));
   }, [artisansForCrafts]);
@@ -155,33 +137,12 @@ export function ToolAssignmentSection() {
               setToolId(next);
               const tool = tools.find((candidate) => candidate.id === next);
               if (!tool) return;
-              // Pruning first stops the banner claiming the tool it offered — the researcher has
-              // just overruled it — and remembering then banks the one they chose, with the artisan
-              // and craft that tool was documented under so nothing above it goes stale.
               pruneCarried("tool");
               carry.remember({
                 artisanId: tool.artisanId,
                 artisanName: tool.artisanName,
                 place: tool.place,
                 craftId: tool.craftId,
-                /*
-                  ONE CRAFT'S OWN NAME, NEVER THE JOINED LIST.
-
-                  A tool covers several crafts now, and `tool.craftName` is every linked craft's name
-                  joined ", " by the route (`_resolve_tool_links`) — while `tool.craftId` beside it is
-                  only the FIRST of them. The carry bag holds ONE craft: the banner prints its name as
-                  a single name, and `ProductForm` drops it straight into its REQUIRED "Craft name"
-                  box, which `create_product` stores verbatim with no re-derivation. Banking the
-                  joined string therefore wrote a product row naming a craft called "Bandhani, Block
-                  printing" against a `craftId` pointing at Bandhani alone — a craft that does not
-                  exist, and a name column that no longer matches its own foreign key.
-
-                  `crafts` is loaded in this panel already, by the same effect that loads `tools`, so
-                  the first craft's own row is here to be read. The fallback takes the first name out
-                  of the joined string, which is the same craft by construction — the route joins in
-                  `craftIds` order and `craftId` is element 0 — for a craft this page could not load.
-                  `ToolForm` banks its sitting under the same rule.
-                */
                 craftName: crafts.find((craft) => craft.id === tool.craftId)?.name ?? tool.craftName.split(",")[0].trim(),
                 toolId: tool.id,
                 toolName: tool.toolkitName
@@ -199,8 +160,6 @@ export function ToolAssignmentSection() {
             values={artisanIds}
             onChange={(next) => {
               setArtisanIds(next);
-              // An explicit pick retires the banner and re-points the remembered context at the
-              // single artisan they settled on (a multi-select of many is nobody's "context").
               const artisan = next.length === 1 ? artisans.find((a) => a.id === next[0]) : undefined;
               if (artisan) {
                 carry.remember({ artisanId: artisan.id, artisanName: artisan.name, place: artisan.place, craftId: artisan.craftId }, { explicit: true });

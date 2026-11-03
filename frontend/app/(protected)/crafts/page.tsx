@@ -59,7 +59,6 @@ import Link from "next/link";
 import { UserPlus } from "lucide-react";
 import { carryContextToParams } from "@/lib/carryContext";
 
-/** Section id the craft media batch publishes under, so the page-level tray can aggregate it. */
 const MEDIA_SECTION = "craft-media";
 const MEDIA_SECTION_LABEL = "Craft media";
 
@@ -74,7 +73,6 @@ const CRAFTS_PAGE_SIZE = 50;
 export default function CraftsPage() {
   return (
     <UploadsProvider>
-      {/* Next 16: `useEditDeepLink` reads useSearchParams, which must sit inside a Suspense boundary. */}
       <Suspense fallback={<div className="panel p-4 text-sm text-ink-500">Loading...</div>}>
         <CraftsPageBody />
       </Suspense>
@@ -83,44 +81,12 @@ export default function CraftsPage() {
   );
 }
 
-/**
- * ── DICTATION ON THE CRAFT FORM: WHICH BOXES HAVE A MICROPHONE, AND WHY THE REST DO NOT ────────
- *
- * DICTATED: Craft name · Local name · Description.
- *
- * PLACE LEFT THE FORM on 2026-10-20, as it had on the designer portal: a craft's whereabouts are its
- * two state lists. `Craft.place` stays a column (old records hold it, and the view still reads it); the
- * form simply never sends it, so an edit leaves a stored value as it was.
- *
- * NOT DICTATED: **Workshop** (a record picker behind a themed dropdown — nothing free to speak),
- * **Category / Sub-category**, **States** and **GI status** (closed vocabularies from the master list)
- * and **Craft media** (a file picker).
- *
- * CATEGORY LEFT THIS LIST on 2026-10-20: it is Category → Sub-category from the master list now.
- *
- * THE SEARCH BOX IS NOT PART OF THIS FORM AND GETS NOTHING. It is not an answer being stored; it
- * re-runs a query on every keystroke, so a microphone there would fire a debounced fetch per phrase.
- * If searching by voice is wanted it belongs in `SearchInput` once, for every list screen.
- *
- * `titleCased` ON THE NAME IS NEW HERE. `Craft.name` goes through
- * `clean_data` on write (`records.py:341`, `:348`), so a researcher who typed "bagru block printing"
- * saved and watched the record silently become something else — the exact defect `TitleCasedInput`
- * was written for, on the one record form that had never been given it. Description is a
- * `DictatedTextArea` and deliberately NOT a `RichTextField`: pointing an editor here would make
- * `Craft.description` another `String?` column capable of holding `{"blocks":…}`, which
- * `record_fields.cell()` prints verbatim into a CSV. That is a storage decision across three
- * languages and it belongs with the other seven prose columns or nowhere.
- *
- * ONE SENTENCE FOR THE WHOLE FORM: every control passes `explainWhenUnavailable={false}` and
- * `DictationUnavailableNotice` sits once at the top of the field grid.
- */
 function CraftsPageBody() {
   const confirm = useConfirm();
   const { user } = useAuth();
   const { adminMode, canDeleteRecords } = useAdminView();
   const { addCompleted } = useUploads();
   const allowManage = canManageCrafts(user);
-  /** Content admins: Admin and Master Admin (Ministry Admin where the role exists). */
   const contentAdmin = canAdministerCraftList(user);
   const searchParams = useSearchParams();
   const [tab, setTab] = useState<CraftsTab>(() => {
@@ -136,15 +102,6 @@ function CraftsPageBody() {
   const [applied, setApplied] = useState("");
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<Craft | null>(null);
-  /*
-    THE FOUR DICTATED ONE-LINE BOXES, AND THE KEY THAT CLEARS THE FIFTH.
-
-    `DictatedTextInput` is controlled by its caller — it has one mode, for the reason written out in
-    that file — so the four names below live here and are seeded by `resetForm`. The description is a
-    `DictatedTextArea`, which owns its own value and re-seeds only on REMOUNT, so it is `formKey` that
-    clears it. Both mechanisms exist because `formElement.reset()` rewrites the DOM and tells React
-    nothing: neither kind of box is reachable from it.
-  */
   const [name, setName] = useState("");
   const [localName, setLocalName] = useState("");
   const [subCategoryId, setSubCategoryId] = useState("");
@@ -156,30 +113,23 @@ function CraftsPageBody() {
   const [collabId, setCollabId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<BatchProgress | null>(null);
-  // Unsaved-changes guard: dirty is set by any form input / media change; confirmAction holds the
-  // navigation the user asked for while the dialog decides its fate.
   const router = useRouter();
   const [dirty, setDirty] = useState(false);
   const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
   const [saving, setSaving] = useState(false);
-  /** A8: the craft just created, for the "Add an artisan" next step. */
   const [savedCraft, setSavedCraft] = useState<Craft | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const afterSaveRef = useRef<(() => void) | null>(null);
   const skipFirstDebounce = useRef(true);
-  // The workshop this craft was documented at. One inline form edits every craft here, so `resetKey`
-  // re-seeds the picker whenever a different record is loaded into it (see forms/WorkshopSelect).
   const workshop = useWorkshopSelection({
     initialWorkshopId: editing?.workshopId,
     isEdit: Boolean(editing),
     resetKey: editing?.id ?? null
   });
 
-  /** The master list: the table, its filters and every picker read the same catalogue. */
   const craftCatalogue = useCraftCatalogue();
   const catalogue = craftCatalogue.catalogue;
   const refreshCatalogue = craftCatalogue.reload;
-  /** Records per craft, for everyone: each `GET /crafts` row carries its `referenceCount`. */
   const [counts, setCounts] = useState<Map<string, number> | null>(null);
   const loadCounts = useCallback(async () => {
     try {
@@ -193,14 +143,12 @@ function CraftsPageBody() {
     void loadCounts();
   }, [loadCounts]);
 
-  /** After any write the catalogue's version moved, so every picker re-reads it. */
   function load() {
     invalidateCraftCatalogue();
     refreshCatalogue();
     void loadCounts();
   }
 
-  // Live search: debounce typing by 350ms; Enter applies immediately via onSubmit.
   useEffect(() => {
     if (skipFirstDebounce.current) {
       skipFirstDebounce.current = false;
@@ -225,7 +173,6 @@ function CraftsPageBody() {
     [catalogue]
   );
   const stateOptions = useMemo(() => CRAFT_STATE_OPTIONS.map((state) => ({ value: state, label: state })), []);
-  /** "Category" and "Sub-category" of a catalogue row, for the table. */
   const pathOf = useCallback(
     (subCategoryId: string | null) => {
       if (!catalogue || !subCategoryId) return null;
@@ -236,7 +183,6 @@ function CraftsPageBody() {
     [catalogue]
   );
 
-  /** The Crafts tab's rows: the catalogue, searched and filtered here, in list order. */
   const filtered = useMemo(() => {
     const subIds = filterCategory
       ? new Set((catalogue?.categories.find((row) => row.id === filterCategory)?.subCategories ?? []).map((sub) => sub.id))
@@ -254,7 +200,6 @@ function CraftsPageBody() {
   const shownPage = Math.min(page, pages);
   const rows = filtered.slice((shownPage - 1) * CRAFTS_PAGE_SIZE, shownPage * CRAFTS_PAGE_SIZE);
 
-  /** `/crafts?new=<name>`: "Add it to the list" from a craft picker opens the form with that name. */
   const askedName = searchParams.get("new");
   useEffect(() => {
     if (!askedName || askedName === "1" || !allowManage) return;
@@ -272,7 +217,6 @@ function CraftsPageBody() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [askedName, allowManage]);
 
-  /** Update from a row: the catalogue row is the list's; the form needs the whole record. */
   async function openForEdit(id: string) {
     try {
       const record = await apiFetch<Craft>(`/crafts/${id}`);
@@ -283,10 +227,6 @@ function CraftsPageBody() {
     }
   }
 
-  /*
-   * BACK FROM A CRAFT'S VIEW PUTS THE LIST BACK AS IT WAS — search, page and scroll. A row click
-   * opens the read-only view (`/crafts/[id]`); see `lib/listReturn.ts`.
-   */
   const listReturn = useListReturn("crafts", { query: applied, page }, Boolean(catalogue));
   useEffect(() => {
     const note = listReturn.restored;
@@ -302,7 +242,6 @@ function CraftsPageBody() {
   useEffect(() => restoreListScroll(Boolean(catalogue)), [catalogue, restoreListScroll]);
   const rememberPlace = () => listReturn.remember({ query: applied, page });
 
-  // Warn on hard navigation (close tab / reload) while the craft form has unsaved edits.
   useEffect(() => {
     if (!dirty) return;
     function onBeforeUnload(event: BeforeUnloadEvent) {
@@ -313,17 +252,10 @@ function CraftsPageBody() {
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [dirty]);
 
-  // Soft navigation via the round back control in the page header — the page's only back control —
-  // parks through the same mechanism, so Discard performs the navigation that was asked for.
   useLeaveGuard(dirty, () => guard(() => router.back()));
 
-  /**
-   * Opening a row's read-only view leaves this page, and with it the inline form above the list —
-   * so it asks first, exactly as the switcher and the deep link do.
-   */
   const openThroughGuard = (href: string) => guard(() => router.push(href));
 
-  /** Run `action` now, or park it behind the unsaved-changes dialog when the form is dirty. */
   function guard(action: () => void) {
     if (dirty) setConfirmAction(() => action);
     else action();
@@ -333,8 +265,6 @@ function CraftsPageBody() {
     setEditing(next);
     setMediaFiles([]);
     setDirty(false);
-    // The four dictated boxes are page state, so they are seeded here rather than by a `defaultValue`
-    // the remount below would re-read. `next` is the record being loaded, or null for a blank form.
     setName(next?.name ?? "");
     setLocalName(next?.localName ?? "");
     setSubCategoryId(next?.subCategoryId ?? "");
@@ -342,30 +272,13 @@ function CraftsPageBody() {
     setStateOfPractice(next?.stateOfPractice ?? []);
     setGiStatus(next?.giStatus ?? "NON_GI");
     setFormOpen(Boolean(next));
-    // ── AND THE FORM IS REMOUNTED, WHICH IS A BUG FIX AND NOT A TIDY-UP ─────────────────────
-    // The `<form>` was keyed `editing?.id ?? "new"` alone, so creating a craft did not change the key
-    // and the form was NOT rebuilt: `formElement.reset()` on the saved branch of `submit` was the
-    // whole of the clearing, and that reaches uncontrolled DOM inputs and nothing else. The
-    // description box — now a `DictatedTextArea`, which owns its value — would paint empty while
-    // still holding the saved text, and one keystroke would bring the previous description back into
-    // the next craft. The QUEUED branch is worse: it calls `resetForm(null)` and never calls
-    // `formElement.reset()` at all, and offline is the path nobody tests.
-    // Bumping a counter into the key is the instrument `ArtisanForm` uses (`formKey`) for the same
-    // reason: remounting is what clears the state living inside the field components.
     setFormKey((key) => key + 1);
   }
 
-  // `/crafts?edit=<id>` loads that craft into the form below; `/crafts?new=1` opens a blank one.
-  // Both are how the View Data browser, the dashboard tiles and Recent submissions reach this page —
-  // before this they all linked to the bare `/crafts`, so "Update craft" landed on the create form.
   const { loading: deepLinkLoading } = useEditDeepLink<Craft>({
     endpoint: "/crafts",
     basePath: "/crafts",
     targetRef: formRef,
-    // Through `guard`, exactly as the row Edit button below goes through it: the form stays typeable
-    // while the fetch is in flight, and `resetForm` remounts it (`key={editing?.id}`) and clears
-    // `dirty` — so seeding directly would throw away anything typed in those seconds with nothing
-    // asked and nothing said. Dirty means the unsaved-changes dialog decides, as everywhere else.
     onEdit: (record) => guard(() => resetForm(record)),
     onNew: () =>
       guard(() => {
@@ -379,11 +292,8 @@ function CraftsPageBody() {
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    // React nulls event.currentTarget after the first await — capture it before any async work.
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    // A workshop that has already ended makes this a late submission needing admin approval — say so
-    // before anything is written. Resolves true immediately when there is nothing to warn about.
     if (!(await workshop.confirmSubmission())) {
       afterSaveRef.current = null;
       return;
@@ -393,7 +303,6 @@ function CraftsPageBody() {
       const exifItems = await collectExifMetadata(mediaFiles);
       const exifRemark = exifMetadataToRemark(exifItems);
       const description = [textValue(form, "description"), exifRemark].filter(Boolean).join("\n\n") || null;
-      // extraMetadata stays programmatic (EXIF etc.) — the raw JSON textarea is gone for good.
       const payload: Record<string, unknown> = {
         name: requiredText(form, "name"),
         localName: textValue(form, "localName"),
@@ -405,7 +314,6 @@ function CraftsPageBody() {
         description
       };
       if (exifItems.length) payload.extraMetadata = { mediaExif: exifItems };
-      // Offline this queues to the outbox with its media rather than failing at the Save button.
       const outcome = await saveOrQueue<Craft>({
         label: `Craft · ${payload.name || "Untitled"}`,
         endpoint: editing ? `/crafts/${editing.id}` : "/crafts",
@@ -421,7 +329,6 @@ function CraftsPageBody() {
         ]
       });
       if (outcome.queued) {
-        // OutboxBanner at the top of the page names the entry and says where it lives.
         resetForm(null);
         setSaving(false);
         if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
@@ -438,7 +345,6 @@ function CraftsPageBody() {
           onProgress: setUploadProgress
         });
         setUploadProgress(null);
-        // The uploaded files surface twice: as chips under this section and in the page-level tray.
         addCompleted(MEDIA_SECTION, MEDIA_SECTION_LABEL, uploaded);
         if (failed.length) {
           setError(
@@ -449,7 +355,6 @@ function CraftsPageBody() {
           return;
         }
       }
-      // A8: a NEW craft is followed by its artisans, so offer that as the next step.
       setSavedCraft(editing ? null : saved);
       resetForm(null);
       setConfirmAction(null);
@@ -475,7 +380,6 @@ function CraftsPageBody() {
       await apiFetch(`/crafts/${id}`, { method: "DELETE" });
       load();
     } catch (err) {
-      // 409 CRAFT_IN_USE: "Used by {n} records. Merge it into another craft instead."
       setError(err instanceof Error ? err.message : "Unable to delete craft");
     }
   }
@@ -525,7 +429,6 @@ function CraftsPageBody() {
       {tab === "review" && contentAdmin ? (
         <div className="grid gap-5">
           {catalogue ? <CraftReviewQueue catalogue={catalogue} onChanged={load} /> : null}
-          {/* Craft codes: the shared code both portals carry. */}
           {adminMode ? <UnmappedCraftsPanel /> : null}
         </div>
       ) : null}
@@ -556,31 +459,12 @@ function CraftsPageBody() {
           Loading the craft you asked to edit...
         </div>
       ) : null}
-      {/*
-        OUTSIDE THE `<form>`, AND ONLY WHILE A CRAFT IS LOADED INTO IT.
-        
-        Outside, because this form is `onInput={() => setDirty(true)}` and the picker's search box is
-        an `<input>`. `SearchableSelect` does stop that event at the panel (see `containEvents`, which
-        exists for exactly this class of problem — a React portal moves the DOM but not the tree), but
-        relying on a sibling component's event containment to keep this page's unsaved-changes prompt
-        from arming on a search nobody committed is a dependency at a distance. Rendered as a sibling
-        it cannot arise.
-
-        Only while editing, because in create mode this page is a blank form over a list that has its
-        own search box and its own pager. A second record picker there would be a third way to reach
-        the same rows, defaulted to a workshop the list is not filtered by.
-      */}
       {allowManage && editing ? (
         <RecordSwitcher
           kind="craft"
           currentId={editing.id}
           currentWorkshopId={editing.workshopId}
           className="panel mb-5 grid gap-3 p-4 md:grid-cols-2"
-          // THROUGH `guard`, exactly as the row Edit button and the deep link's own `onEdit` go
-          // through it. That is what makes Discard land on the craft that was just PICKED: `guard`
-          // parks this navigation until the dialog is answered and then runs it, rather than letting
-          // the form's interceptor substitute its own `router.back()`. `onDiscard` clears `dirty`
-          // first, so the `?edit=` that lands a moment later does not raise the prompt a second time.
           onNavigate={(href) => guard(() => router.push(href))}
         />
       ) : null}
@@ -591,12 +475,8 @@ function CraftsPageBody() {
         onSubmit={submit}
         onInput={() => setDirty(true)}
         onKeyDown={handleFormEnter}
-        // scroll-mt-28 clears the island nav when `?edit=` scrolls this form into view (§AppShell pt-24).
         className="panel mb-5 grid scroll-mt-28 gap-3 p-4 md:grid-cols-2 lg:grid-cols-4"
       >
-        {/* WHICH craft is in the form. Arriving from ?edit= drops the researcher straight into a
-            populated form part-way down the page, and "Update craft" on the button is too far away
-            (and too generic) to answer "update WHICH one" on its own. */}
         {editing ? (
           <div className="flex flex-wrap items-center gap-2 md:col-span-2 lg:col-span-4">
             <span className="rounded-full bg-field-200 px-2.5 py-1 text-xs font-medium text-ink-900">
@@ -604,21 +484,8 @@ function CraftsPageBody() {
             </span>
           </div>
         ) : null}
-        {/* The workshop leads every other dropdown: it is the context the record belongs to. */}
         <WorkshopSelect state={workshop} onDirty={() => setDirty(true)} saving={saving} />
-        {/*
-          THE ONE PLACE THIS FORM EXPLAINS A MISSING MICROPHONE — see `DictationUnavailableNotice`.
-          Every dictated box below passes `explainWhenUnavailable={false}`, because on Firefox the
-          same honest paragraph printed five times down one form is a block of grey text nobody reads.
-
-          `md:col-span-2 lg:col-span-4` because THIS form's root element IS the field grid: without
-          the span the sentence would be one cell of four and would wrap to five lines beside the
-          workshop picker.
-        */}
         <DictationUnavailableNotice className="md:col-span-2 lg:col-span-4" />
-        {/* `setDirty(true)` BY HAND in every `onChange`: the form's `onInput` catches typing, but a
-            dictated phrase is a React state write and fires no native `input` event, so a researcher
-            who only ever spoke would be told there was nothing to lose on the way out. */}
         <DictatedTextInput
           name="name"
           label="Craft name"
@@ -631,7 +498,6 @@ function CraftsPageBody() {
             setDirty(true);
           }}
         />
-        {/* NOT title-cased: `localName` is Devanagari or Gujarati, where capitalising means nothing. */}
         <DictatedTextInput
           name="localName"
           label="Local name"
@@ -701,10 +567,6 @@ function CraftsPageBody() {
             }}
           />
         </div>
-        {/* THE WRAPPER `<div>` STAYS, and it is not decoration. `DictatedTextArea`'s `className` prop
-            lands on its `<textarea>`, not on its wrapper, so passing `md:col-span-2 lg:col-span-4`
-            to the component compiles, renders, and silently leaves the box one cell wide in a
-            four-column grid. The span has to be on an element that IS the grid item. */}
         <div className="md:col-span-2 lg:col-span-4">
           <DictatedTextArea
             name="description"
@@ -731,8 +593,6 @@ function CraftsPageBody() {
           label={MEDIA_SECTION_LABEL}
           className="md:col-span-2 lg:col-span-4"
         />
-        {/* Editing an existing craft: everything already attached to it, with playback and per-file
-            delete — the same surface the artisan/product/tool/workshop forms carry. */}
         {editing ? (
           <div className="md:col-span-2 lg:col-span-4">
             <ExistingMedia linkedRecordType="craft" linkedRecordId={editing.id} title="Previously uploaded craft media" />
@@ -752,8 +612,6 @@ function CraftsPageBody() {
           Ask an admin for access to add crafts.
         </div>
       ) : null}
-      {/* Same provenance block the artisan/product/tool/workshop edit surfaces carry, for the craft
-          being edited. empty:hidden — FieldProvenance renders nothing without provenance access. */}
       {editing ? (
         <div className="mb-5 empty:hidden">
           <FieldProvenance extraMetadata={editing.extraMetadata} title="Craft field contributions" />
@@ -894,8 +752,6 @@ function CraftsPageBody() {
           </section>
         </>
       ) : null}
-      {/* The hand-rolled overlay this replaces was pre-FieldDialog legacy: no focus trap, no Escape,
-          no focus restoration and no scroll lock. /workshops already used the shared component. */}
       <CollabDialog recordType="craft" recordId={collabId} onClose={() => setCollabId(null)} />
       <UnsavedChangesDialog
         open={confirmAction !== null}

@@ -18,12 +18,6 @@ import {
   type AppNotification
 } from "@/lib/inAppNotifications";
 
-/**
- * THE IN-APP ACTIVITY LIST (C25) — the request paths both portals and both handsets share, the
- * bell's words, and the list's bookkeeping. The paths are pinned here because the designer
- * portal and the two Android clients are written against the same four routes.
- */
-
 function notice(id: string, read = false, minutesAgo = 0): AppNotification {
   return {
     id,

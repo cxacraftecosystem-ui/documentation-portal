@@ -6,24 +6,6 @@ import { useRef } from "react";
 import { FieldDialog } from "@/components/dialogs/FieldDialog";
 import { formatDate } from "@/lib/format";
 
-/**
- * Confirmation shown when a record is about to be saved into a workshop that has already ended.
- * Mirrors the Android `LateSubmissionDialog` in `MainActivity` — same title, same two choices, same
- * two-tier wording.
- *
- * The backend accepts a late submission but pins it to PENDING and stamps it
- * `extraMetadata.workshopSubmission.needsAdminApproval`, after which ONLY an admin or master admin
- * may approve it (see `services/workshop_access` and the review routes). That is a real consequence
- * for the researcher — their entry cannot be approved by the professor who normally reviews them —
- * so it is stated up front rather than discovered in the review queue.
- *
- * Admins are the approval authority, so a late submission of theirs is never flagged: they get the
- * shorter wording (`needsAdminApproval` false) and no promise of somebody else's approval.
- *
- * One z-layer above the ordinary dialog layer (105 vs 100, still below the toast layer at 110):
- * `UnsavedChangesDialog` stays mounted while its own "Save" runs the submit that opens this dialog
- * (crafts page, ProcessForm), and an equal z-index would let it cover "Submit anyway".
- */
 export function LateSubmissionDialog({
   open,
   workshopTitle,
@@ -53,7 +35,6 @@ export function LateSubmissionDialog({
       tone="warning"
       icon={<CalendarClock className="h-4 w-4" aria-hidden />}
       busy={saving}
-      // Nothing is destroyed by backing out, so the backdrop is allowed to be the way out.
       dismissOnBackdrop
       initialFocusRef={cancelRef}
       zIndex={105}

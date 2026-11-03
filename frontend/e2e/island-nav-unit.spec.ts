@@ -29,14 +29,6 @@ import {
 import { ROLE_RANK } from "@/lib/permissions";
 import type { User, UserRole } from "@/lib/types";
 
-/**
- * The bottom island's pure rules on the web — `lib/islandNav.ts` — mirrored case for case from
- * Android's `IslandBottomNavTest.kt` (and the quick-return cases of `AppSearchTest.kt`), so the phone
- * app and the phone browser draw one bar. PURE NODE: no page, no sign-in, no API.
- */
-
-// ── splitIsland, on plain values ───────────────────────────────────────────────────────────────
-
 test("five or fewer are all shown and there is no More", () => {
   for (let n = 0; n <= 5; n += 1) {
     const items = Array.from({ length: n }, (_, i) => `d${i + 1}`);
@@ -67,8 +59,6 @@ test("the bar never draws more than five slots, More included", () => {
 test("a cap below two is refused", () => {
   expect(() => splitIsland([1, 2, 3], 1)).toThrow();
 });
-
-// ── islandSlots and the active rules ───────────────────────────────────────────────────────────
 
 const entry = (label: string, badge = 0): IslandEntry<string> => ({ label, href: `/${label}`, icon: "star", badge });
 const roots = [entry("Dashboard"), entry("Walkthrough")];
@@ -109,7 +99,6 @@ test("a slot is active for its own label or for an entry of its group", () => {
   expect(isIslandSlotActive(dashboard, "Dashboard")).toBe(true);
   expect(isIslandSlotActive(dashboard, "Map")).toBe(false);
   expect(isIslandSlotActive(browse, "Tasks")).toBe(true);
-  // A group's own label is not a destination, so it never lights the group.
   expect(isIslandSlotActive(browse, "Browse")).toBe(false);
   expect(isIslandSlotActive(browse, null)).toBe(false);
 });
@@ -120,11 +109,8 @@ test("More with nothing hidden is never lit", () => {
   expect(isIslandMoreActive(split, "Dashboard")).toBe(false);
 });
 
-// ── against the real menu model, role by role ──────────────────────────────────────────────────
-
 const user = (role: UserRole): User => ({ id: `u-${role}`, email: `${role}@example.org`, name: role, role }) as User;
 
-/** The slots the web builds for `role`: the same projection of `NAV_ITEMS` the bar renders. */
 function slotsFor(role: UserRole, adminMode: boolean): IslandSlot<string>[] {
   const items = NAV_ITEMS.filter((item) => isNavItemVisible(item, user(role), adminMode));
   const rootEntries = items.filter((item) => item.group === null).map((item) => entry(item.label));
@@ -147,7 +133,6 @@ test("an admin with admin view on gets four slots and More holding Admin and Acc
   expect(split.overflow.map((slot) => slot.label)).toEqual(["Admin", "Account"]);
   expect(isIslandMoreActive(split, "Settings hub")).toBe(true);
   expect(isIslandMoreActive(split, "Dashboard")).toBe(false);
-  // The bar prints Home, Tour, Record, Browse and More.
   expect([...split.shown.map((slot) => islandShortLabel(slot.label)), ISLAND_MORE_LABEL]).toEqual([
     "Home",
     "Tour",
@@ -190,8 +175,6 @@ test("role filtering decides what is behind More, never the other way round", ()
     }
   }
 });
-
-// ── the bar's words ────────────────────────────────────────────────────────────────────────────
 
 test("the long names print short and every other label prints as it is", () => {
   expect(islandShortLabel("Dashboard")).toBe("Home");
@@ -252,8 +235,6 @@ test("the room a slot has grows with the phone and is capped with the bar", () =
   expect(islandLabelRoom(560, 6)).toBe(islandLabelRoom(900, 6));
 });
 
-// ── web-only: the unread badge and the keyboard ────────────────────────────────────────────────
-
 test("the unread count rides on the slot that holds Notifications, and on More when it is behind it", () => {
   const withUnread = groups.map((group) =>
     group.label === "Account" ? { ...group, entries: [entry("Settings"), entry("Notifications", 3)] } : group
@@ -279,8 +260,6 @@ test("the bar hides while the on-screen keyboard is open", () => {
   expect(islandKeyboardOpen(844, 700)).toBe(false);
   expect(islandKeyboardOpen(844, 500)).toBe(true);
 });
-
-// ── quick return (AppSearchTest's cases, in scroll positions) ──────────────────────────────────
 
 const header = 72;
 const step = (s: QuickReturnStep, delta: number, y: number, pinned = false) => quickReturnStep(s, delta, y, header, pinned);

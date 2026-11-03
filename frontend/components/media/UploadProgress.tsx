@@ -44,7 +44,6 @@ function toPreview(item: CompletedUpload): PreviewMedia {
   };
 }
 
-/** Chips for media that finished uploading — tap one to preview it in the lightbox. */
 export function UploadedMediaChips({ items, showSection = false }: { items: CompletedUpload[]; showSection?: boolean }) {
   const [active, setActive] = useState<PreviewMedia | null>(null);
   if (!items.length) return null;
@@ -73,11 +72,6 @@ export function UploadedMediaChips({ items, showSection = false }: { items: Comp
   );
 }
 
-/**
- * Section-scope upload state: a determinate bar with percentage, file counter and ETA while the
- * batch runs, and the media this section finished uploading afterwards. Passing `sectionId`
- * publishes the same progress to the page-level <UploadTray>, so one call site feeds both scopes.
- */
 export function UploadProgress({
   progress,
   sectionId,
@@ -87,7 +81,6 @@ export function UploadProgress({
   progress: BatchProgress | null;
   sectionId?: string;
   label?: string;
-  /** Extra classes for the wrapper — grid parents pass their column span here. */
   className?: string;
 }) {
   const { reportSection, completed } = useUploads();
@@ -98,8 +91,6 @@ export function UploadProgress({
     reportSection(sectionId, sectionLabel, progress);
   }, [sectionId, sectionLabel, progress, reportSection]);
 
-  // Clearing has to happen on UNMOUNT only — doing it in the effect above would drop and re-add the
-  // section on every progress tick, restarting the page-level ETA clock each time.
   const latest = useRef({ sectionId, sectionLabel, reportSection });
   useEffect(() => {
     latest.current = { sectionId, sectionLabel, reportSection };

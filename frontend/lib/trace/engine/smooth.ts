@@ -1,25 +1,7 @@
 import { VecPoint } from './path';
 
-/**
- * Polyline smoothing. See ALGORITHMS.md §10.6.
- *
- * Chaikin is applied **before** Douglas-Peucker, never after: smoothing after simplification just
- * re-adds the points DP removed and costs the simplification for nothing.
- */
-
-/** Hard cap so an accidental `iterations = 30` cannot allocate a billion points. */
 const MAX_CHAIKIN_ITERATIONS = 8;
 
-/**
- * Chaikin corner cutting, splitting each segment at 1/4 and 3/4.
- *
- * Cheap and very effective on the 8-connected staircase a skeleton walk produces.
- *
- * @param iterations clamped to `0..8`; 0 returns the input unchanged
- * @param closed     true wraps around, so the loop has no flat spot at the seam; false pins the two
- *                   endpoints, because moving the end of an open stroke shortens it visibly
- * @returns a new list.
- */
 export function chaikin(
   points: readonly VecPoint[],
   iterations: number,
@@ -45,14 +27,6 @@ export function chaikin(
   return cur;
 }
 
-/**
- * Gaussian smoothing of the point sequence.
- *
- * @param sigma  in points, not document units; <= 0 returns the input unchanged
- * @param closed true wraps the kernel; false clamps it at the ends **and pins the two endpoints
- *               exactly**, so a smoothed open stroke still starts and ends where it did
- * @returns a new list of the same length.
- */
 export function gaussian(
   points: readonly VecPoint[],
   sigma: number,
@@ -91,16 +65,6 @@ export function gaussian(
   return out;
 }
 
-/**
- * Gaussian smoothing whose kernel narrows near a detected corner and vanishes at it.
- *
- * A plain smoothing pass would round off the corner the detector just protected, which defeats the whole
- * point of splitting the path there. The per-point sigma scales linearly with the distance to the nearest
- * corner and reaches the full `sigma` two kernel radii away.
- *
- * @param corners indices into `points`; an empty array makes this identical to {@link gaussian}
- * @returns a new list of the same length; the corner points themselves are returned untouched.
- */
 export function curvatureAware(
   points: readonly VecPoint[],
   sigma: number,
@@ -111,7 +75,6 @@ export function curvatureAware(
   if (n < 3 || !(sigma > 0)) return points.slice();
   if (corners.length === 0) return gaussian(points, sigma, closed);
 
-  // Sequence distance to the nearest corner, wrapping when the path is closed.
   const dist = new Int32Array(n).fill(n);
   for (let c = 0; c < corners.length; c++) {
     const ci = corners[c] | 0;
@@ -149,11 +112,6 @@ export function curvatureAware(
   return out;
 }
 
-/**
- * Centred moving average with the window clamped at the ends.
- * @param window forced odd and at least 1; 1 returns a copy
- * @returns a new array of the same length.
- */
 export function movingAverage(values: Float32Array, window: number): Float32Array {
   const n = values.length;
   const out = new Float32Array(n);

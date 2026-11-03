@@ -1,11 +1,5 @@
 "use client";
 
-/**
- * Each workshop type's default form (owner, amendment 2 point 2): an admin act. A session on a
- * workshop with no primary binding starts on its type's default, then the global default, then the
- * picker. Clearing a type leaves the global default to answer.
- */
-
 import { useCallback, useEffect, useState } from "react";
 
 import { useToast } from "@/components/ui/Toast";

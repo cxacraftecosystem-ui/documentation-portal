@@ -18,38 +18,6 @@ import { isAdmin } from "@/lib/permissions";
 import type { PageResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-/**
- * The task assignment board — hand work out, then hold it to account.
- *
- * Three views over one scope. The workshop dropdown at the top is that scope: it narrows the artisan
- * picker in the builder, the rollup in the accountability view and the assignments listed below,
- * because "who is behind" is a question you ask about a fieldwork trip, not about the whole archive.
- *
- * The accountability tab is the reason this page exists. `progressCount` is what a researcher says
- * they have done and `derivedCount` is what the repository can actually find them having produced;
- * an admin needs to see the two side by side, because a task marked done with nothing behind it is
- * exactly the failure this board is meant to catch.
- *
- * AND SINCE 2026-09-14 IT IS ALSO THE APPROVAL QUEUE. A researcher's "Mark done" now lands the task
- * on SUBMITTED and it stays on their list until somebody here agrees — so `awaitingReviewCount` is
- * work that is waiting on the person reading this page, not on the person named on the row. It is
- * badged on the tab below for one reason: a queue that is only visible after you have chosen the
- * right tab and expanded the right person is a queue that goes unworked, and the researcher whose
- * task is sitting in it has no way of telling that from being ignored.
- *
- * ASSIGNING is admin work, so this route is admin chrome (ADMIN_CHROME_ROUTES) and AppShell hides
- * it while admin view is off, offering /tasks instead. /tasks itself is never chrome: everybody can
- * be an assignee. The `isAdmin` guard below mirrors `require_admin` and the toggle never widens it.
- *
- * `permitted` now does two jobs, and they are deliberately the SAME predicate rather than two. It
- * gates the page (mirroring `require_admin` on every endpoint this screen calls) and it gates the
- * accountability board's per-task override (mirroring `update_task`'s `is_admin(current_user)`
- * manager test, backend/app/api/routes/tasks.py:1188). Passing it down explicitly rather than
- * letting the board assume "if I am mounted, the viewer is an admin" is what keeps the control's
- * own gate readable at the call site — and what keeps it correct if this board is ever mounted on a
- * less guarded screen.
- */
-
 type TabKey = "assign" | "progress" | "batches";
 
 const TABS: { key: TabKey; label: string }[] = [
@@ -79,7 +47,6 @@ export default function TaskAssignmentBoardPage() {
   const [batchesError, setBatchesError] = useState<string | null>(null);
   const [batchPage, setBatchPage] = useState(1);
 
-  // The artisan picker narrows to the chosen workshop, so the options call is re-run on every change.
   const loadOptions = useCallback(async () => {
     if (!permitted) return;
     setOptionsLoading(true);
@@ -134,8 +101,6 @@ export default function TaskAssignmentBoardPage() {
     loadBatches();
   }, [loadBatches]);
 
-  // A new workshop scope invalidates the page the batch list was sitting on. Set in the same
-  // update as the scope, so the batch list is asked for once (an effect asked twice from page 2+).
   const chooseWorkshop = useCallback(
     (next: string) => {
       if (next !== workshopId) setBatchPage(1);
@@ -226,7 +191,6 @@ export default function TaskAssignmentBoardPage() {
         <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{optionsError}</div>
       ) : null}
 
-      {/* Step 1 — the scope every view below inherits. */}
       <section className="panel mb-4 grid gap-3 p-4 md:grid-cols-[minmax(0,24rem)_minmax(0,1fr)] md:items-end">
         <div className="grid gap-1">
           <div className="flex items-center gap-3">
@@ -237,7 +201,6 @@ export default function TaskAssignmentBoardPage() {
           </div>
           <div className="pl-9">
             <FieldBlock label="Scope everything below to">
-              {/* Filters the whole page in place, so it must not jump focus into the builder. */}
               <Dropdown
                 value={workshopId}
                 onChange={chooseWorkshop}
@@ -283,14 +246,6 @@ export default function TaskAssignmentBoardPage() {
             >
               {entry.label}
               {count !== undefined ? <span className={cn("ml-2 text-xs", active ? "text-white/80" : "text-ink-500")}>{count}</span> : null}
-              {/*
-                THE APPROVAL QUEUE, ON THE TAB. A second badge rather than a bigger first one: the
-                count already there is how many PEOPLE have work, and adding approvals into it would
-                make one number out of two unrelated things. It carries a word ("to approve") as well
-                as a colour, because a bare coloured pill is a signal a colour-blind reader, a
-                greyscale print and forced-colours mode all lose at once — and on the active tab the
-                purple ground is gone, so the tint alone could not have carried it there either.
-              */}
               {entry.key === "progress" && (report?.awaitingReviewCount ?? 0) > 0 ? (
                 <span
                   className={cn(
@@ -322,10 +277,6 @@ export default function TaskAssignmentBoardPage() {
           loading={reportLoading}
           error={reportError}
           canOverride={permitted}
-          // An override moves this person's status counts, the page's five headline tiles AND the
-          // batch rollups on the third tab, so the whole page is re-read rather than the one row
-          // patched in place — a board that showed a task as done beside a "Finished" tile that
-          // still said 3 would be worse than the reload it saved.
           onOverridden={refreshAll}
         />
       ) : null}

@@ -15,17 +15,6 @@ import {
 } from "@/lib/recordView";
 import type { User, UserRole } from "@/lib/types";
 
-/**
- * A CLICK ON A RECORD READS IT; ONLY "UPDATE" EDITS IT (owner ruling, 2026-10-16).
- *
- * The pure halves run here, without a browser — there is no React renderer in this repository's
- * devDependencies, which is why the decisions are functions. The wiring (which pages build their
- * rows from them) is read off disk below, so a list that quietly goes back to opening its edit form
- * from a row fails here rather than in somebody's hands.
- *
- * The handset's twin is `android/.../ui/RecordOpenTest.kt`.
- */
-
 const read = (...parts: string[]) => readFileSync(join(__dirname, "..", ...parts), "utf8").replace(/\r\n/g, "\n");
 
 function user(role: UserRole): User {
@@ -228,7 +217,6 @@ test.describe("the lists are wired to it", () => {
       expect(code).toContain(`<OpenableRow key=`);
       expect(code).toContain(`recordViewHref("${type}"`);
       expect(code).toContain(`<RecordTitleLink href={recordViewHref("${type}"`);
-      // No row action is labelled "Edit" any more.
       expect(code).not.toMatch(/>\s*Edit\s*</);
       expect(code).not.toMatch(/"Loading\.\.\." : "Edit"/);
       expect(code).toContain("useListReturn(");
@@ -248,7 +236,6 @@ test.describe("the lists are wired to it", () => {
 
   test("an interview named on the consolidated answers opens its view, not the capture page", () => {
     const code = read("app", "(protected)", "questionnaire", "consolidated", "[artisanId]", "page.tsx");
-    // The questionnaire page never read `interviewId`, so these links landed on the capture form.
     expect(code).not.toContain("?interviewId=");
     expect(code).toContain('recordViewHref("questionnaire", id)');
     expect(code).toContain("<OpenableBlock href={interviewViewHref(interview.id)}");
@@ -265,7 +252,6 @@ test.describe("the lists are wired to it", () => {
     const list = read("app", "(protected)", "users", "page.tsx");
     expect(list).toContain("<OpenableRow key={user.id} href={`/users/${encodeURIComponent(user.id)}`}");
     expect(list).toContain("<RecordTitleLink href={`/users/${encodeURIComponent(user.id)}`}");
-    // Nothing on the list writes a role or a grant any more.
     expect(list).not.toContain("<select");
     expect(list).not.toContain('type="checkbox" checked={included}');
     expect(list).toContain("?update=1");
@@ -307,13 +293,9 @@ test.describe("the lists are wired to it", () => {
 
   test("a dashboard card is one link over the whole card, with Update beside it and not inside it", () => {
     const card = read("components", "DashboardCard.tsx");
-    // The primary link stretches an ::after over the card…
     expect(card).toMatch(/after:absolute after:inset-0/);
-    // …the card is its containing block…
     expect(card).toMatch(/className="relative flex cursor-pointer/);
-    // …and Update is lifted above that area as its own link.
     expect(card).toMatch(/field-button-secondary relative z-10/);
-    // Two links side by side: Update opens only after the primary link has closed.
     expect(card.indexOf("field-button-secondary")).toBeGreaterThan(card.indexOf("</Link>"));
   });
 });

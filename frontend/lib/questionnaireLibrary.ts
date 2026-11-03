@@ -1,20 +1,3 @@
-/**
- * The forms library (UNIFY U3, section 4.2 `/questionnaires`): the calls, the vocabulary and the
- * pure rules the library screens draw from.
- *
- * Field Repository's own module. The session screens' shared tree (`components/questionnaire/`, and
- * `lib/questionnaire/` once designer-portal's U1 lands it) is synced from designer-portal and is not
- * edited here; this file holds only what the library pages need. The rules mirror the server's
- * (`backend/app/questionnaire/authoring.py` and `backend/app/services/questionnaire_library.py`):
- *
- * - a form is changed and deleted by its AUTHOR or a CONTENT ADMIN;
- * - sharing with everyone, the default form, type defaults and bindings are ADMIN acts;
- * - a deleted form is restored by its author or a content admin, from the Deleted tab;
- * - creating, reusing and opening a bundle are a questionnaire manager's (Professor and above).
- *
- * The server sends `can` on every form it lists, so the screens draw exactly what it will accept.
- */
-
 import type { RecordingChips } from "@/lib/questionnaire/chips";
 import { filtersAsParams, filtersToQuery, type Filters } from "@/lib/questionnaire/filters";
 import { API_BASE, ApiError, apiFetch, assertApiConfigured, buildQuery, describeApiDetail } from "@/lib/api";
@@ -26,7 +9,6 @@ import type { User } from "@/lib/types";
 export type FormScope = "mine" | "shared" | "workshop" | "deleted";
 export type FormKind = "WORKSHOP_INTERVIEW" | "MARKET_SURVEY";
 
-/** `shared/questionnaire-enums.json` labels; `e2e/questionnaire-library-unit.spec.ts` holds them equal. */
 export const KIND_LABELS: Record<FormKind, string> = {
   WORKSHOP_INTERVIEW: "Workshop interview",
   MARKET_SURVEY: "Market survey"
@@ -34,7 +16,6 @@ export const KIND_LABELS: Record<FormKind, string> = {
 export const KIND_NOT_STATED = "Kind not stated";
 export const KINDS: FormKind[] = ["WORKSHOP_INTERVIEW", "MARKET_SURVEY"];
 
-/** `Workshop.workshopType`, the keys of a type default (owner, amendment 2 point 2). */
 export const WORKSHOP_TYPES = ["DESIGN_PROTOTYPE", "OTHER"] as const;
 export type WorkshopType = (typeof WORKSHOP_TYPES)[number];
 export const WORKSHOP_TYPE_LABELS: Record<WorkshopType, string> = {
@@ -110,13 +91,8 @@ export type AnnexureDoc = {
   }[];
 };
 
-/* ────────────────────────────────────────────────────────────────────────────
- * The tabs and the copy
- * ──────────────────────────────────────────────────────────────────────────── */
-
 export type LibraryTab = { id: FormScope; label: string };
 
-/** Mine · Shared · Workshop, and Deleted for content admins (every deleted form) and form authors (their own). */
 export function libraryTabs(user: User | null | undefined): LibraryTab[] {
   const tabs: LibraryTab[] = [
     { id: "mine", label: "Mine" },
@@ -127,7 +103,6 @@ export function libraryTabs(user: User | null | undefined): LibraryTab[] {
   return tabs;
 }
 
-/** The first tab to open: your own forms when you can write one, else the shared ones. */
 export function defaultTab(user: User | null | undefined): FormScope {
   return canManageQuestionnaire(user) ? "mine" : "shared";
 }
@@ -141,7 +116,6 @@ export function kindOptions(): { value: string; label: string }[] {
   return [{ value: "", label: KIND_NOT_STATED }, ...KINDS.map((kind) => ({ value: kind, label: KIND_LABELS[kind] }))];
 }
 
-/** Forms grouped by kind, kinds in the vocabulary's order and "not stated" last. */
 export function groupByKind<T extends { kind?: string | null }>(forms: T[]): { kind: string | null; label: string; forms: T[] }[] {
   const order = [...KINDS, null] as (string | null)[];
   const groups = new Map<string | null, T[]>();
@@ -152,14 +126,12 @@ export function groupByKind<T extends { kind?: string | null }>(forms: T[]): { k
   return order.filter((kind) => groups.has(kind)).map((kind) => ({ kind, label: kindLabel(kind), forms: groups.get(kind) ?? [] }));
 }
 
-/** "24 sections · 81 questions", without a zero count dressed up as a fact. */
 export function formSummary(form: Pick<LibraryForm, "sectionCount" | "questionCount">): string {
   const sections = form.sectionCount ?? 0;
   const questions = form.questionCount ?? 0;
   return `${sections} ${sections === 1 ? "section" : "sections"} · ${questions} ${questions === 1 ? "question" : "questions"}`;
 }
 
-/** The empty line for a tab. */
 export function emptyLine(scope: FormScope): string {
   return {
     mine: "You haven't made a form yet.",
@@ -169,10 +141,8 @@ export function emptyLine(scope: FormScope): string {
   }[scope];
 }
 
-/** P16 (UNIFY 4.2): deleting a form. Two buttons, Cancel · Delete. */
 export const P16 = { title: "Delete this form?", body: "Admins can restore it from Deleted.", buttons: ["Cancel", "Delete"] } as const;
 
-/** P17 (UNIFY 4.2): a received bundle. A bundle carries no sender, so the web names the form only. */
 export function p17(summary: { title: string; sections: number; from?: string | null }) {
   const sections = `${summary.sections} ${summary.sections === 1 ? "section" : "sections"}`;
   return {
@@ -182,7 +152,6 @@ export function p17(summary: { title: string; sections: number; from?: string | 
   };
 }
 
-/** The sentence for a contract error the library shows (FORM_DELETED, BUNDLE_VERSION), else the server's. */
 export function libraryError(error: unknown, fallback = "That didn't work. Try again."): string {
   if (error instanceof ApiError) {
     const payload = error.payload as { detail?: { code?: string } } | null;
@@ -195,20 +164,11 @@ export function libraryError(error: unknown, fallback = "That didn't work. Try a
   return fallback;
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
- * Bindings: one primary per workshop
- * ──────────────────────────────────────────────────────────────────────────── */
-
-/** The binding list after choosing the workshops a form is bound to and which of them it is primary for. */
 export function bindingsFor(workshopIds: string[], primaryFor: string[]): FormBinding[] {
   const unique = Array.from(new Set(workshopIds.filter(Boolean)));
   const primary = new Set(primaryFor);
   return unique.map((workshopId) => ({ workshopId, isPrimary: primary.has(workshopId) }));
 }
-
-/* ────────────────────────────────────────────────────────────────────────────
- * The handoff bundle, read in the browser (shared/questionnaire-bundle.json)
- * ──────────────────────────────────────────────────────────────────────────── */
 
 export const BUNDLE_EXTENSIONS = [".frwq", ".dpwq"] as const;
 export const BUNDLE_MAX_BYTES = 5 * 1024 * 1024;
@@ -221,7 +181,6 @@ export function isBundleName(name: string): boolean {
   return BUNDLE_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
 
-/** What a received bundle holds, for P17, from either the v2 envelope or designer-portal's v1 file. */
 export function summariseBundle(document: unknown): BundleSummary | null {
   if (!document || typeof document !== "object") return null;
   const doc = document as Record<string, unknown>;
@@ -246,7 +205,6 @@ export function summariseBundle(document: unknown): BundleSummary | null {
   return null;
 }
 
-/** Gzipped JSON (either extension) or plain JSON, decoded with the browser's own stream. */
 export async function decodeBundleBytes(bytes: Uint8Array): Promise<unknown> {
   let data = bytes;
   if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
@@ -260,10 +218,6 @@ export async function decodeBundleBytes(bytes: Uint8Array): Promise<unknown> {
     throw new Error("This file isn't a questionnaire bundle.");
   }
 }
-
-/* ────────────────────────────────────────────────────────────────────────────
- * The calls
- * ──────────────────────────────────────────────────────────────────────────── */
 
 const FORMS = "/questionnaires";
 
@@ -281,11 +235,8 @@ function json(method: string, body: unknown, create = false): RequestInit {
   };
 }
 
-/** The library over any fetcher: the browser uses `library` (over `apiFetch`); the real-stack spec
- * passes its own. */
 export function libraryClient(fetchJson: JsonFetcher = apiFetch) {
   return {
-    /** `filters`: the shared questionnaire filters (owner, 31 Oct 2026), after the library's own. */
     list: (scope: FormScope, options: { workshopId?: string | null; kind?: string | null; filters?: Filters } = {}) => {
       const shared = options.filters ? filtersToQuery(options.filters) : "";
       const own = buildQuery({ scope, workshopId: options.workshopId || undefined, kind: options.kind || undefined });
@@ -333,7 +284,6 @@ function fileNameFrom(header: string | null): string | null {
   }
 }
 
-/** A download by hand: `apiFetch` reads every body as JSON or text, which mangles a binary file. */
 export async function fetchDownload(path: string, fallbackName: string): Promise<DownloadedFile> {
   assertApiConfigured();
   const response = await fetch(`${API_BASE}/api${path}`, { cache: "no-store" });
@@ -360,14 +310,9 @@ export function saveDownload(file: DownloadedFile) {
   saveBlobToDevice(file.blob, file.fileName);
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
- * Sessions on a form: the live list and, for content admins, the deleted one
- * ──────────────────────────────────────────────────────────────────────────── */
-
 export type FormSession = {
   id: string;
   title: string;
-  /** The session's chips (owner, 31 Oct 2026). */
   chips?: RecordingChips | null;
   sessionDate?: string | null;
   source?: string | null;
@@ -376,7 +321,6 @@ export type FormSession = {
 };
 
 export const formSessions = {
-  /** `filters`: the shared questionnaire filters on this form's sessions (owner, 31 Oct 2026). */
   list: (questionnaireId: string | null, deleted = false, filters: Filters = {}) =>
     apiFetch<{ items: FormSession[]; nextCursor: string | null }>(
       `/questionnaire/sessions${buildQuery({
@@ -389,16 +333,11 @@ export const formSessions = {
   restore: (sessionId: string) => apiFetch<unknown>(`/questionnaire/sessions/${encodeURIComponent(sessionId)}/restore`, { method: "POST" })
 };
 
-/** "Uploaded" for a session imported from a workbook, "Handed over" for one from a bundle. */
 export function sourceLabel(source: string | null | undefined): string | null {
   if (source === "UPLOAD") return "Uploaded";
   if (source === "HANDOFF") return "Handed over";
   return null;
 }
-
-/* ────────────────────────────────────────────────────────────────────────────
- * The offline copy (A16): the forms this account last read, stamped with the account
- * ──────────────────────────────────────────────────────────────────────────── */
 
 export const FORMS_CACHE_KEY = "field_repo_forms_cache";
 
@@ -413,7 +352,6 @@ function browserStore(): KeyStore | null {
   }
 }
 
-/** The copy held for `owner`, or null. A copy another account left on this browser is dropped, never shown. */
 export function readFormsCache(owner: string | null | undefined, store: KeyStore | null = browserStore()): FormsCache | null {
   if (!owner || !store) return null;
   try {
@@ -444,22 +382,18 @@ export function writeFormsCache(
   try {
     store.setItem(FORMS_CACHE_KEY, JSON.stringify(held));
   } catch {
-    // A full store keeps the older copy; the screen still has what it just read.
   }
 }
 
-/** The cache key of one tab and filter. */
 export function listCacheKey(scope: FormScope, options: { workshopId?: string | null; kind?: string | null } = {}): string {
   return [scope, options.workshopId ?? "", options.kind ?? ""].join("|");
 }
 
-/** A failure that means "no connection" rather than a refusal: the place to read the saved copy. */
 export function isOffline(error: unknown): boolean {
   if (error instanceof ApiError) return error.status === 0 || error.status === 502 || error.status === 503 || error.status === 504;
   return error instanceof TypeError;
 }
 
-/** "Offline · saved copy from 22 Oct, 10:12." */
 export function savedCopyLine(at: string | null | undefined): string {
   if (!at) return "Offline · saved copy.";
   const when = new Date(at);

@@ -18,12 +18,6 @@ import {
   traditionLabel
 } from "@/lib/standardValues";
 
-/**
- * THE BROWSER'S STANDARD VALUES, PROVED EQUAL TO THE SERVER'S AND THE HANDSET'S.
- *
- * `shared/standard-values-vectors.json` is the one table all three run; the server's copy of the
- * lists is `backend/app/data/standard_values.json`, and the web reads a byte copy of it.
- */
 const ROOT = join(__dirname, "..", "..");
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8").replace(/\r\n/g, "\n");
 const vectors = JSON.parse(read("shared/standard-values-vectors.json"));

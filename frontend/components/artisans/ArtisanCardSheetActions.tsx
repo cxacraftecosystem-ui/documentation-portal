@@ -1,13 +1,5 @@
 "use client";
 
-/**
- * Bulk printing of artisan cards: one PDF from the server (`POST /artisan-cards/sheet.pdf`), ID-1
- * cards ten to an A4 sheet with crop marks, or one A6 card per page. Used by the artisans list (the
- * ticked rows) and a workshop's page (its roster).
- *
- * Draws nothing while cards are off. All or nothing: the server refuses a request naming any artisan
- * it can't print, and that sentence is shown as it comes.
- */
 import { useEffect, useState } from "react";
 
 import { ButtonRow } from "@/components/ui/ButtonRow";
@@ -33,10 +25,8 @@ export function ArtisanCardSheetActions({
   primaryLabel = "Print cards",
   count
 }: {
-  /** What to print; null while nothing is chosen. */
   source: CardSheetRequest | null;
   primaryLabel?: string;
-  /** How many cards the source holds, when known: past the limit the buttons hold and say why. */
   count?: number;
 }) {
   const enabled = useArtisanCardsEnabled();

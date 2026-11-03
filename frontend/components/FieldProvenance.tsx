@@ -8,10 +8,8 @@ import { formatDateTime } from "@/lib/format";
 import { roleLabel } from "@/lib/permissions";
 import type { ExtraMetadata, FieldProvenanceEntry } from "@/lib/types";
 
-/** Backend stamps may also carry the contributor's role (designation) — optional for older records. */
 type ProvenanceEntry = FieldProvenanceEntry & { byRole?: string | null };
 
-/** Location summary shown above the table (matches the API's Location payload subset). */
 export type ProvenanceLocation = {
   latitude?: number | string | null;
   longitude?: number | string | null;
@@ -53,14 +51,6 @@ function whenText(at?: string | null): string {
   return at ? `${formatDateTime(at)} IST` : "-";
 }
 
-/**
- * Provenance record view: which user populated/changed each field of a record, with the date and
- * time of each contribution. Above the table, an optional header block shows the record's location
- * and its review line (reviewer + designation + when). md+ screens get a scrollable table with
- * user-resizable columns; small screens get Android-style stacked cards. Rendered in admin view and
- * for users granted the canViewProvenance capability. Reads extraMetadata.fieldProvenance written
- * by the backend on every create/update.
- */
 export function FieldProvenance({
   extraMetadata,
   title = "Field contributions",
@@ -115,7 +105,6 @@ export function FieldProvenance({
 
       {entries.length ? (
         <>
-          {/* md+ — scrollable table; drag a header's right edge to resize its column. */}
           <div className="mt-3 hidden overflow-auto md:block">
             <table className="w-full text-left text-sm">
               <thead className="text-xs uppercase text-ink-500">
@@ -141,7 +130,6 @@ export function FieldProvenance({
               </tbody>
             </table>
           </div>
-          {/* Small screens — Android-style stacked cards. */}
           <div className="mt-3 grid gap-2 md:hidden">
             {entries.map(([field, entry]) => (
               <div key={field} className="rounded-md border border-line-200 bg-surface-50 p-3">

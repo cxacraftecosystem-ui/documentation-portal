@@ -1,22 +1,5 @@
 "use client";
 
-/**
- * The second step of a sign-in, drawn on the /login card in place of the sign-in controls.
- *
- * Reached after ANY first factor — the password, Google, Microsoft or Yahoo — when the account has
- * two-step verification on: `POST /auth/login` answered a challenge token instead of a session, and
- * this form trades it and a code for the session at `POST /auth/two-factor/verify`. Nobody is signed in
- * until that succeeds, so "Back to sign in" simply forgets the challenge.
- *
- * TWO SHAPES, TWO FIELDS (owner, 2026-10-17). The 6-digit code is typed into `OtpCodeInput` — six
- * boxes, digits only, sent the moment the sixth lands. A recovery code (`xxxx-xxxx`) is a different
- * shape and has its own text field, reached by the "Use a recovery code instead" switch. The server
- * still tells them apart by shape, so either box sends to the same endpoint.
- *
- * Every refusal is the server's sentence, in the card: a wrong code keeps the form, and a finished
- * challenge (five wrong codes, or five minutes) says to sign in again and offers the way back.
- */
-
 import { useEffect, useRef, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 
@@ -35,9 +18,7 @@ export function TwoStepChallengeForm({
   onCancel
 }: {
   challengeToken: string;
-  /** The account, signed in. */
   onSignedIn: (account: User) => void | Promise<void>;
-  /** Back to the sign-in controls; the challenge is dropped. */
   onCancel: () => void;
 }) {
   const { verifyTwoFactor } = useAuth();
@@ -46,12 +27,9 @@ export function TwoStepChallengeForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorNonce, setErrorNonce] = useState(0);
-  /** The challenge is finished; only signing in again leads anywhere. */
   const [dead, setDead] = useState(false);
   const box = useRef<HTMLInputElement | null>(null);
 
-  // On a switch to the recovery field: that box is where the next keystroke belongs. (The six code
-  // boxes focus themselves.)
   useEffect(() => {
     if (useRecovery) box.current?.focus();
   }, [useRecovery]);
@@ -70,7 +48,6 @@ export function TwoStepChallengeForm({
       setCode("");
       setErrorNonce((n) => n + 1);
       if (err instanceof ApiError && err.status === 401 && err.message === CHALLENGE_ENDED_DETAIL) setDead(true);
-      // A fetch that never reached the server rejects with a TypeError, not an ApiError.
       setError(
         err instanceof ApiError
           ? err.message
@@ -103,7 +80,6 @@ export function TwoStepChallengeForm({
         </div>
       </div>
 
-      {/* Mounted from first paint and emptied rather than removed, so the sentence is announced. */}
       <div
         role="alert"
         className={error ? "rounded-md border border-red-200 bg-error-100 px-3 py-2 text-sm text-error-600" : "sr-only"}

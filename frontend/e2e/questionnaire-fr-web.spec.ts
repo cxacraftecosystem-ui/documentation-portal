@@ -4,16 +4,6 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { ME, OTHER, QuestionnaireFake } from "./support/qv2Fake";
 
-/**
- * THE QUESTIONNAIRE SCREENS ON FIELD REPOSITORY, IN A BROWSER (UNIFY 5.4, Web; stream U3).
- *
- * The real pages over a production build; every API call answered by the in-memory fake in
- * `e2e/support/qv2Fake.ts`, which keeps what each screen sent. The session screens are the shared
- * client (`components/questionnaire/**`, synced from designer-portal) wired to this portal's
- * workshops; the forms library is this portal's own. The `questionnaire-web` job in
- * `.github/workflows/checks.yml` runs it. Each test carries the feature registry's `@qf:<id>` tags.
- */
-
 const SHOTS = process.env.E2E_SHOT_DIR ?? "test-results/questionnaire-fr-web";
 
 async function open(page: Page, fake: QuestionnaireFake, path: string) {
@@ -39,7 +29,6 @@ test("@qf:A18 @qf:B31 @qf:D2 a session with only a guest, on the workshop's prim
   const fake = new QuestionnaireFake();
   await open(page, fake, "/questionnaire/sessions/new");
   const sheet = page.locator("[data-start-sheet]");
-  // B30: the most recent workshop; B31 and D2: the server's form resolution for it.
   await expect.poll(() => fake.calledWith("GET", "/questionnaire/form-for").some((c) => c.query.get("workshopId") === "w1")).toBe(true);
   await sheet.getByRole("button", { name: "Someone else" }).click();
   await sheet.locator("[data-guest-name]").fill("Shopper at Johari Bazaar");
@@ -232,9 +221,6 @@ for (const theme of ["light", "dark"] as const) {
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByRole("button", { name: "Not now" })).toBeVisible();
     await expect(dialog.getByRole("button", { name: "Add" })).toBeVisible();
-    // The dialog panel springs in (y 10 -> 0, scale 0.98 -> 1), so two separate boundingBox() calls
-    // can land on different frames of that motion and disagree by several px with the buttons on one
-    // line. Read both tops in one layout pass, once the fonts the labels are set in have loaded.
     await page.evaluate(() => document.fonts.ready.then(() => undefined));
     const tops = await dialog
       .getByRole("button", { name: /^(Not now|Add)$/ })
@@ -319,9 +305,6 @@ test("@qf:B12 workshop coverage reads the workshop", async ({ page }) => {
   await expect.poll(() => fake.calledWith("GET", "/questionnaire/coverage").some((c) => c.query.get("workshopId") === "w1")).toBe(true);
 });
 
-// ── Recording chips and the shared filters (owner, 31 Oct 2026) ───────────────────────────────
-
-/** Types into a filter's searchable select and picks a row the server's typeahead answered. */
 async function typeahead(page: Page, fake: QuestionnaireFake, scope: string, field: string, apiField: string, term: string, option: RegExp) {
   await page.locator(`${scope} [data-filter-field='${field}'] button`).first().click();
   await page.locator("[data-anchored-popover] input").last().fill(term);
@@ -343,7 +326,6 @@ test("@qf:E3 @qf:E6 the sessions list searches and filters on the server and kee
   await page.locator("[data-filters-toggle]").click();
   await page.locator("[data-filter-pill='transcript=HAS']").click();
   await expect.poll(() => fake.calledWith("GET", "/questionnaire/sessions").some((c) => c.query.get("transcript") === "HAS")).toBe(true);
-  // The URL is written just after the request goes out: wait for it, or the reload reads the old one.
   await expect(page).toHaveURL(/transcript=HAS/);
   fake.calls.length = 0;
   await page.reload();
@@ -352,7 +334,6 @@ test("@qf:E3 @qf:E6 the sessions list searches and filters on the server and kee
   await expect.poll(() => fake.calledWith("GET", "/questionnaire/sessions").some((c) => c.query.get("transcript") === "HAS" && c.query.get("q") === "s-1")).toBe(true);
   await list.locator("[data-chip-filter='workshopId=w1']").first().click();
   await expect(page).toHaveURL(/workshopId=w1/);
-  // The artisans select searches the server as the reader types, and its pick filters the list.
   await page.locator("[data-filters-toggle]").click();
   await typeahead(page, fake, "[data-filters-panel]", "artisanId", "artisans", "Mee", /Meena Devi/);
   await expect.poll(() => fake.calledWith("GET", "/questionnaire/sessions").some((c) => c.query.get("artisanId") === "a2")).toBe(true);
@@ -412,7 +393,6 @@ test("@qf:E4 the forms library and a form's own sessions narrow by the shared fi
     .poll(() => fake.calledWith("GET", "/questionnaire/sessions").some((c) => c.query.get("questionnaireId") === "f1" && c.query.get("source") === "UPLOAD"))
     .toBe(true);
   await expect(page).toHaveURL(/\/questionnaires\/f1\?source=UPLOAD/);
-  // A form's sessions: the researcher select is a server typeahead too.
   await typeahead(page, fake, "[data-filters-panel]", "researcherId", "researchers", "Priya", /Priya Shah/);
   await expect
     .poll(() => fake.calledWith("GET", "/questionnaire/sessions").some((c) => c.query.get("questionnaireId") === "f1" && c.query.get("researcherId") === "u-other"))

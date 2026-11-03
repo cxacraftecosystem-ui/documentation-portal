@@ -1,22 +1,5 @@
 "use client";
 
-/**
- * The offline outbox, made visible.
- *
- * An outbox nobody can see is worse than no outbox: the researcher believes the record is saved,
- * the record is on one laptop, and nobody finds out until the dataset is short. So this sits above
- * the page content whenever anything is queued and says three things plainly — how many entries are
- * waiting, that they are on THIS device only, and what will send them.
- *
- * It drains automatically when the connection returns (the `online` event) and offers "Sync now"
- * for the case the browser's own online flag is optimistic — captive portals and hotel wi-fi report
- * `navigator.onLine === true` while nothing routes.
- *
- * Entries the server permanently rejected stay listed with the reason, each with its own Discard,
- * because the only person who can decide whether a rejected record matters is the person who typed
- * it. Nothing here deletes an entry on its own.
- */
-
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { CloudOff, RefreshCw, Trash2, TriangleAlert, Users } from "lucide-react";
 
@@ -35,12 +18,10 @@ import {
 } from "@/lib/offline";
 import { countNoun } from "@/lib/format";
 
-/** Files across every batch of one entry — what the user attached, not how the form grouped it. */
 function fileCount(entry: OutboxEntry): number {
   return entry.media.reduce((sum, batch) => sum + batch.files.length, 0);
 }
 
-/** Every queued file of one entry, in the order it was attached. */
 function entryFiles(entry: OutboxEntry): File[] {
   return entry.media.flatMap((batch) => batch.files);
 }
@@ -50,18 +31,8 @@ export function OutboxBanner() {
   const [syncing, setSyncing] = useState(false);
   const { toast } = useToast();
 
-  // Confirming a queued save belongs HERE, not in each of the six forms that can queue one. A form
-  // that queues just stops and scrolls; the count going up is the event, wherever it came from, so
-  // one watcher covers every save path and cannot drift out of step with the banner beneath it.
-  //
-  // Null until the store has been read, and DELIBERATELY not set by the first render: entries
-  // survive a browser restart, so the mount snapshot is empty and the load that follows looks
-  // exactly like three saves arriving at once. That is how a researcher opening the laptop the next
-  // morning, online, was told her week-old queue had "just been saved on this device with no
-  // connection". Only the load may set the baseline, and only a rise above it is an event.
   const announcedCount = useRef<number | null>(null);
 
-  // Read the store once on mount: entries survive a browser restart, so a fresh tab has to look.
   useEffect(() => {
     void refreshOutbox().then((rows) => {
       if (announcedCount.current === null) announcedCount.current = rows.length;
@@ -82,7 +53,6 @@ export function OutboxBanner() {
     });
   }, [entries.length, toast]);
 
-  /** "Same person" / "Different person" on a held artisan, then send it. */
   async function answerDuplicate(entry: OutboxEntry, choice: "same" | "different") {
     setSyncing(true);
     try {
@@ -112,7 +82,6 @@ export function OutboxBanner() {
             description: result.remaining ? `${result.remaining} still waiting.` : "The outbox is empty."
           });
         } else if (trigger === "manual") {
-          // Only a click deserves an answer when nothing moved; an automatic pass stays quiet.
           toast({
             id: "outbox-sync",
             tone: result.stoppedOffline ? "error" : "info",
@@ -129,7 +98,6 @@ export function OutboxBanner() {
     [toast]
   );
 
-  // The connection coming back is the whole point of the queue — drain without being asked.
   useEffect(() => {
     function onOnline() {
       if (getOutboxSnapshot().length) drain("auto");
@@ -219,8 +187,6 @@ export function OutboxBanner() {
                 Discard
               </button>
             ) : null}
-            {/* The queued files live only in this browser until the outbox drains — each can be saved
-                to the device from here, straight out of the IndexedDB copy. */}
             <LocalFileDownloads files={entryFiles(entry)} className="basis-full" />
           </li>
         ))}

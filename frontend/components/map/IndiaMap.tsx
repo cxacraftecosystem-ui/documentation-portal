@@ -1,27 +1,5 @@
 "use client";
 
-/**
- * The repository's map of India. Reusable: it knows how to draw points, and nothing about where
- * they came from.
- *
- * IT IS A GRAPHIC, AND IT IS MARKED AS ONE. The whole `<svg>` is `aria-hidden`, contains nothing
- * focusable, and is announced to nobody. That is deliberate rather than lazy — an SVG full of
- * tabbable circles is a screen reader reading out "button, button, button" with no way to compare
- * anything. Everything this picture says is said again as text by `MapPlaceList`, which is a real
- * list of places with real counts and real links. A keyboard or screen-reader user loses nothing
- * here; they get the better of the two interfaces.
- *
- * NO MAPPING LIBRARY. There is no basemap, no tiles, no zoom and no pan — this is a static outline
- * and a few dozen pins, and `maplibre-gl` (already a dependency for the location PICKER, where a
- * real basemap earns its weight) is over 400 KB gzipped, module and worker together since MapLibre
- * 6, plus tile requests to draw it. The whole geometry here is 18 KiB of string and one `<path>`.
- *
- * NOTHING RE-RENDERS ON A POINTER MOVE except the small hover layer. The outline is one memoised
- * element over a path string built once; the pin layout is memoised on the points. Hovering
- * changes one piece of state and repaints a label, which is not a per-frame cost — there is no
- * animation loop in this file at all.
- */
-
 import { memo, useEffect, useId, useMemo, useState } from "react";
 
 import { loadBorders, type BorderLine } from "@/components/map/borderGeometry";
@@ -36,12 +14,7 @@ import type { AdminLevel, MapPoint } from "@/components/map/types";
 
 export type IndiaMapProps = {
   points: MapPoint[];
-  /**
-   * Which administrative borders to draw. NATION draws none — the outline IS the international
-   * border — STATE adds the state borders, DISTRICT adds the district borders on top of those.
-   */
   level?: AdminLevel;
-  /** Keys of points holding the focused record, drawn with a ring so they can be found at a glance. */
   focusKeys?: string[];
   selectedKey?: string | null;
   hoveredKey?: string | null;
@@ -50,16 +23,12 @@ export type IndiaMapProps = {
   className?: string;
 };
 
-/** Built once from a path string that is itself built once — this never has a reason to re-render. */
 const Coastline = memo(function Coastline() {
   return (
     <path
       d={indiaOutlinePath()}
       fillRule="evenodd"
       className="fill-purple-50 stroke-purple-200"
-      // A hairline stroke is what makes Lakshadweep visible. Those islands are a few kilometres
-      // across — genuinely under a pixel at this scale — so a fill alone would render the territory
-      // as nothing at all. The stroke shows them as the dots they are without inventing any area.
       strokeWidth={1.6}
       strokeLinejoin="round"
       vectorEffect="non-scaling-stroke"
@@ -67,16 +36,6 @@ const Coastline = memo(function Coastline() {
   );
 });
 
-/**
- * The administrative borders for one level, fetched once and kept.
- *
- * NOT part of the module the way the outline is. The outline must exist before anything can be drawn,
- * so it is 18 KiB of inlined string with no loading state to get wrong; these are wanted only once a
- * reader asks for that level of detail, and the district file is the largest asset on the page. So the
- * map paints immediately and the borders arrive a moment later — which is also why a failure here is
- * silent: a map with pins and no district borders is still a map, and an error banner over one would be
- * louder than the thing it is reporting.
- */
 function useBorders(level: AdminLevel): { state: BorderLine[]; district: BorderLine[] } {
   const [state, setState] = useState<BorderLine[]>([]);
   const [district, setDistrict] = useState<BorderLine[]>([]);
@@ -110,9 +69,6 @@ function useBorders(level: AdminLevel): { state: BorderLine[]; district: BorderL
     };
   }, [wantsDistrict]);
 
-  // Kept once loaded rather than cleared when the level moves back down: stepping DISTRICT -> STATE ->
-  // DISTRICT is one gesture a reader makes while comparing, and re-fetching 68 KiB for it would make
-  // the toggle feel broken. `wantsState`/`wantsDistrict` decide what is DRAWN.
   return { state: wantsState ? state : [], district: wantsDistrict ? district : [] };
 }
 
@@ -130,18 +86,6 @@ export function IndiaMap({
   const focused = useMemo(() => new Set(focusKeys), [focusKeys]);
   const active = pins.find((pin) => pin.point.key === (hoveredKey ?? selectedKey)) ?? null;
 
-  /**
-   * THE SHARED NAME FOR A PLACE across the picture and the list beside it.
-   *
-   * `MapPlaceList` numbers its rows 1..N in the order the server returned the points, and the hover
-   * label below prints the same number, so "the third one" means one thing in both views. Derived from
-   * the `points` prop rather than from `pins`, because `layoutPins` may reorder while it resolves
-   * collisions and a number that depended on the collision pass would change as pins were nudged.
-   *
-   * It is NOT drawn inside the pin. The pin already carries a number — its record count — and that is
-   * the one fact a pin must never be ambiguous about; two numbers on a nine-pixel disc would make both
-   * unreadable.
-   */
   const ordinals = useMemo(
     () => new Map(points.map((point, index) => [point.key, index + 1])),
     [points]
@@ -150,7 +94,6 @@ export function IndiaMap({
   const borders = useBorders(level);
   const statePath = useMemo(() => bordersToPath(borders.state), [borders.state]);
   const districtPath = useMemo(() => bordersToPath(borders.district), [borders.district]);
-  // One id per mounted map, so two maps on a page cannot share a clip path.
   const clipId = `${useId()}-india`;
 
   return (
@@ -161,15 +104,6 @@ export function IndiaMap({
       aria-hidden="true"
       focusable="false"
     >
-      {/*
-        THE CLIP IS WHY THE NATIONAL BOUNDARY IS THE SAME AT EVERY LEVEL.
-
-        The frontier is drawn from ONE source — the outline below, verified against the official
-        depiction — and the border layers are drawn INSIDE it. That is not belt-and-braces: the
-        district source these borders come from has an outer extent up to ~0.02 degrees (~2 km) away
-        from the outline's, so unclipped runs poke a few pixels past the coast and the country would
-        appear to have three slightly different edges depending on which level was showing.
-      */}
       <defs>
         <clipPath id={clipId}>
           <path d={indiaOutlinePath()} clipRule="evenodd" />
@@ -178,9 +112,6 @@ export function IndiaMap({
 
       <Coastline />
 
-      {/* Under the pins, over the land. Weight carries the hierarchy — heavier is more significant —
-          and every one of them is NEUTRAL: purple is this product's only action colour, so a purple
-          border would compete with the pins for the same meaning. */}
       <g clipPath={`url(#${clipId})`} fill="none" strokeLinejoin="round" strokeLinecap="round">
         {districtPath ? (
           <path d={districtPath} className="stroke-ink-300" strokeWidth={0.6} opacity={0.7} />
@@ -188,7 +119,6 @@ export function IndiaMap({
         {statePath ? <path d={statePath} className="stroke-ink-500" strokeWidth={1.2} /> : null}
       </g>
 
-      {/* Uncertainty first, under everything: a halo is context for its pin, not a mark of its own. */}
       {pins
         .filter((pin) => pin.uncertainty > 4)
         .map((pin) => (
@@ -203,7 +133,6 @@ export function IndiaMap({
           />
         ))}
 
-      {/* Leader lines tie a displaced pin back to where the place really is. */}
       {pins
         .filter((pin) => pin.displaced)
         .map((pin) => (
@@ -255,15 +184,11 @@ function Pin({
 
   return (
     <g
-      // Pointer-only. There is no tabIndex and no role: focusable content inside an aria-hidden
-      // subtree is unreachable by assistive technology but still lands in the tab order, which is
-      // the worst of both. The list beside this map is the keyboard path.
       className="cursor-pointer"
       onClick={() => onSelect?.(point.key)}
       onPointerEnter={() => onHover?.(point.key)}
       onPointerLeave={() => onHover?.(null)}
     >
-      {/* An invisible target a little larger than the mark, so a 9-unit pin is not a 9-unit hit area. */}
       <circle cx={x} cy={y} r={radius + 8} fill="transparent" />
 
       {isFocused ? (
@@ -278,9 +203,6 @@ function Pin({
       ) : null}
 
       {measured ? (
-        // A measured fix is drawn as a target rather than a disc, so the two layers are told apart
-        // by SHAPE. Purple is the only action colour this product has, and hue is therefore not
-        // available to carry the distinction.
         <>
           <circle
             cx={x}
@@ -301,10 +223,6 @@ function Pin({
         />
       )}
 
-      {/* The count belongs ON the pin, on EVERY pin: it is the one mark that stops a place holding
-          nine records from reading exactly like a place holding one. The size follows the pin and
-          the number of digits, so "317" fits a big pin and "1" does not rattle around in a small
-          one. */}
       <text
         x={x}
         y={y}
@@ -322,14 +240,6 @@ function Pin({
   );
 }
 
-/**
- * The place name under the pointer, led by the number its row carries in the list. Drawn in SVG so it
- * cannot be clipped by the map's own box.
- *
- * The number is what turns "click a pin and the list jumps" from a surprise into an explanation: the
- * reader has already read "3 · Jaipur" before they click, so when row 3 scrolls up and flashes, they can
- * see that the two views agree. `ordinal` is optional so this stays drawable by any caller.
- */
 function HoverLabel({ pin, ordinal }: { pin: PlacedPin; ordinal?: number }) {
   const text = ordinal ? `${ordinal} · ${pin.point.label}` : pin.point.label;
   const width = Math.max(96, text.length * 11 + 28);
@@ -353,7 +263,6 @@ function HoverLabel({ pin, ordinal }: { pin: PlacedPin; ordinal?: number }) {
   );
 }
 
-/** Without one, nobody can tell whether two pins are 20 km apart or 200. */
 function ScaleBar() {
   const kilometres = 500;
   const length = kilometres * unitsPerKilometre();

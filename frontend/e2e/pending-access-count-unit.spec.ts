@@ -1,8 +1,3 @@
-/**
- * The access-roster badge count is one store for every mount (`usePendingAccessCount`): the nav
- * and an admin page share one request, one timer, and a refresh from either updates both.
- */
-
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 

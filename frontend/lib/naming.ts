@@ -1,22 +1,3 @@
-/**
- * THE one naming convention for generated names (owner correction a, 18 Oct 2026).
- *
- * The web half of `backend/app/services/naming.py`, line for line; `android/.../data/Naming.kt` is
- * the third. All three reproduce two golden tables row for row (`e2e/naming-unit.spec.ts`):
- * `shared/session-title.json` (the frozen questionnaire contract: titles, recording names,
- * transliteration, exports, collisions) and `shared/naming-golden.json` (every other generated name).
- * This file is byte-identical in designer-portal and documentation-portal; the portal word comes from
- * `namingPortal.ts`.
- *
- *   title      Entity_Date_Place_Craft_Subject                                  (<= 120, any script)
- *   file name  Portal_Entity_Date[_Time]_Place_Craft_Subject_What[_Sequence][_n].ext   (<= 150, ASCII)
- *
- * `_` separates fields, `-` joins the words inside one, an unknown field is left out. The
- * questionnaire screens call the TitleInput shapes (`sessionTitle({sessionDate, workshop, ...})`,
- * `recordingFilename({session, capturedAt, ...})`, `exportFilename({entity, what, ext, day})`); the
- * rest of the client calls the plain-field shapes (`recordingFilename("Interview", "m4a", {...})`,
- * `exportFilename("Dataset", "Export", "zip")`). Both are one implementation.
- */
 import anyAscii from "any-ascii";
 
 import { PORTAL } from "@/lib/namingPortal";
@@ -25,7 +6,6 @@ export { PORTAL };
 export const TITLE_MAX = 120;
 export const FILE_MAX = 150;
 export const SUBJECT_MIN = 40;
-/** The names the rest of the client already imports. */
 export const MAX_TITLE = TITLE_MAX;
 export const MAX_FILE_NAME = FILE_MAX;
 export const MIN_SUBJECT = SUBJECT_MIN;
@@ -41,8 +21,6 @@ const RESERVED_STEMS: ReadonlySet<string> = new Set([
   ...Array.from({ length: 9 }, (_, i) => `LPT${i + 1}`)
 ]);
 const ZW = new Set(["‌", "‍"]);
-// A question number is read from the display code AFTER its own section code: "F21" in section F2
-// is question 1, not section F question 21. The section is never guessed from the display code.
 const CODE_GAP = /[ \t\r\n._-]+/g;
 const NUMBER_TAIL = /^[A-Z]*([0-9]+)$/;
 const VERSION = /^v\d+(?:\.\d+)*$/;
@@ -51,14 +29,12 @@ const INDIC_BLOCKS = [0x0900, 0x0980, 0x0a00, 0x0a80, 0x0b00, 0x0b80, 0x0c00, 0x
 const WORD_CHAR = /[\p{L}\p{M}\p{Nd}]/u;
 const DIGIT = /\p{Nd}/u;
 
-/** Length in code points, as Python counts it. */
 const cpLength = (value: string) => [...value].length;
 
 export function isEstimatedSource(source: string | null | undefined): boolean {
   return ESTIMATED_SOURCES.has((source ?? "").toUpperCase());
 }
 
-// ── Indic inherent vowel (session-title.json rules.transliteration) ───────────────────────────────
 function indic(cp: number): [number, number] | null {
   for (const base of INDIC_BLOCKS) if (cp >= base && cp < base + 0x80) return [base, cp - base];
   return null;
@@ -67,7 +43,6 @@ const isConsonant = (off: number) => (off >= 0x15 && off <= 0x39) || (off >= 0x5
 const isVowelSignOrVirama = (off: number) => (off >= 0x3e && off <= 0x4d) || (off >= 0x55 && off <= 0x57) || off === 0x62 || off === 0x63;
 const isWordLetter = (off: number) => isConsonant(off) || (off >= 0x05 && off <= 0x14) || (off >= 0x01 && off <= 0x03) || off === 0x60 || off === 0x61;
 
-/** Drop every nukta, then insert the Indic inherent "a" that anyascii leaves out (shared rules). */
 export function indicInherentVowels(value: string): string {
   const chars = [...value].filter((ch) => indic(ch.codePointAt(0)!)?.[1] !== 0x3c);
   const out: string[] = [];
@@ -82,7 +57,6 @@ export function indicInherentVowels(value: string): string {
   return out.join("");
 }
 
-/** Transliterate to ASCII: the inherent-vowel pass, then any-ascii (the tables Python anyascii uses). */
 export function toAscii(value: string | null | undefined): string {
   if (!value) return "";
   return anyAscii(indicInherentVowels(String(value).normalize("NFC")));
@@ -90,10 +64,8 @@ export function toAscii(value: string | null | undefined): string {
 
 export const transliterate = toAscii;
 
-// ── words and fields ────────────────────────────────────────────────────────────────────────────
 const text = (value: unknown): string => (value === null || value === undefined ? "" : String(value));
 
-/** Words end at every character that is not a letter, a mark, a decimal digit, ZWNJ or ZWJ. */
 export function splitWords(value: unknown): string[] {
   const words: string[] = [];
   let current = "";
@@ -108,7 +80,6 @@ export function splitWords(value: unknown): string[] {
   return words;
 }
 
-/** Title-Case one word; a word with a digit, or a 2–3 letter upper-case Latin word, keeps its case. */
 export function titleCaseWord(word: string): string {
   if ([...word].some((ch) => DIGIT.test(ch))) return word;
   const n = cpLength(word);
@@ -128,12 +99,10 @@ export function fieldWords(value: unknown, asciiOnly: boolean): string[] {
 const joinField = (words: string[]) => words.join("-");
 const fields = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join("_");
 
-/** One field: words Title-Cased and joined by `-`. ASCII unless `asciiOnly` is false. */
 export function field(value: unknown, asciiOnly = true): string {
   return joinField(fieldWords(value, asciiOnly));
 }
 
-/** The same words, ignoring case; also when one is written in another script (Majuli, माजुली). */
 function same(a: unknown, b: unknown): boolean {
   if (splitWords(a).join(" ").toLowerCase() === splitWords(b).join(" ").toLowerCase()) return true;
   const fa = field(a).toLowerCase();
@@ -150,12 +119,10 @@ function placeText(locality: unknown, district: unknown, state: unknown): string
 
 export type PlaceParts = { locality?: unknown; district?: unknown; state?: unknown };
 
-/** The Place field: `Locality-District`, else `Locality`, else `District`, else `State`. */
 export function placeField(place: PlaceParts, asciiOnly = true): string {
   return field(placeText(place.locality, place.district, place.state), asciiOnly);
 }
 
-// ── the inputs ──────────────────────────────────────────────────────────────────────────────────
 export type Person = { name?: string | null; localName?: string | null; craft?: string | null };
 export type TitleWorkshop = { locality?: string | null; district?: string | null; state?: string | null; craft?: string | null };
 export type TitleInput = {
@@ -163,20 +130,15 @@ export type TitleInput = {
   place?: string | null;
   workshop?: TitleWorkshop | null;
   participants?: Person[];
-  /** Override (designer portal: "Workshop"). */
   entity?: string | null;
-  /** Override (a design workshop's code). */
   subject?: string | null;
-  /** When only the head count is known. */
   participantCount?: number | null;
 };
 
-/** A participant in the plain-field shape: a name, or a record with a stored romanised name. */
 export type Participant =
   | string
   | { name?: string | null; romanisedName?: string | null; nameEnglish?: string | null; localName?: string | null; craft?: string | null };
 
-/** The plain-field spelling of a title's inputs; `sessionTitle` takes either. */
 export type TitleFields = {
   participants?: Participant[] | null;
   participantCount?: number | null;
@@ -261,7 +223,6 @@ function subjectSource(inp: Input, asciiOnly: boolean): string | null {
   if (n === 1 && inp.participants.length) {
     const person = inp.participants[0];
     if (asciiOnly) {
-      // A stored romanised name wins over transliteration.
       for (const candidate of [person.name, person.localName]) {
         if (candidate && candidate.trim() && /^[\x00-\x7f]*$/.test(candidate)) return candidate;
       }
@@ -273,7 +234,6 @@ function subjectSource(inp: Input, asciiOnly: boolean): string | null {
 
 type Render = (place: string[], craft: string[], subject: string[]) => string;
 
-/** Subject first (to 40, at a word boundary), then Craft, Place, Subject again, drop Craft, Place, cut Subject. */
 function fit(render: Render, place: string[], craft: string[], subject: string[], limit: number): string {
   const tooLong = () => cpLength(render(place, craft, subject)) > limit;
   while (tooLong() && subject.length > 1 && cpLength(joinField(subject)) > SUBJECT_MIN) subject.pop();
@@ -287,8 +247,6 @@ function fit(render: Render, place: string[], craft: string[], subject: string[]
   return render(place, craft, subject);
 }
 
-// ── titles ──────────────────────────────────────────────────────────────────────────────────────
-/** `Entity_Date_Place_Craft_Subject`, at most 120 characters, original script allowed. */
 export function sessionTitle(value: TitleInput | TitleFields): string {
   const inp = asInput(value);
   const entity = joinField(fieldWords(entityOf(inp), false));
@@ -302,12 +260,10 @@ export function sessionTitle(value: TitleInput | TitleFields): string {
   );
 }
 
-// ── dates (IST) ─────────────────────────────────────────────────────────────────────────────────
 export type When = Date | string | null | undefined;
 
 type IstMoment = { date: string; time: string | null };
 
-/** The IST calendar day and HHMM of a moment; a bare `YYYY-MM-DD` has no time. Naive = UTC. */
 export function asIst(value: When): IstMoment | null {
   if (value === null || value === undefined || value === "") return null;
   let ms: number;
@@ -328,7 +284,6 @@ function istDay(value: When): string | null {
   return asIst(value)?.date ?? null;
 }
 
-/** `YYYY-MM-DD` and `HHMM` on the IST wall clock for an instant. */
 export function istParts(iso: string): { date: string; time: string } | null {
   const m = asIst(iso);
   return m && m.time ? { date: m.date, time: m.time } : null;
@@ -338,7 +293,6 @@ export function istToday(now: Date = new Date()): string {
   return asIst(now)!.date;
 }
 
-// ── file names ──────────────────────────────────────────────────────────────────────────────────
 const guard = (stem: string) => (RESERVED_STEMS.has(stem.toUpperCase()) ? `${stem}-File` : stem);
 
 function extension(ext: unknown): string {
@@ -362,9 +316,7 @@ export type FileNameInput = {
   entity?: unknown;
   what?: unknown;
   ext?: unknown;
-  /** `YYYY-MM-DD` (or any moment) for the Date field. */
   day?: When;
-  /** `HHMM` as given, or `true` for the IST time of `date`. */
   time?: string | boolean | null;
   place?: unknown;
   craft?: unknown;
@@ -372,13 +324,10 @@ export type FileNameInput = {
   sequence?: unknown;
   n?: number | null;
   portal?: string | null;
-  /** A moment whose IST day (and, with `time: true`, HHMM) is used. */
   date?: When;
-  /** A period such as `FY2026-27` in place of the date. */
   period?: unknown;
 };
 
-/** The NAMING §2.1 grammar, ASCII, at most 150 characters including the extension. */
 export function fileName(input: FileNameInput): string {
   const moment = input.period ? null : asIst(input.date !== undefined && input.date !== null ? input.date : input.day);
   const day = input.period ? joinField(fieldWords(input.period, true)) : (moment?.date ?? null);
@@ -403,20 +352,10 @@ export function fileName(input: FileNameInput): string {
   );
 }
 
-/**
- * A recording target. `sectionCode` is the question's own section and is the only source of the
- * section piece. A question carries `questionNumber`, or a `displayCode` read relative to the
- * section code; neither one means the whole section.
- */
 export type TargetRef = { sectionCode: string; displayCode?: string | null; questionNumber?: number | null };
 
 const compactCode = (text: unknown) => String(text ?? "").trim().replace(CODE_GAP, "").toUpperCase();
 
-/**
- * The question number in `displayCode` once `sectionCode` is taken off its front: ("F2", "F21") -> 1,
- * ("F2", "F2.13") -> 13, ("D", "D03") -> 3. A display code that does not start with the section code
- * gives its trailing digits (("F2", "Q4") -> 4).
- */
 export function questionNumber(sectionCode: string, displayCode: string): number | null {
   const code = compactCode(displayCode);
   const sec = compactCode(sectionCode);
@@ -426,7 +365,6 @@ export function questionNumber(sectionCode: string, displayCode: string): number
   return m ? Number(m[1]) : null;
 }
 
-/** `D-Q03`, `B-All`, `F-Q01-Q06`, plus `-P2` for a continuation or `-T2` for a solo repeat. */
 export function recordingSequence(
   targets: TargetRef[],
   opts: { part?: number | null; position?: number | null; rosterCount?: number | null } = {}
@@ -458,7 +396,6 @@ export function recordingSequence(
   return sequence;
 }
 
-/** `D-Q03`; `-P2` for part 2, else `-T2` for a solo take at position 2 or more. */
 export function questionSequence(
   section: unknown,
   question: unknown,
@@ -470,13 +407,11 @@ export function questionSequence(
   return recordingSequence([target], { part: opts.part, position: opts.take, rosterCount: 1 }) ?? "";
 }
 
-/** `D-All`: a recording that covers a whole section. */
 export function sectionSequence(section: unknown): string {
   const sec = joinField(fieldWords(section, true)).toUpperCase();
   return sec ? (recordingSequence([{ sectionCode: sec }]) ?? "") : "";
 }
 
-/** The questionnaire shape of a recording's inputs. */
 export type RecordingNameInput = {
   session: TitleInput | TitleFields;
   capturedAt: string | null;
@@ -490,7 +425,6 @@ export type RecordingNameInput = {
   n?: number | null;
 };
 
-/** The plain-field shape: the Entity word and its fields passed directly. */
 export type RecordingInput = Omit<FileNameInput, "date" | "day" | "time" | "entity" | "ext"> & {
   capturedAt?: When;
   capturedAtSource?: string | null;
@@ -502,12 +436,6 @@ function recordingMoment(capturedAt: When, estimated: boolean): { day: string | 
   return { day: m?.date ?? null, time: m && m.time && !estimated ? m.time : null };
 }
 
-/**
- * §3.13: the recording, transcript or subtitle file name of one take. Either
- * `recordingFilename({session, capturedAt, capturedAtSource, targets, ...})` or
- * `recordingFilename("Interview", "m4a", {capturedAt, timeKnown, place, craft, subject, sequence})`.
- * A time whose source is an estimate, or with `timeKnown: false`, is left out.
- */
 export function recordingFilename(input: RecordingNameInput): string;
 export function recordingFilename(entity: unknown, ext: string, opts?: RecordingInput): string;
 export function recordingFilename(first: unknown, ext?: string, opts: RecordingInput = {}): string {
@@ -533,7 +461,6 @@ export function recordingFilename(first: unknown, ext?: string, opts: RecordingI
   return fileName({ ...rest, entity: first, what, ext: ext ?? "m4a", day, time });
 }
 
-/** A file about a whole session (the zip of its recordings): no time, no sequence. */
 export function sessionFilename(session: TitleInput | TitleFields, what: string, ext: string): string {
   const inp = asInput(session);
   return fileName({
@@ -554,14 +481,8 @@ export type ExportInput = Omit<FileNameInput, "date" | "time" | "entity" | "what
   dated?: boolean;
 };
 
-/** The questionnaire shape of an export's inputs. */
 export type ExportNameInput = ExportInput & { entity: string; what: string; ext: string };
 
-/**
- * A download, export, report or backup, dated the day it is generated (IST) unless `day` or `at`
- * says otherwise. `withTime` adds HHMM for snapshots that can repeat within a day; `dated: false` is
- * for templates (pro formas), which carry no date at all.
- */
 export function exportFilename(input: ExportNameInput): string;
 export function exportFilename(entity: unknown, what: unknown, ext: string, opts?: ExportInput): string;
 export function exportFilename(first: unknown, what?: unknown, ext?: string, opts: ExportInput = {}): string {
@@ -589,10 +510,6 @@ export type WorkshopNameFields = {
   craftName?: string | null;
 };
 
-/**
- * A design workshop's report, cards or list: `..._Workshop_Date_Place_Craft_Code_What.ext`. The
- * server, this client's offline report and the handset name one report identically through this.
- */
 export function workshopFilename(
   workshop: WorkshopNameFields,
   what: unknown,
@@ -607,7 +524,6 @@ export function workshopFilename(
   });
 }
 
-// ── leaves, collisions ──────────────────────────────────────────────────────────────────────────
 export function splitExtension(name: string): [string, string] {
   const lower = name.toLowerCase();
   for (const double of DOUBLE_EXTENSIONS) {
@@ -623,7 +539,6 @@ export function splitExtension(name: string): [string, string] {
   return [name, ""];
 }
 
-/** Any file name as an ASCII leaf: `[A-Za-z0-9._-]`, at most 150 characters, never empty or reserved. */
 export function asciiLeaf(filename: unknown, fallback = "upload.bin"): string {
   const raw = text(filename).replace(/\\/g, "/").split("/").pop()!.trim();
   const cleaned = toAscii(raw)
@@ -641,7 +556,6 @@ export function asciiLeaf(filename: unknown, fallback = "upload.bin"): string {
   return ext ? `${stem}.${ext}` : stem;
 }
 
-/** `..._D-Q03.m4a` → `..._D-Q03_2.m4a`; `.sql.gz` counts as one extension. */
 export function withN(name: string, n: number): string {
   if (n <= 1) return name;
   if (name.endsWith(".sql.gz")) return `${name.slice(0, -7)}_${n}.sql.gz`;
@@ -649,7 +563,6 @@ export function withN(name: string, n: number): string {
   return dot >= 0 ? `${name.slice(0, dot)}_${n}${name.slice(dot)}` : `${name}_${n}`;
 }
 
-/** `_2`, `_3` for colliding names, in the order given (callers sort by createdAt, then id). */
 export function dedupeNames(names: Iterable<string>): string[] {
   const seen = new Map<string, number>();
   const taken = new Set<string>();
@@ -668,10 +581,6 @@ export function dedupeNames(names: Iterable<string>): string[] {
   });
 }
 
-/**
- * A phone number for display: `+91 98765 43210` (owner correction b). The country code lives in its
- * own column; the national number is digits only. Other countries print the digits after the code.
- */
 export function formatPhone(countryCode: string | null | undefined, digits: string | null | undefined): string {
   const national = (digits ?? "").replace(/\D/g, "");
   if (!national) return "";

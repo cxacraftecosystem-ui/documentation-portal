@@ -6,8 +6,6 @@ import { prompts } from "@/lib/questionnairePrompts";
 import { approveBlock, reviewFlags } from "@/lib/questionnaireView";
 import { CONTRACT } from "./questionnaire-contract-fixture";
 
-/** DESIGN test 47: P9 conflict copy, the review flags line, Approve disabled with its reason. */
-
 const rec = CONTRACT.examples.Recording as Recording;
 
 test("P9 copy and buttons", () => {

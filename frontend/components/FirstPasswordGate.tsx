@@ -1,23 +1,5 @@
 "use client";
 
-/**
- * THE FORCED PASSWORD CHANGE, ASKED BETWEEN THE PERSON AND THE PRODUCT.
- *
- * Ported from the Design Prototype Workshop's component of the same name. An account carrying
- * `mustChangePassword` — made with a temporary password, or asked by an administrator to choose a
- * new one — meets this form INSTEAD of the navigation and the page (`AppShell` returns it above the
- * whole protected tree). The server refuses every other route until it is satisfied
- * (`X-Password-Change-Required`), so this is where the person meets the demand and the server is
- * what makes skipping it pointless.
- *
- * THE CURRENT PASSWORD is asked for only where this tab is not already holding it: straight after a
- * password sign-in the person typed it seconds ago. It appears whenever the host has none (a Google
- * sign-in, a session already open) and after any refusal, so the only button can always succeed.
- *
- * "Sign out instead" is the way out for somebody who cannot complete this — the link an
- * administrator makes for them, redeemed at `/set-password`, lives outside the protected tree.
- */
-
 import { useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, Lock } from "lucide-react";
 
@@ -36,7 +18,6 @@ export function FirstPasswordGate({
   onDone,
   onSignOut
 }: {
-  /** The password of the last sign-in that succeeded in this tab, or "" where there is none. */
   currentPassword: string;
   onDone: () => void;
   onSignOut: () => void;
@@ -49,7 +30,6 @@ export function FirstPasswordGate({
   const [error, setError] = useState<string | null>(null);
   const [currentRefusals, setCurrentRefusals] = useState(0);
   const currentBox = useRef<HTMLInputElement | null>(null);
-  // From the PROP and the refusal count, never from `current`, or the box would vanish on a keystroke.
   const askCurrent = currentPassword.length === 0 || currentRefusals > 0;
 
   useEffect(() => {
@@ -66,9 +46,6 @@ export function FirstPasswordGate({
     setSaving(true);
     setError(null);
     try {
-      // The session this form was sent with is retired by its own success; this site's change-password
-      // route has put the fresh one in the session cookie before this resolves, so `onDone`'s re-read
-      // of `/me` already goes out with it.
       await changeOwnPassword(current, next);
       onDone();
     } catch (err) {
@@ -132,7 +109,6 @@ export function FirstPasswordGate({
             onChange={(event) => setNext(event.target.value)}
             className="field-input h-[52px] pl-10 pr-11"
           />
-          {/* One toggle for every box: the pair is one password checked against itself. */}
           <button
             type="button"
             aria-label={show ? "Hide password" : "Show password"}
