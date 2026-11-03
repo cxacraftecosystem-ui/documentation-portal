@@ -1621,6 +1621,15 @@ class FieldRepository(
      */
     suspend fun transcriptInsightBatched(mediaId: String): TranscriptInsightViewDto? = insightBatcher.load(mediaId)
 
+    suspend fun saveTranscriptInsight(mediaId: String, body: TranscriptInsightPatchRequest): TranscriptInsightViewDto =
+        api.patchTranscriptInsight(mediaId, body)
+
+    suspend fun regenerateTranscriptInsight(mediaId: String, discardEdits: Boolean): TranscriptInsightViewDto =
+        api.regenerateTranscriptInsight(mediaId, TranscriptInsightRegenerateRequest(discardEdits))
+
+    val transcriptInsightActions: TranscriptInsightActions
+        get() = TranscriptInsightActions(save = ::saveTranscriptInsight, regenerate = ::regenerateTranscriptInsight)
+
     /** Download an update APK to the cache and return the file, for handing to the system installer. */
     suspend fun downloadApk(context: Context, url: String, versionCode: Int): File = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "updates").apply { mkdirs() }
