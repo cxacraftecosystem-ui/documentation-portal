@@ -11,15 +11,6 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * End-to-end behaviour of the orchestrator.
- *
- * Three of these tests guard properties that are invisible on screen and therefore have no other way of
- * being caught: that the returned geometry is in source coordinates rather than working coordinates,
- * that cancellation actually stops the work, and that every cap the pipeline applies produces a sentence
- * a user can read. A pipeline that silently discards four thousand paths and one that genuinely found
- * nothing render the same blank canvas.
- */
 class PipelineTest {
 
     private val white = RgbaImage.argb(255, 255, 255, 255)
@@ -27,11 +18,6 @@ class PipelineTest {
 
     private fun blank(size: Int): RgbaImage = RgbaImage(size, size).fill(white)
 
-    /**
-     * A black plus on white paper. Chosen because its skeleton is unambiguous — four arms meeting at one
-     * junction — so an assertion about path counts or bounds is about the pipeline and not about the
-     * subtleties of a photograph.
-     */
     private fun cross(size: Int, thickness: Int): RgbaImage {
         val img = blank(size)
         val lo = (size - thickness) / 2
@@ -42,10 +28,6 @@ class PipelineTest {
     }
 
     private fun longEdgeOf(result: TraceResult): Int = max(result.workingWidth, result.workingHeight)
-
-    // -------------------------------------------------------------------------------------------
-    // The whole thing runs
-    // -------------------------------------------------------------------------------------------
 
     @Test
     fun aSyntheticImageRunsEndToEndAndProducesGeometry() {
@@ -61,7 +43,6 @@ class PipelineTest {
         assertTrue(result.totalMillis >= 0)
         assertEquals(128, result.preview.width)
         assertEquals(128, result.processedGray.width)
-        // modulateWidth is off by default, and the transform costs a full pass.
         assertNull(result.distanceTransform)
     }
 
@@ -95,14 +76,8 @@ class PipelineTest {
         assertEquals(a.notes, b.notes)
     }
 
-    // -------------------------------------------------------------------------------------------
-    // Coordinates
-    // -------------------------------------------------------------------------------------------
-
     @Test
     fun theDocumentIsInSourceCoordinatesAndNotInWorkingCoordinates() {
-        // 768 down to a 256 px working edge is a clean 3x. The working edge cannot go below 256 — the
-        // sanitiser's floor, because a smaller working image cannot hold a legible line.
         val src = cross(768, 72)
         val result = Pipeline.run(
             src,
@@ -116,7 +91,6 @@ class PipelineTest {
         assertTrue(result.document.shapeCount() > 0, "no geometry; notes were ${result.notes}")
 
         val bounds = result.document.bounds()
-        // Working space only reaches 256; anything past it can only have come from the 3x scale.
         assertTrue(bounds[2] > 512f, "maxX ${bounds[2]} is still in working coordinates")
         assertTrue(bounds[3] > 512f, "maxY ${bounds[3]} is still in working coordinates")
         assertTrue(bounds[2] <= 769f, "maxX ${bounds[2]} escaped the frame")
@@ -127,11 +101,6 @@ class PipelineTest {
         )
     }
 
-    // -------------------------------------------------------------------------------------------
-    // The crop, and the second coordinate frame it introduces
-    // -------------------------------------------------------------------------------------------
-
-    /** A dark mark occupying a known sub-rectangle of a clean white frame. */
     private fun markInCorner(size: Int): RgbaImage {
         val img = RgbaImage(size, size).fill(white)
         val x0 = size / 3
@@ -148,9 +117,6 @@ class PipelineTest {
 
     private fun autoCrop(allowCrop: Boolean): TraceParams = TraceParams(
         preprocess = PreprocessParams(workingLongEdge = 300),
-        // A subject chosen by hand, so the *only* thing auto does here is the crop. Without that the
-        // two runs below would differ by whichever subject the classifier picked as well, and the
-        // comparison would say nothing about coordinates.
         auto = AutoParams(
             mode = AutoMode.APPLY,
             subjectId = "photo",
@@ -161,11 +127,6 @@ class PipelineTest {
 
     @Test
     fun aCroppedTraceStillReturnsTheDocumentInSourceCoordinates() {
-        // The subtlest thing in the pipeline: a crop puts a second offset+scale between working space
-        // and source space, and the two do not commute. Composed the wrong way round the drawing comes
-        // out the right size in the wrong place, which reads as a rendering bug rather than a
-        // coordinate bug — so it is tested by tracing the same image twice, once with the crop allowed
-        // and once without, and requiring the two to agree about where the mark is.
         val src = markInCorner(900)
         val whole = Pipeline.run(src, autoCrop(allowCrop = false), classify = false)
         val cropped = Pipeline.run(src, autoCrop(allowCrop = true), classify = false)
@@ -183,8 +144,6 @@ class PipelineTest {
             "a crop that says nothing is indistinguishable from a bug: ${cropped.notes}",
         )
 
-        // The canvas is the source frame in both cases. A crop decides what is traced, never what
-        // coordinate system the result is reported in.
         assertEquals(900f, cropped.document.width)
         assertEquals(900f, cropped.document.height)
         assertEquals(whole.document.width, cropped.document.width)
@@ -194,23 +153,17 @@ class PipelineTest {
 
         val a = whole.document.bounds()
         val b = cropped.document.bounds()
-        // Composing the offset after the scale instead of before displaces everything by
-        // `cropOffset * (source / working)` — 3x the offset here, hundreds of pixels. 24 px of slack
-        // is far below that and far above the difference the crop makes to the global thresholds.
         for (i in 0..3) {
             assertTrue(
                 abs(a[i] - b[i]) < 24f,
                 "the cropped trace moved the drawing: ${a.toList()} vs ${b.toList()}",
             )
         }
-        // And the drawing really is in source coordinates, not in the 119-px cropped working frame.
         assertTrue(b[2] > 400f, "maxX ${b[2]} is still in cropped working coordinates")
     }
 
     @Test
     fun theCropIsRefusedOnABusyFrameAndSaysWhy() {
-        // Deterministic clutter: no clean border ring anywhere, so there is no background to separate
-        // the subject from and the box that could be computed would be the whole frame.
         val src = RgbaImage(256, 256)
         for (y in 0 until 256) for (x in 0 until 256) {
             val v = ((x * 37 + y * 53) % 97) * 255 / 96
@@ -220,9 +173,6 @@ class PipelineTest {
         val result = Pipeline.run(src, autoCrop(allowCrop = true), classify = false)
         assertEquals(0, result.cropX, "a busy frame must not be cropped")
         assertEquals(0, result.cropY)
-        // The sentence explaining *why* is Subject's, not this stage's — the stage only says which
-        // decision the refusal was about. Asserting on the prefix keeps this test about the pipeline
-        // reporting the refusal rather than about the wording of the module that made it.
         assertTrue(
             result.notes.any { it.startsWith("The working image was not cropped to the subject.") },
             "a refusal has to be visible too: ${result.notes}",
@@ -246,15 +196,8 @@ class PipelineTest {
         }
     }
 
-    // -------------------------------------------------------------------------------------------
-    // Auto-detection through the orchestrator
-    // -------------------------------------------------------------------------------------------
-
     @Test
     fun theDefaultModeSuggestsAndDoesNotApply() {
-        // The engine's default may not rewrite a caller's explicit settings. A blob floor of a million
-        // is a deliberate instruction, and a classifier that halved it would make the whole parameter
-        // tree advisory.
         val result = Pipeline.run(
             cross(128, 12),
             TraceParams(cleanup = CleanupParams(minBlobArea = 1_000_000)),
@@ -277,7 +220,6 @@ class PipelineTest {
 
         assertNotNull(result.profile)
         if (result.autoSubjectId.isEmpty()) {
-            // Refusing is a legal outcome and it has to explain itself just as loudly as acting does.
             assertTrue(
                 result.notes.any { it.contains("not sure enough") },
                 "auto neither applied nor explained itself: ${result.notes}",
@@ -293,7 +235,6 @@ class PipelineTest {
                 "auto reported a subject but the parameters it ran with were unchanged",
             )
         }
-        // Whatever it decided, the parameters it ran with come back legal and are the ones reported.
         assertEquals(result.appliedParams, result.appliedParams.sanitized())
     }
 
@@ -324,14 +265,9 @@ class PipelineTest {
         val shapes = result.document.layers.flatMap { it.shapes }
         assertTrue(shapes.isNotEmpty(), "notes were ${result.notes}")
         for (shape in shapes) {
-            // 2 px at a 256 px working size is 6 px at 768; leaving it at 2 would render a hairline.
             assertEquals(6f, shape.style.strokeWidth, 0.01f)
         }
     }
-
-    // -------------------------------------------------------------------------------------------
-    // Cancellation
-    // -------------------------------------------------------------------------------------------
 
     @Test
     fun anAlreadyCancelledTokenStopsTheTraceBeforeAnyWork() {
@@ -368,10 +304,6 @@ class PipelineTest {
         assertTrue(!token.isCancelled, "running a trace must not cancel the caller's token")
     }
 
-    // -------------------------------------------------------------------------------------------
-    // Progress
-    // -------------------------------------------------------------------------------------------
-
     @Test
     fun progressIsReportedForEveryStageAndRisesMonotonicallyToOne() {
         val ids = ArrayList<String>()
@@ -396,10 +328,6 @@ class PipelineTest {
             previous = f
         }
     }
-
-    // -------------------------------------------------------------------------------------------
-    // Notes: every cap has to be reported
-    // -------------------------------------------------------------------------------------------
 
     @Test
     fun theBlobFilterReportsHowManyRegionsItRemoved() {
@@ -479,8 +407,6 @@ class PipelineTest {
             "the matte was not reported at all: ${result.notes}",
         )
         assertTrue(note.contains("%"), "the note must quantify: '$note'")
-        // The plus covers under a fifth of the frame, so the matte removes over 60% and the sentence
-        // has to escalate — a wrong matte deleting somebody's artwork is the worst failure here.
         assertTrue(
             note.contains("if part of your artwork is missing"),
             "a matte over the alarm threshold must warn: '$note'",
@@ -523,10 +449,6 @@ class PipelineTest {
         }
     }
 
-    // -------------------------------------------------------------------------------------------
-    // Degenerate input
-    // -------------------------------------------------------------------------------------------
-
     @Test
     fun aOnePixelImageProducesAnEmptyDocumentRatherThanThrowing() {
         val img = RgbaImage(1, 1, intArrayOf(RgbaImage.argb(255, 10, 10, 10)))
@@ -545,7 +467,6 @@ class PipelineTest {
             result.notes.any { it.contains("No ink survived") },
             "notes were ${result.notes}",
         )
-        // Still a well-formed document with a layer, so the editor has somewhere to draw.
         assertEquals(1, result.document.layers.size)
     }
 
@@ -558,10 +479,6 @@ class PipelineTest {
         assertEquals(64f, result.document.width)
         assertEquals(1f, result.document.height)
     }
-
-    // -------------------------------------------------------------------------------------------
-    // Width modulation
-    // -------------------------------------------------------------------------------------------
 
     @Test
     fun widthModulationMeasuresTheStrokeAndEmitsFilledOutlines() {
@@ -576,8 +493,6 @@ class PipelineTest {
         val dt = assertNotNull(result.distanceTransform, "modulateWidth must produce a transform")
         assertEquals(result.workingWidth, dt.width)
         assertEquals(result.workingHeight, dt.height)
-        // Measured on the pre-skeleton mask, so the peak is the stroke's half-width. On the skeleton
-        // itself every value would be 1 and every stroke would come back the same weight.
         assertTrue(dt.range().second > 4f, "peak distance was ${dt.range().second}")
         assertTrue(result.document.shapeCount() > 0, "notes were ${result.notes}")
 
@@ -587,10 +502,6 @@ class PipelineTest {
             "SVG has no variable-width stroke, so these must be filled outlines",
         )
     }
-
-    // -------------------------------------------------------------------------------------------
-    // The stage list itself
-    // -------------------------------------------------------------------------------------------
 
     @Test
     fun theStageListIsStableUniqueAndFullyLabelled() {
@@ -609,7 +520,6 @@ class PipelineTest {
         val global = Stages.global().map { it.id }.toSet()
         val local = Stages.tileLocal().map { it.id }.toSet()
         assertEquals(Stages.ALL.size, global.size + local.size)
-        // ALGORITHMS §13 names these explicitly: tiled per tile, each one seams visibly.
         assertTrue(Stages.CONTRAST in global, "CLAHE needs a global tile lattice")
         assertTrue(Stages.BINARISE in global, "Otsu needs a global histogram")
         assertTrue(Stages.BLOBS in global, "connected components need global connectivity")
@@ -641,10 +551,6 @@ class PipelineTest {
         before(Stages.STYLE, Stages.ASSEMBLE)
     }
 
-    // -------------------------------------------------------------------------------------------
-    // Preview
-    // -------------------------------------------------------------------------------------------
-
     @Test
     fun aPreviewRunsTheSameStagesAtALowerResolutionAndAgreesAboutTheFrame() {
         val src = cross(512, 48)
@@ -657,7 +563,6 @@ class PipelineTest {
         assertEquals(256, longEdgeOf(preview))
         assertNull(preview.profile, "a preview must not pay for classification")
 
-        // Same frame, so the two can be overlaid.
         assertEquals(full.document.width, preview.document.width)
         assertEquals(full.document.height, preview.document.height)
         assertTrue(preview.document.shapeCount() > 0, "preview notes were ${preview.notes}")
@@ -691,15 +596,12 @@ class PipelineTest {
         assertEquals(base.output.strokeWidth * 0.5f, scaled.output.strokeWidth)
         assertEquals(base.output.minPathLength * 0.5f, scaled.output.minPathLength)
         assertEquals(base.output.simplify * 0.5f, scaled.output.simplify)
-        // Area, so r².
         assertEquals(base.cleanup.minBlobArea / 4, scaled.cleanup.minBlobArea)
         assertTrue(scaled.cleanup.closeRadius >= 1, "a non-zero radius must not scale away to nothing")
 
-        // σ is measured against the pixel grid, which the resampler has already matched to the content.
         assertEquals(base.edge.blurSigma, scaled.edge.blurSigma)
         assertEquals(base.edge.dogSigma, scaled.edge.dogSigma)
         assertEquals(base.edge.flow.sigmaM, scaled.edge.flow.sigmaM)
-        // Angles and counts are not lengths at all.
         assertEquals(base.output.corner, scaled.output.corner)
         assertEquals(base.output.smoothIterations, scaled.output.smoothIterations)
         assertEquals(base.edge.sensitivity, scaled.edge.sensitivity)

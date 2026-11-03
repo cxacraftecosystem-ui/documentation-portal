@@ -7,26 +7,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 
-/**
- * The parts of the trace feature that can be wrong WITHOUT FAILING — the marshalling, the geometry
- * mirror, the working size, the device ceilings and the failure sentences.
- *
- * Everything here is reachable on a desktop JVM because `TraceWire.kt` imports no `android.*`. That is
- * the whole reason it exists as a separate file; see its header.
- */
 class TraceWireTest {
 
-    /* ── Failure sentences ──────────────────────────────────────────────────────────────────── */
-
-    /**
-     * FIVE KINDS, AND EVERY ONE OF THEM IS CONSTRUCTED SOMEWHERE IN THIS PACKAGE.
-     *
-     * The design-workshop original carries eleven, six of which describe a JavaScript bridge that has
-     * never existed in this repository — and its own header records that no designer can see any of
-     * their sentences, because nothing constructs them. This asserts the port did not import them. A
-     * sixth member appearing here means either a real new failure with a real new remedy, or somebody
-     * copying a sentence from a product this one is not.
-     */
     @Test
     fun everyFailureKindIsOneThisAppCanActuallyReach() {
         assertEquals(
@@ -38,7 +20,6 @@ class TraceWireTest {
         )
     }
 
-    /** No two kinds may share a sentence: one kind per REMEDY, never one per exception class. */
     @Test
     fun everyFailureKindHasItsOwnSentence() {
         val sentences = TraceFailureKind.entries.map { traceSentence(it) }
@@ -50,13 +31,6 @@ class TraceWireTest {
         )
     }
 
-    /**
-     * A sentence a person can act on: more than a fragment, and naming something to DO. Short is the
-     * goal — the length floor only rules out a bare label.
-     *
-     * "Something went wrong" is forbidden here because somebody four days from a connection cannot act
-     * on it, and neither can whoever reads the screenshot afterwards.
-     */
     @Test
     fun everyFailureSentenceNamesSomethingToDo() {
         val verbs = listOf(
@@ -73,7 +47,6 @@ class TraceWireTest {
         }
     }
 
-    /** The detail is appended when it is short and dropped when it is a stack trace in disguise. */
     @Test
     fun engineDetailIsCappedRatherThanPrinted() {
         val short = traceSentence(TraceFailureKind.ENGINE_ERROR, "the frame was empty")
@@ -84,17 +57,6 @@ class TraceWireTest {
         assertTrue("A detail past the cap must be dropped, not truncated", !capped.contains(long))
     }
 
-    /* ── The channel marshalling ────────────────────────────────────────────────────────────── */
-
-    /**
-     * **THE ONE PIECE OF THIS FEATURE THAT CAN BE WRONG AND STILL TRACE.**
-     *
-     * Swap two channels and the engine still produces line art — it traces a picture with red and blue
-     * exchanged, which on a pencil sketch on cream paper looks very nearly right and comes out quietly
-     * different from the portal's answer forever. So the pair is round-tripped rather than inspected:
-     * `traceArgbRowToRgba` writes the engine's byte order and `traceImageOf` reads it back, and the
-     * integers that come out must be the integers that went in.
-     */
     @Test
     fun theRgbaMarshallingIsAnExactRoundTrip() {
         val pixels = intArrayOf(
@@ -120,7 +82,6 @@ class TraceWireTest {
         }
     }
 
-    /** The byte order itself, spelled out, so a reader can check it against the engine's own. */
     @Test
     fun theByteOrderIsRedGreenBlueAlpha() {
         val bytes = ByteArray(4)
@@ -131,7 +92,6 @@ class TraceWireTest {
         assertEquals(0x11.toByte(), bytes[3])
     }
 
-    /** A buffer too short for the frame it claims is refused rather than read past its end. */
     @Test
     fun aShortBufferIsRefused() {
         try {
@@ -142,20 +102,13 @@ class TraceWireTest {
         }
     }
 
-    /* ── The working size ───────────────────────────────────────────────────────────────────── */
-
     @Test
     fun aSourceInsideTheCapIsNotResampledForNothing() {
         assertEquals(2480 to 3508, traceWorkingSize(2480, 3508))
     }
 
-    /**
-     * `Math.round` and not a floor. A one-pixel difference in the working frame moves every coordinate
-     * the engine reports, so the two clients must round the same way.
-     */
     @Test
     fun theCapRoundsRatherThanFloors() {
-        // 5000x3000 capped at 4096: 3000 * 4096/5000 = 2457.6, which rounds to 2458 and floors to 2457.
         assertEquals(4096 to 2458, traceWorkingSize(5000, 3000))
     }
 
@@ -166,12 +119,6 @@ class TraceWireTest {
         assertTrue("A dimension of zero would throw inside a bitmap allocation", h >= 1)
     }
 
-    /* ── The device ceilings ────────────────────────────────────────────────────────────────── */
-
-    /**
-     * A FAILED MEMORY READ TAKES THE CAUTIOUS HALF. A handset that would have said it was small must
-     * not be promoted by a lookup that failed.
-     */
     @Test
     fun anUnknownMemorySizeIsTreatedAsASmallPhone() {
         assertEquals(traceCeilings(null), traceCeilings(2L * 1024L * 1024L * 1024L))
@@ -189,20 +136,12 @@ class TraceWireTest {
         )
     }
 
-    /** The flow engine's ceiling is BELOW the general one. See TraceEngine.kt for why it is a ceiling. */
     @Test
     fun theFlowEngineIsCappedLowerThanEverythingElse() {
         val (general, flow) = traceCeilings(6L * 1024L * 1024L * 1024L)
         assertTrue("Flow is 5.7x the cost of the alternatives and must not share their ceiling", flow < general)
     }
 
-    /* ── The parameter codec ────────────────────────────────────────────────────────────────── */
-
-    /**
-     * **`JsonNull` IS A `JsonPrimitive`**, so it has to be tested before anything general or
-     * `output.background: null` decodes as the string "null" and the "White background" toggle reads
-     * as ON forever.
-     */
     @Test
     fun aNullLeafIsAbsentAndNotTheStringNull() {
         val values = traceValuesOf("""{"output":{"background":null,"simplify":1.5}}""")
@@ -211,7 +150,6 @@ class TraceWireTest {
         assertEquals(1.5, values.number("output.simplify")!!, 1e-9)
     }
 
-    /** The four leaf kinds survive a flatten, which is what the whole "what changed" report rests on. */
     @Test
     fun everyLeafKindSurvivesTheFlatten() {
         val values = traceValuesOf(
@@ -224,11 +162,6 @@ class TraceWireTest {
         assertEquals("clean-line", values.styleId)
     }
 
-    /**
-     * ARRAYS ARE NOT LEAVES AND ARE SKIPPED — there is exactly one today, `auto.handTuned`, and no
-     * control reads it. Inventing a key for it would make the flat map and the tree disagree about what
-     * a leaf is.
-     */
     @Test
     fun anArrayIsNotALeaf() {
         val values = traceValuesOf("""{"auto":{"handTuned":["simplify"],"mode":"SUGGEST"}}""")
@@ -236,11 +169,6 @@ class TraceWireTest {
         assertEquals("SUGGEST", values.choice("auto.mode"))
     }
 
-    /**
-     * NON-FINITE IS A REFUSAL, NOT A SILENT SUBSTITUTION. Dropping the key is the worst of the three
-     * options: the slider moves, the trace runs, and the parameter that was changed is the one that did
-     * not change.
-     */
     @Test
     fun aNonFinitePatchValueIsRefusedRatherThanDropped() {
         try {
@@ -257,18 +185,13 @@ class TraceWireTest {
         assertEquals("""{"output.background":null}""", json)
     }
 
-    /** The escaping is hand-written, so it is checked rather than assumed. */
     @Test
     fun theStringEscaperHandlesTheAwkwardCharacters() {
         assertEquals("\"a\\\"b\"", traceJsonString("a\"b"))
         assertEquals("\"a\\\\b\"", traceJsonString("a\\b"))
         assertEquals("\"a\\nb\"", traceJsonString("a\nb"))
-        // U+2028 is legal raw JSON and is escaped anyway, because anything re-parsing the output as a
-        // script would choke on it. Compared by code point, never by a literal nobody can see.
         assertEquals("\"a\\u2028b\"", traceJsonString("a" + 0x2028.toChar() + "b"))
     }
-
-    /* ── The geometry mirror ────────────────────────────────────────────────────────────────── */
 
     private fun oneLineGeometry(): TraceGeometry = TraceGeometry(
         coords = floatArrayOf(0f, 0f, 10f, 10f),
@@ -296,17 +219,11 @@ class TraceWireTest {
         oneLineGeometry().validate()
     }
 
-    /**
-     * THE COORDINATE-COUNT CHECK IS THE ONE THAT EARNS ITS KEEP. A mismatch there does not crash: it
-     * reads a neighbouring shape's numbers as this shape's curve and draws something plausible and
-     * wrong, which is the worse failure.
-     */
     @Test
     fun aShapeWhoseVerbsWantMoreCoordinatesIsRefused() {
         val good = oneLineGeometry()
         val bad = TraceGeometry(
             coords = good.coords,
-            // A cubic needs six coordinates after the start point; this run has two.
             verbs = byteArrayOf(TRACE_VERB_CUBIC),
             verbStarts = good.verbStarts,
             coordStarts = good.coordStarts,
@@ -342,7 +259,6 @@ class TraceWireTest {
         }
     }
 
-    /** The three codes are a wire contract with the other client's serialiser. */
     @Test
     fun theVerbCodesAreTheOnesTheOtherClientWrites() {
         assertEquals(0.toByte(), TRACE_VERB_LINE)

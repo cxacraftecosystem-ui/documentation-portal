@@ -7,16 +7,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * The session token is sealed before it is written (2026-10-17): see the note on [TokenStore.getToken].
- * The Keystore cannot run in a JVM unit test, so a reversible stand-in plays its part; what is pinned
- * here is everything around it — nothing in the file is the token, an older build's plain token is
- * sealed on first read and its plain copy deleted, a sealed value that no longer opens reads as signed
- * out, and a phone whose Keystore refuses keeps the token rather than losing it.
- * A Keystore that cannot be asked at this moment is not a wiped key: the sealed value stays (2026-10-18).
- */
 class TokenStoreSealingTest {
-    /** `works = false` is a Keystore that refuses outright; `unavailable` one that cannot be asked right now. */
     private class FakeSealer(var works: Boolean = true, var unavailable: Boolean = false) : TokenSealer {
         override fun seal(plain: String): String? = if (works && !unavailable) "v1:sealed:" + plain.reversed() else null
         override fun open(sealed: String): OpenResult = when {
@@ -26,7 +17,6 @@ class TokenStoreSealingTest {
         }
     }
 
-    /** Just enough SharedPreferences for TokenStore: strings, remove, clear, apply/commit. */
     private class MemoryPreferences : SharedPreferences {
         val values = HashMap<String, Any?>()
         override fun getAll(): MutableMap<String, *> = HashMap(values)
@@ -115,7 +105,6 @@ class TokenStoreSealingTest {
 
     @Test
     fun `the real sealer answers null rather than throwing where there is no keystore`() {
-        // A JVM has no AndroidKeyStore provider, which is exactly the broken-phone case.
         val sealer = KeystoreTokenSealer("test-alias")
         assertNull(sealer.seal("x"))
         assertEquals("no keystore to ask is not a reason to delete", OpenResult.Unavailable, sealer.open("v1:AAAA:BBBB"))

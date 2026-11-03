@@ -5,19 +5,16 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
-/** Background matting (ALGORITHMS §8). */
 class MatteTest {
 
     private fun opaque(r: Int, g: Int, b: Int): Int = RgbaImage.argb(255, r, g, b)
 
-    /** A uniform background with a strongly different square in the middle. */
     private fun subjectOnFlatBackground(): RgbaImage {
         val img = RgbaImage(24, 24).fill(opaque(250, 250, 245))
         for (y in 8..15) for (x in 8..15) img[x, y] = opaque(200, 20, 30)
         return img
     }
 
-    /** [size]² of paper with a [blob]² subject centred on it — big enough for a real guided filter. */
     private fun centredSubject(size: Int, blob: Int): RgbaImage {
         val img = RgbaImage(size, size).fill(opaque(248, 246, 240))
         val lo = (size - blob) / 2
@@ -38,9 +35,6 @@ class MatteTest {
 
     @Test
     fun borderFloodFollowsAVignette() {
-        // The whole point of comparing against the RUNNING MEAN: the background drifts from white at
-        // the top to mid grey at the bottom, a total Lab distance far beyond the tolerance, and a
-        // flood that compares against the seed colour stops halfway down.
         val w = 24
         val h = 24
         val img = RgbaImage(w, h)
@@ -65,8 +59,6 @@ class MatteTest {
 
     @Test
     fun borderFloodOfAUniformImageRefusesToDeleteEverything() {
-        // Flooding the whole frame means "remove the entire artwork", which is never the answer the
-        // user wanted; the guard returns an opaque matte instead.
         val alpha = Matte.borderFlood(RgbaImage(16, 16).fill(opaque(30, 30, 30)), 0.5f, feather = 0f)
         for (v in alpha.data) assertEquals(1f, v, 1e-5f)
     }
@@ -90,16 +82,11 @@ class MatteTest {
         assertEquals(30, sal.height)
         val range = sal.range()
         assertTrue(range.first >= -1e-5f && range.second <= 1f + 1e-5f, "saliency must be 0..1, got $range")
-        // The map is normalised at proxy resolution and then resampled, so the peak survives the
-        // resample only approximately; what must not happen is a map that never leaves the floor.
         assertTrue(range.second > 0.5f, "the normalisation must use the full range, got ${range.second}")
     }
 
     @Test
     fun spectralSaliencyOfAConstantImageIsEmptyRatherThanNaN() {
-        // Exactly 0, not merely small: with no dynamic range the log-spectrum is the ln(0 + 1e-8)
-        // floor and the residual is undefined, so Matte returns a zeroed map instead of normalising
-        // by a span (~1.4e-3 of its own magnitude here) that is entirely the floor's own artefact.
         val sal = Matte.spectralSaliency(RgbaImage(32, 32).fill(opaque(128, 128, 128)))
         for (v in sal.data) {
             assertTrue(!v.isNaN() && !v.isInfinite(), "got $v")
@@ -127,7 +114,6 @@ class MatteTest {
 
     @Test
     fun saliencyMatteRefusesToReturnAnEmptyMatte() {
-        // Nothing is salient in a flat image; erasing the whole frame is the worst possible answer.
         val alpha = Matte.saliencyMatte(RgbaImage(32, 32).fill(opaque(100, 100, 100)), 0.5f, 0f)
         for (v in alpha.data) assertEquals(1f, v, 1e-5f)
     }
@@ -199,10 +185,6 @@ class MatteTest {
         for (v in Matte.saliencyMatte(zero).data) assertTrue(!v.isNaN())
     }
 
-    // ---------------------------------------------------------------------------------------------
-    // borderLikeness — the cue that has no connectivity assumption in it
-    // ---------------------------------------------------------------------------------------------
-
     @Test
     fun borderLikenessSeparatesBackgroundColourFromSubjectColour() {
         val img = RgbaImage(40, 40).fill(opaque(250, 250, 245))
@@ -215,12 +197,6 @@ class MatteTest {
 
     @Test
     fun borderLikenessStillCallsASubjectTouchingAnEdgeForeground() {
-        // The whole reason this cue exists. A flood seeded from the border is one bad seed away from
-        // eating a subject that touches the frame; a per-pixel colour posterior is not, because the
-        // subject's colour is far denser inside the frame than in the band even when it reaches the
-        // edge. Worked through for this image: the band holds 48 of the 336 subject pixels
-        // (48/304 = 0.158 of the band) against 288 in the interior (288/1296 = 0.222), so the
-        // posterior is 0.158/(0.158+0.222) = 0.42 — below 0.5, i.e. foreground.
         val img = RgbaImage(40, 40).fill(opaque(250, 250, 245))
         for (y in 8..31) for (x in 0..13) img[x, y] = opaque(200, 20, 30)
         val like = Matte.borderLikeness(img)
@@ -230,9 +206,6 @@ class MatteTest {
 
     @Test
     fun borderLikenessHasNoOpinionWhenThereIsNoInterior() {
-        // Under 3 px the band and the frame are the same pixels, so there is nothing to contrast.
-        // 0.5 everywhere is "no information", which is what makes the fusion fall back on its other
-        // cues instead of on a number this function invented.
         for (v in Matte.borderLikeness(RgbaImage(2, 2).fill(opaque(10, 20, 30))).data) {
             assertEquals(0.5f, v, 1e-6f)
         }
@@ -243,24 +216,13 @@ class MatteTest {
 
     @Test
     fun borderLikenessOfAUniformImageIsUndecidedRatherThanCertain() {
-        // One colour everywhere means the band and the interior have identical densities, so the
-        // posterior is exactly 0.5. Anything else here would let a flat scan be declared all
-        // background.
         for (v in Matte.borderLikeness(RgbaImage(32, 32).fill(opaque(128, 128, 128))).data) {
             assertEquals(0.5f, v, 1e-5f)
         }
     }
 
-    // ---------------------------------------------------------------------------------------------
-    // guidedFilter — boundary refinement
-    // ---------------------------------------------------------------------------------------------
-
     @Test
     fun guidedFilterRebuildsTheAlphaEdgeOnTheLuminanceEdge() {
-        // The guide steps at x = 24; the input mask steps two pixels late, at x = 26. The property
-        // that matters downstream is where the alpha's *transition* is, because that is what gets
-        // traced — so the assertion is on the steepest step, not on the 0.5 crossing, which is a
-        // level and moves toward the edge rather than onto it (see `guidedFilter`).
         val w = 48
         val h = 24
         val guide = GrayF(w, h)
@@ -300,8 +262,6 @@ class MatteTest {
 
     @Test
     fun guidedFilterOfAFlatGuideCannotDivideByZero() {
-        // var(I) is exactly 0 everywhere here, so `cov / (var + eps)` is the one place this function
-        // can produce an Infinity. eps carries it; eps = 0 must fall back to a = 0 rather than NaN.
         val flat = GrayF(8, 8).fill(0.25f)
         val p = GrayF(8, 8).fill(0.75f)
         for (v in Matte.guidedFilter(flat, p, 2, 0f).data) {
@@ -323,17 +283,12 @@ class MatteTest {
         assertTrue(!out.data[0].isNaN(), "a radius larger than the image must clamp, not overflow")
     }
 
-    // ---------------------------------------------------------------------------------------------
-    // subjectMatte — the fused matte and its confidence
-    // ---------------------------------------------------------------------------------------------
-
     @Test
     fun subjectMatteKeepsTheSubjectRemovesTheBackgroundAndSaysSo() {
         val r = Matte.subjectMatte(centredSubject(96, 32))
         assertEquals(96, r.alpha.width)
         assertTrue(r.alpha[48, 48] > 0.9f, "the middle of the subject must survive, got ${r.alpha[48, 48]}")
         assertTrue(r.alpha[2, 2] < 0.1f, "the corner must be removed, got ${r.alpha[2, 2]}")
-        // 32x32 of 96x96 is 11.1%; the refinement moves the boundary by a pixel or two either way.
         assertTrue(r.coverage in 0.05f..0.25f, "coverage out of the expected band: ${r.coverage}")
         assertTrue(r.confident, "a clean subject on plain paper must be confident, got ${r.confidence}")
         assertTrue(r.reason.isNotEmpty())
@@ -342,9 +297,6 @@ class MatteTest {
 
     @Test
     fun subjectMatteOnAFlatImageKeepsEverythingAndRefusesToBeBelieved() {
-        // Nothing to separate. The alpha must stay opaque — deleting a flat scan is the worst answer
-        // available — and the confidence must be low enough that a caller acting on `confident`
-        // never applies it.
         val r = Matte.subjectMatte(RgbaImage(64, 64).fill(opaque(140, 140, 140)))
         for (v in r.alpha.data) assertTrue(v > 0.9f, "a flat image must be kept whole, got $v")
         assertTrue(!r.confident, "confidence was ${r.confidence}")
@@ -353,9 +305,6 @@ class MatteTest {
 
     @Test
     fun subjectMatteNeverHandsBackAnEmptyFrame() {
-        // The invariant the whole file is built on, checked across every shape of degeneracy: either
-        // the matte keeps a believable amount, or it keeps everything. "Keep nothing" is never a
-        // legal answer, whatever the input.
         val cases = listOf(
             RgbaImage(1, 1, intArrayOf(opaque(20, 40, 60))),
             RgbaImage(3, 3).fill(opaque(0, 0, 0)),
@@ -410,8 +359,6 @@ class MatteTest {
 
     @Test
     fun borderFloodDoesNotOverflowOnALargeImage() {
-        // The flood is 8-connected across the whole frame; the recursive form dies here and the
-        // crash presents as a random OOM rather than as a stack overflow.
         val big = RgbaImage(600, 600).fill(opaque(200, 200, 200))
         for (y in 250..350) for (x in 250..350) big[x, y] = opaque(10, 200, 10)
         val alpha = Matte.borderFlood(big, 0.1f, feather = 0f)

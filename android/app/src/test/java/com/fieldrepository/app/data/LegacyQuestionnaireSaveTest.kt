@@ -6,10 +6,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/**
- * H21 (audit 2026-10-21): a legacy save that created the interview and then lost a clip must not
- * create a second interview, or upload the clips that did arrive, when the researcher saves again.
- */
 class LegacyQuestionnaireSaveTest {
 
     @Test
@@ -36,7 +32,6 @@ class LegacyQuestionnaireSaveTest {
         assertTrue(source.contains("repository.updateQuestionnaireInterview(updateId, updateRequestFor())"))
         assertTrue(source.contains("questionAudio = com.fieldrepository.app.data.LegacyQuestionnaireSave.withoutClip(questionAudio, key, uri)"))
         assertTrue(source.contains("idleLabel = if (isEdit || createdId != null) \"Update interview\" else \"Save questionnaire\""))
-        // Attachments too: the ones that reached the record leave the batch when others fail.
         assertTrue(source.contains("media.uris = media.uris.filter { it in failed }"))
     }
 }

@@ -20,14 +20,6 @@ import com.fieldrepository.app.data.RecordingConsentCopy
 import com.fieldrepository.app.data.consentDay
 import kotlinx.coroutines.launch
 
-/**
- * The consent rule — "Recordings may be transcribed" on the artisan edit form. Twin of the web's
- * `RecordingConsentToggle.tsx`. A SETTING, so an [AppToggle], saved when pressed, ON unless a refusal
- * is on record (consent is assumed by default; switching off revokes it).
- *
- * Through the questionnaire's consent queue, so a switch-off with no signal is kept on the phone and
- * sent with the next sync instead of being lost, and the session start sheet sees it in the same run.
- */
 @Composable
 fun RecordingConsentRow(artisanId: String) {
     val context = LocalContext.current
@@ -40,7 +32,6 @@ fun RecordingConsentRow(artisanId: String) {
     LaunchedEffect(artisanId) {
         waiting = v2.consentWaiting(artisanId)
         val queued = v2.knownConsent[artisanId]?.takeIf { waiting }
-        // A switch queued on this phone outranks the server's (or the read cache's) older answer.
         consent = if (queued != null) QConsentGet(artisanId = artisanId, state = queued)
         else runCatching { v2.api.consent(artisanId) }.getOrNull()
     }

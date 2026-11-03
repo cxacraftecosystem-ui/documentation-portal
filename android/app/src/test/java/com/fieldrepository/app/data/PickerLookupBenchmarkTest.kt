@@ -14,19 +14,6 @@ import org.junit.Test
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 
-/**
- * WHAT A PICKER COSTS BEFORE ANYBODY TYPES — before and after DC-A09, measured on the real Retrofit
- * client against a 2,000-artisan, 2,000-craft deployment that never leaves the process.
- *
- * BEFORE, the app-wide lookups walked [LOOKUP_PAGE_BUDGET] pages of each table at start-up and kept
- * every row; the record pickers then filtered that copy. AFTER, each lookup is one page and the
- * pickers ask the list route's own `search` and `page` for the rest. The "before" calls still exist
- * on the repository (`artisansPage(pageBudget = …)`, `walkPages`), so both shapes are timed here, side
- * by side, in one run.
- *
- * The figures are printed (see the test report's stdout) and the assertions pin the shape: one
- * request per table, a hundred rows, and a search that carries its term and page to the server.
- */
 class PickerLookupBenchmarkTest {
 
     private val sent = mutableListOf<HttpUrl>()
@@ -70,10 +57,9 @@ class PickerLookupBenchmarkTest {
 
     private data class Cost(val requests: Int, val rows: Int, val millis: Double)
 
-    /** Median of [runs] timings of [block], with the request count and rows of the last run. */
     private fun measure(runs: Int = 7, block: suspend (FieldRepository) -> Int): Cost {
         val repository = FieldRepository(api(), unopenedTokenStore())
-        runBlocking { block(repository) } // warm-up: class loading, the JSON serializers
+        runBlocking { block(repository) }
         val timings = mutableListOf<Double>()
         var rows = 0
         var requests = 0
@@ -94,8 +80,6 @@ class PickerLookupBenchmarkTest {
             val artisans = repo.artisansPage(pageBudget = LOOKUP_PAGE_BUDGET)
             crafts.items.size + artisans.items.size
         }
-        // Crafts no longer come from the list route at all: they are the craft list's device copy
-        // (`craftLookup`, one ETag request). What is left on the list routes is one artisan page.
         val after = measure { repo ->
             repo.artisansPage().items.size
         }
@@ -122,10 +106,8 @@ class PickerLookupBenchmarkTest {
         assertEquals("100", urls[0].queryParameter("pageSize"))
         assertEquals("2", urls[1].queryParameter("page"))
         assertEquals("c1,c2", urls[1].queryParameter("craftIds"))
-        // "Artisan 19", "Artisan 190".."199", "Artisan 1900".."1999" — every one reachable by typing.
         assertEquals(111, first.total)
         assertEquals(100, second.items.size)
-        // A blank term is the plain list: no `search` parameter at all.
         synchronized(sent) { sent.clear() }
         runBlocking { repository.craftsSearchPage("  ", 1) }
         assertEquals(null, synchronized(sent) { sent.single() }.queryParameter("search"))

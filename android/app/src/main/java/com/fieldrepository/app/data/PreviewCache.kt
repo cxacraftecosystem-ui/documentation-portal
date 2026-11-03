@@ -5,26 +5,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.io.File
 
-/**
- * Small previews of saved photos and video frames, kept on the device so a record still shows its
- * pictures without a connection.
- *
- * WHY THIS EXISTS. A saved file is fetched through a signed link that stops working after a while,
- * so Coil's own cache cannot be relied on offline: the link it was keyed by is dead, and an image it
- * never saw cannot be fetched at all. Whenever a record is looked at online, the preview tile that
- * loaded (already drawn at tile size, so a few tens of kilobytes) is written here, keyed by the media
- * file's id, which never changes. Offline, the tile shows it instead of an empty square.
- *
- * BOUNDED AND PRIVATE. At most [MAX_BYTES] in all, least recently shown first out. One folder per
- * account, and every folder is deleted at sign-out (`FieldRepository.logout`), so the next person on
- * a shared phone sees none of the previous one's photographs.
- *
- * A WRITE BELONGS TO THE ACCOUNT AND THE SESSION IT STARTED IN. Encoding runs in the background, so
- * the caller takes a [Ticket] when the image loads — the account signed in then, and the sign-out
- * generation — and [store] drops the write if a sign-out happened in between. Reading the account at
- * write time instead would file account A's photograph in account B's folder after a quick switch,
- * or recreate a folder that sign-out had just deleted.
- */
 object PreviewCache {
     const val MAX_BYTES: Long = 150L * 1024 * 1024
 
@@ -34,39 +14,30 @@ object PreviewCache {
     @Volatile
     private var accountOf: () -> String? = { null }
 
-    /** Who a pending write is for, and in which session. */
     data class Ticket(val account: String, val generation: Long)
 
-    /** Called once, when the activity builds the repository. */
     fun install(root: File, account: () -> String?) {
         this.root = root
         this.accountOf = account
     }
 
-    /** The cached preview of [mediaId] for the signed-in account, or null. Marks it as just used. */
     fun find(mediaId: String): File? {
         val base = root ?: return null
         val account = accountOf() ?: return null
         return PreviewFiles.find(base, account, mediaId)
     }
 
-    /** Taken when a preview loads, before it is encoded; null when nobody is signed in. */
     fun ticket(): Ticket? {
         if (root == null) return null
         val account = accountOf() ?: return null
         return Ticket(account, PreviewFiles.generation())
     }
 
-    /** Keep [bytes] (an encoded image) as [mediaId]'s preview for [ticket]'s account, then trim. */
     fun store(ticket: Ticket, mediaId: String, bytes: ByteArray) {
         val base = root ?: return
         PreviewFiles.store(base, ticket.account, mediaId, bytes, MAX_BYTES, ticket.generation)
     }
 
-    /**
-     * Delete every account's previews, off the main thread. Safe before [install]. Every write
-     * ticketed before this call is void from this moment, even while the deletion is still queued.
-     */
     fun clear(): Job? {
         PreviewFiles.invalidate()
         val base = root ?: return null
@@ -74,18 +45,12 @@ object PreviewCache {
     }
 }
 
-/** The files themselves, against a root directory, so a JVM test can drive them. */
 internal object PreviewFiles {
     private const val EXTENSION = ".img"
 
-    /** Bumped by every sign-out; a write carrying an older number is dropped. */
     @Volatile
     private var generation = 0L
 
-    /**
-     * Bytes held under each root, counted once (lazily) and then kept up to date by every write, so
-     * a write costs a directory scan only when it takes the total over the cap — not on every tile.
-     */
     private val totals = HashMap<String, Long>()
 
     fun generation(): Long = generation
@@ -129,7 +94,6 @@ internal object PreviewFiles {
         if (after > maxBytes) trim(root, maxBytes)
     }
 
-    /** Delete least-recently-used previews, across every account folder, until the total fits. */
     @Synchronized
     fun trim(root: File, maxBytes: Long) {
         val files = previewFiles(root)
@@ -151,7 +115,6 @@ internal object PreviewFiles {
 
     private fun scanTotal(root: File): Long = previewFiles(root).sumOf { it.length() }
 
-    /** Which entries go, oldest use first, so that what is left is at most [maxBytes]. */
     fun evictionOrder(entries: List<PreviewEntry>, maxBytes: Long): List<String> {
         var total = entries.sumOf { it.bytes }
         if (total <= maxBytes) return emptyList()

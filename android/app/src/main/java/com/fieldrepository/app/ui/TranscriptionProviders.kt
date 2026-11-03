@@ -24,47 +24,19 @@ import java.time.ZoneOffset
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToLong
 
-/*
- * The speech-to-text provider ladder — transport, the four key states, and the freeze arithmetic.
- *
- * The Android half of `frontend/components/settings/ProviderOrderPanel.tsx` and of
- * `backend/app/services/app_settings.py`; the screen itself is [ProviderOrderPanel] in
- * ProviderOrderPanel.kt. Everything in this file is deliberately UI-free so the two rules that must
- * not be re-invented — which engine may be ranked, and what a failed request MEANS — can be read in
- * one place and compared against the web line by line.
- *
- * WHY THIS FILE OWNS ITS OWN RETROFIT SERVICE
- * -------------------------------------------
- * The three endpoints belong in `data/FieldRepositoryApi.kt`, reached through `FieldRepository`.
- * They are here instead because `FieldRepository.kt` is being edited by another stream in this same
- * working tree right now, and adding a method to a file somebody else is rewriting is how one of the
- * two changes silently disappears. `api` is private to `FieldRepository`, so there is no way to
- * borrow the instance it holds either. The transport below is therefore a deliberately small,
- * movable copy: three methods, the same `Json` configuration as `data/ApiClient.kt`, the same bearer
- * header from the same [TokenStore] (so it is the same session, not a second login), and the same
- * gateway retry on safe reads. Folding it into the repository later is a delete-and-re-point, and
- * that is the intended end state — see the report accompanying this change.
- */
-
-// The four states a provider key can be in, mirroring `app_settings.STT_KEY_*`. Only the last one
-// is rankable: having a key and having a key that WORKS are different claims, and a ranking that
-// confuses them promises the next recording to an engine that will refuse it.
 const val STT_KEY_NO_KEY = "NO_KEY"
 const val STT_KEY_UNTESTED = "UNTESTED"
 const val STT_KEY_FAILING = "FAILING"
 const val STT_KEY_PASSING = "PASSING"
 
-/** One engine as the ranking screen sees it. Carries no credential — see `TranscriptionProviderDto`. */
 @Serializable
 data class SttProviderDto(
     val id: String,
     val name: String = "",
     val keyName: String = "",
     val keyLabel: String = "",
-    /** A key resolves, so the pipeline WILL call this engine — whether or not the key is any good. */
     val configured: Boolean = false,
     val keyState: String = STT_KEY_UNTESTED,
-    /** Only a passing test earns this. */
     val rankable: Boolean = false,
     val frozenReason: String? = null,
     val testedAt: String? = null,
@@ -74,11 +46,8 @@ data class SttProviderDto(
 @Serializable
 data class SttProviderOrderDto(
     val providers: List<SttProviderDto> = emptyList(),
-    /** What the pipeline would really do right now — engines with no key at all already dropped. */
     val effectiveChain: List<String> = emptyList(),
-    /** The subset of that which has actually answered a test. */
     val verifiedChain: List<String> = emptyList(),
-    /** True when the server had to sink an unproven engine to keep the freeze true. */
     val normalised: Boolean = false,
     val normalisedNote: String? = null
 )
@@ -97,12 +66,6 @@ interface SttProviderApi {
     suspend fun testProvider(@Path("provider") provider: String): SttProviderOrderDto
 }
 
-/**
- * The one [SttProviderApi] this process uses, built on first need and kept for the app's lifetime.
- *
- * The token is read per request rather than captured, so signing out and back in on the same launch
- * is picked up without rebuilding anything — exactly as `data/ApiClient.kt` does it.
- */
 object SttProviderClient {
     @Volatile
     private var cached: Retrofit? = null
@@ -119,7 +82,6 @@ object SttProviderClient {
     fun get(context: Context): SttProviderApi =
         ladder ?: retrofit(context).create(SttProviderApi::class.java).also { ladder = it }
 
-    /** The Transcription panel's endpoints, on the same session and transport as the ladder. */
     fun transcription(context: Context): TranscriptionSettingsApi =
         settings ?: retrofit(context).create(TranscriptionSettingsApi::class.java).also { settings = it }
 
@@ -136,9 +98,6 @@ object SttProviderClient {
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)
-            // CloudFront answers 502/503/504 when the EC2 origin is slow or briefly unhealthy, which
-            // is a wait rather than a failure. Only the GET is repeated: re-issuing the PUT or the
-            // test POST could apply a ranking twice or bill a second probe.
             .addInterceptor { chain ->
                 val request = chain.request()
                 val retriable = request.method.equals("GET", ignoreCase = true)
@@ -183,24 +142,12 @@ object SttProviderClient {
     private val GATEWAY_CODES = setOf(502, 503, 504)
 }
 
-// ---------------------------------------------------------------------------------------------
-// Editorial copy and the offline fallback
-// ---------------------------------------------------------------------------------------------
-
-/** Verbatim from the web panel's `BLURBS`. Names and key state come from the server; this does not. */
 val STT_PROVIDER_BLURBS: Map<String, String> = mapOf(
     "elevenlabs" to "Best for Indian languages and accents. Slowest, priciest.",
     "deepgram" to "Fastest and cheapest. Weaker with background noise.",
     "whisper" to "Reliable fallback. No speaker separation."
 )
 
-/**
- * What to draw when the server cannot be asked at all — the engines compiled into the transcription
- * chain, in the order that applies before anyone ranks anything.
- *
- * Marked unverified throughout, and never `configured`, because a screen that could not reach the
- * server knows nothing about anybody's keys and must not imply otherwise.
- */
 val BUILT_IN_STT_PROVIDERS: List<SttProviderDto> = listOf(
     SttProviderDto(id = "elevenlabs", name = "ElevenLabs", keyLabel = "ElevenLabs Scribe", keyName = "ELEVENLABS_API_KEY"),
     SttProviderDto(id = "deepgram", name = "Deepgram", keyLabel = "Deepgram", keyName = "DEEPGRAM_API_KEY"),
@@ -208,18 +155,6 @@ val BUILT_IN_STT_PROVIDERS: List<SttProviderDto> = listOf(
     SttProviderDto(id = "muse", name = "Meta Muse", keyLabel = "Meta Muse", keyName = "META_MODEL_API_KEY")
 )
 
-// ---------------------------------------------------------------------------------------------
-// The freeze arithmetic — mirrors app_settings.order_violations / freeze_unrankable
-// ---------------------------------------------------------------------------------------------
-
-/**
- * How many (frozen above proven) pairs this order contains. Zero means the freeze holds.
- *
- * COUNTED rather than asserted, because a stored order can go illegal without anybody touching it:
- * a key expires overnight and yesterday's legal ranking is illegal by morning. Judging a move by
- * whether it makes this number WORSE is what lets an admin repair such an order by hand, instead of
- * every arrow on the screen being dead because the list arrived already in breach.
- */
 fun sttOrderViolations(list: List<SttProviderDto>): Int {
     var frozenSoFar = 0
     var total = 0
@@ -243,29 +178,12 @@ fun sttMovePermitted(list: List<SttProviderDto>, from: Int, to: Int): Boolean {
 fun sameSttOrder(a: List<SttProviderDto>, b: List<SttProviderDto>): Boolean =
     a.size == b.size && a.indices.all { a[it].id == b[it].id }
 
-// ---------------------------------------------------------------------------------------------
-// Degrading honestly
-// ---------------------------------------------------------------------------------------------
-
-/** A failed request, rewritten as something a non-engineer can act on. */
 data class SttTrouble(
-    /** One line naming what happened, in the user's terms. */
     val headline: String,
-    /** What it means and who can fix it. */
     val advice: String,
-    /** Whether pressing the same button again could plausibly work. */
     val retryable: Boolean
 )
 
-/**
- * Turn a failed request into an explanation.
- *
- * The default — showing whatever sentence the server sent — is how the word "Not Found" ended up as
- * the entire account of an endpoint that had not been deployed yet. FastAPI's 404 body carries the
- * literal string "Not Found" and nothing else, so there is no sentence to surface: it has to be
- * written here, against the status, or it does not exist. This is not a translation of the error,
- * it is a replacement for it.
- */
 fun describeSttTrouble(error: Throwable, action: String): SttTrouble {
     val status = (error as? HttpException)?.code() ?: 0
     val sentence = error.apiErrorMessage("").takeIf { it.isNotBlank() }
@@ -291,9 +209,6 @@ fun describeSttTrouble(error: Throwable, action: String): SttTrouble {
             advice = "Try again in a minute.",
             retryable = true
         )
-        // No HTTP status at all: a socket that never opened, a DNS failure, a timeout. On a phone in
-        // the field this is the likeliest of all of them, so it is named as such rather than lumped
-        // in with "something went wrong".
         status == 0 -> SttTrouble(
             headline = "Couldn't connect.",
             advice = "Check your connection and try again.",
@@ -307,17 +222,10 @@ fun describeSttTrouble(error: Throwable, action: String): SttTrouble {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Small helpers
-// ---------------------------------------------------------------------------------------------
-
-/** "just now" / "12 minutes ago" / "3 days ago". Empty when the stamp is missing or unparseable. */
 fun sttTestedAgo(iso: String?, now: Instant = Instant.now()): String {
     if (iso.isNullOrBlank()) return ""
     val then = runCatching { OffsetDateTime.parse(iso).toInstant() }.getOrNull()
         ?: runCatching { Instant.parse(iso) }.getOrNull()
-        // The server serialises a naive datetime for verdicts recorded without a zone; read those as
-        // UTC, which is what the database stores, rather than dropping the timestamp entirely.
         ?: runCatching { LocalDateTime.parse(iso).toInstant(ZoneOffset.UTC) }.getOrNull()
         ?: return ""
     val seconds = maxOf(0L, (now.toEpochMilli() - then.toEpochMilli()) / 1000L)
@@ -329,7 +237,6 @@ fun sttTestedAgo(iso: String?, now: Instant = Instant.now()): String {
     return "${(hours / 24.0).roundToLong()} days ago"
 }
 
-/** "A", "A and B", "A, B and C" — the web panel's `join`. */
 fun joinSttNames(names: List<String>): String = when {
     names.isEmpty() -> ""
     names.size == 1 -> names[0]

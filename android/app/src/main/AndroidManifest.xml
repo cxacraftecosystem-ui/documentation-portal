@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- The local alerts after a sync finds new notices (data/AppNotifications.kt). A RUNTIME permission
-         on Android 13+, asked for in context on the Notifications screen, never at launch. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -11,19 +9,11 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-    <!-- Over-the-air self-update: install the APK the master admin pushed. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <!-- Questionnaire takes record in a foreground service (recording/RecordingService.kt) so a
-         locked screen, an app switch or Back never cuts a long interview short. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-    <!-- The one-time "So long recordings aren't stopped." request (ui/questionnaire/BatteryPrompt.kt). -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <!-- CAMERA must not imply a REQUIRED camera: every capture here also accepts a picked file. -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
-    <!-- Transport: TLS-only; the policy is res/xml/network_security_config.xml (minSdk 26 reads it),
-         and usesCleartextTraffic="false" says the same to APIs that read the flag. Dev hosts over
-         HTTP: that file's domain-config, plus src/debug's ACCESS_LOCAL_NETWORK for 10.0.2.2. -->
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -51,38 +41,10 @@
             android:enableOnBackInvokedCallback="true"
             android:windowSoftInputMode="adjustResize"
             tools:targetApi="33">
-            <!-- targetSdk 37 brings Android 16's and 17's behaviour to this activity. Three of the changes
-                 meet it, and these two attributes plus the configChanges line above are how:
-
-                 PREDICTIVE BACK. From targetSdk 36 onBackPressed() is never called and KEYCODE_BACK is
-                 never delivered on Android 16+. Nothing here relied on either: every back in the app
-                 is a Compose BackHandler on the OnBackPressedDispatcher. Declaring the callback here
-                 puts Android 13-15 handsets on that same path, so there is one back model to test.
-                 (Below API 33 the attribute does not exist and is ignored; tools:targetApi says so.)
-
-                 KEYBOARD. The window is edge-to-edge (MainActivity.onCreate), so the keyboard has to
-                 arrive as insets for the root's safeDrawingPadding to consume, not as a pan of the
-                 whole window; adjustResize is what delivers those insets (and the only way to get
-                 them below API 30).
-
-                 LARGE SCREENS. On a display 600dp or wider Android now ignores orientation,
-                 resizability and aspect-ratio limits. None is declared here, so nothing is ignored, and
-                 configChanges makes a resize a recomposition rather than a restart. -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- AN ADMINISTRATOR'S SET-PASSWORD LINK, tapped in a chat app or an e-mail. Offers this
-                 app beside the browser for https://field-repository.vercel.app/set-password, and the
-                 app opens its own redeem screen with the link already in the box. `singleTop` above
-                 is what delivers a second tap to the running app (onNewIntent) instead of stacking a
-                 second copy. A VERIFIED App Link (autoVerify): Android checks
-                 https://field-repository.vercel.app/.well-known/assetlinks.json (frontend/public) for
-                 this package and the RELEASE certificate's SHA-256, so the link opens this app and no
-                 other app can claim it. The paste box on the sign-in card stays the way in for
-                 everything else. `path`, not a prefix: this is one screen. MainActivity re-checks
-                 scheme, host and path, because the activity is exported and a filter never sees an
-                 explicit intent. -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -92,9 +54,6 @@
                     android:host="field-repository.vercel.app"
                     android:path="/set-password" />
             </intent-filter>
-            <!-- A FORM ANOTHER PHONE SENT (questionnaire handoff, UNIFY A10): Field Repository's .frwq
-                 and designer-portal's .dpwq, by their own MIME types only, so this app is never offered
-                 for every gzip on the phone. Other providers' files open through "Open bundle". -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <action android:name="android.intent.action.SEND" />
@@ -103,13 +62,6 @@
                 <data android:mimeType="application/vnd.designprototype.questionnaire+gzip" />
             </intent-filter>
         </activity>
-        <!-- MICROSOFT AND YAHOO SIGN-IN: where the browser tab hands the authorization code back.
-             AppAuth declares this receiver itself for `${appAuthRedirectScheme}`; it is declared
-             again here, replacing that, so the scheme this app answers is written in this file and
-             narrowed to the one host and path the web's `/login/callback` route sends
-             (`com.fieldrepository.app.signin://oidc/callback`). The code is useless without the PKCE
-             verifier, which never leaves the AppAuth request that started the flow, and AppAuth
-             refuses any answer whose `state` is not the one it sent. -->
         <activity
             android:name="net.openid.appauth.RedirectUriReceiverActivity"
             android:exported="true"

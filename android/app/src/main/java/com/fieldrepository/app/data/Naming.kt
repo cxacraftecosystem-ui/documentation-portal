@@ -10,24 +10,6 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-/**
- * THE one naming convention for generated names (owner correction a, 18 Oct 2026).
- *
- * The handset's half of `backend/app/services/naming.py` and `frontend/lib/naming.ts`, rule for
- * rule. All three reproduce two golden tables row for row (`NamingTest`): `shared/session-title.json`
- * (the frozen questionnaire contract: titles, recording names, transliteration, exports, collisions)
- * and `shared/naming-golden.json` (every other generated name). This file is identical in
- * designer-portal and documentation-portal apart from its package line; the portal word comes from
- * [NAMING_PORTAL].
- *
- *   title      Entity_Date_Place_Craft_Subject                                  (<= 120, any script)
- *   file name  Portal_Entity_Date[_Time]_Place_Craft_Subject_What[_Sequence][_n].ext   (<= 150, ASCII)
- *
- * Transliteration is the `anyascii` table plus the contract's Indic inherent-vowel rule, the same as
- * the server and the browser, so a Devanagari name comes out of all three identically (ICU's
- * Any-Latin would spell it differently). The questionnaire screens use [SessionFields] and
- * [RecordingFields]; the rest of the app passes plain fields. Both are one implementation.
- */
 object Naming {
     const val PORTAL = NAMING_PORTAL
     const val TITLE_MAX = 120
@@ -39,21 +21,16 @@ object Naming {
 
     val IST: ZoneOffset = ZoneOffset.ofHoursMinutes(5, 30)
 
-    /** Capture-time sources that state a guessed time; a file name built from one carries no Time. */
     val ESTIMATED_SOURCES = setOf("SESSION_DATE", "UPLOAD_TIME", "UPLOAD_TIME_OUT_OF_WINDOW")
 
     private val RESERVED_STEMS: Set<String> =
         setOf("CON", "PRN", "AUX", "NUL") + (1..9).map { "COM$it" } + (1..9).map { "LPT$it" }
     private val DOUBLE_EXTENSIONS = listOf(".sql.gz", ".tar.gz")
     private val VERSION = Regex("^v\\d+(?:\\.\\d+)*$")
-    // A question number is read from the display code AFTER its own section code: "F21" in section F2
-    // is question 1, not section F question 21. The section is never guessed from the display code.
     private val CODE_GAP = Regex("[ \\t\\r\\n._-]+")
     private val NUMBER_TAIL = Regex("^[A-Z]*([0-9]+)$")
     private val DIGITS = Regex("^[0-9]+$")
     private val ZW = setOf(0x200c, 0x200d)
-
-    // ── Indic inherent vowel (session-title.json rules.transliteration) ─────────────────────────
 
     private val INDIC_BLOCKS = intArrayOf(0x0900, 0x0980, 0x0A00, 0x0A80, 0x0B00, 0x0B80, 0x0C00, 0x0C80, 0x0D00)
 
@@ -71,7 +48,6 @@ object Naming {
     private fun nfc(text: String): String = Normalizer.normalize(text, Normalizer.Form.NFC)
     private fun cpLength(text: String): Int = text.codePointCount(0, text.length)
 
-    /** Drop every nukta, then insert the Indic inherent "a" that anyascii leaves out (shared rules). */
     fun indicInherentVowels(value: String): String {
         val chars = codePoints(value).filter { indic(it)?.second != 0x3C }
         val out = ArrayList<Int>(chars.size * 2)
@@ -88,14 +64,10 @@ object Naming {
         return fromCodePoints(out)
     }
 
-    /** Transliterate to ASCII: the inherent-vowel pass, then anyascii (the table Python and npm use). */
     fun toAscii(value: String?): String =
         if (value.isNullOrEmpty()) "" else AnyAscii.transliterate(indicInherentVowels(nfc(value)))
 
-    /** ASCII for any script: the same as [toAscii]. */
     fun transliterate(text: String?): String = toAscii(text)
-
-    // ── Words and fields ─────────────────────────────────────────────────────────────────────────
 
     private fun isWordChar(cp: Int): Boolean {
         if (cp in ZW) return true
@@ -110,7 +82,6 @@ object Naming {
 
     private fun text(value: Any?): String = value?.toString().orEmpty()
 
-    /** Words end at every character that is not a letter, a mark, a decimal digit, ZWNJ or ZWJ. */
     fun splitWords(value: Any?): List<String> {
         val words = ArrayList<String>()
         val current = StringBuilder()
@@ -128,7 +99,6 @@ object Naming {
 
     private val ACRONYM = Regex("^[A-Z]{2,3}$")
 
-    /** Title-Case one word; a word with a digit, or a 2-3 letter upper-case Latin word, keeps its case. */
     fun titleCaseWord(word: String): String {
         val cps = codePoints(word)
         if (cps.any { Character.getType(it).toByte() == Character.DECIMAL_DIGIT_NUMBER }) return word
@@ -153,10 +123,8 @@ object Naming {
     private fun joinField(words: List<String>) = words.joinToString("-")
     private fun fields(vararg parts: String?) = parts.filter { !it.isNullOrEmpty() }.joinToString("_")
 
-    /** One field: words Title-Cased and joined by `-`. ASCII unless [asciiOnly] is false. */
     fun field(value: Any?, asciiOnly: Boolean = true): String = joinField(fieldWords(value, asciiOnly))
 
-    /** The same words, ignoring case; also when one is written in another script (Majuli, माजुली). */
     private fun same(a: Any?, b: Any?): Boolean {
         if (splitWords(a).joinToString(" ").lowercase(Locale.ROOT) == splitWords(b).joinToString(" ").lowercase(Locale.ROOT)) return true
         val fa = field(a).lowercase(Locale.ROOT)
@@ -171,35 +139,23 @@ object Naming {
         return loc.ifEmpty { null } ?: dist.ifEmpty { null } ?: st.ifEmpty { null }
     }
 
-    /** The Place field: `Locality-District`, else `Locality`, else `District`, else `State`. */
     fun placeField(locality: Any? = null, district: Any? = null, state: Any? = null, asciiOnly: Boolean = true): String =
         field(placeText(locality, district, state), asciiOnly)
 
-    // ── The inputs ───────────────────────────────────────────────────────────────────────────────
-
-    /** The questionnaire shape of a title's inputs. */
     data class SessionFields(
         val sessionDate: LocalDate?,
-        /** The session's own place text, e.g. "Bagru, Jaipur". */
         val place: String? = null,
         val workshopLocality: String? = null,
         val workshopDistrict: String? = null,
         val workshopState: String? = null,
-        /** The workshop's craft; else [participantCrafts] decide. */
         val workshopCraft: String? = null,
-        /** One entry per participant (null when that artisan has no craft). */
         val participantCrafts: List<String?> = emptyList(),
-        /** Participant names: romanised name when stored, else the name as written. */
         val participantNames: List<String> = emptyList(),
-        /** Each participant's name in its own script, when [participantNames] holds the romanised one. */
         val participantLocalNames: List<String?> = emptyList(),
-        /** Override (designer portal: "Workshop"); else derived from the participants. */
         val entity: String? = null,
-        /** Override (a design workshop's code). */
         val subject: String? = null,
     )
 
-    /** One participant in the plain-field shape: the stored romanised name wins over the name as written. */
     data class Participant(val name: String?, val romanisedName: String? = null) {
         val shown: String get() = (romanisedName?.takeIf { it.isNotEmpty() } ?: name).orEmpty()
     }
@@ -238,7 +194,6 @@ object Naming {
 
     private fun count(inp: Input): Int = if (inp.people.isNotEmpty()) inp.people.size else (inp.participantCount ?: 0)
 
-    /** Interview for 0 or 1 participant; Group-Interview for 2 or more. */
     fun entity(participantCount: Int): String = if (participantCount >= 2) "Group-Interview" else "Interview"
 
     private fun entityOf(inp: Input): String = inp.entity?.takeIf { it.isNotEmpty() } ?: entity(count(inp))
@@ -250,7 +205,6 @@ object Naming {
         if (n == 1 && inp.people.isNotEmpty()) {
             val person = inp.people[0]
             if (asciiOnly) {
-                // A stored romanised name wins over transliteration.
                 for (candidate in listOf(person.name, person.localName)) {
                     if (!candidate.isNullOrBlank() && candidate.all { it.code < 128 }) return candidate
                 }
@@ -260,7 +214,6 @@ object Naming {
         return null
     }
 
-    /** Subject first (to 40, at a word boundary), then Craft, Place, Subject again, drop Craft, Place, cut Subject. */
     private fun fit(
         render: (List<String>, List<String>, List<String>) -> String,
         placeWords: List<String>,
@@ -286,8 +239,6 @@ object Naming {
         return render(place, craft, subject)
     }
 
-    // ── Titles ───────────────────────────────────────────────────────────────────────────────────
-
     private fun title(inp: Input): String {
         val entityField = joinField(fieldWords(entityOf(inp), false))
         val day = inp.sessionDate?.format(DAY)
@@ -300,10 +251,8 @@ object Naming {
         )
     }
 
-    /** `Interview_2026-07-01_Bagru-Jaipur_Hand-Block-Printing_Giriraj-Prasad-Chhipa`. Original script kept. */
     fun sessionTitle(fields: SessionFields): String = title(fields.input())
 
-    /** `Entity_Date_Place_Craft_Subject` for a generated interview, session or workshop title. */
     fun sessionTitle(
         participants: List<Participant> = emptyList(),
         participantCount: Int? = null,
@@ -326,8 +275,6 @@ object Naming {
         )
     )
 
-    // ── Dates (IST) ──────────────────────────────────────────────────────────────────────────────
-
     data class IstMoment(val date: String, val time: String?)
 
     private val DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.ROOT)
@@ -335,7 +282,6 @@ object Naming {
     private val DATE_ONLY = Regex("^\\d{4}-\\d{2}-\\d{2}$")
     private val ZONED = Regex("(?:Z|[+-]\\d{2}:?\\d{2})$", RegexOption.IGNORE_CASE)
 
-    /** The IST day and HHMM of a moment: [Instant], epoch millis, [LocalDate] or an ISO string. Naive = UTC. */
     fun asIst(value: Any?): IstMoment? {
         val instant: Instant = when (value) {
             null -> return null
@@ -360,8 +306,6 @@ object Naming {
         return IstMoment(local.format(DAY), local.format(HHMM))
     }
 
-    // ── File names ───────────────────────────────────────────────────────────────────────────────
-
     private fun guard(stem: String) = if (stem.uppercase(Locale.ROOT) in RESERVED_STEMS) "$stem-File" else stem
 
     private fun extension(ext: Any?): String =
@@ -375,11 +319,6 @@ object Naming {
         return joinField(fieldWords(t, true)).ifEmpty { null }
     }
 
-    /**
-     * `Portal_Entity_Date[_Time]_Place_Craft_Subject_What[_Sequence][_n].ext`, ASCII, <= 150. The Date
-     * field is [period] (a field such as `FY2026-27`), else the IST day of [date]; [time] adds that
-     * moment's HHMM, [clock] gives an HHMM directly. An empty [ext] gives a bare stem.
-     */
     fun fileName(
         entity: Any? = null,
         what: Any? = null,
@@ -421,20 +360,10 @@ object Naming {
         )
     }
 
-    /**
-     * A recording target. [sectionCode] is the question's own section and is the only source of the
-     * section piece. A question carries [questionNumber], or a [displayCode] read relative to the
-     * section code; neither one means the whole section.
-     */
     data class NameTarget(val sectionCode: String? = null, val displayCode: String? = null, val questionNumber: Int? = null)
 
     private fun compactCode(text: String?): String = CODE_GAP.replace(text.orEmpty().trim(), "").uppercase(Locale.ROOT)
 
-    /**
-     * The question number in [displayCode] once [sectionCode] is taken off its front: ("F2", "F21") -> 1,
-     * ("F2", "F2.13") -> 13, ("D", "D03") -> 3. A display code that does not start with the section code
-     * gives its trailing digits (("F2", "Q4") -> 4).
-     */
     fun questionNumber(sectionCode: String?, displayCode: String?): Int? {
         val code = compactCode(displayCode)
         val sec = compactCode(sectionCode)
@@ -443,7 +372,6 @@ object Naming {
         return NUMBER_TAIL.matchEntire(code)?.groupValues?.get(1)?.toIntOrNull()
     }
 
-    /** `D-Q03`, `B-All`, `F-Q01-Q06`, plus `-P2` for a continuation or `-T2` for a solo repeat. */
     fun recordingSequence(targets: List<NameTarget>, part: Int? = null, position: Int? = null, rosterCount: Int? = null): String? {
         val bySection = LinkedHashMap<String, Pair<Boolean, MutableList<Int>>>()
         for (t in targets) {
@@ -475,7 +403,6 @@ object Naming {
         return sequence
     }
 
-    /** `D-Q03`; `-P2` for part 2, else `-T2` for a solo take at position 2 or more. */
     fun questionSequence(section: Any?, question: Any?, take: Int? = null, part: Int? = null): String {
         val sec = joinField(fieldWords(section, true)).uppercase(Locale.ROOT)
         val q = question?.toString()?.trim().orEmpty()
@@ -484,39 +411,30 @@ object Naming {
         return recordingSequence(listOf(NameTarget(sec, questionNumber = number)), part = part, position = take, rosterCount = 1).orEmpty()
     }
 
-    /** `D-All`: a recording that covers a whole section. */
     fun sectionSequence(section: Any?): String {
         val sec = joinField(fieldWords(section, true)).uppercase(Locale.ROOT)
         return if (sec.isEmpty()) "" else recordingSequence(listOf(NameTarget(sec))).orEmpty()
     }
 
-    /** The questionnaire shape of a recording's inputs. */
     data class RecordingFields(
         val session: SessionFields,
         val capturedAt: Instant,
         val capturedAtSource: String = "DEVICE",
         val targets: List<NameTarget> = emptyList(),
-        /** 1-based take position; only a SOLO take at 2 or more carries `-T<n>`. */
         val position: Int = 1,
         val rosterCount: Int = 1,
         val partTwo: Boolean = false,
         val extension: String = "m4a",
         val what: String = "Recording",
-        /** A continuation's part number (2 or more); [partTwo] is the older spelling of part 2. */
         val part: Int? = null,
     )
 
-    /** `D3` → `D-Q03`; a section → `D-All`; several questions of one section → `F-Q01-Q06`. */
     fun sequenceField(fields: RecordingFields): String? =
         recordingSequence(
             fields.targets, part = fields.part ?: if (fields.partTwo) 2 else null, position = fields.position,
             rosterCount = fields.rosterCount,
         )
 
-    /**
-     * §3.13: the recording, transcript or subtitle file name of one questionnaire take. [transliterate]
-     * turns Place, Craft and Subject into Latin first; the default is the shared rule ([toAscii]).
-     */
     fun recordingFileName(fields: RecordingFields, transliterate: (String) -> String = ::toAscii): String {
         val inp = fields.session.input()
         fun latin(value: String?): String? = value?.let { if (it.all { c -> c.code < 128 }) it else transliterate(it) }
@@ -534,7 +452,6 @@ object Naming {
         )
     }
 
-    /** A capture with its fields passed directly, dated and timed when it was captured. An estimated time is left out. */
     fun recordingFilename(
         entity: Any?,
         ext: String,
@@ -554,7 +471,6 @@ object Naming {
         place = place, craft = craft, subject = subject, sequence = sequence, n = n,
     )
 
-    /** A file about a whole session (the zip of its recordings): no time, no sequence. */
     fun sessionFilename(session: SessionFields, what: String, ext: String): String {
         val inp = session.input()
         return fileName(
@@ -563,11 +479,6 @@ object Naming {
         )
     }
 
-    /**
-     * A download, export, report or backup, dated the day it is generated (IST) unless [day] or [at]
-     * says otherwise. [withTime] adds HHMM for snapshots that can repeat within a day; `dated = false`
-     * is for templates (pro formas), which carry no date at all.
-     */
     fun exportFilename(
         entity: Any?,
         what: Any?,
@@ -596,10 +507,6 @@ object Naming {
         )
     }
 
-    /**
-     * A design workshop's report, cards or list: `..._Workshop_Date_Place_Craft_Code_What.ext`. The
-     * server, the web's offline report and this handset name one report identically through this.
-     */
     fun workshopFilename(
         workshopCode: String?,
         title: String?,
@@ -626,8 +533,6 @@ object Naming {
         portal = portal,
     )
 
-    // ── Leaves and collisions ────────────────────────────────────────────────────────────────────
-
     fun splitExtension(name: String): Pair<String, String> {
         val lower = name.lowercase(Locale.ROOT)
         for (double in DOUBLE_EXTENSIONS) {
@@ -646,7 +551,6 @@ object Naming {
     private val NOT_LEAF = Regex("[^A-Za-z0-9._-]+")
     private val HYPHENS = Regex("-{2,}")
 
-    /** Any file name as an ASCII leaf: `[A-Za-z0-9._-]`, at most 150 characters, never empty or reserved. */
     fun asciiLeaf(name: Any?, fallback: String = "upload.bin"): String {
         val raw = text(name).replace('\\', '/').substringAfterLast('/').trim()
         val cleaned = toAscii(raw).replace(NOT_LEAF, "-").replace(HYPHENS, "-").trim('-', '.')
@@ -661,7 +565,6 @@ object Naming {
         return if (ext.isEmpty()) stem else "$stem.$ext"
     }
 
-    /** `..._D-Q03.m4a` → `..._D-Q03_2.m4a`; `.sql.gz` counts as one extension. */
     fun withN(name: String, n: Int): String {
         if (n <= 1) return name
         if (name.endsWith(".sql.gz")) return "${name.dropLast(7)}_$n.sql.gz"
@@ -669,7 +572,6 @@ object Naming {
         return if (dot >= 0) "${name.substring(0, dot)}_$n${name.substring(dot)}" else "${name}_$n"
     }
 
-    /** `_2`, `_3` for colliding names, in the order given (callers sort by createdAt, then id). */
     fun dedupeNames(names: Iterable<String>): List<String> {
         val seen = HashMap<String, Int>()
         val taken = HashSet<String>()
@@ -689,11 +591,6 @@ object Naming {
     }
 }
 
-/**
- * A phone number for display: `+91 98765 43210` (owner correction b). The country code lives in its
- * own column and the national number is digits only; +91 numbers are grouped 5 + 5, others are shown
- * as stored digits after the code. An empty number displays as nothing.
- */
 object PhoneDisplay {
     fun format(countryCode: String?, national: String?): String {
         val digits = national.orEmpty().filter { it in '0'..'9' }
@@ -703,7 +600,6 @@ object PhoneDisplay {
         return "$code $body"
     }
 
-    /** Valid national digits for [countryCode]: exactly 10 for +91, 4 to 14 elsewhere. */
     fun isValid(countryCode: String?, national: String?): Boolean {
         val digits = national.orEmpty().filter { it in '0'..'9' }
         if (digits.isEmpty()) return true

@@ -9,41 +9,8 @@ import com.offlinetracer.vector.VecSeg
 import kotlin.math.ceil
 import kotlin.math.floor
 
-/**
- * Encapsulated PostScript, DSC 3.0 / EPSF 3.0.
- *
- * EPS is here because print shops, sign makers and older CAD/CAM front ends still ask for it, and
- * because it is the only vector interchange that a RIP will accept without translation.
- *
- * The details that decide whether a placing application shows the artwork or an empty box:
- *
- *  - **`%%BoundingBox` must be four integers and must enclose everything drawn.** It is what the
- *    placing application uses to size the frame, and geometry outside it is simply clipped away.
- *    The box here is the union of the page and the real geometry bounds, widened by half a stroke
- *    width, floored and ceiled outward — never rounded, because rounding inward crops the artwork
- *    by up to half a point on every side.
- *  - `%%HiResBoundingBox` carries the same box unrounded, which is what modern applications
- *    prefer and what keeps a placed EPS from jittering by a fraction of a point.
- *  - **PostScript's origin is bottom-left with y growing upward.** As in the PDF writer, a single
- *    `concat` at the top of the page flips y so every coordinate below is unmodified document
- *    space.
- *
- * PostScript Level 2 has no alpha channel. Rather than dropping opacity silently, partly
- * transparent colours are composited against the page colour before being written: on a white
- * page that is exactly what the screen shows, and it is far better than a 20%-opacity guide line
- * printing as solid black.
- */
 object EpsWriter {
 
-    /**
-     * Renders [doc] to an EPS 3.0 file.
-     *
-     * @param o `dpi` converts document units to points; `width`/`height`/`scale` resize the page;
-     *   `background` paints a page colour and is also the colour partial alpha is composited
-     *   against. No creation date is emitted — the export must be byte-reproducible.
-     * @return the complete EPS file bytes, 7-bit ASCII throughout. A document with no shapes
-     *   yields a valid empty page whose bounding box is the page box.
-     */
     fun export(doc: VecDocument, o: ExportOptions): ByteArray {
         val docW = if (doc.width.isFinite() && doc.width > 0f) doc.width else 1f
         val docH = if (doc.height.isFinite() && doc.height > 0f) doc.height else 1f
@@ -56,8 +23,6 @@ object EpsWriter {
         val p = if (o.precision < 1) 1 else if (o.precision > 6) 6 else o.precision
 
         val background = o.background ?: doc.background
-        // Partial alpha is flattened against whatever the page actually is; an unset background
-        // is a white sheet, which is what an EPS is printed on.
         val pageColour = if (background != null && ((background ushr 24) and 0xFF) == 0xFF) {
             background
         } else {
@@ -97,8 +62,6 @@ object EpsWriter {
                 appendPath(body, path, p)
                 val fillOp = if (style.fillRule == FillRule.EVENODD) "E" else "F"
                 if (doFill && doStroke) {
-                    // gsave/grestore around the fill is what preserves the current path for the
-                    // stroke that follows; fill consumes it otherwise and the stroke draws nothing.
                     body.append("gs ")
                     appendColour(body, flatten(fillColour!!, pageColour, fillAlpha))
                     body.append(fillOp).append(" gr\n")
@@ -117,7 +80,6 @@ object EpsWriter {
             }
         }
 
-        // Bounding box, in EPS (y-up) space.
         var x0 = 0f
         var y0 = 0f
         var x1 = pageW
@@ -153,8 +115,6 @@ object EpsWriter {
         out.append("%%EndComments\n")
 
         out.append("%%BeginProlog\n")
-        // Short operator aliases live in a private dictionary so that embedding this EPS inside
-        // another PostScript job cannot collide with the host's definitions.
         out.append("/OTdict 32 dict def\n")
         out.append("OTdict begin\n")
         out.append("/n {newpath} bind def\n")
@@ -230,8 +190,6 @@ object EpsWriter {
                 }
 
                 is VecSeg.Quad -> {
-                    // PostScript has no quadratic operator either; same exact 2/3 lift as the PDF
-                    // writer so both exports trace the identical curve.
                     val c1x = cx + 2f / 3f * (seg.c.x - cx)
                     val c1y = cy + 2f / 3f * (seg.c.y - cy)
                     val c2x = seg.to.x + 2f / 3f * (seg.c.x - seg.to.x)
@@ -255,7 +213,6 @@ object EpsWriter {
             .append(ExportGeom.num(ExportGeom.blue(rgb), 4)).append(" rgb ")
     }
 
-    /** Source-over composite of [argb] at [alpha] onto the opaque [page] colour. */
     private fun flatten(argb: Int, page: Int, alpha: Float): Int {
         val a = clamp01(alpha)
         if (a >= 0.999f) return argb

@@ -5,37 +5,8 @@ import com.offlinetracer.imaging.RgbaImage
 import com.offlinetracer.vector.Raster
 import com.offlinetracer.vector.VecDocument
 
-/**
- * The one entry point the UI calls. Dispatches an [ExportOptions] to the writer that owns that
- * format, rendering the vector document to pixels first when the target is a raster container.
- *
- * **JPEG and WEBP are not implemented here and never will be.** Both are lossy codecs whose
- * quality depends entirely on the encoder's rate-distortion tuning, and every platform this app
- * runs on already ships a better one: Android has `Bitmap.compress`, the web has
- * `canvas.toBlob`. The shells are expected to check [ExportFormat.isPlatformEncoded] and route
- * those two themselves; calling [export] with them throws.
- *
- * Throwing is the point. The tempting alternative — quietly returning PNG bytes under a `.jpg`
- * name — produces a file that opens fine in the gallery that wrote it and fails in the print
- * service, the email client or the CNC front end the user actually needed it for, hours later and
- * with nothing to connect the failure back to the export.
- */
 object Exporter {
 
-    /**
-     * Produces the bytes for one export.
-     *
-     * @param doc the vector document; also the geometry source when [raster] is null.
-     * @param raster an already-rendered preview. Used as-is when it matches the requested output
-     *   size, resampled when it does not, and ignored entirely for vector formats. Pass null to
-     *   have the document rasterised at the requested size.
-     * @param o the request. `width`/`height` of 0 mean document size.
-     * @return the complete file bytes for `o.format`.
-     * @throws UnsupportedOperationException for [ExportFormat.JPEG] and [ExportFormat.WEBP],
-     *   which the host platform must encode, and for [ExportFormat.PROJECT], which is
-     *   `:core-pipeline`'s `ProjectCodec` because a project file carries the trace parameters
-     *   this function is not given.
-     */
     fun export(doc: VecDocument, raster: RgbaImage?, o: ExportOptions): ByteArray =
         when (o.format) {
             ExportFormat.SVG -> SvgExport.export(doc, o)
@@ -55,14 +26,9 @@ object Exporter {
             )
         }
 
-    /** True when `:core-export` can produce this format's bytes on its own. */
     fun supports(format: ExportFormat): Boolean =
         !format.isPlatformEncoded && format != ExportFormat.PROJECT
 
-    /**
-     * The pixels to encode: [raster] when it is already the right size, a resample of it when it
-     * is not, and a fresh render of [doc] when there is none.
-     */
     private fun resolveRaster(doc: VecDocument, raster: RgbaImage?, o: ExportOptions): RgbaImage {
         val size = ExportGeom.outputSize(o, doc.width, doc.height)
         val w = size[0]
@@ -74,12 +40,6 @@ object Exporter {
         return compositeOver(sized, requested)
     }
 
-    /**
-     * Source-over composite of [src] onto an opaque [background]. Only called when the caller
-     * explicitly asked for a background colour; a null background stays transparent, because
-     * flattening a matte the user has not confirmed is exactly the silent data loss this project
-     * refuses to do anywhere else.
-     */
     private fun compositeOver(src: RgbaImage, background: Int): RgbaImage {
         val ba = (background ushr 24) and 0xFF
         if (ba == 0) return src

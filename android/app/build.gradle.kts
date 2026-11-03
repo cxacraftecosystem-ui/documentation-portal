@@ -2,52 +2,11 @@ import java.io.File
 import java.util.Properties
 
 plugins {
-    // No `org.jetbrains.kotlin.android`: AGP 9 compiles this module's Kotlin itself. See the root
-    // build.gradle.kts for why it must not be re-added.
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
-/**
- * THE RELEASE SIGNING KEY, AND WHY IT IS NOT IN THIS REPOSITORY.
- *
- * Until 2026-09-13 there was no release key and no `signingConfigs` block at all, so `assembleRelease`
- * produced `app-release-unsigned.apk` and every build that ever reached a handset was signed with the
- * ANDROID DEBUG KEY. That is not a guess: the live published v1.1.20 was read with
- * `apksigner verify --print-certs` and answers
- *
- *     Signer #1 certificate DN: CN=Android Debug, O=Android, C=US
- *     Signer #1 certificate SHA-256 digest: 691257a01e834122645488888798d6816479490e22b379692c83d98c09232c74
- *
- * The debug keystore ships with every Android SDK on earth, so ANYBODY can produce an update the
- * installed fleet would accept as genuine. There is now a real key, and `docs/RELEASING.md` states
- * the one-off cost of moving to it — an uninstall and reinstall on every handset, because Android
- * never lets an app change its signing certificate — along with the sync-to-empty step that has to
- * happen first. That cost was paid at v1.2.0 on 2026-09-14; every release since has been signed by
- * this key (RELEASING.md §0 has the reading off the live APK), so a release signed by anything else
- * would strand the whole fleet behind a second uninstall.
- *
- * THE KEY LIVES OUTSIDE THE WORKING TREE. `.gitignore` (the "ANDROID SIGNING MATERIAL" block) refuses
- * `*.p12`, `*.jks`, `*.keystore` and `fieldrepo-release.*` outright. Its location and password arrive
- * through `local.properties` (gitignored) or through the environment for CI. Four properties:
- *
- *     releaseKeystore=C:/path/to/fieldrepo-release.p12
- *     releaseKeystorePassword=...
- *     releaseKeyAlias=fieldrepo-release
- *     releaseKeyPassword=...            # optional; defaults to the store password
- *
- * or ANDROID_RELEASE_KEYSTORE / _PASSWORD / _KEY_ALIAS / _KEY_PASSWORD in the environment. The
- * publish workflow sets the first three from repository secrets and deliberately does not set the
- * fourth — the key in this project's store uses the store password, and an ABSENT secret renders as
- * an EMPTY environment variable, which `takeIf { it.isNotEmpty() }` below reads as unset. Absence is
- * therefore safe by construction rather than by anyone remembering.
- *
- * ABSENT IS A VALID STATE AND MUST STAY ONE. A clean checkout has none of this, and the release build
- * there stays unsigned exactly as before — which fails loudly at install time instead of quietly
- * producing something that looks shippable. A missing key must NEVER silently fall back to the debug
- * one; that silent fallback is precisely what put a debug-signed APK on the fleet.
- */
 private fun signingProperty(props: Properties, propertyName: String, environmentName: String): String? =
     (props.getProperty(propertyName) ?: System.getenv(environmentName))?.trim()?.takeIf { it.isNotEmpty() }
 
@@ -58,40 +17,16 @@ val localProperties = Properties().apply {
     }
 }
 
-// The app version: a NAME people read and a CODE devices compare. Both are set here, by hand.
-//
-// RESET ON 2026-10-21 (owner): the name restarted at 0.0.1 and every earlier tag, release and build
-// was deleted. The CODE did NOT restart, and must never go down: Android refuses to install a lower
-// versionCode over an installed app, and the in-app update check offers a release only when its code
-// is ABOVE the installed one. So the code is no longer derived from the name; it simply counts up.
-//
-// To cut a release: bump `appVersionName` AND add 1 to `appVersionCode`. publish-android.yml reads
-// both lines, checks the tag against the name and refuses a code at or below the published one.
 val appVersionName = "0.0.10"
 val appVersionCode = 30
 
 val releaseKeystorePath = signingProperty(localProperties, "releaseKeystore", "ANDROID_RELEASE_KEYSTORE")
 val releaseKeystorePassword = signingProperty(localProperties, "releaseKeystorePassword", "ANDROID_RELEASE_KEYSTORE_PASSWORD")
 val releaseKeyAlias = signingProperty(localProperties, "releaseKeyAlias", "ANDROID_RELEASE_KEY_ALIAS")
-// Defaults to the store password, which is how `keytool` is almost always driven and what this
-// project's key actually uses. Kept separately settable because a PKCS#12 store CAN hold a key under
-// a different password, and discovering that at the signing step is a confusing place to find out.
 val releaseKeyPassword = signingProperty(localProperties, "releaseKeyPassword", "ANDROID_RELEASE_KEY_PASSWORD")
     ?: releaseKeystorePassword
 
-// Resolved here rather than inside the signing config so that "the key is configured" and "the file
-// is actually there" are one question with one answer. A property pointing at a keystore that does
-// not exist would otherwise be indistinguishable from no property at all, and the build would simply
-// produce an unsigned APK — the failure this whole arrangement exists to make loud.
 val releaseKeystoreFile = releaseKeystorePath?.let { path ->
-    // An absolute path is what a key kept outside the repository needs; a relative one is resolved
-    // against the `android/` directory, which is what `../fieldrepo-release.p12` in a developer's
-    // local.properties means to the person who wrote it.
-    //
-    // `File`, IMPORTED at the top of this file, not `java.io.File` written out. In the Gradle Kotlin
-    // DSL `java` is already taken — it is the JavaPluginExtension accessor on Project — so the fully
-    // qualified form parses as that extension followed by a `.io` property and fails with
-    // "Unresolved reference: io".
     File(path).let { candidate -> if (candidate.isAbsolute) candidate else rootProject.file(path) }
 }
 val hasReleaseSigningKey =
@@ -100,10 +35,6 @@ val hasReleaseSigningKey =
         releaseKeystorePassword != null &&
         releaseKeyAlias != null
 if (releaseKeystorePath != null && !hasReleaseSigningKey) {
-    // Named loudly rather than left as a silent unsigned build: somebody set the property, so they
-    // intended a signed release and would otherwise get an APK that cannot be installed at all.
-    // `.github/workflows/publish-android.yml` greps the build log for this exact wording and fails
-    // the publish on it, because on a runner a half-configured key can only mean a broken secret.
     logger.warn(
         "release signing: `releaseKeystore` is set to '${releaseKeystorePath}' but the key is not " +
             "usable (file present: ${releaseKeystoreFile?.isFile == true}, password set: " +
@@ -114,33 +45,6 @@ if (releaseKeystorePath != null && !hasReleaseSigningKey) {
 
 android {
     namespace = "com.fieldrepository.app"
-    /*
-     * 37 IS ANDROID 17, AND BOTH NUMBERS MOVE TOGETHER.
-     *
-     * compileSdk 37 is not optional: core 1.19, the lifecycle-*-compose 2.11 artifacts and Compose
-     * 1.12 declare minCompileSdk 37 (and AGP 9.1 or later) in their AAR metadata. It means the
-     * `platforms;android-37.0` package, which every Android workflow installs. The 37.1 and 37.2
-     * minor platforms add APIs only — a minor release carries no behaviour change, and targetSdk has
-     * no minor — and nothing here calls one. Adopting a minor is
-     * `compileSdk { version = release(37) { minorApiLevel = 2 } }` plus the matching platform package
-     * in the workflows, the day a minor-only API is wanted.
-     *
-     * targetSdk 37 opts this app into every Android 16 and 17 behaviour change. The ones that reach
-     * this code, and where each is handled:
-     *   • edge-to-edge with no opt-out    -> MainActivity.onCreate + the root of RepositoryApp
-     *   • predictive back                 -> AndroidManifest.xml (BackHandler only, no onBackPressed)
-     *   • large screens ignore orientation and resizability -> nothing to undo: the manifest never
-     *     restricted either, and MainActivity handles its own configuration changes
-     *   • local-network permission        -> src/debug/AndroidManifest.xml + ui/LocalNetworkAccess.kt
-     *     (a development backend on 10.0.2.2 or a LAN address; production is public HTTPS)
-     *   • background audio is silenced without a foreground service -> ui/MediaPlayers.kt pauses
-     *   • Certificate Transparency and Encrypted Client Hello on by default ->
-     *     res/xml/network_security_config.xml
-     */
-    // 37.2, Android 17's second minor release, since 0.0.7 (37.0 before), as designer-portal does: a
-    // minor level only adds APIs. targetSdk, which changes behaviour, has no minor level and stays 37.
-    // CI installs `platforms;android-37.2` in android-build.yml, android-emulator.yml, codeql.yml and
-    // publish-android.yml; move them together.
     compileSdk {
         version = release(37) {
             minorApiLevel = 2
@@ -149,20 +53,11 @@ android {
 
     defaultConfig {
         applicationId = "com.fieldrepository.app"
-        // A device floor, not a version to chase: it decides which handsets in the field can install
-        // the app at all. Every library below supports it (the newest AndroidX AARs ask for 23).
         minSdk = 26
         targetSdk = 37
-        // The on-device recording tests (src/androidTest, run by scripts/recording-device-tests.sh).
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = appVersionCode
         versionName = appVersionName
-        // Default to the production backend through CloudFront over HTTPS. CloudFront is dual-stack
-        // (publishes a native IPv6 / AAAA record), so it connects on IPv6-only mobile networks
-        // (e.g. Jio/Airtel) where the IPv4-only EC2 origin — whether addressed by literal IP or its
-        // AWS hostname — fails (no IPv4 route, and no AAAA to use). HTTPS also clears the web app's
-        // mixed-content block. Emulator/local devs override this with
-        // apiBaseUrl=http://10.0.2.2:8000/api/ in local.properties.
         val apiBaseUrl = localProperties.getProperty(
             "apiBaseUrl",
             "https://d2b34i3e92al6i.cloudfront.net/api/"
@@ -172,26 +67,12 @@ android {
         buildConfigField("String", "GOOGLE_ANDROID_CLIENT_ID", "\"614092441670-5rckig6t1al6plbfll8irn9prcmp446t.apps.googleusercontent.com\"")
         buildConfigField("String", "MAPTILER_API_KEY", "\"OJJYFRqCD2HD2k3BbXGF\"")
 
-        /*
-         * MICROSOFT AND YAHOO SIGN-IN (data/OidcSignIn.kt). Each provider's button exists only when
-         * its client ID is set here; blank means no button at all. Read from local.properties
-         * (microsoftClientId, microsoftTenant, yahooClientId, oidcRedirectUri) or from the
-         * environment (MICROSOFT_CLIENT_ID, MICROSOFT_TENANT, YAHOO_CLIENT_ID, OIDC_REDIRECT_URI),
-         * which is how publish-android.yml passes the repository variables of the same names.
-         *
-         * OIDC_REDIRECT_URI is the WEB app's `/login/callback` — the one redirect URI registered with
-         * both providers. The browser tab comes back there, and the web route hands the code to this
-         * app over `appAuthRedirectScheme` below. Client IDs and that URI are public values; the
-         * secrets that redeem a code live on the backend only.
-         */
         fun oidcValue(property: String, environment: String): String =
             signingProperty(localProperties, property, environment) ?: ""
         buildConfigField("String", "MICROSOFT_CLIENT_ID", "\"${oidcValue("microsoftClientId", "MICROSOFT_CLIENT_ID")}\"")
         buildConfigField("String", "MICROSOFT_TENANT", "\"${oidcValue("microsoftTenant", "MICROSOFT_TENANT").ifEmpty { "common" }}\"")
         buildConfigField("String", "YAHOO_CLIENT_ID", "\"${oidcValue("yahooClientId", "YAHOO_CLIENT_ID")}\"")
         buildConfigField("String", "OIDC_REDIRECT_URI", "\"${oidcValue("oidcRedirectUri", "OIDC_REDIRECT_URI")}\"")
-        // AppAuth's redirect receiver is registered for this scheme (AndroidManifest.xml). It must
-        // equal `ANDROID_SIGN_IN_SCHEME` in frontend/lib/oidcSignIn.ts, which a web unit spec pins.
         manifestPlaceholders["appAuthRedirectScheme"] = "com.fieldrepository.app.signin"
     }
 
@@ -200,14 +81,6 @@ android {
         compose = true
     }
 
-    /**
-     * Declared before `buildTypes` on purpose: the release build type below looks this config up by
-     * name, and a config created afterwards is not there to be found.
-     *
-     * Created ONLY when a real key resolved. An empty-but-present "release" signing config is worse
-     * than none — Gradle accepts it and produces an APK signed with nothing, which is the exact
-     * outcome the block in `buildTypes.release` spends its length warning about.
-     */
     signingConfigs {
         if (hasReleaseSigningKey) {
             create("release") {
@@ -215,18 +88,6 @@ android {
                 storePassword = releaseKeystorePassword
                 keyAlias = releaseKeyAlias
                 keyPassword = releaseKeyPassword
-                // Both signature schemes. v1 (the JAR signature) is what pre-Nougat installers read;
-                // v2/v3 are what everything since prefers, and v3 is what allows key rotation later
-                // (rotation that this app has never been able to use, because the fielded build was
-                // debug-signed by a key nobody holds a rotation lineage for). minSdk here is 26, so
-                // v1 is not strictly required — it is left on because dropping it buys nothing and an
-                // APK a sideloader refuses to install is a support conversation nobody wants to have
-                // with somebody in a village.
-                //
-                // MEASURED, not assumed, on the live v1.1.20: it verifies under v2 ONLY (v1 false,
-                // v3 false), which is what AGP's debug signing produces at minSdk 26. So the first
-                // release-key build is the first APK this project has shipped with a v3 signature,
-                // and the publish workflow asserts a v2-or-v3 scheme rather than pinning one.
                 enableV1Signing = true
                 enableV2Signing = true
                 enableV3Signing = true
@@ -234,58 +95,8 @@ android {
         }
     }
 
-    /**
-     * THE FIRST `buildTypes` BLOCK THIS MODULE HAS EVER HAD, and it exists for exactly one reason:
-     * to put the release key on the release variant. Everything it does NOT do is deliberate.
-     *
-     * NO R8, NO RESOURCE SHRINKING. `isMinifyEnabled` stays off, which is the behaviour every build
-     * of this app has had to date, and turning it on is a separate change that must be argued and
-     * measured on its own. R8's failure mode is not a compile error — it is a `SerializationException`
-     * or a `NoSuchMethodError` at the first sync, on a build that assembled and installed perfectly —
-     * and this repository has NO device CI and no instrumented tests to catch it. Bundling that with
-     * a signing-key change would mean the first release-key APK is also the first shrunk one, and a
-     * field failure would have two candidate causes instead of none.
-     *
-     * NO `ndk { abiFilters }`. The shipped APK packages all four ABIs — read out of the live v1.1.20
-     * with `zipfile`, which carries exactly `lib/<abi>/libandroidx.graphics.path.so` four times over
-     * and nothing else native. That is roughly 20 KB of waste, not the 22 MB a native-model app pays,
-     * so there is no saving here worth the risk of guessing a handset's architecture wrong. Keeping
-     * x86_64 also keeps the emulator, which is the only machine a contributor without a handset has.
-     */
     buildTypes {
         release {
-            /**
-             * THE THREE OUTCOMES OF THIS BLOCK, IN THE ORDER THEY ARE TESTED.
-             *
-             *  1. A real key resolved  -> sign with it. Distributable.
-             *  2. `debugSignRelease=true` in a developer's own gitignored local.properties, and NO
-             *     real key -> sign with the DEBUG keystore. Installable, and NOT distributable.
-             *  3. Neither -> unsigned. The APK builds and installs nowhere, which is loud at the
-             *     right moment.
-             *
-             * THE ORDER IS LOAD-BEARING. `debugSignRelease=true` is a flag somebody sets once and
-             * forgets for months. If it were tested first, the presence of a real key would be
-             * silently ignored and the build that went to the website and to every handset would be
-             * the undistributable one, announced by one lifecycle line among several hundred. THE
-             * REAL KEY WINS, ALWAYS.
-             *
-             * WHY OUTCOME 2 EXISTS AT ALL: a release variant that nobody can install is a release
-             * variant nobody ever runs, and "it assembled" is not evidence about a build that behaves
-             * differently from debug. A developer with no access to the release key still needs to be
-             * able to put a release build on a phone.
-             *
-             * AND WHY CI CANNOT REACH IT. Two independent bars, because one of them is a file this
-             * build cannot see and the other is a check that lives in another repository's file:
-             *   • `local.properties` is gitignored (.gitignore, "Android / Gradle" block) and simply
-             *     does not exist on a runner, so the flag cannot be set there by accident.
-             *   • Should anyone ever write one — a "helpful" CI step, a self-hosted runner with a
-             *     stale workspace — the branch below REFUSES rather than signs. `GITHUB_ACTIONS` and
-             *     `CI` are set by GitHub Actions on every runner; a build that would otherwise put a
-             *     debug-signed APK into an automated pipeline stops here with a sentence naming why.
-             * `.github/workflows/publish-android.yml` ALSO greps the build log for outcome 2's
-             * lifecycle line and fails the publish on it. That is a third bar and it is not
-             * redundant: it is the one that keeps working if this branch is ever edited.
-             */
             if (hasReleaseSigningKey) {
                 signingConfig = signingConfigs.getByName("release")
                 logger.lifecycle(
@@ -321,18 +132,6 @@ android {
         }
     }
 
-    /*
-     * JAVA 17 BYTECODE, ON PURPOSE, AND NOT THE JDK THAT RUNS THE BUILD.
-     *
-     * The workflows run Gradle on JDK 25 (the current Temurin LTS); this is the level the classes are
-     * compiled FOR, and the two are independent. 17 is the newest Java level Android documents for
-     * current APIs (developer.android.com/build/jdks), so it stays here until that page names a
-     * higher one — and the four vendored core modules must move with it, because they emit 17 too.
-     *
-     * There is no `kotlinOptions`/`compilerOptions.jvmTarget` beside it any more. Under AGP 9's
-     * built-in Kotlin the Kotlin target defaults to `targetCompatibility`, so this one line is the
-     * single place the level is set, and javac and kotlinc cannot disagree.
-     */
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -340,77 +139,24 @@ android {
 
     testOptions {
         unitTests.all {
-            // ── THE UNIT-TEST JVM RUNS AS en_US, DELIBERATELY, AND IT MUST NOT BE en_IN ──────────
-            //
-            // Not a preference: it is the only way a locale bug in a formatter can be caught by a
-            // test at all, and one shipped because it was not here.
-            //
-            // `DateTimeFormatter.ofPattern(pattern)` with no Locale captures `Locale.getDefault()`
-            // AT CONSTRUCTION, and the formatters in this app are `private val`s initialised once at
-            // class load. So a test that calls `Locale.setDefault(Locale.US)` in its own body proves
-            // NOTHING — the formatter was built before the test method ran, under whatever the
-            // machine's locale was. Measured: with the locale pin removed from
-            // ui/WorkshopOptions.kt, the whole suite still passed on an en_IN laptop.
-            //
-            // The locale therefore has to be wrong before the JVM starts, which is what
-            // `systemProperty` does — it becomes `-Duser.language=en -Duser.country=US` on the forked
-            // test JVM's command line, read at startup.
-            //
-            // en_US because it is what the GitHub runner uses, so a local run and a CI run agree; and
-            // because it differs from en_IN in exactly the way that matters — CLDR abbreviates
-            // September "Sep" under en_US and "Sept" under en_IN. That one letter is the whole of the
-            // bug that reached `main`: `WorkshopWindowTest` asserted "23 Sept 2026", passed on this
-            // developer's machine for weeks, and failed on the first CI run that had Android unit
-            // tests to run.
-            //
-            // ⚠ DO NOT "FIX" A FAILING DATE TEST BY CHANGING THIS TO en_IN. A test that fails here is
-            // telling you a formatter is reading the handset's locale, which means a researcher with
-            // their phone in Hindi or Bengali sees that script's month inside an English sentence.
-            // Pin the FORMATTER's locale instead — see WORKSHOP_DISPLAY_LOCALE in
-            // ui/WorkshopOptions.kt. `WorkshopWindowTest` asserts this pin is still in force, so
-            // removing these two lines fails the suite rather than quietly weakening it.
             it.systemProperty("user.language", "en")
             it.systemProperty("user.country", "US")
         }
     }
 }
 
-/*
- * EVERY VERSION BELOW IS THE LATEST STABLE RELEASE AS OF 2026-10-09, read off Google Maven and Maven
- * Central that day, and Dependabot (.github/dependabot.yml, the `gradle` entry) watches them from
- * here on. Two look old and are not: material-icons-extended, whose newest release is 1.7.8, and
- * junit:junit, whose final release is 4.13.2 — JUnit 5 and 6 are a different framework, not newer
- * versions of this artefact, and AGP runs JVM unit tests on JUnit 4.
- */
 dependencies {
-    // Compose UI/foundation/runtime 1.12.1, material3 1.4.0, material-icons-extended 1.7.8.
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
     androidTestImplementation(composeBom)
-    // DESIGN §9 tests 49-51 on a device: lock, app switch, a call taking audio focus, Back, and a
-    // process kill mid-take. Instrumented, because only a real foreground service shows these.
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test:rules:1.7.0")
     androidTestImplementation("androidx.test.uiautomator:uiautomator:2.4.0")
-    // Compose UI tests (the map's pinch, reset and coverage sheet; the top-bar scanner's device
-    // test), versioned by the BOM above.
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
-    // ui-test-junit4 pulls an Espresso too old for API 37 (it reflects on InputManager.getInstance,
-    // which is gone); 3.7.0 is the newest stable and injects through InputManagerGlobal.
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
-    /*
-     * THE VENDORED TRACE ENGINE. See the block in settings.gradle.kts for what these four are and
-     * why they are Kotlin/JVM rather than Android library modules.
-     *
-     * ALL FOUR ARE NAMED THOUGH ONE WOULD COMPILE. `:core-pipeline` declares `api(...)` on the
-     * other three, so `implementation(project(":core-pipeline"))` alone would already put every
-     * symbol on the compile classpath. They are listed anyway because this file is where somebody
-     * looks to find out what :app is built from, and a transitive dependency that only appears in
-     * another module's build script is a dependency nobody reads.
-     */
     implementation(project(":core-imaging"))
     implementation(project(":core-vector"))
     implementation(project(":core-pipeline"))
@@ -419,108 +165,41 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.core:core-ktx:1.19.1")
     implementation("androidx.compose.material3:material3")
-    // Its newest release is still 1.7.8 (February 2025) and the BOM above pins exactly that, so this
-    // IS the latest — there is simply nothing newer to move to. The icons it carries are referenced
-    // all over ui/; leaving the artefact would mean redrawing them as vector drawables, which is a
-    // design change and not a version bump.
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
-    // The offline outbox's background sync (data/OutboxSyncWorker.kt): queued records upload once a
-    // network is connected, across process death and reboots, without the app being opened.
     implementation("androidx.work:work-runtime-ktx:2.12.0")
     implementation("androidx.credentials:credentials:1.6.0")
     implementation("androidx.credentials:credentials-play-services-auth:1.6.0")
     implementation("com.google.android.libraries.identity.googleid:googleid:1.2.1")
-    // Microsoft and Yahoo sign-in: the authorization request (PKCE, state, nonce) in a browser tab and
-    // the redirect receiver. The code is redeemed by the backend, never on the phone. 0.11.1 is the
-    // latest release on Maven Central.
     implementation("net.openid:appauth:0.11.1")
-    /*
-     * COIL 3: a new group (`io.coil-kt.coil3`) and a new package (`coil3.*`). Coil 3 has no network
-     * stack of its own, so `coil-network-okhttp` is NOT optional — without it every `https://` model
-     * (a Data Browser thumbnail, a presigned media URL) fails to load, while `content://` and
-     * `file://` ones keep working, which is exactly the half-broken state nobody would notice on a
-     * desk. It registers itself through ServiceLoader, so the default loader and the one
-     * ui/MediaPlayers.kt builds both pick it up with no code.
-     */
     implementation("io.coil-kt.coil3:coil-compose:3.6.3")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.6.3")
     implementation("io.coil-kt.coil3:coil-video:3.6.3")
 
-    /*
-     * Scanning an artisan card (ui/CardScanner.kt): a CameraX preview read by ML Kit's on-device
-     * barcode reader, narrowed to QR. The BUNDLED model (`barcode-scanning`, about 9.9 MB) rather
-     * than the Play-services shim, which downloads its model on first use and so fails on exactly
-     * the offline first scan this exists for. Same versions as the designer app (17.3.0, 1.6.2);
-     * upgrade the two apps together. The CAMERA permission and the not-required camera feature were
-     * already declared for photo capture.
-     */
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
     implementation("androidx.camera:camera-core:1.6.2")
     implementation("androidx.camera:camera-camera2:1.6.2")
     implementation("androidx.camera:camera-lifecycle:1.6.2")
     implementation("androidx.camera:camera-compose:1.6.2")
 
-    // In-app video/audio playback
     implementation("androidx.media3:media3-exoplayer:1.11.1")
     implementation("androidx.media3:media3-ui:1.11.1")
 
-    /*
-     * Retrofit 3 ships its own kotlinx-serialization converter, so the JakeWharton artefact (final at
-     * 1.0.0) is gone; the import moved to `retrofit2.converter.kotlinx.serialization`.
-     *
-     * OKHTTP IS NAMED EXPLICITLY because this module calls it directly (data/FieldRepository.kt runs
-     * its own client for storage). Retrofit 3.0.0 and Coil 3 still ask for 4.12.0; 5.5.0 is the API-
-     * compatible successor (same `okhttp3` package), Gradle resolves the one version, and on Android
-     * the `okhttp` coordinate resolves to `okhttp-android` through its Gradle module metadata. In a
-     * JVM unit test that artefact finds API level 0 and falls back to the plain JDK platform, which
-     * is what the wire tests under src/test rely on. (5.5.0 is also the first release that can do
-     * Android 17's Encrypted Client Hello. It is opt-in, through OkHttp's own DNS, and this app does
-     * not opt in — see res/xml/network_security_config.xml.)
-     */
     implementation("com.squareup.retrofit2:retrofit:3.0.0")
     implementation("com.squareup.retrofit2:converter-kotlinx-serialization:3.0.0")
     implementation("com.squareup.okhttp3:okhttp:5.5.1")
     implementation("com.squareup.okhttp3:logging-interceptor:5.5.1")
-    // Must equal the version in core-pipeline/build.gradle.kts — see settings.gradle.kts.
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
 
-    /*
-     * QR codes for joining a questionnaire session (data/JoinQr.kt): drawing the code in the session
-     * header, and reading one off a photo or a picked image so a second phone can join OFFLINE.
-     * ZXing core, the same artefact and version the Design Prototype Workshop app uses: pure Java,
-     * about 0.6 MB, and it runs on the JVM test classpath, so `QrJoinTest` encodes and decodes a real
-     * symbol.
-     */
     implementation("com.google.zxing:core:3.5.4")
-    // The live join scanner (ui/questionnaire/LiveQrScanner.kt): a CameraX preview whose frames go to
-    // ZXing above; camera2 and lifecycle are declared with the card scanner's above. The photo and
-    // picked-image paths stay as the fallback when the camera is refused.
     implementation("androidx.camera:camera-view:1.6.2")
 
-    /**
-     * The `anyascii` table, for `data/Naming.kt` (NAMING_2026-10-18): the same table the server
-     * (`anyascii` on PyPI) and the browser (`any-ascii` on npm) transliterate with, so a name in
-     * Devanagari or Bengali comes out of all three clients spelled the same way. ICU's Any-Latin
-     * spells it differently from the other two. The tables are Java resources inside the jar,
-     * which this build packages untouched because R8 is off (see above).
-     */
     implementation("com.anyascii:anyascii:0.3.3")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 
-    // A JVM unit-test source set, for the rules that are too important to be verifiable only by
-    // looking at a screen.
-    //
-    // This module had no test dependency at all, which is why `src/test/` did not exist. The rule
-    // that made one necessary is `ui/RecordPickers.craftChangeClearsArtisan`: its predecessor
-    // silently DELETED a stored artisan link whenever the picker happened not to hold the artisan,
-    // and reproducing that by hand needs a repository with more than 100 artisans and a record old
-    // enough to sort off page one. That is not a thing anybody re-checks before a release, so the
-    // rule is a pure function and this dependency is how it stays checked. Compose is deliberately
-    // not on the test classpath — nothing worth asserting here needs a renderer.
     testImplementation("junit:junit:4.13.2")
 }

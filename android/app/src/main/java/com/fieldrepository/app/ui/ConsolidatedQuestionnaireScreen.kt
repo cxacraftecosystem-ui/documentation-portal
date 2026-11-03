@@ -53,40 +53,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-/**
- * One artisan's questionnaire, gathered from every interview they sat in — the Android mirror of the
- * web's `/questionnaire/consolidated` (the picker) and `/questionnaire/consolidated/[artisanId]`
- * (the document).
- *
- * WHY IT EXISTS. The repository stores one interview per exact SET of artisans, which is the right
- * storage rule and is untouched by this screen. Its consequence is that an artisan's answers live
- * across every set they appear in, and on the live repository that is the normal case: thirteen of
- * sixteen artisans are in more than one interview and three are in four. Reading such a person today
- * means opening four entries.
- *
- * WHAT IT REFUSES TO DO, mirrored one-for-one with the backend and the web:
- *  - it never hides the source: every answer names the sitting, its date and how many people were in it;
- *  - it never resolves a disagreement: two different answers to one question are both shown, most
- *    recent first, flagged;
- *  - it never guesses a speaker. `QuestionnaireResponse` is unique on (interviewId, questionId) and
- *    has no artisan column — `answeredById` is the fieldworker — so in a group sitting the record
- *    simply does not say who answered, and this screen says so on the row.
- *
- * THE DTOs LIVE HERE, not in `data/ApiModels.kt`, and must stay here: `data/FieldRepositoryApi.kt` and
- * `data/FieldRepository.kt` both import [ConsolidatedQuestionnaireDto] from this package, so renaming,
- * moving or narrowing the visibility of these types breaks the data layer's compile. The private
- * Retrofit interface this file used to carry is gone — `FieldRepository.consolidatedQuestionnaire` is
- * the shared method now, and it is the one that also takes the workshop scope.
- */
-
-/* ------------------------------------------------------------------------------------------------
- * Wire format — mirrors backend/app/services/questionnaire_consolidation.py
- * ---------------------------------------------------------------------------------------------- */
-
-/** The sitting had one artisan: what was recorded in it is theirs. */
 const val ATTRIBUTION_SOLE = "SOLE"
 
-/** Several artisans were present and the data does not record which of them answered. */
 const val ATTRIBUTION_GROUP = "GROUP"
 
 @Serializable
@@ -174,12 +142,7 @@ data class ConsolidatedQuestionnaireDto(
     val summary: ConsolidatedSummaryDto = ConsolidatedSummaryDto()
 )
 
-/* ------------------------------------------------------------------------------------------------
- * Screen
- * ---------------------------------------------------------------------------------------------- */
 
-
-/** dd MMM yyyy from the API's ISO-8601, without pulling in a formatter for four fields. */
 private fun shortDate(value: String?): String {
     if (value.isNullOrBlank() || value.length < 10) return "-"
     val months = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
@@ -189,26 +152,12 @@ private fun shortDate(value: String?): String {
     return "$day ${months.getOrElse(month - 1) { "?" }} $year"
 }
 
-/** Which artisan's document is open, and the name to head it with before the document arrives. */
 private data class PickedArtisan(val id: String, val name: String)
 
-/**
- * The whole feature, hosted in the shared chrome as a LAZY PAGE (`ui/LazyPage.kt`): HomeScreen draws
- * the scaffold, the app bar and the back button and hands over [LazyPageChrome], and this screen lays
- * out the page's one LazyColumn — its own header card, then the artisan rows as lazy items. It is not
- * inside the page column's `verticalScroll`, which a LazyColumn cannot be (it is measured with an
- * infinite height budget there and throws before it can draw).
- *
- * TWO VIEWS, ONE DESTINATION. The web gives the document its own URL, and that is the point there: the
- * document is the thing a researcher quotes, so it needs an address. Android has no addresses, so the
- * picker and the document are one screen with one piece of state — and the document therefore carries
- * its own way back to the list, because the chrome's back arrow leaves the destination entirely.
- */
 @Composable
 fun ConsolidatedQuestionnaireScreen(
     repository: FieldRepository,
     onError: (String) -> Unit,
-    /** The page's own scroller: the index IS the list (`ui/LazyPage.kt`). */
     chrome: LazyPageChrome
 ) {
     var opened by remember { mutableStateOf<PickedArtisan?>(null) }
@@ -222,7 +171,6 @@ fun ConsolidatedQuestionnaireScreen(
             chrome = chrome
         )
     } else {
-        // The document is one reading, not a list: one item, laid out as it always was.
         PageLazyColumn(chrome, spacing = 12.dp) {
             item(key = "document:${picked.id}") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
@@ -238,23 +186,6 @@ fun ConsolidatedQuestionnaireScreen(
     }
 }
 
-/* ------------------------------------------------------------------------------------------------
- * The picker — the web's /questionnaire/consolidated
- * ---------------------------------------------------------------------------------------------- */
-
-/**
- * Picks the artisan whose consolidated questionnaire to read.
- *
- * The workshop scope here narrows WHO IS LISTED, defaulting to the most recent workshop like every
- * other screen that reads a workshop's output. It deliberately does NOT ride into the document — see
- * [ConsolidatedDocument] for why the document is read whole by default, and for the one sentence on
- * this screen that keeps the difference from being a surprise.
- *
- * THE LIST IS THE SERVER'S, A PAGE AT A TIME (DC-A09, DC-A34). It used to walk twenty pages of the
- * scope (2,000 artisans) and filter that copy as the box was typed into, composing every row inside
- * the page column. Now the box types into `GET /artisans?search=` inside the scope, "Load more" pages,
- * and the rows are lazy items of the page's own list — see `ui/ServerSearch.kt` and `ui/LazyPage.kt`.
- */
 @Composable
 private fun ConsolidatedIndex(
     repository: FieldRepository,
@@ -263,8 +194,6 @@ private fun ConsolidatedIndex(
     chrome: LazyPageChrome
 ) {
     val scope = rememberWorkshopScope(repository = repository, onError = onError)
-    // Held until the picker has settled, or the first request goes out unscoped and is replaced a
-    // moment later — two requests, and a visible flash of the wrong list.
     val search = rememberServerSearch(
         key = scope.requestKey,
         cached = emptyList<ArtisanDto>(),
@@ -279,8 +208,6 @@ private fun ConsolidatedIndex(
     val loading = !scope.settled || (search.loading && rows.isEmpty())
     val failed = scope.settled && !search.browseLoaded && search.note != null && !search.loading
 
-    // No spacing from the list itself: the artisan card is drawn as touching segments, so every other
-    // item carries its own gap instead.
     PageLazyColumn(chrome, spacing = 0.dp) {
         item(key = "index-header", contentType = "card") {
             Box(modifier = Modifier.padding(top = 12.dp, bottom = 12.dp)) {
@@ -311,10 +238,6 @@ private fun ConsolidatedIndex(
 
                 HorizontalDivider(color = MaterialTheme.field.hairline)
 
-                // The one sentence that stops a narrowed list from being read as a narrowed document. On
-                // the web the chosen scope rides the link into the document; here the document opens on
-                // every interview and carries its own control, so this line names the difference rather
-                // than leaving a reader to assume the two match.
                 Text(
                     "Artisans in the chosen workshops.",
                     color = MaterialTheme.field.muted,
@@ -354,8 +277,6 @@ private fun ConsolidatedIndex(
             }
 
             else -> {
-                // ONE CARD DRAWN AS SEGMENTS — its title, one item per artisan, its foot — so the
-                // rows are lazy items of the page's list and still read as one card.
                 item(key = "index-top", contentType = "segmentTop") {
                     IndexSegment(SegmentEdge.TOP) {
                         Text(
@@ -392,10 +313,6 @@ private fun ConsolidatedIndex(
 
 private enum class SegmentEdge { TOP, MIDDLE, BOTTOM }
 
-/**
- * One horizontal slice of a card, so a card's rows can be separate lazy items and the card still reads
- * as one: rounded at its top and bottom slices, square between.
- */
 @Composable
 private fun IndexSegment(edge: SegmentEdge, content: @Composable () -> Unit) {
     val radius = 16.dp
@@ -422,8 +339,6 @@ private fun ArtisanPickRow(artisan: ArtisanDto, onOpen: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
-            // The label, not just the tap target: a row that reads "Ram Kumar, button" to TalkBack
-            // says nothing about where it goes, and this one goes somewhere quite specific.
             .clickable(onClickLabel = "Read ${artisan.name}'s consolidated questionnaire") { onOpen() }
             .padding(vertical = 8.dp, horizontal = 4.dp)
     ) {
@@ -455,28 +370,6 @@ private fun ArtisanPickRow(artisan: ArtisanDto, onOpen: () -> Unit) {
     }
 }
 
-/* ------------------------------------------------------------------------------------------------
- * The document — the web's /questionnaire/consolidated/[artisanId]
- * ---------------------------------------------------------------------------------------------- */
-
-/**
- * One artisan read as a single document.
- *
- * THE SCOPE DEFAULTS TO EVERY WORKSHOP, and this is the one screen where that is right —
- * `defaultToMostRecent = false`. This is a document, the artifact a researcher cites, and its default
- * meaning has always been "everything this artisan has ever said". Narrowing it to one workshop
- * without being asked would change what a citation means.
- *
- * The whole document is recomputed server-side over the narrowed interviews, so the summary counts and
- * the divergence flags describe the scope rather than being filtered after the fact: a disagreement
- * between two workshops is not a disagreement within one of them. The heading sentence follows the
- * scope for the same reason — "all N interviews they took part in" is a claim about the whole corpus
- * and must not be repeated under a filter.
- *
- * THE SCOPE CONTROL IS RENDERED IN EVERY BRANCH, including both failures. Narrowing to a workshop this
- * artisan was not at is an ordinary thing to do by accident, and it produces an empty or failed
- * document — so the control that caused it has to still be on screen to undo it.
- */
 @Composable
 private fun ConsolidatedDocument(
     repository: FieldRepository,
@@ -517,8 +410,6 @@ private fun ConsolidatedDocument(
         title = artisan?.name?.ifBlank { picked.name } ?: picked.name,
         icon = Icons.Filled.Layers
     ) {
-        // Not the chrome's back arrow, which leaves the whole destination: this steps from the document
-        // to the picker, the move the web makes by following its own URL back.
         TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp)) {
             Text("All artisans", style = MaterialTheme.typography.labelMedium)
         }
@@ -566,12 +457,6 @@ private fun ConsolidatedDocument(
     }
 }
 
-/**
- * A document with nothing in it, and the reason the two bodies differ: an artisan who sat in no
- * interview AT ALL is a gap in the fieldwork, while an artisan who sat in three and has no answers
- * filed is a gap in the filing. Naming the wrong one sends somebody to re-record a sitting that
- * already happened.
- */
 @Composable
 private fun NothingRecordedCard(artisanName: String, interviewCount: Int, scoped: Boolean) {
     ConsolidatedCard(
@@ -664,10 +549,6 @@ private fun SourcesCard(interviews: List<ConsolidatedSourceDto>) {
     }
 }
 
-/**
- * The one control on this screen that must never be softened: it is the difference between "this
- * artisan said it" and "somebody in a room of five said it, and the record does not say who".
- */
 @Composable
 private fun AttributionChip(attribution: String, artisanCount: Int) {
     val group = attribution == ATTRIBUTION_GROUP
@@ -749,8 +630,6 @@ private fun SectionCard(section: ConsolidatedSectionDto) {
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    // Said plainly rather than pinned to a nearby question: the clip identifies the
-                    // section and stops there, and inventing the rest is the error this screen avoids.
                     Text(
                         "Section only — no specific question.",
                         style = MaterialTheme.typography.bodySmall,
@@ -786,7 +665,6 @@ private fun AnswerRow(answer: ConsolidatedAnswerDto, ordinal: Int?) {
         if (body != null) {
             Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
         } else if (spoken != null) {
-            // The stored transcript is markdown: read as speech, speakers as labels (0.0.6).
             com.fieldrepository.app.transcript.ui.TranscriptSpokenText(spoken)
         } else if (answer.kind == "RECORDED") {
             Text(
@@ -851,10 +729,6 @@ private fun UnfiledCard(rows: List<ConsolidatedAnswerDto>) {
     }
 }
 
-/**
- * `RecordCard` is file-private in MainActivity.kt, so the card is restated here — the same precedent
- * as `AppearanceScreen`'s `PreferenceCard`, `SearchScreen`'s `SearchCard` and `MapScreen`'s `MapCard`.
- */
 @Composable
 private fun ConsolidatedCard(
     title: String,

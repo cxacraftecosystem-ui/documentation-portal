@@ -47,14 +47,6 @@ import com.fieldrepository.app.data.apiErrorMessage
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.launch
 
-/**
- * THE REVIEW FEEDBACK LOOP ON THE HANDSET (A1, A2) — the web's `lib/review.ts` and
- * `components/review/ReviewNoteBanner.tsx` / `SentBackCard.tsx`, word for word.
- *
- * The reviewer's note used to be required, saved, and shown on no screen of either app. Now it sits
- * above the record's edit form, and the home screen carries "Sent back to you (N)" whenever a
- * reviewer has returned something of this account's.
- */
 object ReviewFeedbackCopy {
     fun isReturned(status: String?): Boolean = status == "NEEDS_REVISION" || status == "REJECTED"
 
@@ -74,7 +66,6 @@ object ReviewFeedbackCopy {
         if (rejected > 0) add("$rejected not accepted")
     }.joinToString(" · ")
 
-    /** The API's record type for an edit screen's kind, or null for a kind that is never reviewed. */
     fun recordTypeFor(entryName: String): String? = when (entryName) {
         "ARTISAN" -> "artisan"
         "PRODUCT" -> "product"
@@ -85,7 +76,6 @@ object ReviewFeedbackCopy {
         else -> null
     }
 
-    /** "Approve 3", the bulk bar's button. */
     fun approveLabel(count: Int): String = "Approve $count"
 
     fun bulkReceipt(approved: Int, failed: Int, fileCount: Int = 0): String {
@@ -94,61 +84,40 @@ object ReviewFeedbackCopy {
         else "$approved approved${withFiles.removePrefix(",")}, $failed failed (still ticked)."
     }
 
-    // --- The reason a reviewer picks (C19), the web's `lib/review.ts` word for word ---
-
-    /** What "Reject" with this reason really does: a FIXABLE reason sends the record back instead. */
     fun refusalOutcome(reason: ReviewReasonDto?): String = if (reason?.fixable == true) "NEEDS_REVISION" else "REJECTED"
 
-    /** The confirm button's label for the picked reason. */
     fun refusalButtonLabel(reason: ReviewReasonDto?): String =
         if (refusalOutcome(reason) == "NEEDS_REVISION") "Send for revision" else "Reject record"
 
-    /** A reason is picked, and "Other" carries words. */
     fun refusalReady(reason: ReviewReasonDto?, note: String): Boolean =
         reason != null && (!reason.needsNote || note.isNotBlank())
 
-    /** The reasons offered on "Send for revision": the fixable ones, picking one optional. */
     fun reviseReasons(reasons: List<ReviewReasonDto>): List<ReviewReasonDto> = reasons.filter { it.fixable }
 
-    /** The banner needs the server only for a record that was sent back or not accepted. */
     fun bannerNeedsFetch(status: String?): Boolean = isReturned(status)
 
-    /** The record page's review bar asks the server only for a PENDING record and a reviewer. */
     fun barNeedsFetch(status: String?, mayReview: Boolean): Boolean = mayReview && status == "PENDING"
-
-    // --- Files approved with their record (owner decision 2026-10-18), the web's words ---
 
     private fun files(count: Int): String = "$count file${if (count == 1) "" else "s"}"
 
-    /** The approval's confirmation line, or null when no file goes with it (and nothing is asked). */
     fun alsoApproves(count: Int): String? = if (count > 0) "Also approves ${files(count)}." else null
 
-    /** The receipt after approving one record; [label] is null where the page already names it. */
     fun approvedReceipt(label: String?, mediaApproved: Int): String {
         val what = label?.let { "Approved $it" } ?: "Approved"
         return if (mediaApproved > 0) "$what, with ${files(mediaApproved)}." else "$what."
     }
 
-    /** What a sent decision says: the receipt, or that it waits on this phone. */
     fun approvalOutcome(label: String?, sent: ReviewSend): String = when (sent) {
         is ReviewSend.Queued -> QUEUED
         is ReviewSend.Sent -> approvedReceipt(label, sent.mediaApproved)
     }
 
-    /** A decision made with no signal: it waits in the outbox and sends itself. */
     const val QUEUED = "Saved on this phone. It sends when you reconnect."
 
-    /** One file's Reject panel: the confirm button for the picked reason. */
     fun fileRefusalLabel(reason: ReviewReasonDto?): String =
         if (refusalOutcome(reason) == "NEEDS_REVISION") "Send for revision" else "Reject file"
 }
 
-/**
- * The reviewer's one decision on a single file, handed to the file cards of a record's page.
- * Approving a record approves its pending files with it, so a reviewer who disagrees about ONE
- * photograph rejects that file here — before the record is decided or after it was approved.
- * Null (every screen but the record view) draws nothing on the cards.
- */
 data class MediaReviewScope(
     val repository: FieldRepository,
     val rejectable: Set<String>,
@@ -158,7 +127,6 @@ data class MediaReviewScope(
 
 val LocalMediaReview = staticCompositionLocalOf<MediaReviewScope?> { null }
 
-/** Reject on one file card, with the reasons a record is rejected with; queued with no signal. */
 @Composable
 fun MediaRejectAction(mediaId: String, label: String) {
     val review = LocalMediaReview.current ?: return
@@ -243,10 +211,6 @@ fun MediaRejectAction(mediaId: String, label: String) {
     }
 }
 
-/**
- * The data browser's review-status choice (C21), the web's `DATA_STATUS_OPTIONS`: an export means
- * approved, so Approved is the default and "All statuses" is the escape.
- */
 object DataStatusChoice {
     const val DEFAULT = "APPROVED"
     const val ALL = "ALL"
@@ -257,17 +221,9 @@ object DataStatusChoice {
         SelectOption(ALL, "All statuses")
     )
 
-    /** The `status` query parameter for a choice; every status sends none. */
     fun param(choice: String): String? = choice.takeIf { it.isNotBlank() && it != ALL }
 }
 
-/**
- * The reviewer's note above a returned record (A1). Draws nothing when there is none, or offline.
- *
- * [knownStatus] is the record's status as its screen loaded it; the server is asked only when that
- * says the record was sent back or not accepted, so a pending or approved record, or one created
- * offline, costs no request (and no 404).
- */
 @Composable
 fun ReviewNoteBanner(repository: FieldRepository, recordType: String, recordId: String, knownStatus: String?) {
     var review by remember(recordType, recordId) { mutableStateOf<LatestReviewDto?>(null) }
@@ -313,10 +269,6 @@ fun ReviewNoteBanner(repository: FieldRepository, recordType: String, recordId: 
     }
 }
 
-/**
- * "Sent back to you (N)" on the home screen (A2). Tapping it lists the records with each note; a row
- * opens the record, whose edit form carries the note again above it.
- */
 @Composable
 fun SentBackCard(
     repository: FieldRepository,
@@ -398,16 +350,6 @@ fun SentBackCard(
     }
 }
 
-/**
- * Approve, send back or reject a PENDING record from its own read-only page (A13), the web's
- * `components/review/RecordReviewBar.tsx`. Drawn only when the server says this reader may review
- * this record, so it never offers a decision the API refuses. [mayReview] is the account's review
- * access; without it nothing is asked.
- *
- * [mediaReview] is the page's own `GET /review/{type}/{id}/media` answer when the page reads it
- * anyway: the bar waits for it instead of asking a second time, and asks itself only when it is
- * absent or came back empty (null).
- */
 @Composable
 fun RecordReviewBar(
     repository: FieldRepository,
@@ -429,7 +371,6 @@ fun RecordReviewBar(
     var error by remember { mutableStateOf<String?>(null) }
     var confirmReject by remember { mutableStateOf(false) }
     var decided by remember(recordType, recordId) { mutableStateOf(false) }
-    /** Files approving this record approves with it; with any, Approve asks first and says how many. */
     var approvesWith by remember(recordType, recordId) { mutableStateOf(0) }
     var confirmApprove by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -571,11 +512,6 @@ fun RecordReviewBar(
     }
 }
 
-/**
- * The reason picker on a decision panel: on Reject, the whole short list (required when the server
- * offers one); on Send for revision, only the fixable reasons, optional. Draws nothing when there is
- * nothing to offer.
- */
 @Composable
 fun ReviewReasonPicker(panel: String, reasons: List<ReviewReasonDto>, reasonCode: String, onPick: (String) -> Unit) {
     val offered = if (panel == "revise") ReviewFeedbackCopy.reviseReasons(reasons) else reasons

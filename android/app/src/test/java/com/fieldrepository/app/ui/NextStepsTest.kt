@@ -4,7 +4,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** A8: every create offers what usually comes next, and "Save and add another" is on the forms. */
 class NextStepsTest {
 
     private fun modes(saved: String, hasProduct: Boolean = true) = nextStepChoices(saved, hasProduct).map { it.modeName }
@@ -52,7 +51,6 @@ class NextStepsTest {
         )
         assertEquals(5, Regex("""onSaveAnother = if \(!isEdit""").findAll(source).count())
         assertTrue("the next-step panel replaces the artisan-only panel", source.contains("NextStepPanel("))
-        // The re-opened form must be a new composition, or it would keep the first record's values.
         assertTrue(source.contains("is Screen.Create -> key(s) {"))
     }
 }

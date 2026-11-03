@@ -5,14 +5,12 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/** Connected components and blob cleanup (ALGORITHMS §9). */
 class ComponentsTest {
 
     private fun fillRect(m: Mask, x0: Int, y0: Int, x1: Int, y1: Int) {
         for (y in y0..y1) for (x in x0..x1) m[x, y] = true
     }
 
-    /** Three blobs of 4, 9 and 1 pixels, none of them touching. */
     private fun threeBlobs(): Mask {
         val m = Mask(20, 20)
         fillRect(m, 1, 1, 2, 2)
@@ -55,7 +53,6 @@ class ComponentsTest {
             val only = labels.maskOf(l)
             assertEquals(labels.areaOf(l), only.countTrue(), "maskOf($l) must match areaOf($l)")
             total += only.countTrue()
-            // Every pixel of the sub-mask must be foreground in the original.
             for (i in only.data.indices) if (only.data[i]) assertTrue(m.data[i])
         }
         assertEquals(m.countTrue(), total)
@@ -77,7 +74,6 @@ class ComponentsTest {
         fillRect(m, 4, 7, 9, 11)
         val labels = Components.label(m, 8)
         assertEquals(1, labels.count)
-        // bounds are [x0, y0, x1, y1] per label; label 1 is the first entry after the background.
         val b = labels.bounds
         var found = false
         for (i in 0..b.size - 4 step 4) {
@@ -134,8 +130,6 @@ class ComponentsTest {
 
     @Test
     fun removeIsolatedTerminatesOnAWholeFieldOfLonePixels() {
-        // Every pass removes the current endpoints and creates new ones; the pass cap is what stops
-        // this from running until the mask is empty (or forever).
         val m = Mask(16, 16)
         for (y in 0 until 16 step 2) for (x in 0 until 16 step 2) m[x, y] = true
         val out = Components.removeIsolated(m, 1, 8)

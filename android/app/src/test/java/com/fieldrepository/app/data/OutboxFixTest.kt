@@ -14,7 +14,6 @@ import org.junit.Test
 import java.io.File
 import java.nio.file.Files
 
-/** B1: a refused outbox save can be fixed and sent, matched to an existing artisan, or discarded. */
 class OutboxFixTest {
     private val dir: File = Files.createTempDirectory("outbox-fix").toFile()
 
@@ -124,8 +123,6 @@ class OutboxFixTest {
         val entry = refused().copy(failureCode = "artisan_identity_conflict", existingRecordId = "a9", existingRecordLabel = "Ramesh Chhipa, Bagru")
         OfflineQueueFile.write(queue, listOf(entry))
         val back = OfflineQueueFile.read(queue) { error(it) }.single()
-        // The body's Aadhaar is sealed at rest (or, with no keystore as here, withheld): AadhaarAtRestTest
-        // covers that. Everything this test is about comes back as written.
         assertFalse(back.payloadJson.contains("234123412346"))
         assertEquals(entry.copy(payloadJson = back.payloadJson), back)
     }

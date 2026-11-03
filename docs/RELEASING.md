@@ -282,7 +282,7 @@ green light.
 The quietest failure in the set. A release at or below the published code is **accepted** by the API:
 it returns 201, the row is written, the run goes green — and it reaches nobody, because
 `_latest_release()` orders by `versionCode` descending and the phone's side of the comparison is
-strict (`android/app/src/main/java/com/fieldrepository/app/MainActivity.kt:1008` offers an update only
+strict (`android/app/src/main/java/com/fieldrepository/app/MainActivity.kt:844` offers an update only
 when `latest.versionCode > installedVersionCode` **and** the release carries a non-blank URL).
 
 An **equal** code is refused here, with no escape hatch. The sibling repository allows one behind a
@@ -489,7 +489,7 @@ cannot move it.
 
 ### And an uninstall deletes the unsent outbox
 
-`android/app/src/main/java/com/fieldrepository/app/data/Offline.kt:123-125` keeps the offline queue at
+`android/app/src/main/java/com/fieldrepository/app/data/Offline.kt:67` keeps the offline queue at
 
 ```
 <filesDir>/outbox/queue.json

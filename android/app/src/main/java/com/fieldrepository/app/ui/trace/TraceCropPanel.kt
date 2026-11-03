@@ -58,90 +58,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-// The two-typeface `Text`, shadowing androidx.compose.material3.Text — see ui/FieldText.kt.
 import com.fieldrepository.app.ui.ActionRow
 import com.fieldrepository.app.ui.Text
 import com.fieldrepository.app.ui.field
 import kotlin.math.roundToInt
 
-/**
- * **"TRACE THIS PART OF THE PHOTOGRAPH" — the frame, drawn on the picture it belongs to.**
- *
- * This is worth having on a handset in particular, because a phone photograph of a sheet on a workbench
- * has the workbench in it — and every stage of the trace downstream reads global statistics off the
- * whole frame, so a dark table edge moves the threshold that decides whether a faint construction line
- * survives.
- *
- * ── WHAT THIS CHANGES, AND WHAT IT DOES NOT ───────────────────────────────────────────────────
- *
- * `TraceCrop.kt`'s header holds the argument in full and it is the reason this panel can exist at all:
- * **the photograph is never altered, never re-encoded and never replaced.** The frame is a TRACE INPUT.
- * It changes the drawing that is offered for attaching, it is recorded in that drawing's provenance
- * note, and it produces no file of its own.
- *
- * Two consequences are visible here rather than in the arithmetic:
- *
- *  1. **THE ORIGINAL IS DECODED AFRESH FOR EVERY RUN.** Nothing in this panel ever replaces the decode
- *     with a cropped one, so somebody who pulled the box too far in can always widen it again. A crop
- *     tool that cannot be undone is a crop tool people do not use.
- *  2. **The box on screen and the box being traced are two different things**, and the panel says so
- *     whenever they differ. One button commits. A full trace on a handset is seconds to tens of seconds
- *     of one core, so a live crop would start one on every finger movement.
- *
- * ── THE ROUTES IN, AND WHY THE NUMBERS ARE THE PRIMARY ONE ────────────────────────────────────
- *
- * A drag is a pointer gesture and is unreachable from a keyboard, from a switch device and from a
- * screen reader. The web answers that with four number inputs, four keyboard-reachable handles and a
- * pointer drag. A handset has no keyboard to give a handle, so the two routes here are:
- *
- *  · **FOUR NUMBER BOXES — Left, Top, Width, Height, in the photograph's own pixels.** The route that
- *    works with TalkBack, with a switch device, and for anybody whose hands are not steady enough to
- *    place a 16 dp handle. It is also the only route that can be READ OUT, which is why a number that
- *    had to be clamped announces itself instead of silently becoming something else.
- *  · **FOUR HANDLES AND A DRAG ON THE BOX.** The fast route for the person holding the sheet.
- *
- * ── WHICH PIXELS THE NUMBERS ARE IN ───────────────────────────────────────────────────────────
- *
- * The frame somebody aims in is **the frame the engine will be handed** — [traceWorkingSize] of the
- * photograph's own dimensions, at most 4096 on the long edge. Not the preview's pixels, which are a
- * quarter of that and would make every number in the provenance note meaningless. So the four numbers
- * on screen are the four numbers in the exported drawing's provenance sentence, and there is one
- * coordinate system to reason about.
- *
- * ── COLLAPSED UNTIL ASKED FOR ─────────────────────────────────────────────────────────────────
- *
- * The panel's own rule — every large allocation lives inside the open half — and this panel's
- * allocation is a decoded preview of a photograph on a phone that is also holding two trace plates and
- * possibly a camera. Closed, it is one line that says what the trace is using, which is the fact
- * somebody needs when they are not framing anything.
- */
-
-/**
- * The long edge the framing preview is decoded to.
- *
- * Big enough to aim at and small enough to be free: a 4:3 frame at this ceiling is 1024 by 768, which
- * is 1.6 MB at the RGB_565 [traceDecodeForDisplay] pins — on a handset already holding two 1024 px
- * ARGB plates at 4.2 MB each. It is the same number as [TRACE_PLATE_LONG_EDGE_PX] for a reason that is
- * not a coincidence: both are pictures shown inside a panel a few hundred density-independent pixels
- * wide, and neither is measured in.
- *
- * It is NOT what bounds a drag's precision, and it would be easy to write that here and be wrong: the
- * box is moved in screen pixels, so what bounds a drag is the width the frame is DRAWN at — a few
- * hundred density-independent pixels of a photograph up to 4096 wide, which is several source pixels
- * per finger-pixel however careful the person is. This ceiling only has to be sharp enough to SEE the
- * edge of the sheet. The route that places a frame exactly is the four number boxes.
- */
 const val TRACE_CROP_PREVIEW_EDGE_PX: Int = 1024
 
-/**
- * The frame chooser.
- *
- * @param photograph the image being traced. The decode is keyed on it, because a frame chosen on one
- *   sheet is meaningless on the next and leaving it applied would trace a region of a photograph nobody
- *   framed.
- * @param applied what the trace is currently using, or null for the whole photograph.
- * @param onApply called only from a button somebody pressed. Null means the whole photograph.
- */
 @Composable
 internal fun TraceFramePanel(
     photograph: Uri,
@@ -177,9 +100,6 @@ internal fun TraceFramePanel(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    // TRUE WHETHER OR NOT THIS IS OPEN. A closed control that says nothing about its
-                    // own state is a control somebody has to open to find out whether they touched it,
-                    // and this one changes what the drawing IS.
                     if (applied == null) {
                         "The whole photograph."
                     } else {
@@ -210,18 +130,6 @@ internal fun TraceFramePanel(
     }
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
- * The open half
- * ──────────────────────────────────────────────────────────────────────────── */
-
-/**
- * The decode, and the two things to say while there is nothing to draw on.
- *
- * SPLIT FROM THE EDITOR BELOW, because a composable whose remembered slots sit below a conditional
- * return appears and disappears between frames. Here the state that must survive a recomposition — the
- * box, the draft, the clamp sentence — belongs to a photograph that has actually been decoded, so it
- * lives in the composable that only exists once one has been.
- */
 @Composable
 private fun TraceFrameChooser(
     photograph: Uri,
@@ -236,9 +144,6 @@ private fun TraceFrameChooser(
 
     LaunchedEffect(key) {
         decoding = true
-        // OFF THE COMPOSITION, BY THE DECODER ITSELF. `traceDecodeForDisplay` puts its own
-        // `withContext(Dispatchers.IO)` inside, so this effect can call it plainly and no call site can
-        // forget — the same rule `TraceEngineRuntime` sets for the trace itself.
         image = traceDecodeForDisplay(context, photograph, TRACE_CROP_PREVIEW_EDGE_PX)
         decoding = false
     }
@@ -263,8 +168,6 @@ private fun TraceFrameChooser(
 
         else -> TracePanelNote(
             warning = true,
-            // The trace itself may still work — it uses a different decoder with a different ceiling and
-            // a different pixel format — so this refuses the FRAMING and says nothing about the drawing.
             text = "Can't show this photo here, so the whole photo will be traced.",
             polite = true,
         )
@@ -284,13 +187,6 @@ private fun TraceFrameEditor(
     var clampNote by remember(sourceKey) { mutableStateOf("") }
     var draft by remember(sourceKey) { mutableStateOf<Pair<String, String>?>(null) }
 
-    /*
-      THE COORDINATE SYSTEM, DECIDED ONCE. Every number in this panel is in the frame the ENGINE will be
-      handed — `traceWorkingSize` of the photograph's own dimensions — and never in the preview's pixels.
-      `TraceDisplayImage.sourceWidth` is the stored frame, which is the same frame `traceDecodeForTrace`
-      works from: that path refuses a rotation-tagged file outright, so for anything this panel can
-      usefully frame the two agree.
-    */
     val (frameWidth, frameHeight) = remember(decoded) {
         traceWorkingSize(decoded.sourceWidth, decoded.sourceHeight)
     }
@@ -312,8 +208,6 @@ private fun TraceFrameEditor(
             onBox = { setBox(it) },
         )
 
-        /* ── The numbers, which are the primary route ───────────────────────────────────────── */
-
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -334,9 +228,6 @@ private fun TraceFrameEditor(
                         draft = null
                         val typed = text.trim().toIntOrNull()
                         if (typed == null) {
-                            // AN EMPTY OR UNREADABLE BOX RESTORES THE FRAME AND SAYS NOTHING. Clearing
-                            // a field in order to retype it is not a mistake to report, and reading it
-                            // as zero would silently jump the frame to a corner.
                             clampNote = ""
                         } else {
                             val candidate = when (field) {
@@ -365,9 +256,6 @@ private fun TraceFrameEditor(
         }
 
         if (clampNote.isNotEmpty()) {
-            // POLITE AND NOT A WARNING BANNER: it is the consequence of an ordinary edit, and an
-            // assertive interruption on every committed number would be worse than the silence it
-            // replaces.
             TracePanelNote(warning = false, text = clampNote, polite = true)
         }
 
@@ -376,8 +264,6 @@ private fun TraceFrameEditor(
             color = MaterialTheme.field.muted,
             style = MaterialTheme.typography.bodySmall,
         )
-
-        /* ── Committing ─────────────────────────────────────────────────────────────────────── */
 
         ActionRow {
             OutlinedButton(
@@ -412,11 +298,6 @@ private fun TraceFrameEditor(
             }
         }
 
-        /*
-          THE STALE SENTENCE. A control whose effect has silently gone stale is indistinguishable from a
-          control that does nothing, which is the bug class this repository takes most seriously — and
-          here the two states differ by which pixels are in the archived drawing.
-        */
         val onScreen = if (traceIsWholeFrame(box, frameWidth, frameHeight)) null else box
         if (applied?.rect != onScreen) {
             TracePanelNote(
@@ -432,30 +313,8 @@ private fun TraceFrameEditor(
     }
 }
 
-/** The four boxes, in the order they are drawn. One list, so nothing can fall out of step with it. */
 private val TRACE_CROP_FIELDS = listOf("Left", "Top", "Width", "Height")
 
-/* ────────────────────────────────────────────────────────────────────────────
- * The picture and the box on it
- * ──────────────────────────────────────────────────────────────────────────── */
-
-/**
- * The photograph with the frame drawn over it, and four handles on the frame.
- *
- * ── THE SURROUND IS DIMMED RATHER THAN THE INSIDE BRIGHTENED ──────────────────────────────────
- *
- * What is being judged is what stays, so what stays is shown as it is. Four rectangles and not one
- * cut-out shape, because four `drawRect` calls need no path and no clip layer — on the phones this app
- * is used from, a saved clip layer per frame during a drag is the difference between a box that follows
- * the finger and one that lags it.
- *
- * ── A DRAG IS ACCUMULATED IN FRACTIONS AND APPLIED IN WHOLE PIXELS ────────────────────────────
- *
- * A frame pixel is smaller than a screen pixel here — a 4096 px photograph shown 1024 px wide — so
- * rounding every touch delta on its own would throw away most of a slow drag and the box would refuse
- * to move at all. The remainder is carried between events instead, so the box tracks the finger and
- * every value it takes is still a whole pixel.
- */
 @Composable
 private fun TraceCropOverlay(
     preview: ImageBitmap,
@@ -468,21 +327,6 @@ private fun TraceCropOverlay(
     var viewWidth by remember { mutableFloatStateOf(0f) }
     var viewHeight by remember { mutableFloatStateOf(0f) }
 
-    /*
-      THE BOX AS IT IS RIGHT NOW, READABLE FROM INSIDE A GESTURE — and the reason the drag below works
-      at all.
-
-      `Modifier.pointerInput(keys) { … }` restarts its suspend block only when a KEY changes, and its
-      lambda closes over the enclosing composition's values BY VALUE. `box` is a parameter of this
-      composable and is deliberately NOT a key (making it one would restart — and therefore CANCEL — the
-      gesture on the first pixel of movement), so a lambda that read `box` directly would read the
-      rectangle as it stood when the drag began, for the whole drag. The symptom is a frame that moves
-      about one step and then sits still however far the finger travels.
-
-      `rememberUpdatedState` is the standard answer — the holder is stable, so it can be captured once,
-      and `.value` is always the latest composition's. It is read at `onDragStart` and nowhere else,
-      which is the other half of the fix; see the snapshot rule there.
-    */
     val latestBox by rememberUpdatedState(box)
 
     val aspect = if (preview.height > 0) preview.width.toFloat() / preview.height.toFloat() else 1f
@@ -492,8 +336,6 @@ private fun TraceCropOverlay(
     val toViewY = if (frameHeight > 0) viewHeight / frameHeight else 0f
 
     val density = LocalDensity.current
-    // The drag target for the whole box, sized in density-independent units because a `Modifier.size`
-    // takes them. Half a handle, in raw pixels, is what the four corner offsets are centred by.
     val boxWidthDp = with(density) { (box.width * toViewX).toDp() }
     val boxHeightDp = with(density) { (box.height * toViewY).toDp() }
     val half = with(density) { 22.dp.toPx() }
@@ -524,9 +366,6 @@ private fun TraceCropOverlay(
             drawRect(shade, Offset(0f, bottom), Size(size.width, size.height - bottom))
             drawRect(shade, Offset(0f, top), Size(left, bottom - top))
             drawRect(shade, Offset(right, top), Size(size.width - right, bottom - top))
-            // Two strokes, light over dark, so the edge is visible against a white sheet and against a
-            // dark workbench without depending on either — the seam in `TraceCompare.kt` is drawn the
-            // same way for the same reason.
             drawRect(
                 color = Color.Black.copy(alpha = 0.6f),
                 topLeft = Offset(left - 1f, top - 1f),
@@ -541,8 +380,6 @@ private fun TraceCropOverlay(
             )
         }
 
-        // Dragging the BOX moves it whole. Placed under the handles so a finger on a corner resizes
-        // rather than slides — the corner is the smaller target and therefore the deliberate one.
         Box(
             modifier = Modifier
                 .offset {
@@ -551,13 +388,6 @@ private fun TraceCropOverlay(
                 .size(width = boxWidthDp, height = boxHeightDp)
                 .pointerInput(enabled, frameWidth, frameHeight, toFrameX, toFrameY) {
                     if (!enabled) return@pointerInput
-                    /*
-                      SNAPSHOT AT PRESS, TOTAL DELTA APPLIED TO THE SNAPSHOT. The delta is the WHOLE
-                      gesture's, not this event's, so nothing is lost to rounding between events and
-                      nothing drifts: the frame is always exactly where the finger has taken it from
-                      where it started. A per-event step applied to a value read back from the parent
-                      would be the version that lost a fractional pixel on every frame of a slow drag.
-                    */
                     var start = latestBox
                     var totalX = 0f
                     var totalY = 0f
@@ -589,20 +419,6 @@ private fun TraceCropOverlay(
             val cy = (if (atBottom) box.y + box.height else box.y) * toViewY
             Box(
                 modifier = Modifier
-                    /*
-                      KEPT INSIDE THE PARENT'S BOUNDS, which is the second half of why corners are hard
-                      to grab if this is left out.
-
-                      Compose hit-tests a child against its PARENT's layout bounds, so the part of a
-                      44 dp target that hangs outside this Box receives no touch at all. The crop OPENS
-                      as the whole photograph, so all four handles start centred on the picture's own
-                      corners and three-quarters of each target would be outside — somebody pressing
-                      exactly on the visible mark would be pressing a dead quarter of it.
-
-                      Clamping the OFFSET rather than shrinking the target keeps the full 44 dp
-                      touchable while the drawn 14 dp mark stays centred on the corner it names, which
-                      is what somebody is aiming at.
-                    */
                     .offset {
                         val maxX = (viewWidth - half * 2f).coerceAtLeast(0f)
                         val maxY = (viewHeight - half * 2f).coerceAtLeast(0f)
@@ -611,19 +427,9 @@ private fun TraceCropOverlay(
                             (cy - half).coerceIn(0f, maxY).roundToInt(),
                         )
                     }
-                    // 44 dp of TARGET around a 14 dp mark. Material's minimum is 48 dp and this is under
-                    // it deliberately: four 48 dp targets on a small frame overlap in the middle of a
-                    // box somebody is trying to pull to a corner, and an overlapping target is a corner
-                    // that moves the wrong way. The number boxes are the route for anybody this is too
-                    // small for, which is why they are the primary one.
                     .size(44.dp)
                     .pointerInput(enabled, frameWidth, frameHeight, toFrameX, toFrameY) {
                         if (!enabled) return@pointerInput
-                        // The same snapshot-and-total rule as the box drag above, and it matters more
-                        // here: a corner applied per-event to a stale rectangle does not merely lag, it
-                        // fights the clamp — `traceMoveCorner` holds the OPPOSITE edge still, so
-                        // repeatedly re-deriving from the same origin pins the handle a step away from
-                        // where it began and refuses to go further.
                         var start = latestBox
                         var totalX = 0f
                         var totalY = 0f
@@ -658,7 +464,6 @@ private fun TraceCropOverlay(
     }
 }
 
-/** What TalkBack calls a handle. Positional, because the position is the only thing it means. */
 private fun traceCornerName(corner: TraceCropCorner): String = when (corner) {
     TraceCropCorner.TOP_LEFT -> "Top-left corner of the frame. Drag it, or use the boxes below."
     TraceCropCorner.TOP_RIGHT -> "Top-right corner of the frame. Drag it, or use the boxes below."
@@ -666,15 +471,6 @@ private fun traceCornerName(corner: TraceCropCorner): String = when (corner) {
     TraceCropCorner.BOTTOM_RIGHT -> "Bottom-right corner of the frame. Drag it, or use the boxes below."
 }
 
-/**
- * One of the four number boxes.
- *
- * **THE HALF-TYPED NUMBER IS THE WHOLE PROBLEM HERE.** Committing on every keystroke means that typing
- * "1200" into Width passes through 1, 12 and 120 — each of which is a legal crop, each of which
- * re-clamps the origin, and the box on screen jumps three times before the number anybody meant is
- * finished. So the characters being typed are held as a draft and the frame is only touched when the
- * field is left or the keyboard's Done is pressed.
- */
 @Composable
 private fun TraceCropNumberField(
     label: String,

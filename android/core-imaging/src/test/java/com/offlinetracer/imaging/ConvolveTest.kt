@@ -6,14 +6,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * Kernels and derivatives (ALGORITHMS §3). Every assertion here has a closed form: a normalised
- * kernel sums to one, a blur of a constant is that constant, and a derivative operator applied to a
- * linear ramp returns the ramp's slope exactly.
- */
 class ConvolveTest {
 
-    /** `v(x, y) = base + sx*x + sy*y` — the only surface whose exact gradient is known by hand. */
     private fun ramp(w: Int, h: Int, base: Float, sx: Float, sy: Float): GrayF {
         val g = GrayF(w, h)
         for (y in 0 until h) for (x in 0 until w) g[x, y] = base + sx * x + sy * y
@@ -36,11 +30,6 @@ class ConvolveTest {
         }
     }
 
-    /**
-     * The Double kernel has to be the *same* kernel — same support, same symmetry, same taps to
-     * within the Float one's own rounding — because `gaussianBlurDouble` is only ever used to make a
-     * blur reproducible across engines, never to change what a blur means.
-     */
     @Test
     fun gaussianKernelDoubleIsTheSameKernelCarriedInDouble() {
         for (sigma in floatArrayOf(0f, 0.05f, 0.5f, 1f, 1.6f, 2f, 3.3f)) {
@@ -56,14 +45,6 @@ class ConvolveTest {
         }
     }
 
-    /**
-     * Normalisation has to hold to *Double* precision, not merely to Float precision.
-     *
-     * This is the whole reason the function exists. XDoG's `1/(1-τ)` rescale is exact only if each
-     * kernel sums to exactly 1 — a flat region of intensity `I` must answer `(1-τ)·I` — and at τ = 0.98
-     * the rescale multiplies any shortfall by 50 before ε is compared against it. The Float kernel is
-     * normalised to about 1e-7, which is 5e-6 after amplification; this one is normalised to 1e-15.
-     */
     @Test
     fun gaussianKernelDoubleSumsToOneToDoublePrecision() {
         for (sigma in floatArrayOf(0.5f, 1f, 1.6f, 2f, 3.3f, 8f)) {
@@ -81,8 +62,6 @@ class ConvolveTest {
             assertEquals(src.data.size, out.size, "sigma=$sigma must return one sample per pixel")
             for (v in out) assertEquals(0.42f.toDouble(), v, 1e-12)
         }
-        // Same answer as the Float blur, to the Float blur's own accuracy: this is a precision change,
-        // not a different filter.
         val surface = ramp(19, 11, 0.1f, 0.03f, 0.017f)
         val d = Convolve.gaussianBlurDouble(surface, 1.2f)
         val f = Convolve.gaussianBlur(surface, 1.2f).data
@@ -91,8 +70,6 @@ class ConvolveTest {
 
     @Test
     fun gaussianBlurDoubleReproducesTheInputAtADegenerateSigma() {
-        // There is no `sigma <= 0.05` short circuit here — the identity kernel runs both passes — so
-        // the exactness of `0*a + 1*b + 0*c` is load-bearing rather than incidental.
         val src = ramp(8, 8, 0f, 0.1f, 0.05f)
         for (sigma in floatArrayOf(0f, 0.01f, 0.05f)) {
             val out = Convolve.gaussianBlurDouble(src, sigma)
@@ -120,8 +97,6 @@ class ConvolveTest {
 
     @Test
     fun blurDoesNotShiftASymmetricFeature() {
-        // An off-by-one in the separable pass moves the image by a pixel, which is invisible in a
-        // snapshot test and catastrophic once the vector output is overlaid on the original.
         val src = GrayF(9, 9)
         src[4, 4] = 1f
         val out = Convolve.gaussianBlur(src, 1f)
@@ -144,14 +119,11 @@ class ConvolveTest {
     fun boxBlurOfRadiusOneIsTheThreeByThreeMean() {
         val src = ramp(7, 7, 0f, 1f, 10f)
         val out = Convolve.boxBlur(src, 1)
-        // The mean of a linear surface over a centred window is the centre value.
         for (y in 1 until 6) for (x in 1 until 6) assertEquals(src[x, y], out[x, y], 1e-3f)
     }
 
     @Test
     fun scharrOnARampReturnsTheExactSlope() {
-        // Sign convention (ALGORITHMS §3): gx is positive where intensity DECREASES to the right,
-        // so a ramp rising by 0.1 per pixel has gx = -0.1.
         val g = Convolve.gradients(ramp(9, 9, 0.2f, 0.1f, 0f))
         for (y in 1 until 8) for (x in 1 until 8) {
             assertEquals(-0.1f, g.gx[x, y], 1e-4f)
@@ -186,8 +158,6 @@ class ConvolveTest {
         val gx = GrayF(1, 1, floatArrayOf(3f))
         val gy = GrayF(1, 1, floatArrayOf(4f))
         val m = Convolve.Gradients(gx, gy).magnitude()
-        // |gx| + |gy| would be 7 here; the L1 approximation is up to 41% high on diagonals and
-        // biases every auto-threshold that consumes it.
         assertEquals(5f, m[0, 0], 1e-5f)
     }
 
@@ -243,7 +213,6 @@ class ConvolveTest {
         val src = GrayF(3, 2, floatArrayOf(1f, 2f, 3f, 4f, 5f, 6f))
         val sat = Convolve.summedAreaTable(src)
         assertEquals((3 + 1) * (2 + 1), sat.size)
-        // The border row and column are zero and sat[(y+1)*(w+1) + x+1] is the sum over [0..x],[0..y].
         for (i in 0..3) assertEquals(0.0, sat[i], 1e-9)
         assertEquals(1.0, sat[1 * 4 + 1], 1e-9)
         assertEquals(3.0, sat[1 * 4 + 2], 1e-9)

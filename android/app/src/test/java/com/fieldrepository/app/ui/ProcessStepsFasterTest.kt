@@ -10,7 +10,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** C22: steps from photos, a template from the craft's last process, and unnamed steps flagged. */
 class ProcessStepsFasterTest {
 
     private val main = repoSource(
@@ -31,7 +30,6 @@ class ProcessStepsFasterTest {
         assertTrue(main.contains("Text(\"Steps from photos\")"))
         assertTrue(main.contains("Text(\"Photograph steps\")"))
         assertTrue(main.contains("Start from this craft's last process"))
-        // Names only: the copied steps carry no media of the other process.
         assertTrue(main.contains("ProcessStepUi(java.util.UUID.randomUUID().toString(), null, source.name, source.stepType)"))
     }
 

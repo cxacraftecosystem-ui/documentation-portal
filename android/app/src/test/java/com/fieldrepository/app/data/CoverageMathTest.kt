@@ -12,11 +12,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/**
- * The coverage choropleth's arithmetic against `coverage-parity.json` — the same fixture, byte for
- * byte, that the web's `e2e/coverage-parity-unit.spec.ts` reads in both portals. Same breaks, same
- * bins, same polygon fills: the phone and the web cannot shade one district differently.
- */
 class CoverageMathTest {
     private val json = Json { ignoreUnknownKeys = true }
 

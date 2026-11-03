@@ -11,12 +11,6 @@ import org.junit.Test
 import java.io.File
 import java.time.Instant
 
-/**
- * The in-app activity list's rules on the handset (C25): a mark made offline survives the next
- * sync, the first sync for an account alerts nothing, nothing is alerted twice, and a refused replay
- * is dropped while an expired sign-in keeps it. Pure — the file store and the system notification
- * are thin shells over these.
- */
 class AppNotificationsTest {
     private val PKG = "com/fieldrepository/app"
     private val REPO = "FieldRepository.kt"
@@ -50,11 +44,9 @@ class AppNotificationsTest {
         val before = NotificationInboxRules.markRead(start, listOf("a"), "t0")
         val sent = NotificationInboxRules.replayBody(before)!!
         assertEquals(listOf("a"), sent.ids)
-        // The person opens "x" while that call is running: it is queued beside "a".
         val during = NotificationInboxRules.markRead(before, listOf("x"), "t1")
         val after = NotificationInboxRules.replayed(during, sent, sentLegacyAll = false)
         assertEquals(listOf("x"), after.pendingReadIds)
-        // The server has not heard about "x" yet; the list must still show it read.
         val merged = NotificationInboxRules.merge(after, page(notice("a", read = true), notice("x")), "t2")
         assertEquals(listOf(true, true), merged.items.map { it.read })
         assertEquals(listOf("x"), NotificationInboxRules.replayBody(merged)!!.ids)
@@ -96,7 +88,6 @@ class AppNotificationsTest {
 
     @Test
     fun `server times with an offset are read`() {
-        // Python's isoformat sends "+00:00". Before API 34, Instant.parse refuses it on the phone.
         val utc = Instant.parse("2026-10-17T12:00:00Z")
         assertEquals(utc, notificationInstant("2026-10-17T12:00:00+00:00"))
         assertEquals(utc, notificationInstant("2026-10-17T17:30:00+05:30"))
@@ -105,7 +96,6 @@ class AppNotificationsTest {
         assertNull(notificationInstant("not a date"))
         assertNull(notificationInstant(""))
         assertEquals("5 min ago", notificationWhen("2026-10-17T11:55:00+00:00", utc))
-        // The screen goes through the offset-first parser, not Instant.parse alone.
         val screen = listOf(File("src/main/java/$PKG/ui/NotificationsScreen.kt"), File("app/src/main/java/$PKG/ui/NotificationsScreen.kt"))
             .first { it.exists() }.readText()
         assertTrue(screen.contains("notificationInstant(createdAt)"))

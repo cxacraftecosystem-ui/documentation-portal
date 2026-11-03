@@ -11,14 +11,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * THE HANDSET'S HALF OF THE ARTISAN FORM CONTRACT (2026-10-17), against the one shared table.
- *
- * `shared/artisan-form-contract.json` is byte-identical in the designer portal and the documentation
- * portal and is read unmodified here, by the server's `test_artisan_form_contract.py` and by the web's
- * `artisan-form-contract-unit.spec.ts`. The server's test also reads this app's artisan form for the
- * labels, their order and the retired words; this test proves the sentence and the month rows.
- */
 class ArtisanFormContractTest {
 
     private fun contract() = Json.parseToJsonElement(contractFile().readText()).jsonObject

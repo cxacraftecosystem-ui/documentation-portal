@@ -13,15 +13,6 @@ import java.time.OffsetDateTime
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 
-/**
- * THE PHONE-TO-PHONE FORM HANDOFF (UNIFY A10; `shared/questionnaire-bundle.json`, version 2).
- *
- * Gzipped UTF-8 JSON built and read with no connection. Field Repository writes `.frwq` and reads
- * both `.frwq` and designer-portal's `.dpwq` (v2, and DR Android's first format, v1). A received file
- * is untrusted: the format has no id, owner or author, so importing always CREATES (through
- * [FormAuthoringOutbox.queueBundle]) and whoever adds it is its author. Sessions and answers are
- * reserved for a later version and never read.
- */
 @Serializable
 data class FormBundleForm(val title: String = "", val description: String? = null, val kind: String? = null)
 
@@ -71,7 +62,6 @@ object FormBundles {
 
     fun newBundleId(random: SecureRandom = SecureRandom()): String = ByteArray(16).also(random::nextBytes).joinToString("") { "%02x".format(it) }
 
-    /** A form's live sections and questions, as a bundle. No ids, no owner, no answers. */
     fun of(form: QForm, bundleId: String = newBundleId(), createdAt: String = OffsetDateTime.now(Naming.IST).toString()): FormBundle {
         val sections = form.sections.filter { it.isActive }.sortedBy { it.sortOrder }
         val codes = LinkedHashSet<String>()
@@ -101,13 +91,11 @@ object FormBundles {
         return out.toByteArray()
     }
 
-    /** `FieldRepository_Questionnaire_2026-10-22_2nd-Craft-Toolkit_Handoff.frwq` (the naming helper). */
     fun fileName(title: String, day: String? = null): String =
         Naming.exportFilename(entity = "Questionnaire", what = "Handoff", ext = EXTENSION, subject = title, day = day, portal = "FieldRepository")
 
     fun readable(name: String?): Boolean = name?.substringAfterLast('.', "")?.lowercase() in READS
 
-    /** Reads a received file: v2 from either portal, or DR Android's v1. Refuses, never half-reads. */
     fun read(bytes: ByteArray?): BundleRead {
         if (bytes == null || bytes.isEmpty()) return BundleRead.Refused("EMPTY", "That file is empty. Ask for it again.")
         val text = try {
@@ -161,7 +149,6 @@ object FormBundles {
         )
     }
 
-    /** DR Android's first format: `{format, schemaVersion, title, description, sections:[{code,title,sortOrder,questions:[…]}]}`. */
     private fun fromV1(root: JsonObject): FormBundle? = runCatching {
         val v1 = json.decodeFromJsonElement(V1.serializer(), root)
         val sections = v1.sections.sortedBy { it.sortOrder }.mapIndexed { i, s -> FormBundleSection(s.code.ifBlank { "S${i + 1}" }, s.title, i + 1) }

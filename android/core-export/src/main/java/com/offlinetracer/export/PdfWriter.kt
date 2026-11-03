@@ -9,28 +9,6 @@ import com.offlinetracer.vector.VecSeg
 import java.io.ByteArrayOutputStream
 import kotlin.math.roundToInt
 
-/**
- * A real single-page PDF 1.4 writer: header, catalog, page tree, content stream, resources,
- * a byte-accurate cross-reference table and a trailer.
- *
- * Three things decide whether the file opens at all:
- *
- *  - **The xref offsets must be exact byte positions of each `N 0 obj`.** Acrobat rebuilds a
- *    broken table and says nothing, which is precisely why a wrong table survives testing and
- *    then fails in whatever the user actually opens it with. Offsets here are read back off the
- *    output stream at the moment each object starts, so they cannot drift.
- *  - **PDF's origin is bottom-left with y growing upward**, the opposite of the engine's image
- *    coordinates. One `cm` at the top of the content stream flips y for everything that follows,
- *    which keeps every emitted coordinate in unmodified document space. Flipping per-path instead
- *    is the usual route to an upside-down export.
- *  - **The page is measured in points**, 1/72 inch. Document units are pixels at
- *    [ExportOptions.dpi], so the conversion is `72 / dpi` and a 3000px trace at 300 dpi prints as
- *    a 10 inch page rather than a 41 foot one.
- *
- * The content stream is left uncompressed. It costs size on a dense trace, but a PDF whose
- * content can be read in a text editor is a PDF whose geometry bugs can be diagnosed from a user's
- * emailed file, and that has been worth more than the bytes.
- */
 object PdfWriter {
 
     private const val OBJ_CATALOG = 1
@@ -40,17 +18,8 @@ object PdfWriter {
     private const val OBJ_CONTENT = 5
     private const val OBJ_FIRST_GS = 6
 
-    /** Content stream text plus the transparency states it referenced, in resource order. */
     private class Content(val text: String, val gs: List<FloatArray>)
 
-    /**
-     * Renders [doc] to a one-page PDF 1.4 file.
-     *
-     * @param o `dpi` converts document units to points; `width`/`height`/`scale` resize the page;
-     *   `background` paints an opaque page colour when non-null; `includeMetadata` adds an `/Info`
-     *   dictionary. No timestamp is written — the export must be byte-reproducible.
-     * @return the complete PDF file bytes. A document with no shapes yields a valid empty page.
-     */
     fun export(doc: VecDocument, o: ExportOptions): ByteArray {
         val docW = if (doc.width.isFinite() && doc.width > 0f) doc.width else 1f
         val docH = if (doc.height.isFinite() && doc.height > 0f) doc.height else 1f
@@ -82,8 +51,6 @@ object PdfWriter {
         }
 
         w("%PDF-1.4\n")
-        // A comment of bytes >= 128 on line 2 is what tells transfer agents and repair tools that
-        // this file is binary. Omitting it makes some FTP/mail paths mangle the stream.
         out.write(
             byteArrayOf(
                 '%'.code.toByte(), 0xE2.toByte(), 0xE3.toByte(), 0xCF.toByte(), 0xD3.toByte(),
@@ -139,9 +106,6 @@ object PdfWriter {
 
         val xrefOffset = out.size()
         w("xref\n0 ${maxObj + 1}\n")
-        // Every entry is exactly 20 bytes including the two-byte EOL, and readers seek by
-        // multiplying the object number by 20. A single missing pad character shifts every
-        // lookup after it.
         w("0000000000 65535 f\r\n")
         var n = 1
         while (n <= maxObj) {
@@ -156,8 +120,6 @@ object PdfWriter {
 
         return out.toByteArray()
     }
-
-    // ---------------------------------------------------------------- content stream
 
     private fun buildContent(
         doc: VecDocument,
@@ -188,12 +150,8 @@ object PdfWriter {
         }
 
         sb.append("q\n")
-        // Clip to the page before the flip. Control points from a bad fit can land far outside
-        // the artboard, and a viewer that honours the clip shows the page rather than a document
-        // whose zoom-to-fit is a thousand times too wide.
         sb.append("0 0 ").append(ExportGeom.num(pageW, 3)).append(' ')
             .append(ExportGeom.num(pageH, 3)).append(" re W n\n")
-        // The y-flip. Everything after this line is written in unmodified document coordinates.
         sb.append(ExportGeom.num(kx, 6)).append(" 0 0 ").append(ExportGeom.num(-ky, 6))
             .append(" 0 ").append(ExportGeom.num(pageH, 3)).append(" cm\n")
 
@@ -285,9 +243,6 @@ object PdfWriter {
                 }
 
                 is VecSeg.Quad -> {
-                    // PDF has no quadratic operator. The exact cubic equivalent lifts the control
-                    // point two thirds of the way from each endpoint; approximating it instead
-                    // visibly flattens tight corners.
                     val c1x = cx + 2f / 3f * (seg.c.x - cx)
                     val c1y = cy + 2f / 3f * (seg.c.y - cy)
                     val c2x = seg.to.x + 2f / 3f * (seg.c.x - seg.to.x)
@@ -327,7 +282,6 @@ object PdfWriter {
     private fun clamp01(v: Float): Float =
         if (!v.isFinite()) 0f else if (v < 0f) 0f else if (v > 1f) 1f else v
 
-    /** Escapes the three characters that terminate or nest a PDF literal string. */
     private fun pdfString(s: String): String {
         val sb = StringBuilder(s.length + 8)
         for (ch in s) {

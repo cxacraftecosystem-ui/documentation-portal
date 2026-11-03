@@ -14,77 +14,20 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * THE QUESTIONNAIRE CAPTURE FORM IS WIRED END TO END — every box the contract declares reaches the
- * request body, on both save paths, and comes back on an edit.
- *
- * ── WHAT THIS CATCHES THAT THE CONTRACT SUITE DOES NOT ──────────────────────────────────────────
- *
- * `backend/tests/test_questionnaire_form_contract.py` measures which controls the form DRAWS and
- * what they are called. That is the half the owner reported. It is silent about the other half, and
- * the other half is worse: a control that renders and does not save discards what a researcher
- * typed, in front of an artisan, with a green "Saved" afterwards. Nobody finds out until somebody
- * reads the record back, by which time the sitting is over and the artisan has gone home.
- *
- * THAT IS NOT HYPOTHETICAL HERE. `questionnaireId` sat in `QuestionnaireInterviewCreateRequest`,
- * in `FieldRepository`, and in `FieldRepositoryApi` for a fortnight before this commit, fully
- * plumbed and never filled in by the handset, because nothing joined the DTO's fields to the form's
- * call sites. The form drew four boxes and the payload carried eight fields; both halves compiled.
- *
- * ── WHY IT READS SOURCE RATHER THAN RENDERING THE FORM ──────────────────────────────────────────
- *
- * Compose is deliberately not on this module's unit-test classpath (see `app/build.gradle.kts`), so
- * there is no renderer to drive and no `QuestionnaireInterviewCreateRequest` to capture from a fake
- * `onSubmit`. The alternative considered was an instrumented androidTest that fills the form on a
- * device and asserts on the body: it is the stronger assertion and it is the one nobody runs before
- * a release, which makes it weaker in the only way that matters. What is scanned here is argument
- * syntax — `key =` inside a named argument list — which is exactly the shape that goes wrong when a
- * field is added to the UI and forgotten in the payload.
- *
- * The register is the CONTRACT and not a list retyped here: [fieldWiring] must cover every field the
- * contract declares and nothing else, so a ninth field added to the form declares itself in this
- * file or fails in it.
- */
 class QuestionnaireFormWiringTest {
 
-    // ═══════════════════════════════════════════════════════════════════════════════════════════
-    //  The register: a contract field, the wire key it becomes, and how an edit loads it back
-    // ═══════════════════════════════════════════════════════════════════════════════════════════
-
-    /**
-     * One row per field of `shared/questionnaire-form-contract.json`.
-     *
-     * THE CONTRACT KEY AND THE WIRE KEY ARE DIFFERENT NAMES FOR THREE OF THE EIGHT, and that is the
-     * whole reason this table is written out rather than derived. The contract names the field as
-     * the FORM has it — `workshop`, `artisans` — and the request body names it as the API has it —
-     * `workshopId`, `artisanIds`. A test that assumed the two agreed would pass over a form that had
-     * stopped sending the workshop, because it would be looking for the wrong word.
-     *
-     * [seed] is the expression that loads the field back when an existing interview is opened. It is
-     * in this table and not in a second one because the three facts belong together: a field that is
-     * drawn, saved and NOT seeded is a form that silently blanks what the record already held the
-     * moment somebody opens it to fix a typo — which is the same class of defect as a control that
-     * does not save, arriving from the other direction.
-     */
     private data class Wiring(val contractKey: String, val wireKey: String, val seed: String)
 
     private val fieldWiring = listOf(
         Wiring("title", "title", "editing?.title"),
         Wiring("place", "place", "editing?.place"),
         Wiring("language", "language", "editing?.language"),
-        // The workshop is seeded through the picker rather than into a local `var`: an edit form must
-        // never move off the workshop the record was saved at, which is a rule `rememberWorkshopPicker`
-        // owns (it is also what makes `settled` true from construction there).
         Wiring("workshop", "workshopId", "editing?.workshopId"),
         Wiring("questionnaireId", "questionnaireId", "editing?.questionnaireId"),
         Wiring("status", "status", "editing?.status"),
         Wiring("artisans", "artisanIds", "editing?.artisans"),
         Wiring("notes", "notes", "editing?.notes"),
     )
-
-    // ═══════════════════════════════════════════════════════════════════════════════════════════
-    //  Reading the two subjects
-    // ═══════════════════════════════════════════════════════════════════════════════════════════
 
     private fun contractKeys(): List<String> {
         val contract = Json.parseToJsonElement(
@@ -96,14 +39,6 @@ class QuestionnaireFormWiringTest {
         return contract["fields"]!!.jsonArray.map { it.jsonObject["key"]!!.jsonPrimitive.content }
     }
 
-    /**
-     * `QuestionnaireForm`'s body, comment-stripped.
-     *
-     * BRACE-BALANCED FROM THE FUNCTION'S OWN `{`, and not "up to the next `@Composable`". The obvious
-     * slice is wrong quietly: the next top-level composable after this one is hundreds of lines past
-     * the end of it, so that slice swallows the next screen whole and would report ITS controls as
-     * this form's. The enforcing test on the backend side records having tried exactly that.
-     */
     private fun formBody(): String {
         val source = kotlinWithoutComments(
             repoSource(
@@ -121,7 +56,6 @@ class QuestionnaireFormWiringTest {
         return balancedFrom(source, open, '{', '}')
     }
 
-    /** Every `QuestionnaireInterviewCreateRequest(...)` argument list the form builds, in order. */
     private fun createRequestLiterals(): List<String> {
         val body = formBody()
         val found = mutableListOf<String>()
@@ -136,18 +70,6 @@ class QuestionnaireFormWiringTest {
         return found
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════════════════════
-    //  1. The register covers the contract, and only the contract
-    // ═══════════════════════════════════════════════════════════════════════════════════════════
-
-    /**
-     * The guard that keeps every assertion below from going quietly out of date.
-     *
-     * Without it, a ninth field added to the contract and to the form would simply not be checked
-     * here: the loops below iterate [fieldWiring], so a field missing from that list is a field this
-     * suite is silent about — and silence reads as parity. Held BOTH ways, because a row left behind
-     * for a field that has been removed is a different lie and just as durable.
-     */
     @Test
     fun `this suite knows about exactly the fields the contract declares`() {
         assertEquals(
@@ -160,23 +82,6 @@ class QuestionnaireFormWiringTest {
         )
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════════════════════
-    //  2. Every field reaches the request body — on BOTH save paths
-    // ═══════════════════════════════════════════════════════════════════════════════════════════
-
-    /**
-     * TWO LITERALS AND NOT ONE, and the second is the one that gets forgotten.
-     *
-     * The form builds `QuestionnaireInterviewCreateRequest` twice: once for the offline outbox and
-     * once for the live POST. They are written out separately because the offline path serialises the
-     * object into local storage and the online path hands it to Retrofit — and separate means they
-     * can diverge, silently, in the direction that matters most. An interview captured offline is the
-     * one record that cannot be reconstructed later: the artisan has gone home, and whatever the
-     * outbox failed to store is simply not in the archive.
-     *
-     * The count is asserted too. If a third construction appears this test must be told about it
-     * rather than checking two out of three and reporting parity.
-     */
     @Test
     fun `every contract field reaches the create request body on both save paths`() {
         val literals = createRequestLiterals()
@@ -208,16 +113,6 @@ class QuestionnaireFormWiringTest {
         )
     }
 
-    /**
-     * THE OTHER END OF THE SAME WIRE: the field survives serialisation.
-     *
-     * A call site that fills a field and a DTO that drops it on the way out are indistinguishable
-     * from the form's side. Both spellings this app actually uses are checked, because they differ in
-     * a way that decides the answer: the outbox sets `encodeDefaults = true` (a queued payload has to
-     * be complete — it is replayed days later by code that cannot ask the form anything), while the
-     * wire converter leaves defaults out and drops nulls. A field that only survives one of the two
-     * is a field that saves online and vanishes offline, or the reverse.
-     */
     @Test
     fun `every contract field survives serialisation on both spellings`() {
         val filled = QuestionnaireInterviewCreateRequest(
@@ -225,8 +120,6 @@ class QuestionnaireFormWiringTest {
             place = "Bagru",
             language = "Kutchi, and some Gujarati",
             notes = "Two sittings; the second ran long.",
-            // Non-default on purpose: `encodeDefaults = false` omits a value equal to its default, so
-            // a DTO default of "PENDING" here would make this assertion pass without proving anything.
             status = "APPROVED",
             artisanIds = listOf("artisan-1", "artisan-2"),
             responses = listOf(QuestionnaireResponseRequest(questionId = "q1", answerText = "yes")),
@@ -249,18 +142,6 @@ class QuestionnaireFormWiringTest {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════════════════════
-    //  3. An edit opens on what the record already holds
-    // ═══════════════════════════════════════════════════════════════════════════════════════════
-
-    /**
-     * Every field is SEEDED from the interview being edited.
-     *
-     * The failure this guards is quiet and destructive in the same breath: a field that saves but is
-     * not seeded opens blank over a record that has a value, and the next save writes the blank
-     * through. A researcher who opened the interview to correct its title erases its language and its
-     * notes, having touched neither, and the form said nothing.
-     */
     @Test
     fun `the edit path seeds every field the create path sends`() {
         val body = formBody()
@@ -277,24 +158,6 @@ class QuestionnaireFormWiringTest {
         )
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════════════════════
-    //  4. The artisan picker sends the set it displays
-    // ═══════════════════════════════════════════════════════════════════════════════════════════
-
-    /**
-     * WHAT THE SHEET SHOWS AND WHAT THE PAYLOAD CARRIES ARE THE SAME IDS.
-     *
-     * [artisanSelectOptions] is the whole join between the two: its `value` is what
-     * [SearchableMultiSelectField] hands back in `onSelectedChange`, what the form stores in
-     * `selectedArtisans`, and what the payload sends as `artisanIds`. Put a display string in that
-     * slot — a name, a "name · place" — and the control looks completely normal, the chips read
-     * correctly, and every interview files against nobody at all.
-     *
-     * ORDER IS ASSERTED TOO, and it is not decoration. The roster arrives in the server's own order
-     * and neither the option builder nor the scoped-roster helper re-sorts it; a picker that
-     * re-ordered would change which artisan is element 0 of a selection, and element 0 is what the
-     * carried context and the browser's `primaryInterviewArtisanId` both read.
-     */
     @Test
     fun `the artisan picker offers one row per artisan, keyed by artisan id, in roster order`() {
         val roster = listOf(
@@ -326,14 +189,6 @@ class QuestionnaireFormWiringTest {
         )
     }
 
-    /**
-     * The state the control is bound to IS the state the payload reads.
-     *
-     * The assertion above proves the option rows carry artisan ids; this one proves the form does not
-     * then send some OTHER collection. Together they are "the picker sends the set it displays": the
-     * sheet writes `selectedArtisans`, both payloads read `selectedArtisans`, and nothing sits in
-     * between filtering or re-deriving it.
-     */
     @Test
     fun `the artisan control and the payload read one selection`() {
         val body = formBody()
@@ -358,18 +213,6 @@ class QuestionnaireFormWiringTest {
         }
     }
 
-    /**
-     * NO WALL OF CHECKBOXES, ON THE ONE SCREEN THE OWNER NAMED.
-     *
-     * A duplicate of the pin in `backend/tests/test_questionnaire_form_contract.py`, deliberately,
-     * and the duplication is the point: that suite runs on the backend's Python and this one runs
-     * where an Android change is made. A regression that reintroduces the wall — most likely beside
-     * the dropdown while half-landing something else, rather than instead of it — should turn the
-     * suite red for the person making it, not for whoever next runs pytest.
-     *
-     * BOTH FORBIDDEN CONTROLS, because `CheckboxMultiSelectField` draws the same wall over a generic
-     * option list and would satisfy any check that only named the artisan-specific one.
-     */
     @Test
     fun `the capture form draws no checkbox wall`() {
         val body = formBody()
@@ -386,26 +229,6 @@ class QuestionnaireFormWiringTest {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════════════════════
-    //  5. The four sentences an empty roster can mean
-    // ═══════════════════════════════════════════════════════════════════════════════════════════
-
-    /**
-     * THE EMPTY STATE SURVIVED THE WIDGET SWAP, all four arms of it.
-     *
-     * An empty artisan list means one of four different things — the request is in flight, the
-     * request failed, nobody is recorded at this workshop, nobody is recorded at all — and only two
-     * of them are facts about the repository. Printing "No artisans are recorded at this workshop
-     * yet" off an empty array while the answer is still coming makes a claim before it exists, and
-     * the researcher who believes it goes off to create a duplicate of an artisan who is already
-     * there.
-     *
-     * ASSERTED AS THE FOUR SENTENCES AND NOT AS THE `when`, because the sentences are what the
-     * browser prints from the same three facts (`page.tsx`'s `emptyLabel`) and a researcher comparing
-     * a handset against a laptop must not have to wonder whether a difference in wording is a
-     * difference in meaning. A rewrite that kept the branch structure and reworded the strings would
-     * be exactly that difference.
-     */
     @Test
     fun `the artisan picker still says which kind of empty it is`() {
         val body = formBody()
@@ -428,8 +251,6 @@ class QuestionnaireFormWiringTest {
         id = id,
         name = name,
         place = place,
-        // Required by the DTO and irrelevant here: the picker offers every artisan the scoped roster
-        // returned, and filtering by review status is the SERVER's job on that request.
         status = "APPROVED",
         craftId = craft?.id,
         craft = craft,

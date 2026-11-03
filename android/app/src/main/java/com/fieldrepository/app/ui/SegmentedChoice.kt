@@ -24,11 +24,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/**
- * A short choice between named modes, every option visible: the web's `SegmentedChoice`
- * (`components/ui/SegmentedChoice.tsx`). Two to four options in equal cells on one line, 48dp tall.
- * Anything longer, or built from records, stays a [SearchableSelectField].
- */
 @Composable
 fun SegmentedChoice(
     label: String,

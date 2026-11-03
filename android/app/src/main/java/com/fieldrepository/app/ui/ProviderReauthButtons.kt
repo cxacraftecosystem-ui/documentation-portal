@@ -22,21 +22,10 @@ import com.fieldrepository.app.data.oidcCallbackErrorMessage
 import com.fieldrepository.app.data.reauthLabel
 import kotlinx.coroutines.launch
 
-/**
- * The sign-in clients the activity owns, handed to the Password card so it can run a provider's
- * sign-in AGAIN before a first password (data/ProviderReauth.kt). Null outside the activity (previews,
- * tests): the card then draws no button.
- */
 class ProviderReauth(val google: GoogleAuthClient, val oidc: OidcAuthClient)
 
 val LocalProviderReauth = staticCompositionLocalOf<ProviderReauth?> { null }
 
-/**
- * "Sign in with Google / Microsoft / Yahoo" for a first password. Its answer is a [ProviderProof] the
- * card keeps for five minutes and sends with the password; nothing here signs anybody in. The
- * account's own provider is offered when this build has it, otherwise every provider it has (any one
- * that vouches for the address is accepted).
- */
 @Composable
 fun ProviderConfirmButtons(
     provider: String,
@@ -46,7 +35,6 @@ fun ProviderConfirmButtons(
 ) {
     val reauth = LocalProviderReauth.current ?: return
     val scope = rememberCoroutineScope()
-    // "<provider>|<raw nonce>" while a Microsoft or Yahoo tab is open, as the sign-in screen keeps it.
     var pending by rememberSaveable { mutableStateOf<String?>(null) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val started = pending?.split('|', limit = 2)

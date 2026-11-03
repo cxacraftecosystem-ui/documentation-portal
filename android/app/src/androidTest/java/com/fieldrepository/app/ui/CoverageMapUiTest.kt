@@ -38,10 +38,6 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/**
- * The two hand-drawn maps on a device: a two-finger pinch zooms, Reset appears and resets, one finger
- * at rest still scrolls the page, Places | Coverage switches, and a tap on a district opens its sheet.
- */
 @RunWith(AndroidJUnit4::class)
 class CoverageMapUiTest {
     @get:Rule
@@ -167,7 +163,6 @@ class CoverageMapUiTest {
             val frame = CoverageFrame(Size(width, width * aspect), Rect(0f, 0f, 1f, aspect), pad)
             click(frame.toFrame(target.centroid))
         }
-        // A single tap is only known to be single once the double-tap window has passed, in real time.
         compose.waitUntil(timeoutMillis = 10_000) {
             compose.onAllNodesWithText("Show records").fetchSemanticsNodes().isNotEmpty()
         }

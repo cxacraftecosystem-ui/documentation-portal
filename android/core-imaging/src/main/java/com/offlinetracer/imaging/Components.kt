@@ -1,23 +1,7 @@
 package com.offlinetracer.imaging
 
-/**
- * Connected components and the blob filters built on them (ALGORITHMS §9).
- *
- * One two-pass union-find labelling backs every filter here. Running a fresh flood fill per filter
- * was the original design and it made `removeSmallBlobs` + `keepLargest` + `removeBorderTouching`
- * cost three full traversals of a 4 MP image for information that one pass already had.
- */
 object Components {
 
-    /**
-     * Result of [label].
-     *
-     * [labels] holds `0` for background and `1..count` for components, in order of first appearance
-     * in scan order (so the labelling is reproducible, not dependent on union order).
-     * [area] is sized `count + 1` and [bounds] is sized `4 * (count + 1)`, laid out as
-     * `[x0, y0, x1, y1]` per label with **inclusive** corners. Index 0 of both is the background
-     * slot and is left as an empty box (`x1 < x0`); it is not the background's real extent.
-     */
     class Labels(
         @JvmField val width: Int,
         @JvmField val height: Int,
@@ -26,10 +10,6 @@ object Components {
         @JvmField val area: IntArray,
         @JvmField val bounds: IntArray,
     ) {
-        /**
-         * @return a [Mask] that is `true` exactly where [labels] equals [label]; an empty mask for
-         *   any label outside `1..count`, which is what makes callers safe to loop past the end.
-         */
         fun maskOf(label: Int): Mask {
             val out = BooleanArray(labels.size)
             if (label in 1..count) {
@@ -38,17 +18,9 @@ object Components {
             return Mask(width, height, out)
         }
 
-        /** @return the pixel count of [label], or 0 for any label outside `1..count`. */
         fun areaOf(label: Int): Int = if (label in 1..count) area[label] else 0
     }
 
-    /**
-     * Two-pass connected-component labelling with union-find (path compression **and** union by
-     * rank, so the near-degenerate case of one long snake through the image stays near-linear).
-     *
-     * @param connectivity 8 (default) or 4; any other value is treated as 8.
-     * @return a [Labels] with `count == 0` when [src] is all background.
-     */
     fun label(src: Mask, connectivity: Int = 8): Labels {
         val w = src.width
         val h = src.height
@@ -56,9 +28,6 @@ object Components {
         val labels = IntArray(d.size)
         val eight = connectivity != 4
 
-        // A provisional label is only created at a pixel with no already-scanned foreground
-        // neighbour, which caps the count at half the pixels; the grow path exists because that
-        // bound is easy to reason about wrongly and an ArrayIndexOutOfBounds here is a crash.
         var parent = IntArray(d.size / 2 + 2)
         var rank = IntArray(parent.size)
         var next = 1
@@ -134,8 +103,6 @@ object Components {
                 if (y > bounds[b + 3]) bounds[b + 3] = y
             }
         }
-        // The background slot never receives a pixel; leave it as a normalised empty box rather than
-        // MAX_VALUE, which reads as a nonsense rectangle in a debugger and in any UI overlay.
         bounds[0] = 0
         bounds[1] = 0
         bounds[2] = -1
@@ -144,12 +111,6 @@ object Components {
         return Labels(w, h, labels, count, area, bounds)
     }
 
-    /**
-     * Drops components smaller than [minArea] pixels — dust, sensor noise and JPEG mosquito ringing.
-     *
-     * @param minArea `≤ 1` keeps everything (a 1-pixel component already has area 1).
-     * @return a new [Mask] the size of [src].
-     */
     fun removeSmallBlobs(src: Mask, minArea: Int): Mask {
         if (minArea <= 1) return src.copy()
         val lab = label(src, 8)
@@ -159,24 +120,12 @@ object Components {
         return select(lab, keep)
     }
 
-    /**
-     * Keeps the [n] largest components, ties broken by the lower label (i.e. by first appearance in
-     * scan order) so the result never depends on sort stability.
-     *
-     * @param n `≤ 0` returns an **empty** mask — keeping zero components is the literal meaning.
-     *   Callers that use 0 as "disabled" must not call this at all.
-     * @return a new [Mask] the size of [src].
-     */
     fun keepLargest(src: Mask, n: Int): Mask {
         if (n <= 0) return Mask.like(src)
         val lab = label(src, 8)
         if (lab.count == 0) return Mask.like(src)
         if (n >= lab.count) return src.copy()
 
-        // (area, tie-break) packed into one long so the sort is a primitive sort with no boxing and
-        // no comparator. `count - l` in the low 32 bits makes the smaller label win a tie. Both
-        // fields are non-negative and area is bounded by the pixel count, so the shift cannot reach
-        // the sign bit for any image that can be allocated.
         val keys = LongArray(lab.count)
         for (l in 1..lab.count) {
             keys[l - 1] = (lab.area[l].toLong() shl 32) or (lab.count - l).toLong()
@@ -194,12 +143,6 @@ object Components {
         return select(lab, keep)
     }
 
-    /**
-     * Drops every component with a pixel on the image border — the scan frame, the page edge, and
-     * the shadow band down the side of a photographed book.
-     *
-     * @return a new [Mask] the size of [src].
-     */
     fun removeBorderTouching(src: Mask): Mask {
         val lab = label(src, 8)
         if (lab.count == 0) return Mask.like(src)
@@ -222,15 +165,6 @@ object Components {
         return select(lab, keep)
     }
 
-    /**
-     * Clears any set pixel with fewer than [minNeighbours] set 8-neighbours, iterated to a fixed
-     * point. Each pass is evaluated against the previous state and applied afterwards, so the result
-     * does not depend on scan order.
-     *
-     * @param minNeighbours `≤ 0` returns a copy (every pixel trivially qualifies).
-     * @param maxPasses hard bound; erosion of a hairline can otherwise chase its own tail.
-     * @return a new [Mask] the size of [src].
-     */
     fun removeIsolated(src: Mask, minNeighbours: Int = 1, maxPasses: Int = 8): Mask {
         if (minNeighbours <= 0 || maxPasses <= 0) return src.copy()
         val w = src.width
@@ -273,16 +207,6 @@ object Components {
         return Mask(w, h, cur)
     }
 
-    /**
-     * Fills background regions of at most [maxHoleArea] pixels that are fully enclosed by foreground.
-     *
-     * The background is labelled with **4-connectivity** while the foreground is 8-connected; that
-     * duality is what makes a diagonal 1px stroke count as sealing a hole. Using 8 for both leaks
-     * every hole out through the diagonal gaps of its own wall.
-     *
-     * @param maxHoleArea `≤ 0` returns a copy — "fill holes up to 0 pixels" fills nothing.
-     * @return a new [Mask] the size of [src].
-     */
     fun fillHoles(src: Mask, maxHoleArea: Int): Mask {
         if (maxHoleArea <= 0) return src.copy()
         val w = src.width
@@ -313,7 +237,6 @@ object Components {
         return Mask(w, h, out)
     }
 
-    /** Materialise the labels flagged in [keep] (indexed by label, index 0 unused) as a [Mask]. */
     private fun select(lab: Labels, keep: BooleanArray): Mask {
         val l = lab.labels
         val out = BooleanArray(l.size)
@@ -324,7 +247,6 @@ object Components {
         return Mask(lab.width, lab.height, out)
     }
 
-    /** Union-find root with full path compression (two short walks, no recursion). */
     private fun find(parent: IntArray, x: Int): Int {
         var root = x
         while (parent[root] != root) root = parent[root]
@@ -337,7 +259,6 @@ object Components {
         return root
     }
 
-    /** Union by rank; keeps the tree shallow so [find] stays effectively constant time. */
     private fun union(parent: IntArray, rank: IntArray, a: Int, b: Int) {
         val ra = find(parent, a)
         val rb = find(parent, b)

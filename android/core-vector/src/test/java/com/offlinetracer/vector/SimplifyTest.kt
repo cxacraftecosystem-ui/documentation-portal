@@ -10,10 +10,6 @@ import kotlin.test.assertTrue
 
 class SimplifyTest {
 
-    // -----------------------------------------------------------------------------------------
-    // Douglas-Peucker
-    // -----------------------------------------------------------------------------------------
-
     @Test
     fun collinearRunCollapsesToItsEndpoints() {
         val pts = (0..10).map { VecPoint(it.toFloat(), 0f) }
@@ -22,8 +18,6 @@ class SimplifyTest {
         assertEquals(pts[0], out[0])
         assertEquals(pts[10], out[1])
 
-        // Collinear but not axis aligned, and unevenly spaced: the perpendicular-distance test must
-        // not depend on either.
         val diagonal = listOf(
             VecPoint(0f, 0f), VecPoint(1f, 2f), VecPoint(1.5f, 3f),
             VecPoint(7f, 14f), VecPoint(10f, 20f),
@@ -44,18 +38,15 @@ class SimplifyTest {
             assertEquals(pts[pts.size - 1], out[out.size - 1], "epsilon $epsilon moved the last point")
             assertTrue(out.size <= pts.size)
         }
-        // Beyond the whole extent of the path nothing can survive but the two ends.
         assertEquals(2, Simplify.douglasPeucker(pts, 1000f).size)
     }
 
     @Test
     fun deviationIsComparedAgainstEpsilonExactly() {
-        // The middle point sits exactly `d` from the chord, so epsilon straddles it.
         fun spike(d: Float) = listOf(VecPoint(0f, 0f), VecPoint(5f, d), VecPoint(10f, 0f))
 
         assertEquals(3, Simplify.douglasPeucker(spike(2f), 1f).size, "a 2 px deviation must survive 1 px")
         assertEquals(2, Simplify.douglasPeucker(spike(0.5f), 1f).size, "a 0.5 px deviation must be dropped")
-        // Larger epsilon on the same shape can only remove points, never add them.
         val tight = Simplify.douglasPeucker(spike(2f), 0.1f).size
         val loose = Simplify.douglasPeucker(spike(2f), 5f).size
         assertTrue(tight >= loose)
@@ -63,9 +54,6 @@ class SimplifyTest {
 
     @Test
     fun everySurvivingPointIsWithinEpsilonOfTheOriginal() {
-        // Gentle slopes on purpose: the deviation test measures distance to the infinite line
-        // through a span's ends, so a near-vertical chord is the one case where "within epsilon of
-        // the line" and "within epsilon of the retained segment" could differ.
         val pts = ArrayList<VecPoint>(400)
         for (i in 0 until 400) {
             val t = i / 399.0
@@ -84,8 +72,6 @@ class SimplifyTest {
 
     @Test
     fun twoHundredThousandPointsDoNotOverflowTheStack() {
-        // Ordinary input off a noisy photograph. The recursive textbook form dies here, and on
-        // Android the StackOverflowError surfaces as an apparently random OOM.
         val n = 200_000
         val pts = ArrayList<VecPoint>(n)
         for (i in 0 until n) {
@@ -101,20 +87,12 @@ class SimplifyTest {
 
     @Test
     fun worstCaseSplitDepthDoesNotOverflowTheStack() {
-        // A constant-amplitude sawtooth is the pathological case: the point of maximum deviation is
-        // always the one next to the span's start, so the split depth is O(n) rather than O(log n)
-        // and the explicit stack has to grow. Kept at 5 000 points because that same property makes
-        // the pass quadratic in time.
         val n = 5000
         val pts = ArrayList<VecPoint>(n)
         for (i in 0 until n) pts.add(VecPoint(i.toFloat(), if (i % 2 == 0) 0f else 2f))
         val out = Simplify.douglasPeucker(pts, 0.5f)
         assertEquals(n, out.size, "every sawtooth vertex deviates by 2 px and must survive")
     }
-
-    // -----------------------------------------------------------------------------------------
-    // removeCollinear
-    // -----------------------------------------------------------------------------------------
 
     @Test
     fun removeCollinearDropsOnlyTheNearCollinearPoints() {
@@ -128,8 +106,6 @@ class SimplifyTest {
         assertTrue(out.contains(VecPoint(3f, 1f)), "the spike was removed")
         assertEquals(pts[0], out[0])
         assertEquals(pts[pts.size - 1], out[out.size - 1])
-        // (1,0) and (5,0) lie on the line through their kept neighbours; (2,0) and (4,0) are the
-        // spike's own neighbours and cannot be, so they stay.
         assertTrue(!out.contains(VecPoint(1f, 0f)))
         assertTrue(!out.contains(VecPoint(5f, 0f)))
 
@@ -146,17 +122,12 @@ class SimplifyTest {
         assertEquals(zigzag, Simplify.removeCollinear(zigzag, 0f), "tolerance 0 must be the identity")
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Corners
-    // -----------------------------------------------------------------------------------------
-
     @Test
     fun squareOutlineHasExactlyFourCorners() {
         val square = squareOutline(20)
         val closed = Simplify.detectCorners(square, 100f, 3, true)
         assertEquals(listOf(0, 20, 40, 60), closed.toList(), "expected one corner per square corner")
 
-        // Open, the two ends already bound the path, so index 0 is not reported as a corner.
         val open = Simplify.detectCorners(square, 100f, 3, false)
         assertEquals(listOf(20, 40, 60), open.toList())
     }
@@ -171,15 +142,11 @@ class SimplifyTest {
         }
         assertEquals(0, Simplify.detectCorners(circle, 100f, 3, true).size)
         assertEquals(0, Simplify.detectCorners(circle, 100f, 3, false).size)
-        // Loosening the threshold past the circle's own turn does start reporting corners, which is
-        // what makes the default a meaningful setting rather than an always-empty one.
         assertTrue(Simplify.detectCorners(circle, 179f, 3, true).isNotEmpty())
     }
 
     @Test
     fun cornersAreAscendingAndNonMaximumSuppressed() {
-        // A right angle in the middle of an open path, sampled a pixel at a time. One physical
-        // corner must produce one index, not the five its window spans.
         val pts = ArrayList<VecPoint>(21)
         for (x in 0..10) pts.add(VecPoint(x.toFloat(), 0f))
         for (y in 1..10) pts.add(VecPoint(10f, y.toFloat()))
@@ -189,10 +156,6 @@ class SimplifyTest {
         for (i in 1 until corners.size) assertTrue(corners[i] > corners[i - 1])
     }
 
-    // -----------------------------------------------------------------------------------------
-    // splitAtCorners
-    // -----------------------------------------------------------------------------------------
-
     @Test
     fun splitAtCornersPartitionsWithoutLosingPoints() {
         val square = squareOutline(20)
@@ -201,8 +164,6 @@ class SimplifyTest {
         assertEquals(corners.size + 1, runs.size)
 
         for (run in runs) assertTrue(run.size >= 2, "a run of ${run.size} points is unusable")
-        // Consecutive runs share the corner exactly: that shared anchor is what makes the two
-        // independently fitted Beziers meet instead of leaving a gap the width of the fit error.
         for (i in 0 until runs.size - 1) {
             assertEquals(runs[i][runs[i].size - 1], runs[i + 1][0], "run $i does not meet run ${i + 1}")
         }
@@ -213,22 +174,16 @@ class SimplifyTest {
     fun splitAtCornersIgnoresBoundaryAndDuplicateIndices() {
         val pts = (0..9).map { VecPoint(it.toFloat(), 0f) }
         assertEquals(listOf(pts), Simplify.splitAtCorners(pts, IntArray(0)))
-        // 0 and n-1 are already run boundaries, and an out-of-range index is not a corner at all.
         assertEquals(listOf(pts), Simplify.splitAtCorners(pts, intArrayOf(0, 9, -4, 40)))
 
         val duplicated = Simplify.splitAtCorners(pts, intArrayOf(3, 3, 3))
         assertEquals(2, duplicated.size)
         assertEquals(pts, rejoin(duplicated))
 
-        // Unsorted input must partition the same way as sorted input.
         val unsorted = Simplify.splitAtCorners(pts, intArrayOf(6, 3))
         assertEquals(3, unsorted.size)
         assertEquals(pts, rejoin(unsorted))
     }
-
-    // -----------------------------------------------------------------------------------------
-    // resample
-    // -----------------------------------------------------------------------------------------
 
     @Test
     fun resampleSpacesPointsEvenlyAlongALine() {
@@ -260,8 +215,6 @@ class SimplifyTest {
         val out = Simplify.resample(path, spacing)
         assertEquals(path[0], out[0])
         assertEquals(path[path.size - 1], out[out.size - 1])
-        // Samples are placed at exact arc-length multiples, so the straight-line gap between two of
-        // them is at most the spacing and only shortens where the path turns.
         for (i in 1 until out.size - 1) {
             val d = distance(out[i - 1], out[i])
             assertTrue(d <= spacing + 1e-3f, "gap $d exceeds the requested spacing")
@@ -271,16 +224,11 @@ class SimplifyTest {
 
     @Test
     fun resampleCoercesANonPositiveSpacing() {
-        // Zero spacing would otherwise make the output unbounded.
         val out = Simplify.resample(listOf(VecPoint(0f, 0f), VecPoint(1f, 0f)), 0f)
         assertTrue(out.size in 2..200, "a zero spacing produced ${out.size} points")
         for (p in out) assertTrue(p.x.isFinite() && p.y.isFinite())
         assertEquals(1f, out[out.size - 1].x, 1e-3f)
     }
-
-    // -----------------------------------------------------------------------------------------
-    // Degenerate input
-    // -----------------------------------------------------------------------------------------
 
     @Test
     fun emptyAndTinyInputsReturnSensibleResults() {
@@ -301,12 +249,10 @@ class SimplifyTest {
 
         assertEquals(empty, Simplify.resample(empty, 2f))
         assertEquals(one, Simplify.resample(one, 2f))
-        // Coincident points have no direction to step along; one point out is the honest answer.
         val coincident = Simplify.resample(listOf(VecPoint(4f, 4f), VecPoint(4f, 4f)), 2f)
         assertEquals(1, coincident.size)
         assertEquals(VecPoint(4f, 4f), coincident[0])
 
-        // A window wider than the path, and a degenerate one, must not read out of range.
         val square = squareOutline(4)
         Simplify.detectCorners(square, 100f, 40, true)
         Simplify.detectCorners(square, 100f, 0, true)
@@ -315,7 +261,6 @@ class SimplifyTest {
 
     @Test
     fun duplicatedPointsAreNotReportedAsCorners() {
-        // Zero-length chords give 0/0; a NaN let through here poisons every later comparison.
         val pts = listOf(
             VecPoint(0f, 0f), VecPoint(0f, 0f), VecPoint(0f, 0f),
             VecPoint(0f, 0f), VecPoint(0f, 0f), VecPoint(0f, 0f), VecPoint(0f, 0f),
@@ -324,14 +269,6 @@ class SimplifyTest {
         assertEquals(0, Simplify.detectCorners(pts, 100f, 3, true).size)
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------------------------
-
-    /**
-     * A square outline sampled one unit at a time, starting at `(0, 0)` and running clockwise, so
-     * the four corners land on indices `0`, `side`, `2·side` and `3·side`.
-     */
     private fun squareOutline(side: Int): List<VecPoint> {
         val pts = ArrayList<VecPoint>(4 * side)
         for (i in 0 until side) pts.add(VecPoint(i.toFloat(), 0f))
@@ -341,7 +278,6 @@ class SimplifyTest {
         return pts
     }
 
-    /** Concatenates runs, dropping each run's shared leading point. */
     private fun rejoin(runs: List<List<VecPoint>>): List<VecPoint> {
         val out = ArrayList<VecPoint>()
         for (r in runs.indices) {

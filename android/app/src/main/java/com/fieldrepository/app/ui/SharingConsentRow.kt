@@ -19,11 +19,6 @@ import com.fieldrepository.app.data.SharingConsentCopy
 import com.fieldrepository.app.data.SharingConsentDto
 import kotlinx.coroutines.launch
 
-/**
- * C27 — "Share with the Designer Portal" on the artisan edit form. Twin of the web's
- * `SharingConsentToggle.tsx`. A SETTING, so an [AppToggle]; drawn only while the server says the
- * cross-portal feature is on, saved when pressed, ON only once the server says so.
- */
 @Composable
 fun SharingConsentRow(artisanId: String) {
     val context = LocalContext.current

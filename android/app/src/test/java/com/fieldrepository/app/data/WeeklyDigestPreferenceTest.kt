@@ -10,11 +10,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/**
- * The Monday summary's switch on the handset: the server's answer parses (with and without a latest
- * summary, and with fields this build does not know), the row is hidden for an account that gets no
- * summary, the copy follows mail, and a failed save puts the switch back.
- */
 class WeeklyDigestPreferenceTest {
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
 

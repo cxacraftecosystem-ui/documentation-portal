@@ -4,21 +4,8 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-/**
- * In-place complex FFT — iterative radix-2 Cooley–Tukey with a bit-reversal permutation.
- *
- * Power-of-two lengths only, and the caller zero-pads to reach one. The only consumer is the
- * spectral-residual saliency matte, which runs at 64×64 by construction, so a mixed-radix or
- * Bluestein transform would be a large amount of code that never runs on a size it could help.
- *
- * Twiddle factors come from a precomputed table rather than the usual recurrence
- * (`w *= w_len` inside the butterfly loop). The recurrence drifts — the error grows with the number
- * of butterflies in a stage — and a drifting inverse transform shows up as a faint checkerboard in
- * the reconstructed image, which reads exactly like real saliency structure.
- */
 object Fft {
 
-    /** Smallest power of two ≥ [n], at least 1, capped at 2^30 so the result can never overflow. */
     fun nextPowerOfTwo(n: Int): Int {
         if (n <= 1) return 1
         if (n > (1 shl 30)) return 1 shl 30
@@ -31,11 +18,6 @@ object Fft {
         return v + 1
     }
 
-    /**
-     * Forward or inverse transform of one complex signal, in place. [real] and [imag] must be the
-     * same length and that length must be a power of two. The inverse divides by `n`, so
-     * `transform(a, b, false); transform(a, b, true)` is the identity up to float rounding.
-     */
     fun transform(real: FloatArray, imag: FloatArray, inverse: Boolean) {
         val n = real.size
         require(imag.size == n) { "transform(): real/imag length mismatch ($n vs ${imag.size})" }
@@ -54,11 +36,6 @@ object Fft {
         }
     }
 
-    /**
-     * 2-D transform of a `w x h` row-major complex image, in place: every row, then every column.
-     * Both dimensions must be powers of two and `real.size == imag.size == w*h`. The inverse scales
-     * by `1/(w*h)` in total, once per axis.
-     */
     fun transform2d(real: FloatArray, imag: FloatArray, w: Int, h: Int, inverse: Boolean) {
         require(w > 0 && h > 0) { "transform2d(): empty image ${w}x$h" }
         require(real.size == w * h && imag.size == w * h) {
@@ -77,8 +54,6 @@ object Fft {
             val cosT = DoubleArray(h shr 1)
             val sinT = DoubleArray(h shr 1)
             fillTwiddles(cosT, sinT, h, inverse)
-            // Columns are walked with a stride instead of being copied out and back: the copy is
-            // two extra passes over the whole image per column and buys nothing.
             for (x in 0 until w) fftStrided(real, imag, x, w, h, cosT, sinT)
         }
         if (inverse) {
@@ -99,10 +74,6 @@ object Fft {
         }
     }
 
-    /**
-     * Transform of the [n] elements at `off, off+stride, off+2*stride, …`.
-     * [cosT]/[sinT] hold `n/2` twiddles for the full length [n]; stage `len` reads every `n/len`-th.
-     */
     private fun fftStrided(
         re: FloatArray, im: FloatArray, off: Int, stride: Int, n: Int,
         cosT: DoubleArray, sinT: DoubleArray,

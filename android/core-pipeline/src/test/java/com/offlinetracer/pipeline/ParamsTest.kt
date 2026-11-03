@@ -6,25 +6,13 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
-/**
- * The clamping choke point and the on-disk format.
- *
- * Every other file in this module reads parameters as given, on the strength of `sanitized()` having
- * already run. So these assertions are not paperwork: a field this test forgets is a field some stage
- * will eventually receive a NaN in.
- */
 class ParamsTest {
 
-    /** Matches [ProjectCodec]'s configuration, which is what a real save/load goes through. */
     private val json = Json {
         encodeDefaults = true
         ignoreUnknownKeys = true
         coerceInputValues = true
     }
-
-    // -------------------------------------------------------------------------------------------
-    // Clamping
-    // -------------------------------------------------------------------------------------------
 
     private fun outOfRange(): TraceParams = TraceParams(
         preprocess = PreprocessParams(
@@ -114,7 +102,6 @@ class ParamsTest {
         assertEquals(1f, e.sensitivity)
         assertEquals(16f, e.blurSigma)
         assertEquals(0.05f, e.dogSigma)
-        // k <= 1 makes the "coarse" Gaussian the finer of the two and the difference changes sign.
         assertEquals(1.05f, e.dogK)
         assertEquals(0.999f, e.dogTau)
         assertEquals(2f, e.xdogEpsilon)
@@ -151,7 +138,6 @@ class ParamsTest {
     fun sanitizeClampsEveryOutputField() {
         val o = outOfRange().sanitized().output
         assertEquals(0f, o.simplify)
-        // A non-positive fit error asks the fitter to subdivide to its depth cap on every curve.
         assertEquals(0.01f, o.fitError)
         assertEquals(180f, o.corner)
         assertEquals(8, o.smoothIterations)
@@ -199,8 +185,6 @@ class ParamsTest {
         assertEquals(EdgeParams.AUTO_THRESHOLD, auto.edge.cannyHigh)
         assertEquals(-1f, auto.edge.cannyLow)
 
-        // Reversed explicit thresholds are normalised here so the UI and the detector cannot disagree
-        // about which one is the high one.
         val swapped = TraceParams(edge = EdgeParams(cannyLow = 0.8f, cannyHigh = 0.2f)).sanitized()
         assertEquals(0.2f, swapped.edge.cannyLow)
         assertEquals(0.8f, swapped.edge.cannyHigh)
@@ -216,8 +200,6 @@ class ParamsTest {
             ),
         ).sanitized().auto
         assertEquals("textile", p.subjectId)
-        // Trimmed and de-duplicated: two spellings of one label would otherwise protect a knob in one
-        // build and leave it unprotected in the next.
         assertEquals(setOf("edge sensitivity"), p.handTuned)
         assertEquals(1f, p.minConfidence)
 
@@ -232,7 +214,6 @@ class ParamsTest {
 
     @Test
     fun theDefaultAutoModeSuggestsRatherThanApplies() {
-        // A library default may not rewrite a caller's explicit settings; see AutoParams' own note.
         assertEquals(AutoMode.SUGGEST, TraceParams().auto.mode)
         assertEquals(AutoMode.SUGGEST, TraceParams().sanitized().auto.mode)
     }
@@ -252,10 +233,6 @@ class ParamsTest {
             assertEquals(once, once.sanitized(), "sanitized() must be idempotent")
         }
     }
-
-    // -------------------------------------------------------------------------------------------
-    // Serialisation
-    // -------------------------------------------------------------------------------------------
 
     @Test
     fun serializationRoundTripsExactly() {
@@ -295,8 +272,6 @@ class ParamsTest {
 
     @Test
     fun jsonFromAnOlderBuildMissingWholeSubTreesStillDecodes() {
-        // Everything but one nested field is absent, which is what a file written before those fields
-        // existed looks like.
         val old = """{"preprocess":{"workingLongEdge":1024},"styleId":"comic"}"""
         val decoded = json.decodeFromString(TraceParams.serializer(), old)
         assertEquals(1024, decoded.preprocess.workingLongEdge)
@@ -327,7 +302,6 @@ class ParamsTest {
 
     @Test
     fun anEnumConstantThisBuildDoesNotKnowFallsBackToTheDefault() {
-        // A build that shipped a sixth denoise mode, opened by one that did not.
         val old = """{"preprocess":{"denoise":"WAVELET"}}"""
         val decoded = json.decodeFromString(TraceParams.serializer(), old)
         assertEquals(PreprocessParams().denoise, decoded.preprocess.denoise)

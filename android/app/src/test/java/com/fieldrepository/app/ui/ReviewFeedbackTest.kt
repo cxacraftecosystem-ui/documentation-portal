@@ -15,11 +15,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * THE REVIEW FEEDBACK LOOP ON THE HANDSET (A1, A2, A3, B9): the copy the web's `lib/review.ts`
- * prints, word for word (`e2e/review-feedback-loop-unit.spec.ts` holds the same sentences), the wire
- * shapes, and source checks that the screens draw them.
- */
 class ReviewFeedbackTest {
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false; coerceInputValues = true }
     private fun source(path: String) = repoFile(path, "../$path").readText()

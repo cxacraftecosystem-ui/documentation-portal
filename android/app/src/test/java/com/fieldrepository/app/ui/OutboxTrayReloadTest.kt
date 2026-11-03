@@ -8,12 +8,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * THE OPEN TRAY DOES NOT FLICKER. Every queue write bumps the revision the tray keys on, and each
- * re-read used to set the spinner, so an open tray dropped to "Reading the queue…", lost its scroll
- * and moved cards out from under a tap. The spinner is for the first read only; later reads swap
- * the list in place.
- */
 class OutboxTrayReloadTest {
     private fun entry(id: String, failure: String? = null, held: Boolean = false) = PendingEntry(
         id = id,

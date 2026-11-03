@@ -17,8 +17,8 @@ and of every trick either client plays.
 stored — the three-provider transcription chain, its failover semantics and the queue's cooldown
 behaviour — is [ARCHITECTURE.md §6](ARCHITECTURE.md).
 
-> **Citations are by symbol name, not by line number.** They used to be by line — `MainActivity.kt:2126`,
-> `FieldRepository.kt:1094` — and every one of them had silently drifted by 60 to 170 lines within a
+> **Citations are by symbol name, not by line number.** They used to be by line — `MainActivity.kt:1629`,
+> `FieldRepository.kt:677` — and every one of them had silently drifted by 60 to 170 lines within a
 > few weeks, while still looking precise. `grep -n "fun preuploadObject"` is one keystroke longer and
 > cannot rot. `docs/tools/check-docs.mjs` reports any document that still pins line numbers.
 > Note that `MainActivity.kt` contains a NUL byte, so plain `grep` finds nothing in it — use

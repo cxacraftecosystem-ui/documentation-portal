@@ -10,35 +10,8 @@ import org.junit.Test
 import java.io.File
 import java.util.zip.ZipFile
 
-/**
- * NOTHING THIS MODULE SHIPS MAY CONTAIN A CLEARTEXT `http://<host>/api/`, BECAUSE THE PUBLISH WORKFLOW
- * REFUSES ANY RELEASE THAT DOES.
- *
- * `.github/workflows/publish-android.yml`, step "Assert the APK points at THIS product's API and not
- * at a laptop", unpacks the signed release APK and greps EVERY byte of it for a cleartext API base —
- * the localhost release, which installs, opens and reaches nothing. It cannot tell a wrong
- * `DEFAULT_API_BASE_URL` from a sentence that merely mentions a development base, and it must not
- * try: it is the last thing between a laptop's `local.properties` and the fleet.
- *
- * THAT IS NOT HYPOTHETICAL. The targetSdk 37 upgrade added a debug-only refusal toast in
- * `ui/LocalNetworkAccess.kt` that spelled out the loopback URL. The file is in `src/main`, so the
- * literal shipped in the release dex as well, and the release built from that tree failed the guard:
- * every tag push would have stopped there, after the APK was built and signed. Nothing before a tag
- * runs that guard. This does, on every pull request that touches `android/`, with the GUARD'S OWN
- * PATTERN read out of the workflow, so the two cannot drift apart.
- *
- * WHAT IS READ: the classes compiled from `src/main` (string literals sit in each class's constant
- * pool verbatim) and the resource XML under `src/main/res` with its comments removed, because aapt2
- * drops comments and keeps everything else. Third-party libraries are outside it; the guard itself,
- * run against a real release on 2026-10-09, found nothing of theirs.
- *
- * The one cleartext base allowed through is `BuildConfig.DEFAULT_API_BASE_URL` itself: on a developer's
- * machine `local.properties` may legitimately point it at their own backend. A runner never has that
- * file, and the publish workflow asserts the production base separately.
- */
 class CleartextApiBaseTest {
 
-    /** The guard's own `grep -aoE` pattern, taken from the workflow rather than copied from it. */
     private val guard: Regex by lazy {
         val workflow = repoSource(".github/workflows/publish-android.yml")
         val pattern = Regex("""grep -aoE '(http://[^']+)'""").find(workflow)?.groupValues?.get(1)
@@ -49,9 +22,7 @@ class CleartextApiBaseTest {
         Regex(pattern)
     }
 
-    /** Every class compiled from this module's `src/main`, by path, whichever form the test runtime holds them in. */
     private fun compiledClasses(): Map<String, ByteArray> {
-        // Both links are nullable in the JDK's own annotations; a missing one is a failure, never a pass.
         val location = ApiClient::class.java.protectionDomain?.codeSource?.location
             ?: throw AssertionError("cannot tell where :app's compiled classes are: ApiClient has no code source")
         val root = File(location.toURI())
@@ -90,7 +61,6 @@ class CleartextApiBaseTest {
     @Test
     fun `no class compiled from src main carries a cleartext API base`() {
         val classes = compiledClasses()
-        // An empty or wrong directory would pass every assertion below, so the scan proves its reach first.
         assertTrue("only ${classes.size} classes were found: this is not reading :app's compiled output", classes.size > 200)
         assertTrue(
             "ui/LocalNetworkAccess.kt's classes are not among those scanned",

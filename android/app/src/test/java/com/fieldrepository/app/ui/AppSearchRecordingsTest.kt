@@ -9,11 +9,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * The app search's Recordings group (owner, 31 Oct 2026): a take found by what its chips say reads
- * as what it answers over its session's title, carries its chips into the panel, sits in its own
- * group, and a tap opens the recordings list searched for the same words on the take's form.
- */
 class AppSearchRecordingsTest {
     private val take = QuestionnairePortal.json.decodeFromString(
         QRecording.serializer(),

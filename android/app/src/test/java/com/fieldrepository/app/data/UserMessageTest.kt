@@ -9,11 +9,6 @@ import org.junit.Test
 import retrofit2.HttpException
 import retrofit2.Response
 
-/**
- * The one mapper from a failure to words on screen (UX audit 2026-10-16, DC-A02; ported from the designer portal). The property that
- * matters: a reader never sees "HTTP 404", "Unable to resolve host" or an engine's own words, and
- * still sees every sentence the SERVER wrote for people.
- */
 class UserMessageTest {
 
     private fun http(code: Int, body: String): HttpException = HttpException(

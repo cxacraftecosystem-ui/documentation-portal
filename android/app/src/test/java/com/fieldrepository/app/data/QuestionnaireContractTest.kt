@@ -10,11 +10,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Every BUILD_PLAN §1 example decodes into the app's models. The examples are the frozen contract's,
- * copied verbatim; once `shared/questionnaire-contract.json` arrives from `feature/q-backend`
- * ([sharedContract]), its examples are decoded too.
- */
 class QuestionnaireContractTest {
     private val json = ApiClient.json
 
@@ -72,7 +67,6 @@ class QuestionnaireContractTest {
             "consent": {"verdict": "ALLOW", "source": "owner attestation"}}""")
         assertTrue(r.transcript!!.paused)
         assertEquals("owner attestation", r.consent!!.source)
-        // The name the server minted is exactly the one Naming.kt makes for the same take.
         val local = Naming.recordingFileName(
             Naming.RecordingFields(
                 Naming.SessionFields(java.time.LocalDate.of(2026, 7, 1), place = "Bagru, Jaipur", workshopCraft = "Hand Block Printing", participantNames = listOf("Giriraj Prasad Chhipa")),
@@ -111,15 +105,12 @@ class QuestionnaireContractTest {
         assertEquals(20, QErrorCodes.ALL.size)
     }
 
-    /** The shared contract's examples, once the BACKEND stream's first commit is merged in. */
     @Test fun sharedContract() {
         val file = generateSequence(java.io.File(".").absoluteFile) { it.parentFile }
             .map { java.io.File(it, "shared/questionnaire-contract.json") }.firstOrNull { it.isFile } ?: return
         val root = json.parseToJsonElement(file.readText()).jsonObject
         (root["errorCodes"] ?: root["error"]?.jsonObject?.get("errorCodes"))?.let { codes ->
             val listed = json.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(String.serializer()), codes)
-            // The contract's closed list and the app's known set are the same set: the unified codes
-            // (ANSWER_LOCKED, RESPONDENT_HAS_ROWS, FORM_DELETED, BUNDLE_VERSION) are in the contract now.
             assertEquals(listed.toSet(), QErrorCodes.ALL.toSet())
         }
         (root["Session"] as? JsonObject)?.let { json.decodeFromJsonElement(QSession.serializer(), it) }

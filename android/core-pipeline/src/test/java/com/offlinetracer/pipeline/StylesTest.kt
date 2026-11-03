@@ -6,13 +6,6 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * The twenty presets.
- *
- * The ids are persisted in project files, so the list and its order are a compatibility surface and are
- * pinned literally here rather than derived from [Styles.ALL] — a test that reads its expectations out
- * of the thing it is testing cannot catch a rename.
- */
 class StylesTest {
 
     private val expectedIds = listOf(
@@ -58,15 +51,11 @@ class StylesTest {
 
     @Test
     fun everyPresetCarriesItsOwnIdInItsParams() {
-        // The UI says "you have modified Pencil sketch" by reading this back, so a mismatch would make
-        // it name the wrong preset.
         for (s in Styles.ALL) assertEquals(s.id, s.params.styleId, "styleId mismatch on ${s.id}")
     }
 
     @Test
     fun everyPresetIsAlreadyLegalSoSanitizeIsAFixpoint() {
-        // If a preset needed clamping, the number written in Styles.kt would not be the number that
-        // runs, and the difference would be invisible in the picker.
         for (s in Styles.ALL) {
             assertEquals(s.params, s.params.sanitized(), "${s.id} is not already sanitised")
         }
@@ -112,13 +101,8 @@ class StylesTest {
         assertEquals(Styles.default().id, TraceParams(styleId = "").sanitized().styleId)
     }
 
-    // -------------------------------------------------------------------------------------------
-    // The presets have to differ *meaningfully*, not decoratively
-    // -------------------------------------------------------------------------------------------
-
     @Test
     fun noTwoPresetsAreTheSameSettingsUnderDifferentNames() {
-        // Compared with the id blanked, so that differing only by styleId does not count as differing.
         val shapes = Styles.ALL.map { it.params.copy(styleId = "") }.toSet()
         assertEquals(Styles.ALL.size, shapes.size, "two presets carry identical parameters")
     }
@@ -169,7 +153,6 @@ class StylesTest {
         assertTrue(s.edge.xdogPhi >= 200f, "φ must be hard for engraved line work: ${s.edge.xdogPhi}")
         assertTrue(s.edge.dogSigma < 1f, "σ must be fine to resolve hatching: ${s.edge.dogSigma}")
         assertTrue(s.cleanup.minBlobArea < 12, "hatching is small: ${s.cleanup.minBlobArea}")
-        // Closing and isolated-pixel removal both fuse adjacent hatch lines, which is unrecoverable.
         assertEquals(0, s.cleanup.closeRadius)
         assertTrue(!s.cleanup.removeIsolated)
     }
@@ -187,12 +170,10 @@ class StylesTest {
     fun pencilSketchIsSoftAndTechnicalDrawingIsHard() {
         val pencil = assertNotNull(Styles.byId("pencil-sketch")).params
         val technical = assertNotNull(Styles.byId("technical-drawing")).params
-        // φ is the whole difference between "drawn" and "detected".
         assertTrue(
             pencil.edge.xdogPhi * 10f < technical.edge.xdogPhi,
             "pencil ${pencil.edge.xdogPhi} vs technical ${technical.edge.xdogPhi}",
         )
-        // Higher corner threshold keeps *more* corners, which is what a technical drawing needs.
         assertTrue(technical.output.corner > pencil.output.corner)
         assertTrue(technical.output.smoothIterations < pencil.output.smoothIterations)
     }
@@ -200,7 +181,6 @@ class StylesTest {
     @Test
     fun theFabricationPresetsCarryTheStrokeConventionsTheirToolsExpect() {
         val laser = assertNotNull(Styles.byId("laser-cut")).params
-        // A cutter follows the path; a wide stroke reads as two cuts a stroke-width apart.
         assertTrue(laser.output.strokeWidth < 0.5f, "laser stroke ${laser.output.strokeWidth}")
         assertEquals(VectorModeParam.OUTLINE, laser.output.vectorMode)
 
@@ -221,7 +201,6 @@ class StylesTest {
 
     @Test
     fun everyPresetProducesLegalParamsAfterASubjectIsComposedOnTop() {
-        // The two pickers are independent, so all 240 combinations have to be legal.
         for (style in Styles.ALL) {
             for (subject in Subjects.ALL) {
                 val composed = subject.adjust(style.params)

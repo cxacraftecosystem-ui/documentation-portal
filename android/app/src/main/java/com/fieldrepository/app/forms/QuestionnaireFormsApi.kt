@@ -24,16 +24,6 @@ import retrofit2.http.Query
 import retrofit2.http.QueryMap
 import retrofit2.http.Streaming
 
-/**
- * The forms half of the unified questionnaire on Field Repository Android (UNIFY 4.1, stream U4):
- * the forms library, the builder, workbooks, bindings and defaults, the corpus and the workshop
- * annexure. The session screens are the shared tree's (`questionnaire/`), synced from designer-portal.
- *
- * Every response field is defaulted, so a server one step ahead (or one step behind) still decodes.
- */
-
-// ── Forms ────────────────────────────────────────────────────────────────────────────────────
-
 @Serializable
 data class QForm(
     val id: String,
@@ -48,7 +38,6 @@ data class QForm(
     val questionCount: Int = 0,
     val workshopCount: Int = 0,
     val createdAt: String? = null,
-    /** FR's author column; [ownerId] is the unified one. Either names the author. */
     val createdById: String? = null,
     val ownerId: String? = null,
     val deletedAt: String? = null,
@@ -56,7 +45,6 @@ data class QForm(
     val sections: List<QFormSection> = emptyList()
 ) {
     val authorId: String? get() = ownerId?.takeIf { it.isNotBlank() } ?: createdById?.takeIf { it.isNotBlank() }
-    /** Deleted: soft-deleted (`deletedAt`) or, on FR's older routes, retired (`isActive = false`). */
     val deleted: Boolean get() = deletedAt != null || !isActive
 }
 
@@ -136,7 +124,6 @@ data class QBoundForm(val questionnaireId: String = "", val isPrimary: Boolean =
 @Serializable
 data class QFormFor(
     val questionnaireId: String? = null,
-    /** Which step chose it: EXPLICIT, PRIMARY_BINDING, ONLY_BINDING, TYPE_DEFAULT, GLOBAL_DEFAULT or PICKER. */
     val reason: String? = null,
     val bound: List<QBoundForm> = emptyList()
 )
@@ -144,8 +131,6 @@ data class QFormFor(
 @Serializable
 data class QUploadReport(val questionnaire: QForm? = null, val report: JsonObject? = null)
 
-
-// ── The workshop's annexure (A12) ────────────────────────────────────────────────────────────
 
 @Serializable
 data class QAnnexureAnswer(val subject: String = "", val text: String = "")
@@ -171,7 +156,6 @@ interface QuestionnaireFormsApi {
         @Query("activeOnly") activeOnly: Boolean = true,
         @Query("scope") scope: String? = null,
         @Query("kind") kind: String? = null,
-        /** The shared questionnaire filters (owner, 31 Oct 2026), already encoded: `QuestionnaireFilters.toParams()`. */
         @QueryMap(encoded = true) filters: Map<String, String> = emptyMap()
     ): List<QForm>
 
@@ -181,7 +165,6 @@ interface QuestionnaireFormsApi {
     @POST("questionnaires")
     suspend fun createForm(@Header("Idempotency-Key") idempotencyKey: String, @Body body: QFormCreate): QForm
 
-    /** Title, description, kind (author or content admin); `isShared` (admin); `isActive: true` restores on FR's routes. */
     @PATCH("questionnaires/{id}")
     suspend fun patchForm(@Path("id") id: String, @Body body: JsonObject): QForm
 
@@ -226,7 +209,6 @@ interface QuestionnaireFormsApi {
     @POST("questionnaire/questions")
     suspend fun createQuestion(@Header("Idempotency-Key") idempotencyKey: String, @Body body: QQuestionCreate): QFormQuestion
 
-    /** A reword after the first answer supersedes on the server; the client only sends the new words. */
     @PATCH("questionnaire/questions/{id}")
     suspend fun patchQuestion(@Path("id") id: String, @Body body: QQuestionPatch): QFormQuestion
 
@@ -253,11 +235,9 @@ interface QuestionnaireFormsApi {
         @Query("status") status: String = "APPROVED"
     ): Response<ResponseBody>
 
-    /** A12: the workshop's forms grouped by kind, with the answers of its live sessions. */
     @GET("questionnaire/annexure")
     suspend fun annexure(@Query("workshopId") workshopId: String): QAnnexure
 
-    /** The same annexure as the text the workshop export prints (C10: the export reads takes and answers). */
     @Streaming
     @GET("questionnaire/annexure")
     suspend fun annexureText(@Query("workshopId") workshopId: String, @Query("format") format: String = "txt"): Response<ResponseBody>

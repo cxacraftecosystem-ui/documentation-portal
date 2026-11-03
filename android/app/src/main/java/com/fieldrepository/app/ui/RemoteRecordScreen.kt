@@ -33,12 +33,6 @@ import com.fieldrepository.app.data.openInLabel
 import kotlinx.coroutines.CancellationException
 import retrofit2.HttpException
 
-/**
- * One record from the other portal, read-only (docs/SEARCH.md): what that portal shares about it and
- * a button that opens it there, in the browser, where the account's own permissions apply. Nothing
- * here can be edited or downloaded, and nothing is kept on the phone. The web's twin is
- * `frontend/app/(protected)/remote/[type]/[id]/page.tsx`.
- */
 @Composable
 fun RemoteRecordScreen(repository: FieldRepository, type: String, id: String) {
     var record by remember(type, id) { mutableStateOf<RemoteRecord?>(null) }
@@ -104,7 +98,6 @@ fun RemoteRecordScreen(repository: FieldRepository, type: String, id: String) {
     }
 }
 
-/** The one sentence for a record that could not be shown, by HTTP status. The web says the same. */
 fun remoteRecordErrorLine(status: Int): String =
     if (status == 503) "The other portal can't be reached right now. Try again shortly."
     else "This record isn't available."

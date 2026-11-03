@@ -82,25 +82,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/*
- * THE COVERAGE SECTION OF THE MAP SCREEN — the web's Coverage view (`/map?view=coverage`) on a phone.
- *
- * Top to bottom, as the requirement lays it out: a Filters button (a sheet with Crafts, Scheme,
- * Financial year, State, Detail and Colour by — the web's values in the web's order), the legend, the
- * canvas ([CoverageMapCanvas], pinch and double tap to zoom), the depiction caption word for word, the
- * gaps card and the list of every place with a record. Tapping a district opens a sheet named after
- * it with its counts and "Show records", which lists the records; each row opens the record.
- *
- * The data source is passed in, so the same screen serves both portals' repositories. The Field
- * Repository adds one card the designer portal has not got: the per-state Coverage list it drew before
- * the map existed ("12 of 33 districts with a workshop"), folded from the same answer on the client;
- * tapping a state focuses the map on it.
- */
-
-/**
- * What a record row opens on the phone, in the search screen's record vocabulary: by the bucket it was
- * listed under, since a media link names the library rather than the file.
- */
 fun coverageBucketTarget(bucket: String, id: String): Pair<String, String>? {
     if (id.isBlank()) return null
     val type = when (bucket) {
@@ -114,7 +95,6 @@ fun coverageBucketTarget(bucket: String, id: String): Pair<String, String>? {
     return type to id
 }
 
-/** What a coverage record link opens on the phone: the search screen's record vocabulary. */
 fun coverageRecordTarget(href: String): Pair<String, String>? {
     val parts = href.substringBefore('?').trim('/').split('/')
     if (parts.size != 2 || parts[1].isBlank()) return null
@@ -504,7 +484,6 @@ private fun CoverageGapsCard(data: CoverageResponse) {
     }
 }
 
-/** The list fallback: every place with a record, as the web's table. Tapping a row opens its sheet. */
 @Composable
 private fun CoveragePlacesCard(units: List<CoverageUnit>, level: String, onOpen: (CoverageUnit) -> Unit) {
     CoverageCard(title = "Every place with a record") {
@@ -697,13 +676,8 @@ private fun CoverageCard(title: String, content: @Composable () -> Unit) {
     }
 }
 
-/** How many states the Coverage list shows before "Show all". */
 private const val COVERAGE_STATE_ROWS = 8
 
-/**
- * The Field Repository's per-state list: how many of each state's districts have a workshop and how
- * many records it holds, best covered first. Tapping a state focuses the map on it.
- */
 @Composable
 private fun CoverageStatesCard(summary: CoverageSummary, onOpenState: (Int) -> Unit) {
     var showAll by rememberSaveable { mutableStateOf(false) }

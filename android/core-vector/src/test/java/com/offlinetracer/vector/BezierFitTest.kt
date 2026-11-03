@@ -9,10 +9,6 @@ import kotlin.test.assertTrue
 
 class BezierFitTest {
 
-    // -----------------------------------------------------------------------------------------
-    // Accuracy
-    // -----------------------------------------------------------------------------------------
-
     @Test
     fun recoversACurveItsOwnSamplesCameFrom() {
         val p0 = VecPoint(0f, 0f)
@@ -53,15 +49,10 @@ class BezierFitTest {
         val s = segs[0]
         assertTrue(abs(s.c1.y) < 1e-3f, "c1 left the line: ${s.c1.y}")
         assertTrue(abs(s.c2.y) < 1e-3f, "c2 left the line: ${s.c2.y}")
-        // Wu/Barsky spacing: the exact cubic form of a line puts controls at 1/3 and 2/3.
         assertEquals(10f / 3f, s.c1.x, 0.05f)
         assertEquals(20f / 3f, s.c2.x, 0.05f)
         assertEquals(10f, s.to.x, 1e-4f)
     }
-
-    // -----------------------------------------------------------------------------------------
-    // Corners
-    // -----------------------------------------------------------------------------------------
 
     @Test
     fun ninetyDegreeCornerSurvivesFitPath() {
@@ -72,7 +63,6 @@ class BezierFitTest {
         val path = BezierFit.fitPath(pts, 1f, false, 100f)
         assertTrue(path.segments.size >= 2, "the corner should split the path into at least two runs")
 
-        // Locate the join whose anchor is the corner, then measure the angle the fit left there.
         var joinIndex = -1
         for (i in path.segments.indices) {
             val to = anchorOf(path.segments[i])
@@ -85,7 +75,6 @@ class BezierFitTest {
 
         val incoming = path.segments[joinIndex] as VecSeg.Cubic
         val outgoing = path.segments[joinIndex + 1] as VecSeg.Cubic
-        // Back along the path from the corner, and forward along the path from the corner.
         val bx = incoming.c2.x - incoming.to.x
         val by = incoming.c2.y - incoming.to.y
         val fx = outgoing.c1.x - incoming.to.x
@@ -113,21 +102,14 @@ class BezierFitTest {
         val path = BezierFit.fitPath(pts, 0.5f, true, 100f)
         assertTrue(path.closed)
         assertTrue(path.segments.isNotEmpty())
-        // Every anchor must stay near the circle it came from.
         for (p in path.points()) {
             val r = sqrt((p.x - 50f) * (p.x - 50f) + (p.y - 50f) * (p.y - 50f))
             assertTrue(abs(r - 20f) < 1.5f, "anchor drifted off the circle: r = $r")
         }
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Robustness
-    // -----------------------------------------------------------------------------------------
-
     @Test
     fun controlPointsNeverShootOffScreen() {
-        // A tight zigzag is the classic trigger for the near-singular normal equations; without the
-        // alpha fallback the solve returns control points thousands of units away.
         val pts = listOf(
             VecPoint(0f, 0f), VecPoint(1f, 4f), VecPoint(2f, 0f), VecPoint(3f, 4f),
             VecPoint(4f, 0f), VecPoint(5f, 4f), VecPoint(6f, 0f), VecPoint(6.0001f, 0.0001f),
@@ -145,7 +127,6 @@ class BezierFitTest {
     fun degenerateInputsReturnSensibleResults() {
         assertTrue(BezierFit.fit(emptyList(), 1f).isEmpty())
         assertTrue(BezierFit.fit(listOf(VecPoint(1f, 1f)), 1f).isEmpty())
-        // Every point identical collapses to nothing rather than dividing by a zero chord.
         assertTrue(BezierFit.fit(List(5) { VecPoint(2f, 2f) }, 1f).isEmpty())
 
         val two = BezierFit.fit(listOf(VecPoint(0f, 0f), VecPoint(9f, 0f)), 1f)
@@ -166,10 +147,6 @@ class BezierFitTest {
         assertTrue(segs.isNotEmpty())
         for (s in segs) assertTrue(s.to.x.isFinite() && s.to.y.isFinite())
     }
-
-    // -----------------------------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------------------------
 
     private fun cubicAt(p0: VecPoint, c1: VecPoint, c2: VecPoint, p3: VecPoint, t: Float): VecPoint {
         val u = 1f - t

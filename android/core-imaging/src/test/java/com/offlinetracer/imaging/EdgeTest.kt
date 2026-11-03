@@ -6,14 +6,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * The five edge engines (ALGORITHMS §7). A synthetic step edge has a known position, so the tests
- * assert *where* each engine fires and how thick the response is, rather than comparing against a
- * stored image.
- */
 class EdgeTest {
 
-    /** Dark on the left of [edgeX], light from [edgeX] on. The only edge is the column boundary. */
     private fun verticalStep(w: Int, h: Int, edgeX: Int): GrayF {
         val g = GrayF(w, h)
         for (y in 0 until h) for (x in 0 until w) g[x, y] = if (x < edgeX) 0.1f else 0.9f
@@ -40,8 +34,6 @@ class EdgeTest {
 
     @Test
     fun cannyNonMaximumSuppressionKeepsTheEdgeThin() {
-        // Quantising the gradient direction to 0/45/90/135 is the usual shortcut and it produces a
-        // 1 px staircase that becomes a staircase in the traced vector.
         val src = verticalStep(32, 16, 16)
         val edges = EdgeCanny.detect(src, 1.2f, 0.05f, 0.15f)
         for (y in 3 until 13) {
@@ -83,7 +75,6 @@ class EdgeTest {
 
     @Test
     fun dogOfAConstantIsTheConstantTimesOneMinusTau() {
-        // D = G(s) - tau*G(k s); both blurs of a constant return the constant.
         val out = EdgeDog.dog(GrayF(20, 20).fill(0.5f), 1f, 1.6f, 0.98f)
         for (v in out.data) assertEquals(0.5f * (1f - 0.98f), v, 1e-3f)
     }
@@ -114,8 +105,6 @@ class EdgeTest {
             assertTrue(v >= -1e-4f && v <= 1f + 1e-4f, "ink density must be 0..1, got $v")
             assertEquals(first, v, 1e-4f, "a flat image must produce a flat response")
         }
-        // 1 is paper (ALGORITHMS §7.2). An image with no edges in it is entirely paper; a response
-        // near 0 means the DoG was fed to the soft threshold without being normalised by (1 - tau).
         assertTrue(first > 0.5f, "a flat image must come out as paper, got $first")
     }
 
@@ -125,24 +114,8 @@ class EdgeTest {
         val out = EdgeDog.xdog(src, 1f, 1.6f, 0.98f, 0.5f, 20f)
         var minAtEdge = Float.MAX_VALUE
         for (x in 17..22) minAtEdge = minOf(minAtEdge, out[x, 6])
-        // Paper is the LIGHT half of the step, so the reference column is x = 36, not x = 3.
-        // ε is an intensity *level* (ALGORITHMS §7.2): with u = D/(1-τ) = 50·G(σ) - 49·G(kσ), a flat
-        // region of intensity I answers u = I exactly. verticalStep puts 0.1 on the left, and
-        // 0.1 < ε = 0.5, so the whole left half is legitimately full ink — that is XDoG's tone
-        // response, not a defect. x = 3 therefore reads 1 + tanh(20·(0.1 - 0.5)) = 1 + tanh(-8)
-        // = 2.3e-7, i.e. ink, and "ink < ink - 0.05" can never hold however correct the engine is.
-        // At x = 36 both blurs return 0.9 (edge-clamped, and 16 px from the step is far outside the
-        // 5-tap radius of G(1.6)), so u = 0.9 ≥ ε and T = 1 exactly. At x = 18 the DoG undershoots
-        // on the dark side of the step to u = -4.23, so T = 1 + tanh(20·(-4.73)) = 0. The margin
-        // actually available is 1.0 - 0.0; the assertion only claims 0.05 of it.
         assertTrue(minAtEdge < out[36, 6] - 0.05f, "the edge must be darker than flat paper")
 
-        // The check above is satisfied partly by tone: x = 17..19 would be ink even without a step,
-        // because they are dark. Repeating it with ε at the bottom of its range isolates the *edge*
-        // response, which is what this test is named for. At ε = 0.05 both flat halves are paper
-        // (u = 0.1 and u = 0.9 are both ≥ 0.05) so only the step itself can produce ink, and it
-        // still does: u = -4.23 at x = 18 gives T = 0. This is the "edge-only, technical line work"
-        // regime §7.2 describes, and it is the case that a polarity flip cannot fake.
         val edgeOnly = EdgeDog.xdog(src, 1f, 1.6f, 0.98f, 0.05f, 20f)
         var minEdgeOnly = Float.MAX_VALUE
         for (x in 17..22) minEdgeOnly = minOf(minEdgeOnly, edgeOnly[x, 6])
@@ -173,9 +146,6 @@ class EdgeTest {
 
     @Test
     fun structureTensorFlowIsTangentToTheEdge() {
-        // The minor eigenvector of the structure tensor runs ALONG the edge, so at a vertical step
-        // it must be vertical. Picking the major eigenvector instead is a one-character bug that
-        // rotates the entire flow field by 90 degrees.
         val src = verticalStep(40, 40, 20)
         val field = EdgeFlow.structureTensorFlow(src, 2f)
         assertEquals(40, field.width)
@@ -227,31 +197,9 @@ class EdgeTest {
         for (v in ink.data) assertTrue(v >= -1e-4f && v <= 1f + 1e-4f, "ink density must be 0..1, got $v")
         var minAtEdge = Float.MAX_VALUE
         for (x in 21..26) minAtEdge = minOf(minAtEdge, ink[x, 24])
-        // Same correction as xdogDarkensAtAnEdge: paper is the light half, so the reference is
-        // x = 43, not x = 4. The across-flow kernel is normalised over its truncated support so it
-        // sums to exactly 1-τ, which makes the 1/(1-τ) rescale exact and a flat region answer u = I;
-        // the dark half's 0.1 is below ε = 0.5, so it inks. Kang's min(image, ink) feedback then
-        // makes it ink *exactly*: pass 1 leaves 1 + tanh(20·(0.1 - 0.5)) ≈ 2.3e-7 there, pass 2
-        // re-filters that value as the image, and 1 + tanh(20·(2.3e-7 - 0.5)) = 1 + tanh(-10) is 0f
-        // to the bit because tanh(-10) = -0.9999999959 is inside half a float ulp of -1. ink[4, 24]
-        // was therefore bit-for-bit the edge's own value, which is why the old "0 < 0" failed.
-        // At x = 43 the tangent is (1, 0) with zero magnitude (flat region), so the across-flow walk
-        // runs vertically and the along-flow walk horizontally, both entirely inside the uniform 0.9
-        // half: u = 0.9 ≥ ε and T = 1. At x = 22 the across-flow walk crosses the step and the DoG
-        // undershoot gives u = -9.88, T = 0. So this asserts 0 < 1.
         assertTrue(minAtEdge < ink[43, 24], "the edge must be darker than flat paper")
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Sub-pixel edge localisation (ALGORITHMS §7.1)
-    // ---------------------------------------------------------------------------------------
-
-    /**
-     * An anti-aliased disc: pixel value is the fraction of the pixel *not* covered, so the edge sits
-     * at exactly [r] from ([cx], [cy]) and that position is known analytically rather than measured.
-     * 8×8 supersampling is what a sensor does and what makes the sub-pixel information real — a
-     * hard-thresholded disc carries none.
-     */
     private fun antiAliasedDisc(w: Int, h: Int, r: Double, cx: Double, cy: Double): GrayF {
         val g = GrayF(w, h)
         val ss = 8
@@ -271,8 +219,6 @@ class EdgeTest {
 
     @Test
     fun subpixelRidgeLandsOnTheTrueCircleFarCloserThanTheGridCan() {
-        // Ground truth is the circle itself, so "sharper" is a number: the radial error of every
-        // surviving edge pixel, measured at its integer centre and at its refined position.
         val r = 18.0
         val cx = 31.37
         val cy = 32.61
@@ -298,9 +244,6 @@ class EdgeTest {
         assertTrue(n > 60, "the disc must produce a ridge, got $n pixels")
         val rmsInt = Math.sqrt(sumInt / n)
         val rmsSub = Math.sqrt(sumSub / n)
-        // Measured 0.344 px on the grid against 0.064 px refined — a factor of 5.4. The grid figure
-        // is not a property of this implementation, it is 1/sqrt(12) of a pixel plus the curvature
-        // term: any integer answer is stuck with it, which is the whole reason this function exists.
         assertTrue(rmsInt > 0.25, "the integer grid should be about a third of a pixel out, got $rmsInt")
         assertTrue(rmsSub < 0.12, "sub-pixel radial error must be well under a tenth of a pixel, got $rmsSub")
         assertTrue(rmsSub * 4.0 < rmsInt, "refinement must be a large win, got $rmsInt -> $rmsSub")
@@ -308,9 +251,6 @@ class EdgeTest {
 
     @Test
     fun subpixelRidgeNeverLeavesTheSurvivingPixelsOwnHalfCell() {
-        // The safety property `Ridge.snap` depends on: for a pixel NMS kept, m >= both neighbours, so
-        // the parabola vertex is at |t| <= 1/2 and each offset component is |t * u| <= 1/2. Without
-        // it a snapped vertex could jump onto a neighbouring ridge and cross a real feature.
         val src = antiAliasedDisc(64, 64, 18.0, 31.37, 32.61)
         val g = Convolve.gradients(Convolve.gaussianBlur(src, 1.2f))
         val nms = EdgeCanny.nonMaximumSuppression(g)
@@ -363,7 +303,6 @@ class EdgeTest {
             }
         }
         assertTrue(xs.size > 60, "no ridge pixels to snap")
-        // Two points deliberately off the image; `snap` must leave them exactly where they are.
         xs.add(-4f); ys.add(-4f)
         xs.add(200f); ys.add(200f)
         val ax = FloatArray(xs.size) { xs[it] }
@@ -378,7 +317,6 @@ class EdgeTest {
         assertEquals(-4f, bx[ax.size - 2], "a point left of the image must not be moved")
         assertEquals(200f, by[ay.size - 1], "a point past the image must not be moved")
 
-        // The refined ring is measurably rounder than the integer one.
         val cx = 31.37
         val cy = 32.61
         var sumInt = 0.0

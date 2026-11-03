@@ -4,7 +4,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** Tone operators (ALGORITHMS §5). */
 class ContrastTest {
 
     private fun rampImage(n: Int): GrayF {
@@ -33,8 +32,6 @@ class ContrastTest {
 
     @Test
     fun histogramClampsOutOfRangeValuesInsteadOfCrashing() {
-        // GrayF is never clamped between stages, so a histogram of a DoG response legitimately sees
-        // values outside 0..1; an unguarded bin index is an ArrayIndexOutOfBounds in production.
         val src = GrayF(3, 1, floatArrayOf(-2f, 0.5f, 7f))
         val h = Contrast.histogram(src, 16)
         var total = 0
@@ -67,12 +64,9 @@ class ContrastTest {
 
     @Test
     fun percentileStretchIgnoresASingleOutlier() {
-        // One specular highlight otherwise owns the whole top of the range and the artwork ends up
-        // compressed into the bottom 20%.
         val src = GrayF(100, 1)
         for (x in 0 until 99) src[x, 0] = 0.2f + 0.002f * x
         src[99, 0] = 8f
-        // A plain stretch would map the real data into the bottom 2.5% of the range.
         val out = Contrast.percentileStretch(src, 5f)
         assertTrue(out[90, 0] > 0.85f, "the top of the real data must reach the top, got ${out[90, 0]}")
         assertTrue(out[0, 0] < 0.1f, "the bottom of the real data must reach the bottom")
@@ -104,7 +98,6 @@ class ContrastTest {
 
     @Test
     fun levelsClipAndRescale() {
-        // out = ((clamp(in, black, white) - black) / (white - black)) ^ (1/gamma)
         val src = GrayF(5, 1, floatArrayOf(0f, 0.2f, 0.5f, 0.8f, 1f))
         val out = Contrast.levels(src, 0.2f, 0.8f, 1f)
         assertEquals(0f, out[0, 0], 1e-5f)
@@ -190,8 +183,6 @@ class ContrastTest {
 
     @Test
     fun claheOfAConstantIsTheConstant() {
-        // Every tile histogram is one spike; the CDF is a step and the interpolation must still
-        // return a flat image rather than a tile-shaped pattern.
         val out = Contrast.clahe(GrayF(64, 64).fill(0.5f), 8, 8, 2f)
         val r = out.range()
         assertTrue(r.second - r.first < 0.02f, "constant input produced a range of $r")
@@ -199,11 +190,6 @@ class ContrastTest {
 
     @Test
     fun claheOfASingleGreyLevelIsThatLevelAndNotWhite() {
-        // Pure white is also flat, so the test above passes on the exact failure this one catches:
-        // the literal algorithm maps a one-level tile to 255 because its CDF is 1.0 at the only
-        // occupied bin. The value is asserted at every size where a tile can hold one level — a 1x1
-        // image, an image smaller than the tile grid so every tile is a single pixel, and a constant
-        // image large enough that the tiles are ordinary.
         val expected = Px.toByte255(0.5f) / 255f
         for (src in listOf(GrayF(1, 1, floatArrayOf(0.5f)), GrayF(3, 2).fill(0.5f), GrayF(64, 64).fill(0.5f))) {
             val out = Contrast.clahe(src, 8, 8, 2f)
@@ -215,9 +201,6 @@ class ContrastTest {
 
     @Test
     fun claheHasNoTileSeams() {
-        // A smooth global gradient must come out smooth. Skipping the bilinear interpolation between
-        // tile LUTs is the most common way CLAHE is implemented wrong, and it shows up here as a
-        // jump at a tile boundary that is many times the average step.
         val n = 128
         val src = GrayF(n, n)
         for (y in 0 until n) for (x in 0 until n) src[x, y] = x / (n - 1f)

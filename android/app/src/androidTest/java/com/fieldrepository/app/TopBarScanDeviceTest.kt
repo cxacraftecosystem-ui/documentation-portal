@@ -36,21 +36,11 @@ import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import java.util.UUID
 
-/**
- * On a device (REQUIREMENTS_2026-10-20 §6.3): the header's scan button opens the top-bar sheet, and a
- * typed session code is answered with Join, and pressing it starts the session. The services are
- * the app's own; the API is a closed loopback port, so nothing is signed in or sent.
- */
 @RunWith(AndroidJUnit4::class)
 class TopBarScanDeviceTest {
     @get:Rule
     val rule = createComposeRule()
 
-    /**
-     * The app's own services (`fieldScanServices`), not a fake: the session code and the session QR
-     * are classified by the real dispatcher with the real card rule. Their repository is pointed at a
-     * closed loopback port, so a lookup that reaches for the network fails as "no signal".
-     */
     private val services: ScanServices = fieldScanServices(
         FieldRepository(
             Retrofit.Builder()
@@ -93,12 +83,6 @@ class TopBarScanDeviceTest {
         org.junit.Assert.assertEquals("AB3K9Z", joined)
     }
 
-    /**
-     * The real action, not a fake: a typed session QR (the payload a researcher's phone shows) is
-     * answered with Join, and pressing it runs `runFieldScanAction`, which creates the session in this
-     * phone's outbox under the QR's `clientKey` (`outbox.startSession`) and hands back the session to
-     * open. Offline by design, so nothing is signed in or sent for it to work.
-     */
     @Test
     fun aScannedSessionQrStartsTheSessionInTheOutbox() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext

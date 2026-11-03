@@ -16,36 +16,11 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-// ---------------------------------------------------------------------------
-// ActionRow — the one layout every group of buttons goes through.
-//
-//   1 button   → centred at its own width.
-//   2 buttons  → one line, equal halves on a phone, equal content-fit widths
-//                centred on a wider window. A long label wraps inside its own
-//                half; the pair stacks only when a single word cannot fit its
-//                half (very large font scale).
-//   3+ buttons → compact window (< 600dp): stacked, full width, one under
-//                another. Wider: one centred horizontal row of pills (Material
-//                buttons are already fully rounded), wrapping only when the
-//                row is genuinely too wide.
-//
-// The count is the number of children actually emitted, so a button behind an
-// `if` is handled at runtime. Children must not carry RowScope modifiers
-// (`weight`) — the row decides widths. Pass Delete / Reject / Discard as
-// `destructive`: it goes last and, in the wide pill row, behind a hairline rule,
-// as the web's ButtonRow does.
-//
-// Dialogs: a dialog with three actions puts one ActionRow in `confirmButton`
-// (no `dismissButton`), so it stacks on a phone like the web's FieldDialog.
-// Dialogs with one or two actions keep Material's own button slots.
-// ---------------------------------------------------------------------------
-
 object ActionRowDefaults {
     val Spacing: Dp = 8.dp
     val CompactBreakpoint: Dp = 600.dp
 }
 
-/** True when the window is in the compact width class (< 600dp), as on a phone held upright. */
 @Composable
 fun isCompactWidth(): Boolean {
     val widthPx = LocalWindowInfo.current.containerSize.width
@@ -54,16 +29,11 @@ fun isCompactWidth(): Boolean {
     return widthDp < ActionRowDefaults.CompactBreakpoint
 }
 
-/**
- * Whether a pair shares one line at [rowWidth]. [minWidths] is each button's min-intrinsic width —
- * its longest word plus padding — so a long label wraps inside its half rather than forcing a stack.
- */
 internal fun pairSharesLine(rowWidth: Int, gap: Int, minWidths: List<Int>): Boolean {
     val half = (rowWidth - gap) / 2
     return minWidths.all { it <= half }
 }
 
-/** Each button's width in a pair: equal halves on a phone; the wider natural width, capped at half, elsewhere. */
 internal fun pairButtonWidth(rowWidth: Int, gap: Int, naturalWidths: List<Int>, compact: Boolean): Int {
     val half = (rowWidth - gap) / 2
     return if (compact) half else minOf(half, naturalWidths.max())
@@ -125,7 +95,6 @@ fun ActionRow(
             else -> if (compact) stack(maxW) else {
                 val ps = measurables.map { it.measure(loose.copy(maxWidth = maxW)) }
                 val rp = if (rule != null && dangerFrom > 0) rule.measure(loose) else null
-                // The rule rides in front of the destructive action, as part of its slot.
                 fun lead(i: Int) = if (rp != null && i == dangerFrom) rp.width + gap else 0
                 val lines = mutableListOf<MutableList<Int>>()
                 var lineW = 0
@@ -141,7 +110,6 @@ fun ActionRow(
                 var ruleAt: Pair<Int, Int>? = null
                 var y = 0
                 lines.forEach { line ->
-                    // A destructive action that starts a wrapped line is already set apart by the break.
                     fun leadHere(i: Int) = if (i == line.first()) 0 else lead(i)
                     val w = line.sumOf { leadHere(it) + ps[it].width } + gap * (line.size - 1)
                     val lh = line.maxOf { ps[it].height }

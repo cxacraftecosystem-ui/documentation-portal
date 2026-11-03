@@ -4,14 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.LocalDateTime
 
-/**
- * The name a file is saved under when somebody taps "Download" on an attachment, recording or
- * outbox row. The SAME table drives the web twin in
- * `frontend/e2e/local-media-download-unit.spec.ts` — a voice note saved from the phone and from the
- * laptop must land under the same name. Add a row here, add it there.
- */
 class MediaDownloadsTest {
-    // 2026-03-07 09:05:02 local time — single-digit month, day, hour and minute so padding is exercised.
     private val now = LocalDateTime.of(2026, 3, 7, 9, 5, 2)
 
     @Test

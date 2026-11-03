@@ -15,11 +15,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * The handset's card parser against `shared/artisan-card-vectors.json`, the file the server
- * (`test_artisan_card.py`) and the web (`artisan-card-unit.spec.ts`) read too, so the three cannot
- * drift. Plus the offline register match and the pending-card helpers the outbox uses.
- */
 class ArtisanCardCodeTest {
 
     private fun vectors(): JsonObject {
@@ -103,7 +98,6 @@ class ArtisanCardCodeTest {
         val rows = listOf(row("a1", code = "0123456789"), row("a2", code = "ABCDEFGHJK", linked = listOf("7K3QM9XA2F")))
         assertEquals("a1", ArtisanCardCode.matchInRegister(parsed("F-01234-56789-S5"), rows)?.id)
         assertEquals("a2", ArtisanCardCode.matchInRegister(parsed("D-7K3QM-9XA2F-HQ"), rows)?.id)
-        // A designer card carrying one of THIS portal's codes is not that artisan.
         assertNull(ArtisanCardCode.matchInRegister(parsed(ArtisanCardCode.shortCode('D', "0123456789")), rows))
         assertNull(ArtisanCardCode.matchInRegister(parsed(ArtisanCardCode.shortCode('F', "ZZZZZZZZZZ")), rows))
     }

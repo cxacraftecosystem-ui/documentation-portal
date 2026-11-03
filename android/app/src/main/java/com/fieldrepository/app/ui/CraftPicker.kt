@@ -59,20 +59,6 @@ import com.fieldrepository.app.data.CraftCatalogueCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/**
- * The one way to pick a craft on the handset (REQUIREMENTS_2026-10-20 §2.4).
- *
- * Identical in designer-portal and documentation-portal apart from the package and the app's own
- * package prefix on its three data imports; a parity test in each repo pins it.
- *
- * - Options come only from the craft catalogue ([CraftCatalogueCache]). Nothing typed is submitted:
- *   the box in the sheet searches, a pick hands back the craft's id.
- * - A bottom sheet with a search field and a list grouped under "Category › Sub-category" sticky
- *   headers; each row shows the name, a GI badge and the states of practice.
- * - Single and multi modes, the web `CraftSelect`'s ranking and its no-match copy.
- * - [refresh] runs when the sheet opens, so an online pick sees the newest list; offline the file
- *   on the device answers, and a first run offline says [CraftCatalogueCache.OFFLINE_FIRST_RUN].
- */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun CraftPickerField(
@@ -85,17 +71,13 @@ fun CraftPickerField(
     isError: Boolean = false,
     supportingText: String? = null,
     placeholder: String = if (multiple) "Pick crafts" else "Pick a craft",
-    /** Names for ids not on the list (a LEGACY craft an old record still points at). */
     fallbackNames: Map<String, String> = emptyMap(),
-    /** Offer only these crafts (a filter narrowed by a workshop's own crafts). Null = every craft. */
     allowedIds: Set<String>? = null,
     refresh: suspend () -> Unit = {},
-    /** The picked ids; one at most unless [multiple]. Last, so a call site can trail it. */
     onChange: (List<String>) -> Unit,
 ) {
     val context = LocalContext.current
     val catalogue by CraftCatalogueCache.catalogue.collectAsState()
-    // The file is parsed once per process, and never on the main thread.
     LaunchedEffect(Unit) { withContext(Dispatchers.IO) { CraftCatalogueCache.cached(context) } }
     var open by remember { mutableStateOf(false) }
 
@@ -124,10 +106,8 @@ fun CraftPickerField(
                     }
                 },
                 supportingText = supportingText?.let { message -> { Text(message) } },
-                // The caller's modifier lands on the field itself, so a focus requester has a target.
                 modifier = modifier.fillMaxWidth()
             )
-            // The whole field opens the sheet; the clear button above keeps its own press.
             Box(
                 modifier = Modifier
                     .matchParentSize()
@@ -181,9 +161,6 @@ private fun CraftPickerSheet(
         runCatching { refresh() }
         refreshing = false
     }
-    // Searched off the main thread: the first search folds the whole catalogue once, and every
-    // keystroke after it is a pass over text already folded. The last answer stays up meanwhile.
-    // Null until the first answer for this catalogue, so an empty list is never shown as "no match".
     val groups by produceState<List<CraftCatalogueCache.Group>?>(initialValue = null, catalogue, query, allowedIds) {
         val list = catalogue
         value = if (list == null) {
@@ -230,7 +207,6 @@ private fun CraftPickerSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 12.dp)
                 )
-                // The first search of a catalogue is a moment's work; nothing flashes meanwhile.
                 shown == null -> Unit
                 shown.isEmpty() -> Text(
                     if (query.isBlank()) "No crafts on the list yet." else CraftCatalogueCache.noMatch(query.trim()),

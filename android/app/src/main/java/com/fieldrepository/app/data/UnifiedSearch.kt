@@ -2,14 +2,6 @@ package com.fieldrepository.app.data
 
 import kotlinx.serialization.Serializable
 
-/**
- * One search across both portals, the wire half (docs/SEARCH.md). The server half is
- * `backend/app/api/routes/search.py` (`GET /search/unified`, `GET /search/remote/{type}/{id}`); the
- * panel that draws it is `ui/AppSearch.kt` through `ui/AppSearchSources.kt`.
- *
- * While the server's UNIFIED_SEARCH_ENABLED is off the route answers 404 and the panel keeps its
- * older fan-out over `GET /search` and the list routes.
- */
 @Serializable
 data class UnifiedSearchItemDto(
     val portal: String = "fieldRepository",
@@ -57,7 +49,6 @@ data class UnifiedSearchResponse(
 @Serializable
 data class RemoteRecordFieldDto(val label: String = "", val value: String = "")
 
-/** One record from the other portal, as a read-only card. */
 @Serializable
 data class RemoteRecord(
     val portal: String = "designer",
@@ -71,29 +62,24 @@ data class RemoteRecord(
     val openUrl: String? = null,
 )
 
-/** The search vocabulary, in group order — the server's `cross_portal.SEARCH_TYPES`. */
 val UNIFIED_SEARCH_TYPES: List<String> = listOf(
     "artisans", "crafts", "clusters", "workshops", "designWorkshops", "interviews",
     "transcripts", "reports", "products", "tools", "processes", "media",
 )
 
-/** The portal a remote item came from, in words, for the chip and the card's button. */
 fun portalLabel(portal: String?): String = when (portal) {
     "fieldRepository" -> "Field Repository"
     "designer" -> "Designer portal"
     else -> "the other portal"
 }
 
-/** "Open in Designer portal". */
 fun openInLabel(portal: String?): String = "Open in ${portalLabel(portal)}"
 
-/** Items the panel can draw: known types and an id, in the server's order. Unknown types are dropped. */
 fun UnifiedSearchResponse.knownItems(): List<UnifiedSearchItemDto> =
     UNIFIED_SEARCH_TYPES.flatMap { type ->
         groups.filter { it.type == type }.flatMap { group -> group.items.filter { it.id.isNotBlank() } }
     }
 
-/** The card's rows: the other portal's own fields, empty ones dropped, then the record date. */
 fun RemoteRecord.cardRows(formatDate: (String) -> String): List<Pair<String, String>> =
     fields.filter { it.label.isNotBlank() && it.value.isNotBlank() }.map { it.label to it.value } +
         listOfNotNull(recordDate?.takeIf { it.isNotBlank() }?.let { "Recorded" to formatDate(it) })

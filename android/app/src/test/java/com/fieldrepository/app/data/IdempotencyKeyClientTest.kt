@@ -17,11 +17,6 @@ import retrofit2.HttpException
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 
-/**
- * The handset's half of `Idempotency-Key`: the header goes out on a create when there is a key and
- * not at all when there is none, and the server's "still running" answer is something to retry,
- * not a refusal.
- */
 class IdempotencyKeyClientTest {
     private val sent = mutableListOf<Request>()
 

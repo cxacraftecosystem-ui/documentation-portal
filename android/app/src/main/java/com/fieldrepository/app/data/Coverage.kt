@@ -2,16 +2,6 @@ package com.fieldrepository.app.data
 
 import kotlinx.serialization.Serializable
 
-/**
- * The Coverage list's rows: per state, how many districts have a workshop and how many records it
- * holds. Drawn under the coverage map (`ui/CoverageScreen.kt`) from the map's own `GET /map/coverage`
- * answer (`CoverageModels.kt`), folded per state by [coverageSummary]. [CoverageDto] is the state-level
- * shape the fold produces; only the fields the list needs are typed, and unknown keys are ignored by
- * the shared `Json` (`ignoreUnknownKeys`).
- *
- * Every field defaults, so a server that adds or drops a block cannot turn the card into a parse
- * error. See `docs/COVERAGE_MAP.md`.
- */
 @Serializable
 data class CoverageDto(
     val units: List<CoverageUnitDto> = emptyList(),
@@ -19,7 +9,6 @@ data class CoverageDto(
     val truncated: Boolean = false,
 )
 
-/** One state (at `level=STATE`) with any record the caller may read. */
 @Serializable
 data class CoverageUnitDto(
     val stateLgd: Int = 0,
@@ -38,7 +27,6 @@ data class CoverageCountsDto(
     val tools: Int = 0,
     val media: Int = 0,
 ) {
-    /** Records, not crafts: `crafts` counts distinct crafts across those records, so it is not added. */
     val records: Int get() = workshops + artisans + products + tools + media
 }
 
@@ -58,7 +46,6 @@ data class CoverageDistrictGapsDto(
     val byState: List<CoverageStateGapDto> = emptyList(),
 )
 
-/** A state with at least one district without a workshop: [total] districts, [without] of them bare. */
 @Serializable
 data class CoverageStateGapDto(
     val stateLgd: Int = 0,
@@ -67,15 +54,9 @@ data class CoverageStateGapDto(
     val without: List<CoverageNamedUnitDto> = emptyList(),
 )
 
-/** A register unit by LGD code. A district whose code is pending has a null [lgd]. */
 @Serializable
 data class CoverageNamedUnitDto(val lgd: Int? = null, val name: String = "")
 
-/**
- * One row of the Coverage card. [total] is null for a state the server lists no gap for — every one
- * of its districts has a workshop — because the payload names a state's district count only beside
- * its gaps.
- */
 data class CoverageStateRow(
     val stateLgd: Int,
     val name: String,
@@ -103,10 +84,6 @@ object CoverageCopy {
     fun crafts(count: Int): String = "Crafts never documented: $count"
 }
 
-/**
- * The card's rows, from one payload: every state the payload names (with records, or with a gap),
- * the best covered first, then by name. Pure, so the JVM suite reads it without a device.
- */
 fun coverageSummary(dto: CoverageDto): CoverageSummary {
     val records = dto.units.filter { it.districtLgd == null }.associate { it.stateLgd to it }
     val gaps = dto.gaps.districtsWithoutWorkshop.byState.associateBy { it.stateLgd }
@@ -135,10 +112,6 @@ fun coverageSummary(dto: CoverageDto): CoverageSummary {
     )
 }
 
-/**
- * The same rows from the coverage map's own answer, at either level: district units are folded into
- * their state on the client, so the map and the list under it read one fetch and cannot disagree.
- */
 fun coverageSummary(response: CoverageResponse): CoverageSummary {
     val states = response.units.groupBy { it.stateLgd }.map { (stateLgd, units) ->
         CoverageUnitDto(

@@ -12,10 +12,6 @@ import java.io.File
 import java.nio.file.Files
 import java.time.LocalDate
 
-/**
- * Unsaved form drafts on disk: the value encoding every form field goes through, and the files
- * themselves (per account, per form, per record, kept across sign-out).
- */
 class DraftStoreTest {
     private val root: File = Files.createTempDirectory("drafts-test").toFile()
     private val NEW = newDraftPrefix(null)
@@ -37,7 +33,6 @@ class DraftStoreTest {
             val encoded = DraftValues.encode(value)!!
             assertEquals("round trip of $value", value, DraftValues.decode(encoded))
         }
-        // A set stays a set, so a restored selection is still a Set<String>.
         assertTrue(DraftValues.decode(DraftValues.encode(setOf("x"))!!) is Set<*>)
     }
 

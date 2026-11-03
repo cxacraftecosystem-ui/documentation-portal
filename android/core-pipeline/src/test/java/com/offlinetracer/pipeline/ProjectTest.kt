@@ -16,14 +16,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
-/**
- * The project format.
- *
- * The three properties asserted here are the ones that decide whether somebody's saved work opens next
- * year: exact round-trips, unknown fields ignored, missing fields defaulted. The fourth — that genuinely
- * corrupt input raises rather than silently decoding to an empty project — matters just as much, because
- * an empty canvas the user then saves over is how the file on disk gets destroyed.
- */
 class ProjectTest {
 
     private fun sampleMeta() = ProjectMeta(
@@ -39,7 +31,6 @@ class ProjectTest {
         thumbnailPath = "thumbs/prj-1.png",
     )
 
-    /** Exercises all three segment kinds, per-anchor widths, and a non-default style. */
     private fun sampleDocument(): VecDocument {
         val open = VecPath(
             start = VecPoint(1.5f, 2.25f),
@@ -94,10 +85,6 @@ class ProjectTest {
         )
     }
 
-    // -------------------------------------------------------------------------------------------
-    // Envelope
-    // -------------------------------------------------------------------------------------------
-
     @Test
     fun aProjectRoundTripsExactly() {
         val original = ProjectDocument(
@@ -118,7 +105,6 @@ class ProjectTest {
 
     @Test
     fun aFileFromBeforeAFieldExistedDecodesToTheDefaultForThatField() {
-        // Only `meta.name` was ever written. Everything else is a field this build added later.
         val old = """{"meta":{"name":"Old project"}}"""
         val decoded = ProjectCodec.decode(old)
         assertEquals("Old project", decoded.meta.name)
@@ -127,7 +113,6 @@ class ProjectTest {
         assertEquals(TraceParams(), decoded.params)
         assertEquals("", decoded.layersJson)
         assertEquals(1, decoded.historyVersion)
-        // A file with no version field at all is from before versioning existed.
         assertEquals(1, decoded.schemaVersion)
     }
 
@@ -173,16 +158,10 @@ class ProjectTest {
 
     @Test
     fun somethingThatIsNotJsonAtAllRaisesInsteadOfDecodingToAnEmptyProject() {
-        // Returning a blank project here is how the file on disk gets destroyed: the user sees an
-        // empty canvas, saves, and the real drawing is gone.
         assertFailsWith<IllegalArgumentException> { ProjectCodec.decode("not json") }
         assertFailsWith<IllegalArgumentException> { ProjectCodec.decode("") }
         assertFailsWith<IllegalArgumentException> { ProjectCodec.decode("{\"meta\":") }
     }
-
-    // -------------------------------------------------------------------------------------------
-    // Geometry
-    // -------------------------------------------------------------------------------------------
 
     @Test
     fun aVectorDocumentRoundTripsExactlyIncludingWidthsAndStyles() {
@@ -206,8 +185,6 @@ class ProjectTest {
 
     @Test
     fun coordinatesAreNotRounded() {
-        // Not stored as an SVG `d` string, precisely so that a save/load cycle cannot move a point.
-        // An editor that loses a thousandth of a pixel per save loses a visible amount after fifty.
         val awkward = VecDocument(
             1f, 1f,
             listOf(
@@ -230,7 +207,6 @@ class ProjectTest {
 
     @Test
     fun anEmptyLayersJsonIsAnEmptyDrawingAndNotACorruptFile() {
-        // A project created and saved before anything was traced has exactly this.
         val decoded = ProjectCodec.decodeDocument("")
         assertEquals(0, decoded.shapeCount())
         assertTrue(decoded.layers.isEmpty())
@@ -244,8 +220,6 @@ class ProjectTest {
 
     @Test
     fun anUnknownStyleEnumNameFallsBackToTheDocumentedDefault() {
-        // FillRule, LineCap and LineJoin are stored as names because :core-vector carries no
-        // @Serializable; an unrecognised name has to degrade rather than take the file down.
         val text = ProjectCodec.encodeDocument(sampleDocument())
             .replace("\"NONZERO\"", "\"SPIRAL\"")
             .replace("\"SQUARE\"", "\"CHISEL\"")
@@ -259,8 +233,6 @@ class ProjectTest {
 
     @Test
     fun aTruncatedCoordinateArrayRecoversWhatItCanInsteadOfThrowing() {
-        // Hand-built to look like a half-written file: three segments declared, one segment's worth of
-        // coordinates present.
         val text = """
             {"schemaVersion":1,"width":10.0,"height":10.0,"background":null,
              "layers":[{"id":"l","name":"l","visible":true,"locked":false,"opacity":1.0,
@@ -283,10 +255,6 @@ class ProjectTest {
         val decoded = ProjectCodec.decodeDocument(text)
         assertEquals(1, decoded.layers[0].shapes[0].path.segments.size)
     }
-
-    // -------------------------------------------------------------------------------------------
-    // The two halves together
-    // -------------------------------------------------------------------------------------------
 
     @Test
     fun aRealTraceSurvivesBeingSavedAndReopened() {
@@ -316,7 +284,6 @@ class ProjectTest {
         val text = ProjectCodec.encode(ProjectDocument(meta = sampleMeta()))
         assertTrue(text.contains("\n"), "prettyPrint is on for a reason")
         assertTrue(text.contains("Grandmother's teapot"))
-        // encodeDefaults, so "absent" and "at its default" are not the same thing on disk.
         assertTrue(text.contains("historyVersion"))
         assertTrue(text.contains("styleId"))
     }

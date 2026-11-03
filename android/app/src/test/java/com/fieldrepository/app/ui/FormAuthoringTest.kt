@@ -7,13 +7,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/**
- * Owner, 22 Oct 2026, applied strictly (the backend 403s everyone else): a questionnaire form's
- * author OR a content admin edits the form and everything in it, and deletes from it. Every other
- * questionnaire manager -- a Professor, a holder of the canManageQuestionnaire grant -- only reads it.
- * A form with no recorded author is content admins' alone. Deleting sessions and recordings stays
- * content admins only.
- */
 class FormAuthoringTest {
     private fun user(id: String, role: String, canManageQuestionnaire: Boolean = false) =
         UserDto(id = id, email = "$id@example.org", name = id, role = role, canManageQuestionnaire = canManageQuestionnaire)

@@ -5,19 +5,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/**
- * ONE TYPE SCALE (DC-A20). Text takes its size from a `MaterialTheme.typography` role — the ladder
- * is written down in ui/Theme.kt, slot for slot the designer portal's — and never from a literal.
- * Before this guard the app carried 712 literal `fontSize = N.sp` values in fifteen sizes, with help
- * and body text at 10–11sp; a literal is how that comes back, one "just this once" at a time.
- *
- * The allow-list is files, and it is short on purpose. Past Theme.kt, each entry is a dense label
- * drawn ON TOP of the thing it labels, where a scale step would cover it:
- *  - ui/Theme.kt defines the scale, so its sizes ARE the literals.
- *  - ui/MapScreen.kt — the pin label and the scale-bar "km" it paints onto the map canvas.
- *  - ui/RecordMeasureField.kt — the letter inside a 20dp measuring mark on the photo.
- *  - ui/trace/TraceCompare.kt — the picture's name over the corner of the compare slider.
- */
 class TypeScaleGuardTest {
 
     private val allowList = setOf(
@@ -27,11 +14,9 @@ class TypeScaleGuardTest {
         "com/fieldrepository/app/ui/trace/TraceCompare.kt",
     )
 
-    /** `fontSize = 12.sp`, `fontSize = if (x) 12.sp else 11.sp`, and a `fontSize: TextUnit = 14.sp` default. */
     private val literalSize =
         Regex("""\bfontSize\s*=\s*[^,\n]*?\b\d+(\.\d+)?\.sp\b|\bfontSize\s*:\s*TextUnit\s*=\s*\d""")
 
-    /** The roles that would be a fourth heading size, or a second display size. */
     private val offScaleRole = Regex("""\btypography\.(titleSmall|headlineLarge|headlineMedium|displayLarge|displayMedium)\b""")
 
     @Test
@@ -59,8 +44,6 @@ class TypeScaleGuardTest {
 
     @Test
     fun theAllowListStillEarnsItsPlace() {
-        // A file that no longer needs its exemption leaves the list, so the list cannot grow stale
-        // and quietly cover a new literal.
         val root = sourceRoot()
         for (path in allowList) {
             val file = File(root, path)
@@ -81,7 +64,6 @@ class TypeScaleGuardTest {
             .toList()
     }
 
-    /** (line number, text) for every line that is not a comment line. */
     private fun codeLines(file: File): List<Pair<Int, String>> =
         file.readLines().mapIndexedNotNull { index, line ->
             val code = line.trimStart()

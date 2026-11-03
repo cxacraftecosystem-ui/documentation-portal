@@ -5,10 +5,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * Colour conversions are tested against the closed-form answers in ALGORITHMS §1, never against a
- * snapshot: a snapshot of a wrong matrix is indistinguishable from a snapshot of a right one.
- */
 class ColorTest {
 
     private fun opaque(r: Int, g: Int, b: Int): Int = RgbaImage.argb(255, r, g, b)
@@ -24,14 +20,12 @@ class ColorTest {
 
     @Test
     fun lumaOfGreyIsTheGreyItself() {
-        // The three weights sum to exactly 1, so any neutral colour must survive unchanged.
         val img = RgbaImage(1, 1, intArrayOf(opaque(128, 128, 128)))
         assertEquals(128f / 255f, Color.toGray(img)[0, 0], 1e-4f)
     }
 
     @Test
     fun linearLuminanceIsDarkerThanLumaForMidGrey() {
-        // sRGB 0.5 linearises to ~0.214; if the two agree, one of them is not doing its transfer.
         val img = RgbaImage(1, 1, intArrayOf(opaque(128, 128, 128)))
         assertEquals(0.2140f, Color.toGrayLinear(img)[0, 0], 5e-3f)
     }
@@ -114,7 +108,6 @@ class ColorTest {
         assertEquals(200 / 255f, Color.channel(img, Channel.MAX)[0, 0], 1e-4f)
         assertEquals(50 / 255f, Color.channel(img, Channel.MIN)[0, 0], 1e-4f)
         assertEquals(200 / 255f, Color.channel(img, Channel.VALUE)[0, 0], 1e-4f)
-        // HSV saturation of (200,100,50) is (max-min)/max = 150/200.
         assertEquals(0.75f, Color.channel(img, Channel.SATURATION)[0, 0], 1e-3f)
         assertEquals(Color.toGray(img)[0, 0], Color.channel(img, Channel.LUMA)[0, 0], 1e-4f)
     }

@@ -7,14 +7,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/**
- * Two H21 follow-ups (21 Oct 2026, after the Phase 1 legacy fixes):
- * - the id of an interview a partly failed save created lived only while the form was open, so
- *   leaving and coming back made Save create it again; it is now kept in the form's draft;
- * - every "Record audio" in the app (the attach-media block the questionnaire form also uses, the
- *   media form, a process stage) records under the microphone foreground service, as the legacy
- *   questionnaire recorder does, so the OS cannot kill a take or leave an unplayable file.
- */
 class HeldRecorderTest {
     private val main = File("src/main/java/com/fieldrepository/app/MainActivity.kt").readText()
 
@@ -23,7 +15,6 @@ class HeldRecorderTest {
             "createdId is bound into the questionnaire form's draft",
             main.contains("""var createdId by remember(editing?.id) { mutableStateOf<String?>(null) }.drafted(draft, "createdId")""")
         )
-        // What the draft file holds comes back as the same id, and the save then updates it.
         val restored = DraftValues.decode(DraftValues.encode("int_42")!!)
         assertEquals("int_42", restored)
         assertEquals(LegacyQuestionnaireSave.Target.Update("int_42"), LegacyQuestionnaireSave.target(null, restored as String))

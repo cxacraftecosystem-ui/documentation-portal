@@ -18,7 +18,6 @@ import org.junit.Test
 import java.io.File
 import java.time.LocalDate
 
-/** B8 and A7 on the handset: the interview fills what the artisan's record and the recordings know. */
 class InterviewPrefillTest {
 
     private val ramesh = ArtisanDetailDto(

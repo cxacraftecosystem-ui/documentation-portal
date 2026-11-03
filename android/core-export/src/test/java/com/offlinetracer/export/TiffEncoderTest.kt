@@ -5,11 +5,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/**
- * TIFF is checked by walking the IFD the way libtiff does: ascending tag order is an invariant,
- * not a nicety, and the strip descriptors have to agree with the actual byte count or a reader
- * either truncates the image or runs off the end of the file.
- */
 class TiffEncoderTest {
 
     private class Entry(val tag: Int, val type: Int, val count: Int, val value: Int)
@@ -119,8 +114,6 @@ class TiffEncoderTest {
             val p = at + 2 + i * 12
             val type = le16(tiff, p + 2)
             val count = le32(tiff, p + 4)
-            // A single SHORT lives in the first two bytes of the value field; anything else is
-            // either a 4-byte value or a file offset.
             val value = if (type == 3 && count == 1) le16(tiff, p + 8) else le32(tiff, p + 8)
             out.add(Entry(le16(tiff, p), type, count, value))
         }

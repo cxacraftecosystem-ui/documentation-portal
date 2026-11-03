@@ -9,11 +9,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * What Field Repository Android reads out of the questionnaire as research data: the corpus (B29),
- * the workshop annexure (A12), and the annexure as the workshop export prints it (C10: the export
- * reads live takes and answers). Requests go through the real Retrofit interface to a server in memory.
- */
 class ExportsTest {
     private fun user(id: String, role: String) = UserDto(id = id, email = "$id@x", name = id, role = role)
 

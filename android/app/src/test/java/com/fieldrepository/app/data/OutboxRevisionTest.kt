@@ -12,11 +12,6 @@ import org.junit.Test
 import java.io.File
 import java.nio.file.Files
 
-/**
- * THE BANNER UPDATES LIVE. A 409 duplicate hold is recorded by the sync worker, off-screen, and it
- * leaves the queue's size alone, so the banner keyed on the count alone kept the old list until it
- * was reopened. Every queue write now bumps [OfflineOutbox.revision], and the banner keys on that.
- */
 class OutboxRevisionTest {
     private val dir: File = Files.createTempDirectory("outbox-revision").toFile()
     private val queue = File(dir, "queue.json")
@@ -54,12 +49,10 @@ class OutboxRevisionTest {
         val seen = OfflineOutbox.revision.value
         assertEquals(0, OfflineQueueFile.read(queue) {}.count { it.isPossibleDuplicate() })
 
-        // The banner's side: waiting on the revision, as its LaunchedEffect key does.
         val woken = async(start = CoroutineStart.UNDISPATCHED) {
             withTimeout(5_000) { OfflineOutbox.revision.first { it > seen } }
             OfflineQueueFile.read(queue) {}
         }
-        // The worker's side: the same count of entries, now held.
         OfflineQueueFile.write(queue, listOf(held(queued)))
 
         val list = woken.await()

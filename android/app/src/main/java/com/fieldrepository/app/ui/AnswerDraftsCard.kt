@@ -37,11 +37,6 @@ import com.fieldrepository.app.data.DismissSectionRequest
 import com.fieldrepository.app.data.DraftSectionRequest
 import kotlinx.coroutines.launch
 
-/**
- * C28 — draft one section's unanswered questions from the interview's transcript, then accept or
- * edit them together. Twin of the web's `AnswerDraftsPanel.tsx`. [onAccepted] hands the kept words
- * (questionId → text) back so the form's own answer boxes show them at once.
- */
 @Composable
 fun AnswerDraftsCard(
     interviewId: String,

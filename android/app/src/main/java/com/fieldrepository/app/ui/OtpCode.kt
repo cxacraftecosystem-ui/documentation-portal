@@ -47,62 +47,27 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
-/**
- * The rules of a 6-digit authenticator code — the web's `lib/otp.ts`, to the character, and pinned by
- * `OtpCodeTest`. Pure, so the handset and the browser can be held to one contract.
- */
 object OtpCode {
     const val LENGTH: Int = 6
 
-    /** Every non-digit removed. Only ASCII 0-9 counts: an Arabic-Indic or full-width digit does not. */
     fun onlyDigits(text: String): String = text.filter { it in '0'..'9' }
 
-    /**
-     * What a change to the input leaves in the boxes. Anything that is not a digit is refused; six or
-     * more digits arriving at once (a paste, the SMS/authenticator autofill) is a whole code and
-     * fills the boxes from the first; more than six keeps the first six.
-     */
     fun accept(previous: String, incoming: String): String {
-        // What arrived just now. A whole code pasted on top of a half-typed one REPLACES it — the
-        // paste is the code — rather than being appended and cut at six.
         val inserted = if (incoming.startsWith(previous)) incoming.substring(previous.length) else incoming
         val insertedDigits = onlyDigits(inserted)
         if (insertedDigits.length >= LENGTH) return insertedDigits.take(LENGTH)
-        // A letter, a space or a dash typed into the boxes is simply dropped.
         return onlyDigits(incoming).take(LENGTH)
     }
 
     fun isComplete(code: String): Boolean = code.length == LENGTH && code.all { it in '0'..'9' }
 
-    /** Backspace: the last digit goes, and the cursor box steps back one. */
     fun backspace(code: String): String = code.dropLast(1)
 
-    /** The box the next digit lands in (the "focused" box), 0-5. */
     fun activeBox(code: String): Int = code.length.coerceAtMost(LENGTH - 1)
 
-    /** What TalkBack hears for box [index]. */
     fun digitLabel(index: Int): String = "Digit ${index + 1} of $LENGTH"
 }
 
-/**
- * `OtpCodeField` — the ONE way to type a 6-digit code on the handset; the web's `OtpCodeInput`.
- *
- * Owner's ruling (2026-10-17): EXACTLY six boxes, digits only, in Plus Jakarta Sans
- * ([FieldDisplayFontFamily], bundled in res/font) with tabular figures, large. A whole code pasted
- * or autofilled (the field is tagged `ContentType.SmsOtpCode`) fills all six; typing advances;
- * Backspace steps back; [onComplete] fires the moment the sixth digit lands. [error] paints the boxes
- * red and shakes the row once — not under the app's reduced-motion preference, where the red border
- * and the spoken error are the whole signal.
- *
- * ONE INPUT DRAWN AS SIX BOXES, on purpose: a soft keyboard sends no key event for Backspace in an
- * EMPTY text field, so six separate fields cannot step back reliably on Gboard/Samsung. The single
- * field gets paste, autofill, Backspace and the number pad from the platform, and the boxes are its
- * decoration — each named "Digit n of 6" for TalkBack. Keyboard: [KeyboardType.NumberPassword], the
- * pad with no symbols on it.
- *
- * Recovery codes are a different shape and never go in these boxes; the caller offers a separate
- * text field behind a "Use a recovery code instead" switch.
- */
 @Composable
 fun OtpCodeField(
     value: String,
@@ -173,8 +138,6 @@ fun OtpCodeField(
                 },
             decorationBox = { inner ->
                 Box {
-                    // The real (transparent) text sits underneath so the platform keeps its caret,
-                    // selection and IME connection; the six boxes are drawn over it.
                     Box(modifier = Modifier.height(1.dp)) { inner() }
                     Row(
                         modifier = Modifier.fillMaxWidth(),

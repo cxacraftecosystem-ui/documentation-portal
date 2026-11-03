@@ -30,24 +30,13 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlin.reflect.KProperty
 
-/** Whether a message reports something that went wrong or something that went right. */
 enum class AppMessageTone { SUCCESS, ERROR }
 
-/**
- * The app's one message: a sentence and its tone (UX audit 2026-10-16, DC-A03; the designer portal's file under the same names).
- *
- * It replaces a bare `String?` that every screen wrote into and that was drawn as one unstyled line
- * at the foot of a long page — below Save, with no colour, no icon and nothing for TalkBack. It is
- * still WRITTEN as a string (`message = "Craft saved"`), because it is a property delegate: plain
- * assignment is a success, and [showError] is the one door to the error treatment. So the dozens of
- * existing `message = …` sites keep compiling and keep meaning what they meant.
- */
 class AppMessageState {
     var text by mutableStateOf<String?>(null)
         private set
     var tone by mutableStateOf(AppMessageTone.SUCCESS)
         private set
-    /** Retry for the action that failed, when the failing screen offered one. */
     var retry by mutableStateOf<(() -> Unit)?>(null)
         private set
 
@@ -67,15 +56,8 @@ class AppMessageState {
         show(value, AppMessageTone.SUCCESS)
 }
 
-/** How long a SUCCESS stays on screen. Errors stay until dismissed or the page changes. */
 private const val SUCCESS_SHOWN_MILLIS = 5_000L
 
-/**
- * Draws [state] as a banner: a coloured container, an icon AND a spoken word ("Done" / "Problem"), so the
- * tone never rests on colour alone; a polite live region so TalkBack reads it without being
- * interrupted; a Try again button when the failure has one; and a 48dp dismiss. Place it at the
- * bottom of the viewport, over the page, so it is seen on a long form rather than scrolled past.
- */
 @Composable
 fun AppMessageBanner(state: AppMessageState, modifier: Modifier = Modifier) {
     val text = state.text ?: return
@@ -126,11 +108,6 @@ fun AppMessageBanner(state: AppMessageState, modifier: Modifier = Modifier) {
     }
 }
 
-/**
- * A load that FAILED, drawn as a failure: the reason and a Try again button (DC-A04 to DC-A07, DC-A17, DC-A18).
- * The alternative every one of those screens had was a spinner that never stopped or an empty state
- * that read as "nothing here" — a failure looking like success.
- */
 @Composable
 fun LoadFailedCard(message: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
     Surface(
@@ -153,10 +130,4 @@ fun LoadFailedCard(message: String, onRetry: () -> Unit, modifier: Modifier = Mo
     }
 }
 
-/**
- * Where a section that was only handed an `onError` sends a SUCCESS note ("Audio recording added").
- * Those sections used to be given `onMessage = onError`, which was harmless while every message was
- * one plain line and would now paint a success as a problem. MainActivity provides it around the
- * screen switch; the default drops the note, which is the honest answer outside that host.
- */
 val LocalAppNotice = staticCompositionLocalOf<(String) -> Unit> { {} }
