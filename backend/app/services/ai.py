@@ -844,7 +844,7 @@ def _post_openai_chat(messages: list[dict[str, str]], settings: Settings) -> str
     return openai_message_text(response.json())
 
 
-def _refine_sync(text: str, translate_to_english: bool, settings: Settings) -> dict[str, Any]:
+def _refine_prompts(text: str, translate_to_english: bool) -> tuple[str, str]:
     clipped = text.strip()[:_REFINE_MAX_CHARS]
     translate_clause = (
         " Then translate the entire conversation into clear, natural English, preserving meaning."
@@ -871,17 +871,7 @@ def _refine_sync(text: str, translate_to_english: bool, settings: Settings) -> d
         "source." + translate_clause
         + "\n\nRaw transcript:\n\n" + clipped
     )
-    refined = _post_openai_chat(
-        [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        settings,
-    )
-    return {
-        "available": True,
-        "status": "COMPLETED" if refined else "EMPTY",
-        "refined": refined,
-        "model": settings.openai_chat_model,
-        "translated": translate_to_english,
-    }
+    return system, user
 
 
 async def refine_transcript_text(
@@ -891,7 +881,9 @@ async def refine_transcript_text(
 ) -> dict[str, Any]:
     """Refine a raw transcript into a clean interviewer/interviewee conversation (Markdown), optionally
     translating it to English. Uses the configured chat model (gpt-4o-mini by default)."""
-    if not await managed_secrets.get_secret("OPENAI_API_KEY"):
+    from app.services import transcript_insights
+
+    if await user_ai_keys.resolve(None, AiTask.TRANSLATE) is None:
         return {
             "available": False,
             "status": "UNAVAILABLE",
@@ -905,18 +897,36 @@ async def refine_transcript_text(
             "refined": None,
             "message": "There is no transcript text to refine yet.",
         }
+    system, user = _refine_prompts(text, translate_to_english)
     try:
-        return await asyncio.to_thread(_refine_sync, text, translate_to_english, settings)
-    except requests.RequestException as exc:
-        logger.error("Transcript refinement failed: %s", redact_secrets(str(exc)))
+        answer = await transcript_insights._chat(system, user, AiTask.TRANSLATE, None)
+    except transcript_insights.InsightsUnavailable:
+        return {
+            "available": False,
+            "status": "UNAVAILABLE",
+            "refined": None,
+            "message": "Refinement isn't available right now.",
+        }
+    except transcript_insights.InsightsFailed as exc:
+        declined = str(exc) == transcript_insights.MODEL_DECLINED
         return {
             "available": True,
             "status": "FAILED",
             "refined": None,
             "message": (
-                "Refinement failed; the original transcript is unchanged. Try again later."
+                "The AI model declined this transcript. The original transcript is unchanged."
+                if declined
+                else "Refinement failed; the original transcript is unchanged. Try again later."
             ),
         }
+    refined = str(answer.get("text") or "").strip() or None
+    return {
+        "available": True,
+        "status": "COMPLETED" if refined else "EMPTY",
+        "refined": refined,
+        "model": answer.get("model"),
+        "translated": translate_to_english,
+    }
 
 
 def _extract_json(text: str) -> dict[str, Any]:

@@ -145,7 +145,7 @@ _OPENAI = ProviderSpec(
         AiModel(
             id="gpt-5.6-terra",
             label="GPT-5.6 Terra",
-            note="The balanced choice, and the right default for everyday work.",
+            note="The balanced choice for everyday work, at about ten times the default's price.",
             price_per_mtok=(2.0, 12.0),
             tasks=TEXT_AND_VISION,
         ),
@@ -159,7 +159,7 @@ _OPENAI = ProviderSpec(
         AiModel(
             id="gpt-5.6-luna",
             label="GPT-5.6 Luna",
-            note="The cheapest by a wide margin. Good for proofreading, weaker on long translation.",
+            note="The default, and the cheapest by a wide margin. Good for proofreading, weaker on long translation.",
             price_per_mtok=(0.20, 1.25),
             tasks=TEXT_AND_VISION,
         ),
@@ -188,7 +188,7 @@ _OPENAI = ProviderSpec(
             tasks=frozenset({AiTask.TRANSCRIBE}),
         ),
     ),
-    default_model="gpt-5.6-terra",
+    default_model="gpt-5.6-luna",
 )
 
 _GEMINI = ProviderSpec(
@@ -409,3 +409,32 @@ def gemini_reply_text(payload: dict) -> str:
     if not text and first.get("finishReason") in GEMINI_DECLINE_REASONS:
         raise ModelDeclined("gemini")
     return text
+
+
+GEMINI_DEFAULT_MODEL = "gemini-3.8-flash"
+GEMINI_FALLBACK_MODEL = "gemini-3.7-flash"
+GEMINI_GENERATE_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+
+def gemini_models(model: str | None) -> tuple[str, ...]:
+    first = model or GEMINI_DEFAULT_MODEL
+    if first == GEMINI_FALLBACK_MODEL:
+        return (first,)
+    return (first, GEMINI_FALLBACK_MODEL)
+
+
+def post_gemini(post, model: str | None, **kwargs) -> tuple[str, object]:
+    models = gemini_models(model)
+    for index, candidate in enumerate(models):
+        response = post(GEMINI_GENERATE_URL.format(model=candidate), **kwargs)
+        if getattr(response, "status_code", None) == 404 and index + 1 < len(models):
+            continue
+        return candidate, response
+    return candidate, response
+
+
+def app_text_provider(value: str | None) -> AiProvider:
+    try:
+        return AiProvider(str(value or AiProvider.GEMINI.value).strip().upper())
+    except ValueError:
+        return AiProvider.GEMINI

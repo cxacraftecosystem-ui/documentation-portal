@@ -195,6 +195,18 @@ async def _resolve_app_credential(task: AiTask) -> AiCredential | None:
     configured" on a server that had one. `test_a_claude_key_does_not_capture_transcription` caught
     it, which is why that test asserts the app-level answer is present and not merely non-personal.
     """
+    if task is not AiTask.TRANSCRIBE:
+        from app.core.config import get_settings
+
+        chosen = ai_providers.app_text_provider(getattr(get_settings(), "ai_text_provider", None))
+        chosen_spec = ai_providers.PROVIDERS[chosen]
+        chosen_model = _model_for_task(chosen, chosen_spec.default_model, task)
+        if not chosen_model:
+            return None
+        chosen_value = await managed_secrets.get_secret(chosen_spec.managed_key)
+        if not chosen_value:
+            return None
+        return AiCredential(provider=chosen, api_key=chosen_value, model=chosen_model, source=SOURCE_APP)
     for provider, spec in ai_providers.PROVIDERS.items():
         model = _model_for_task(provider, spec.default_model, task)
         if not model:

@@ -40,7 +40,14 @@ from typing import Any
 import requests
 
 from app.services import anthropic_verbs, user_ai_keys
-from app.services.ai_providers import AiProvider, AiTask, openai_message_text, openai_sampling
+from app.services.ai_providers import (
+    AiProvider,
+    AiTask,
+    gemini_reply_text,
+    openai_message_text,
+    openai_sampling,
+    post_gemini,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -120,8 +127,9 @@ def _chat_sync(system: str, user: str, credential: Any, settings: Any) -> dict[s
         )
         return {"text": result.get("text"), "provider": "anthropic", "model": model}
     if credential.provider is AiProvider.GEMINI:
-        response = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+        model, response = post_gemini(
+            requests.post,
+            model,
             headers={"x-goog-api-key": credential.api_key},
             json={
                 "contents": [{"role": "user", "parts": [{"text": user}]}],
@@ -131,10 +139,8 @@ def _chat_sync(system: str, user: str, credential: Any, settings: Any) -> dict[s
             timeout=TIMEOUT_SECONDS,
         )
         response.raise_for_status()
-        candidates = response.json().get("candidates") or []
-        parts = (candidates[0].get("content") or {}).get("parts") or [] if candidates else []
         return {
-            "text": "".join(str(p.get("text", "")) for p in parts),
+            "text": gemini_reply_text(response.json()),
             "provider": "gemini",
             "model": model,
         }

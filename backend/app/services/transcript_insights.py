@@ -53,6 +53,7 @@ from app.services.ai_providers import (
     gemini_reply_text,
     openai_message_text,
     openai_sampling,
+    post_gemini,
 )
 from prisma import Json
 
@@ -357,8 +358,9 @@ def _chat_sync(
         config: dict[str, Any] = {"temperature": 0.2 if json_mode else 0.1}
         if json_mode:
             config["responseMimeType"] = "application/json"
-        response = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+        model, response = post_gemini(
+            requests.post,
+            model,
             headers={"x-goog-api-key": credential.api_key},
             json={
                 "contents": [{"role": "user", "parts": [{"text": user}]}],

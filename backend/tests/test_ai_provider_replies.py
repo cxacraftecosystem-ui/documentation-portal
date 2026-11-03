@@ -94,3 +94,59 @@ def test_measurement_moves_to_the_fallback_model_when_the_first_is_missing(monke
     assert "gemini-3.8-flash" in calls[0] and "gemini-3.7-flash" in calls[1]
     assert result["status"] == "COMPLETED"
     assert "gemini-3.7-flash" in str(result)
+
+
+def test_a_text_verb_moves_to_the_fallback_gemini_model_on_404() -> None:
+    from app.services.ai_providers import gemini_models, post_gemini
+
+    assert gemini_models(None) == ("gemini-3.8-flash", "gemini-3.7-flash")
+    assert gemini_models("gemini-3.7-flash") == ("gemini-3.7-flash",)
+    seen: list[str] = []
+    answers = [_Response(404), _Response(200, {"candidates": []})]
+
+    def post(url: str, **_kwargs: Any) -> _Response:
+        seen.append(url)
+        return answers.pop(0)
+
+    model, response = post_gemini(post, "gemini-3.8-flash", json={}, timeout=1)
+    assert model == "gemini-3.7-flash" and response.status_code == 200
+    assert "gemini-3.8-flash" in seen[0] and "gemini-3.7-flash" in seen[1]
+
+
+def test_refinement_runs_on_gemini_even_where_an_openai_key_exists(monkeypatch) -> None:
+    async def secret(name: str) -> str | None:
+        return {"OPENAI_API_KEY": "sk-org", "GEMINI_API_KEY": "AIza-org"}.get(name)
+
+    sent: list[str] = []
+
+    def post(url: str, **_kwargs: Any) -> _Response:
+        sent.append(url)
+        return _Response(200, {"candidates": [{"content": {"parts": [{"text": "**Interviewer:** Hello"}]}}]})
+
+    monkeypatch.setattr(managed_secrets, "get_secret", secret)
+    monkeypatch.setattr(ai.requests, "post", post)
+    result = asyncio.run(ai.refine_transcript_text("hello there", False, SimpleNamespace(openai_chat_model="x")))
+    assert result["status"] == "COMPLETED" and result["refined"] == "**Interviewer:** Hello"
+    assert result["model"] == "gemini-3.8-flash"
+    assert sent and all("generativelanguage" in url for url in sent)
+
+
+@pytest.mark.parametrize(("role", "sees"), [("ADMIN", True), ("MASTER_ADMIN", True), ("MINISTRY_ADMIN", True), ("RESEARCHER", False)])
+def test_version_cost_and_badges_follow_one_admin_rule(monkeypatch, role, sees) -> None:
+    from app.api.routes import transcripts
+    from app.services import transcript_store
+
+    version = SimpleNamespace(version=1, createdAt=None, supersededAt=None, turnCount=2, durationMs=10, sttCostUsd=0.1, translationCostUsd=0.02)
+
+    async def media(_media_id: str, _user: Any) -> Any:
+        return SimpleNamespace(id="m1")
+
+    async def versions(_media_id: str) -> list[Any]:
+        return [version]
+
+    monkeypatch.setattr(transcripts, "_media", media)
+    monkeypatch.setattr(transcript_store, "versions", versions)
+    monkeypatch.setattr(transcripts.pipeline, "_badges", lambda _v: ["Scribe v2"])
+    item = asyncio.run(transcripts.list_versions("m1", SimpleNamespace(role=role)))["items"][0]
+    assert (item["costUsd"] == 0.12) is sees and (item["badges"] == ["Scribe v2"]) is sees
+    assert sees or (item["costUsd"] is None and item["badges"] == [])
