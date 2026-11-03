@@ -32,8 +32,9 @@ function jsxText(text) {
 function tokens(file, text) {
   const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, scriptKind(file));
   const out = [];
+  const isDoc = (node) => node.kind >= ts.SyntaxKind.FirstJSDocNode && node.kind <= ts.SyntaxKind.LastJSDocNode;
   const visit = (node) => {
-    if (node.kind >= ts.SyntaxKind.FirstJSDocNode && node.kind <= ts.SyntaxKind.LastJSDocNode) return;
+    if (isDoc(node)) return;
     if (ts.isJsxExpression(node) && !node.expression && !node.dotDotDotToken) return;
     if (node.kind === ts.SyntaxKind.JsxText) {
       const value = jsxText(node.text);
@@ -42,7 +43,7 @@ function tokens(file, text) {
       else out.push(["jsx", value]);
       return;
     }
-    const kids = node.getChildren(sf);
+    const kids = node.getChildren(sf).filter((kid) => !isDoc(kid));
     if (kids.length === 0) {
       out.push([node.kind, node.getText(sf)]);
       return;
