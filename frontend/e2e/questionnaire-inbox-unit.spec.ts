@@ -25,11 +25,6 @@ import { prompts } from "@/lib/questionnairePrompts";
 import { answersFromTakes, takesFor } from "@/lib/questionnaireView";
 import { CONTRACT } from "./questionnaire-contract-fixture";
 
-/**
- * The inbox rows as `GET /questionnaire/inbox` sends them (backend `inbox.py`), the review route,
- * P8 and P10, and the "Continue with…" body.
- */
-
 const BACKEND_INBOX = {
   toFile: [{ mediaId: "m1", name: "f-sec-1718.webm", date: "2026-06-23T05:00:00Z", sessionId: "s1", candidate: null }],
   needsDecision: [
@@ -48,7 +43,6 @@ test("@qf:B25 every inbox row the backend sends gets a readable label", () => {
   expect(inboxLabel("toFile", inbox.toFile[0])).toBe("f-sec-1718.webm · 23 Jun");
   expect(inboxLabel("needsDecision", inbox.needsDecision[0])).toBe("Takes for Giriraj Prasad, 7 Jul 10:42");
   expect(inboxLabel("legacy", inbox.legacy[0])).toBe("Recorded 20 Jun. The question has changed since.");
-  // The shared table's row (audit, inbox copy drift), then the workshop the rows are grouped by.
   expect(inboxLabel("setDates", inbox.setDates[0])).toBe("18 legacy sessions, 19–24 Jun · Bankura");
   expect(inboxLabel("noParticipants", inbox.noParticipants[0])).toBe("Session of 23 Sep has no artisans");
   expect(inboxLabel("emptySessions", inbox.emptySessions[0])).toBe("Empty session, approved 25 Jun");
@@ -124,7 +118,6 @@ test("the inbox reads the artisan list once for every Who-was-there row, within 
 test("a failed artisan read is asked again on the next inbox read, never in a loop", () => {
   expect(artisanReadDue(true, "idle")).toBe(true);
   expect(artisanReadDue(false, "idle")).toBe(false);
-  // In flight, done, or failed: nothing new until the inbox is read again.
   for (const state of ["reading", "read", "failed"] as const) expect(artisanReadDue(true, state)).toBe(false);
   expect(artisanReadOnInboxReload("failed")).toBe("idle");
   expect(artisanReadDue(true, artisanReadOnInboxReload("failed"))).toBe(true);
@@ -170,7 +163,6 @@ test("H13: a decision row finds the take it clashes with, and names both", () =>
     take("removed", "2026-07-07T05:14:30Z", { removedAt: "2026-07-07T06:00:00Z" })
   ];
   expect(decisionPartner(decision, recordings)?.id).toBe("r1");
-  // The server's own pointer wins when it sends one.
   expect(decisionPartner({ ...decision, otherRecordingId: "other-target" }, recordings)?.id).toBe("other-target");
   expect(decisionPartner({ ...decision, recordingId: "nope" }, recordings)).toBeNull();
   expect(decisionLabel(decision, recordings[1], recordings[0])).toBe("Two takes of D for Giriraj, 7 Jul 10:42 and 10:44");
@@ -184,7 +176,6 @@ test("H13, H14: Keep one, Part 2 and File it happen in the inbox, never by a lin
   expect(list).toContain("questionnaireApi.fileClip(");
   expect(list, "Not needed is stored on the server (audit M22)").toContain("questionnaireApi.dismissClip(r.mediaId)");
   expect(list).not.toMatch(/href=\{sessionHref\(r\.sessionId\)\}>\s*\{qs\("(keepOne|fileIt)"\)\}/);
-  // Keep one removes the other take: drawn for content admins only, as the server refuses anyone else.
   expect(list).toContain("{other && canDeleteRecords ? (");
   expect(list).toContain("{choosing && canDeleteRecords && self && other ? (");
   const api = readFileSync(join(__dirname, "..", "lib", "questionnaire", "api.ts"), "utf8");

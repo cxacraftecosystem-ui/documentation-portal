@@ -1,18 +1,5 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
-/**
- * Responsive navigation, in a browser (REQUIREMENTS_2026-10-20 §4.3 acceptance). Point it at a
- * running web server (`npm run dev`, or E2E_BASE_URL). The API is answered here, the way
- * `map-coverage.spec.ts` does it: the navigation is decided by the signed-in account's role and by
- * the viewport alone, so an admin and a researcher are two `/me` answers, and no database or
- * shared password is needed. The pure rules are `island-nav-unit.spec.ts`; the source shape is
- * `nav-responsive-unit.spec.ts`.
- *
- * Below 1024 px: the search header at the top and the bottom island (at most five slots, the fifth
- * "More" when there are more) — and no desktop island. From 1024 px: the desktop island, expanded,
- * with its strip, admin-view pill and bell — and neither the header nor the bar.
- */
-
 type Account = { id: string; email: string; name: string; role: string };
 
 const ADMIN: Account = { id: "u-admin", email: "admin@example.org", name: "Asha Admin", role: "MASTER_ADMIN" };
@@ -27,7 +14,6 @@ async function signInAs(page: Page, account: Account) {
     if (path === "/session/adopt") return json({ ok: true });
     if (path.includes("unread")) return json({ unreadCount: 0 });
     if (path.includes("count")) return json({ count: 0, total: 0 });
-    // Any list a page asks for comes back empty: these specs read the chrome, not the page.
     return json({ items: [], total: 0, page: 1, pageSize: 20, pages: 0 });
   });
   await page.addInitScript(() => window.localStorage.setItem("field_repo_token", "test-token"));
@@ -71,7 +57,6 @@ for (const size of [
       await expect(bar(page).getByRole("link", { name: "Walkthrough" })).toHaveAttribute("aria-current", "page");
       const box = (await bar(page).boundingBox())!;
       if (size.width >= 640) expect(box.width).toBeLessThanOrEqual(560.5);
-      // 48px slots + 6px padding + 1px border, each side.
       expect(Math.round(box.height)).toBe(62);
     });
 
@@ -85,7 +70,6 @@ for (const size of [
       await page.keyboard.press("Escape");
       await expect(sheet).toBeHidden();
       await expect(more).toBeFocused();
-      // Back closes it too, and leaves the reader on the same page.
       await more.click();
       await expect(sheet).toBeVisible();
       await page.goBack();
@@ -157,7 +141,6 @@ for (const size of [
         return height;
       });
       const barBox = (await bar(page).boundingBox())!;
-      // The tray's dock sits on `--bottom-nav-h`: at or above the bar's top edge.
       expect(size.height - lift).toBeLessThanOrEqual(barBox.y + 0.5);
     });
   });

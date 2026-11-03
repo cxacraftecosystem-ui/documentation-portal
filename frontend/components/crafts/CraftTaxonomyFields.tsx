@@ -6,7 +6,6 @@ import { FieldBlock } from "@/components/tasks/TaskPrimitives";
 import { Dropdown } from "@/components/ui/Dropdown";
 import type { CraftCatalogue } from "@/lib/craftCatalogue";
 
-/** Which category a sub-category sits in, or "" when the id is unknown. */
 export function categoryOfSubCategory(catalogue: CraftCatalogue, subCategoryId: string): string {
   for (const category of catalogue.categories) {
     if (category.subCategories.some((sub) => sub.id === subCategoryId)) return category.id;
@@ -14,11 +13,6 @@ export function categoryOfSubCategory(catalogue: CraftCatalogue, subCategoryId: 
   return "";
 }
 
-/**
- * Category → Sub-category, two dropdowns (REQUIREMENTS_2026-10-20 §2.4, `CraftForm`). The value is
- * the sub-category id; the category shown is the one that holds it, or the one just chosen while no
- * sub-category is picked yet. With `name`, the sub-category id is submitted through FormData.
- */
 export function CraftSubCategorySelect({
   catalogue,
   value,
@@ -68,7 +62,6 @@ export function CraftSubCategorySelect({
           options={subs.map((sub) => ({ value: sub.id, label: sub.name }))}
         />
         {name ? (
-          // Not type="hidden": a hidden input is exempt from constraint validation (see FormControls).
           <input
             type="text"
             name={name}

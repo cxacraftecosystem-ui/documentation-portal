@@ -8,17 +8,6 @@ import { useHeroReducedMotion } from "@/components/hero/useHeroMotion";
 
 const STEPS = [
   {
-    // "OR THE WEB" IS LOAD-BEARING IN BOTH HALVES OF THIS SENTENCE and it is the half that was
-    // hardest to keep true: the browser gained its own offline outbox (`lib/offline.ts`) and this
-    // step already claimed it, while `HeroFAQ`'s "Does it work offline?" was still answering that
-    // only the phone could. They now agree, and they must go on agreeing — this page states the
-    // claim and that answer is where a reader goes to check it.
-    //
-    // DICTATION, ADDED 2026-09-14. Deliberately "free-text box" and not "every box": the set is a
-    // table with a written reason per exclusion (`android/.../ui/RecordDictationFields.kt`), and
-    // dates, numbers, money, closed pickers and the two identity numbers are outside it. The
-    // FAQ's "Can a researcher speak instead of type?" carries the full list and the privacy
-    // guarantee; this line is the one-clause version and must not outrun it.
     icon: Mic,
     title: "Capture in the field",
     copy:
@@ -31,12 +20,6 @@ const STEPS = [
       "Every recording arrives as clean English text, linked to its artisan, craft and workshop."
   },
   {
-    // THE THIRD SENTENCE IS ABOUT TASKS, NOT RECORDS, and the two are separate ladders — see
-    // `backend/app/api/routes/tasks.py`'s "FINISHING IS A CLAIM; APPROVAL IS A DECISION". An
-    // assignee's "Mark done" lands on SUBMITTED and the row stays on their board until the creator
-    // or an admin writes DONE. Worth one clause here because this step is where a reader forms
-    // their model of who closes what, and until 2026-09-14 the answer for a task was "the person
-    // who did it, alone".
     icon: ClipboardCheck,
     title: "Review & approve up the ladder",
     copy:
@@ -50,42 +33,22 @@ const STEPS = [
   }
 ];
 
-/**
- * The four-step product walk — a vertical timeline that alternates sides on
- * large screens, each step scroll-revealed once as it enters the viewport.
- *
- * The spine is the same instrument as the walkthrough's (`components/guide/GuideJourney`): a static
- * track, a scroll-linked fill, and a node riding the head of the fill, all driven by one
- * `useScroll` value. It was a dead grey line here, which read as decoration next to a page that
- * animates everywhere else — and it left the four numbered bubbles looking uniformly "done" before
- * the reader had reached any of them. Sharing the mechanism means the landing page and the
- * walkthrough teach the same gesture: the line fills as you read, and the numbers light as it
- * arrives.
- */
 export default function HowItWorks() {
   const reduce = useHeroReducedMotion();
   const listRef = useRef<HTMLOListElement>(null);
   const spineRef = useRef<HTMLDivElement>(null);
   const bubbleRefs = useRef<Array<HTMLSpanElement | null>>([]);
 
-  // The offset stays constant: it is rendered into the server HTML, so making it depend on
-  // `reduce` would hydrate to different inline styles. Reduced motion zeroes the duration instead.
   const item: Variants = {
     hidden: { opacity: 0, y: 18 },
     show: { opacity: 1, y: 0, transition: { duration: reduce ? 0 : 0.5, ease: [0.16, 1, 0.3, 1] } }
   };
 
-  // Same reading line as the walkthrough — the fill completes while the last step is still on
-  // screen rather than after the reader has scrolled past it into the next section.
   const { scrollYProgress } = useScroll({ target: listRef, offset: ["start 65%", "end 65%"] });
   const smoothed = useSpring(scrollYProgress, { stiffness: 140, damping: 30, mass: 0.4 });
   const progress = reduce ? scrollYProgress : smoothed;
   const nodeTop = useTransform(progress, [0, 1], ["0%", "100%"]);
 
-  // Where each bubble sits as a fraction of the spine's own box, so "the fill has reached step 3"
-  // is a measurement rather than an assumption that four cards are the same height. They are not:
-  // the copy runs from two lines to four, and evenly-spaced thresholds would light a number while
-  // the line was still visibly short of it.
   const [marks, setMarks] = useState<number[]>([]);
   const [reachedIndex, setReachedIndex] = useState(-1);
 
@@ -104,9 +67,6 @@ export default function HowItWorks() {
       );
     }
     measure();
-    // Card heights change with the viewport (the copy rewraps, and the layout goes from a single
-    // column to two alternating ones at `lg`), so the marks are re-measured rather than cached from
-    // first paint.
     const observer = new ResizeObserver(measure);
     if (spineRef.current) observer.observe(spineRef.current);
     window.addEventListener("resize", measure);
@@ -116,8 +76,6 @@ export default function HowItWorks() {
     };
   }, []);
 
-  // Integer state, so this re-renders four times over the whole section rather than once per
-  // scroll frame; the fill and the node stay on the compositor via motion values.
   useMotionValueEvent(progress, "change", (latest) => {
     let next = -1;
     for (let i = 0; i < marks.length; i += 1) {
@@ -141,12 +99,6 @@ export default function HowItWorks() {
       </motion.div>
 
       <div className="relative mt-14">
-        {/* Timeline spine — left rail on phones, centred on large screens.
-            `-ml-0.5` puts the 4px track's centre on the bubbles' centre line: the bubbles sit at
-            `left-5` (and `lg:left-1/2`) pulled back by half their width, so the track has to give
-            back half of its own. Nothing in here is centred with `translate` — framer-motion writes
-            its own inline transform for `scaleY`, and an inline transform silently beats a Tailwind
-            translate class, which is exactly how a fill ends up a pixel off its track. */}
         <div
           ref={spineRef}
           aria-hidden
@@ -160,8 +112,6 @@ export default function HowItWorks() {
           {reduce ? null : (
             <motion.span
               style={{ top: nodeTop }}
-              // Centred on the 4px track by margins, not transforms: -3px = (4px − 10px) / 2
-              // horizontally, -5px = half the dot vertically.
               className="absolute -left-[3px] mt-[-5px] h-2.5 w-2.5 rounded-full bg-progress-fill ring-4 ring-purple-100 dark:ring-purple-950"
             />
           )}
@@ -180,9 +130,6 @@ export default function HowItWorks() {
                 variants={item}
                 className="relative pl-16 lg:grid lg:grid-cols-2 lg:pl-0"
               >
-                {/* A plain span, deliberately: giving this a motion transform would fight the
-                    `-translate-x-1/2` that holds it on the spine. Colour and shadow carry the state
-                    change instead, which needs no transform at all. */}
                 <span
                   ref={(el) => {
                     bubbleRefs.current[i] = el;

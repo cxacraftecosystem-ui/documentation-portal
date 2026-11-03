@@ -1,12 +1,5 @@
 "use client";
 
-/**
- * A short choice between named modes — two to four options, all visible at once.
- *
- * A dropdown hides three words behind a tap; a segment shows them. Same shape as the map's Detail
- * control (`aria-pressed` buttons in a `role="group"`), which the form-primitives rule leaves to
- * modes on purpose. Anything longer, or built from records, stays a `SearchableSelect`.
- */
 export function SegmentedChoice({
   label,
   value,
@@ -14,7 +7,6 @@ export function SegmentedChoice({
   onChange,
   disabled = false
 }: {
-  /** The group's accessible name (draw a visible label beside it too). */
   label: string;
   value: string;
   options: { value: string; label: string }[];

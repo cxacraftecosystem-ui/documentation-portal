@@ -24,21 +24,10 @@ import { LEGACY_TOKEN_STORAGE_KEY, SESSION_COOKIE, SESSION_MARKER_COOKIE, SESSIO
 
 import { installSessionCookie, removeSessionCookie } from "./support/fakeSessionCookie";
 
-/**
- * THE COOKIE SESSION'S SERVER HALF (2026-10-17), driven for real in Node.
- *
- * `lib/server/apiProxy.ts` is plain functions over the web-standard Request/Response, so every rule
- * the design rests on is exercised here against a stubbed API rather than read off the source: the
- * cookie's flags, the token never reaching the page, the cross-site refusal, the renewal after a
- * password change, the sign-out, the one-time move out of localStorage, and the visitor's address
- * travelling to the API only beside the proxy secret.
- */
-
 const SITE = "https://field-repository.vercel.app";
 const realFetch = globalThis.fetch;
 const savedEnv = { ...process.env };
 
-/** A JWT-shaped token whose `exp` is `secondsFromNow` ahead. Only the payload is read. */
 function tokenExpiringIn(secondsFromNow: number, label = "t"): string {
   const payload = Buffer.from(JSON.stringify({ sub: label, exp: Math.floor(Date.now() / 1000) + secondsFromNow })).toString("base64url");
   return `header.${payload}.signature-${label}`;
@@ -46,7 +35,6 @@ function tokenExpiringIn(secondsFromNow: number, label = "t"): string {
 
 type Sent = { url: string; method: string; headers: Headers; body: string };
 
-/** Stub the API: record every call, answer with `reply`. */
 function stubApi(reply: (sent: Sent) => Response): Sent[] {
   const sent: Sent[] = [];
   (globalThis as Record<string, unknown>).fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
@@ -62,7 +50,6 @@ function json(status: number, body: unknown, headers: Record<string, string> = {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
 }
 
-/** A same-origin browser request to this site. */
 function siteRequest(path: string, init: { method?: string; body?: unknown; cookie?: string; headers?: Record<string, string> } = {}) {
   const headers = new Headers({
     host: "field-repository.vercel.app",
@@ -100,8 +87,6 @@ test.afterEach(() => {
   removeSessionCookie();
 });
 
-/* ── 1. Sign-in: the token goes into an HttpOnly cookie and never reaches the page ─────────── */
-
 test("a sign-in answer becomes a __Host- HttpOnly Secure Lax cookie, and the token leaves the body", async () => {
   const token = tokenExpiringIn(3600);
   const sent = stubApi(() => json(200, { accessToken: token, tokenType: "bearer", user: { id: "u1", email: "a@b.c" } }));
@@ -129,7 +114,6 @@ test("a sign-in answer becomes a __Host- HttpOnly Secure Lax cookie, and the tok
   expect(marker).not.toContain(token);
   expect(Number(/Max-Age=(\d+)/.exec(marker)?.[1])).toBe(maxAge);
 
-  // The API was asked exactly as before, with the proxy's two headers and no browser cookie.
   expect(sent).toHaveLength(1);
   expect(sent[0].url).toBe("https://api.example.test/api/auth/login");
   expect(JSON.parse(sent[0].body)).toEqual({ email: "a@b.c", password: "pw" });
@@ -164,13 +148,11 @@ test("the cookie dies with the token, and an unreadable token gets the API's def
   expect(tokenLifetimeSeconds("not-a-jwt")).toBe(7 * 24 * 60 * 60);
 });
 
-/* ── 2. Cross-site requests are refused before the API is asked ────────────────────────────── */
-
 test("a write from another site is refused with 403 and never reaches the API", async () => {
   const sent = stubApi(() => json(200, { ok: true }));
   const cases: Array<Record<string, string>> = [
     { "sec-fetch-site": "cross-site", origin: SITE },
-    { "sec-fetch-site": "same-site", origin: SITE }, // another *.vercel.app project: vercel.app is a public suffix
+    { "sec-fetch-site": "same-site", origin: SITE },
     { "sec-fetch-site": "", origin: "https://evil.example" },
     { "sec-fetch-site": "", origin: "" }
   ];
@@ -204,8 +186,6 @@ test("every session route refuses a cross-site write", async () => {
   expect((await handleEnd(cross("/api/session/end"))).status).toBe(403);
 });
 
-/* ── 3. The password change renews the session in the cookie ───────────────────────────────── */
-
 test("the fresh token from X-Session-Token replaces the cookie, and the page sees only X-Session-Rotated", async () => {
   const old = tokenExpiringIn(600, "old");
   const fresh = tokenExpiringIn(7200, "fresh");
@@ -234,8 +214,6 @@ test("a refused change keeps the cookie it had", async () => {
   expect(response.headers.get(SESSION_ROTATED_HEADER)).toBeNull();
 });
 
-/* ── 4. Sign-out clears both cookies, whatever the API says ────────────────────────────────── */
-
 test("sign-out tells the API with the session's token and clears both cookies, even if the API is down", async () => {
   const sent = stubApi(() => json(200, { ok: true }));
   const response = await handleLogout(siteRequest("/api/auth/logout", { cookie: `${SESSION_COOKIE}=tok; ${SESSION_MARKER_COOKIE}=m` }), "/api/auth/logout");
@@ -255,12 +233,9 @@ test("sign-out tells the API with the session's token and clears both cookies, e
 test("ending a refused session clears the cookie only if it is still the session the page meant", async () => {
   const same = await handleEnd(siteRequest("/api/session/end", { body: { marker: "m1" }, cookie: `${SESSION_COOKIE}=t; ${SESSION_MARKER_COOKIE}=m1` }));
   expect(setCookies(same)).toHaveLength(2);
-  // A sign-in or a password change replaced it in the meantime: the new session survives.
   const replaced = await handleEnd(siteRequest("/api/session/end", { body: { marker: "m1" }, cookie: `${SESSION_COOKIE}=t2; ${SESSION_MARKER_COOKIE}=m2` }));
   expect(setCookies(replaced)).toEqual([]);
 });
-
-/* ── 5. The one-time move out of localStorage ──────────────────────────────────────────────── */
 
 test("a stored token is checked with the API before it becomes a cookie; a dead one is refused", async () => {
   const token = tokenExpiringIn(3000);
@@ -302,21 +277,18 @@ test("the page posts its stored token once, then deletes it — and keeps it onl
   expect(posted, "once per page load").toEqual(['/api/session/adopt {"token":"legacy-token"}']);
   expect(store.has(LEGACY_TOKEN_STORAGE_KEY), "and gone from storage").toBe(false);
 
-  // A dead token: refused, and still deleted.
   resetSessionStateForTests();
   store = installStorage("dead-token");
   (globalThis as Record<string, unknown>).fetch = async () => json(401, { adopted: false });
   await migrateStoredToken();
   expect(store.has(LEGACY_TOKEN_STORAGE_KEY)).toBe(false);
 
-  // The API could not be asked (the site answers with no verdict): kept.
   resetSessionStateForTests();
   store = installStorage("unverified-token");
   (globalThis as Record<string, unknown>).fetch = async () => json(502, { detail: "The service isn't available right now." });
   await migrateStoredToken();
   expect(store.get(LEGACY_TOKEN_STORAGE_KEY)).toBe("unverified-token");
 
-  // Offline at the first load: kept for the next one, so nobody is signed out by the release.
   resetSessionStateForTests();
   store = installStorage("offline-token");
   (globalThis as Record<string, unknown>).fetch = async () => {
@@ -339,8 +311,6 @@ test("a browser that already has a cookie session just drops the stored token, a
   expect(store.has(LEGACY_TOKEN_STORAGE_KEY)).toBe(false);
   expect(getSessionMarker()).toBe("a-live-marker");
 });
-
-/* ── 6. The visitor's address reaches the API, and only beside the secret ──────────────────── */
 
 test("the viewer's address travels in X-Viewer-Address beside the proxy secret, never on its own", () => {
   const request = siteRequest("/api/auth/forgot-password", {
@@ -438,8 +408,6 @@ test("a production build with no API address answers 503 instead of calling loca
   expect(apiOrigin({ NEXT_PUBLIC_API_URL: "https://x.cloudfront.net/" })).toBe("https://x.cloudfront.net");
   expect(apiOrigin({ API_ORIGIN: "https://a", NEXT_PUBLIC_API_URL: "https://b" })).toBe("https://a");
 });
-
-/* ── 7. Nothing in the page can reach the token ────────────────────────────────────────────── */
 
 test("no client code stores, reads or sends the session token", () => {
   const FRONTEND = join(__dirname, "..");

@@ -37,22 +37,6 @@ import {
 } from "@/lib/islandNav";
 import { cn } from "@/lib/utils";
 
-/**
- * THE ISLAND, AT THE BOTTOM — mobile and tablet widths (< 1024 CSS px) of both web apps.
- *
- * A port of Android's `FieldIslandNav` (`ui/IslandBottomNav.kt`): a pill of at most five slots — the
- * loose destinations, then the groups, the fifth becoming "More" when there are more — then a
- * divider and the menu button, which opens the full navigation sheet (the admin-view switch and
- * Logout live there). The rules are `lib/islandNav.ts`; this file only draws them.
- *
- * It is hidden from `lg` up by CSS alone (`lg:hidden`), so the server and the first client render
- * agree and nothing flashes. It hides while the on-screen keyboard is open and while search is
- * open, never on scroll — a bar that comes and goes under a moving thumb is a bar the thumb misses.
- *
- * Shared byte-identical by the designer portal and the documentation portal.
- */
-
-/** The glyph that stands in for a group label — Android's `islandGroupIcon`. */
 export function islandGroupIcon(label: string): LucideIcon {
   switch (label) {
     case "Record":
@@ -114,12 +98,9 @@ export function BottomIslandNav({
 }: {
   roots: IslandEntry<LucideIcon>[];
   groups: IslandGroup<LucideIcon>[];
-  /** The label of the destination the reader is on — the web's `aria-current`. */
   currentLabel: string | null;
-  /** The menu button: opens the full navigation sheet. */
   onOpenMenu: (button: HTMLButtonElement) => void;
   menuOpen: boolean;
-  /** True while search is open. */
   hidden?: boolean;
 }) {
   const reduce = useAppReducedMotion();
@@ -136,15 +117,12 @@ export function BottomIslandNav({
   const slotLabels = [...split.shown.map((slot) => islandShortLabel(slot.label)), ...(split.hasMore ? [ISLAND_MORE_LABEL] : [])];
   const labelKey = slotLabels.join("|");
 
-  // `--bottom-nav-h` is set from CSS (`html.has-bottom-nav`, below `lg` only), so the upload tray
-  // and toasts clear the bar on the pages that draw it and nowhere else.
   useEffect(() => {
     const root = document.documentElement;
     root.classList.add("has-bottom-nav");
     return () => root.classList.remove("has-bottom-nav");
   }, []);
 
-  // The keyboard: the visual viewport shrinks under it while the layout viewport does not.
   useEffect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;
@@ -164,7 +142,6 @@ export function BottomIslandNav({
     if (!visible) setOpenGroup(null);
   }, [visible]);
 
-  // Every slot carries its word, or none does — measured in the face in force, never estimated.
   useLayoutEffect(() => {
     const bar = barRef.current;
     if (!bar) return;
@@ -186,10 +163,8 @@ export function BottomIslandNav({
     const observer = new ResizeObserver(measure);
     observer.observe(bar);
     return () => observer.disconnect();
-    // `visible`: the bar remounts after search or the keyboard, and the new node must be measured.
   }, [labelKey, visible]);
 
-  // A group menu closes on a press anywhere else and on Escape.
   useEffect(() => {
     if (!openGroup) return;
     const onPointer = (event: PointerEvent) => {
@@ -337,7 +312,6 @@ function IslandSlotControl({
         <SlotFace label={slot.label} icon={islandGroupIcon(slot.label)} badge={badge} showLabel={showLabel} />
       </button>
       {open ? (
-        // Anchored to its slot and opening UPWARD, the direction a thumb already travels.
         <div
           id={menuId}
           className={cn(

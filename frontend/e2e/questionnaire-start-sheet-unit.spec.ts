@@ -7,8 +7,6 @@ import { constrainArtisans, sessionCreateBody, startBlocked, type StartSheetStat
 import { coverageLine } from "@/lib/coverageCache";
 import { prompts } from "@/lib/questionnairePrompts";
 
-/** DESIGN tests 36 and 61: the start sheet's gate, mode, coverage line, P1, no title, consent inline. */
-
 const form: StartSheetState = {
   workshopId: "w_bankura",
   questionnaireId: "q_ctw3",
@@ -80,12 +78,8 @@ test("@qf:B33 consent is asked inline and never blocks Start", () => {
 });
 
 test("each request goes out once per real change: artisan page, consent, coverage", () => {
-  // The artisan page is re-asked only for a new search or workshop, not for a tick.
   expect(SHEET).toContain("}, [search, form.workshopId]);");
-  // Consent is marked as asked before its request, so one answer does not re-ask the others.
   expect(SHEET).toMatch(/consentRequested\.current\.has\(id\)\) continue;\s*consentRequested\.current\.add\(id\);/);
-  // Coverage is fetched per instrument, workshop (its offline snapshot) and selection, never per
-  // artisan page; names are laid over it on render.
   expect(SHEET).toContain("}, [form.questionnaireId, form.workshopId, artisanKey]);");
   expect(SHEET).toContain("}, [coverageGrid, coverageHeld, artisans]);");
 });

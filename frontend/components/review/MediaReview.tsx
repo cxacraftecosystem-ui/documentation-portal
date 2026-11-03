@@ -15,25 +15,16 @@ import {
 } from "@/lib/review";
 
 type MediaReviewState = {
-  /** The files this reader may reject one by one (`GET /review/{type}/{id}/media`). */
   rejectable: ReadonlySet<string>;
   onRejected: (message: string) => void;
 };
 
 const MediaReviewContext = createContext<MediaReviewState | null>(null);
 
-/**
- * A record's read-only page hands its file cards the reviewer's one decision on a single file.
- *
- * Approving a record approves its pending files with it (owner decision 2026-10-18), so a reviewer
- * who disagrees about ONE photograph rejects that file here — before the record is decided or after
- * it was approved. The cards render nothing without a provider, which is every page but the view.
- */
 export function MediaReviewProvider({ value, children }: { value: MediaReviewState | null; children: ReactNode }) {
   return <MediaReviewContext.Provider value={value}>{children}</MediaReviewContext.Provider>;
 }
 
-/** The Reject action on one file card, with the same reasons a record is rejected with. */
 export function MediaRejectAction({ mediaId, label }: { mediaId: string; label: string }) {
   const review = useContext(MediaReviewContext);
   const confirm = useConfirm();

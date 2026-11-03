@@ -16,17 +16,6 @@ import { canAssignTasks } from "@/lib/permissions";
 import type { PageResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-/**
- * My tasks — the assignee's half of the assignment system.
- *
- * The scope arrives resolved (workshop title, artisan names, section codes), so this page never has
- * to look anything up: it renders what the work IS, how much of it the person has claimed, and what
- * the repository can independently see. Assigning work lives on the admin board at /settings/tasks —
- * one scope handed to several people at once — and the strip below points admins at it, because the
- * single-assignee form that used to sit here could not express artisan subsets or questionnaire
- * sections at all.
- */
-
 const PAGE_SIZE = 12;
 const STATUSES: TaskStatus[] = ["OPEN", "IN_PROGRESS", "DONE", "CANCELLED"];
 
@@ -57,10 +46,6 @@ export default function TasksPage() {
     }
   }, [statusFilter, page]);
 
-  /**
-   * Exact per-status totals for the filter chips. Four tiny calls (`pageSize=1`, derivation off) are
-   * cheaper and more honest than counting the current page, which only ever sees twelve rows.
-   */
   const loadCounts = useCallback(async () => {
     try {
       const entries = await Promise.all(
@@ -73,7 +58,6 @@ export default function TasksPage() {
       );
       setCounts(Object.fromEntries(entries));
     } catch {
-      // The chips fall back to unlabelled filters; the list itself is what matters.
       setCounts({});
     }
   }, []);

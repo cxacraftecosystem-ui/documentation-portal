@@ -12,7 +12,6 @@ export function PageHeader({
   description?: string;
   actions?: React.ReactNode;
   icon?: React.ReactNode;
-  /** Round back control before the title; the dashboard opts out with back={false}. */
   back?: boolean;
 }) {
   return (
@@ -23,8 +22,6 @@ export function PageHeader({
             <BackButton />
           </div>
         ) : null}
-        {/* UX audit DC-14: the chip had no `shrink-0` and squashed beside a long title on a phone.
-            It is hidden below `sm`, where the title needs the width more, and cannot shrink above. */}
         {icon ? (
           <div className="mt-1 hidden h-10 w-10 shrink-0 place-items-center rounded-xl bg-field-200 text-field-600 dark:text-purple-300 sm:grid">
             {icon}

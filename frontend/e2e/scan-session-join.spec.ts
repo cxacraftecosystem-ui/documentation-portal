@@ -1,11 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
 
-/**
- * The Field Repository's "Scan a code" page (REQUIREMENTS_2026-10-20 §6.3): a typed six-character
- * session code calls `POST /sessions/join` and opens the session, and a browser with no camera still
- * offers the photo and the typed paths. The join answer is intercepted, so nothing is written.
- */
-
 const EMAIL = process.env.E2E_EMAIL ?? "";
 const PASSWORD = process.env.E2E_PASSWORD ?? "";
 

@@ -3,15 +3,6 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-/*
-  THE CRAFT PICKER IS ONE IMPLEMENTATION IN BOTH PORTALS (REQUIREMENTS_2026-10-20 §2.8).
-
-  `CraftSelect.tsx` and `lib/craftCatalogue.ts` are byte-identical in designer-portal and
-  documentation-portal; Android's `CraftPicker.kt` and `CraftCatalogueCache.kt` are identical apart
-  from the package. Read off the sibling checkout when it sits beside this one (or where
-  DESIGNER_PORTAL_DIR says); a CI runner with one repository skips, and the sibling pins the same.
-*/
-
 const REPO = join(__dirname, "..", "..");
 const SIBLING = [process.env.DESIGNER_PORTAL_DIR, join(REPO, "..", "designer-portal")].find(
   (dir): dir is string => Boolean(dir) && existsSync(join(dir as string, "frontend", "lib"))

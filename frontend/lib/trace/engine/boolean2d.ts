@@ -6,21 +6,6 @@ import {
   VecSeg,
 } from './path';
 
-/**
- * Polygon boolean operations on flattened outlines.
- *
- * The approach is edge splitting plus inside/outside classification, then reassembly — the same skeleton
- * as Greiner-Hormann without its doubly linked list. Every edge of A is cut at each crossing with B and
- * vice versa, each resulting fragment is classified by testing its midpoint against the other operand,
- * the operation selects a subset, and the selected fragments are chained back into closed loops.
- *
- * **Known limitation, stated rather than hidden:** exactly collinear overlapping edges are not special
- * cased. Two rectangles sharing an edge exactly may produce a seam. Every consumer in this app feeds
- * traced outlines, which never share an edge to the last bit, and the general solution (Vatti or
- * Martinez-Rueda with full degeneracy handling) is several times this much code for a case that does not
- * arise here.
- */
-
 export enum BoolOp {
   UNION = 'UNION',
   INTERSECT = 'INTERSECT',
@@ -28,10 +13,8 @@ export enum BoolOp {
   XOR = 'XOR',
 }
 
-/** Chaining snaps endpoints to this grid; finer than any tolerance the flattener can produce. */
 const SNAP = 1e-6;
 
-/** Signed shoelace area. Positive is clockwise in y-down (image/document) coordinates. */
 export function polygonArea(points: readonly VecPoint[]): number {
   const n = points.length;
   if (n < 3) return 0;
@@ -44,14 +27,6 @@ export function polygonArea(points: readonly VecPoint[]): number {
   return s * 0.5;
 }
 
-/**
- * Point-in-polygon.
- *
- * @param rule EVENODD uses a crossing count, NONZERO a winding number. They differ for
- *             self-intersecting outlines, which is exactly the case a stroke outline produces.
- * @returns true when `(x, y)` is inside. Points exactly on an edge are not guaranteed either way, which
- *          is why the classifier below tests segment **midpoints** offset off the edge.
- */
 export function pointInPolygon(
   points: readonly VecPoint[],
   x: number,
@@ -85,7 +60,6 @@ export function pointInPolygon(
   return winding !== 0;
 }
 
-/** Multi-polygon containment with the non-zero rule: sum the winding across every ring. */
 function insideSet(rings: readonly VecPoint[][], x: number, y: number): boolean {
   let winding = 0;
   for (let r = 0; r < rings.length; r++) {
@@ -108,8 +82,6 @@ function toRings(paths: readonly VecPath[], flatten: number): VecPoint[][] {
   const rings: VecPoint[][] = [];
   for (const p of paths) {
     const pts = p.flatten(flatten);
-    // Drop a repeated closing vertex; the ring is implicitly closed and a duplicate makes a zero-length
-    // edge that the chainer cannot match.
     while (pts.length > 1) {
       const a = pts[0];
       const b = pts[pts.length - 1];
@@ -121,7 +93,6 @@ function toRings(paths: readonly VecPath[], flatten: number): VecPoint[][] {
   return rings;
 }
 
-/** A directed fragment of an input edge, after cutting at every crossing. */
 interface Fragment {
   ax: number;
   ay: number;
@@ -180,7 +151,6 @@ function keyOf(x: number, y: number): string {
   return `${Math.round(x / SNAP)},${Math.round(y / SNAP)}`;
 }
 
-/** Chain directed fragments head-to-tail into closed rings, dropping anything that cannot close. */
 function chain(fragments: readonly Fragment[]): VecPoint[][] {
   const buckets = new Map<string, number[]>();
   for (let i = 0; i < fragments.length; i++) {
@@ -226,17 +196,6 @@ function ringToPath(points: readonly VecPoint[]): VecPath {
   return new VecPath(points[0], segs, true);
 }
 
-/**
- * Boolean combination of two path sets.
- *
- * Curves are flattened first, so the result is a polygonal approximation of the true boolean — which is
- * what every consumer here wants, since the outputs go to a cutter, a rasteriser or another boolean.
- *
- * @param op DIFFERENCE is `a - b`
- * @param flatten flattening tolerance in document units
- * @returns closed polygonal paths; an empty list when the result is empty. Degenerate inputs (fewer than
- *          three points in every ring) return the other operand's contribution rather than throwing.
- */
 export function apply(
   a: readonly VecPath[],
   b: readonly VecPath[],
@@ -259,8 +218,6 @@ export function apply(
   const fragB = splitRings(rb, ra);
   const selected: Fragment[] = [];
 
-  // Classification uses the fragment midpoint. A fragment is cut at every crossing, so its interior
-  // never straddles the other operand's boundary and one sample decides the whole fragment.
   for (let i = 0; i < fragA.length; i++) {
     const f = fragA[i];
     const inside = insideSet(rb, (f.ax + f.bx) / 2, (f.ay + f.by) / 2);
@@ -276,7 +233,6 @@ export function apply(
     } else if (op === BoolOp.INTERSECT) {
       if (inside) selected.push(f);
     } else if (op === BoolOp.DIFFERENCE) {
-      // B's inner fragments become the hole boundary, traversed backwards so the winding subtracts.
       if (inside) selected.push({ ax: f.bx, ay: f.by, bx: f.ax, by: f.ay });
     } else if (inside) {
       selected.push({ ax: f.bx, ay: f.by, bx: f.ax, by: f.ay });

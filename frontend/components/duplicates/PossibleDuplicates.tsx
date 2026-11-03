@@ -5,16 +5,6 @@ import { Users } from "lucide-react";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { candidateSubtitle, type DuplicateCandidate } from "@/lib/duplicates";
 
-/**
- * "Already recorded?" — the likely duplicates of the artisan being typed.
- *
- * The server scored them (`POST /artisan-duplicates/check`, or the 409 hold on save); this only
- * lists them. Each row opens the existing record in a new tab, so the form being filled is never
- * lost to a look. "Different person" dismisses every row shown, and those ids travel with the save
- * as `duplicateAcknowledged`, which is what stops the server asking again.
- *
- * Amber like the identity-conflict dialog: nothing went wrong, the register recognised somebody.
- */
 export function PossibleDuplicates({
   candidates,
   onDifferent,

@@ -8,22 +8,11 @@ import { formatDate } from "@/lib/format";
 import type { User, Workshop } from "@/lib/types";
 import { hasTypedTitle, workshopDisplayTitle } from "@/lib/workshopTitle";
 
-/**
- * Shared vocabulary for the workshop-access screens (the request panel on /settings and the admin
- * queue + roster on /settings/workshop-access).
- *
- * One WorkshopAssignment row carries BOTH sides of the conversation — an admin's grant and a user's
- * request — so every endpoint in the family returns the same shape and every screen here reads it
- * through `WorkshopAccessRow`. `status` is the only thing that confers access: PENDING is a question,
- * not permission, and DENIED/REVOKED rows are kept rather than deleted so a refusal stays on record.
- */
-
 export type WorkshopAccessLevel = "VIEW" | "CONTRIBUTE" | "EDIT";
 export type WorkshopAccessStatus = "PENDING" | "GRANTED" | "DENIED" | "REVOKED";
 
 export type WorkshopAccessLevelInfo = { level: WorkshopAccessLevel; description: string };
 
-/** A WorkshopAssignment as `/workshops/{id}/assignments` and `/workshops/access-requests*` return it. */
 export type WorkshopAccessRow = {
   id: string;
   workshopId: string;
@@ -35,7 +24,6 @@ export type WorkshopAccessRow = {
   decidedAt?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
-  /** Present on the cross-workshop views (the queue and "my requests"); null on a per-workshop list. */
   workshop?: Workshop | null;
   user?: User | null;
   assignedBy?: User | null;
@@ -43,18 +31,6 @@ export type WorkshopAccessRow = {
   decidedBy?: User | null;
 };
 
-/**
- * One row of `GET /workshops/requestable` — a workshop the caller may ASK about, plus their own
- * standing on it.
- *
- * A DIFFERENT shape from `Workshop` on purpose, and the difference is the point. `GET /workshops` is
- * visibility-filtered: below professor it returns only what you created, so the request picker built
- * on it was empty for every newly onboarded user — precisely the people the feature exists for, and
- * precisely the workshops (other people's) worth asking about. `/workshops/requestable` is not
- * filtered, so it carries ONLY what is needed to name a workshop — no description, notes, artisans or
- * records — because the caller may have no access to its contents yet. Keep it that way; do not widen
- * this type to `Workshop`.
- */
 export type RequestableWorkshop = {
   id: string;
   title: string;
@@ -62,15 +38,11 @@ export type RequestableWorkshop = {
   date?: string | null;
   startDate?: string | null;
   endDate?: string | null;
-  /** The caller's own assignment row status; null when they have never asked and were never assigned. */
   accessStatus: WorkshopAccessStatus | null;
-  /** The level on that same row — on a DENIED row this is the level refused, not one held. */
   accessLevel: WorkshopAccessLevel | null;
-  /** Whether an admin has curated this workshop's roster at all. Open workshops need no request. */
   restricted: boolean;
 };
 
-/** Answer from `POST /workshops/access-requests` — one outcome per workshop asked for. */
 export type WorkshopAccessRequestResult = {
   outcomes: Array<{ workshopId: string; outcome: "CREATED" | "RE_REQUESTED" | "ALREADY_PENDING" | "ALREADY_GRANTED" }>;
   requests: WorkshopAccessRow[];
@@ -84,11 +56,6 @@ export const LEVEL_LABELS: Record<WorkshopAccessLevel, string> = {
   EDIT: "Edit"
 };
 
-/**
- * The ladder as the backend defines it (`GET /workshops/access-levels`), duplicated here as the
- * fallback so a grant/request UI never hands out a level it cannot explain — an admin choosing
- * between three unlabelled enum values is how the wrong level gets granted.
- */
 export const FALLBACK_ACCESS_LEVELS: WorkshopAccessLevelInfo[] = [
   { level: "VIEW", description: "Read only." },
   { level: "CONTRIBUTE", description: "View and add records." },
@@ -99,7 +66,6 @@ export const FALLBACK_ACCESS_LEVELS: WorkshopAccessLevelInfo[] = [
   }
 ];
 
-/** The level ladder with its human definitions; falls back to the local copy if the call fails. */
 export function useWorkshopAccessLevels() {
   const [levels, setLevels] = useState<WorkshopAccessLevelInfo[]>(FALLBACK_ACCESS_LEVELS);
 
@@ -110,7 +76,6 @@ export function useWorkshopAccessLevels() {
         if (!cancelled && rows.length) setLevels(rows);
       })
       .catch(() => {
-        /* keep the local copy — a missing legend must not break granting */
       });
     return () => {
       cancelled = true;
@@ -162,7 +127,6 @@ export function AccessStatusBadge({ status }: { status: WorkshopAccessStatus }) 
   );
 }
 
-/** What each level actually means, spelled out wherever one is handed out or asked for. */
 export function AccessLevelLegend({ levels }: { levels: WorkshopAccessLevelInfo[] }) {
   return (
     <dl className="grid gap-2 rounded-md border border-line-200 bg-surface-50 p-3 sm:grid-cols-3">
@@ -178,11 +142,6 @@ export function AccessLevelLegend({ levels }: { levels: WorkshopAccessLevelInfo[
   );
 }
 
-/**
- * The parts of a workshop these helpers actually read. Structural rather than `Workshop` so the same
- * naming and ordering serve `RequestableWorkshop`, which deliberately carries fewer fields — a
- * workshop must be named the same way whether or not the reader may see inside it.
- */
 type WorkshopNameParts = {
   title?: string | null;
   startDate?: string | null;
@@ -190,49 +149,28 @@ type WorkshopNameParts = {
   createdAt?: string | null;
 };
 
-/**
- * The date a workshop HAPPENED — Android parity with `WorkshopDetailDto.occurrenceDate()`
- * (`startDate ?: date ?: createdAt`).
- */
 export function workshopOccurrence(workshop: WorkshopNameParts): string {
   return workshop.startDate ?? workshop.date ?? workshop.createdAt ?? "";
 }
 
-/** Clean human label for a workshop — title plus the day it ran, never an id. */
 export function workshopLabel(workshop: WorkshopNameParts | null | undefined): string {
-  // A blank title reads as its generated default (NAMING 2.4), which already carries the day.
   if (!workshop || !hasTypedTitle(workshop)) return workshopDisplayTitle(workshop);
   const title = workshopDisplayTitle(workshop);
   const when = formatDate(workshopOccurrence(workshop) || null);
   return when === "-" ? title : `${title} · ${when}`;
 }
 
-/** Most recent by occurrence first. ISO-8601 strings compare chronologically, as on Android. */
 export function sortWorkshopsByOccurrence<T extends WorkshopNameParts>(workshops: T[]): T[] {
   return [...workshops].sort((a, b) => workshopOccurrence(b).localeCompare(workshopOccurrence(a)));
 }
 
-/**
- * What the caller's standing on a workshop means for the request they are about to file, said in the
- * option label itself.
- *
- * The picker can only render strings, and a picker that offers to request something you already hold
- * is a picker that lies: the backend answers ALREADY_GRANTED and changes nothing, so the user comes
- * away thinking they asked. GRANTED is therefore stated and the option disabled (see
- * `requestableOptions`); PENDING is stated because asking again is a no-op the queue will not thank
- * you for; DENIED and REVOKED say plainly that asking again is allowed, because it is — the backend
- * re-opens those rows as fresh requests.
- */
 const STANDING_NOTE: Record<WorkshopAccessStatus, string> = {
   GRANTED: "you already have this",
   PENDING: "waiting on an admin",
-  // No em-dash inside these: the label already joins the standing on with one, and "Ajrakhpur —
-  // declined — you can ask again" reads as two separate afterthoughts rather than one sentence.
   DENIED: "declined, you can ask again",
   REVOKED: "revoked, you can ask again"
 };
 
-/** Title · place · date, then the caller's standing. Place disambiguates two same-titled seasons. */
 export function requestableWorkshopLabel(workshop: RequestableWorkshop): string {
   const place = workshop.place?.trim();
   const base = place ? `${workshopLabel(workshop)} · ${place}` : workshopLabel(workshop);
@@ -240,12 +178,9 @@ export function requestableWorkshopLabel(workshop: RequestableWorkshop): string 
     const level = workshop.accessStatus === "GRANTED" && workshop.accessLevel ? ` ${LEVEL_LABELS[workshop.accessLevel]}` : "";
     return `${base} — ${STANDING_NOTE[workshop.accessStatus]}${level}`;
   }
-  // No row at all. On an uncurated workshop everyone already holds Contribute, so say so rather than
-  // letting somebody queue for access they have had all along.
   return workshop.restricted ? base : `${base} — open to everyone`;
 }
 
-/** Picker options for the request panel: already-granted workshops are shown but not selectable. */
 export function requestableOptions(workshops: RequestableWorkshop[]): DropdownOption[] {
   return workshops.map((workshop) => ({
     value: workshop.id,
@@ -254,7 +189,6 @@ export function requestableOptions(workshops: RequestableWorkshop[]): DropdownOp
   }));
 }
 
-/** Name a person without ever leaking an id: their name, else their email, else a neutral fallback. */
 export function personName(person: User | null | undefined): string {
   return person?.name?.trim() || person?.email?.trim() || "Unknown user";
 }

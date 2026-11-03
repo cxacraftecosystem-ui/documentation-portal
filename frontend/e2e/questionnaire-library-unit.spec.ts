@@ -33,12 +33,6 @@ import {
 import { addDraftQuestion, addDraftSection, draftSummary, getDraft, isDraftId, listDrafts, newDraft, sendDraft } from "@/lib/questionnaireDraftForms";
 import type { User } from "@/lib/types";
 
-/**
- * The forms library on Field Repository web (UNIFY U3, section 4.2): the tabs, kinds, bindings,
- * bundles, the prompts P16 and P17, the error codes it shows first, and the calls each screen makes.
- * The same flows run against a real API in `questionnaire-library-stack.spec.ts`.
- */
-
 const root = join(__dirname, "..");
 const read = (...parts: string[]) => readFileSync(join(root, ...parts), "utf8");
 const shared = (name: string) => JSON.parse(readFileSync(join(root, "..", "shared", name), "utf8"));
@@ -50,7 +44,6 @@ const WORKBOOK_API = read("components", "questionnaires", "workbookApi.ts");
 
 const person = (role: string, extra: Partial<User> = {}): User => ({ id: `u-${role}`, email: `${role}@example.org`, name: role, role, ...extra }) as User;
 
-/** Every call the library makes, recorded: method, path and body. */
 function recorder() {
   const calls: { method: string; path: string; body: unknown; headers: Headers }[] = [];
   const fetcher = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
@@ -69,7 +62,6 @@ test("@qf:D3 the tabs: Mine first for a form author; Deleted for authors and con
   expect(defaultTab(person("RESEARCHER"))).toBe("shared");
   expect(defaultTab(person("RESEARCHER", { canManageQuestionnaire: true }))).toBe("mine");
   expect(emptyLine("mine")).toBe("You haven't made a form yet.");
-  // New form is a form author's, and creates under an Idempotency-Key.
   expect(LIBRARY_PAGE).toContain("const author = canManageQuestionnaire(user);");
   expect(LIBRARY_PAGE).toContain('onClick={() => setDialog("new")}');
   expect(DIALOGS).toContain("await library.create({ title: title.trim(), description: description.trim() || null, kind: kind || null })");
@@ -80,7 +72,6 @@ test("@qf:A6 a form of your own: create, then build its sections and questions o
   await client.create({ title: "Craft survey 2026", kind: "MARKET_SURVEY" });
   expect(calls[0]).toMatchObject({ method: "POST", path: "/questionnaires", body: { title: "Craft survey 2026", kind: "MARKET_SURVEY" } });
   expect(calls[0].headers.get("Idempotency-Key")).toMatch(/^form-[0-9a-f]{32}$/);
-  // The form page embeds the builder, editable by its author or a content admin (the server's `can`).
   expect(FORM_PAGE).toContain("<QuestionnaireAdminEditor");
   expect(FORM_PAGE).toContain("mayEdit={can.edit && online}");
   expect(FORM_PAGE).toContain("mayDelete={can.delete && online}");
@@ -176,7 +167,6 @@ test("@qf:A10 a handoff bundle: read in the browser, P17, and imported once", as
   const decoded = await decodeBundleBytes(new Uint8Array(gzipSync(JSON.stringify(v2))));
   expect(decoded).toEqual(v2);
   expect(summariseBundle(decoded)).toEqual({ title: "2nd Craft Toolkit", sections: 2, questions: 1, tooNew: false });
-  // designer-portal Android's v1 file.
   const v1 = { format: "dp", schemaVersion: 1, title: "Toolkit", sections: [{ code: "A", questions: [{}, {}] }] };
   expect(summariseBundle(await decodeBundleBytes(new TextEncoder().encode(JSON.stringify(v1))))).toEqual({
     title: "Toolkit",
@@ -186,7 +176,6 @@ test("@qf:A10 a handoff bundle: read in the browser, P17, and imported once", as
   });
   expect(summariseBundle({ ...v2, v: 3 })?.tooNew).toBe(true);
   await expect(decodeBundleBytes(new TextEncoder().encode("not a bundle"))).rejects.toThrow("isn't a questionnaire bundle");
-  // P17, as the web can say it: a bundle names no sender.
   expect(p17({ title: "2nd Craft Toolkit", sections: 24 })).toEqual({
     title: "Received a form",
     body: "'2nd Craft Toolkit' (24 sections).",
@@ -233,7 +222,6 @@ test("@qf:A14 a form's deleted sessions, restored by a content admin", () => {
   expect(lib).toContain("`/questionnaire/sessions/${encodeURIComponent(sessionId)}/restore`, { method: \"POST\" }");
   expect(card).toContain("await formSessions.restore(row.id);");
   expect(FORM_PAGE).toContain("canSeeDeleted={isContentAdmin(user)}");
-  // And every deleted session, under the sessions list, for content admins.
   const sessionsPage = read("app", "(protected)", "questionnaire", "page.tsx");
   expect(sessionsPage).toContain("<FormSessionsCard questionnaireId={null} canSeeDeleted deletedOnly online={online} />");
   expect(sourceLabel("UPLOAD")).toBe("Uploaded");
@@ -291,7 +279,6 @@ test("@qf:A16 a form reads offline from this account's saved copy, never another
   writeFormsCache("u1", { list: { key, forms: [form] }, form }, store, new Date("2026-10-22T04:42:00Z"));
   expect(readFormsCache("u1", store)?.lists[key]?.map((f) => f.id)).toEqual(["f1"]);
   expect(readFormsCache("u1", store)?.forms.f1?.title).toBe("2nd Craft Toolkit");
-  // Another account on this browser: the copy is dropped, not shown.
   expect(readFormsCache("u2", store)).toBeNull();
   expect(data.size).toBe(0);
   expect(isOffline(new TypeError("Failed to fetch"))).toBe(true);
@@ -320,7 +307,6 @@ test("@qf:A15 a form written offline is sent in order, remapping its temporary i
     const id = path === "/questionnaires" ? "f-real" : path === "/questionnaire/sections" ? "s-real" : `q-real-${calls.length}`;
     return { id } as T;
   };
-  // The connection drops after the section lands: nothing is lost and nothing is sent twice.
   expect(await sendDraft(draft, fetcher, store)).toBeNull();
   const held = getDraft("u1", draft.tempId, store)!;
   expect(held.serverId).toBe("f-real");

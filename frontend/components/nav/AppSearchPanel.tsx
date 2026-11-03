@@ -17,10 +17,8 @@ import {
 } from "@/lib/unifiedSearch";
 import { cn } from "@/lib/utils";
 
-/** A screen the reader may open — the menu's own visible destinations. */
 export type AppSearchScreen = { label: string; href: string; icon: LucideIcon };
 
-/** How long typing must pause before the server is asked. Android's `APP_SEARCH_DEBOUNCE_MS`. */
 export const APP_SEARCH_DEBOUNCE_MS = 300;
 const RECENT_KEY = "app_search_recent";
 const OFFLINE_LINE = "Offline — showing what's on this device.";
@@ -39,11 +37,9 @@ function writeRecents(recents: string[]) {
   try {
     window.localStorage.setItem(RECENT_KEY, JSON.stringify(recents.slice(0, RECENT_MAX)));
   } catch {
-    /* storage blocked: recents simply are not kept */
   }
 }
 
-/** The screens that answer `query`, best first, at most five. Android's SCREENS group. */
 export function matchScreens(screens: AppSearchScreen[], query: string): AppSearchScreen[] {
   const q = query.trim().toLowerCase();
   if (!q) return [];
@@ -68,16 +64,6 @@ type RemoteState =
   | { kind: "offline" }
   | { kind: "failed" };
 
-/**
- * THE SEARCH PANEL — the header turned into a search field, with the results under it. A port of
- * Android's `AppSearchPanel` over `lib/unifiedSearch.ts`.
- *
- * Screens answer from one character; records are asked of the server from two, after a 300 ms
- * pause, five per group in the server's group order. Enter opens the full `/search` page with the
- * query. Up to eight recent searches are kept in this browser only. Escape or Back closes it.
- *
- * Shared byte-identical by the designer portal and the documentation portal.
- */
 export function AppSearchPanel({
   open,
   appName,

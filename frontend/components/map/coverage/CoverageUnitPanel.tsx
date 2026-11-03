@@ -1,10 +1,5 @@
 "use client";
 
-/**
- * One district (or state) opened from the map or the table: its counts, and the records behind
- * them, each a link to the record. Names only — the route never sends identity numbers or addresses.
- */
-
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ExternalLink, X } from "lucide-react";

@@ -1,18 +1,5 @@
 "use client";
 
-/**
- * The top-bar scanner: camera, "Choose a photo" and "Type the code", then `lib/scanDispatch.ts`, then
- * one result card with its button. Opened by `TopBarScanButton` (the mobile/tablet header) and drawn
- * inline by `/scan`, so the two cannot drift. It never navigates on its own: the person presses
- * Open or Join (REQUIREMENTS_2026-10-20 §6).
- *
- * The camera uses `BarcodeDetector` where the browser has it and the bundled decoder
- * (`lib/qrDecode.ts`, the Designer Repository's, byte for byte) where it does not; a camera-less
- * browser still has the photo and typed paths. Nothing scanned is stored or written into the typed
- * box: not a join card's secret, not a payment or authenticator link, not an identity QR. The box
- * holds only what the person typed, and a scan clears it.
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Camera, CameraOff, ImageUp, Keyboard, QrCode } from "lucide-react";
@@ -25,7 +12,6 @@ import { runScanAction, scanServices } from "@/lib/scanServices";
 
 const FRAME_INTERVAL_MS = 220;
 
-/** Frame refusals that mean "keep looking"; anything else is a property of the symbol itself. */
 const KEEP_LOOKING = new Set(["NO_SYMBOL", "UNREADABLE", "DATA_UNRECOVERABLE"]);
 
 const POSITIVE = new Set(["OPEN", "REDEEM_JOIN_CARD", "JOIN_SESSION", "ADD_FROM_PEER", "JOIN_WORKSHOP", "POINTER"]);
@@ -37,7 +23,6 @@ function cameraRefusal(error: unknown): string {
   return `Couldn't open the camera. ${SCAN_COPY.choosePhoto} or type the code.`;
 }
 
-/** The dispatcher's answer, with its one button. */
 export function ScanOutcomeCard({
   outcome,
   busy,
@@ -72,14 +57,12 @@ export function ScanOutcomeCard({
   );
 }
 
-/** The scanner's body, for the dialog or a page. `onDone` runs when the person leaves for a result. */
 export function ScanPanel({ onDone }: { onDone?: () => void }) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handlingRef = useRef(false);
-  /** Bumped by every start and stop: a camera request or a frame loop from an older one gives up. */
   const generationRef = useRef(0);
   const startingRef = useRef(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -122,7 +105,6 @@ export function ScanPanel({ onDone }: { onDone?: () => void }) {
     }
   }, []);
 
-  /** A scanned payload is answered, never shown: the typed box is cleared, not filled. */
   const fromScanner = useCallback(
     (raw: string) => {
       setTyped("");
@@ -132,7 +114,6 @@ export function ScanPanel({ onDone }: { onDone?: () => void }) {
   );
 
   const startCamera = useCallback(async () => {
-    // A second tap while the browser is still asking would open a second stream nobody stops.
     if (startingRef.current) return;
     setProblem(null);
     setOutcome(null);
@@ -156,7 +137,6 @@ export function ScanPanel({ onDone }: { onDone?: () => void }) {
       setStarting(false);
     }
     if (generation !== generationRef.current) {
-      // Stopped, closed or restarted while the browser was asking: this stream is nobody's.
       stream.getTracks().forEach((track) => track.stop());
       return;
     }
@@ -170,7 +150,6 @@ export function ScanPanel({ onDone }: { onDone?: () => void }) {
     try {
       await video.play();
     } catch {
-      // Autoplay refusal is not fatal; frames still arrive.
     }
     setScanning(true);
 
@@ -193,7 +172,6 @@ export function ScanPanel({ onDone }: { onDone?: () => void }) {
       handlingRef.current = true;
       stopCamera();
       if (!read.ok) {
-        // A symbol this app does not print (an Aadhaar Secure QR is one): one sentence, nothing kept.
         setOutcome({ kind: "REFUSED", title: SCAN_COPY.unknown });
         return;
       }
@@ -337,7 +315,6 @@ export function ScanPanel({ onDone }: { onDone?: () => void }) {
   );
 }
 
-/** The dialog the top bar's scan button opens. */
 export function ScanSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
     <FieldDialog

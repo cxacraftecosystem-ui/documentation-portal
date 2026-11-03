@@ -1,15 +1,5 @@
 "use client";
 
-/**
- * /set-password?token=… — redeem a password link. PUBLIC: it lives outside `app/(protected)/` so no
- * gate in that tree can stand in front of somebody who cannot sign in.
- *
- * Ported from the Design Prototype Workshop's page of the same name. The link is checked before a
- * password box is drawn, so a dead link says why instead of refusing a typed password. Redeeming it
- * signs the account out everywhere and opens NO session: the person signs in with the new password
- * afterwards, and meets two-step verification there if it is on.
- */
-
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -48,8 +38,6 @@ export default function SetPasswordPage() {
   useEffect(() => {
     const taken = takeLinkTokenFromAddress(window.location.href);
     const address = taken.address;
-    // Off the address bar, so the credential is not left in the history. One microtask later so the
-    // app router's own patched history call has been installed by its effect.
     if (address !== null) queueMicrotask(() => window.history.replaceState(null, "", address));
     setLinkToken((previous) => previous || taken.token);
   }, []);
@@ -70,7 +58,6 @@ export default function SetPasswordPage() {
         setPurpose(result.purpose);
       })
       .catch(() => {
-        // The check could not be made: offer the form and let the redemption decide.
         if (cancelled) return;
         setLinkValid(true);
         setLinkReason(null);
@@ -92,8 +79,6 @@ export default function SetPasswordPage() {
       setError(null);
       try {
         await setPasswordWithLink(token, password);
-        // The redemption ended every session of the account; this tab's is dropped so "Go to sign in"
-        // opens on the form and not on a stale account.
         clearSession();
         setDone(true);
       } catch (err) {

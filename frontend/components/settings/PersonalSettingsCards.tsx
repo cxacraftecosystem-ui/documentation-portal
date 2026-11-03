@@ -6,22 +6,12 @@ import { Toggle } from "@/components/settings/Toggle";
 import { useThemePreferences } from "@/components/ThemeProvider";
 import type { Preferences, ThemeChoice } from "@/lib/preferences";
 
-/**
- * The two cards EVERY signed-in account owns: how the repository looks, and how it reads.
- *
- * They carry no role gate on purpose — these are this account's own preferences, saved to the
- * account the moment they are clicked — and they are the only thing an ordinary user sees on
- * /settings, side by side. Keeping them here (rather than inline on the page) is what lets the page
- * lay them out as a pair without also inheriting the admin panels that used to share their column.
- */
-
 const THEME_OPTIONS: Array<{ value: ThemeChoice; label: string; helper: string; Icon: typeof Monitor }> = [
   { value: "system", label: "Match my device", helper: "Follows your system.", Icon: Monitor },
   { value: "light", label: "Light", helper: "Default.", Icon: Sun },
   { value: "dark", label: "Dark", helper: "For low light.", Icon: Moon }
 ];
 
-/** The three accessibility switches, keyed by the preference they flip. */
 const ACCESSIBILITY_OPTIONS: Array<{
   key: Exclude<keyof Preferences, "theme">;
   label: string;

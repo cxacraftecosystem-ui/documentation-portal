@@ -1,16 +1,8 @@
 import { apiFetch, buildQuery } from "@/lib/api";
 
-/** "1 record", "3 records". */
 export function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
-
-/**
- * The review feedback loop on the web — what the server says about a record's last review, the
- * uploader's own "Sent back to you" list, the reasons a reviewer picks from, and the review queue's
- * filters. The reason wording is the SERVER's (`GET /review/reasons`), so the web and the handset
- * cannot word one decision two ways; what lives here is the pure logic the unit tests pin.
- */
 
 export type ReviewReason = { code: string; label: string; fixable: boolean; needsNote: boolean };
 
@@ -58,30 +50,25 @@ export type PreviousReview = {
   reasonLabel?: string | null;
 };
 
-/** The statuses whose last review the record's creator needs to read before editing. */
 export const RETURNED_STATUSES = ["NEEDS_REVISION", "REJECTED"] as const;
 
 export function isReturned(status: string | null | undefined): boolean {
   return status === "NEEDS_REVISION" || status === "REJECTED";
 }
 
-/** The banner's heading over a returned record. */
 export function returnedHeading(status: string, reviewerName?: string | null): string {
   const who = reviewerName?.trim() || "A reviewer";
   return status === "REJECTED" ? `Not accepted by ${who}` : `Sent back by ${who}`;
 }
 
-/** The one line under the note: what saving does to this record now. */
 export function returnedNextStep(status: string): string {
   return status === "REJECTED" ? "Fix it and save to reopen it for review." : "Fix it and save to send it back for review.";
 }
 
-/** "Sent back to you (3)" — the dashboard tile's title. */
 export function sentBackTitle(count: number): string {
   return `Sent back to you (${count})`;
 }
 
-/** The tile's one-line note: how many are sent back and how many were not accepted. */
 export function sentBackNote(sentBack: number, rejected: number): string {
   const parts: string[] = [];
   if (sentBack > 0) parts.push(`${plural(sentBack, "record")} to fix`);
@@ -89,47 +76,36 @@ export function sentBackNote(sentBack: number, rejected: number): string {
   return parts.join(" · ");
 }
 
-/**
- * What the reviewer's "Reject" button really does with the picked reason: a FIXABLE reason sends
- * the record back for revision instead (C19). No reason picked means a plain rejection.
- */
 export function refusalOutcome(reason: ReviewReason | null | undefined): "REJECTED" | "NEEDS_REVISION" {
   return reason?.fixable ? "NEEDS_REVISION" : "REJECTED";
 }
 
-/** The confirm button's label for the picked reason. */
 export function refusalButtonLabel(reason: ReviewReason | null | undefined): string {
   return refusalOutcome(reason) === "NEEDS_REVISION" ? "Send for revision" : "Reject record";
 }
 
-/** The same label on one file's Reject panel. */
 export function fileRefusalLabel(reason: ReviewReason | null | undefined): string {
   return refusalOutcome(reason) === "NEEDS_REVISION" ? "Send for revision" : "Reject file";
 }
 
-/** The reasons offered on "Send for revision": only the fixable ones, and picking one is optional. */
 export function reviseReasons(reasons: ReviewReason[]): ReviewReason[] {
   return reasons.filter((reason) => reason.fixable);
 }
 
-/** The body a decision posts. A reason travels only when one was picked; older servers ignore it. */
 export function decisionBody(notes: string, reason: ReviewReason | null | undefined): { notes: string | null; reason?: string } {
   const trimmed = notes.trim();
   return reason ? { notes: trimmed || null, reason: reason.code } : { notes: trimmed || null };
 }
 
-/** Whether the reject panel may be submitted: a reason is picked, and "Other" carries words. */
 export function refusalReady(reason: ReviewReason | null | undefined, note: string): boolean {
   if (!reason) return false;
   return !reason.needsNote || note.trim().length > 0;
 }
 
-/** The review queue's filters, as the URL carries them (Tasks links here with createdById). */
 export type QueueFilters = {
   workshopId?: string;
   createdById?: string;
   recordType?: string;
-  /** A task's artisans, comma-separated (B12). */
   artisanId?: string;
   order?: "oldest" | "newest";
 };
@@ -161,7 +137,6 @@ export function queueQuery(page: number, pageSize: number, filters: QueueFilters
   });
 }
 
-/** The review queue link for a task's pending records (B12). */
 export function reviewQueueHref(query: Record<string, string | undefined>): string {
   return `/review${buildQuery(query)}`;
 }
@@ -190,7 +165,6 @@ export type BulkResult = {
   results: { recordType: string; id: string; outcome: "APPROVED" | "FAILED"; detail?: unknown }[];
   approved: number;
   failed: number;
-  /** Files approved with those records. */
   mediaApproved?: number;
 };
 
@@ -201,31 +175,22 @@ export async function bulkApprove(items: { recordType: string; id: string }[]): 
   });
 }
 
-/** The receipt after a bulk approval. */
 export function bulkReceipt(approved: number, failed: number, files = 0): string {
   const withFiles = files > 0 ? `, with ${plural(files, "file")}` : "";
   if (failed === 0) return `${plural(approved, "record")} approved${withFiles}.`;
   return `${approved} approved${withFiles.replace(",", "")}, ${failed} failed (still ticked).`;
 }
 
-/**
- * Approving a record approves its files that are still pending (owner decision 2026-10-18); the
- * confirmation says how many. Null when there are none, so nothing is drawn.
- */
 export function alsoApprovesLine(files: number | null | undefined): string | null {
   return files && files > 0 ? `Also approves ${plural(files, "file")}.` : null;
 }
 
-/** The receipt after approving one record. */
 export function approvedReceipt(files: number | null | undefined): string {
   return files && files > 0 ? `Approved, with ${plural(files, "file")}.` : "Approved.";
 }
 
-/** `GET /review/{type}/{id}/media`: what a reviewer may do with a record's files. */
 export type RecordMediaReview = {
-  /** Files approving the record now would approve with it; 0 once it is decided. */
   approvesWith: number;
-  /** Files this reviewer may still reject one by one — pending, or approved with their record. */
   rejectable: string[];
 };
 
@@ -233,7 +198,6 @@ export async function fetchRecordMediaReview(recordType: string, recordId: strin
   return apiFetch<RecordMediaReview>(`/review/${encodeURIComponent(recordType)}/${encodeURIComponent(recordId)}/media`);
 }
 
-/** Reject one file, whatever became of its record. A fixable reason sends it back instead. */
 export async function rejectMedia(mediaId: string, notes: string, reason: ReviewReason | null | undefined): Promise<{ status?: string }> {
   return apiFetch<{ status?: string }>(`/review/media/${encodeURIComponent(mediaId)}/reject`, {
     method: "POST",
@@ -241,7 +205,6 @@ export async function rejectMedia(mediaId: string, notes: string, reason: Review
   });
 }
 
-/** The Data page's review-status choices (C21). "Approved" is what an export means. */
 export const DEFAULT_DATA_STATUS = "APPROVED";
 
 export const DATA_STATUS_OPTIONS = [
@@ -250,7 +213,6 @@ export const DATA_STATUS_OPTIONS = [
   { value: "ALL", label: "All statuses" }
 ];
 
-/** The `status` query parameter for a choice; every status needs none. */
 export function statusQuery(choice: string): string | undefined {
   return choice && choice !== "ALL" ? choice : undefined;
 }

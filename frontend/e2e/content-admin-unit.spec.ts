@@ -6,15 +6,6 @@ import { expect, test } from "@playwright/test";
 import { CONTENT_ADMIN_ROLES, canManageQuestionnaire, isAdmin, isContentAdmin, mayDeleteQuestionnaire, mayEditQuestionnaire } from "@/lib/permissions";
 import type { User, UserRole } from "@/lib/types";
 
-/**
- * The content admins (owner's ruling, 2026-10-20): ADMIN and MASTER_ADMIN here, and MINISTRY_ADMIN
- * by name for the day the ladders merge, add, edit and delete every content type; every other role
- * adds and edits and never deletes. Delete controls read `canDeleteRecords` — the content admins,
- * WHETHER OR NOT admin view is on (owner, 2026-10-21) — and nobody else ever sees one.
- *
- * Run: `npx playwright test e2e/content-admin-unit.spec.ts --reporter=line`
- */
-
 const ROOT = join(__dirname, "..");
 const read = (relative: string) => readFileSync(join(ROOT, relative), "utf8").split("\r\n").join("\n");
 
@@ -33,12 +24,10 @@ test("the content admins are the three admin tiers by name, and isAdmin is not w
 });
 
 test("a questionnaire is deleted from by its author or a content admin, and nobody else (22 Oct 2026)", () => {
-  // The author: a professor deleting from the form they made.
   expect(mayDeleteQuestionnaire({ ...user("PROFESSOR"), id: "author" }, "author")).toBe(true);
   for (const role of ["ADMIN", "MASTER_ADMIN", "MINISTRY_ADMIN"] as UserRole[]) {
     expect(mayDeleteQuestionnaire(user(role), "author"), role).toBe(true);
   }
-  // Every other role on somebody else's form, a questionnaire manager included.
   for (const role of ["CROWDSOURCE_VOLUNTEER", "FIELD_CONTRIBUTOR", "RESEARCHER", "PROFESSOR"] as UserRole[]) {
     expect(mayDeleteQuestionnaire(user(role), "author"), role).toBe(false);
   }
@@ -47,23 +36,19 @@ test("a questionnaire is deleted from by its author or a content admin, and nobo
 });
 
 test("a questionnaire is edited by its author or a content admin, and no other manager (22 Oct 2026)", () => {
-  // The author edits the form they made, whatever their tier.
   expect(mayEditQuestionnaire({ ...user("PROFESSOR"), id: "author" }, "author")).toBe(true);
   expect(mayEditQuestionnaire({ ...user("RESEARCHER"), id: "author", canManageQuestionnaire: true }, "author")).toBe(true);
-  // Every content admin edits every form, an author or none.
   for (const role of ["ADMIN", "MASTER_ADMIN", "MINISTRY_ADMIN"] as UserRole[]) {
     expect(mayEditQuestionnaire(user(role), "author"), role).toBe(true);
     expect(mayEditQuestionnaire(user(role), null), `${role}, no recorded author`).toBe(true);
     expect(mayEditQuestionnaire(user(role), undefined), `${role}, author not sent`).toBe(true);
   }
-  // Another questionnaire manager — a Professor, or a grant holder — may create a form, not edit this one.
   const professor = user("PROFESSOR");
   const grantHolder = { ...user("RESEARCHER"), canManageQuestionnaire: true } as User;
   for (const manager of [professor, grantHolder]) {
     expect(canManageQuestionnaire(manager), manager.role).toBe(true);
     expect(mayEditQuestionnaire(manager, "author"), manager.role).toBe(false);
   }
-  // A form with no recorded author is the content admins' alone — no id matches a missing author.
   expect(mayEditQuestionnaire(professor, null)).toBe(false);
   expect(mayEditQuestionnaire(grantHolder, undefined)).toBe(false);
   expect(mayEditQuestionnaire({ ...user("PROFESSOR"), id: "" }, "")).toBe(false);
@@ -71,7 +56,6 @@ test("a questionnaire is edited by its author or a content admin, and no other m
     expect(mayEditQuestionnaire(user(role), "author"), role).toBe(false);
   }
   expect(mayEditQuestionnaire(null, "author")).toBe(false);
-  // Editing and deleting are one predicate.
   for (const role of ["PROFESSOR", "ADMIN", "MASTER_ADMIN", "MINISTRY_ADMIN"] as UserRole[]) {
     for (const author of ["author", "u1", null]) {
       expect(mayDeleteQuestionnaire(user(role), author), `${role} on ${author}`).toBe(mayEditQuestionnaire(user(role), author));
@@ -81,7 +65,6 @@ test("a questionnaire is edited by its author or a content admin, and no other m
 
 test("the builder's edit controls are drawn only for the form's author or a content admin", () => {
   const builder = read("components/questionnaires/InstrumentBuilder.tsx");
-  // The editor defaults to read-only, and the read-only branch returns before any edit control.
   expect(builder).toContain("mayEdit = false,");
   const guard = builder.indexOf("if (!mayEdit) {");
   expect(guard).toBeGreaterThan(-1);
@@ -90,17 +73,14 @@ test("the builder's edit controls are drawn only for the form's author or a cont
   for (const control of ["<form", "<button", "addSection", "updateSection", "performSectionReorder", "<QuestionTile", "<Toggle", "draggable"]) {
     expect(readOnly, control).not.toContain(control);
   }
-  // Every write the editor makes sits after that return.
   for (const write of ["<form onSubmit={addSection}", "<QuestionTile", 'aria-label={`Drag section ${section.code}`}']) {
     expect(builder.indexOf(write), write).toBeGreaterThan(guard);
   }
 
   const screen = read("components/questionnaires/BuilderScreen.tsx");
-  // Opening the builder is still a manager's; editing the selected form is its author's or an admin's.
   expect(screen).toContain("const allowed = canManageQuestionnaire(user);");
   expect(screen).toContain("const mayEdit = mayEditQuestionnaire(user, selected?.createdById);");
   expect(screen).toContain("mayEdit={mayEdit}");
-  // The form's own workbook — the editing download and the re-upload — is offered to the same accounts.
   expect(screen).toContain("{selected && mayEdit ? (\n          <ButtonRow");
   expect(screen).toContain("downloadQuestionnaireWorkbook(selected.id)");
   expect(screen).toContain("{selected && mayEdit ? (\n        <WorkbookUploadDialog");
@@ -110,8 +90,6 @@ test("the builder's edit controls are drawn only for the form's author or a cont
   const page = read("app/(protected)/questionnaire/page.tsx");
   expect(page).toContain("mayEdit={mayEditQuestionnaire(user, instruments.find((instrument) => instrument.id === questionnaireId)?.createdById)}");
 
-  // The forms library (UNIFY U3): a form's own workbook and its re-upload are drawn from the server's
-  // `can.edit` (its author or a content admin), never from the manager grant.
   const one = read("app/(protected)/questionnaires/[id]/page.tsx");
   expect(one).toContain("{can.edit ? (\n                <button");
   expect(one).toContain("downloadQuestionnaireWorkbook(form.id)");
@@ -131,7 +109,6 @@ test("the builder draws Delete, Remove, switch-off and Restore for the author or
   expect(screen).toContain('body: JSON.stringify({ isActive: true })');
   const page = read("app/(protected)/questionnaire/page.tsx");
   expect(page).toContain("mayDelete={mayDeleteQuestionnaire(user, instruments.find((instrument) => instrument.id === questionnaireId)?.createdById)}");
-  // Sessions and interviews stay a content admin's.
   expect(page).toContain("{canDeleteRecords ? (\n                          <button className={rowAction(\"danger\")} onClick={() => remove(interview.id)}>");
 });
 
@@ -139,7 +116,6 @@ test("admin view, and with it every Delete, is offered to the content admins", (
   const provider = read("components/AdminViewProvider.tsx");
   expect(provider).toContain("const canAdmin = isContentAdmin(user);");
   expect(provider).toContain("available: canAdmin,");
-  // Delete is not admin view's: it is the content-admin set itself.
   expect(provider).toContain("canDeleteRecords: canAdmin,");
 });
 
@@ -176,8 +152,6 @@ test("files, sessions, takes and questionnaire structure are deleted by content 
   expect(read("components/questionnaire/InboxList.tsx")).toContain("{canDeleteRecords ? (\n            <button type=\"button\" className={`${secondary} field-danger`}");
   expect(read("components/questionnaire/SessionWorkspace.tsx")).toContain("onRemove={canDeleteRecords ? (r) => setRemoveTake(r) : undefined}");
   const page = read("app/(protected)/questionnaire/page.tsx");
-  // The builder moved to its own module so /questionnaire/builder renders it alone (audit H15).
-  // A section or a question is removed by the form's author or a content admin (22 Oct 2026).
   expect(read("components/questionnaires/InstrumentBuilder.tsx")).toContain("onRemove={mayDelete ? () => removeQuestion(question) : undefined}");
   expect(page).toContain("editing && isContentAdmin(user) ? await offerMergeOnConflict(err, editing.id) : false");
 });

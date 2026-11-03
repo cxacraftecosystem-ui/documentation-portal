@@ -41,11 +41,11 @@ export const MenuItem = ({
             <div className="absolute left-1/2 top-[calc(100%+1.2rem)] -translate-x-1/2 transform pt-4">
               <motion.div
                 transition={transition}
-                layoutId="active" // layoutId ensures smooth animation
+                layoutId="active"
                 className="overflow-hidden rounded-2xl border border-[#e8e6f0] bg-card/95 shadow-panel backdrop-blur-xs"
               >
                 <motion.div
-                  layout // layout ensures smooth animation
+                  layout
                   className="h-full w-max p-4"
                 >
                   {children}

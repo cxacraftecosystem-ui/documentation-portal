@@ -21,15 +21,6 @@ import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { roleLabel } from "@/lib/permissions";
 
-/**
- * The cross-workshop approval queue (`GET /workshops/access-requests`, admin only).
- *
- * Deliberately ONE list rather than a tab per workshop: opening each workshop's roster in turn is how
- * requests sit unanswered for a week. Approving lets the admin change the level being handed out —
- * somebody who asked for EDIT can be given VIEW — and both decisions take an optional note, which is
- * the only explanation the requester ever sees.
- */
-
 const FILTERS = [
   { value: "PENDING", label: "Waiting for a decision" },
   { value: "ALL", label: "All requests (history)" }
@@ -43,7 +34,6 @@ export function WorkshopAccessQueuePanel({ refreshToken, onChanged }: { refreshT
   const [rows, setRows] = useState<WorkshopAccessRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  /** Per-row decision draft: the level to grant and the note to send with it. */
   const [drafts, setDrafts] = useState<Record<string, { level: WorkshopAccessLevel; note: string }>>({});
 
   const load = useCallback(async () => {
@@ -91,8 +81,6 @@ export function WorkshopAccessQueuePanel({ refreshToken, onChanged }: { refreshT
         delete next[row.id];
         return next;
       });
-      // Bumping the shared token is what re-reads BOTH panels — this one included, via its effect —
-      // so a decision made here never leaves the roster below showing the pre-decision state.
       onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to record that decision");
@@ -119,7 +107,6 @@ export function WorkshopAccessQueuePanel({ refreshToken, onChanged }: { refreshT
           </div>
         </div>
         <div className="w-full sm:w-64">
-          {/* Filters the list in place, so focus must stay on the control being adjusted. */}
           <Dropdown
             advanceOnSelect={false}
             ariaLabel="Filter requests"

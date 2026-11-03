@@ -1,15 +1,5 @@
 "use client";
 
-/**
- * `/questionnaires/[id]` — one form (UNIFY 4.2): its sections and questions; its kind; the workshops
- * it is bound to; Share with everyone and Default (admins); Reuse; the workbook, question set and
- * handoff bundle; Re-upload; the corpus (dataset downloaders); Delete (its author or a content
- * admin, P16) and Restore (content admins); and the sessions recorded on it.
- *
- * What may be pressed comes from the server's `can` on the form, so a control is never drawn that
- * the server would refuse.
- */
-
 import { ClipboardList, Copy, Download, FileSpreadsheet, FileUp, Package, Play, RotateCcw, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -60,7 +50,6 @@ import { loadWorkshopList } from "@/lib/workshopList";
 
 export default function QuestionnaireFormPage() {
   const params = useParams<{ id: string }>();
-  // A form written offline lives on this device until it is sent (A15).
   return isDraftId(params.id) ? <DraftFormPanel id={params.id} /> : <QuestionnaireFormView id={params.id} />;
 }
 
@@ -96,7 +85,6 @@ function QuestionnaireFormView({ id }: { id: string }) {
       setSections(rows);
       setRevision((n) => n + 1);
     } catch (err) {
-      // Offline (A16): the copy this account last read of this form, read-only.
       const held = isOffline(err) ? readFormsCache(owner) : null;
       const copy = held?.forms[id];
       if (copy) {

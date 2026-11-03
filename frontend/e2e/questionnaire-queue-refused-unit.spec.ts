@@ -13,16 +13,6 @@ import {
   type SessionUnit
 } from "@/lib/questionnaire/queue";
 
-/**
- * A step the server refused for good stays refused, with its reason, until a person acts on it.
- * Identical in both portals (the queue is shared).
- *
- * `runUnit` used to re-send every FAILED step on every drain — and the sessions list drains on every
- * page load — so a participant the server refused with 409 "That artisan was removed." was sent
- * again forever, and each re-send replaced that reason in the fix tray with whatever came back. The
- * automatic retry (`useSessionQueue.hasRetryableWork`) only ever meant PENDING; now the runner agrees.
- */
-
 const OPTS = { multipartThresholdBytes: 8 * 1024 * 1024, partSizeBytes: 5 * 1024 * 1024 };
 const REMOVED = "That artisan was removed.";
 const noBytes = { put: async () => ({ etag: null }) } as never;
@@ -71,7 +61,6 @@ test("a refused step is not re-sent by the next drain, and its reason survives",
   expect(calls).toEqual(["addParticipant"]);
   expect(participant(await store.get(id))).toMatchObject({ status: "FAILED", error: REMOVED });
 
-  // Two more page loads. Nothing is sent; the reason the tray shows is still the server's own.
   await drain(store, api);
   await drain(store, api);
   expect(calls).toEqual(["addParticipant"]);

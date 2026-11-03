@@ -15,11 +15,6 @@ import {
   type DigestPreference
 } from "@/lib/weeklyDigest";
 
-/**
- * The Monday summary's switch, for reviewers and administrators only (the server says who:
- * `eligible`). Unlike the e-mail card it shows while mail is off, because the summary still arrives
- * in the notifications list.
- */
 export function WeeklyDigestCard() {
   const [state, setState] = useState<DigestPreference | null>(null);
   const [saving, setSaving] = useState(false);

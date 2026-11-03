@@ -7,20 +7,11 @@ import type { Recording } from "@/lib/questionnaireApi";
 import { transcriptView } from "@/lib/questionnaireView";
 import { CONTRACT } from "./questionnaire-contract-fixture";
 
-/**
- * Owner correction (d), DESIGN §3.14: transcription ships paused. The take reads "Transcription
- * paused" calmly; Retry is disabled with "Transcription is paused."; a refusal is stated, not an
- * error, and offers Change consent inline. Consent is assumed by default (19 Oct 2026), so an older
- * take still marked AWAITING_CONSENT reads "Waiting to be sent" with nothing to answer. No control
- * can start it while paused.
- */
-
 const rec = CONTRACT.examples.Recording as Recording;
 
 test("@qf:B34 paused: neutral, Retry disabled with the reason", () => {
   const view = transcriptView(rec, true);
   expect(view).toEqual({ label: "Transcription paused", tone: "neutral", retryEnabled: false, retryReason: "Transcription is paused.", offerConsent: false });
-  // Even a failed job cannot be retried while paused.
   expect(transcriptView({ ...rec, transcript: { ...rec.transcript, status: "FAILED", paused: true } }, true).retryEnabled).toBe(false);
 });
 

@@ -8,27 +8,6 @@ import { layoutSpring, riseItem, slideItem, springy, staggerParent } from "@/com
 import type { GuideStep } from "@/components/guide/steps";
 import { useAppReducedMotion } from "@/components/guide/useAppReducedMotion";
 
-/**
- * One step of the walkthrough.
- *
- * Three animations are doing real work here:
- *  - the card's contents stagger in the first time it scrolls into view, so the eye lands on
- *    the number, then the name, then the summary — the reading order, enforced in time;
- *  - `layout` on the list item lets the card grow into its expanded height instead of the
- *    page snapping, which keeps the reader's place on the spine;
- *  - `AnimatePresence` runs the detail panel's exit, so collapsing one card and opening
- *    another reads as a handover rather than a flicker.
- *
- * `onEnterView` reports upward when the card reaches the middle band of the viewport; the
- * page uses that to drive the rail. Reveal and tracking need different viewport thresholds,
- * so they live on two different elements.
- *
- * The card is deliberately NOT `overflow-hidden`. The toggle is a full-width button flush with
- * the card's edges, and the global keyboard focus ring (app/globals.css) is an `outline` drawn
- * OUTSIDE the border box at `outline-offset: 2px` — clipping the card would erase that ring on
- * three sides and leave the primary control of every step looking unfocused. The only thing that
- * ever needed clipping is the collapsible panel, which clips itself.
- */
 export function GuideStepCard({
   step,
   index,
@@ -51,24 +30,10 @@ export function GuideStepCard({
       id={step.id}
       layout={reduce ? false : "position"}
       transition={layoutSpring(reduce)}
-      // Fires when the card occupies the middle band of the viewport — the same moment a
-      // reader would say "I'm on this step now".
       viewport={{ margin: "-45% 0px -45% 0px", amount: "some" }}
       onViewportEnter={onEnterView}
-      // Two columns: the spine rail, then the card. The rail's width is `--guide-rail`, set once
-      // on the list in `GuideJourney`, which also draws the spine centred in a box of that exact
-      // width — so the number and the spine are centred in the SAME box rather than each guessing
-      // the same axis from its own offset. (`2rem` + the `1rem` gap reproduces the old `pl-12`,
-      // `3rem` + `1rem` the old `sm:pl-16`; the fallback keeps the card usable on its own.)
       className="grid scroll-mt-28 grid-cols-[var(--guide-rail,2rem)_minmax(0,1fr)] gap-x-4"
     >
-      {/* Spine node. A grid item, not an absolutely positioned one: `justify-self-center` puts it
-          on the rail's centre line without a transform, which leaves `transform` free for the
-          scale below. It was the other way round before — framer-motion's inline
-          `transform: scale(…)` overwrote the `-translate-x-1/2` that did the centring, and every
-          bubble sat half its own width (16px) right of the spine at every breakpoint.
-          `z-10` lifts it over the spine: a grid item with a z-index makes its own stacking
-          context, so it wins against the positioned track without needing `position` itself. */}
       <motion.span
         aria-hidden
         initial={false}
@@ -90,9 +55,6 @@ export function GuideStepCard({
           type="button"
           onClick={onToggle}
           aria-expanded={expanded}
-          // Only while the panel is actually mounted: `AnimatePresence` removes it on collapse, and
-          // an aria-controls pointing at an id that is not in the document is worse than none —
-          // it tells a screen reader there is somewhere to go and then loses it.
           aria-controls={expanded ? panelId : undefined}
           whileHover={reduce ? undefined : { y: -2 }}
           whileTap={reduce ? undefined : { scale: 0.995 }}
@@ -142,9 +104,6 @@ export function GuideStepCard({
               animate={{ height: "auto", opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
               transition={reduce ? { duration: 0 } : { height: layoutSpring(false), opacity: { duration: 0.18 } }}
-              // Clips itself (the height animation needs it) and rounds its own bottom, so the
-              // tinted body stays inside the card's corners without the card clipping the toggle's
-              // focus ring.
               className="overflow-hidden rounded-b-lg"
             >
               <motion.div

@@ -1,23 +1,6 @@
-/**
- * The engine's public surface.
- *
- * Kotlin groups these functions into `object`s (`Color`, `Resample`, `Threshold`, ...). The TypeScript
- * mirror keeps the same grouping through namespace re-exports, so `Color.toGray(img)` reads identically in
- * both engines and a reader moving between them never has to translate a call site.
- *
- * Types, classes and enums are re-exported flat as well, because a type annotation reads badly through a
- * namespace and because `import type { GrayF }` is what every consumer actually wants.
- *
- * Nothing in this tree touches the DOM. The only interop with a canvas lives in
- * `RgbaImage.toImageData` / `RgbaImage.fromImageData`, which take and return structurally-typed plain
- * objects, so the whole engine runs unchanged inside a Web Worker.
- */
-
-// --- buffers -----------------------------------------------------------------------------------------
 export { GrayF, Mask, RgbaImage, Px } from './buffers';
 export type { ImageDataLike, Range } from './buffers';
 
-// --- imaging namespaces ------------------------------------------------------------------------------
 export * as Classify from './classify';
 export * as Color from './color';
 export * as Components from './components';
@@ -37,7 +20,6 @@ export * as Resample from './resample';
 export * as Thinning from './thinning';
 export * as Threshold from './threshold';
 
-// --- imaging types and enums -------------------------------------------------------------------------
 export { Channel } from './color';
 export { GradientOp, Gradients } from './convolve';
 export { SeShape } from './morphology';
@@ -46,7 +28,6 @@ export { FlowField, flowParams } from './edgeFlow';
 export type { FlowParams } from './edgeFlow';
 export type { SourceProfile } from './classify';
 
-// --- vector namespaces -------------------------------------------------------------------------------
 export * as BezierFit from './bezierFit';
 export * as Boolean2D from './boolean2d';
 export * as ContourTrace from './contourTrace';
@@ -59,7 +40,6 @@ export * as SvgPathData from './svgPathData';
 export * as SvgWriter from './svgWriter';
 export * as Vectorize from './vectorize';
 
-// --- vector types ------------------------------------------------------------------------------------
 export {
   DEFAULT_FLATTEN_TOLERANCE,
   DEFAULT_STYLE,
@@ -86,7 +66,6 @@ export type { Polyline, PolylinesWithWidths } from './skeletonTrace';
 export { DEFAULT_SVG_OPTIONS, svgOptions } from './svgWriter';
 export type { SvgOptions } from './svgWriter';
 
-// --- export ------------------------------------------------------------------------------------------
 export * as PngEncoder from './pngEncoder';
 export * as PdfWriter from './pdfWriter';
 export * as EpsWriter from './epsWriter';
@@ -107,7 +86,6 @@ export {
 } from './exportFormats';
 export type { ExportOptionsInit } from './exportFormats';
 
-// --- pipeline ----------------------------------------------------------------------------------------
 export {
   AUTO_THRESHOLD,
   DenoiseMode,
@@ -162,12 +140,6 @@ export * as ProjectCodec from './project';
 export { PROJECT_SCHEMA_VERSION, projectMeta } from './project';
 export type { ProjectDocument, ProjectMeta } from './project';
 
-// --- namespace aliases -------------------------------------------------------------------------------
-// The flat re-exports above are what a call site usually wants, but the Kotlin engine groups these same
-// members under an `object` (`ProjectCodec`, `Exporter`) or a file the docs refer to by name (`Params`).
-// Both spellings resolve here for the same reason the Kotlin side carries its `typealias` lines: a name
-// that resolves only one way is a compile error in somebody else's module, and a reader moving between
-// the two engines should never have to translate a call site.
 export * as Params from './params';
 export * as Project from './project';
 export * as ExportFormats from './exportFormats';

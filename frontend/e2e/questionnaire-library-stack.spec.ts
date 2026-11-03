@@ -6,17 +6,6 @@ import { ApiError, describeApiDetail } from "@/lib/api";
 import { mintKey, questionnaireClient, type JsonFetcher } from "@/lib/questionnaireApi";
 import { bindingsFor, decodeBundleBytes, libraryClient, summariseBundle, type LibraryForm } from "@/lib/questionnaireLibrary";
 
-/**
- * THE FORMS LIBRARY AGAINST A REAL BACKEND (UNIFY U3). The web's own library client
- * (`libraryClient`, the object `library` is) over a local FastAPI with QUESTIONNAIRE_V2 on and a
- * migrated Postgres, as three seeded people: a professor (a form author), a researcher and a content
- * admin. Scopes, sharing, kinds, reuse, the handoff bundle, bindings and the form resolution, type
- * defaults, the soft delete and restore, a form's workbook round trip, and the workshop annexure.
- *
- * CI only: the `web-v2-stack` job seeds the database (`scripts/ci/seed_qv2_stack.py`) and sets
- * QV2_STACK_API and QV2_STACK_SEED. It refuses any host but loopback, because it writes.
- */
-
 const API = process.env.QV2_STACK_API ?? "";
 const SEED_PATH = process.env.QV2_STACK_SEED ?? "";
 const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test(API);
@@ -86,7 +75,6 @@ test("@qf:D3 @qf:A6 a professor creates a form of their own; Mine is theirs alon
   expect(made.can?.edit).toBe(true);
   expect(ids(await prof.list("mine"))).toContain(made.id);
   expect(ids(await lead.list("mine"))).not.toContain(made.id);
-  // A researcher cannot create one.
   expect((await refused(lead.create({ title: "Not mine" }))).status).toBe(403);
 });
 
@@ -151,7 +139,6 @@ test("@qf:A9 a primary binding makes a form the workshop's start-sheet default",
     `/questionnaire/form-for?workshopId=${encodeURIComponent(s.workshopId)}`
   );
   expect(resolution).toMatchObject({ questionnaireId: made.id, reason: "PRIMARY_BINDING" });
-  // Unbound again, so the other stack specs' sessions on the seeded form are not refused.
   expect((await admin.putBindings(made.id, [])).bindings).toEqual([]);
 });
 
@@ -182,7 +169,6 @@ test("@qf:A13 the author deletes a form and restores it from Deleted; an admin s
   expect(code(deleted)).toBe("FORM_DELETED");
   expect((await refused(lead.restore(copy.id))).status).toBe(403);
   expect((await prof.restore(copy.id)).deletedAt).toBeNull();
-  // An admin may restore anyone's.
   await prof.remove(copy.id);
   expect((await admin.restore(copy.id)).deletedAt).toBeNull();
   expect(ids(await prof.list("mine"))).toContain(copy.id);
@@ -203,7 +189,6 @@ test("@qf:A1 @qf:A3 @qf:A4 the pro-forma, a form's workbook and question set, an
   });
   expect(result.report.created).toBe(0);
   expect(result.report.unchanged).toBeGreaterThan(0);
-  // A researcher who is not its author is refused the form's workbook.
   const refusedDownload = await fetch(`${API.replace(/\/$/, "")}/api/questionnaires/${copy.id}/xlsx`, {
     headers: { Authorization: `Bearer ${s.tokens.lead}` }
   });
@@ -232,7 +217,6 @@ test("@qf:A12 the workshop annexure groups forms by kind and prints live answers
     { artisanId: s.artisans[0], questionLineageId: lineage, text: "Indigo from the annexure test.", origin: "TYPED", attribution: "INDIVIDUAL", sessionId: session.id, sourceRecordingId: null }
   ]);
   expect(["SAVED", "CONFLICT"]).toContain(saved.results[0].status);
-  // A content admin may set the kind of any form; the annexure then files it under that kind.
   await libraryClient(stackFetch(s.tokens.admin)).patch(s.questionnaireId, { kind: "WORKSHOP_INTERVIEW" });
   const doc = await libraryClient(stackFetch(s.tokens.prof)).annexure(s.workshopId);
   const interviews = doc.groups.find((g) => g.kind === "WORKSHOP_INTERVIEW");
@@ -243,7 +227,6 @@ test("@qf:A12 the workshop annexure groups forms by kind and prints live answers
   if (saved.results[0].status === "SAVED") expect(printed).toContain("Indigo from the annexure test.");
   const text = await download(s.tokens.prof, `/questionnaire/annexure?workshopId=${encodeURIComponent(s.workshopId)}&format=txt`);
   expect(text.name).toContain("_Annexure.txt");
-  // A researcher without questionnaire or dataset access is refused the annexure.
   expect((await refused(libraryClient(stackFetch(s.tokens.lead)).annexure(s.workshopId))).status).toBe(403);
 });
 

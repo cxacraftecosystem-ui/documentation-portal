@@ -1,11 +1,5 @@
 "use client";
 
-/**
- * C28 — draft one section's unanswered questions from the interview's transcript, then accept or
- * edit them together. Drawn only while the server says the feature is on (`/questionnaire/
- * answer-drafts/status`). Nothing is an answer until "Accept section"; every accepted answer is
- * stored and shown as machine-suggested. The rules live in `backend/app/services/answer_drafts.py`.
- */
 import { useEffect, useId, useState } from "react";
 
 import { ButtonRow } from "@/components/ui/ButtonRow";
@@ -45,7 +39,6 @@ export function isMachineSuggested(origin: string | null | undefined): boolean {
   return origin === "MACHINE_SUGGESTED" || origin === "MACHINE_SUGGESTED_EDITED";
 }
 
-/** The small label beside a machine-suggested answer. Words, not only colour. */
 export function MachineSuggestedBadge({ edited = false }: { edited?: boolean }) {
   return (
     <span className="ml-2 inline-flex items-center rounded-full border border-purple-300 bg-purple-50 px-2 py-0.5 text-[11px] font-medium normal-case tracking-normal text-purple-800 dark:border-purple-700 dark:bg-purple-950/40 dark:text-purple-200">
@@ -72,7 +65,6 @@ export function AnswerDraftsPanel({
   interviewId: string;
   section: QuestionnaireSection;
   questions: QuestionnaireQuestion[];
-  /** questionId → the words kept, so the page's answer boxes show them at once. */
   onAccepted: (answers: Record<string, string>) => void;
 }) {
   const baseId = useId();
@@ -90,13 +82,11 @@ export function AnswerDraftsPanel({
       if (cancelled || !on) return;
       try {
         const answer = await apiFetch<DraftList>(`/questionnaire/interviews/${encodeURIComponent(interviewId)}/drafts`);
-        // A reader who may not edit the interview is answered with nothing to show.
         if (cancelled || answer.mayDraft === false) return;
         setEnabled(true);
         setList(answer);
         if (answer.transcripts[0]) setSource(answer.transcripts[0].id);
       } catch {
-        /* Off, or not readable here: draw nothing. */
       }
     });
     return () => {

@@ -1,22 +1,5 @@
 import type { Config } from "tailwindcss";
 
-/**
- * Field Repository design tokens, read by Tailwind v4 through `@config` in app/globals.css. THIS
- * FILE IS THE SOURCE OF TRUTH for every colour, radius, shadow and gradient the web app uses.
- *
- * Purple ramp: OKLCH, hue locked at 305°; purple-700 is THE action color.
- * Tinted neutrals (ink/line/surface/bg-0) replace grey. Gold is a marketing
- * accent (hero + auth only). Shadows are purple-tinted.
- *
- * The legacy `field`/`thread` scales are kept as aliases onto the new ramp so
- * existing pages restyle without a rewrite (field-500/600/700 → purple actions,
- * field-50/100/200/300 → surfaces, field-900 → ink).
- *
- * Theming: every SEMANTIC neutral resolves through a CSS custom property declared in
- * app/globals.css as a bare "R G B" triplet, so `data-theme="dark"` on <html> repaints the whole
- * app without a single page edit. `<alpha-value>` keeps `bg-card/70`-style modifiers working.
- * The purple and gold ramps stay literal — brand colour does not invert.
- */
 const neutral = (token: string) => `rgb(var(--${token}) / <alpha-value>)`;
 
 const purple = {
@@ -45,14 +28,12 @@ const gold = {
 
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
-  // ThemeProvider stamps data-theme onto <html>; the "class" strategy keeps `dark:` usable too.
   darkMode: ["class", '[data-theme="dark"]'],
   theme: {
     extend: {
       fontFamily: {
         sans: ["var(--font-inter)", "ui-sans-serif", "system-ui", "sans-serif"],
         display: ["var(--font-jakarta)", "var(--font-inter)", "ui-sans-serif", "sans-serif"],
-        // Legacy slots — everything resolves to the two brand faces.
         serif: ["var(--font-jakarta)", "var(--font-inter)", "ui-sans-serif", "sans-serif"]
       },
       colors: {
@@ -64,18 +45,14 @@ const config: Config = {
           700: neutral("ink-700"),
           500: neutral("ink-500"),
           300: neutral("ink-300"),
-          // Legacy aliases used across existing pages.
           body: neutral("ink-700"),
           muted: neutral("ink-500"),
           soft: neutral("ink-300")
         },
         line: { 200: neutral("line-200") },
-        // Progress indicators — themed, see the --progress-* block in globals.css.
         progress: { track: neutral("progress-track"), fill: neutral("progress-fill"), done: neutral("progress-done") },
         surface: { 50: neutral("surface-50") },
         "bg-0": neutral("bg-0"),
-        // Legacy `field` scale → mapped onto the new system. 50–300 are the tinted surface ladder
-        // (themed); 400–700 are the purple ramp (brand, never inverted); 900 is heading ink.
         field: {
           50: neutral("surface-50"),
           100: neutral("surface-100"),
@@ -88,15 +65,12 @@ const config: Config = {
           900: neutral("ink-900")
         },
         thread: { DEFAULT: gold[500], soft: gold[200] },
-        // Brand-native logo colors (Android launcher icon) — never re-themed.
         logo: { cream: "#FAF9F5", terracotta: "#CC785C", ink: "#181715" },
         amber: { 100: "#fef3c7", 500: "#f59e0b", 800: "#92400e" },
         success: { 100: "#dcfce7", 600: "#15803d" },
         error: { 100: "#fee2e2", 600: "#dc2626" },
         background: neutral("bg-0"),
         foreground: neutral("ink-900"),
-        // `card` is the themed stand-in for the old literal bg-white on every panel/card surface.
-        // Tailwind's built-in `white` is deliberately untouched: text-white on purple stays white.
         card: neutral("card"),
         popover: neutral("card"),
         border: neutral("line-200"),
@@ -113,14 +87,6 @@ const config: Config = {
         muted: neutral("surface-50"),
         "muted-foreground": neutral("ink-500")
       },
-      // Tailwind 3's size scale, restated because Tailwind 4 changed one thing about it that this
-      // app can see. Each step is the same size with the same line height on the element itself, but
-      // v4 writes the line height as a RATIO (`text-sm` is `calc(1.25 / 0.875)`) where v3 wrote a
-      // length (`1.25rem`), and a ratio is inherited as a ratio: a badge at `text-[11px]` inside a
-      // `text-sm` button got 15.7px of line instead of v3's 20px (the login page's badges, since
-      // removed, came out 4px shorter), and digits in the guide's step badges sat 1px higher.
-      // Lengths here keep every inherited line height what v3 drew.
-      // 5xl and up were already unitless in v3.
       fontSize: {
         xs: ["0.75rem", { lineHeight: "1rem" }],
         sm: ["0.875rem", { lineHeight: "1.25rem" }],
@@ -176,9 +142,4 @@ const config: Config = {
   plugins: []
 };
 
-// A CommonJS export on purpose, since Tailwind v4. @tailwindcss/node imports this file with Node's
-// own loader, and Node 24 reads a .ts file in a package with no "type" as CommonJS first: with
-// `export default` it fails that parse, falls back to ES modules and prints a
-// MODULE_TYPELESS_PACKAGE_JSON warning on every build and every `next dev` start. The
-// `import type` above is erased before that parse, so this export is all it sees.
 module.exports = config;

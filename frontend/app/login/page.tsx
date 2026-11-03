@@ -26,7 +26,6 @@ import {
 import { isTwoFactorChallenge, type TwoFactorChallenge } from "@/lib/twoFactor";
 import type { User } from "@/lib/types";
 
-/** Official provider marks (inline SVG — no external requests). */
 function MicrosoftMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 21 21" className={className} aria-hidden>
@@ -60,7 +59,6 @@ const BRAND_POINTS = [
 ];
 
 export default function LoginPage() {
-  // ToastProvider lives in app/layout.tsx, so this page needs no provider of its own.
   return <LoginView />;
 }
 
@@ -72,40 +70,16 @@ function LoginView() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /**
-   * `ACCESS_PENDING` / `ACCESS_REJECTED` / `ACCESS_SUSPENDED`, or null for every other failure.
-   *
-   * THIS IS THE FEATURE, AND IT IS DELIBERATELY NOT COLLAPSED INTO `error`. The product owner's
-   * ruling is explicit: "wrong password and pending approval should be differentiated." A person
-   * waiting on an administrator must not be left believing they mistyped something, because what
-   * they will do about that belief is reset a password that was never wrong and telephone the wrong
-   * desk about it for a week. The code, not the prose, is what this branches on — see
-   * `accessRefusalCode` for why.
-   *
-   * The account-enumeration cost was weighed and accepted upstream: a caller who holds an address
-   * can learn that this institution knows it. What must not widen past that is anything else — the
-   * server's sentences name no person, no role and no other account, and nothing here adds to them.
-   */
   const [refusal, setRefusal] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  /**
-   * The second step, when the account has two-step verification on: every first factor — password,
-   * Google, Microsoft, Yahoo — may answer a challenge instead of a session, and the card then shows
-   * the code form in place of the sign-in controls. Nobody is signed in while this is set.
-   */
   const [challenge, setChallenge] = useState<string | null>(null);
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
-  /**
-   * Microsoft and Yahoo, each present only when this build carries its client ID — no badge and no
-   * dead button for one that is not configured. Read once: the environment is inlined at build time.
-   */
   const [oidcProviders] = useState<OidcProvider[]>(() => configuredOidcProviders());
 
   useEffect(() => {
     if (user) router.replace("/dashboard");
   }, [router, user]);
 
-  /** A first factor's answer: on to the dashboard, or on to the code form. */
   const proceed = useCallback(
     (result: User | TwoFactorChallenge) => {
       if (isTwoFactorChallenge(result)) setChallenge(result.challenge_token);
@@ -114,12 +88,6 @@ function LoginView() {
     [router]
   );
 
-  /**
-   * GOOGLE'S ANSWER. `GoogleSignInButton` draws Google's own button, visibly, and hands the ID token
-   * here once Google has signed the person in. Until 2026-10-22 this page drew a button of its own
-   * and laid Google's over it at `opacity: 0`; from a tablet that read as a button that highlights
-   * and never opens Google. The component says why.
-   */
   const onGoogleCredential = useCallback(
     async (credential: string) => {
       setError(null);
@@ -127,21 +95,6 @@ function LoginView() {
       try {
         proceed(await loginWithGoogle(credential));
       } catch (err) {
-        /**
-         * GOOGLE FAILURES LAND IN THE CARD'S BANNER, NOT IN A TOAST — and that change is what
-         * makes the gate visible on this path at all.
-         *
-         * Google sign-in is now allow-listed like everything else: a verified Google identity
-         * that is not on the roster gets no account and no token, and is told it is waiting for
-         * an administrator. That sentence is something the person must READ and act on (by
-         * waiting, and by talking to an admin), and a toast is the wrong home for it twice
-         * over — `aria-live="polite"` never interrupts, so a screen reader may not reach it
-         * before it is gone, and it dismisses itself after five seconds. The banner stays until
-         * the next attempt.
-         *
-         * The toast is kept ONLY for failures that are not the gate — a rejected ID token, a
-         * network drop — where "try again" really is the whole advice.
-         */
         const code = accessRefusalCode(err);
         const message = err instanceof Error ? err.message : "Please try again.";
         setRefusal(code);
@@ -173,9 +126,6 @@ function LoginView() {
     try {
       proceed(await login(email, password));
     } catch (err) {
-      // Two outcomes, told apart on purpose (see the `refusal` state). A wrong password is still a
-      // 401 with the same sentence it has always had; a correct credential for an address the
-      // roster does not admit is a 403 carrying a code and its own sentence.
       setRefusal(accessRefusalCode(err));
       setError(err instanceof Error ? err.message : "Couldn’t sign in. Check your connection and try again.");
     } finally {
@@ -183,7 +133,6 @@ function LoginView() {
     }
   }
 
-  /** "Continue with Microsoft / Yahoo": leave for the provider. See `lib/oidcSignIn.ts`. */
   async function startOidc(provider: OidcProvider) {
     setError(null);
     setRefusal(null);
@@ -196,12 +145,6 @@ function LoginView() {
     }
   }
 
-  /**
-   * COMPLETING A MICROSOFT OR YAHOO SIGN-IN, when the callback route has sent the browser back here
-   * with the provider's answer in the fragment. The answer is taken off the address bar first — a
-   * code is single use, and the history is no place for it — and a refusal lands in the card's
-   * banner, as the Google path's does, because "awaiting an administrator" must be read, not missed.
-   */
   useEffect(() => {
     const callback = parseCallbackFragment(window.location.hash);
     if (!callback) return;
@@ -231,7 +174,6 @@ function LoginView() {
 
   return (
     <div className="grid min-h-dvh lg:grid-cols-[43%_57%]">
-      {/* ── Brand panel (left) ─────────────────────────────────────────── */}
       <aside className="relative hidden flex-col justify-between overflow-hidden bg-purple-950 p-10 lg:flex">
         <div aria-hidden className="pointer-events-none absolute inset-0">
           <div
@@ -261,21 +203,12 @@ function LoginView() {
             ))}
           </ul>
         </div>
-        {/*
-          THIS LINE USED TO SAY "New Google accounts join as Crowdsource Volunteers and are elevated
-          by an admin", and it stopped being true the day the sign-in gate shipped. A Google address
-          no longer self-provisions ANYTHING: if it is not on the access roster it gets no account
-          and no token, and becomes a request an admin has to approve. Leaving the old sentence up
-          would have promised every visitor an account the application no longer gives them, on the
-          one page where they find out otherwise.
-        */}
         <p className="relative z-10 text-xs text-white/40">
           Access is by invitation: an administrator adds your address to the roster. Sign in once and your request
           reaches them. Approved accounts join at the lowest tier unless an admin sets a higher one.
         </p>
       </aside>
 
-      {/* ── Auth card (right) ──────────────────────────────────────────── */}
       <main className="relative flex items-center justify-center overflow-hidden bg-bg-0 px-6 py-6 md:px-10">
         <div aria-hidden className="pointer-events-none absolute inset-0">
           <div className="absolute inset-0 grad-mesh opacity-60" />
@@ -283,9 +216,6 @@ function LoginView() {
           <div className="absolute -right-12 bottom-8 h-80 w-80 rounded-full bg-amber-500/15 blur-3xl" />
         </div>
 
-        {/* The mesh and the two blurred orbs above are what the card's rim refracts; on
-            Safari/Firefox `useLiquidGlass` falls back to the frosted blur `.glass-card`
-            already describes, so the surface reads the same either way. */}
         <GlassSurface options={GLASS_PANEL} className="glass-card relative z-10 w-full max-w-md rounded-xl p-6 shadow-lg md:p-8">
           <div className="mb-6 flex flex-col items-center gap-2 text-center">
             <FieldRepoLogo className="h-12 w-12 rounded-xl shadow-sm lg:hidden" />
@@ -304,22 +234,6 @@ function LoginView() {
             />
           ) : (
             <>
-            {/*
-              THE TWO REFUSALS, SIDE BY SIDE IN ONE PLACE.
-
-              "Awaiting approval" is drawn as a WAITING state — amber, a clock, a heading that says
-              what is happening — and "invalid email or password" stays the red error it has always
-              been. That difference is not decoration: it is the whole of the ruling. Somebody who has
-              been turned away pending a decision must be able to tell, at a glance and without
-              reading carefully, that they have not got their password wrong.
-
-              REJECTED and SUSPENDED take the red treatment, because for the person reading them
-              something IS wrong and the only thing that changes it is talking to a human. They still
-              carry their own distinct sentence from the server; only the styling is shared.
-
-              `role="status"` on the waiting variant and `role="alert"` on the error one, so a screen
-              reader is told which of the two it is without having to parse the sentence.
-            */}
             {error && refusal === "ACCESS_PENDING" ? (
               <div
                 role="status"
@@ -328,10 +242,6 @@ function LoginView() {
                 <Clock className="mt-0.5 h-5 w-5 shrink-0" aria-hidden />
                 <div>
                   <p className="font-semibold">Waiting for an administrator</p>
-                  {/* The sentence is the SERVER's, verbatim. It is written once, in
-                      `access_roster.ACCESS_PENDING_DETAIL`, and served to this page, to the Android
-                      app and to the other application, so a person who tries two of them is not told
-                      two different things about one decision. */}
                   <p className="mt-1 leading-6">{error}</p>
                 </div>
               </div>
@@ -366,7 +276,6 @@ function LoginView() {
                   <label htmlFor="password" className="text-sm font-medium text-ink-900">
                     Password
                   </label>
-                  {/* Self-service: emails a one-time set-password link. Same answer for every address. */}
                   <Link href="/forgot-password" className="text-sm font-medium text-purple-700 hover:underline dark:text-purple-300">
                     Forgot your password?
                   </Link>
@@ -419,9 +328,6 @@ function LoginView() {
                   Google sign-in is unavailable. Use email and password.
                 </div>
               )}
-              {/* Microsoft and Yahoo, ONLY those this build is configured for — see `oidcProviders`.
-                  `min-w-0` on the grid item is load-bearing: the labels are nowrap, so without it the
-                  button refuses to shrink below its content and overflows the card on phones. */}
               {oidcProviders.map((provider) => (
                 <Button
                   key={provider.id}
@@ -438,9 +344,6 @@ function LoginView() {
               ))}
             </div>
 
-            {/* The brand panel carries this on a wide screen, but it is `hidden … lg:flex` — so on a
-                phone, which is where most first sign-ins happen, the allow-list would be a surprise
-                delivered only by a refusal. */}
             <p className="mt-4 text-center text-xs leading-5 text-ink-500 lg:hidden">
               Access is by invitation.
             </p>

@@ -3,13 +3,7 @@ import { expect, test } from "@playwright/test";
 import { mostRecentRecordableWorkshop } from "@/components/forms/WorkshopSelect";
 import type { Workshop } from "@/lib/types";
 
-/**
- * The questionnaire's default workshop (web interview form and the session start sheet): the most
- * recent workshop the user may record in, by the day it ran, then by when it was entered. Kotlin twin:
- * `android/app/src/test/java/com/fieldrepository/app/ui/DefaultWorkshopTest.kt` — same cases.
- */
-
-const NOW = Date.parse("2026-10-20T06:00:00Z"); // 11:30 IST on 20 Oct
+const NOW = Date.parse("2026-10-20T06:00:00Z");
 
 function ws(id: string, startDate: string | null, extra: Partial<Workshop> = {}): Workshop {
   return {
@@ -45,7 +39,6 @@ test("an ended workshop is still a valid default; one not started yet is not", (
 });
 
 test("a workshop starting today counts, judged on the IST day", () => {
-  // 00:30 IST on 21 Oct is still 20 Oct in UTC.
   const justAfterMidnightIst = Date.parse("2026-10-20T19:00:00Z");
   expect(mostRecentRecordableWorkshop([ws("today", "2026-10-21T00:00:00.000Z")], justAfterMidnightIst)?.id).toBe("today");
   expect(mostRecentRecordableWorkshop([ws("today", "2026-10-21T00:00:00.000Z")], NOW)).toBeNull();

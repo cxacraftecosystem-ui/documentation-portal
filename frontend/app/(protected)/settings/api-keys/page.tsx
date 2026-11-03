@@ -10,33 +10,6 @@ import { RestrictedPanel } from "@/components/settings/RestrictedPanel";
 import { TranscriptionPanel } from "@/components/settings/TranscriptionPanel";
 import { isAdmin, isMasterAdmin } from "@/lib/permissions";
 
-/**
- * /settings/api-keys — ADMIN and above, with the page's two halves gated separately.
- *
- * The KEYS themselves stay master-admin: every `/api/secrets` route is behind
- * `require_master_admin`, because handing out live provider credentials (the reveal endpoint
- * returns plaintext) is a different class of power from running workshops.
- *
- * RANKING those same providers is not. Deciding whether a Hindi interview goes to ElevenLabs or to
- * Deepgram first is an editorial judgement about transcription accuracy, and it belongs to the
- * admins who run the workshops — so `/settings/transcription-providers` is behind `require_admin`
- * and the ladder renders for them here, alongside (or instead of) the key list. This is where it
- * was asked for, next to the providers it ranks; nothing about the key VALUES is exposed by it,
- * only whether each engine has one and what the provider said the last time we asked.
- *
- * That second half is why an ADMIN may TEST a key they are not allowed to read. A verdict is not a
- * credential — it is the difference between a ranking that describes what happens to the next
- * recording and one that merely hopes — and an admin who cannot ask "does this actually work?" is
- * being asked to rank engines blind. The value, the last-four hint and the reveal button all stay
- * on the master admin's side of the line, below.
- *
- * Professors (rank 40) are below ADMIN (50) and see neither half — they get the restricted panel.
- *
- * Admin view is the separate, softer gate and is enforced above the page: the route is listed in
- * ADMIN_CHROME_ROUTES, so an admin browsing with admin view off gets AppShell's "hidden while admin
- * view is off" panel instead and this component never mounts. The role guards below stay, because
- * the toggle narrows and never widens.
- */
 export default function ApiKeysPage() {
   const { user, loading } = useAuth();
   const admin = isAdmin(user);
@@ -79,8 +52,6 @@ export default function ApiKeysPage() {
     <>
       {header}
       <div className="grid gap-4">
-        {/* The ranking first: it is the control most admins come here for, and the only one they can
-            all use. The key list below it is the master admin's. */}
         <TranscriptionPanel canChange={master} />
         <ProviderOrderPanel />
         {master ? <ApiKeysPanel /> : null}

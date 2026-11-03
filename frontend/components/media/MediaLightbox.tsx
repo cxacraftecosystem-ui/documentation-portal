@@ -15,7 +15,6 @@ import type { MediaType } from "@/lib/types";
 
 export type PreviewMedia = {
   key: string;
-  /** Persisted MediaFile id — absent for local (not yet uploaded) previews. */
   id?: string | null;
   name: string;
   mediaType: MediaType;
@@ -28,12 +27,6 @@ export type PreviewMedia = {
   transcriptError?: string | null;
 };
 
-/**
- * The kind we can actually RENDER for this item. Starts from the stored mediaType, but an unknown
- * or generic type (DOCUMENT/OTHER) falls back to MIME sniffing — audio/* plays in the audio player,
- * video/* in the video element, image/* as an image, application/pdf in the PDF frame — so nothing
- * ends up "downloadable but not previewable".
- */
 export function resolvePreviewKind(item: Pick<PreviewMedia, "mediaType" | "mimeType" | "name">): MediaType {
   if (item.mediaType === "IMAGE" || item.mediaType === "VIDEO" || item.mediaType === "AUDIO" || item.mediaType === "PDF") {
     return item.mediaType;
@@ -59,8 +52,6 @@ function LightboxTranscript({ item }: { item: PreviewMedia }) {
       </div>
     );
   }
-  // A missing status only means "processing" for a persisted MediaFile (it has an id); a local,
-  // not-yet-uploaded preview has no transcript job at all, so show nothing for it.
   if (!status && !item.id) return null;
   if (["QUEUED", "PROCESSING", "PENDING", "RUNNING"].includes(status) || !status) {
     return (
@@ -109,23 +100,15 @@ export function MediaPreviewTile({
   action?: ReactNode;
   onRemove?: () => void;
   removeLabel?: string;
-  /** 0..1 while this file is being pre-uploaded; null when there is no transfer to show. */
   progress?: number | null;
   failed?: boolean;
   statusLabel?: string | null;
-  /** Offered next to the status line when a pre-upload failed. */
   onRetry?: () => void;
-  /**
-   * The copy this browser holds of a file that is uploading or queued. Draws the "Download" control,
-   * which saves it straight from memory — it works before, during and after the upload.
-   */
   downloadFile?: Blob | null;
 }) {
   const kind = resolvePreviewKind(item);
   const percent = progress === null ? null : Math.round(Math.min(1, Math.max(0, progress)) * 100);
   return (
-    // The WHOLE tile opens the lightbox; the remove button and caller-provided actions stop
-    // propagation so they never also open the preview.
     <div
       className="group relative grid cursor-pointer gap-2 rounded-md border border-line-200 bg-field-50 p-2 transition hover:border-purple-300"
       onClick={onOpen}
@@ -148,7 +131,6 @@ export function MediaPreviewTile({
         type="button"
         className="relative grid aspect-4/3 w-full place-items-center overflow-hidden rounded-md bg-field-100 text-left text-ink-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-field-600"
         onClick={(event) => {
-          // The outer tile handles the open; keep the button for keyboard access without firing twice.
           event.stopPropagation();
           onOpen();
         }}
@@ -184,9 +166,6 @@ export function MediaPreviewTile({
       {statusLabel ? (
         <span className={`text-xs leading-4 ${failed ? "font-medium text-red-800 dark:text-red-300" : "text-ink-muted"}`}>{statusLabel}</span>
       ) : null}
-      {/* One action row, always in the same place at the foot of the card: Retry first (it is the
-          way out of a failure), then Download. Full-width buttons on a narrow tile, so neither is
-          ever squeezed beside the status text or under the remove button. */}
       {(failed && onRetry) || downloadFile ? (
         <div className="flex flex-wrap gap-1.5" onClick={(event) => event.stopPropagation()}>
           {failed && onRetry ? (
@@ -203,8 +182,6 @@ export function MediaPreviewTile({
 }
 
 export function MediaLightbox({ item, onClose }: { item: PreviewMedia; onClose: () => void }) {
-  // Close on backdrop click only when the press ALSO started on the backdrop, so a drag that
-  // begins inside the panel (text selection, seek-bar scrubbing) and ends outside never closes.
   const downOnBackdrop = useRef(false);
   const kind = resolvePreviewKind(item);
 

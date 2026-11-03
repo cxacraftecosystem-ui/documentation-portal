@@ -6,7 +6,6 @@ import { Users } from "lucide-react";
 
 import { mergeHref, openPairFor, type DuplicatePair } from "@/lib/duplicates";
 
-/** Admins only: an open likely-duplicate pair names this artisan. One line and a way to review it. */
 export function ArtisanDuplicateBanner({ artisanId }: { artisanId: string }) {
   const [pair, setPair] = useState<DuplicatePair | null>(null);
 

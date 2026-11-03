@@ -1,12 +1,5 @@
 "use client";
 
-/**
- * The forms library's three small dialogs (UNIFY 4.2): New form, Reuse and Open bundle. Each one
- * creates a form of the caller's own and hands it back; the page opens it.
- *
- * Creating needs a connection (UNIFY 4.3): the buttons that open these are disabled offline.
- */
-
 import { FilePlus2, Package, Copy } from "lucide-react";
 import { useRef, useState } from "react";
 
@@ -37,7 +30,6 @@ export function NewFormDialog({
   open: boolean;
   onClose: () => void;
   onCreated: (form: Pick<LibraryForm, "id">) => void;
-  /** Offline, the form is written on this device and sent later (A15). */
   online?: boolean;
   owner?: string | null;
 }) {
@@ -198,10 +190,6 @@ export function ReuseFormDialog({
   );
 }
 
-/**
- * Open bundle: read a `.frwq` or `.dpwq` file in the browser, show what it holds (P17), and add it
- * as a form of your own. A bundle from a newer build is refused before anything is sent.
- */
 export function OpenBundleDialog({
   open,
   onClose,

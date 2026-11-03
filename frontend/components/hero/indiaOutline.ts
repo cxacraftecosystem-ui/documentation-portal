@@ -1,66 +1,3 @@
-/**
- * The outline of India, as recognised by the Government of India.
- *
- * ════════ DO NOT REPLACE THIS PATH WITHOUT REPEATING THE VERIFICATION BELOW ════════
- *
- * Depicting India's boundary any other way is a legal and reputational problem in India, not a
- * stylistic choice. The official depiction shows as Indian territory the WHOLE of the former state
- * of Jammu & Kashmir — including the Pakistan-administered areas and Gilgit-Baltistan — together
- * with Ladakh and AKSAI CHIN, and the whole of ARUNACHAL PRADESH.
- *
- * Almost every convenient boundary dataset gets this wrong. Natural Earth, `world-atlas`, most
- * OpenStreetMap extracts and the majority of npm map packages draw the Line of Control as a
- * boundary, put Aksai Chin in China, or mark Arunachal Pradesh disputed. Reaching for the nearest
- * TopoJSON country file is the single likeliest way this page ends up wrong. A hand-traced outline
- * is no safer: the J&K lobe is exactly the part a forty-point tracing loses.
- *
- * SOURCE
- *   DataMeet India community — "maps", `Country/india-composite.geojson`
- *   https://github.com/datameet/maps/blob/master/Country/india-composite.geojson
- *   Described by its own README as the land area of India including disputed territories "in
- *   accordance with the Official boundary of India as per the Survey of India", assembled from
- *   US Department of State LSIB (India, Aksai Chin and the disputed areas with China), the
- *   Alhasan Systems Pakistan admin boundaries (Pakistan-occupied Kashmir) and Natural Earth's
- *   disputed-areas layer (the Shaksgam Valley), dissolved into one polygon set.
- *
- * LICENCE
- *   The dataset's own README states CC-0 for this file; the repository README states CC BY 4.0
- *   for anything not explicitly licensed. Attribution costs nothing and satisfies both readings,
- *   so it is rendered on the page — see ATTRIBUTION below, which is displayed as visible text
- *   beside the map and must not be removed.
- *
- * VERIFICATION — measured, not assumed
- *   Checks were run twice: once on the 252,604-point source, and again on the 1321-point
- *   simplification below, because simplification is itself a way to lose Aksai Chin. A third pass
- *   re-ran them on the rounded, projected coordinates that actually ship. Ray-cast
- *   point-in-polygon, holes respected.
- *
- *     bounding box    lon [68.1644, 97.3954]   lat [6.7529, 37.0976]
- *     northern extent 37.0976 N — Gilgit-Baltistan. An LoC-drawn dataset stops near 35.5 N,
- *                     so this number alone distinguishes the two.
- *     Aksai Chin      35.1 N, 79.4 E   INSIDE
- *     Arunachal       28.2 N, 94.7 E   INSIDE
- *     also inside     Gilgit 35.9/74.3 · Muzaffarabad 34.36/73.47 · Siachen 35.4/76.9 ·
- *                     Tawang 27.59/91.87 · Kanyakumari 8.15/77.54
- *     correctly out   Lahore · Kathmandu · Dhaka · Lhasa · Colombo · Kabul
- *
- * WHAT WAS SIMPLIFIED AWAY
- *   Douglas-Peucker at 0.05° for the mainland, but the tolerance is scaled to each polygon's own
- *   size — a single global tolerance would delete Lakshadweep and the smaller Nicobars outright,
- *   and territory is not allowed to vanish because of a knob. All 80 polygons in the source
- *   survive. The smallest atolls are under a pixel at any size this page renders; they are in the
- *   path, not dropped from it.
- *
- * PROJECTION
- *   Web Mercator, normalised so the bounding box above fills `0 0 100 113.68`. Site marks are
- *   projected with the identical transform, so a mark can never drift from the coastline it sits on.
- *
- * SIZE
- *   11,181 characters of path data, 1321 points. Inline, so there is no runtime map
- *   dependency, no tiles, and no network request for the page's signature graphic.
- */
-
-/** Visible credit. Rendered beside the map; removing it breaks the CC BY reading of the licence. */
 export const INDIA_OUTLINE_ATTRIBUTION = {
   text: "Boundary: DataMeet India community",
   href: "https://github.com/datameet/maps/blob/master/Country/india-composite.geojson",
@@ -191,19 +128,10 @@ export const INDIA_PATH =
   "15.5 96.5L15.5 96.6ZM14.1 102.3ZM14.9 99.7L14.9 99.8L14.9 99.7ZM0.6 52.5L0.5 52.5L0.5 52.4L0.6 5" +
   "2.5ZM18.8 102L18.8 101.9L18.8 102ZM14.1 99.2Z";
 
-/**
- * The field sites, at their true coordinates in the projection above.
- *
- * `status` is the honest part and the reason this is data rather than four hardcoded circles.
- * There is ONE workshop in the repository today. The other three are stated as next, and the map
- * must not imply four active sites — an unqualified dot on each would do exactly that. The one
- * live site is printed; the three that are next are drawn as blocks that have not come down.
- */
 export type FieldSite = {
   id: string;
   name: string;
   region: string;
-  /** Projected into INDIA_VIEWBOX by the same transform as INDIA_PATH. */
   x: number;
   y: number;
   lon: number;
@@ -219,15 +147,6 @@ export const NEXT_SITES: readonly FieldSite[] = [
   { id: "akola", name: "Akola", region: "Maharashtra", x: 30.25, y: 64.43, lon: 77.0082, lat: 20.7002 }
 ];
 
-/**
- * Which cells of the printing grid the cloth actually needs.
- *
- * Computed off the shipped path at build time — one character per cell, row-major — so the browser
- * never carries a point-in-polygon routine or a parsed copy of the rings just to discover that
- * two-thirds of the bounding box is sea. A cell is on if its centre OR any of its four corners
- * falls inside the outline; centre-only leaves bald patches wherever the country is narrower than
- * one cell, which is most of the west coast.
- */
 export const CLOTH_COLS = 13;
 export const CLOTH_ROWS = 15;
 export const CLOTH_CELL = 7.6923076923076925;

@@ -19,15 +19,8 @@ import type { CoverageResponse } from "@/components/map/coverage/coverageTypes";
 import { decodePolyline, indiaRings } from "@/components/map/indiaGeometry";
 import { decodeRing, decodeShapes } from "@/components/map/shapeGeometry";
 
-/**
- * The coverage view's pure half, without a browser: the shape decoder, the quantile bins, the FY
- * labels, the URL round trip, the register the alias pickers are built from, and the rule that the
- * coverage code never reaches a mapping library.
- */
-
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
-/** The encoder `scripts/build_boundaries.py` writes rings with (`encode_web`), ported for the test. */
 function encode(points: Array<[number, number]>): string {
   let out = "";
   let x = 0;

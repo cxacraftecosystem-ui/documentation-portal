@@ -1,26 +1,5 @@
 "use client";
 
-/**
- * "Upload a workbook" — the door the craft-toolkit questionnaire comes in through.
- *
- * ONE COMPONENT FOR BOTH UPLOAD ENDPOINTS, because they are the same act from the admin's side:
- * `POST /questionnaires/upload` makes a new questionnaire, `POST /questionnaires/{id}/upload` edits
- * an existing one, and which of the two runs is decided by `questionnaireId` being present. Two
- * dialogs would drift, and the half that drifted would be the re-upload — the rarer path, and the
- * one whose mistakes cost recorded answers.
- *
- * WHAT DIFFERS BETWEEN THE TWO, and it is only ever copy: a re-upload runs the edit-after-answers
- * rule, so this says so BEFORE the file is chosen rather than reporting it afterwards. An admin about
- * to re-upload needs to know that rewording an answered question will ADD a question rather than
- * change one, because the alternative is discovering it in the report and reading it as the import
- * having duplicated their instrument.
- *
- * THE DESCRIPTION FIELD IS ONLY ON THE CREATE PATH, and that is not a style choice:
- * `POST /questionnaires/{id}/upload` accepts a title and nothing else, so on the re-upload path it
- * would be a control whose value the request cannot carry — a box somebody types into and a change
- * that silently never happens.
- */
-
 import { useRef, useState } from "react";
 import { FileSpreadsheet, Upload } from "lucide-react";
 
@@ -46,11 +25,8 @@ export function WorkbookUploadDialog({
   open: boolean;
   onClose: () => void;
   onUploaded: (result: QWorkbookUploadResult) => void;
-  /** Present = re-upload over this questionnaire; absent = create a new one. */
   questionnaireId?: string;
-  /** Named in the heading so an admin can see WHICH instrument they are about to overwrite. */
   questionnaireTitle?: string;
-  /** The workshops a new form's imported answers may belong to (create only). */
   workshops?: { id: string; title: string }[];
 }) {
   const [file, setFile] = useState<File | null>(null);
@@ -70,9 +46,6 @@ export function WorkbookUploadDialog({
     setKind("");
     setWorkshopId("");
     setError(null);
-    // The DOM input holds the chosen file independently of React state, so clearing only the state
-    // leaves the browser reporting the previous file name and re-choosing THE SAME file fires no
-    // change event at all — the second upload of a corrected workbook would silently do nothing.
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -98,10 +71,6 @@ export function WorkbookUploadDialog({
       reset();
       onUploaded(result);
     } catch (err) {
-      // KEPT IN THE DIALOG rather than raised to the page: the file the admin picked is still chosen
-      // here, so the fix (pick the other file, remove the password, Save As .xlsx) is one click from
-      // the message. The 415, the 413, the 409 "that workbook came from a different questionnaire"
-      // and the 422 out of the parser all carry a sentence written to be shown as-is.
       setError(err instanceof Error ? err.message : "Unable to read that workbook");
     } finally {
       setBusy(false);
@@ -143,9 +112,6 @@ export function WorkbookUploadDialog({
         ) : null}
 
         {editing ? (
-          // Said BEFORE the file is chosen, not reported afterwards. An admin who rewords an
-          // answered question is going to get a new question next to the old one; discovering that
-          // in the change report, after the fact, reads as the import having duplicated their form.
           <p className="rounded-md border border-amber-500/30 bg-amber-100 px-3 py-2 text-sm leading-6 text-amber-800">
             Answered questions are never overwritten: rewording adds a new question, and removed ones are retired.
           </p>

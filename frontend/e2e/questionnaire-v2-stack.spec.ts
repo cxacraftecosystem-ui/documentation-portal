@@ -21,18 +21,6 @@ import {
   type SessionUnit
 } from "@/lib/questionnaireQueue";
 
-/**
- * THE WEB OUTBOX AGAINST A REAL BACKEND AND A REAL BUCKET (audit 2026-10-21: "the unit tests use
- * fakes that hid C3"). No fake API and no fake transport: the browser's own client
- * (`questionnaireClient`, the same object `questionnaireApi` is) is pointed at a local FastAPI with
- * QUESTIONNAIRE_V2 on, a migrated Postgres and a MinIO bucket, and the browser's own byte transport
- * (`fetchTransport`) PUTs the bytes to the URLs the server signs.
- *
- * CI only: the `web-v2-stack` job in `.github/workflows/checks.yml` starts the stack, seeds it with
- * `scripts/ci/seed_qv2_stack.py` and sets QV2_STACK_API and QV2_STACK_SEED. It refuses any host but
- * loopback, because it writes.
- */
-
 const API = process.env.QV2_STACK_API ?? "";
 const SEED_PATH = process.env.QV2_STACK_SEED ?? "";
 const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test(API);
@@ -52,7 +40,6 @@ type Seed = {
 };
 const seed = (): Seed => JSON.parse(readFileSync(SEED_PATH, "utf8")) as Seed;
 
-/** `apiFetch`'s contract over plain fetch: same headers, same ApiError on a refusal. */
 function stackFetch(token: string): JsonFetcher {
   return async <T>(path: string, init: RequestInit = {}): Promise<T> => {
     const headers = new Headers(init.headers);
@@ -140,7 +127,6 @@ test("@qf:B10 @qf:C1 C3 + C4: a large take on a rebuilt session (no clientKey) u
   const session = await api.getSession(s.rebuiltSessionId);
   expect(session.clientKey, "the seed rebuilt this session with no clientKey, as the backfill did").toBeNull();
   const opts = await options(api);
-  // Over the threshold and over one part, so it goes up in at least two parts.
   const bytes = new Uint8Array(randomBytes(Math.max(opts.multipartThresholdBytes, opts.partSizeBytes) + 2 * 1024 * 1024));
   const store = memoryQueueStore();
   const base = existingSessionUnit(session);
@@ -182,7 +168,6 @@ test("C5: a take queued while another is uploading lands too", async () => {
   const store = memoryQueueStore();
   const base = existingSessionUnit(session);
   const section = Object.values(s.sections)[1];
-  // The blob is the hashed bytes: the bucket refuses a body whose sha256 differs from the signed one.
   const firstBytes = new Uint8Array(randomBytes(4096));
   const firstStep = clip({ key: mintKey("c5a"), bytes: firstBytes, sectionId: section, artisanId: s.artisans[1] });
   await store.putBlob(firstStep.blobKey, new Blob([firstBytes]));
@@ -221,12 +206,10 @@ test("H18: an answer that conflicts on the server is held for P9, and Keep mine 
   const lead = questionnaireClient(stackFetch(s.tokens.lead));
   const session = await newSession(lead, s, s.artisans[2]);
   const lineage = Object.values(s.questions)[0];
-  // Another device answers first.
   const theirs = await lead.putAnswers([
     { artisanId: s.artisans[2], questionLineageId: lineage, text: "Theirs.", origin: "TYPED", attribution: "INDIVIDUAL", sessionId: session.id, sourceRecordingId: null }
   ]);
   expect(theirs.results[0].status).toBe("SAVED");
-  // This device typed an answer with no base version: create-only, so the server says CONFLICT.
   const typed: Omit<AnswerItem, "sessionId"> = { artisanId: s.artisans[2], questionLineageId: lineage, text: "Mine.", origin: "TYPED", attribution: "INDIVIDUAL", sourceRecordingId: null };
   const store = memoryQueueStore();
   await enqueueStep(store, existingSessionUnit(session), { kind: "answers", status: "PENDING", items: [typed] });
@@ -253,7 +236,6 @@ test("M4 + H13: offline coverage agrees with the server, and Keep one decides a 
   const opts = await options(api);
   const store = memoryQueueStore();
   const base = existingSessionUnit(session);
-  // Two takes of one section for one artisan, neither knowing the other: the second is a clash.
   for (const key of [mintKey("h13a"), mintKey("h13b")]) {
     const bytes = new Uint8Array(randomBytes(2048));
     const step = clip({ key, bytes, sectionId: section, artisanId: artisan });
@@ -264,7 +246,6 @@ test("M4 + H13: offline coverage agrees with the server, and Keep one decides a 
   const detail = await api.getSession(session.id);
   expect(detail.recordings).toHaveLength(2);
 
-  // M4: the snapshot this browser would hold answers coverage/check as the server does.
   const request = { questionnaireId: s.questionnaireId, artisanIds: [artisan], targets: [{ sectionId: section }], sessionId: session.id };
   const server = await api.checkCoverage(request);
   const snapshot = await api.snapshot({ questionnaireId: s.questionnaireId, workshopId: s.workshopId });
@@ -272,13 +253,11 @@ test("M4 + H13: offline coverage agrees with the server, and Keep one decides a 
   expect(offline.targets[0].perArtisan[0].takes.length).toBe(server.targets[0].perArtisan[0].takes.length);
   expect(offline.targets[0].perArtisan[0].takes.length).toBeGreaterThan(0);
 
-  // H13: the inbox row, its partner, and Keep one.
   const inbox = await api.inbox();
   const row = inbox.needsDecision.find((r) => r.sessionId === session.id);
   expect(row, "the second take needs a decision").toBeTruthy();
   const other = decisionPartner(row!, detail.recordings);
   expect(other?.id).not.toBe(row!.recordingId);
-  // Keep one removes the other take: a content admin's act. The researcher is refused, the admin decides.
   await expect(api.decide(row!.recordingId, { action: "KEEP_THIS", otherRecordingId: other!.id })).rejects.toThrow("Only an admin can delete this.");
   const admin = questionnaireClient(stackFetch(s.tokens.admin));
   await admin.decide(row!.recordingId, { action: "KEEP_THIS", otherRecordingId: other!.id });

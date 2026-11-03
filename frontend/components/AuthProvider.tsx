@@ -12,26 +12,14 @@ import { invalidateWorkshopList } from "@/lib/workshopList";
 type AuthContextValue = {
   user: User | null;
   loading: boolean;
-  /**
-   * Each sign-in resolves to the account, or — when it has two-step verification on — to the
-   * challenge the second step needs. Nobody is signed in until `verifyTwoFactor` succeeds.
-   */
   login: (email: string, password: string) => Promise<User | TwoFactorChallenge>;
   loginWithGoogle: (googleIdToken: string) => Promise<User | TwoFactorChallenge>;
-  /** Microsoft or Yahoo: the code the provider sent back, with this tab's half of the flow. See `lib/oidcSignIn.ts`. */
   loginWithOidc: (body: ReturnType<typeof loginBody>) => Promise<User | TwoFactorChallenge>;
-  /** The challenge token and a 6-digit or recovery code; resolves to the account, signed in. */
   verifyTwoFactor: (challengeToken: string, code: string) => Promise<User>;
   logout: () => Promise<void>;
   refreshMe: () => Promise<void>;
-  /** Forget the session in this tab without calling the server — a password link has just ended it. */
   clearSession: () => void;
-  /**
-   * The password of the last password sign-in that succeeded in this tab, so `FirstPasswordGate` does
-   * not ask somebody to retype what they typed seconds ago. "" when there is none.
-   */
   recentPassword: () => string;
-  /** The gate was satisfied: forget the remembered password and re-read the account. */
   markPasswordChanged: () => Promise<void>;
 };
 
@@ -49,10 +37,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const me = await apiFetch<User>("/me");
       setUser(me);
     } catch (err) {
-      // A request that left with a token this tab has since replaced says nothing about the live one.
       if (err instanceof ApiError && err.sessionReplaced) return;
-      // Only discard the stored token when the server explicitly rejected it. On network
-      // failures / 5xx the token may still be valid, so keep it for a later retry.
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
         endSession();
       }
@@ -63,14 +48,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    // A browser signed in before the cookie session shipped still has its token in localStorage:
-    // move it into the cookie (and out of storage) before the first `/me`, so that person stays
-    // signed in. Settles at once for everybody else. See `migrateStoredToken`.
     void migrateStoredToken().finally(() => refreshMe());
   }, [refreshMe]);
 
-  // A request refused because the account must choose a new password: re-read `/me` (which carries
-  // `mustChangePassword`) so the shell draws the gate in place. One re-read at a time.
   const rereading = useRef(false);
   useEffect(() => {
     onPasswordChangeRequired(() => {
@@ -89,7 +69,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signInPassword.current = "";
     pendingPassword.current = "";
     clearPasswordChangeOwed();
-    // The cached workshop list belonged to the account that just left; the next one reads its own.
     invalidateWorkshopList();
   }, []);
 
@@ -101,12 +80,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await refreshMe();
   }, [refreshMe]);
 
-  /**
-   * A sign-in's answer, taken: its account is adopted and returned — the session itself is already in
-   * the HttpOnly cookie this site's sign-in route set, and the answer no longer carries the token. A
-   * TWO-STEP CHALLENGE is returned untouched, with no session — the caller branches on
-   * `isTwoFactorChallenge`.
-   */
   const open = useCallback((result: SignInResult): User | TwoFactorChallenge => {
     if (isTwoFactorChallenge(result)) return result;
     setUser(result.user);
@@ -122,7 +95,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(
     async (email: string, password: string) => {
       const result = await signIn({ email, password });
-      // Held in memory only, and only for the forced change straight after this sign-in.
       if (isTwoFactorChallenge(result)) pendingPassword.current = password;
       else signInPassword.current = password;
       return result;

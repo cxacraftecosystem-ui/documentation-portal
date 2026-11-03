@@ -1,11 +1,5 @@
 "use client";
 
-/**
- * Which workshops a form is bound to, and which of them it is the PRIMARY form for (UNIFY U5): an
- * admin act. A workshop has at most one primary form; making this one primary replaces the old
- * primary there. Several forms may be bound to one workshop; the start sheet offers the primary.
- */
-
 import { Link2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 

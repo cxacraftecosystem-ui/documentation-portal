@@ -28,17 +28,6 @@ import {
 } from "@/lib/questionnaireQueue";
 import { CONTRACT } from "./questionnaire-contract-fixture";
 
-/**
- * DESIGN test 42 (web half), BUILD_PLAN §3.2: the ordered outbox. Session → participant changes →
- * clips → answers; the same Idempotency-Key and clientKey/clientClipKey on every retry; a failed
- * clip blocks nothing; at most 3 clips at once (1 on a slow link); a multipart upload resumes from
- * `GET /media/uploads/{clientClipKey}` and never re-sends a part the server already holds.
- * The API is mocked from the contract examples, and where the contract has no example the fake
- * answers in the server's own shape (`backend/app/api/routes/media.py`). The fake used to answer
- * presign-parts with `{parts}` while the server sends `{urls}`, which is how audit C3 shipped; the
- * same calls run against a real backend and bucket in `questionnaire-v2-stack.spec.ts`.
- */
-
 type Call = { name: string; args: unknown[] };
 
 function fakeApi(overrides: Partial<Record<keyof QueueApi, (...args: never[]) => unknown>> = {}) {
@@ -55,7 +44,6 @@ function fakeApi(overrides: Partial<Record<keyof QueueApi, (...args: never[]) =>
     },
     presign: async (body: unknown) => ({ ...(ex.PresignResponse as object), objectKey: `media/u3/${(body as { clientClipKey: string }).clientClipKey}/leaf.m4a` }),
     multipartCreate: async () => ex.MultipartCreateResponse,
-    // The server's shape: part number (as a string key) → signed URL (media.py presign_multipart_parts).
     multipartPresignParts: async (body: unknown) => ({
       urls: Object.fromEntries((body as { partNumbers: number[] }).partNumbers.map((n) => [String(n), `https://bucket/part/${n}`]))
     }),
@@ -142,14 +130,11 @@ test("@qf:B38 offline start → add participant → 3 takes → answers: sent in
   expect(calls.filter((c) => c.name === "complete")).toHaveLength(3);
   expect(t.puts).toHaveLength(3);
   expect(done.steps.every((s) => s.status === "DONE")).toBe(true);
-  // The answers carry the server session id the queue learnt.
   const answers = calls.find((c) => c.name === "putAnswers")!.args[0] as { sessionId: string }[];
   expect(answers[0].sessionId).toBe("s1");
-  // A finished unit leaves the store, with its blobs.
   expect(store.units.size).toBe(0);
   expect(store.blobs.size).toBe(0);
 
-  // Replaying the (already done) unit sends nothing.
   const again = fakeApi();
   await runUnit(done, again.api, store, transport(), OPTS);
   expect(again.calls).toHaveLength(0);
@@ -216,7 +201,7 @@ test("at most 3 clips at once, 1 on a slow link", async () => {
 
 test("@qf:B16 a multipart upload resumes from the server's parts and never re-sends one", async () => {
   const store = memoryQueueStore();
-  const size = 20 * 1024 * 1024; // three 8 MiB parts
+  const size = 20 * 1024 * 1024;
   let unit = { ...newSessionUnit(body), sessionId: "s1", steps: [] as ClipStep[] } as ReturnType<typeof newSessionUnit>;
   unit = appendStep(unit, clip("big", size));
   await store.putBlob("blob-big", new Blob([new Uint8Array(size)]));
@@ -245,7 +230,6 @@ test("C3: part URLs are read from the server's {urls} map, and a missing one sto
     { partNumber: 2, url: "https://b/2" },
     { partNumber: 3, url: "https://b/3" }
   ]);
-  // The old reading: `{parts: [...]}` is not what the server sends, and must not pass for it.
   expect(() => signedParts({ parts: [{ partNumber: 1, url: "x" }] } as never, [1])).toThrow(/did not sign every part/);
   expect(() => signedParts({ urls: { "1": "https://b/1" } }, [1, 2])).toThrow();
 });
@@ -261,7 +245,6 @@ test("C3: a take over the threshold uploads through multipart with the server's 
   });
   const t = transport();
   const out = await runUnit(unit, api, store, t, OPTS);
-  // 12 MiB in the server's 5 MiB parts is three parts, whatever the config said (8 MiB).
   expect((calls.find((c) => c.name === "multipartPresignParts")!.args[0] as { partNumbers: number[] }).partNumbers).toEqual([1, 2, 3]);
   expect(t.puts).toEqual(["https://bucket/part/1", "https://bucket/part/2", "https://bucket/part/3"]);
   expect(out.steps[0].status).toBe("DONE");
@@ -272,7 +255,6 @@ test("C4: a rebuilt session with no clientKey queues under its id; the store ref
   expect(sessionUnitKey({ id: "s9", clientKey: "c-9" })).toBe("c-9");
   expect(existingSessionUnit({ id: "s9", clientKey: null }).id).toBe("s9");
   const store = memoryQueueStore();
-  // IndexedDB's keyPath refuses a null id; the fake now does too, as the real store always did.
   await expect(store.save({ id: null as unknown as string, sessionId: "s9", createdAt: "", steps: [] })).rejects.toThrow();
   await enqueueStep(store, existingSessionUnit({ id: "s9", clientKey: null }), clip("k9"));
   await store.putBlob("blob-k9", new Blob(["abc"]));
@@ -305,7 +287,6 @@ test("C5: a take queued while another uploads is neither overwritten nor dropped
   const [loaded] = await store.load();
   const running = runUnit(loaded, api, store, transport(), OPTS);
   await presignCalled;
-  // The researcher records a second take while the first is still uploading.
   await enqueueStep(store, base, clip("second"));
   await store.putBlob("blob-second", new Blob(["b"]));
   release();
@@ -313,7 +294,6 @@ test("C5: a take queued while another uploads is neither overwritten nor dropped
   const [after] = await store.load();
   const byKey = Object.fromEntries(after.steps.filter((s): s is ClipStep => s.kind === "clip").map((s) => [s.clientClipKey, s.status]));
   expect(byKey).toEqual({ first: "DONE", second: "PENDING" });
-  // The next pass (the re-drain) sends it, and only then does the unit leave the store.
   await runUnit(after, fakeApi().api, store, transport(), OPTS);
   expect(store.units.size).toBe(0);
 });
@@ -340,7 +320,6 @@ test("@qf:B19 H18: an answer that conflicts is kept for P9, never marked done an
     const waiting = answerConflicts(held);
     expect(waiting).toHaveLength(1);
     expect(waiting[0].result.current?.editedBy?.name).toBe("Nandini");
-    // A second pass does not resend it: it waits for the researcher.
     const idle = fakeApi();
     await runUnit(held, idle.api, store, transport(), OPTS);
     expect(idle.calls.filter((c) => c.name === "putAnswers")).toHaveLength(0);

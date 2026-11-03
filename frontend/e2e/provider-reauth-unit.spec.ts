@@ -1,8 +1,3 @@
-/**
- * Setting a first password: the provider sign-in, run again (`lib/providerReauth.ts`), and the
- * `reauth.` state that brings a Microsoft or Yahoo answer back to Settings instead of the sign-in page.
- */
-
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -90,7 +85,6 @@ test("a wrong code keeps the confirmation: what the server handed back replaces 
   const next = carriedProof(first, "stand-in");
   expect(next.fields).toEqual({ providerProof: "stand-in" });
   expect(next.provider).toBe("MICROSOFT");
-  // Its clock is the original sign-in's, so it is never kept past the server's five minutes.
   expect(next.obtainedAt).toBe(1_000);
   expect(proofIsFresh(next, 1_000 + PROOF_LIFETIME_MS)).toBe(false);
   const card = readFileSync(join(root, "components/settings/ChangePasswordCard.tsx"), "utf8");

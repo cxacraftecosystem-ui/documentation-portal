@@ -1,20 +1,11 @@
 "use client";
 
-/**
- * The typed "Card code" box: the short code printed under an artisan card's QR (or a pasted QR
- * payload), resolved by `POST /artisan-cards/resolve`. Used on Search (opens the artisan) and beside
- * the artisan pickers on the record forms (links the artisan).
- *
- * The check characters are tested here first, so a mistyped code is answered at once with the same
- * sentence the server would send. Draws nothing while cards are off.
- */
 import { useState } from "react";
 
 import { useArtisanCardsEnabled } from "@/components/artisans/ArtisanCardSheetActions";
 import { CARD_CHECK_MESSAGE, looksLikeArtisanCard, parseArtisanCard } from "@/lib/artisanCard";
 import { resolveArtisanCard, type CardArtisanSummary } from "@/lib/artisanCardApi";
 
-/** The box's placeholder on this portal. Either portal's card is accepted. */
 export const CARD_CODE_PLACEHOLDER = "F-XXXXX-XXXXX-XX";
 
 export type CardLookupOutcome =
@@ -22,7 +13,6 @@ export type CardLookupOutcome =
   | { kind: "replaced"; artisanId: string }
   | { kind: "error"; message: string };
 
-/** Check the code locally, then ask the server. Pure apart from the one request; exported for the spec. */
 export async function lookUpCard(input: string, resolve = resolveArtisanCard): Promise<CardLookupOutcome> {
   const typed = input.trim();
   if (!typed) return { kind: "error", message: "Type the code under the QR." };
@@ -46,10 +36,8 @@ export function CardCodeLookup({
   compact = false
 }: {
   onFound: (artisan: CardArtisanSummary) => void;
-  /** A revoked card: offer the artisan it belonged to. */
   onOpenReplaced?: (artisanId: string) => void;
   actionLabel?: string;
-  /** Inline under a picker rather than a panel of its own. */
   compact?: boolean;
 }) {
   const enabled = useArtisanCardsEnabled();

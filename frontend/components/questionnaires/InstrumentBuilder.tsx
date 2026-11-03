@@ -18,17 +18,10 @@ import { apiFetch } from "@/lib/api";
 import { ARTISAN_FIELD_OPTIONS, artisanFieldLabel } from "@/lib/questionArtisanFields";
 import type { QuestionnaireQuestion, QuestionnaireSection } from "@/lib/types";
 
-/*
- * The instrument builder: sections and drag-and-drop question tiles. Moved out of the legacy capture
- * page (`app/(protected)/questionnaire/page.tsx`) so `/questionnaire/builder` renders the builder and
- * nothing else (audit H15, 2026-10-21); the capture page still mounts it at its foot under v2 off.
- */
-
 
 type DragQuestion = { questionId: string; sectionId: string };
 type DropIndicator = { sectionId: string; index: number };
 
-/** Renumber a section's questions after an optimistic move and stamp them with the section identity. */
 function reindexQuestions(list: QuestionnaireQuestion[], section: { id: string; code: string; title: string }): QuestionnaireQuestion[] {
   return list.map((question, index) => ({
     ...question,
@@ -39,11 +32,6 @@ function reindexQuestions(list: QuestionnaireQuestion[], section: { id: string; 
   }));
 }
 
-/**
- * Pure optimistic move: takes the current sections and returns a new array with `questionId` moved
- * from its section to `gapIndex` within `toSectionId` (a drop-gap index, 0..length). Returns the
- * SAME reference when the move is a no-op so callers can skip the network round-trip.
- */
 function moveQuestionInSections(
   sections: QuestionnaireSection[],
   questionId: string,
@@ -58,52 +46,19 @@ function moveQuestionInSections(
   const srcIndex = from.questions.findIndex((question) => question.id === questionId);
   if (srcIndex < 0) return sections;
 
-  // A drop-gap counts the dragged tile; removing it first shifts every later gap left by one.
   let insertAt = from === to && srcIndex < gapIndex ? gapIndex - 1 : gapIndex;
   const [moved] = from.questions.splice(srcIndex, 1);
   insertAt = Math.max(0, Math.min(insertAt, to.questions.length));
-  if (from === to && insertAt === srcIndex) return sections; // dropped back onto itself
+  if (from === to && insertAt === srcIndex) return sections;
   to.questions.splice(insertAt, 0, moved);
   from.questions = reindexQuestions(from.questions, from);
   if (to !== from) to.questions = reindexQuestions(to.questions, to);
   return clone;
 }
 
-/**
- * One section's "Title" box in the builder's edit row — a microphone on a box that submits through
- * `FormData`.
- *
- * WHY THIS IS A COMPONENT AND NOT THREE MORE LINES IN THE FORM ABOVE. `DictatedTextInput` is
- * controlled by its caller, and the edit row it sits in is otherwise uncontrolled: `updateSection`
- * reads `form.get("code")` and `form.get("title")` out of a `FormData` built from the submitted
- * element, and every other control in the row is seeded with `defaultValue`. Holding the title for
- * every section in one map in the parent would mean re-seeding that map from `localSections` on every
- * server reload — `onChanged` replaces the whole list after any add, remove, reorder or reparent —
- * and a map that missed one of those refreshes is a box showing a title the database no longer has.
- * Local state plus a re-seed keyed on the row's own identity is the same shape `QuestionTile` already
- * uses for `prompt` in this file, for the same reason.
- *
- * THE `name` IS STILL LOAD-BEARING. The component renders a real `<input name="title">`, so
- * `updateSection`'s `form.get("title")` reads it exactly as it read the `<TextInput>` this replaced.
- * Drop the attribute and Save writes `""` over the section's title — `String(form.get("title") ?? "")`
- * turns the missing key into an empty string and PATCHes it — which is a section renamed to nothing
- * on every question that denormalises `sectionTitle`.
- *
- * A TITLE IS FREE TEXT AND GETS A MICROPHONE; THE CODE BESIDE IT DOES NOT. See the note on the
- * add-section form for why an identity code is the one box dictation must not touch.
- */
 function SectionTitleField({ section }: { section: QuestionnaireSection }) {
   const [value, setValue] = useState(section.title);
 
-  /**
-   * Re-seed when the ROW changes underneath us, which is not the same as when the component mounts.
-   *
-   * The builder keys its section blocks by `section.id`, so a reorder MOVES this component rather
-   * than rebuilding it, and a save reloads every section from the server. Without this, a title
-   * edited on the server (by the workbook import, or by another admin) would sit behind a stale local
-   * value that the next Save would write straight back over. Depending on `section.title` and not
-   * only on `section.id` is the half that catches the second case.
-   */
   useEffect(() => {
     setValue(section.title);
   }, [section.id, section.title]);
@@ -129,22 +84,10 @@ export function QuestionnaireAdminEditor({
   mayDelete = false
 }: {
   sections: QuestionnaireSection[];
-  /** The instrument being built. A new section joins THIS one, not whichever is the default. */
   questionnaireId: string | null;
   onChanged: () => Promise<void>;
-  /** Open on arrival: `/questionnaire/builder` shows nothing else. */
   defaultOpen?: boolean;
-  /**
-   * Adding, editing, reordering or moving a section or a question is the form's author's or a
-   * content admin's (`mayEditQuestionnaire`, owner 22 Oct 2026; the server's `assert_may_edit_form`).
-   * Anybody else sees the form read-only. Defaults to false so a caller that forgets it locks rather
-   * than offers controls the server refuses.
-   */
   mayEdit?: boolean;
-  /**
-   * Removing or switching off a section or a question is a delete: the form's author or a content
-   * admin (`mayDeleteQuestionnaire`, owner 22 Oct 2026). The caller knows the instrument's author.
-   */
   mayDelete?: boolean;
 }) {
   const confirm = useConfirm();
@@ -157,30 +100,8 @@ export function QuestionnaireAdminEditor({
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  /**
-   * A REMOUNT COUNTER PER SECTION FOR THE ADD-QUESTION BOX, AND THE BUG IT CLOSES.
-   *
-   * That box is a `DictatedTextArea`, which owns its own value and re-seeds from `defaultValue` on
-   * REMOUNT only. The add-question form clears itself with `formElement.reset()` — and `reset()`
-   * rewrites the DOM node and tells React nothing at all. So without a key that changes, the prompt
-   * an admin just filed STAYS ON SCREEN, the form looks as though nothing happened, and the next
-   * press of "Add question" files the same question a second time. Two identical questions in one
-   * section is not a cosmetic defect: the workbook download prints both, the re-upload matches both
-   * by id, and every interview from then on asks the artisan the same thing twice.
-   *
-   * PER SECTION, KEYED BY `section.id`, NOT ONE COUNTER FOR THE BUILDER. A single number would
-   * remount EVERY section's add-question box on every add, throwing away a prompt half-typed in
-   * another section — the builder renders one such form per section and they are all on screen at
-   * once. `?? 0` is the un-bumped state, so a section that has never been added to needs no entry.
-   *
-   * BUMPED ONLY ON SUCCESS, in the same block as the `reset()`. A failed add leaves the prompt in the
-   * box on purpose: the admin's text is the only copy of it, and `addQuestion` throwing means the
-   * server did not take it.
-   */
   const [questionNonce, setQuestionNonce] = useState<Record<string, number>>({});
 
-  // Server state is authoritative: whenever the parent reloads sections, replace the local copy
-  // (this also lands the canonical result after an optimistic drag persists).
   useEffect(() => {
     setLocalSections(sections);
   }, [sections]);
@@ -192,10 +113,6 @@ export function QuestionnaireAdminEditor({
     try {
       await apiFetch("/questionnaire/sections", {
         method: "POST",
-        // The instrument is sent EXPLICITLY. The server would resolve the default if it were
-        // omitted — which is what an un-updated builder gets and is correct for it — but this page
-        // knows which instrument it is showing, and adding a section to a different one than the
-        // list above it is the mistake that field is for.
         body: JSON.stringify({ questionnaireId, code: newCode.trim(), title: newTitle.trim() })
       });
       setNewCode("");
@@ -214,7 +131,6 @@ export function QuestionnaireAdminEditor({
       body: JSON.stringify({
         code: String(form.get("code") ?? "").trim(),
         title: String(form.get("title") ?? "").trim(),
-        // Switching a section OFF is a delete; anybody else's save keeps it on (the toggle is locked).
         isActive: mayDelete || !section.isActive ? form.get("isActive") === "on" : true
       })
     });
@@ -222,8 +138,6 @@ export function QuestionnaireAdminEditor({
   }
 
   async function removeSection(section: QuestionnaireSection) {
-    // Amber, not red: this is a deactivation. Nothing already collected is lost, and saying so is the
-    // difference between a manager pruning the form and a manager afraid to touch it.
     const ok = await confirm({
       title: `Remove section ${section.code}?`,
       body: (
@@ -245,7 +159,6 @@ export function QuestionnaireAdminEditor({
     }
   }
 
-  // Optimistically reorder sections, persist, and roll back if the server rejects it.
   async function performSectionReorder(fromId: string, toId: string) {
     if (!fromId || fromId === toId) return;
     const fromIndex = localSections.findIndex((section) => section.id === fromId);
@@ -297,7 +210,6 @@ export function QuestionnaireAdminEditor({
         body: JSON.stringify({
           prompt: prompt.trim(),
           isActive,
-          // B8: sent only when it changed, so an unchanged save reads exactly as it always did.
           ...(artisanField !== (question.artisanField ?? "") ? { artisanField: artisanField || null } : {})
         })
       });
@@ -333,11 +245,6 @@ export function QuestionnaireAdminEditor({
     }
   }
 
-  /**
-   * Optimistically apply a question move, then persist. Within a section this is a single reorder;
-   * across sections we first re-parent the question (updateQuestion{sectionId}) and then reorder the
-   * TARGET section — exactly the two existing API calls. Rolls back on any error.
-   */
   async function persistMove(next: QuestionnaireSection[], reorderSectionId: string, reparent?: { questionId: string; toSectionId: string }) {
     const snapshot = localSections;
     setLocalSections(next);
@@ -370,11 +277,10 @@ export function QuestionnaireAdminEditor({
     const next = moveQuestionInSections(localSections, drag.questionId, drag.sectionId, toSectionId, gapIndex);
     setDragQuestion(null);
     setDropIndicator(null);
-    if (next === localSections) return; // no-op
+    if (next === localSections) return;
     persistMove(next, toSectionId, drag.sectionId !== toSectionId ? { questionId: drag.questionId, toSectionId } : undefined);
   }
 
-  // Keyboard fallback: swap a question with its neighbour inside the same section.
   function keyboardMove(section: QuestionnaireSection, question: QuestionnaireQuestion, direction: -1 | 1) {
     const current = localSections.find((item) => item.id === section.id);
     if (!current) return;
@@ -397,7 +303,6 @@ export function QuestionnaireAdminEditor({
 
   const dragActive = Boolean(dragQuestion);
 
-  // Not the author and not a content admin: the form is shown, never offered for editing.
   if (!mayEdit) {
     return (
       <Accordion title="Questionnaire Builder" subtitle="Read only." defaultOpen={defaultOpen}>
@@ -442,18 +347,9 @@ export function QuestionnaireAdminEditor({
     >
       <div className="grid gap-4">
         <form onSubmit={addSection} className="grid gap-3 rounded-md border border-line-200 bg-field-100 p-3 md:grid-cols-[160px_1fr_auto]">
-          {/* NO MICROPHONE ON THE CODE. "A", "RESP", "FIELD" is an identity code in a closed set the
-              instrument already uses — every question denormalises it as `sectionCode` and the
-              workbook matches rows on it — and a recogniser asked for "RESP" hands back "resp",
-              "rest" or "R E S P" with equal confidence. A box whose value must be exact is the one
-              box dictation must not touch. */}
           <Field label="Section code" required>
             <TextInput value={newCode} onChange={(event) => setNewCode(event.target.value)} placeholder="A, RESP, FIELD..." required />
           </Field>
-          {/* NO `name`, AND THAT IS CORRECT HERE RATHER THAN AN OVERSIGHT: `addSection` builds its
-              body from `newCode`/`newTitle` state and never constructs a `FormData` at all, so a
-              `name` would submit through a channel nothing reads. Contrast the three header boxes at
-              the top of this file, where dropping `name` silently drops the value. */}
           <DictatedTextInput
             label="Section title"
             placeholder="Section title"
@@ -604,15 +500,10 @@ export function QuestionnaireAdminEditor({
                   className="mt-2 grid gap-3 rounded-md border border-dashed border-[#d7c7bc] p-3 md:grid-cols-[1fr_auto]"
                   onSubmit={async (event) => {
                     event.preventDefault();
-                    // Capture before the await: React nulls event.currentTarget afterwards.
                     const formElement = event.currentTarget;
                     setMessage(null);
                     try {
                       await addQuestion(section, new FormData(formElement));
-                      // BOTH LINES, AND NEITHER IS THE OTHER'S SPELLING. `reset()` clears the
-                      // uncontrolled DOM controls this form may grow; the nonce is the only thing
-                      // that clears the dictated box, which React owns. See `questionNonce` above for
-                      // the duplicate-question defect that a missing bump produces.
                       formElement.reset();
                       setQuestionNonce((current) => ({ ...current, [section.id]: (current[section.id] ?? 0) + 1 }));
                     } catch (err) {
@@ -620,16 +511,6 @@ export function QuestionnaireAdminEditor({
                     }
                   }}
                 >
-                  {/* `name="prompt"` IS LOAD-BEARING: `addQuestion` reads this box out of
-                      `new FormData(formElement)`, so a dropped attribute is an "Add question" button
-                      that silently adds nothing. `required` is carried through by the component
-                      rather than re-added around it — `DictatedTextArea` puts it on the real
-                      `<textarea>`, so the browser's own empty check is exactly what it was.
-
-                      A `helper` AND NOT A `placeholder`, which is what this box carried before: a
-                      placeholder vanishes the moment the first dictated phrase lands, and this
-                      component has no placeholder prop for exactly that reason. The line is drawn
-                      under the label instead, where it survives being spoken into. */}
                   <DictatedTextArea
                     key={questionNonce[section.id] ?? 0}
                     name="prompt"
@@ -654,16 +535,10 @@ export function QuestionnaireAdminEditor({
   );
 }
 
-/** Purple insertion line shown between question tiles while dragging. */
 function DropLine({ active }: { active: boolean }) {
   return <div className={`h-0.5 rounded-full transition-colors ${active ? "bg-purple-700" : "bg-transparent"}`} aria-hidden />;
 }
 
-/**
- * A single draggable question tile: grip handle drags it, up/down buttons are the keyboard fallback for
- * within-section reordering, the "Move to" menu changes section, and Edit toggles inline prompt/active
- * editing.
- */
 function QuestionTile({
   question,
   index,
@@ -700,9 +575,7 @@ function QuestionTile({
   onMoveDown: () => void;
   onMoveToSection: (toSectionId: string) => void;
   onSave: (prompt: string, isActive: boolean, artisanField: string) => Promise<boolean>;
-  /** Switching a live question off is a delete: the form's author or a content admin. */
   mayDeactivate: boolean;
-  /** Absent for anybody but the form's author or a content admin — the server refuses them. */
   onRemove?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -770,26 +643,12 @@ function QuestionTile({
               onChange={(event) => setPrompt(event.target.value)}
               rows={2}
             />
-            {/*
-              The bare button and not `DictatedTextArea`, for the same two reasons as the answer
-              boxes: this textarea is controlled by the tile (the "Cancel" button restores
-              `question.prompt` from the props, which a self-controlled box could not be told about)
-              and it carries no visible label of its own — the tile is a row in a list, not a form.
-              `aria-label` above therefore names the box, and the microphone names it again in its own
-              accessible label, so a screen-reader user knows which of a dozen tiles is listening.
-
-              The updater form of `setPrompt` for the reason spelled out at the answer boxes: the
-              recogniser's handlers are installed once, and a phrase committed a minute into a long
-              rewording must append to what is in the box NOW, not to what it held when the microphone
-              was pressed.
-            */}
             <OnDeviceDictationButton
               fieldLabel={`the prompt for question ${question.sectionCode}${question.sortOrder}`}
               explainWhenUnavailable={false}
               disabled={disabled || savingTile}
               onCommit={(phrase) => setPrompt((current) => appendDictatedPhrase(current, phrase))}
             />
-            {/* B8: which artisan field answers this question in an interview. */}
             <div className="mt-2 grid gap-1 sm:max-w-xs">
               <span className="field-label" id={`artisan-field-${question.id}`}>Fill from artisan</span>
               <SearchableSelect

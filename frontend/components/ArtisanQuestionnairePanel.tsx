@@ -11,13 +11,7 @@ import { apiFetch } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import type { ArtisanAnswer, ArtisanQuestionnaire } from "@/lib/types";
 
-/**
- * Shows the questionnaire questions this artisan was actually asked, with their answers, grouped by
- * section. Only answered questions are returned by the backend so the page is never crowded with
- * blank prompts.
- */
 export function ArtisanQuestionnairePanel({ artisanId, artisanName = "" }: { artisanId: string; artisanName?: string }) {
-  // Questionnaire v2: the artisan's record (sessions, takes, the document) replaces this panel.
   const config = useQuestionnaireConfig();
   if (config?.v2Enabled) {
     return (

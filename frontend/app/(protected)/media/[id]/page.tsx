@@ -14,11 +14,6 @@ import { RecordingChips } from "@/components/questionnaire/RecordingChips";
 import { useChipNavigator } from "@/components/questionnaire/useUrlFilters";
 import type { MediaFile } from "@/lib/types";
 
-/**
- * One uploaded file, read-only (docs/SEARCH.md): its preview, which opens the lightbox and its
- * Download button, its transcript, and what it is. Media and transcript search results open here.
- * A stored file has no edit form, so the header offers none.
- */
 export default function MediaViewPage() {
   const { id } = useParams<{ id: string }>();
   const goChip = useChipNavigator();

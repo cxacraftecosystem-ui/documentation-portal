@@ -6,11 +6,6 @@ import { expect, test } from "@playwright/test";
 import { prompts } from "@/lib/questionnairePrompts";
 import { assembleTake, pickRecorderMime, recoverable, recoveredMinutes, TIMESLICE_MS, type TakeDraft } from "@/lib/recorderStore";
 
-/**
- * DESIGN tests 40 and 41: one recorder at a time (P3), and a tab killed mid-take leaves chunks that
- * reassemble — header first — into a playable take offered by P13 after reload.
- */
-
 const draft: TakeDraft = {
   takeKey: "t1",
   sessionKey: "c-1",

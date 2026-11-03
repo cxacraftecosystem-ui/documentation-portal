@@ -1,10 +1,5 @@
 import { completenessAria, completenessSentence, type CompletenessBlock } from "@/lib/completenessCore";
 
-/**
- * A record's completeness as a small ring: 16px on a list row, 28px on the record's page. Drawn with
- * the progress tokens (§11.12) so it reads like every other meter, and green at complete — with the
- * count in its accessible name, so the colour is never the only signal.
- */
 export function CompletenessRing({
   block,
   size = 16,
@@ -48,7 +43,6 @@ export function CompletenessRing({
   );
 }
 
-/** The 16px ring a list row draws before the record's name, its sentence as the tooltip. */
 export function RowCompletenessRing({ block }: { block?: CompletenessBlock | null }) {
   if (!block) return null;
   return <CompletenessRing block={block} size={16} title={completenessSentence(block)} />;

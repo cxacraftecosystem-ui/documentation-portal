@@ -22,12 +22,6 @@ const TYPE_LABEL: Record<string, string> = {
   questionnaire: "Interview"
 };
 
-/**
- * "Sent back to you" (A2): every record of this account's that a reviewer returned, across record
- * types, each with the reviewer's note — the list the uploader used to rebuild by filtering four to
- * six record lists by status. Rejected records are here too, because the creator's own edit reopens
- * them.
- */
 export default function SentBackPage() {
   const [list, setList] = useState<ReturnedList | null>(null);
   const [error, setError] = useState<string | null>(null);

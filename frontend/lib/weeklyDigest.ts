@@ -1,19 +1,6 @@
 import { apiFetch } from "@/lib/api";
 import { safeLink } from "@/lib/inAppNotifications";
 
-/**
- * THE MONDAY SUMMARY — reviewers and administrators get one every Monday at 08:00 IST: what waits for
- * them, what is overdue, what came in, and one coverage number. In-app always; by e-mail when mail is
- * on. The server decides who gets one (`eligible`) and owns the switch.
- *
- *   GET  /notifications/digest              -> DigestPreference
- *   PUT  /notifications/digest {enabled}    -> DigestPreference (403 when not eligible)
- *   GET  /notifications/digests/{id}        -> WeeklyDigest (the reader's own, else 404)
- *
- * The designer portal has the same three routes and the same shapes. The judgements the card and the
- * page make are pure functions here, so the unit specs can hold them without a renderer.
- */
-
 export type DigestCoverage = {
   label: string;
   value: number;
@@ -86,7 +73,6 @@ export async function fetchDigestPreference(): Promise<DigestPreference> {
   try {
     return normalise(await apiFetch<Partial<DigestPreference>>(DIGEST_PATH));
   } catch {
-    // An older API or a failed read: draw no card rather than a switch that cannot work.
     return { ...NOT_ELIGIBLE };
   }
 }
@@ -101,13 +87,10 @@ export async function fetchDigest(id: string): Promise<WeeklyDigest> {
   return apiFetch<WeeklyDigest>(digestPath(id));
 }
 
-// --- the Settings card --------------------------------------------------------------------------
-
 export const DIGEST_LABEL = "Weekly summary";
 export const DIGEST_SWITCH = "Send it to me";
 export const DIGEST_DESCRIPTION = "Mondays at 08:00: what waits for you, what is overdue, what came in.";
 
-/** What the card draws, or null for an account that gets no summary. */
 export function digestCardView(state: DigestPreference | null): {
   description: string;
   channel: string;
@@ -121,10 +104,6 @@ export function digestCardView(state: DigestPreference | null): {
   };
 }
 
-/**
- * The switch flipped: show the new value at once, then take the server's answer — or, when the save
- * fails, put back what was there. Pure, so the revert is tested.
- */
 export async function toggleDigest(
   before: DigestPreference,
   next: boolean,
@@ -142,9 +121,6 @@ export async function toggleDigest(
   }
 }
 
-// --- the summary page ---------------------------------------------------------------------------
-
-/** "19 Oct" from "2026-10-19", read as a calendar date (never through UTC). */
 export function weekWords(weekStart: string): string {
   const [year, month, day] = weekStart.split("-").map(Number);
   if (!year || !month || !day) return weekStart;
@@ -159,7 +135,6 @@ export function coverageFigure(coverage: DigestCoverage | null | undefined): str
 
 export type DigestTile = { key: string; label: string; figure: string };
 
-/** The four tiles, always in this order: Waiting, Overdue, New, the coverage number. */
 export function digestTiles(digest: Pick<WeeklyDigest, "sections" | "coverage">): DigestTile[] {
   const total = (key: string) => digest.sections.find((section) => section.key === key)?.total ?? 0;
   return [
@@ -170,7 +145,6 @@ export function digestTiles(digest: Pick<WeeklyDigest, "sections" | "coverage">)
   ];
 }
 
-/** A section's rows: count 0 left out, links kept only when they are app paths. */
 export function visibleLines(section: DigestSection): DigestLine[] {
   return (section.lines ?? [])
     .filter((line) => line.count > 0)

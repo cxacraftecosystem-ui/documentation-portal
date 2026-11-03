@@ -7,19 +7,6 @@ import { SEARCH_DEBOUNCE_MS, shouldSearchServer } from "@/components/forms/Recor
 import { listResource } from "@/lib/api";
 import { sharedListResource } from "@/lib/sharedList";
 
-/**
- * A11 — A RECORD PICKER THAT SEARCHES THE SERVER WHEN ITS LIST IS CUT.
- *
- * The process form's and the media page's pickers loaded the newest hundred rows and filtered them
- * in the browser, so a record past row one hundred answered "No matches". This holds one page, says
- * when that page is not the whole table (`cut`), and — only then, and only for a non-blank query —
- * re-asks the list route with its own `search=` after the shared 350ms debounce
- * (`shouldSearchServer`, the rule `RecordSwitcher` already keeps). Rows found by a search are merged
- * into what is held, so the picked row stays drawable after the query is cleared. Offline, the held
- * rows stay and filter locally.
- *
- * Wire `setQuery` to the picker's `onSearch`.
- */
 export type ServerSearchList<T> = {
   items: T[];
   cut: ListCut | null;
@@ -39,7 +26,6 @@ export function useServerSearchList<T extends { id: string }>(
   const [query, setQueryState] = useState("");
   const [searching, setSearching] = useState(false);
   const generation = useRef(0);
-  // Params arrive as a fresh object every render; the request keys off their text.
   const paramKey = JSON.stringify(params);
   const stableParams = useMemo(() => JSON.parse(paramKey) as Record<string, string | number | undefined | null>, [paramKey]);
 
@@ -52,7 +38,6 @@ export function useServerSearchList<T extends { id: string }>(
     }
     const mine = (generation.current += 1);
     setState("pending");
-    // Shared with any other picker asking for the same page in the same moment (`lib/sharedList`).
     sharedListResource<T>(endpoint, { ...stableParams, pageSize: LIST_PAGE_CEILING })
       .then((page) => {
         if (mine !== generation.current) return;

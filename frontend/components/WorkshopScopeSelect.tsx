@@ -1,36 +1,5 @@
 "use client";
 
-/**
- * THE ONE WORKSHOP SCOPE CONTROL, shared by every screen that draws a conclusion from workshops:
- * the questionnaire's completion matrix, the consolidated questionnaire (index and document), and the
- * map.
- *
- * WHY IT IS ONE COMPONENT AND NOT THREE. Those screens answer three different questions about the same
- * unit of fieldwork, and a researcher moves between them while holding one thought — "what came out of
- * last week's workshop". If each screen grew its own picker they would disagree about the default, about
- * whether "all" is a selection or an absence, and about whether records with no workshop are in or out.
- * Any one of those disagreements makes two screens report different numbers for the same question, with
- * nothing on either screen to say which is right. So the vocabulary lives here once, and the wire format
- * it produces is the SAME `workshopIds` parameter `services/record_filters.resolve_workshop_ids` parses
- * on the server.
- *
- * THE THREE STATES, and why "all" is an empty array rather than every id:
- *
- *   []                         ALL workshops. Sends no parameter at all, which is what the server reads
- *                              as "do not filter". Listing every id instead would silently exclude any
- *                              workshop created after the page loaded, and would break the moment the
- *                              list outgrew one page.
- *   ["w1", "w2"]               Those workshops.
- *   [..., UNASSIGNED_WORKSHOP] Also (or only) records that are not linked to a workshop. Without this a
- *                              scope of "every workshop" would quietly drop everything filed before
- *                              workshops existed, and nothing on screen would say so.
- *
- * THE DEFAULT IS THE MOST RECENT WORKSHOP, not "all". That is the requirement and it is also the right
- * default: these screens are read during and just after a workshop, and a matrix showing every artisan
- * ever recorded against every interview ever taken is not the question anybody opened it to ask. "All
- * records" is one click away and says so.
- */
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarRange, Layers } from "lucide-react";
 
@@ -44,52 +13,30 @@ import {
 } from "@/components/forms/WorkshopSelect";
 import { workshopDisplayTitle } from "@/lib/workshopTitle";
 
-/**
- * The reserved id meaning "records not linked to any workshop". Byte-for-byte
- * `record_filters.UNASSIGNED_WORKSHOP` on the server and `WorkshopScope.UNASSIGNED` on Android — a
- * reserved word rather than an empty string, because an empty string is what a blank field sends and
- * "the user chose nothing" must not mean "show me only the orphans".
- */
 export const UNASSIGNED_WORKSHOP = "none";
 
-/** How many workshops the picker loads. The list route caps `pageSize` at 100. */
 const WORKSHOP_PAGE_SIZE = 100;
 
 export type WorkshopScope = {
-  /** The selected ids; `[]` means every workshop. May contain {@link UNASSIGNED_WORKSHOP}. */
   workshopIds: string[];
   setWorkshopIds: (next: string[]) => void;
-  /** Every workshop, most recent occurrence first. */
   workshops: Workshop[];
   loading: boolean;
-  /** True until the default selection has been applied, so a screen can hold its first fetch. */
   settling: boolean;
-  /** The value to spread into `buildQuery` / pass to `apiFetch`. Undefined when scoping to all. */
   queryValue: string | undefined;
-  /** One line naming what is in scope, for a panel subtitle. */
   summary: string;
 };
 
-/**
- * Loads the workshops and owns the selection.
- *
- * `defaultToMostRecent` exists for the one screen where it would be wrong — a document that is
- * ordinarily read whole. Pass false there and the scope starts at "all".
- */
 export function useWorkshopScope({
   defaultToMostRecent = true,
   initialWorkshopIds
 }: {
   defaultToMostRecent?: boolean;
-  /** Seeds the selection from a URL, which then wins over the most-recent default. */
   initialWorkshopIds?: string[];
 } = {}): WorkshopScope {
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
   const [loading, setLoading] = useState(true);
   const [workshopIds, setWorkshopIdsState] = useState<string[]>(initialWorkshopIds ?? []);
-  // The default is applied ONCE, and only if the user has not already chosen. Without the ref a
-  // re-render that re-ran the effect would drag the selection back to the most recent workshop under
-  // somebody who had just picked two others.
   const touched = useRef(Boolean(initialWorkshopIds?.length));
   const [settling, setSettling] = useState(!initialWorkshopIds?.length && defaultToMostRecent);
 
@@ -98,9 +45,6 @@ export function useWorkshopScope({
     listResource<Workshop>("/workshops", { pageSize: WORKSHOP_PAGE_SIZE })
       .then((result) => {
         if (cancelled) return;
-        // The list route already orders by occurrence, but it is re-sorted here for the same reason
-        // WorkshopSelect re-sorts: the client must not depend on the server's order to decide which
-        // workshop is "the most recent", because getting that wrong picks the wrong default silently.
         const ordered = sortWorkshopsByOccurrence(result.items);
         setWorkshops(ordered);
         if (defaultToMostRecent && !touched.current && ordered.length > 0) {
@@ -108,8 +52,6 @@ export function useWorkshopScope({
         }
       })
       .catch(() => {
-        // A picker that could not load its options must not also silence the screen behind it: fall
-        // through to "all workshops", which is a complete and honest answer.
         if (!cancelled) setWorkshops([]);
       })
       .finally(() => {
@@ -128,9 +70,6 @@ export function useWorkshopScope({
   }, []);
 
   const queryValue = useMemo(
-    // Comma-joined, which `resolve_workshop_ids` accepts alongside repeated parameters. Undefined
-    // rather than "" when scoping to all, so `buildQuery` drops the key entirely — the server reads an
-    // ABSENT parameter as "every workshop", and an empty one would be indistinguishable from a bug.
     () => (workshopIds.length ? workshopIds.join(",") : undefined),
     [workshopIds]
   );
@@ -149,34 +88,16 @@ export function useWorkshopScope({
   return { workshopIds, setWorkshopIds, workshops, loading, settling, queryValue, summary };
 }
 
-/**
- * Title plus the day it ran — the same label `WorkshopSelect` uses, so one workshop reads one way.
- *
- * EXPORTED, AND NAMED AFTER ITS KOTLIN TWIN. `workshopScopeLabel` is what Android's `WorkshopScope.kt`
- * has always called this, and the two produce the same string; keeping the web copy private under a
- * different name meant the third picker that needed it — `forms/RecordSwitcher` — had a choice
- * between importing nothing and writing a fourth spelling of "title, middle dot, day". Four
- * spellings of one label is four chances for one workshop to read four ways down one session.
- */
 export function workshopScopeLabel(workshop: Workshop): string {
   const title = workshopDisplayTitle(workshop);
   const when = formatDate(workshopOccurrenceDate(workshop) || null);
   return when === "-" ? title : `${title} · ${when}`;
 }
 
-/**
- * The control. A multi-select over the workshops, an "All records" shortcut, and a line of text saying
- * what is currently in scope.
- *
- * `MultiSelectDropdown` is reused rather than reimplemented — it already floats its panel out of an
- * `overflow-hidden` ancestor, grows a search box past eight options, offers a filter-aware "Select
- * all", and is what every other multi-select in the app looks like.
- */
 export function WorkshopScopeSelect({
   scope,
   label = "Workshops",
   className = "",
-  /** Rendered under the control. Turn off where the parent panel already carries the sentence. */
   showSummary = true
 }: {
   scope: WorkshopScope;
@@ -189,9 +110,6 @@ export function WorkshopScopeSelect({
   const options = useMemo(
     () => [
       ...workshops.map((workshop) => ({ value: workshop.id, label: workshopScopeLabel(workshop) })),
-      // Last, and named as what it is. It is not a workshop, so it does not belong among them in the
-      // reading order — but it has to be selectable, or a scope of "every workshop" silently drops
-      // every record filed before workshops existed.
       { value: UNASSIGNED_WORKSHOP, label: "Not linked to a workshop" }
     ],
     [workshops]
@@ -250,17 +168,10 @@ export function WorkshopScopeSelect({
   );
 }
 
-/**
- * The scope as URL parameters, so a filtered view can be linked to and come back the same.
- *
- * The key is `workshopIds`, spelled exactly as the API spells it, so a link can be pasted into either
- * and mean the same thing.
- */
 export function workshopScopeLinkParams(workshopIds: string[]) {
   return { workshopIds: workshopIds.length ? workshopIds.join(",") : undefined };
 }
 
-/** The inverse: read a selection out of a URL. Unknown ids are kept — the server judges them. */
 export function workshopScopeFromSearchParams(params: URLSearchParams): string[] {
   return (params.get("workshopIds") ?? "")
     .split(",")

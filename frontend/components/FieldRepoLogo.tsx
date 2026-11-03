@@ -1,15 +1,8 @@
-/**
- * THE Field Repository logo — the Android launcher icon, verbatim
- * (android/app/src/main/res/drawable/ic_launcher.xml): an 8-point terracotta
- * star with a near-black center disc on cream. Its colors are brand-native and
- * are never re-themed; on dark surfaces keep the cream tile.
- */
 export function FieldRepoLogo({
   className,
   tile = true
 }: {
   className?: string;
-  /** Render the cream background tile (matches the app icon). */
   tile?: boolean;
 }) {
   return (

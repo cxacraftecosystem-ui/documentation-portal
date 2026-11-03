@@ -19,26 +19,6 @@ import { WorkshopAccessRequestPanel } from "@/components/settings/WorkshopAccess
 import { isAdmin, isMasterAdmin } from "@/lib/permissions";
 import type { User } from "@/lib/types";
 
-/**
- * /settings — this ACCOUNT's settings first, administration second.
- *
- * The page used to run two columns, with the master admin's global configuration filling the left
- * one and a locked "you may not do this" placeholder standing in its place for everyone else. That
- * told ordinary users about powers they will never have and squeezed the two settings they DO own
- * into a narrow rail. Now:
- *
- *  - Appearance and Accessibility sit side by side at full width for everybody (stacked on a phone);
- *  - the "Request workshop access" panel is open to everyone, because asking is not an admin act;
- *  - admin destinations are HIDDEN, not disabled, and only rendered for accounts the API would
- *    actually let through — a non-admin sees no trace that these pages exist.
- *
- * Gating uses `isAdmin` / `isMasterAdmin` from lib/permissions, the same predicates the backend
- * dependencies mirror (`require_admin` / `require_master_admin`), ANDed with `adminChromeVisible`
- * so the admin half also disappears while an admin browses with admin view off. The route itself
- * stays open to everyone: what is left — Appearance, Accessibility and Request workshop access —
- * belongs to the account rather than to the repository, and is exactly what an ordinary user sees.
- */
-
 type AdminLink = {
   label: string;
   description: string;
@@ -49,9 +29,6 @@ type AdminLink = {
 
 const ADMIN_LINKS: AdminLink[] = [
   {
-    // The board is admin-guarded and lives under /settings, but it was reachable ONLY from a button
-    // on /tasks — so an admin told "it is in settings" found no trace of it here. Same title and
-    // icon the page itself uses, so the card and its destination read as one thing.
     label: "Task assignment",
     description: "Assign and track work.",
     href: "/settings/tasks",
@@ -61,17 +38,11 @@ const ADMIN_LINKS: AdminLink[] = [
   {
     label: "Workshop access",
     description: "Requests and rosters.",
-    // Points at the console directly rather than at /settings/workshop-access, which is now only a
-    // redirect kept alive for bookmarks. A hub card that bounces through a redirect is a hub card
-    // that will one day bounce through a broken one.
     href: "/workshop-access/manage",
     icon: UsersRound,
     visible: isAdmin
   },
   {
-    // Admins go here for the transcription provider ranking; only the master admin sees the keys
-    // themselves once inside. Hiding the card from admins is what left the ranking unreachable for
-    // everyone who asked for it, so the card is admin-visible and its description is role-aware.
     label: "API keys",
     description: "Transcription providers and keys.",
     href: "/settings/api-keys",
@@ -83,8 +54,6 @@ const ADMIN_LINKS: AdminLink[] = [
 export default function SettingsPage() {
   const { user, loading } = useAuth();
   const { adminMode } = useAdminView();
-  // Role first, toggle second — every `visible` predicate below is `isAdmin` or `isMasterAdmin`, so
-  // ANDing the toggle in can only ever remove a card, never add one for a user without the rights.
   const chrome = adminChromeVisible(user, adminMode);
   const admin = isAdmin(user) && chrome;
   const master = isMasterAdmin(user) && chrome;
@@ -115,28 +84,20 @@ export default function SettingsPage() {
     <>
       {header}
       <div className="grid gap-4">
-        {/* The two settings every account owns — a pair on anything wider than a phone. */}
         <div className="grid items-start gap-4 md:grid-cols-2">
           <AppearanceCard />
           <AccessibilityCard />
         </div>
 
-        {/* This account's password: change it, or set a first one beside Google/Microsoft/Yahoo. */}
         <ChangePasswordCard />
 
-        {/* This account's own lock, open to every role. */}
         <TwoStepVerificationCard />
 
-        {/* This account's e-mail opt-out. Draws nothing on a deployment that sends no e-mail. */}
         <EmailNotificationsCard />
         <WeeklyDigestCard />
 
-        {/* Everyone sees this: the two apps are one product and each is better at half the job. */}
         <GetTheAppPanel />
 
-        {/* Personal, not deployment-wide: this is the caller's own provider key, billed to
-            them. The panel that manages the ORGANISATION's keys is master-admin only and
-            lives behind the administration links below. */}
         <MyAiKeysPanel />
 
         <WorkshopAccessRequestPanel />
@@ -163,10 +124,6 @@ export default function SettingsPage() {
           </section>
         ) : null}
 
-        {/* Transcription and the off-peak window stay here, where they have always been — now gated
-            rather than replaced by a lock panel for everyone below the master admin. The provider
-            RANKING is deliberately not here: it lives on the API keys page, next to the providers it
-            ranks, where admins can reach it too. */}
         {master ? <AppSettingsPanel /> : null}
         {master ? <PublishAppUpdatePanel /> : null}
       </div>

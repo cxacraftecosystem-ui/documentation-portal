@@ -31,8 +31,6 @@ export const metadata: Metadata = {
     "Field documentation for artisans, crafts and their work."
 };
 
-// Address-bar colour follows the theme. These two are the OS-driven fallback for the pre-JavaScript
-// paint; ThemeProvider rewrites them to the resolved theme once a user has made an explicit choice.
 export const viewport: Viewport = {
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: THEME_COLOR.light },
@@ -42,19 +40,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    // suppressHydrationWarning: the boot script below writes data-theme (and the accessibility
-    // flags) onto <html> before React hydrates, so the attributes deliberately differ from the
-    // server-rendered markup.
     <html className={`${inter.variable} ${jakarta.variable}`} lang="en" suppressHydrationWarning>
       <body className="font-sans">
-        {/* First child of <body>, and blocking: it must run before any content paints, otherwise
-            every load flashes the light theme before ThemeProvider mounts. */}
         <script dangerouslySetInnerHTML={{ __html: PREFERENCES_BOOT_SCRIPT }} />
         <AuthProvider>
           <ThemeProvider>
-            {/* One toast queue and one live region for the whole app. It used to be mounted per
-                page because this layout hosted no client providers; it hosts three now, and a
-                per-page provider is a footgun — useToast() throws on any page that forgets it. */}
             <ToastProvider>
               <AdminViewProvider>{children}</AdminViewProvider>
             </ToastProvider>

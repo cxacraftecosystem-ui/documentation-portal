@@ -6,19 +6,6 @@ import { SESSION_COOKIE } from "@/lib/sessionCookie";
 
 import { proxy } from "../proxy";
 
-/**
- * `proxy.ts` ITSELF (2026-10-18): the code that carries every `/api/*` call, driven through Next's
- * own `NextRequest`/`NextResponse`.
- *
- * `cookie-session-proxy-unit.spec.ts` drives the helpers in `lib/server/apiProxy.ts`. This spec reads
- * what the proxy actually hands back to Next: the rewrite target (`x-middleware-rewrite`) and the
- * request headers the forwarded call is sent with (`x-middleware-override-headers` names every header
- * the API receives; anything not named there is removed before the call leaves). That is the contract
- * `next start` and Vercel's Routing Middleware both honour, so a header that is not in the override
- * list does not reach the API on either. `cookie-session-smoke.spec.ts` runs the same path against a
- * real server.
- */
-
 const SITE = "https://field-repository.vercel.app";
 const savedEnv = { ...process.env };
 
@@ -53,7 +40,6 @@ function browserCall(path: string, init: { method?: string; headers?: Record<str
   });
 }
 
-/** The headers the forwarded call leaves with, as Next will build them from the proxy's answer. */
 function forwarded(response: Response): Map<string, string> {
   const names = (response.headers.get("x-middleware-override-headers") ?? "").split(",").filter(Boolean);
   const out = new Map<string, string>();

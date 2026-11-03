@@ -15,20 +15,6 @@ import {
 } from './path';
 import { TraceParams, TraceParamsInput, sanitizeTraceParams } from './params';
 
-/**
- * Project persistence.
- *
- * The on-disk form is plain JSON, hand-rolled rather than reflected, for one reason: a project saved today
- * must open in a build written next year. Every reader below supplies a default for a missing field and
- * clamps or drops anything illegal, so an older or newer file degrades instead of throwing. `decode` never
- * rejects a file it can partially understand — losing somebody's work to a field that gained a member is
- * not acceptable.
- *
- * Geometry is stored compactly (`{k, p}` per segment) because a traced document routinely holds tens of
- * thousands of segments and the verbose form triples the file for no benefit a human reader would notice.
- */
-
-/** Current on-disk schema version. Bump only for a change a reader cannot infer. */
 export const PROJECT_SCHEMA_VERSION = 1;
 
 export interface ProjectMeta {
@@ -47,13 +33,10 @@ export interface ProjectMeta {
 export interface ProjectDocument {
   readonly meta: ProjectMeta;
   readonly params: TraceParams;
-  /** The vector document, serialised by {@link encodeDocument}. Kept as a string so the two halves of a
-   * project can be stored and versioned independently. */
   readonly layersJson: string;
   readonly historyVersion: number;
 }
 
-/** @returns a meta record with every field present; `id` and `name` are the only things worth supplying. */
 export function projectMeta(over: Partial<ProjectMeta> = {}): ProjectMeta {
   return {
     id: '',
@@ -69,10 +52,6 @@ export function projectMeta(over: Partial<ProjectMeta> = {}): ProjectMeta {
     ...over,
   };
 }
-
-// ---------------------------------------------------------------------------------------------------
-// Readers. Every one takes `unknown` and returns something valid.
-// ---------------------------------------------------------------------------------------------------
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -122,10 +101,6 @@ function readPoint(v: unknown, fallback: VecPoint): VecPoint {
   if (!Array.isArray(v) || v.length < 2) return fallback;
   return { x: readNumber(v[0], fallback.x), y: readNumber(v[1], fallback.y) };
 }
-
-// ---------------------------------------------------------------------------------------------------
-// Geometry codec
-// ---------------------------------------------------------------------------------------------------
 
 function encodeSegment(seg: VecSeg): unknown {
   if (seg.kind === 'line') return { k: 'L', p: [seg.to.x, seg.to.y] };
@@ -207,8 +182,6 @@ function decodePath(v: unknown): VecPath {
   if (Array.isArray(v.g)) {
     for (const raw of v.g) {
       const seg = decodeSegment(raw, cursor);
-      // A segment that cannot be read is dropped rather than replaced by a guess: an invented line to
-      // the origin is far more visible, and far harder to explain, than one missing curve.
       if (seg === null) continue;
       segments.push(seg);
       cursor = seg.to;
@@ -258,10 +231,6 @@ function decodeLayer(v: unknown, index: number): VecLayer {
   };
 }
 
-/**
- * Serialise a vector document.
- * @returns compact JSON; the inverse of {@link decodeDocument} for every document this engine produces.
- */
 export function encodeDocument(doc: VecDocument): string {
   return JSON.stringify({
     v: PROJECT_SCHEMA_VERSION,
@@ -272,11 +241,6 @@ export function encodeDocument(doc: VecDocument): string {
   });
 }
 
-/**
- * Parse a vector document.
- * @returns a document; a 1x1 empty document when the input is not JSON at all, because a caller that has
- *          just opened a corrupt file needs an editor to open, not an exception.
- */
 export function decodeDocument(json: string): VecDocument {
   let parsed: unknown;
   try {
@@ -297,7 +261,6 @@ export function decodeDocument(json: string): VecDocument {
   );
 }
 
-/** Serialise a whole project: metadata, parameters and the geometry blob. */
 export function encode(doc: ProjectDocument): string {
   return JSON.stringify({
     v: PROJECT_SCHEMA_VERSION,
@@ -319,11 +282,6 @@ export function encode(doc: ProjectDocument): string {
   });
 }
 
-/**
- * Parse a whole project.
- * @returns a project with every field present. Parameters go through {@link sanitizeTraceParams}, which is
- *          the only reason a file written by an older build with a now-illegal value still opens.
- */
 export function decode(json: string): ProjectDocument {
   let parsed: unknown = null;
   try {
@@ -354,7 +312,6 @@ export function decode(json: string): ProjectDocument {
   };
 }
 
-/** @returns a project record from its parts, with `layersJson` produced by {@link encodeDocument}. */
 export function fromDocument(
   meta: ProjectMeta,
   params: TraceParams,

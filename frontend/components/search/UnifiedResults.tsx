@@ -17,11 +17,6 @@ import {
 } from "@/lib/unifiedSearch";
 import { plainSnippet } from "@/lib/transcript/preview";
 
-/**
- * The unified answer on `/search` (docs/SEARCH.md): one panel per group in the server's order, five
- * rows each, "Show all" paging one group. A designer-portal row carries a portal badge and opens
- * the read-only remote card; a local row opens the record's own read-only page.
- */
 export function UnifiedResults({
   data,
   focus,
@@ -134,7 +129,6 @@ function UnifiedRow({ item }: { item: UnifiedItem }) {
   );
 }
 
-/** A paged group holds this page of each portal, so there is more while either side has more. */
 function hasNextPage(group: UnifiedGroup | undefined, page: number, pageSize: number): boolean {
   if (!group) return false;
   return page * pageSize < Math.max(group.localTotal ?? 0, group.remoteTotal ?? 0);

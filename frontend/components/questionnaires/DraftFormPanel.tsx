@@ -1,11 +1,5 @@
 "use client";
 
-/**
- * A form written on this device with no connection (UNIFY A15): its sections and questions, added
- * here with temporary ids, and Send now once there is a connection. Sending lands the form, then its
- * sections, then its questions, and opens the real form.
- */
-
 import { CloudUpload, ClipboardList, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -23,8 +17,6 @@ export function DraftFormPanel({ id }: { id: string }) {
   const { user } = useAuth();
   const router = useRouter();
   const online = useOnline();
-  // Read from this device on every render (the account is known only once signed in); `revision`
-  // re-renders after each change the panel writes.
   const [revision, setRevision] = useState(0);
   const draft: DraftForm | null = user ? getDraft(user.id, id) : null;
   void revision;

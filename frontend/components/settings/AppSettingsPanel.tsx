@@ -6,13 +6,6 @@ import { TimeField } from "@/components/forms/DateTimeField";
 import { Toggle } from "@/components/settings/Toggle";
 import { apiFetch } from "@/lib/api";
 
-/**
- * The repository-wide processing configuration: how audio becomes text, and when the heavy work is
- * allowed to run. Master admin only — `GET/PUT /settings` is behind `require_master_admin`, so this
- * component is mounted only after `isMasterAdmin(user)` and never merely disabled.
- */
-
-/** Mirror of the backend AppSettingDto (GET/PUT /settings, master-admin only). */
 type AppSettings = {
   transcriptionMode: string;
   batchWindowEnabled: boolean;
@@ -32,15 +25,8 @@ function minutesOfDay(value: string) {
   return Number(hours) * 60 + Number(minutes);
 }
 
-/**
- * How long the window is, said back in words. A window is easy to set backwards, and "10 minutes"
- * under the two fields catches that before the queue silently does almost nothing overnight.
- * Crossing midnight is a legitimate answer and the arithmetic wraps to match the backend, which
- * treats start > end as a window running through to the next morning.
- */
 function windowSummary(start: string, end: string) {
   if (!/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end)) return null;
-  // The backend reads an empty window as no restriction at all rather than as zero minutes.
   if (start === end) return "Start and end are the same, so work runs at any time.";
   const span = (minutesOfDay(end) - minutesOfDay(start) + 1440) % 1440;
   const hours = Math.floor(span / 60);

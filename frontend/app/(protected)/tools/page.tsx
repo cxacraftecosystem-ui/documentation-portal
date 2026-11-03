@@ -50,8 +50,6 @@ export default function ToolsPage() {
   const skipFirstDebounce = useRef(true);
   const assignmentRef = useRef<HTMLDivElement | null>(null);
 
-  // Deep link from the dashboard/menu: /tools?assign=1 lands on the assignment section.
-  // Read from window.location so the page needs no Suspense boundary for useSearchParams.
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (new URLSearchParams(window.location.search).get("assign") !== "1") return;
@@ -60,7 +58,6 @@ export default function ToolsPage() {
 
   async function load() {
     try {
-      // /tools supports all three funnel params directly.
       setData(
         await listResource<ToolDocumentation>("/tools", {
           search: applied || undefined,
@@ -79,14 +76,12 @@ export default function ToolsPage() {
     }
   }
 
-  // Waits for the funnel's initial onChange (default = most recent workshop) before the first fetch.
   useEffect(() => {
     if (!funnelReady) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [funnelReady, page, applied, funnel, statusChoice, completeness]);
 
-  // Live search: debounce typing by 350ms; Enter applies immediately via onSubmit.
   useEffect(() => {
     if (skipFirstDebounce.current) {
       skipFirstDebounce.current = false;
@@ -99,12 +94,6 @@ export default function ToolsPage() {
     return () => clearTimeout(timer);
   }, [query]);
 
-  /*
-   * BACK FROM A RECORD PUTS THE LIST BACK AS IT WAS. A row click opens the tool's read-only view,
-   * so the search, page, funnel and scroll position are written down as it opens (`rememberPlace`)
-   * and restored here on the way back — see `lib/listReturn.ts` and the artisans list, which carries
-   * the same block.
-   */
   const listReturn = useListReturn("tools", { query: applied, page, funnel, completeness }, Boolean(data));
   const restoredPage = useRef<number | null>(null);
   useEffect(() => {
@@ -156,9 +145,6 @@ export default function ToolsPage() {
         actions={
           <>
             {canDownloadDataset(user) ? <DownloadCsvButton path="/export/tools.csv?status=APPROVED" filename={exportFilename("Tool", "Export", "csv", { subject: "Approved" })} label="Export approved CSV" /> : null}
-            {/* Gated, not merely locked: an ungated "New …" invited every tier to press a
-                button that lands on the route guard's refusal. Below researcher the honest UI is
-                no button, matching `require_record_creator` on the server. */}
             {canCreateRecords(user) ? (
               <Link className="field-button" href="/tools/new">
                 <Plus className="h-4 w-4" aria-hidden />

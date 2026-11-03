@@ -66,21 +66,6 @@ type LoadedRecord = Record<string, unknown> & {
   createdBy?: User | null;
 };
 
-/**
- * A record, READ-ONLY — what a click on its row or card opens (see `lib/recordView.ts`).
- *
- * Every field the type carries is printed, missing ones as "Not recorded"; attached files are
- * previewed and open in the lightbox, which carries the Download button. The one way to change
- * anything is the "Update" button in the header, which opens the edit form that already existed for
- * this type and is drawn only for an account the server would let save it (`canUpdateRecord`).
- * Comments sit at the foot, as on the handset's View Data detail. The back arrow returns to the list,
- * which puts its search, filter, page and scroll back as they were (`useListReturn`).
- */
-/**
- * A craft's sub-category path from the master list (REQUIREMENTS_2026-10-20 §2.6). `GET /crafts/{id}`
- * sends `subCategoryId` and `categoryId` but not their names, so they are read from the catalogue
- * every picker already holds (offline too). Without the catalogue the record shows as it came.
- */
 async function withCraftPath(record: LoadedRecord): Promise<LoadedRecord> {
   const subCategoryId = typeof record.subCategoryId === "string" ? record.subCategoryId : null;
   if (!subCategoryId || (record.subCategory && typeof record.subCategory === "object")) return record;
@@ -98,7 +83,6 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
   const [error, setError] = useState<string | null>(null);
   const [reloads, setReloads] = useState(0);
   const [decided, setDecided] = useState<string | null>(null);
-  /** What this reviewer may do with the record's files: the approval's count and each file's Reject. */
   const [mediaReview, setMediaReview] = useState<RecordMediaReview | null>(null);
   const reviewer = canReview(user);
   const noun = RECORD_VIEW_NOUN[type];
@@ -142,9 +126,6 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
   const updateHref = recordUpdateHref(type, id);
   const title = record ? recordTitle(type, record) : noun.charAt(0).toUpperCase() + noun.slice(1);
   const mayUpdate = Boolean(updateHref) && canUpdateRecord(user, type);
-  // The server's block (2026-10-18), on the five kinds that have rules ("questionnaire" is the
-  // interview). Its pills open the edit form at the missing field for a reader who may update; for
-  // anyone else they are plain words. Crafts and processes have no rules and draw nothing.
   const completenessKind = type === "questionnaire" ? "interview" : type;
   const completeness =
     record && isCompletenessKind(completenessKind) ? ((record as { completeness?: CompletenessBlock | null }).completeness ?? null) : null;
@@ -158,7 +139,6 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
         actions={
           record ? (
             <>
-              {/* A9: the media page opens on this record, so its files need no second pick. */}
               {canCreateRecords(user) ? (
                 <Link
                   className="field-button-secondary"
@@ -262,7 +242,6 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-/** What one type shows below its fields: its files, and the parts that are lists of their own. */
 function TypeExtras({
   type,
   record,
@@ -314,7 +293,6 @@ function TypeExtras({
                         Step {index + 1} · {step.stepType === "SEQUENTIAL" ? "Sequential" : "Group of activities"}
                         {step.name?.trim() ? ` — ${step.name}` : ""}
                       </span>
-                      {/* C22: a step saved before it was named is flagged until somebody names it. */}
                       {step.name?.trim() ? null : (
                         <Badge tone="attention">Unnamed step</Badge>
                       )}
@@ -341,11 +319,6 @@ function TypeExtras({
   }
 }
 
-/**
- * A7 — "Use transcripts as answers" for a whole sitting, one tap (a reviewer's shortcut). The server
- * fills only EMPTY answers from each question's transcribed clip and marks them "From transcript";
- * a typed answer is never touched. Offered while the sitting has a transcribed clip at all.
- */
 function InterviewTranscripts({
   record,
   user,
@@ -391,7 +364,6 @@ function InterviewTranscripts({
   );
 }
 
-/** "Print artisan cards" for everyone on this workshop's roster, in one PDF. Hidden while cards are off. */
 function WorkshopCards({ workshopId }: { workshopId: string }) {
   return (
     <section className="panel grid gap-3 p-4 empty:hidden" aria-label="Artisan cards">
@@ -400,7 +372,6 @@ function WorkshopCards({ workshopId }: { workshopId: string }) {
   );
 }
 
-/** An interview's answers, in questionnaire order, each under its section code and prompt. */
 function InterviewAnswers({ responses }: { responses: QuestionnaireResponse[] }) {
   const answered = responses
     .filter((response) => response.answerText?.trim())
@@ -432,13 +403,6 @@ function InterviewAnswers({ responses }: { responses: QuestionnaireResponse[] })
   );
 }
 
-/**
- * "Make a tool entry" / "Make a product entry" / "Start questionnaire", with this artisan already
- * on the form. These used to appear on the artisans list when a row was clicked; a row click now
- * opens this view, so they live here, under the person they are about.
- *
- * The artisan's own workshop deliberately does not travel — see `artisanEntryHref`.
- */
 function ArtisanNextSteps({ artisan, user }: { artisan: Artisan; user: User | null | undefined }) {
   const creator = canCreateRecords(user);
   const items = [
@@ -463,20 +427,6 @@ function ArtisanNextSteps({ artisan, user }: { artisan: Artisan; user: User | nu
   );
 }
 
-/**
- * Open a capture form with this artisan already on it.
- *
- * ── THE ARTISAN'S OWN WORKSHOP DELIBERATELY DOES NOT TRAVEL ──────────────────────────────────────
- *
- * `artisan.workshopId` is where the PERSON'S RECORD was filed, which is routinely a workshop months
- * ago and a district away — not where the researcher clicking this link is standing. Opening the
- * interview form on it would file the sitting at the wrong workshop by default, and it would
- * override `useWorkshopSelection`'s probe, whose job is to land on a workshop this account may
- * actually SUBMIT to (`components/forms/WorkshopSelect.tsx`). A seeded artisan the default workshop's
- * roster does not hold is named in a sentence under the picker instead — rule 6 in
- * `components/questionnaires/interviewArtisans.ts`. (Moved here from the artisans list with the
- * cards it serves; the full argument was written there first.)
- */
 function artisanEntryHref(path: string, artisan: Artisan) {
   const params = new URLSearchParams({
     artisanId: artisan.id,

@@ -1,13 +1,5 @@
 "use client";
 
-/**
- * /notifications — the in-app activity list (C25). Every notice the server sends lands here, by the
- * same call that queues its e-mail, so nothing is missed where mail is off. The bell in the island
- * opens this page; Android's "Notifications" screen is the same list, kept offline.
- *
- * Opening a notice marks it read and follows its link; "Mark all as read" clears the badge.
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bell } from "lucide-react";
@@ -109,7 +101,6 @@ export default function NotificationsPage() {
         setUnread(answer.unreadCount);
         setUnreadNotificationCount(answer.unreadCount);
       } catch {
-        /* the next read of the list puts it right; following the link matters more */
       }
     }
     if (link) router.push(link);

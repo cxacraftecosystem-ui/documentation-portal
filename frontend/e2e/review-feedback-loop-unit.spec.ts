@@ -26,14 +26,6 @@ import {
   type ReviewReason
 } from "@/lib/review";
 
-/**
- * THE REVIEW FEEDBACK LOOP ON THE WEB (A1, A2, A3, A13, B9, B12, C19, C21).
- *
- * The decisions are pure functions so they run here without a browser; the wiring (which screens
- * draw the note, the bar, the card and the filters) is read off disk below, so a screen that quietly
- * drops one fails here rather than in somebody's hands.
- */
-
 const read = (...parts: string[]) => readFileSync(join(__dirname, "..", ...parts), "utf8").replace(/\r\n/g, "\n");
 
 const MISSING: ReviewReason = { code: "MISSING_DETAILS", label: "Missing details", fixable: true, needsNote: false };
@@ -101,7 +93,6 @@ test.describe("the queue's filters", () => {
     expect(queueQuery(1, 20, {})).toBe("?page=1&pageSize=20");
     expect(queueFiltersFrom(new URLSearchParams("order=sideways")).order).toBeUndefined();
     expect(reviewQueueHref({ createdById: "u1", workshopId: "w1" })).toBe("/review?createdById=u1&workshopId=w1");
-    // A task's artisans narrow the queue to exactly that task's records (B12).
     const task = queueFiltersFrom(new URLSearchParams("createdById=u1&recordType=product&artisanId=a1,a2"));
     expect(task.artisanId).toBe("a1,a2");
     expect(queueQuery(1, 20, task)).toBe("?page=1&pageSize=20&createdById=u1&recordType=product&artisanId=a1%2Ca2");

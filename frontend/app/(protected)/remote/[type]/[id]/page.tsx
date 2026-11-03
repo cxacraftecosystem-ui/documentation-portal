@@ -9,10 +9,6 @@ import { ButtonRow } from "@/components/ui/ButtonRow";
 import { formatDateTime } from "@/lib/format";
 import { fetchRemoteRecord, openInLabel, remoteRecordRows, remoteRecordError, safeOpenUrl, type RemoteRecord } from "@/lib/unifiedSearch";
 
-/**
- * One record from the designer portal, read-only (docs/SEARCH.md): what that portal shares about it,
- * and a link to open it there, where that account's own permissions apply. No form, no file.
- */
 export default function RemoteRecordPage() {
   const { type, id } = useParams<{ type: string; id: string }>();
   const [record, setRecord] = useState<RemoteRecord | null>(null);

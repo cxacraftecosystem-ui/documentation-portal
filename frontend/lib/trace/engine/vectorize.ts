@@ -20,16 +20,6 @@ import {
 import { chaikin, movingAverage } from './smooth';
 import { variableWidthOutline } from './strokeStyle';
 
-/**
- * Mask to vector shapes. See ALGORITHMS.md §10.
- *
- * Choosing between the two modes is the most consequential decision in the app:
- *  - CENTERLINE traces the skeleton into **open polylines**; one stroke of the original becomes one path.
- *    This is what CNC, embroidery, pen plotters and single-stroke styles need.
- *  - OUTLINE traces region boundaries into **closed paths**; every filled region becomes a filled shape.
- *    This is what stencils, silhouettes, laser cutting, vinyl and colouring pages need.
- */
-
 export enum VectorMode {
   CENTERLINE = 'CENTERLINE',
   OUTLINE = 'OUTLINE',
@@ -47,39 +37,11 @@ export interface VectorizeParams {
   readonly widthScale: number;
   readonly minWidth: number;
   readonly maxWidth: number;
-  /**
-   * **The distinction between a colouring page and a silhouette.** In {@link VectorMode.OUTLINE} a
-   * traced region can be presented two ways, and confusing them produces the two worst outputs this
-   * stage is capable of:
-   *
-   *  - `false` — *an outline you fill in yourself.* Every boundary is traced, holes included, and
-   *    every one is emitted as a **stroked** closed path with no fill. This is a colouring page, a
-   *    cut file and a transfer pattern: the interior stays paper, and the bands and motifs inside a
-   *    shape survive as their own closed paths for a child to colour or a blade to follow.
-   *  - `true` — *the region is the mark.* Only **outer** boundaries are traced and each is
-   *    **painted**. This is a silhouette, a woodcut mass, a comic black.
-   *
-   * Holes are deliberately not traced in the painted case. A {@link VecPath} is one subpath, so a
-   * hole cannot be expressed as part of the shape that contains it; emitting it as a separate
-   * painted path fills the hole with ink, which is how a colouring book came out as a solid black
-   * silhouette with every interior detail gone. Not tracing a hole loses the white; painting it
-   * loses the white *and* costs a path. Between "a solid region has no interior" and "a solid region
-   * has an interior painted the same colour", only the first is a defensible reading.
-   */
   readonly fillRegions: boolean;
-  /**
-   * Link polylines that continue through a junction, so one contour comes back as one path rather
-   * than one path per graph edge. See {@link module:skeletonTrace.chain}; only meaningful in
-   * {@link VectorMode.CENTERLINE}.
-   */
   readonly chainStrokes: boolean;
-  /** See `ChainParams.maxTurnDegrees`. */
   readonly chainMaxTurnDegrees: number;
-  /** See `ChainParams.tangentSpan`. */
   readonly chainTangentSpan: number;
-  /** See `ChainParams.minBranchLength`. */
   readonly chainPruneBranch: number;
-  /** See `ChainParams.maxNodeDegree`. */
   readonly chainMaxNodeDegree: number;
 }
 
@@ -103,12 +65,10 @@ export const DEFAULT_VECTORIZE_PARAMS: VectorizeParams = {
   chainMaxNodeDegree: 4,
 };
 
-/** @returns {@link DEFAULT_VECTORIZE_PARAMS} with `over` applied. */
 export function vectorizeParams(over: Partial<VectorizeParams> = {}): VectorizeParams {
   return { ...DEFAULT_VECTORIZE_PARAMS, ...over };
 }
 
-/** Moving-average window for width modulation; the reference value from ALGORITHMS.md §10.7. */
 const WIDTH_SMOOTH_WINDOW = 5;
 
 function polylineLength(points: readonly VecPoint[], closed: boolean): number {
@@ -124,13 +84,6 @@ function polylineLength(points: readonly VecPoint[], closed: boolean): number {
   return total;
 }
 
-/**
- * Chaikin, then the collinear merge, then Douglas-Peucker.
- *
- * The order is load-bearing. Chaikin runs **before** DP because smoothing after simplification just
- * re-adds the points DP removed; the collinear merge runs before DP because it costs one pass and roughly
- * halves DP's input on axis-aligned artwork.
- */
 function prepare(
   points: readonly VecPoint[],
   closed: boolean,
@@ -145,17 +98,6 @@ function prepare(
   return pts;
 }
 
-/**
- * Vectorise a binary mask.
- *
- * @param mask              the cleaned-up ink mask; in CENTERLINE mode it is expected to be a 1 px skeleton
- * @param distanceTransform required when `params.modulateWidth` is true; must be the DT of the
- *                          **pre-skeleton** mask, because the distance from a skeleton pixel to the
- *                          nearest background pixel is the stroke's half-width. Passing null with
- *                          `modulateWidth` on silently falls back to a uniform width rather than throwing.
- * @returns shapes in the mask's own pixel coordinates. Paths whose length is below
- *          `params.minPathLength` are dropped; the caller is expected to report the count.
- */
 export function run(
   mask: Mask,
   params: VectorizeParams,
@@ -166,13 +108,6 @@ export function run(
     : runCenterline(mask, params, distanceTransform);
 }
 
-/**
- * How many paths the last {@link run} discarded for being shorter than `minPathLength`.
- *
- * Returned out of band rather than thrown away: a trace that silently dropped 4 000 short paths and one
- * that found nothing look identical on screen, and that ambiguity is the bug class this project takes
- * most seriously. {@link module:pipeline} turns this into a sentence in `TraceResult.notes`.
- */
 export interface RunStats {
   readonly emitted: number;
   readonly dropped: number;
@@ -180,7 +115,6 @@ export interface RunStats {
 
 let lastStats: RunStats = { emitted: 0, dropped: 0 };
 
-/** @returns statistics for the most recent {@link run} on this thread. */
 export function lastRunStats(): RunStats {
   return lastStats;
 }
@@ -247,7 +181,6 @@ function runCenterline(
       raw[j] = Px.clamp(w * params.widthScale, params.minWidth, params.maxWidth);
     }
     const widths = movingAverage(raw, WIDTH_SMOOTH_WINDOW);
-    // SVG has no variable-width stroke, so a modulated stroke has to be emitted as a filled outline.
     const ribbon = variableWidthOutline(
       new VecPath(path.start, path.segments, path.closed, path.id, widths),
       widths,
@@ -263,14 +196,6 @@ function runCenterline(
   return out;
 }
 
-/**
- * Reorders contours so every region's outer boundary is immediately followed by its own holes.
- *
- * `contourTrace` returns all outer boundaries and then all holes, which is the right order for a
- * tracer and the wrong one for a painter: a renderer that walks the list in order must meet the
- * region before the holes inside it. Linear, and stable within each group, so the output order is
- * still a function of the mask alone.
- */
 function orderByRegion(contours: readonly Contour[]): Contour[] {
   const n = contours.length;
   if (n < 2) return contours.slice();
@@ -297,25 +222,17 @@ function orderByRegion(contours: readonly Contour[]): Contour[] {
       taken[j] = 1;
     }
   }
-  // A hole whose region was filtered away upstream is still real ink; it ships in trace order rather
-  // than being silently dropped by the reordering.
   for (let i = 0; i < n; i++) if (taken[i] === 0) out.push(contours[i]);
   return out;
 }
 
 function runOutline(mask: Mask, params: VectorizeParams): VecShape[] {
-  // See VectorizeParams.fillRegions. Painted regions trace outer boundaries only, because a hole
-  // painted in ink is not a hole; stroked outlines trace everything, because the interior detail is
-  // the whole product.
   const contours = orderByRegion(params.fillRegions ? traceOuterOnly(mask) : traceContours(mask));
   const out: VecShape[] = [];
   let dropped = 0;
   const painted = vecStyle({
     stroke: null,
     fill: 0xff000000,
-    // NONZERO rather than EVENODD. Only outer boundaries are painted, so there is no hole for the
-    // two rules to disagree about — but a traced boundary can touch itself at a one-pixel isthmus,
-    // and NONZERO is the rule that still renders that solid instead of punching a hole through it.
     fillRule: FillRule.NONZERO,
   });
   const stroked = vecStyle({
@@ -335,10 +252,6 @@ function runOutline(mask: Mask, params: VectorizeParams): VecShape[] {
       lastLabel = c.label;
       holeIndex = 0;
     }
-    // The id records the hole relationship a single-subpath VecPath cannot carry in its geometry:
-    // `r7` is a region's outer boundary and `r7h0` is the first hole in it. Combined with the
-    // emission order — every region immediately followed by its own holes — a consumer that later
-    // gains compound paths can reassemble them exactly.
     const id = c.isHole ? `r${c.label}h${holeIndex++}` : `r${c.label}`;
     if (c.points.length < 3) {
       dropped++;

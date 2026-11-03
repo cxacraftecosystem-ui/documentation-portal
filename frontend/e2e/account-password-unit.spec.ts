@@ -1,20 +1,3 @@
-/**
- * ACCOUNTS AND PASSWORDS — the browser's half, pinned.
- *
- * Pure functions from `lib/signIn.ts`, `lib/passwordChange.ts`, `lib/accessRoster.ts` and the users
- * screen's `accountAdmin.ts`, plus source assertions for the judgements that live in JSX (there is no
- * React renderer in devDependencies):
- *
- *   1. The two public password screens live OUTSIDE the protected tree, and sign-in links to one.
- *   2. "Forgot your password?" prints the server's one answer and never a "not found" branch.
- *   3. A 401 carrying `X-Password-Change-Required` keeps the session and is told apart.
- *   4. The forced change is drawn above the whole protected tree.
- *   5. What "help them back in" offers on each account.
- *   6. The access roster sends a password only for the password choice, exactly as typed.
- *
- * ⚠ Source assertions are line-ending agnostic: `\s` and `[\s\S]`, never `\n`.
- */
-
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -59,7 +42,6 @@ test("the public password screens live outside the protected tree", () => {
   expect(existsSync(join(root, "app", "forgot-password", "page.tsx"))).toBe(true);
   expect(existsSync(join(root, "app", "(protected)", "set-password"))).toBe(false);
   expect(existsSync(join(root, "app", "(protected)", "forgot-password"))).toBe(false);
-  // An old token found on either must not bounce the person to /login and lose the link.
   expect(SIGNED_OUT_PAGES.has("/set-password")).toBe(true);
   expect(SIGNED_OUT_PAGES.has("/forgot-password")).toBe(true);
 });
@@ -108,7 +90,6 @@ test("a 401 with X-Password-Change-Required keeps the session", () => {
 test("the forced change is drawn above the whole protected tree", () => {
   const shell = read("components", "AppShell.tsx");
   expect(shell).toMatch(/if \(mustChangePassword\(user\)\)[\s\S]{0,400}<FirstPasswordGate/);
-  // Above the route guard: the gate's return comes before the guard is even computed.
   expect(shell.indexOf("<FirstPasswordGate")).toBeLessThan(shell.indexOf("routeGuardFor(pathname)"));
   expect(mustChangePassword(account({ mustChangePassword: true }))).toBe(true);
   expect(mustChangePassword(account())).toBe(false);
@@ -119,7 +100,6 @@ test("the change-password rules", () => {
     "The two passwords do not match."
   );
   expect(newPasswordProblem({ current: "same-pass", next: "same-pass", confirm: "same-pass" })).toContain("different");
-  // Setting a FIRST password: there is no current one to differ from.
   expect(newPasswordProblem({ current: "", next: "abcdefgh", confirm: "abcdefgh" })).toBeNull();
   expect(hasOwnPassword(account({ hasPassword: false, passwordSetAt: "2026-01-01" }))).toBe(false);
   expect(hasOwnPassword({ passwordSetAt: "2026-01-01" })).toBe(true);
@@ -132,7 +112,6 @@ test("Settings offers set-a-password to an account without one", () => {
   const card = read("components", "settings", "ChangePasswordCard.tsx");
   expect(card).toContain("Set a password");
   expect(card).toContain("asksToConfirmSignIn");
-  // The provider sign-in is run again on the card itself; nobody is sent to sign out.
   expect(card).toContain("<GoogleSignInButton");
   expect(card).toContain("REAUTH_STATE_PREFIX");
   expect(card).not.toContain("Sign out and sign in again");
@@ -150,13 +129,10 @@ test("help them back in: what each account is offered", () => {
     signOutEverywhere: true,
     turnOffTwoStep: true
   });
-  // No mail on this deployment: no e-mail button, everything else stays.
   expect(rowOffers(admin, account(), { adminView: true, mailAvailable: false }).emailLink).toBe(false);
-  // Google only: no link (nothing to reset) — a temporary password instead.
   const google = account({ authProvider: "GOOGLE", hasPassword: false });
   expect(linkOffered(google)).toBe(false);
   expect(rowOffers(admin, google, view)).toMatchObject({ copyLink: false, temporaryPassword: true, requireChange: false });
-  // Never your own account, never a peer, never with admin view off.
   expect(rowOffers(admin, admin, view).signOutEverywhere).toBe(false);
   expect(rowOffers(admin, account({ role: "ADMIN" }), view).temporaryPassword).toBe(false);
   expect(rowOffers(admin, account(), { adminView: false, mailAvailable: true }).temporaryPassword).toBe(false);
@@ -233,7 +209,6 @@ test("add a person: roles strictly below your own, and only what the chosen sign
   ]) {
     expect(formSource).toContain(words);
   }
-  // The link offer is drawn only where e-mail can carry it.
   expect(formSource).toMatch(/\{mailAvailable \? \([\s\S]{0,300}Email them a link to set a password too/);
 });
 

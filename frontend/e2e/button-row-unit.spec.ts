@@ -11,12 +11,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { DashboardCard } from "@/components/DashboardCard";
 import { ButtonRow, buttonCount } from "@/components/ui/ButtonRow";
 
-/**
- * THE BUTTON-ROW RULE, owner ruling 2026-10-17: one button centred, two on one line, three or more
- * stacked on a phone and pills from `sm` up. It is decided once, in `components/ui/ButtonRow.tsx`,
- * and the shared hosts route through it so no screen hand-styles its own row. There is no React
- * renderer in devDependencies, so the count is tested as a function and the layout as source.
- */
 const read = (...parts: string[]) => readFileSync(join(process.cwd(), ...parts), "utf8").replace(/\r\n/g, "\n");
 const ROW = read("components", "ui", "ButtonRow.tsx");
 
@@ -46,10 +40,6 @@ test("the shared hosts render through it rather than a flex div of their own", (
   expect(read("components", "dialogs", "FieldDialog.tsx")).not.toContain('"mt-5 flex flex-wrap justify-end gap-2"');
 });
 
-/*
- * CARD FOOTERS FILL THE CARD, owner ruling 2026-10-20. `fill` widens the click area of a card's one
- * or two buttons to the card's content edges at every width; the height is untouched.
- */
 const html = (node: ReactNode) => renderToStaticMarkup(createElement(Fragment, null, node));
 const btn = (label: string) =>
   createElement("button", { key: label, type: "button", className: "field-button h-9 min-h-0 px-3 text-xs pointer-coarse:h-11", "data-b": label }, label);
@@ -85,17 +75,10 @@ test("the card footers ask for fill; the rows that are not cards do not", () => 
   const review = read("app", "(protected)", "review", "page.tsx");
   expect(review).toContain('<ButtonRow size="sm" fill={fill} className="mt-2">');
   expect(review).toContain("{actionPanel(item, activeAction, true)}");
-  // The wide table row's panel and the folder browser's empty state span the page, not a card.
   expect(review).toContain("{actionPanel(item, activeAction)}");
   expect(read("app", "(protected)", "data", "page.tsx")).not.toContain("<ButtonRow size=\"sm\" fill");
 });
 
-/*
- * GEOMETRY, measured in a real browser against the app's own stylesheet, compiled here from
- * app/globals.css so no build or server is needed. The unit job installs no Playwright browser, so
- * this launches whichever Chromium the machine has (Playwright's, else Chrome, else Edge) and skips
- * with that reason only when there is none.
- */
 let browser: Browser | null = null;
 let css = "";
 
@@ -104,7 +87,6 @@ async function launch(): Promise<Browser | null> {
     try {
       return await chromium.launch(options);
     } catch {
-      /* try the next one */
     }
   }
   return null;
@@ -134,7 +116,6 @@ test.describe("measured", () => {
     return { context, page };
   }
 
-  /** The card's content box, inside its padding and border, and each button's box. */
   async function measure(page: Page, selector: string) {
     return page.locator(selector).evaluate((el) => {
       const r = el.getBoundingClientRect();

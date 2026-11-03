@@ -17,13 +17,6 @@ import {
 import { focusField, focusKeyFromSearch } from "@/lib/forms";
 import { decodeListReturn, encodeListReturn } from "@/lib/listReturn";
 
-/**
- * The web half of record completeness (2026-10-18), against `shared/record-completeness.json` — the
- * table both portals carry byte for byte, which the server and the handset also run. The evaluator
- * and the sentence are held to the shared vectors and to the same edge cases the server's
- * `tests/test_record_completeness.py` pins; the focus helper is run in a real page.
- */
-
 const ROOT = join(__dirname, "..", "..");
 const read = (...parts: string[]) => readFileSync(join(ROOT, ...parts), "utf-8").split("\r\n").join("\n");
 
@@ -90,8 +83,6 @@ test("the filter value and the rules pick are defensive", () => {
 });
 
 test("focusField scrolls to and focuses the anchored field, skipping a mirror twin", () => {
-  // No browser: unit specs run without one in CI (checks.yml), so the DOM is a hand-made stand-in
-  // that records what focusField asks of it.
   const calls: string[] = [];
   let focused: string | null = null;
   const typed = { focus: () => (focused = "typed") };
@@ -117,7 +108,6 @@ test("focusField scrolls to and focuses the anchored field, skipping a mirror tw
     expect(focused).toBe("typed");
     expect(anchor.dataset.flash).toBe("true");
     expect(calls).toContain("scroll:center");
-    // The mirror twin (tabindex -1) is never the control that takes focus.
     const control = calls.find((call) => call.startsWith("control:")) ?? "";
     expect(control).toContain(':not([tabindex="-1"])');
     expect(focusField("nowhere", root as unknown as ParentNode)).toBe(false);
@@ -128,7 +118,6 @@ test("focusField scrolls to and focuses the anchored field, skipping a mirror tw
 });
 
 test("every record form carries the anchors its rules name", () => {
-  // A form's anchors may sit in a control it mounts: the workshop's two dates are in DateRangeField.
   const anchors = (file: string) => {
     const files = file === "app/(protected)/workshops/page.tsx" ? [file, "components/forms/DateRangeField.tsx"] : [file];
     const text = files.map((one) => read("frontend", ...one.split("/"))).join("\n");
@@ -139,14 +128,12 @@ test("every record form carries the anchors its rules name", () => {
     "components/forms/ProductForm.tsx": ["artisan", "sellingPrice", "costOfMaking", "timeTaken", "dimensions", "marketDemand", "photo"],
     "components/forms/ToolForm.tsx": ["artisan", "localName", "material", "dimensions", "maker", "traditionType", "replacementCost", "photo"],
     "app/(protected)/workshops/page.tsx": ["startDate", "endDate", "artisans", "crafts", "photo"],
-    // The interview date is derived by the server, so it has no box to jump to.
     "app/(protected)/questionnaire/page.tsx": ["place", "language", "artisans", "answers", "recording"]
   };
   for (const [file, keys] of Object.entries(expected)) {
     const found = anchors(file);
     for (const key of keys) expect(found.has(key), `${file} lacks data-field "${key}"`).toBe(true);
   }
-  // And the list above is every rule key, so a rule added without an anchor fails here.
   const kindOf: Record<string, string> = {
     "components/forms/ArtisanForm.tsx": "artisan",
     "components/forms/ProductForm.tsx": "product",

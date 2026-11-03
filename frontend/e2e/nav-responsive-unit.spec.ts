@@ -3,18 +3,6 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-/**
- * The responsive navigation, pinned as source (REQUIREMENTS_2026-10-20 §4). PURE NODE.
- *
- * One breakpoint decides the mode — `lg`, 1024 CSS px — and it is decided by CSS alone: the desktop
- * island carries `max-lg:hidden`, the search header and the bottom island carry `lg:hidden`, and no
- * navigation component reads the window's width. The live twin, `nav-responsive.spec.ts`, drives the
- * same rules in a browser at 390, 820 and 1440 px.
- *
- * It also pins the desktop island's ORIGINAL expanded size — the pill, the logo, the name and the
- * strip — so the island cannot be shrunk again without this file being changed on purpose.
- */
-
 const ROOT = join(__dirname, "..");
 const read = (...parts: string[]) => readFileSync(join(ROOT, ...parts), "utf8");
 
@@ -39,7 +27,6 @@ test("the island is drawn from lg up only, and the phone chrome below lg only", 
   expect(BAR).toContain('"bottom-island-frame pointer-events-none fixed inset-x-0 z-50 flex justify-center lg:hidden"');
   expect(HEADER).toMatch(/"app-search-header-frame [^"]*lg:hidden"/);
   expect(SHEET).toContain('"fixed inset-0 z-90 lg:hidden"');
-  // The one width the island reads is the scrollbar's, for the sheet's scroll lock — not a mode.
   const navWithoutGutter = NAV.replace("const gutter = window.innerWidth - root.clientWidth;", "");
   for (const [name, source] of Object.entries({ NAV: navWithoutGutter, BAR, SHEET, HEADER, PANEL })) {
     expect(source, `${name} must not read the window width`).not.toMatch(/innerWidth|matchMedia/);
@@ -54,20 +41,16 @@ test("the admin-view control is back to its pill, still a switch, with the bell 
   const slice = NAV.slice(pill, bell);
   expect(slice).toContain("rounded-full border px-2.5 py-1.5 text-xs font-medium");
   expect(slice).toContain("<EyeOff");
-  // The shared switch (components/ui/Toggle — `role="switch"`, `aria-checked`), never a hand-made
-  // button: the same control the designer portal draws there, its track at three quarters.
   expect(slice).toContain("<Toggle");
   expect(slice).toContain("hideLabel");
   expect(slice).toContain('label="Admin view"');
   expect(slice).toContain("checked={adminMode}");
   expect(slice).toContain("scale-75");
   expect(slice).not.toContain('role="switch"');
-  // The pill is the switch's label, so the whole pill is the target.
   expect(slice).toContain("htmlFor={adminSwitchId}");
   expect(slice).toContain("id={adminSwitchId}");
   expect(bell).toBeGreaterThan(pill);
   expect(menu).toBeGreaterThan(bell);
-  // Offered to every account the provider says has the control (perms adds `available`).
   expect(NAV).toContain("(adminView as { available?: boolean }).available ?? canAdmin");
 });
 
@@ -79,7 +62,6 @@ test("the bottom island is Android's: five slots at most, More, a divider and th
   expect(BAR).toContain('aria-current={active ? "page" : undefined}');
   expect(BAR).toContain("min-h-12");
   expect(BAR).toContain('style={{ bottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}');
-  // It hides for the keyboard and for open search, never on scroll.
   expect(BAR).toContain("const visible = !hidden && !keyboardOpen;");
   expect(BAR).not.toMatch(/addEventListener\("scroll"/);
 });
@@ -95,12 +77,9 @@ test("the More sheet is a modal bottom sheet titled More", () => {
 });
 
 test("Back closes the More sheet without leaving a step behind", () => {
-  // Opening stands the sheet on its own history entry, carrying the router's state with it.
   expect(SHEET).toContain("window.history.pushState({ ...(window.history.state ?? {}), [ISLAND_MORE_HISTORY_KEY]: true }, \"\")");
-  // Back (popstate) closes it; a pop onto another sheet entry does not.
   expect(SHEET).toContain("window.addEventListener(\"popstate\", onPopState)");
   expect(SHEET).toMatch(/if \(\(event\.state as Record<string, unknown> \| null\)\?\.\[ISLAND_MORE_HISTORY_KEY\]\) return;\s*popped = true;\s*closeRef\.current\(\);/);
-  // Escape or the scrim take the entry off again; a row replaces it with the page it opens.
   expect(SHEET).toContain("if (!popped && !leavingByLink.current && onSheetEntry) window.history.back();");
   expect(SHEET).toMatch(/href=\{href\}\s*replace\s*onClick=\{onNavigate\}/);
   expect(SHEET.match(/onNavigate=\{navigateFromSheet\}/g)?.length).toBe(2);
@@ -112,8 +91,6 @@ test("the search header carries the scan button, the name and the search glyph",
   expect(HEADER).toContain("min-h-[60px]");
   expect(HEADER).toContain("inert={!shown}");
   expect(HEADER).toContain("quickReturnStep(");
-  // The delta is read when the scroll is, never inside the state updater (which React may run
-  // after `last` has moved on, so an upward scroll would read 0 and the header stay hidden).
   expect(HEADER).toContain("const delta = now - last;");
   expect(HEADER).toContain("setStep((state) => quickReturnStep(state, delta, now, height, pinned));");
   expect(NAV).toContain('const APP_NAME = "Field Repository";');
@@ -127,7 +104,6 @@ test("Browse carries Scan a code, as in the designer portal's menu", () => {
 test("the menu sheet ends above the bottom island and below the search header", () => {
   expect(CSS).toContain("html.has-bottom-nav .nav-sheet {");
   expect(CSS).toContain("max-height: calc(100dvh - var(--nav-sheet-top) - var(--bottom-nav-h) - 0.5rem);");
-  // Landscape phones: the header's foot is 72px down, so the sheet starts at 76px rather than 68px.
   expect(CSS).toMatch(/@media \(max-height: 560px\) \{\s*html\.has-bottom-nav \.nav-sheet \{\s*--nav-sheet-top: 4\.75rem;/);
 });
 
@@ -137,7 +113,6 @@ test("opening search from the header closes the menu sheet first", () => {
 
 test("the scan button keeps the frozen signature", () => {
   expect(SCAN).toContain("export function TopBarScanButton({ className }: { className?: string })");
-  // The qr stream's button opens the scanner in place rather than linking to a page.
   expect(SCAN).toContain("<ScanSheet");
   expect(SCAN).toContain('aria-label="Scan a code"');
 });

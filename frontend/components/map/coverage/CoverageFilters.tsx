@@ -1,12 +1,5 @@
 "use client";
 
-/**
- * The coverage filters: which crafts, which kind of workshop, which financial year, which state,
- * and what the map is coloured by. Every value lives in the URL (`CoverageView`), so a filtered view
- * can be linked. Craft and year are the shared pickers; scheme and metric are short fixed
- * vocabularies, drawn as pills and a segmented control.
- */
-
 import { SearchableMultiSelect, SearchableSelect } from "@/components/ui/SearchableSelect";
 import { METRICS, type RegisterState } from "@/components/map/coverage/coverageMath";
 import type {

@@ -3,7 +3,6 @@
 import { binLabels } from "@/components/map/coverage/coverageMath";
 import { BIN_CLASSES } from "@/components/map/coverage/CoverageMap";
 
-/** Five quantile bins, the hatched "no workshop" swatch and the dashed parent outline. */
 export function CoverageLegend({
   breaks,
   metricLabel,

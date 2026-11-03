@@ -1,14 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
 
-/**
- * A meter pill on an artisan's page opens the edit form AT the missing field (2026-10-18).
- *
- * READ-ONLY: the dev server may point at real data, so nothing is written. The first artisan the
- * list hands back is opened, and its GET is answered with that artisan minus its craft start date
- * and with the block the server would then send — the page under test is the client's, not the
- * server's arithmetic (which `backend/tests/test_record_completeness.py` holds).
- */
-
 const EMAIL = process.env.E2E_EMAIL ?? "";
 const PASSWORD = process.env.E2E_PASSWORD ?? "";
 

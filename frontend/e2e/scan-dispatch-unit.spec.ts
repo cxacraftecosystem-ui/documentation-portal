@@ -15,13 +15,6 @@ import {
 } from "@/lib/scanDispatch";
 import { SCAN_CODECS } from "@/lib/scanCodecs";
 
-/**
- * The top-bar dispatcher against the shared fixture (REQUIREMENTS_2026-10-20 §6.3). This file and
- * `fixtures/scan-dispatch.json` are byte-identical in both portals, and Android's `ScanDispatchTest`
- * reads the same fixture. Each portal runs its own column; the designer portal, which carries the
- * DPW decoders, runs the field column too (the field column needs no decoder at all).
- */
-
 type Expectation = {
   outcome: string;
   title?: string;
@@ -98,9 +91,7 @@ for (const portal of PORTALS) {
         if (want.clientKey) {
           expect(got.action?.type === "joinSession" ? got.action.qr?.clientKey : undefined).toBe(want.clientKey);
         }
-        // A join card's secret never reaches the words on screen.
         if (row.secret) expect(`${got.title} ${got.detail ?? ""}`).not.toContain(row.secret);
-        // An Aadhaar payload is refused and no part of it comes back.
         if (row.aadhaar) {
           expect(got.action).toBeUndefined();
           const said = JSON.stringify(got);

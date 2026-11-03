@@ -9,18 +9,8 @@ import {
 } from './path';
 import { movingAverage } from './smooth';
 
-/**
- * Stroke outlining. See ALGORITHMS.md §10.7 and §11.
- *
- * SVG has no variable-width stroke, so a width-modulated centreline has to become a **filled outline**.
- * The uniform case is outlined too, because that is what lets the rasteriser fill everything with one
- * non-zero scanline pass and makes a self-overlapping stroke render solid instead of showing seams.
- */
-
-/** Radians per segment when approximating an arc; ~17 degrees is below the visible threshold at 64x zoom. */
 const ARC_STEP = 0.3;
 
-/** Points used for a round cap on a zero-length stroke, i.e. a dot. */
 const DOT_SEGMENTS = 16;
 
 function dedupe(pts: readonly VecPoint[]): VecPoint[] {
@@ -61,7 +51,6 @@ function dot(centre: VecPoint, hw: number, cap: LineCap, id: string): VecPath {
   return polygonToPath(pts, id);
 }
 
-/** Appends an arc of radius `r` about `c` from angle `a0`, sweeping `delta` radians. */
 function pushArc(
   out: VecPoint[],
   c: VecPoint,
@@ -76,10 +65,6 @@ function pushArc(
   }
 }
 
-/**
- * One side of a uniform-width offset polygon.
- * @param side +1 for the side the tangent's left normal points to, -1 for the other
- */
 function offsetSide(
   pts: readonly VecPoint[],
   hw: number,
@@ -116,9 +101,6 @@ function offsetSide(
     const bx = pts[i].x - side * t1y * hw;
     const by = pts[i].y + side * t1x * hw;
     const cross = t0x * t1y - t0y * t1x;
-    // Outer corner for this side: the two offset points diverge and the gap between them has to be
-    // filled by the join. On the inner corner both points are pushed and the resulting self-overlap is
-    // resolved by the non-zero fill rule, which is exactly what SVG specifies.
     const outer = side * cross < 0;
     if (!outer || Math.abs(cross) < 1e-9) {
       out.push({ x: ax, y: ay });
@@ -153,18 +135,6 @@ function offsetSide(
   return out;
 }
 
-/**
- * Convert a stroked path into a fillable outline.
- *
- * A **closed** input is outlined as if it were an open path whose last point repeats its first, with a
- * butt cap at the seam. Both seam crossings then lie on the same radial line and cancel under the
- * non-zero rule, which yields an exact annulus from a single subpath — a genuinely separate inner ring
- * cannot be expressed in one `VecPath` and joining two rings with a bridge leaves a visible wedge.
- *
- * @param width   stroke width in document units; <= 0 yields an empty closed path
- * @param flatten curve flattening tolerance used before offsetting
- * @returns a closed VecPath of line segments, to be filled with {@link FillRule.NONZERO}.
- */
 export function outlineStroke(
   path: VecPath,
   width: number,
@@ -197,10 +167,6 @@ export function outlineStroke(
   return polygonToPath(out, path.id);
 }
 
-/**
- * Adds the end cap (`atStart = false`) or the start cap (`atStart = true`) between the two sides.
- * A butt cap contributes nothing: the straight join between the two offset points is already the cap.
- */
 function appendCap(
   out: VecPoint[],
   pts: readonly VecPoint[],
@@ -220,7 +186,6 @@ function appendCap(
   if (len === 0) return;
   dx /= len;
   dy /= len;
-  // The outward direction is the travel direction at the end and its negation at the start.
   const ox = atStart ? -dx : dx;
   const oy = atStart ? -dy : dy;
   const from = atStart ? right[0] : left[left.length - 1];
@@ -231,21 +196,9 @@ function appendCap(
     return;
   }
   const a0 = Math.atan2(from.y - pts[i].y, from.x - pts[i].x);
-  // Rotating the left normal by -90 degrees reaches the travel direction, so a -pi sweep from one side
-  // to the other passes through the outward direction rather than back over the stroke.
   pushArc(out, pts[i], hw, a0, -Math.PI);
 }
 
-/**
- * Outline a centreline whose width varies per vertex.
- *
- * @param widths one width per **input anchor**; it is resampled by linear interpolation onto the
- *               flattened polyline, because flattening multiplies the vertex count and a stale index
- *               would apply the wrong width to the wrong part of the stroke
- * @param cap    applied at both ends; joins are implicitly round-ish, since a varying offset has no
- *               single miter to compute
- * @returns a closed VecPath of line segments, to be filled with {@link FillRule.NONZERO}.
- */
 export function variableWidthOutline(
   path: VecPath,
   widths: Float32Array,
@@ -294,8 +247,6 @@ export function variableWidthOutline(
       nx[i] = ax / l;
       ny[i] = ay / l;
     } else {
-      // A 180 degree reversal has no averaged normal; the previous segment's normal keeps the ribbon
-      // continuous instead of collapsing it to a point.
       nx[i] = i > 0 ? nx[i - 1] : 1;
       ny[i] = i > 0 ? ny[i - 1] : 0;
     }
@@ -349,14 +300,6 @@ function appendVariableCap(
   pushArc(out, pts[i], r, a0, -Math.PI);
 }
 
-/**
- * Taper the ends of a width profile to zero, which is what makes a traced brush stroke read as drawn
- * rather than extruded.
- *
- * @param headFraction fraction of the profile ramped up from 0 at the start, clamped to 0..0.5
- * @param tailFraction fraction ramped down to 0 at the end, clamped to 0..0.5
- * @returns a new array of the same length; the input is not modified.
- */
 export function taper(
   widths: Float32Array,
   headFraction: number,
@@ -378,14 +321,6 @@ export function taper(
   return out;
 }
 
-/**
- * Smooth a width profile with a centred moving average.
- *
- * Raw distance-transform samples are noisy at 1 px resolution and an unsmoothed width reads as a wobble
- * along the stroke, which looks like a mistake rather than like brushwork.
- *
- * @param window forced odd; 5 is the reference value
- */
 export function smoothWidths(widths: Float32Array, window = 5): Float32Array {
   return movingAverage(widths, window);
 }

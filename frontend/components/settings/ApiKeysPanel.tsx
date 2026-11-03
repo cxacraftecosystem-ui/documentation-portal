@@ -10,27 +10,11 @@ import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 
-/**
- * The managed provider keys (`/api/secrets`, master admin only).
- *
- * Two rules shape this screen:
- *
- * 1. **A value is never rendered until it is asked for.** The list endpoint deliberately carries only
- *    a four-character `hint`; the plaintext exists solely behind `GET /secrets/{key}/reveal`, which is
- *    audit-logged server-side. So the Value column shows `••••·hint` and the eye button fetches on
- *    demand — and un-reveals itself after {@link REVEAL_TIMEOUT_MS} so a key cannot be left on screen
- *    in an empty room.
- * 2. **A saved key is live immediately.** Writes invalidate the server's cache, so the next provider
- *    call uses the new value — no restart, no redeploy. That is the whole reason this page exists,
- *    so the banner says it rather than leaving the master admin wondering whether to SSH in.
- */
-
 const REVEAL_TIMEOUT_MS = 30_000;
 
 type SecretSource = "database" | "environment" | "unset";
 type SecretStatus = "UNKNOWN" | "OK" | "FAILED";
 
-/** Mirror of the backend ManagedSecretDto. It NEVER carries the value — only a 4-character hint. */
 export type ManagedSecret = {
   key: string;
   label: string;
@@ -71,7 +55,6 @@ const STATUS_META: Record<SecretStatus, { label: string; tone: string }> = {
   UNKNOWN: { label: "Unknown", tone: "border-line-200 bg-surface-50 text-ink-500" }
 };
 
-/** Which per-row action is in flight, so only that row's buttons go busy. */
 type Busy = { key: string; action: "reveal" | "test" | "save" | "clear" } | null;
 
 export function ApiKeysPanel() {
@@ -80,15 +63,12 @@ export function ApiKeysPanel() {
   const [secrets, setSecrets] = useState<ManagedSecret[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
-  /** key -> plaintext, present ONLY while that row is revealed. */
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [confirmingClear, setConfirmingClear] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
-  // One auto-hide timer per revealed key. Kept in a ref (not state) so re-renders never restart a
-  // countdown that is already running.
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   useEffect(() => {
     const pending = timers.current;
@@ -112,7 +92,6 @@ export function ApiKeysPanel() {
     });
   }, []);
 
-  /** Swap one row in place, so a test/save/clear never costs a full reload of the table. */
   const replaceRow = useCallback((row: ManagedSecret) => {
     setSecrets((current) => (current ? current.map((item) => (item.key === row.key ? row : item)) : [row]));
   }, []);

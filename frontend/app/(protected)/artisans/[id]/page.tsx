@@ -4,7 +4,6 @@ import { useParams } from "next/navigation";
 
 import { RecordView } from "@/components/records/RecordView";
 
-/** One artisan, read-only. A click on its row lands here; its Update button opens the edit form. */
 export default function ArtisanViewPage() {
   const params = useParams<{ id: string }>();
   return <RecordView type="artisan" id={params.id} />;

@@ -1,11 +1,5 @@
 "use client";
 
-/**
- * The sessions recorded on one form, and — for content admins — the deleted ones with Restore
- * (UNIFY U8, A14: a session delete is a restorable soft delete, content admins only). With
- * `deletedOnly` and no form it is the sessions list's Deleted card: every deleted session.
- */
-
 import { RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -40,7 +34,6 @@ export function FormSessionsCard({
   const [more, setMore] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 
-  // The shared filters on this form's sessions (owner, 31 Oct 2026), kept in the page's URL.
   const filtering = Boolean(questionnaireId) && !deletedOnly;
   const { filters, setFilters, ready } = useUrlFilters();
   const applied = filtering ? filters : NO_FILTERS;

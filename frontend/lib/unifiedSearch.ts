@@ -1,18 +1,5 @@
-/**
- * One search across both portals, on the web (docs/SEARCH.md).
- *
- * `GET /search/unified` ranks this portal's index and, for the roles allowed, the designer portal's
- * too; this module types the answer, keeps the group order and labels, and falls back to the legacy
- * `GET /search` whenever the server answers 404 (the feature switched off). The ranking, grouping
- * and recent-search rules are Android's `ui/AppSearch.kt` — group order, score 0 exact / 1 prefix /
- * 2 word prefix / 3 substring / 4 other, stable within a score, five per group, eight recents — so
- * the two clients order one answer the same way.
- *
- * Snippets are plain text and highlights are character ranges: nothing here builds HTML.
- */
 import { apiFetch, ApiError, buildQuery } from "@/lib/api";
 
-/** Every search type, in the order groups are shown. The server's `cross_portal.SEARCH_TYPES`. */
 export const UNIFIED_TYPES = [
   "artisans",
   "crafts",
@@ -91,7 +78,6 @@ export type UnifiedResponse = {
   limit?: number;
 };
 
-/** One record from the other portal as a read-only card (`GET /search/remote/{type}/{id}`). */
 export type RemoteRecord = {
   portal: Portal;
   type: UnifiedType;
@@ -127,7 +113,6 @@ export function isUnifiedType(value: unknown): value is UnifiedType {
   return typeof value === "string" && (UNIFIED_TYPES as readonly string[]).includes(value);
 }
 
-/** The query string for `/search/unified`; arrays are comma-joined, blanks dropped. */
 export function unifiedQueryString(query: UnifiedQuery): string {
   return buildQuery({
     q: query.q.trim(),
@@ -144,7 +129,6 @@ export function unifiedQueryString(query: UnifiedQuery): string {
   });
 }
 
-/** Whether a question can go to the unified route at all: enough text, and no legacy-only filter. */
 export function unifiedApplies(q: string, legacyOnly: { artisanId?: string; mediaType?: string } = {}): boolean {
   const text = q.trim();
   return text.length >= UNIFIED_MIN_CHARS && text.length <= UNIFIED_MAX_CHARS && !legacyOnly.artisanId && !legacyOnly.mediaType;
@@ -152,10 +136,6 @@ export function unifiedApplies(q: string, legacyOnly: { artisanId?: string; medi
 
 export type UnifiedOutcome = { kind: "unified"; data: UnifiedResponse } | { kind: "legacy" };
 
-/**
- * Ask the unified route; a 404 means the feature is off on this server, and the caller uses the
- * legacy `GET /search` instead. Any other failure is thrown as it came.
- */
 export async function fetchUnified(
   query: UnifiedQuery,
   fetcher: (path: string) => Promise<UnifiedResponse> = (path) => apiFetch<UnifiedResponse>(path)
@@ -173,11 +153,6 @@ export function fetchRemoteRecord(type: string, id: string): Promise<RemoteRecor
   return apiFetch<RemoteRecord>(`/search/remote/${encodeURIComponent(type)}/${encodeURIComponent(id)}`);
 }
 
-/**
- * Groups in vocabulary order, unknown types dropped, items de-duplicated by (portal, type, id) and
- * ordered by score (higher first), local first on a tie, then arrival order. Several answers (a page
- * and the next) merge into one group.
- */
 export function mergeGroups(...lists: UnifiedGroup[][]): UnifiedGroup[] {
   const byType = new Map<UnifiedType, UnifiedGroup>();
   for (const list of lists) {
@@ -216,7 +191,6 @@ export function mergeGroups(...lists: UnifiedGroup[][]): UnifiedGroup[] {
   });
 }
 
-/** Android's `appSearchScore`: 0 exact, 1 prefix, 2 word prefix, 3 substring, 4 anything else. */
 export function appSearchScore(title: string, query: string): number {
   const t = title.trim().toLowerCase();
   const q = query.trim().toLowerCase();
@@ -228,7 +202,6 @@ export function appSearchScore(title: string, query: string): number {
   return 4;
 }
 
-/** Android's `pushRecentSearch`. */
 export function pushRecentSearch(recents: string[], query: string, max = RECENT_MAX): string[] {
   const q = query.trim();
   if (!q) return recents.slice(0, max);
@@ -237,10 +210,6 @@ export function pushRecentSearch(recents: string[], query: string, max = RECENT_
 
 export type HighlightSegment = { text: string; hit: boolean };
 
-/**
- * `text` cut into plain segments at the highlight ranges. Ranges out of bounds, reversed or
- * overlapping are clipped; the caller renders each segment as a text node (a hit in `<mark>`).
- */
 export function highlightSegments(text: string, ranges: number[][] | undefined): HighlightSegment[] {
   if (!text) return [];
   const clean = (ranges ?? [])
@@ -261,7 +230,6 @@ export function highlightSegments(text: string, ranges: number[][] | undefined):
   return out;
 }
 
-/** The one quiet line under the results when the other portal was not asked or did not answer. */
 export function remoteStatusLine(status: RemoteStatus | undefined, label: string): string | null {
   switch (status) {
     case "unavailable":
@@ -275,10 +243,6 @@ export function remoteStatusLine(status: RemoteStatus | undefined, label: string
   }
 }
 
-/**
- * The other portal's address for a record, only when it is a web address. It comes from the other
- * server (signed, but still not this portal's own words), so anything else is no link at all.
- */
 export function safeOpenUrl(url: string | null | undefined): string | null {
   if (!url) return null;
   try {
@@ -289,34 +253,26 @@ export function safeOpenUrl(url: string | null | undefined): string | null {
   }
 }
 
-/** "Open in Field Repository" / "Open in Designer portal". */
 export function openInLabel(portal: Portal): string {
   return `Open in ${PORTAL_LABELS[portal] ?? "the other portal"}`;
 }
 
-/** The card's rows: the other portal's own field list, then the record date. */
 export function remoteRecordRows(record: RemoteRecord, formatDate: (iso: string) => string): { label: string; value: string }[] {
   const rows = (record.fields ?? []).filter((field) => field.label && field.value);
   if (record.recordDate) rows.push({ label: "Recorded", value: formatDate(record.recordDate) });
   return rows;
 }
 
-/**
- * Whether trying again could help: the proxy's 503 (the other portal did not answer), a 5xx, or no
- * connection at all (`fetch` rejects with a TypeError before any status exists).
- */
 export function remoteRecordRetryable(error: unknown): boolean {
   if (error instanceof ApiError) return error.status >= 500;
   return error instanceof TypeError;
 }
 
-/** The one sentence for a remote record that could not be shown. */
 export function remoteRecordError(error: unknown): string {
   if (remoteRecordRetryable(error)) return "The other portal can't be reached right now. Try again shortly.";
   return "This record isn't available.";
 }
 
-/** The interview a search result opens on the questionnaire page (`?interview=<id>`); "" when absent. */
 export function interviewFromSearchParams(params: { get(name: string): string | null }): string {
   return (params.get("interview") ?? "").trim().slice(0, 64);
 }

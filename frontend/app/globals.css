@@ -1,42 +1,6 @@
-/*
- * TAILWIND CSS v4 SINCE 2026-10-09, AND WHY EVERY RULE IN THIS FILE SITS IN A LAYER.
- *
- * `source(none)` plus `@config` keeps v3's arrangement. tailwind.config.ts stays the source of truth
- * for the tokens, and its `content` globs (app/, components/, lib/; .ts and .tsx only) are the only
- * files scanned for class names. Without `source(none)` v4 would also scan every other file git does
- * not ignore, e2e/ and scripts/ included, and generate CSS for whatever looks like a class there.
- *
- * v4 emits real CSS cascade layers (theme, base, components, utilities), and a rule outside every
- * layer beats every utility not marked `!`, whatever its specificity. v3 had no such thing: it
- * printed each hand-written rule here AFTER all of its utilities, so such a rule beat a utility
- * exactly when its selector was at least as specific. Each rule below is placed to keep the answer
- * v3 gave:
- *  - the :root token blocks (custom properties, and root settings no utility on <html> competes with)
- *    and the rules made only of element and universal selectors never beat a utility, so they sit in
- *    `@layer base`, where every utility beats them by layer;
- *  - every other hand-written rule could tie or beat one, so it sits in `@layer utilities`, after the
- *    generated utilities — the comment on that block says why;
- *  - the recipe classes stay in `@layer components`, below every utility, which is what
- *    `class="field-button w-full"` relies on;
- *  - v3's `@layer utilities` classes are v4 `@utility` declarations, so variants still apply to them.
- * NOTHING HERE IS OUTSIDE A LAYER, and nothing new should be: an un-layered rule beats the utilities.
- */
 @import "tailwindcss" source(none);
 @config "../tailwind.config.ts";
 
-/*
- * Four places where v4's preflight differs from v3's in a way this app can see, each restored at its
- * v3 value and in `base`, so a utility still overrides it:
- *  - v4 draws a bare `border` in currentcolor; v3 drew it gray-200 (the upgrade tool's own rule);
- *  - v3 gave buttons `cursor: pointer`; v4 leaves the arrow, and this app relies on the old default
- *    (`cursor-pointer` appears 17 times across some 300 `<button>`s);
- *  - v3 coloured placeholders gray-400; v4 uses the text colour at half opacity. `.field-input` and
- *    the rest that set `placeholder:text-*` are unaffected either way;
- *  - v4 strips a file input's "Choose File" button to bare text (no border, padding or fill), which
- *    stops it reading as a button. v3 left the browser's own button, and three visible file inputs
- *    (the APK upload in Settings, the photo pickers in RecordPhotoMeasure and GridMeasurement) show
- *    it, so `revert` hands those properties back to the browser.
- */
 @layer base {
   *,
   ::after,
@@ -67,42 +31,27 @@
 }
 
 @layer base {
-  /*
-   * Semantic neutrals live here as bare "R G B" triplets so tailwind.config.ts can consume them as
-   * `rgb(var(--token) / <alpha-value>)` and every opacity modifier keeps working. Flipping a theme is
-   * therefore a matter of re-pointing these eleven-odd numbers — no page ever hardcodes a neutral.
-   *
-   * The purple and gold ramps stay literal in the Tailwind config: brand colour does not invert.
-   */
   :root {
     color-scheme: light;
-    /* Page canvas, cards and the tinted panel ladder (surface-50 → 300 = legacy field-50 → 300). */
-    --bg-0: 247 246 251; /* #f7f6fb */
+    --bg-0: 247 246 251;
     --card: 255 255 255;
-    --surface-50: 250 249 253; /* #faf9fd */
-    --surface-100: 243 241 250; /* #f3f1fa */
-    --surface-200: 233 230 245; /* #e9e6f5 */
-    --surface-300: 220 215 238; /* #dcd7ee */
-    --line-200: 228 226 239; /* #e4e2ef */
-    /* Type ladder: headings → body → muted → placeholder. */
-    --ink-900: 30 27 46; /* #1e1b2e */
-    --ink-700: 58 54 81; /* #3a3651 */
-    --ink-500: 97 93 122; /* #615d7a */
-    --ink-300: 167 163 188; /* #a7a3bc */
-    /* Progress indicators (.progress-track / .progress-fill below; Android's FieldProgress.kt holds
-       the same values). The TRACK is purple-700 at 28% over the white card — 1.61:1 against it, so a
-       bar is visibly a bar and never the card's own white. The FILL is purple-700: 7.59:1 on the card
-       and 4.71:1 on the track. DONE is success-600: 5.02:1 / 3.11:1. */
-    --progress-track: 217 196 233; /* #d9c4e9 */
-    --progress-fill: 118 44 177; /* #762cb1, purple-700 */
-    --progress-done: 21 128 61; /* #15803d, success-600 */
-    /* Legacy aliases — derived, so they follow the triplets into whichever theme is active. */
+    --surface-50: 250 249 253;
+    --surface-100: 243 241 250;
+    --surface-200: 233 230 245;
+    --surface-300: 220 215 238;
+    --line-200: 228 226 239;
+    --ink-900: 30 27 46;
+    --ink-700: 58 54 81;
+    --ink-500: 97 93 122;
+    --ink-300: 167 163 188;
+    --progress-track: 217 196 233;
+    --progress-fill: 118 44 177;
+    --progress-done: 21 128 61;
     --background: rgb(var(--bg-0));
     --foreground: rgb(var(--ink-900));
     --purple-700: oklch(0.47 0.198 305);
     --purple-900: oklch(0.34 0.15 305);
     --purple-950: oklch(0.255 0.108 305);
-    /* Gradients — exactly two recipes (ChartMate DESIGN.md §2.5) + the gold headline span. */
     --grad-brand: linear-gradient(135deg, oklch(0.47 0.198 305) 0%, oklch(0.34 0.15 305) 100%);
     --grad-mesh:
       radial-gradient(40rem 40rem at 12% 18%, oklch(0.648 0.19 305 / 0.16), transparent 60%),
@@ -112,47 +61,33 @@
     --header-clearance: 5.5rem;
   }
 
-  /*
-   * Dark theme. The neutrals stay purple-tinted (never pure grey) so the brand cast survives the
-   * inversion, and the ink ladder mirrors the light one: 900 = headings, 300 = placeholders.
-   * `data-theme` is stamped onto <html> before first paint by the boot script in app/layout.tsx.
-   */
   :root[data-theme="dark"] {
     color-scheme: dark;
-    --bg-0: 17 15 25; /* #110f19 */
-    --card: 26 23 37; /* #1a1725 */
-    --surface-50: 32 28 45; /* #201c2d */
-    --surface-100: 38 33 53; /* #262135 */
-    --surface-200: 46 40 64; /* #2e2840 */
-    --surface-300: 58 51 80; /* #3a3350 */
-    --line-200: 52 46 71; /* #342e47 */
-    --ink-900: 242 240 249; /* #f2f0f9 */
-    --ink-700: 208 203 223; /* #d0cbdf */
-    --ink-500: 158 152 178; /* #9e98b2 */
-    --ink-300: 110 104 132; /* #6e6884 */
-    /* Progress in dark: purple-700 is 2.32:1 on this card, so the fill moves up the ramp to
-       purple-400 (7.16:1 on the card, 4.05:1 on the track), and the track is purple-400 at 30% over
-       the card (1.77:1). Done is success-400: 10.10:1 / 5.70:1. */
-    --progress-track: 76 59 99; /* #4c3b63 */
-    --progress-fill: 192 144 245; /* #c090f5, purple-400 */
-    --progress-done: 74 222 128; /* #4ade80, success-400 */
-    /* The mesh backdrop needs more punch to read against a dark canvas. */
+    --bg-0: 17 15 25;
+    --card: 26 23 37;
+    --surface-50: 32 28 45;
+    --surface-100: 38 33 53;
+    --surface-200: 46 40 64;
+    --surface-300: 58 51 80;
+    --line-200: 52 46 71;
+    --ink-900: 242 240 249;
+    --ink-700: 208 203 223;
+    --ink-500: 158 152 178;
+    --ink-300: 110 104 132;
+    --progress-track: 76 59 99;
+    --progress-fill: 192 144 245;
+    --progress-done: 74 222 128;
     --grad-mesh:
       radial-gradient(40rem 40rem at 12% 18%, oklch(0.648 0.19 305 / 0.24), transparent 60%),
       radial-gradient(34rem 34rem at 88% 12%, rgba(245, 158, 11, 0.08), transparent 60%),
       radial-gradient(46rem 46rem at 70% 90%, oklch(0.56 0.205 305 / 0.2), transparent 65%);
   }
 
-  /*
-   * Accessibility: high contrast. Re-points the low-contrast end of each ladder (borders, muted and
-   * placeholder text) rather than patching individual components — every page inherits it for free.
-   * Declared after the dark block so the dark+contrast pairing wins on specificity.
-   */
   :root[data-high-contrast="true"] {
     --line-200: 124 118 152;
     --surface-300: 124 118 152;
-    --ink-500: 58 54 81; /* muted text → body strength */
-    --ink-300: 97 93 122; /* placeholders → muted strength */
+    --ink-500: 58 54 81;
+    --ink-300: 97 93 122;
   }
 
   :root[data-theme="dark"][data-high-contrast="true"] {
@@ -163,9 +98,8 @@
     --ink-300: 176 170 196;
   }
 
-  /* Accessibility: larger text. Everything is sized in rem, so scaling the root scales the UI. */
   :root[data-larger-text="true"] {
-    font-size: 112.5%; /* 16px → 18px */
+    font-size: 112.5%;
   }
 
   * {
@@ -193,7 +127,6 @@
     font: inherit;
   }
 
-  /* Themed scrollbars — bg-0 track, line-200 thumb, purple on hover. */
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
@@ -210,11 +143,9 @@
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background-color: oklch(0.828 0.1 305); /* purple-300 */
+    background-color: oklch(0.828 0.1 305);
   }
 
-  /* Firefox fallback only: guarded because setting scrollbar-color in Chromium would
-     disable the styled ::-webkit-scrollbar above. */
   @supports not selector(::-webkit-scrollbar) {
     * {
       scrollbar-width: thin;
@@ -223,14 +154,7 @@
   }
 }
 
-/*
- * EVERY RULE BELOW CAN TIE OR BEAT A UTILITY, so each sits in the utilities layer, after the
- * utilities Tailwind generates: the same layer, then the same specificity-then-source-order
- * contest v3 ran, because v3 printed all of them after its utilities. Moving one into `base`
- * would hand every utility the win; leaving it outside a layer would hand it every win.
- */
 @layer utilities {
-  /* Visible keyboard focus for interactive elements (inputs keep their own focus ring). */
   a:focus-visible,
   button:focus-visible,
   [role="button"]:focus-visible,
@@ -241,7 +165,6 @@
     border-radius: 6px;
   }
 
-  /* High contrast also thickens the focus ring, since the outline is the only cue for keyboard users. */
   :root[data-high-contrast="true"] a:focus-visible,
   :root[data-high-contrast="true"] button:focus-visible,
   :root[data-high-contrast="true"] [role="button"]:focus-visible,
@@ -252,13 +175,6 @@
     outline-offset: 3px;
   }
 
-  /* Respect users who prefer reduced motion.
-   *
-   * `transition-delay` has to be zeroed alongside the duration, and it was not. A zero-duration
-   * transition that still honours its delay is not "no motion" — it is a staggered pop. The printing
-   * bed cascades its impressions with a per-column `transition-delay`, so without this line a reduced-
-   * motion reader would watch a ~150ms ripple travel across the cloth. Any staggered effect anywhere
-   * in the app had the same hole; this closes it once for all of them. */
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
@@ -272,9 +188,6 @@
     }
   }
 
-  /* ...and users who asked for it in Settings. A separate rule (a media query cannot be OR-ed with a
-     selector) so the two sources union: the app-level toggle can only ever ADD reduction, and there
-     is deliberately no `="false"` rule that would undo the OS preference above. */
   :root[data-reduced-motion="true"] *,
   :root[data-reduced-motion="true"] *::before,
   :root[data-reduced-motion="true"] *::after {
@@ -286,15 +199,6 @@
     scroll-behavior: auto !important;
   }
 
-  /*
-   * Background scroll lock, worn by <html> while the navigation sheet is open.
-   *
-   * It is the root element and not <body> because iOS Safari quietly ignores `overflow: hidden` on the
-   * body and keeps panning the page under the open menu — the exact complaint this answers. The gutter
-   * variable is measured and set by the sheet in the instant before this class lands: freezing the
-   * document takes the scrollbar away with it, and without paying that width back as padding every
-   * centred thing on the page jumps sideways as the menu opens.
-   */
   html.nav-scroll-locked,
   html.nav-scroll-locked body {
     overflow: hidden;
@@ -305,7 +209,6 @@
     padding-right: var(--nav-scroll-gutter, 0px);
   }
 
-  /* Clean number inputs — no native spinner arrows; values change by typing. */
   input[type="number"]::-webkit-inner-spin-button,
   input[type="number"]::-webkit-outer-spin-button {
     -webkit-appearance: none;
@@ -317,23 +220,19 @@
     appearance: textfield;
   }
 
-  /* react-day-picker root — site tokens (per-part Tailwind classes live in ui/calendar.tsx). */
   .rdp-root {
-    --rdp-accent-color: oklch(0.47 0.198 305); /* purple-700 */
-    --rdp-accent-background-color: oklch(0.977 0.013 305); /* purple-50 */
+    --rdp-accent-color: oklch(0.47 0.198 305);
+    --rdp-accent-background-color: oklch(0.977 0.013 305);
     --rdp-today-color: oklch(0.47 0.198 305);
     --rdp-outside-opacity: 0.6;
     font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
     color: rgb(var(--ink-900));
   }
 
-  /* Keep the light hover wash off solid purple selected cells (endpoints / single pick). */
   .rdp-root td[data-selected]:not(.cal-middle) > button:hover {
     background-color: transparent;
   }
 
-  /* Inline audio player seek bar (components/ui/AudioPlayer). The played portion is painted
-     via the --audio-range-fill gradient set inline by the component. */
   .audio-range {
     -webkit-appearance: none;
     appearance: none;
@@ -382,24 +281,7 @@
 }
 
 @layer components {
-  /*
-   * UX audit 2026-10-16. DC-07: every action recipe is a 44px target on a COARSE pointer (a phone,
-   * a tablet) and keeps its 40px desktop density under a mouse. DC-02: the recipes whose ink or wash
-   * is a literal purple or red carry a `dark:` pair, because those colours never invert and dropped
-   * to 1.7-2.7:1 on a dark card. DC-12: `.field-danger` reads in red-800, not error-600 (3.95:1 on
-   * its own hover wash). Purple link ink is `text-purple-700 dark:text-purple-300` at every
-   * call site wherever it sits on a ground that inverts (bg-card, surface, page).
-   */
 
-  /*
-   * PROGRESS INDICATORS — every bar in the app draws its track and its fill with these two, so the
-   * rule lives in one place (owner report 2026-10-17: the voice-note bar vanished into its white
-   * card; its track was line-200, 1.28:1, and in dark the purple-700 fill was 2.32:1).
-   * Track: a tinted token, never the card. Fill: >= 3:1 against both track and card, both themes.
-   * At least 4px tall, round ends. `data-tone="done"` on the fill is the finished/passing state.
-   * `components/ui/ProgressBar.tsx` renders the pair; `e2e/progress-indicator-unit.spec.ts` holds
-   * the numbers and refuses a hand-rolled `bg-line-200` / `bg-field-200` track.
-   */
   .progress-track {
     @apply h-1.5 w-full overflow-hidden rounded-full bg-progress-track;
     min-height: 4px;
@@ -453,15 +335,6 @@
     @apply text-[0.8125rem] font-semibold uppercase tracking-[0.14em] text-purple-700;
   }
 
-  /*
-   * The navigation sheet. On a phone the list runs well past the bottom of the screen, so the PANEL
-   * has to be the scroller: a bounded height, its own overflow, and `overscroll-behavior: contain`
-   * so that reaching the last item does not hand the gesture on to the page underneath.
-   *
-   * The height is measured in dvh, not vh: while the address bar is showing — which is precisely
-   * when a thumb is reaching for this menu — 100vh is the taller, wrong number and the closing
-   * items of the list sit below the fold with no way to reach them.
-   */
   .nav-sheet {
     --nav-sheet-top: 5rem;
     margin-top: var(--nav-sheet-top);
@@ -471,11 +344,9 @@
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
     padding: 1.5rem;
-    /* The home indicator sits over the foot of the sheet; the last item has to clear it. */
     padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
   }
 
-  /* A phone in landscape leaves barely 350px of height — give the list back the chrome it can spare. */
   @media (max-height: 560px) {
     .nav-sheet {
       --nav-sheet-top: 4.25rem;
@@ -484,11 +355,6 @@
     }
   }
 
-  /*
-   * Both of these are position:fixed, so their containing block is the viewport rather than <body>
-   * and the padding the lock puts on the body cannot reach them. They pay the vanished scrollbar
-   * back themselves, otherwise the island and the sheet drift right as the menu opens.
-   */
   .nav-sheet-overlay {
     padding-right: var(--nav-scroll-gutter, 0px);
   }
@@ -500,27 +366,16 @@
     padding-right: calc(0.75rem + var(--nav-scroll-gutter, 0px));
   }
 
-  /*
-   * Below `lg` (64rem = 1024px, the one breakpoint that decides the navigation mode) the bottom
-   * island floats over the foot of every signed-in page. `--bottom-nav-h` is its height plus its
-   * offset, so the upload tray and the toasts sit above it. `BottomIslandNav` puts the class on
-   * <html> while it is mounted; at `lg` and up nothing reads a value and both sit at the bottom.
-   */
   @media (width < 64rem) {
     html.has-bottom-nav {
       --bottom-nav-h: calc(62px + 0.75rem + env(safe-area-inset-bottom, 0px));
     }
 
-    /* The menu sheet opens from the bar's menu button; its foot (admin view, Logout) ends above it. */
     html.has-bottom-nav .nav-sheet {
       max-height: calc(100vh - var(--nav-sheet-top) - var(--bottom-nav-h) - 0.5rem);
       max-height: calc(100dvh - var(--nav-sheet-top) - var(--bottom-nav-h) - 0.5rem);
     }
 
-    /*
-     * The search header stays above the sheet's scrim like the bar (60px tall, 12px down: 72px). On
-     * a landscape phone the sheet's 4.25rem (68px) top would slide under it, so it clears 76px here.
-     */
     @media (max-height: 560px) {
       html.has-bottom-nav .nav-sheet {
         --nav-sheet-top: 4.75rem;
@@ -528,28 +383,10 @@
     }
   }
 
-  /* Themed file-upload trigger (label/button wrapping a hidden <input type="file">). */
   .file-trigger {
     @apply inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-purple-300 bg-card px-4 py-2 text-sm font-medium text-purple-700 transition hover:border-purple-400 hover:bg-purple-50 pointer-coarse:min-h-11 dark:border-purple-400/50 dark:text-purple-300 dark:hover:bg-purple-950/40;
   }
 
-  /*
-   * "THIS ROW, JUST NOW" — the answer to a selection made somewhere else on the page.
-   *
-   * Worn for ~1.4s by the row `components/hooks/useRevealRow` has just scrolled to, driven by a
-   * `data-flash="true"` attribute rather than a class so React can flip it without touching the
-   * className a dozen conditional styles are already composing.
-   *
-   * TWO SIGNALS, DELIBERATELY, and only one of them is motion. The ring is a plain static outline: it
-   * is what a reader sees who looked away during the pulse, and — this is the point — it is the ONLY
-   * half that survives `prefers-reduced-motion`, where the global rule further up this file collapses
-   * every animation to 0.01ms. A "which one" signal that exists only as movement is a signal those
-   * readers never receive.
-   *
-   * `outline` rather than `box-shadow` or a border: these rows already carry a conditional border for
-   * their selected state and a focus-visible ring of their own, and an outline stacks with both without
-   * changing the row's box or fighting the selected border for the same pixels.
-   */
   .fr-flash-row[data-flash="true"] {
     outline: 2px solid var(--purple-700);
     outline-offset: 2px;
@@ -557,9 +394,6 @@
   }
 }
 
-/* One pulse, not a loop. A repeating highlight reads as an error state and pulls the eye away from
-   whatever the reader chose to look at next. The purple is the product's single action colour, at the
-   low alpha that reads as a wash over a white or a purple-50 row rather than as a second fill. */
 @keyframes fr-row-flash {
   0% {
     background-color: oklch(0.47 0.198 305 / 0.22);
@@ -580,7 +414,6 @@
   background-image: var(--grad-mesh);
 }
 
-/* Gold gradient text — hero headline spans and auth marketing copy ONLY. */
 @utility text-gold-gradient {
   background-image: var(--grad-gold);
   -webkit-background-clip: text;
@@ -588,7 +421,6 @@
   color: transparent;
 }
 
-/* Frosted glass card on light mesh backdrops (auth). */
 @utility glass-card {
   background: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(18px);
@@ -603,7 +435,6 @@
   border: 1px solid rgba(255, 255, 255, 0.14);
 }
 
-/* Legacy utilities kept as no-surprise aliases. */
 @utility ambient-light {
   background-image: var(--grad-mesh);
 }
@@ -615,21 +446,7 @@
   color: transparent;
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
-   The printing bed — components/hero/PrintingBed.tsx
-   India rendered as block-printed cloth: a field of buti impressions clipped to
-   the national outline, printing in as the section crosses the reading line.
-   ──────────────────────────────────────────────────────────────────────────── */
-
 @layer utilities {
-  /* One impression. Its position and misregistration live in a `transform` ATTRIBUTE on the parent
-     <g> and never change; only opacity and the stamp-scale animate here, so a scroll frame touches
-     nothing but the compositor.
-
-     `transform-box: fill-box` is not optional. A CSS transform on an SVG element resolves its origin
-     against the nearest viewBox by default, so `scale()` on an impression sitting at (60, 90) would
-     fling it toward the corner instead of pressing it onto its own centre. Pinning the box to the
-     element makes the stamp mean the same thing in every engine. */
   .fr-buti {
     transform-box: fill-box;
     transform-origin: 50% 50%;
@@ -638,15 +455,10 @@
       transform 200ms ease-out;
   }
 
-  /* The site marks resolve once, at the end of the print — one fade, not ninety-seven. */
   .fr-mark {
     transition: opacity 420ms ease-out;
   }
 
-  /* Place names are sized in viewBox units, so their rendered size follows the map's width. Below
-     640px the map is narrow enough that this lands under 9px — decoration pretending to be a label —
-     so it is withheld rather than shrunk. Every name is in the <figcaption> at every width, and the
-     SVG is aria-hidden, so this hides nothing from anyone. */
   .fr-map-label {
     display: none;
     font-size: 2.7px;

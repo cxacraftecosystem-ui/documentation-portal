@@ -7,20 +7,6 @@ import { TopBarScanButton } from "@/components/scan/TopBarScanButton";
 import { quickReturnStep, type QuickReturnStep } from "@/lib/islandNav";
 import { cn } from "@/lib/utils";
 
-/**
- * THE SEARCH HEADER — mobile and tablet widths (< 1024 CSS px) of both web apps.
- *
- * A port of Android's `AppSearchHeader` + `QuickReturnHeader` (`ui/AppSearch.kt`): the app's logo
- * and name centred in a full-width pill, the scan button at the leading edge and the search glyph at
- * the trailing edge. The whole pill opens search.
- *
- * Quick return: it slides up out of view after 24px of downward travel once the page has moved past
- * the header, comes back on any upward scroll, and is always shown at the top or while search is
- * open. While hidden it is `inert`, so neither the keyboard nor a screen reader lands on it. The
- * slide is a CSS transition, which both reduced-motion switches already zero.
- *
- * Shared byte-identical by the designer portal and the documentation portal.
- */
 export function AppSearchHeader({
   appName,
   logo,
@@ -28,7 +14,6 @@ export function AppSearchHeader({
   searchOpen
 }: {
   appName: string;
-  /** The app's mark, drawn at the size the class names. */
   logo: (className: string) => ReactNode;
   onOpenSearch: (button: HTMLButtonElement) => void;
   searchOpen: boolean;
@@ -51,8 +36,6 @@ export function AppSearchHeader({
       frame = requestAnimationFrame(() => {
         frame = 0;
         const now = window.scrollY;
-        // Read the delta and the pin NOW: React may run the updater below at render time, after
-        // `last` has moved on, and a delta read there is 0 — the header then never comes back up.
         const delta = now - last;
         const pinned = pinnedRef.current;
         const height = (headerRef.current?.offsetHeight ?? 60) + 12;
@@ -88,7 +71,6 @@ export function AppSearchHeader({
           floating ? "shadow-island" : "shadow-none"
         )}
       >
-        {/* The whole pill opens search; the scan button sits above it, a control of its own. */}
         <button
           type="button"
           onClick={(event) => onOpenSearch(event.currentTarget)}

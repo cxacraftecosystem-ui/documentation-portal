@@ -19,8 +19,6 @@ import {
   type UnifiedResponse
 } from "@/lib/unifiedSearch";
 
-/** One search across both portals on the web (docs/SEARCH.md). No browser, no server. */
-
 function item(over: Partial<UnifiedItem>): UnifiedItem {
   return { portal: "fieldRepository", local: true, type: "artisans", id: "a", title: "A", href: "/artisans/a", score: 0.01, ...over };
 }

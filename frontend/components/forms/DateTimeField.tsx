@@ -1,49 +1,5 @@
 "use client";
 
-/**
- * The app's date and time fields: `DateField`, `DateRangePicker` and `TimeField`.
- *
- * They live in `components/forms/` rather than `components/ui/` because they are FIELDS, not
- * primitives — they render a text input, carry a hidden input for `FormData`, and sit next to
- * `DateRangeField` and `LocationFields`, which are the other members of that family. The two genuine
- * primitives they are built from stayed in `components/ui/`: the month grid (`ui/calendar`) and the
- * floating panel (`ui/AnchoredPopover`), both of which are useful to things that are not date fields.
- *
- * Two decisions worth stating, because both are the point of the exercise:
- *
- * **The text input is the primary path, not a decoration.** The fastest way to enter a date you
- * already know is to type it, so every field here is a real `<input type="text">` accepting
- * `dd/mm/yyyy` (and `yyyy-mm-dd`, and `-` or `.` separators), and the calendar is the assistive path
- * beside it. Opening the panel therefore does NOT move focus: it appears next to the field and the
- * user carries on typing, with the calendar following along. ArrowDown steps into the grid for anyone
- * who wants it, Escape comes back out.
- *
- * **Time is a sibling, not a mode.** `TimeField` shares the anchored panel, the typing contract, the
- * open/close keyboard model and the theming with the date fields — everything the reported bug was
- * actually about — but it shares no rendering with them: there is no month, no range, no out-of-month
- * day, and its panel is a list rather than a grid. Folding it into `DateField` as a fourth `mode`
- * would have meant every date field carrying branches it can never take, so it is a separate export
- * in the same file, which keeps the two from drifting apart.
- *
- * The wire format matches the native inputs these replace — `yyyy-mm-dd` for dates, `HH:mm` for
- * times — so a call site swaps `<input type="date">` for `<DateField>` without touching its state.
- *
- * ONE RULE FOR CALLERS, and it is not cosmetic: label these as a SIBLING, never as a wrapper.
- *
- *     <div className="grid gap-1">                     <label className="grid gap-1">
- *       <label className="field-label" htmlFor={id}>     <span className="field-label">From</span>
- *         From                             GOOD          <DateField … />           BAD
- *       </label>                                       </label>
- *       <DateField id={id} … />
- *     </div>
- *
- * Each field carries an icon button that opens the panel, and that button is a real, named control
- * so the calendar is reachable without knowing the ArrowDown shortcut. A wrapping `<label>` folds
- * every named descendant into the input's accessible name, so the button's label rides along and the
- * input announces itself as "From Open calendar" instead of "From". Passing `ariaLabel` also fixes
- * it, since an explicit `aria-label` outranks a wrapping label.
- */
-
 import { CalendarDays, Clock } from "lucide-react";
 import {
   useCallback,
@@ -61,18 +17,12 @@ import { Calendar } from "@/components/ui/calendar";
 import { AnchoredPopover } from "@/components/ui/AnchoredPopover";
 import { cn } from "@/lib/utils";
 
-/* -------------------------------------------------------------------------- */
-/* Parsing and formatting                                                      */
-/* -------------------------------------------------------------------------- */
-
-/** dd/mm/yyyy — what the fields show and what a user is most likely to type. */
 export function formatDisplayDate(date: Date) {
   const day = String(date.getDate()).padStart(2, "0");
   const month = String(date.getMonth() + 1).padStart(2, "0");
   return `${day}/${month}/${date.getFullYear()}`;
 }
 
-/** Accepts dd/mm/yyyy (also `-` or `.` separators) and yyyy-mm-dd; rejects impossible dates. */
 export function parseTypedDate(text: string): Date | undefined {
   const trimmed = text.trim();
   let year: number;
@@ -91,18 +41,15 @@ export function parseTypedDate(text: string): Date | undefined {
     day = Number(match[3]);
   }
   const date = new Date(year, month - 1, day);
-  // `new Date(2026, 1, 31)` silently becomes 3 March; comparing the parts back out rejects it.
   return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date : undefined;
 }
 
-/** The `yyyy-mm-dd` wire value, built from LOCAL parts so it never shifts a day across a timezone. */
 export function toIsoDate(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${date.getFullYear()}-${month}-${day}`;
 }
 
-/** `yyyy-mm-dd` back to a local-midnight Date. */
 export function fromIsoDate(iso: string | null | undefined): Date | undefined {
   if (!iso) return undefined;
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
@@ -111,7 +58,6 @@ export function fromIsoDate(iso: string | null | undefined): Date | undefined {
   return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
-/** Accepts `9:30`, `09:30`, `0930`, `9.30`, `9 pm`, `9:30pm`. Returns the `HH:mm` wire value. */
 export function parseTypedTime(text: string): string | undefined {
   const trimmed = text.trim().toLowerCase();
   const match = /^(\d{1,2})(?:[:. ]?(\d{2}))?\s*(am|pm)?$/.exec(trimmed);
@@ -125,14 +71,12 @@ export function parseTypedTime(text: string): string | undefined {
     if (meridiem === "pm" && hours !== 12) hours += 12;
     if (meridiem === "am" && hours === 12) hours = 0;
   } else if (hours > 23) {
-    // Four bare digits are a time, not an hour: 0930.
     if (trimmed.length === 4 && !match[2]) return undefined;
     return undefined;
   }
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
-/** The 12-hour reading, shown beside the 24-hour value so neither convention has to be decoded. */
 function meridiemLabel(hhmm: string) {
   const [hourText, minuteText] = hhmm.split(":");
   const hours = Number(hourText);
@@ -141,11 +85,6 @@ function meridiemLabel(hhmm: string) {
   return `${twelve}:${minuteText} ${suffix}`;
 }
 
-/* -------------------------------------------------------------------------- */
-/* The shared trigger input                                                    */
-/* -------------------------------------------------------------------------- */
-
-/** Room on the right for the icon button that opens the panel. */
 const INPUT_WITH_ICON = "field-input pr-10";
 
 const ICON_BUTTON =
@@ -166,25 +105,14 @@ type TriggerInputProps = {
   ariaLabel?: string;
   icon: ReactNode;
   iconLabel: string;
-  /** Dates want the numeric keypad; a time needs letters on a phone, for "9:30 pm". */
   inputMode?: "numeric" | "text";
   onText: (text: string) => void;
   onRevert: () => void;
-  /** `true` when the request came from the keyboard, which is when focus should enter the panel. */
   onOpen: (fromKeyboard: boolean) => void;
   onToggle: () => void;
   className?: string;
 };
 
-/**
- * The text input plus the button that opens the panel.
- *
- * The popup semantics (`aria-haspopup`, `aria-expanded`, `aria-controls`) sit on the BUTTON, not on
- * the input. `aria-expanded` is not valid on a plain textbox, and the alternative — promoting the
- * input to `role="combobox"` — would announce it as a value picker when it is really a free-text date
- * that happens to have a calendar beside it. The button is a genuine second tab stop rather than a
- * decoration, so the calendar is reachable without knowing that ArrowDown is the shortcut.
- */
 function TriggerInput({
   inputRef,
   panelId,
@@ -219,14 +147,10 @@ function TriggerInput({
         placeholder={placeholder}
         value={value}
         onChange={(event) => onText(event.target.value)}
-        // Clicking the field opens the calendar but leaves focus in the input, so the panel is an
-        // extra rather than an interruption. Plain focus does NOT open it — otherwise tabbing through
-        // a form would pop a panel open at every date.
         onPointerDown={() => {
           if (!disabled && !open) onOpen(false);
         }}
         onBlur={onRevert}
-        // ArrowDown (bare or with Alt, the native combobox habit) steps into the panel.
         onKeyDown={(event) => {
           if (event.key !== "ArrowDown") return;
           event.preventDefault();
@@ -251,24 +175,16 @@ function TriggerInput({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Single date                                                                 */
-/* -------------------------------------------------------------------------- */
-
 export type DateFieldProps = {
-  /** Present a hidden input under this name, carrying the `yyyy-mm-dd` value, for `FormData`. */
   name?: string;
-  /** Controlled `yyyy-mm-dd`. Omit for an uncontrolled field. */
   value?: string;
   defaultValue?: string;
   onChange?: (iso: string) => void;
-  /** `yyyy-mm-dd` bounds; days outside them are disabled in the grid and rejected on typing. */
   min?: string;
   max?: string;
   disabled?: boolean;
   required?: boolean;
   id?: string;
-  /** Needed when the field has no visible `<label>` of its own. */
   ariaLabel?: string;
   className?: string;
 };
@@ -300,8 +216,6 @@ export function DateField({
   const [focusPanel, setFocusPanel] = useState(false);
   const [month, setMonth] = useState<Date>(() => selected ?? new Date());
 
-  // An ISO value changed from OUTSIDE — a form reset, a linked field — has to reach the visible text.
-  // Skipped while the field has focus, or normalising a half-typed "1/7" would fight the typist.
   useEffect(() => {
     if (typeof document !== "undefined" && document.activeElement === inputRef.current) return;
     const next = fromIsoDate(iso);
@@ -328,14 +242,13 @@ export function DateField({
       return;
     }
     const parsed = parseTypedDate(next);
-    if (!parsed) return; // half-typed: leave the committed value alone until it parses
+    if (!parsed) return;
     if (lowerBound && parsed < lowerBound) return;
     if (upperBound && parsed > upperBound) return;
     setMonth(parsed);
     commit(parsed);
   }
 
-  /** Blur is the moment to give up on unparseable text and show what is actually stored. */
   function revert() {
     const current = fromIsoDate(iso);
     setText(current ? formatDisplayDate(current) : "");
@@ -404,10 +317,6 @@ export function DateField({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Date range                                                                  */
-/* -------------------------------------------------------------------------- */
-
 export type DateRangePickerProps = {
   from?: Date;
   to?: Date;
@@ -415,17 +324,10 @@ export type DateRangePickerProps = {
   startLabel?: string;
   endLabel?: string;
   disabled?: boolean;
-  /** Completeness rule keys for the two halves — the `data-field` anchors a meter pill jumps to. */
   startFieldKey?: string;
   endFieldKey?: string;
 };
 
-/**
- * Two typed date inputs sharing one floating range calendar.
- *
- * The panel is anchored to the pair rather than to whichever input was clicked, so it does not jump
- * sideways when the user moves from Start to End — the grid underneath is the same grid.
- */
 export function DateRangePicker({
   from,
   to,
@@ -468,7 +370,6 @@ export function DateRangePicker({
     const parsed = parseTypedDate(next);
     if (!parsed) return;
     setMonth(parsed);
-    // Typing a start after the current end drags the end along rather than producing a backwards range.
     onChange({ from: parsed, to: to && to.getTime() >= parsed.getTime() ? to : parsed });
   }
 
@@ -493,9 +394,6 @@ export function DateRangePicker({
 
   return (
     <div ref={anchorRef} className="relative grid gap-3 sm:grid-cols-2">
-      {/* The label is a sibling of the field, not a wrapper around it. A wrapping <label> pulls
-          everything inside it into the input's accessible name, and the icon button's own label
-          rode along — the input announced itself as "Start date Open calendar for". */}
       <div className="grid gap-1" data-field={startFieldKey}>
         <label className="field-label" htmlFor={startId}>
           {startLabel}
@@ -551,11 +449,6 @@ export function DateRangePicker({
             month={month}
             onMonthChange={setMonth}
             selected={from ? ({ from, to } as DateRange) : undefined}
-            // Passed through exactly as react-day-picker reports it, INCLUDING the half-finished
-            // `{ from, to: undefined }` after the first click. Filling `to` in here to keep the range
-            // always-complete looks tidier and quietly breaks the main interaction: a complete range
-            // makes every later click extend an endpoint, so the reader can never start a fresh range
-            // that begins after the current one. Callers that need a definite end supply the fallback.
             onSelect={(range: DateRange | undefined) => onChange({ from: range?.from, to: range?.to })}
           />
           <SelectionSummary
@@ -579,11 +472,6 @@ export function DateRangePicker({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Time                                                                        */
-/* -------------------------------------------------------------------------- */
-
-/** Quarter-hour slots. Anything finer is quicker to type than to scroll to. */
 const TIME_SLOTS = Array.from({ length: 24 * 4 }, (_, index) => {
   const hours = Math.floor(index / 4);
   const minutes = (index % 4) * 15;
@@ -592,7 +480,6 @@ const TIME_SLOTS = Array.from({ length: 24 * 4 }, (_, index) => {
 
 export type TimeFieldProps = {
   name?: string;
-  /** Controlled `HH:mm`, the same value shape `<input type="time">` produces. */
   value?: string;
   defaultValue?: string;
   onChange?: (hhmm: string) => void;
@@ -652,7 +539,6 @@ export function TimeField({
 
   const close = useCallback(() => setOpen(false), []);
 
-  // The nearest slot at or before the current value is the one to scroll to and land focus on.
   const activeSlot = useMemo(() => {
     if (!hhmm) return "09:00";
     const exact = TIME_SLOTS.indexOf(hhmm);
@@ -662,7 +548,6 @@ export function TimeField({
     return TIME_SLOTS[index];
   }, [hhmm]);
 
-  // Bring the current time into view — a 96-entry list opened at midnight is not useful.
   useEffect(() => {
     if (!open) return;
     const frame = requestAnimationFrame(() => {
@@ -673,7 +558,6 @@ export function TimeField({
     return () => cancelAnimationFrame(frame);
   }, [open, focusPanel, activeSlot]);
 
-  /** Arrow keys walk the list, Home/End jump to its ends — the listbox half of the keyboard model. */
   function onListKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
     const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
     if (!keys.includes(event.key)) return;
@@ -777,12 +661,6 @@ export function TimeField({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-
-/**
- * The panel's footer. It is `aria-live` so that picking a day — which changes nothing a screen reader
- * would otherwise voice, because focus stays put — is still announced.
- */
 function SelectionSummary({ text, action }: { text: string; action?: ReactNode }) {
   return (
     <div className="mt-2 flex items-center justify-between gap-3 rounded-md bg-surface-50 px-3 py-2 text-sm text-ink-700">

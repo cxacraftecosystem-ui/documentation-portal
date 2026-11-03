@@ -1,10 +1,3 @@
-/**
- * B8 — a question can say which artisan field answers it, so the interview fills it from the picked
- * artisan instead of guessing from the prompt's words.
- *
- * The keys are the server's `ARTISAN_FIELD_KEYS` (`backend/app/schemas/questionnaire.py`), spelled
- * as the Artisan columns; `e2e/web-capture-unit.spec.ts` holds the two lists to each other.
- */
 import { craftIndex, peekCraftCatalogue } from "@/lib/craftCatalogue";
 import type { Artisan } from "@/lib/types";
 import { phoneOf } from "@/lib/standardValues";
@@ -28,7 +21,6 @@ export function artisanFieldLabel(value: string | null | undefined): string | nu
   return ARTISAN_FIELD_OPTIONS.find((option) => option.value === value)?.label ?? null;
 }
 
-/** The master list's name for a craft id, when this browser holds the list. */
 function craftNameFromList(craftId: string | null | undefined): string | null {
   const catalogue = craftId ? peekCraftCatalogue() : null;
   return (catalogue && craftId && craftIndex(catalogue).byId.get(craftId)?.name) || null;
@@ -36,7 +28,6 @@ function craftNameFromList(craftId: string | null | undefined): string | null {
 
 type Interviewer = { name?: string | null; email?: string | null } | null | undefined;
 
-/** What one mapped field reads for this artisan, or "" when the record holds nothing for it. */
 export function artisanFieldValue(field: string, artisan: Artisan, interviewer: Interviewer, today = new Date()): string {
   switch (field) {
     case "name":
@@ -44,7 +35,6 @@ export function artisanFieldValue(field: string, artisan: Artisan, interviewer: 
     case "localName":
       return artisan.localName ?? "";
     case "craft":
-      // The master list's name for the craft, when this device holds the list.
       return craftNameFromList(artisan.craftId) ?? artisan.craft?.name ?? "";
     case "place":
       return artisan.place ?? "";
@@ -69,10 +59,6 @@ export function artisanFieldValue(field: string, artisan: Artisan, interviewer: 
   }
 }
 
-/**
- * The older keyword guess, kept ONLY for a respondent ("RESP") question nobody has mapped yet — an
- * instrument imported before the builder had the setting still fills as it always did.
- */
 export function guessedArtisanField(prompt: string): string | null {
   const text = prompt.toLowerCase();
   if (text.includes("name")) return "name";
@@ -87,10 +73,6 @@ export function guessedArtisanField(prompt: string): string | null {
 
 type MappableQuestion = { id: string; prompt: string; sectionCode: string; artisanField?: string | null };
 
-/**
- * The answers the picked artisan supplies: every MAPPED question, plus the respondent block's
- * unmapped ones through the keyword guess. "contact" falls back from phone to email, as before.
- */
 export function artisanPrefill(
   questions: readonly MappableQuestion[],
   artisan: Artisan,
@@ -110,15 +92,12 @@ export function artisanPrefill(
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-/** "Ramesh Chhipa · Craft questionnaire · 17 Oct" — the server's automatic title, drawn ahead of it. */
 export function automaticInterviewTitle(
   artisanName: string | null | undefined,
   artisanCount: number,
   questionnaireTitle: string | null | undefined,
   when = new Date()
 ): string {
-  // A fixed table, never `toLocaleString`: en-GB writes September "Sept" on newer ICU builds, and the
-  // server's `strftime("%b")` writes "Sep".
   const month = MONTHS[when.getMonth()];
   const who = artisanName?.trim() ? `${artisanName.trim()}${artisanCount > 1 ? " and others" : ""}` : "";
   return [who, questionnaireTitle?.trim() ?? "", `${when.getDate()} ${month}`].filter(Boolean).join(" · ");

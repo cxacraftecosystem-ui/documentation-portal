@@ -2,10 +2,6 @@
 
 import { Search, X } from "lucide-react";
 
-/**
- * Themed search bar: Search icon on the left, a red clear (X) button inside the bar while
- * there is a query, and Enter runs `onSubmit` (e.g. fires the list reload).
- */
 export function SearchInput({
   value,
   onChange,

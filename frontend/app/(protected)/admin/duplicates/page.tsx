@@ -1,15 +1,5 @@
 "use client";
 
-/**
- * /admin/duplicates — likely duplicate artisans, for an admin to merge or set aside.
- *
- * The server finds the pairs (at save time and in a nightly scan) and scores them; nothing is ever
- * merged on its own. Two tabs: the open queue and the pairs an admin said were different people. A
- * pair is compared and merged on `/admin/artisan-merge`, which also lists the merges made and undoes
- * them for 30 days. Admin only (`require_admin` on every route; the
- * `/admin` guard and admin-view chrome cover this page).
- */
-
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Users } from "lucide-react";

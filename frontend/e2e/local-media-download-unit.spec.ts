@@ -2,16 +2,6 @@ import { expect, test } from "@playwright/test";
 
 import { extensionForMimeType, fileStamp, localMediaFileName } from "@/lib/localMediaDownload";
 
-/**
- * The name a file is saved under when somebody presses "Download" on an upload or queue row.
- *
- * The same table is driven against the Android twin in
- * `android/app/src/test/java/com/fieldrepository/app/MediaDownloadsTest.kt` — a voice note saved
- * from the phone and the same one saved from the laptop must land under the same name. Add a row
- * here, add it there.
- */
-
-// 2026-03-07 09:05:02 local time — single-digit month, day, hour and minute so padding is exercised.
 const NOW = new Date(2026, 2, 7, 9, 5, 2);
 
 test.describe("extensionForMimeType", () => {
@@ -51,16 +41,12 @@ test("fileStamp pads every field and is local time", () => {
 
 test.describe("localMediaFileName", () => {
   const rows: Array<[string | null | undefined, string | null | undefined, string]> = [
-    // The original name always wins.
     ["field-recording-1757000000000.webm", "audio/webm", "field-recording-1757000000000.webm"],
     ["IMG_0042.JPG", "image/jpeg", "IMG_0042.JPG"],
     ["Interview notes.pdf", "application/pdf", "Interview notes.pdf"],
-    // A name with no extension gains one from the MIME type…
     ["Section B clip", "audio/mp4", "Section B clip.m4a"],
-    // …unless the MIME type says nothing useful.
     ["mystery", "", "mystery"],
     ["trailing.", "image/png", "trailing..png"],
-    // Illegal characters are replaced, and a leading dot cannot make the file hidden.
     ["a/b:c*d?.jpg", "image/jpeg", "a_b_c_d_.jpg"],
     [".hidden.png", "image/png", "hidden.png"],
   ];
@@ -70,8 +56,6 @@ test.describe("localMediaFileName", () => {
     });
   }
 
-  // No name at all: the NAMING 2.1 name, dated and timed in IST (asserted by shape, because the
-  // runner's zone is not IST, and exactly for an instant whose IST reading is fixed).
   const dated = (what: string, ext: string) => new RegExp(`^FieldRepository_\\d{4}-\\d{2}-\\d{2}_\\d{4}_${what}\\.${ext}$`);
   test("an unnamed file gets the conventional dated name", () => {
     expect(localMediaFileName("", "audio/webm;codecs=opus", NOW)).toMatch(dated("Recording", "webm"));

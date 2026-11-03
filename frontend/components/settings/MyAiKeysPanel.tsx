@@ -7,33 +7,6 @@ import { apiFetch } from "@/lib/api";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 
-/**
- * **A researcher's OWN provider keys.** One card, one row per provider, and an accordion per provider
- * explaining how to get a key.
- *
- * ── WHAT THIS PANEL IS FOR, AND HOW IT DIFFERS FROM THE ONE BELOW IT ──────────────────────────
- *
- * `ApiKeysPanel` manages the DEPLOYMENT's keys and is master-admin only: those are the
- * organisation's credentials and the organisation's bill. This one is the opposite in every respect
- * — it is visible to every signed-in account, it acts only on the caller's own rows, and the key it
- * saves is billed to that person's own card at their own provider. Nothing here can read or write
- * anybody else's key, because the server takes the owner from the token and never from the request.
- *
- * There is deliberately **no reveal control**. The admin panel has one, because a master admin
- * sometimes has to compare a stored key against a provider dashboard. Nobody has that need for
- * somebody else's personal key, and the owner can always paste a new one — so a saved key leaves
- * the server only as a call made on its owner's behalf, and this panel shows the last four
- * characters and nothing more.
- *
- * ── THE CAPABILITY LINE IS NOT DECORATION ─────────────────────────────────────────────────────
- *
- * Each model row prints what that model can actually be used for, and the panel says plainly when a
- * provider cannot do something at all — Claude cannot transcribe audio, because no Claude model
- * accepts a sound file. Without that, a researcher who pastes a Claude key reasonably assumes their
- * recordings are now on their own account, and finds out otherwise only from a bill that never
- * arrives. The server enforces the same rule; this is where a person can see it before choosing.
- */
-
 type AiModel = {
   id: string;
   label: string;
@@ -69,8 +42,6 @@ type KeyState = {
   lastError: string | null;
 };
 
-/** The designer-facing name of each job. The server sends the enum; this is the only place it is
- *  turned into words, so the six names read the same on every row. */
 const TASK_LABELS: Record<string, string> = {
   PROOFREAD: "Proofread",
   EXPAND: "Expand",
@@ -86,9 +57,6 @@ function taskList(tasks: string[]): string {
 
 function priceLine(model: AiModel, checkedOn: string): string | null {
   if (model.inputPricePerMTok === null || model.outputPricePerMTok === null) return null;
-  // The date travels with the figure, every time it is printed. These go stale — providers
-  // re-price, and two of the current rates are introductory — and a stale price shown as current is
-  // a small lie told to somebody deciding how to spend their own money.
   return `About $${model.inputPricePerMTok} in / $${model.outputPricePerMTok} out per million tokens · checked ${checkedOn}`;
 }
 
@@ -160,9 +128,6 @@ function ProviderRow({
   const [busy, setBusy] = useState<null | "save" | "test" | "remove">(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  // Follow the server when it changes the row under us (a save, a test, a fresh load). Without this
-  // the select would keep showing whatever was picked before a Remove, which reads as if the choice
-  // had survived the delete.
   useEffect(() => setModel(state.model), [state.model]);
 
   const run = async (

@@ -1,18 +1,5 @@
 "use client";
 
-/**
- * /forgot-password — ask for a one-time password link by e-mail. PUBLIC, outside the protected tree.
- *
- * Ported from cxa-cms's `app/studio/login/forgot` (the reference for this feature). ONE EMAIL BOX,
- * ONE BUTTON, ONE ANSWER: `POST /auth/forgot-password` returns the same sentence whether or not the
- * address has an account, and this page prints it verbatim — there is deliberately no branch that
- * could tell a stranger whether an address is known. The only failures it can show are about the REQUEST:
- * a malformed address (422), too many requests from this connection (429, with the wait in words)
- * and a server it could not reach.
- *
- * A signed-in reader is sent to Settings, where a password is changed with the current one.
- */
-
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -38,7 +25,6 @@ export default function ForgotPasswordPage() {
   }, [router, user]);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
-    // FIRST, before any await: React nulls `currentTarget` across one.
     const data = new FormData(event.currentTarget);
     event.preventDefault();
     if (pending) return;

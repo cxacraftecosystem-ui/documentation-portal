@@ -1,32 +1,5 @@
 "use client";
 
-/**
- * "Which records are not filed under any workshop, and where do they belong?"
- *
- * WHY THIS SCREEN EXISTS. Every control that narrows by workshop reads one column, `workshopId`. A record
- * with that column empty counts towards NO workshop scope — while remaining perfectly visible under "All
- * records". Since the app opens scoped to the most recent workshop, the result reads as "nothing was
- * documented here" rather than as a filter excluding data that is sitting right there. That is exactly what
- * happened: twenty-five questionnaire interviews and nine hundred and twenty-four media files, all recorded
- * at the one workshop in the repository, none of them carrying its id, and a completion matrix showing
- * nothing but the cells an admin had ticked by hand.
- *
- * The column arrived after that fieldwork, so this will keep happening whenever a client is a version
- * behind — hence a button rather than only a migration. `backend/app/services/workshop_inference.py` holds
- * the evidence ladder both this and the migration share.
- *
- * THE CLEAR-CUT ROWS FILE THEMSELVES (2026-10-20). A record whose parent record already names a
- * workshop is filed by the server once a night (`services/workshop_auto_map`), so this card leads with
- * what is left for a person and offers the nightly switch. The button below still files everything the
- * evidence settles, at once, for an admin who does not want to wait.
- *
- * IT IS A PREVIEW FIRST, ALWAYS. The report is a plain read and renders on load; nothing is written until
- * somebody presses the button, and the button says exactly how many rows it will touch. Rows the evidence
- * cannot settle are listed BY NAME with the reason, because "949 of 949" is a fine answer and "947 of 949"
- * needs to say which two and why — that is the difference between a tool an admin can trust and one they
- * have to verify by hand afterwards.
- */
-
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Check, Link2, RefreshCw } from "lucide-react";
 
@@ -48,24 +21,15 @@ import {
 
 export type { WorkshopMappingPlan } from "@/components/settings/workshopMapping";
 
-/** Type-of noun for the counts sentence. Plural unless the count is exactly one, as everywhere else. */
 function noun(bucket: MappingBucket, count: number): string {
   return count === 1 ? bucket.singular : bucket.plural;
 }
 
-/** One day, in the reader's own locale. An unparseable value is echoed rather than rendered blank. */
 function formatDay(iso: string): string {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleDateString();
 }
 
-/**
- * The LAST DAY a window covers, from its exclusive end.
- *
- * The server sends `end` as midnight of the day AFTER the workshop's last day (see `build_windows`), so
- * printing it raw would name a day the window does not include — a caption that contradicts the rule it
- * is explaining.
- */
 function formatLastDay(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
@@ -103,10 +67,6 @@ export function WorkshopMappingPanel() {
     try {
       const result = await apiFetch<WorkshopMappingPlan>("/workshops/unmapped/map", { method: "POST" });
       setApplied(result.totals.applied ?? 0);
-      // RE-READ rather than render the apply response. That response is built from the ladder run the
-      // writes were derived FROM — it is a record of what was done, not a picture of what is left — so
-      // rendering it would leave the tiles reporting the records just filed as still unfiled and the
-      // button offering to file them again. A fresh read is the only thing that can say "nothing left".
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The records could not be mapped.");
@@ -131,7 +91,6 @@ export function WorkshopMappingPanel() {
     }
   }
 
-  // Only the buckets with something left for a person. The clear-cut rows are the nightly job's.
   const buckets = plan ? bucketsNeedingReview(plan) : [];
   const totals = plan?.totals;
   const needsReview = plan ? totalNeedsReview(plan) : 0;
@@ -222,10 +181,6 @@ export function WorkshopMappingPanel() {
                       </p>
                     ) : null}
 
-                    {/* WHICH RULE DECIDED, per row, aggregated. An admin approving a bulk write needs to
-                        know whether 924 files were filed because their parent records said so or because
-                        their timestamps merely fell in a window — those are different levels of certainty
-                        and the panel must not flatten them into one number. */}
                     {reviewRungs(bucket).length ? (
                       <ul className="mt-1.5 grid gap-0.5">
                         {reviewRungs(bucket).map((entry) => (
@@ -257,11 +212,6 @@ export function WorkshopMappingPanel() {
                                 </li>
                               ))}
                             </ul>
-                            {/* Compared against THIS list's own length, not `rowsTruncated`. That flag is
-                                about the bucket's whole row list, which the server caps and fills with
-                                resolved rows too — reading it here reported "the list is capped" on a
-                                complete list of two, which is a false alarm on the one block an admin has
-                                to act on. */}
                             {stuck.length < bucket.unresolved ? (
                               <p className="mt-1 text-[11px] leading-4 text-ink-500">
                                 {bucket.unresolved - stuck.length} more not shown.
@@ -300,10 +250,6 @@ export function WorkshopMappingPanel() {
           ) : null}
 
           {plan.workshops.length ? (
-            /* The WINDOWS, not just the titles. An end date is stored differently by each client — the
-               web form sends the last millisecond of the day, Android sends midnight — so "recorded
-               inside that workshop's dates" is only checkable if the dates the server read are on
-               screen. The end shown is the last day the window covers, not the exclusive bound. */
             <ul className="mt-3 grid gap-0.5 text-[11px] leading-4 text-ink-500">
               {plan.workshops.map((workshop) => (
                 <li key={workshop.id}>

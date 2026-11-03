@@ -1,10 +1,3 @@
-/**
- * The artisan card routes (`backend/app/api/routes/artisan_cards.py`). Nothing is drawn until
- * `GET /artisan-cards/status` says cards are on; while they are off every other route answers 404.
- *
- * A Design Prototype Workshop card (issuer D) resolves here only through a link that portal made, so
- * there is no REMOTE answer on this side: the server says FOUND, REPLACED, or a 404 sentence.
- */
 import { API_BASE, ApiError, apiFetch, assertApiConfigured, describeApiDetail } from "@/lib/api";
 import { saveBlobToDevice } from "@/lib/saveToDevice";
 
@@ -46,12 +39,10 @@ export type CardResolution =
 
 export type CardSheetRequest = { artisanIds: string[]; workshopId?: undefined } | { workshopId: string; artisanIds?: undefined };
 
-/** The most cards one sheet request prints (the server's SHEET_LIMIT). */
 export const CARD_SHEET_LIMIT = 200;
 
 let statusPromise: Promise<{ enabled: boolean; issuer: string }> | null = null;
 
-/** Whether cards are on here. Asked once per page load; a failure reads as "off" and is asked again. */
 export function artisanCardStatus(): Promise<{ enabled: boolean; issuer: string }> {
   if (!statusPromise) {
     statusPromise = apiFetch<{ enabled?: boolean; issuer?: string | null }>("/artisan-cards/status")
@@ -75,7 +66,6 @@ export function reissueArtisanCard(artisanId: string, reason: ReissueReason): Pr
   });
 }
 
-/** The card PDF path for one artisan. */
 export function artisanCardPdfPath(artisanId: string, size: CardSize, photo: boolean): string {
   return `/artisans/${encodeURIComponent(artisanId)}/card.pdf?size=${size}&photo=${photo ? 1 : 0}&source=WEB`;
 }
@@ -89,13 +79,8 @@ function fileNameFrom(header: string | null, fallback: string): string {
   return match?.[1] ?? fallback;
 }
 
-/**
- * A PDF from the API, saved to the device. Built here rather than through `apiFetch`, which reads
- * every body as JSON or text and would mangle the bytes; same address check, token and error sentence.
- */
 async function savePdf(path: string, init: RequestInit, fallbackName: string): Promise<string> {
   assertApiConfigured();
-  // The session travels as the same-origin cookie, exactly as on every `apiFetch`.
   const headers = new Headers(init.headers);
   if (init.body) headers.set("Content-Type", "application/json");
   const response = await fetch(`${API_BASE}/api${path}`, { ...init, headers, cache: "no-store" });
@@ -114,7 +99,6 @@ export function downloadArtisanCard(artisanId: string, size: CardSize, photo: bo
   return savePdf(artisanCardPdfPath(artisanId, size, photo), {}, "artisan-card.pdf");
 }
 
-/** A sheet of cards: A4 pages of ten ID-1 cards with crop marks, or one A6 card per page. */
 export function downloadArtisanCardSheet(source: CardSheetRequest, size: CardSize = "id1", photo = true): Promise<string> {
   return savePdf(
     "/artisan-cards/sheet.pdf",
@@ -130,12 +114,10 @@ export function resolveArtisanCard(input: string): Promise<CardResolution> {
   });
 }
 
-/** "XXXX XXXX 9012", or null when the last four are unknown. */
 export function maskedLast4(last4: string | null | undefined): string | null {
   return last4 && /^\d{4}$/.test(last4) ? `XXXX XXXX ${last4}` : null;
 }
 
-/** The QR as an image source: the server's SVG through an `<img>`, so no markup from the wire is mounted. */
 export function qrImageSrc(svg: string): string {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }

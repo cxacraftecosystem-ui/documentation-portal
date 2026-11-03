@@ -4,12 +4,6 @@ import { motion, type Variants } from "framer-motion";
 
 import { useHeroReducedMotion } from "@/components/hero/useHeroMotion";
 
-/**
- * The six tiers, in the order and with the exact labels of ROLE_LABELS in lib/permissions.ts and
- * ROLE_RANK in backend/app/core/deps.py. Each line states what the tier ADDS, because the ladder is
- * strictly inclusive: every rank inherits everything below it, and a grantable capability can lift
- * a single power for a lower tier without moving them up.
- */
 const TIERS = [
   {
     role: "Crowdsource Volunteer",
@@ -28,12 +22,6 @@ const TIERS = [
     adds: "Crafts, workshops, the questionnaire builder, promotions, full dataset download."
   },
   {
-    // ⚠ "TASK ASSIGNMENT" ALONE UNDERSTATED THIS TIER AFTER 2026-09-14, and understating a tier on
-    // this diagram is the same defect as overstating one: the ladder is what a reader uses to work
-    // out who they need. Approving is now a power only this rung and the creator hold — an
-    // assignee's "Mark done" lands on SUBMITTED and only `is_manager` (the task's creator, or an
-    // admin) can write DONE, `backend/app/api/routes/tasks.py:1645`. It is listed beside assignment
-    // rather than as its own line because it is the second half of one job.
     role: "Admin",
     adds: "Settings hub, task assignment and approval, workshop access grants, accounts."
   },
@@ -43,11 +31,6 @@ const TIERS = [
   }
 ];
 
-/**
- * The access ladder as a diagram rather than a paragraph: six rows whose accent bar lengthens with
- * rank, so the inclusive shape of the hierarchy is legible before a word is read. Purple only — the
- * ladder is a system diagram, and gold stays on the hero and auth surfaces.
- */
 export default function AccessLadder() {
   const reduce = useHeroReducedMotion();
 
@@ -73,11 +56,6 @@ export default function AccessLadder() {
           Six tiers, and each one inherits the last.
         </motion.h2>
         <motion.p variants={item} className="mt-4 max-w-2xl text-base leading-relaxed text-ink-500">
-          {/* THE LADDER IS THE SECOND GATE — see the same note in the Designer repo. This read
-              "New accounts start at the bottom and are raised by an admin", which described the
-              whole of admission when signing in was open to anyone who could authenticate. The
-              allow-list is now the first gate; a reader who knows only the ladder reads a refusal
-              at the door as a bug. */}
           An administrator admits your address, then your tier sets what you can do. Single
           capabilities can also be granted on their own.
         </motion.p>
@@ -99,7 +77,6 @@ export default function AccessLadder() {
                 <h3 className="font-display text-sm font-bold text-ink-900 sm:w-52 sm:shrink-0">{tier.role}</h3>
                 <p className="mt-1 text-sm leading-relaxed text-ink-500 sm:mt-0">{tier.adds}</p>
               </div>
-              {/* The rung: width tracks rank, so the ladder reads as a shape as well as a list. */}
               <span
                 aria-hidden
                 className="hidden h-1.5 shrink-0 rounded-full bg-purple-700 lg:block"

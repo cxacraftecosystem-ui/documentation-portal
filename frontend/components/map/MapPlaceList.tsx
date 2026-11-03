@@ -1,25 +1,5 @@
 "use client";
 
-/**
- * The map as text. Not a fallback — the other half of the same instrument.
- *
- * The SVG beside this is `aria-hidden`, so this list is the ONLY way a screen-reader or keyboard-only
- * user reads the map, and it is therefore held to a higher bar than a caption: every place, every count,
- * the precision of every point, and the same click-through to the records. A sighted user gets the shape
- * of the country; everyone gets the numbers. Nothing is available in one and missing from the other.
- *
- * THE ROWS ARE NUMBERED, and the number is not decoration. It is the shared name for a place across the
- * two views: the pin's hover label says "3 · Jaipur" and this row says "3", so "the third one" means one
- * thing on the picture and on the list. Clicking a pin scrolls this list to its row and flashes it (see
- * `components/hooks/useRevealRow`), and pointing at either one lights the other.
- *
- * A ROW CAN OPEN. At NATION level the whole country is one dot and one row, and at STATE level a state is
- * one dot and one row — so "click the pin, find its row" has nowhere to go. Those rows therefore carry
- * the level below them (`point.children`) as a disclosure: the states inside the nation, the districts
- * inside the state. Choosing one drills the whole map down to it, because a child's key is a real point
- * key at the child level — see `MapPointChild`.
- */
-
 import { ChevronDown, Crosshair, MapPin } from "lucide-react";
 
 import {
@@ -32,17 +12,7 @@ import {
 } from "@/components/map/types";
 import type { RecordType } from "@/components/search/SearchFilters";
 
-/**
- * How each precision tier is described in words. The map draws uncertainty as a halo; this says the
- * same thing in a sentence, because a halo communicates nothing to a screen reader.
- *
- * Two of the six are MEASUREMENTS and four are lookups, and the wording keeps them apart on purpose:
- * a reader who cannot tell a dropped pin from a state capital will read the second as the first.
- */
 const PRECISION_NOTE: Record<MapPrecision, string> = {
-  // Covers two shapes: a pin inside a named district, and — for a point keyed `pin:` — a pin with no
-  // state or district recorded at all, which the server places as itself rather than reporting as
-  // unplaced. Its `region` names the coordinate and says the names are missing.
   SUBJECT_PIN: "pin dropped on the subject's own place",
   MEASURED: "GPS fix taken while recording",
   TOWN: "town located from the typed place name",
@@ -60,17 +30,12 @@ const PRECISION_BADGE: Record<MapPrecision, string> = {
   NATION: "Nation"
 };
 
-/** What a level's children are called, for the disclosure's own label. */
 const CHILD_NOUN: Record<AdminLevel, [singular: string, plural: string]> = {
   NATION: ["place", "places"],
   STATE: ["state", "states"],
   DISTRICT: ["district", "districts"]
 };
 
-/**
- * Unknown precision values must not blank the badge. The server's vocabulary can gain a tier before
- * this client is redeployed, and an empty pill beside a real count reads as a broken row.
- */
 function precisionBadge(precision: MapPrecision): string {
   return PRECISION_BADGE[precision] ?? String(precision);
 }
@@ -79,11 +44,6 @@ function precisionNote(precision: MapPrecision): string {
   return PRECISION_NOTE[precision] ?? "position of unstated precision";
 }
 
-/**
- * How the disclosure describes what is inside it. A CAPTURE point's children are tighter GPS clusters
- * rather than administrative units, so calling them "districts" would be wrong in the one way this whole
- * subsystem refuses to be wrong — it would lend a measurement an administrative name it does not have.
- */
 function childSummary(point: MapPoint, childLevel: AdminLevel | null | undefined): string {
   const count = point.children?.length ?? 0;
   if (point.layer === "CAPTURE") {
@@ -112,20 +72,14 @@ export function MapPlaceList({
   unplaced: UnplacedPlace[];
   selectedKey: string | null;
   focusKeys?: string[];
-  /** The pin under the pointer on the map, so the two views light up together. */
   hoveredKey?: string | null;
-  /** Which level `point.children` are keyed at, straight from the server. */
   childLevel?: AdminLevel | null;
-  /** Rows whose disclosure is open. Held by the page so selecting a pin can open one. */
   expandedKeys: ReadonlySet<string>;
-  /** The row flashing right now, from `useRevealRow`. */
   flashKey?: string | null;
-  /** Row ref registrar from `useRevealRow`, so the page can scroll a row into view. */
   registerRow?: (key: string) => (node: HTMLElement | null) => void;
   onSelect: (key: string) => void;
   onHover?: (key: string | null) => void;
   onToggleExpanded: (key: string) => void;
-  /** Drill the map down to a child: switch to its level and select it. */
   onDrillDown: (child: MapPointChild) => void;
 }) {
   const focused = new Set(focusKeys);
@@ -141,12 +95,7 @@ export function MapPlaceList({
           const types = (Object.entries(point.counts) as Array<[RecordType, number]>).filter(
             ([, count]) => count > 0
           );
-          // The shared name for this place across both views. 1-based and in the server's own order
-          // (busiest first), which is the order the pins were sorted in — so the numbers cannot disagree.
           const ordinal = index + 1;
-          // The ORDINAL, not the key, because a point key is arbitrary text from the server
-          // (`district:Rajasthan|Jaipur`, `capture:0.25:26_75`) and sanitising it for an HTML id can map
-          // two distinct keys onto one string. The ordinal is unique within this list by construction.
           const panelId = `map-place-children-${ordinal}`;
 
           return (
@@ -184,8 +133,6 @@ export function MapPlaceList({
                         <MapPin className="h-4 w-4" aria-hidden />
                       )}
                     </span>
-                    {/* The number the map's hover label repeats. Not announced separately: it is already
-                        in the row's accessible name below, and a bare "3" read out on its own is noise. */}
                     <span
                       aria-hidden
                       className="text-center font-display text-[10px] font-bold leading-none text-ink-500"
@@ -233,7 +180,6 @@ export function MapPlaceList({
                           {point.medianAccuracy ? `, median accuracy ±${point.medianAccuracy} m` : ""}
                         </>
                       ) : null}
-                      {/* Grouping to a district loses no information — it moves the finer names here. */}
                       {point.layer === "ORIGIN" && point.places?.length ? (
                         <>
                           {" · covers "}
@@ -241,9 +187,6 @@ export function MapPlaceList({
                           {point.places.length > 3 ? ` and ${point.places.length - 3} more` : ""}
                         </>
                       ) : null}
-                      {/* How much of this point's POSITION is measurement. A district holding forty
-                          records of which two carry a pin is a different thing from one where all forty
-                          do, and the pin looks identical either way. */}
                       {point.layer === "ORIGIN" && typeof point.pinnedRecords === "number" && point.total > 0 ? (
                         <>
                           {" · "}
@@ -271,10 +214,6 @@ export function MapPlaceList({
                     <button
                       type="button"
                       aria-expanded={isExpanded}
-                      // Conditional, for the same reason the walkthrough's step card makes it
-                      // conditional: the panel is unmounted when closed, and an `aria-controls`
-                      // pointing at an id that is not in the document is worse than none — it tells a
-                      // screen reader there is somewhere to go and then loses it.
                       aria-controls={isExpanded ? panelId : undefined}
                       onClick={() => onToggleExpanded(point.key)}
                       className="flex w-full items-center gap-1.5 rounded text-left text-[11px] font-semibold text-purple-700 dark:text-purple-300 hover:underline focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-700"
@@ -318,11 +257,6 @@ export function MapPlaceList({
                             {(childLevel ?? "DISTRICT").toLowerCase()} to see them all.
                           </li>
                         ) : null}
-                        {/* WHY THESE ARE LINKS INTO THE MAP AND NOT INTO THE RECORDS. Choosing one
-                            re-groups the whole map at the finer level and selects it, which is the same
-                            navigation as moving the Detail control and then clicking that pin — so the
-                            reader ends up somewhere they could have reached by hand, with the pin, the
-                            borders and the record panel all agreeing. */}
                         <li className="px-2 pt-0.5 text-[11px] leading-4 text-ink-500">
                           Choosing one moves the map to {(childLevel ?? "district").toLowerCase()} detail.
                         </li>
@@ -341,8 +275,6 @@ export function MapPlaceList({
           <h3 className="font-display text-xs font-semibold uppercase tracking-wide text-amber-800">
             Not on the map
           </h3>
-          {/* A place quietly missing from a map is indistinguishable from a place with no records,
-              so what could not be placed is named here rather than dropped. */}
           <p className="mt-1 text-xs leading-5 text-ink-700">
             No state on record. Add a state and district to place them.
           </p>

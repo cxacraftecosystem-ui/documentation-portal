@@ -1,34 +1,9 @@
 "use client";
 
-/**
- * What an upload actually did, shown in full.
- *
- * THIS PANEL IS THE FEATURE, not diagnostics for it. The backend route says so in its own docstring
- * and it is worth restating here, because this is the component a later change is most likely to
- * quietly trim: an admin who uploads eighty-one questions and is shown seventy-nine, with no way to
- * find out which two are missing or why, does not trust the import again — and every likely cause (a
- * merged cell, a formula Excel never calculated, "maybe" typed in the Required column) is invisible
- * from the result. So every problem the parser reported is printed, with its Excel row number, and
- * every question the edit rule superseded or retired is named with the server's own sentence.
- *
- * The row numbers are 1-based worksheet rows exactly as Excel's gutter shows them, which is what
- * makes them worth printing at all: "row 34" means press Ctrl+G and type 34.
- *
- * The counts are drawn even when everything went perfectly. A silent success and a success that
- * quietly dropped six rows must not look the same, and the only way to tell them apart is to always
- * say how many of each thing happened.
- */
-
 import { AlertTriangle, CheckCircle2, Info, ShieldAlert } from "lucide-react";
 
 import type { QWorkbookProvenance, QWorkbookReport } from "@/components/questionnaires/workbookApi";
 
-/**
- * The counts worth printing, in the order an admin reads them, paired with the wording each one
- * needs. Held as data rather than as a dozen hand-written spans so a count cannot be added to the
- * report and silently left off the screen — the failure this whole panel exists to prevent, one
- * level down.
- */
 function tallies(report: QWorkbookReport): Array<{ label: string; value: number }> {
   return [
     { label: "questions added", value: report.created },
@@ -41,30 +16,12 @@ function tallies(report: QWorkbookReport): Array<{ label: string; value: number 
     { label: "removed", value: report.removed },
     { label: "sections switched off", value: report.sectionsRetired ?? 0 },
     { label: "assigned tasks still naming a switched-off section", value: report.assignedTasksAffected ?? 0 },
-    // Printed as its own count rather than folded into the provenance sentence below, because a
-    // number an admin can compare against what they saw in Excel is what turns "the app decided
-    // something" into "the app decided this much".
     { label: "answers in the file, not imported", value: report.answersSkipped ?? 0 },
-    // A hand-filled pro-forma's answers land as uploaded sessions (UNIFY U7).
     { label: "answers imported", value: report.answersImported ?? 0 },
     { label: "uploaded sessions", value: report.sessionsCreated ?? 0 }
   ].filter((entry) => entry.value > 0);
 }
 
-/**
- * The heading, tone and icon for one provenance outcome.
- *
- * A LOOKUP RATHER THAN A TERNARY, and that is a bug fix rather than tidying. The equivalent block in
- * the sibling application used to read `action === "answersNotImported" ? A : B`, so the moment a
- * THIRD action existed every other value fell into B — and B's heading made a claim about whose name
- * some answers had been recorded under. A heading that is confidently wrong about authorship is the
- * exact failure the provenance field was added to prevent, made by the panel that exists to prevent
- * it.
- *
- * The DEFAULT is therefore the cautious one. An action this component has never heard of gets the
- * amber treatment and the server's own sentence, which is honest about not knowing rather than
- * confidently wrong.
- */
 function skinFor(provenance: QWorkbookProvenance): {
   box: string;
   heading: string;
@@ -102,10 +59,6 @@ function skinFor(provenance: QWorkbookProvenance): {
 export function UploadReport({ report, className }: { report: QWorkbookReport; className?: string }) {
   const counts = tallies(report);
   const provenance = report.provenance ?? null;
-  // The provenance sentence is ALSO pushed into `problems` by the server, so that a client which
-  // renders only the problem list still tells the admin about it. This panel renders both, so the
-  // copy in the problem list is dropped here — printing one sentence twice, once in its own block
-  // and once under "rows the import had to assume something about", reads as two separate events.
   const problems = provenance
     ? report.problems.filter((problem) => problem.reason !== provenance.reason)
     : report.problems;
@@ -137,17 +90,6 @@ export function UploadReport({ report, className }: { report: QWorkbookReport; c
         ) : null}
       </div>
 
-      {/*
-        WHAT HAPPENED TO THE ANSWERS THE WORKBOOK ALREADY CARRIED.
-
-        An answer in this repository belongs to an interview: it names the artisan who gave it, where
-        it was recorded and who recorded it. A spreadsheet column headed "Answer" supplies none of
-        that, so the import counts what was typed there and stores none of it. Silence is not an
-        option — somebody who typed forty answers into the sheet and sees nothing about them
-        afterwards will conclude they were imported. `reason` is written on the server to be shown
-        as-is; this is the third place in the stack that could paraphrase the rule and the one where
-        paraphrasing it would cost an admin their understanding of where answers live.
-      */}
       {provenance && skin ? (
         <div className={`grid gap-2 rounded-md border p-3 ${skin.box}`}>
           <div className="flex items-start gap-2">
@@ -160,14 +102,6 @@ export function UploadReport({ report, className }: { report: QWorkbookReport; c
         </div>
       ) : null}
 
-      {/*
-        The edit rule's own account of itself, printed VERBATIM.
-
-        `reason` is written on the server to be shown as-is, and paraphrasing it here would make this
-        the fourth place that explains the supersede/retire rule slightly differently. An admin whose
-        six reworded questions came back as six NEW questions has to be told that happened and that
-        the recorded answers are safe — a question count cannot say it.
-      */}
       {details.length ? (
         <div className="grid gap-2">
           <h3 className="field-label">What the recorded answers protected</h3>
@@ -199,12 +133,6 @@ export function UploadReport({ report, className }: { report: QWorkbookReport; c
         </div>
       ) : null}
 
-      {/*
-        Errors before warnings, and both with the row number first. An "error" is a row where NOTHING
-        was stored; a "warning" is a row that was stored but something had to be assumed. Those are
-        two different jobs for the admin — one is a question they have lost, the other is a question
-        that may say something they did not mean — so they are never merged into one list.
-      */}
       {errors.length ? <ProblemList tone="error" title="Rows that could not be read" problems={errors} /> : null}
       {warnings.length ? (
         <ProblemList tone="warning" title="Rows the import had to assume something about" problems={warnings} />
@@ -229,8 +157,6 @@ function ProblemList({
   title: string;
   problems: QWorkbookReport["problems"];
 }) {
-  // amber-100/amber-800 and error-100/error-600 are the brand rungs; amber-50 and amber-200 are
-  // stock Tailwind and do not pair with them (the config deep-merges the two scales).
   const skin =
     tone === "error"
       ? "border-red-200 bg-error-100 text-red-800"
@@ -240,15 +166,6 @@ function ProblemList({
       <h3 className="field-label">
         {title} ({problems.length})
       </h3>
-      {/*
-        NO "and 12 more". There is no cap on this list and there must not be one. A cap is how an
-        admin ends up looking at the first five of forty problems and concluding the import went
-        mostly fine — and the parser has already capped what it reports at the source
-        (MAX_QUESTIONS / MAX_SECTIONS in app/services/questionnaire_xlsx.py), so a second cap here
-        would hide rows that survived the first. If the list is long, the workbook is wrong, and the
-        length is the message. The same rule forbids replacing `reason` with a category chip: the
-        sentence is written on the server to be read, and a chip is a summary wearing a badge.
-      */}
       <ul className="grid gap-2">
         {problems.map((problem, index) => (
           <li

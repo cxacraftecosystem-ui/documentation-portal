@@ -2,14 +2,6 @@ import type { Page, Route } from "@playwright/test";
 
 import { QuestionnaireFake } from "./qv2Fake";
 
-/**
- * AN IN-MEMORY API FOR `e2e/list-back-nav.spec.ts` (identical in both portals): every record list
- * answers 45 rows named "Record 01" … "Record 45", paged on the server as the real lists are
- * (`page`, `pageSize`, `search`), so "page 2" is a real second request; the questionnaire sessions
- * and recordings answer the same 45 in cursor pages of 20. Everything else is the questionnaire
- * fake's (`support/qv2Fake.ts`), which also answers `/me`, `/preferences/me` and the v2 config.
- */
-
 type Json = Record<string, unknown>;
 
 export const ROWS = 45;
@@ -17,7 +9,6 @@ const PAGE = 20;
 
 export const rowName = (n: number) => `Record ${String(n).padStart(2, "0")}`;
 
-/** The record lists, by API path, and the field each row prints as its name. */
 const LIST_PATHS = [
   "/artisans",
   "/products",
@@ -125,7 +116,6 @@ export class ListBackNavFake {
     const search = (query.get("q") ?? "").toLowerCase();
     const kept = rows.filter((row) => !search || title(row).toLowerCase().includes(search));
     const start = Number(query.get("cursor") ?? 0) || 0;
-    // `limit` as the server reads it (the search page's Recordings group asks for 5).
     const size = Math.max(1, Math.min(Number(query.get("limit")) || PAGE, PAGE));
     const items = kept.slice(start, start + size);
     return { items, nextCursor: start + size < kept.length ? String(start + size) : null, capped: false };
@@ -136,8 +126,6 @@ export class ListBackNavFake {
     if (method === "GET" && path === "/questionnaire/recordings" && !query.get("sessionId"))
       return { status: 200, json: this.cursorPage(this.recordings, query, (row) => String(row.downloadName)) };
     if (method === "GET" && LIST_PATHS.includes(path)) return { status: 200, json: this.paged(path, query) };
-    // The search page's browse route (the unified route answers 404, so the page falls back to it):
-    // the artisans bucket holds the 45, every other bucket is empty.
     if (method === "GET" && path === "/search") {
       const artisans = this.paged("/artisans", query) as { items: Json[]; total: number; pages: number };
       return {
@@ -154,7 +142,6 @@ export class ListBackNavFake {
         }
       };
     }
-    // A row's own record (`artisans-7`), never a sub-resource such as `/media/jobs`.
     const one = /^\/(artisans|products|processes|tools|workshops|media)\/([a-z]+-\d+)$/.exec(path);
     if (method === "GET" && one) {
       const n = Number(one[2].split("-").pop()) || 1;

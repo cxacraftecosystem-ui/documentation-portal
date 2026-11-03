@@ -6,8 +6,6 @@ import { expect, test } from "@playwright/test";
 import { ApiError } from "@/lib/api";
 import { interviewFromSearchParams, openInLabel, remoteRecordError, remoteRecordRows, safeOpenUrl } from "@/lib/unifiedSearch";
 
-/** The read-only card for the other portal's record, and the two deep links search opens. */
-
 test("the card lists the shared fields and the date, and nothing empty", () => {
   const rows = remoteRecordRows(
     {

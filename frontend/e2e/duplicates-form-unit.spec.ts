@@ -16,15 +16,6 @@ import {
   type DuplicateCandidate
 } from "@/lib/duplicates";
 
-/**
- * The artisan form's "Already recorded?" card: which rows it shows, and what a create sends.
- *
- * The server is the only scorer; these tests pin the client's half — the card lists at most three
- * candidates at or above the show threshold, never one already dismissed, and every create carries
- * `duplicateAcknowledged` (`[]` when nothing was shown), because a body without it opts out of the
- * server's hold.
- */
-
 const read = (...parts: string[]) => readFileSync(join(__dirname, "..", ...parts), "utf8").replace(/\r\n/g, "\n");
 
 function candidate(id: string, score: number, extra: Partial<DuplicateCandidate["artisan"]> = {}): DuplicateCandidate {
@@ -105,7 +96,6 @@ test("the form sends the acknowledgement on create only and checks before saving
   expect(form).toMatch(/setTimeout\(\(\) => \{\s*void runDuplicateCheck/);
   expect(form).toContain("}, 600);");
   expect(form).toContain("possibleDuplicateHold(err)");
-  // Offline: no check is attempted, and the queued create still carries the (empty) list.
   expect(form).toContain('if (typeof navigator !== "undefined" && navigator.onLine === false) return;');
 });
 

@@ -1,19 +1,5 @@
 "use client";
 
-/**
- * Search, at the top of View Data.
- *
- * The Android app puts a search box on its data screen because that is how a researcher actually
- * arrives: they know the artisan's name, not which of nine craft folders they are filed under.
- * Walking the tree is the browsing path; this is the finding path, and until now the web only had
- * the first one here — the search page was somewhere else entirely, and it did not hand you back
- * into the folder you wanted.
- *
- * Every hit therefore does two things. "Open" goes to the record's own page (the same destination
- * the list pages use). "Show in folders" resolves the record to its place in the tree and moves the
- * browser below to it, which is the whole point of having search on this page rather than its own.
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Search, X, Loader2, FolderTree, ExternalLink } from "lucide-react";
 import Link from "next/link";
@@ -39,12 +25,10 @@ type SearchResult = {
   products: ProductDocumentation[];
   tools: ToolDocumentation[];
   media: MediaFile[];
-  /** Rows matching in each bucket, ignoring the page window — so "of N" can respect the type filter. */
   totals?: Record<(typeof RECORD_TYPES)[number], number>;
   total?: number;
 };
 
-/** Where a hit lives in the tree, resolved server-side (`GET /data/locate`). */
 type LocateResult = { path: string | null };
 
 type Row = {
@@ -54,17 +38,11 @@ type Row = {
   subtitle: string;
   href: string | null;
   external?: boolean;
-  /** (recordType, id) the tree can resolve; null for rows the tree does not file individually. */
   locate: { type: string; id: string } | null;
 };
 
 const EMPTY: Row[] = [];
 
-/**
- * The buckets are dropped here as well as in the request, because `types` is the one filter key the
- * API may not know yet: an older server answers with all five buckets, and a panel that trusted it
- * would show artisans to someone who asked for media only.
- */
 function rowsFrom(result: SearchResult, filters: SearchFilters): Row[] {
   const rows: Row[] = [];
   for (const a of typeVisible(filters, "artisans") ? (result.artisans ?? []) : []) {
@@ -103,8 +81,6 @@ function rowsFrom(result: SearchResult, filters: SearchFilters): Row[] {
       kind: "Workshop",
       title: w.title,
       subtitle: [w.place, w.date ? new Date(w.date).toLocaleDateString() : ""].filter(Boolean).join(" · "),
-      // The workshop's read-only view, like every other record here — the id travels (a bare
-      // "/workshops" once opened the blank create form although `locate` proves the id was known).
       href: recordViewHref("workshop", w.id),
       locate: { type: "workshop", id: w.id }
     });
@@ -139,21 +115,13 @@ export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [revealing, setRevealing] = useState<string | null>(null);
-  // Every keystroke would be a request; a request per pause is one per word typed.
   const timer = useRef<number | null>(null);
-  // Late responses from a query the user has already changed must not overwrite the current rows.
   const generation = useRef(0);
-  // The text the last run was scheduled for, so a clicked filter can skip the typist's pause.
   const typedBefore = useRef({ q: "", place: "" });
 
-  // `filters` is passed in rather than closed over so this stays a stable callback: it is the thing
-  // the debounce timer fires, and a callback that changed identity on every filter tick would
-  // restart the timer instead of the filter doing it.
   const run = useCallback(async (text: string, active: SearchFilters) => {
     const q = text.trim();
     const mine = ++generation.current;
-    // Two characters of text OR any filter at all. A chip on its own is a real question here —
-    // "the media from this workshop week" — and answering it with a blank panel reads as broken.
     if (q.length < 2 && !hasActiveFilters(active)) {
       setRows(EMPTY);
       setTotal(0);
@@ -168,9 +136,6 @@ export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void
       );
       if (mine !== generation.current) return;
       setRows(rowsFrom(result, active));
-      // Counted over the SELECTED buckets when per-bucket totals are there, so "of N" cannot promise
-      // more results than the filter allows; `total` is every bucket added up, which is only the
-      // right number when every bucket is being shown.
       const selected = result.totals
         ? RECORD_TYPES.filter((type) => typeVisible(active, type)).reduce(
             (sum, type) => sum + (result.totals?.[type] ?? 0),
@@ -188,9 +153,6 @@ export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void
   }, []);
 
   useEffect(() => {
-    // Typing waits for a pause; a chip, a date or a type tick is one deliberate click and refreshes
-    // at once. Both still go through the single timer, so the cancel-and-reschedule path — and with
-    // it the generation guard — stays the only way a request is ever made.
     const typed = query !== typedBefore.current.q || filters.place !== typedBefore.current.place;
     typedBefore.current = { q: query, place: filters.place };
     if (timer.current) window.clearTimeout(timer.current);
@@ -245,7 +207,6 @@ export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void
         ) : null}
       </div>
 
-      {/* Directly under the field, so the chips read as part of the search rather than a separate tool. */}
       <SearchFilterBar value={filters} onChange={setFilters} className="" />
 
       {error ? <p className="text-xs text-error-600">{error}</p> : null}
@@ -270,8 +231,6 @@ export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void
           <ul className="grid gap-1.5">
             {rows.map((row) => (
               <li key={row.key}>
-                {/* The whole row opens the record (its read-only view, or the file); "Show in
-                    folders" and the title link keep their own clicks. */}
                 <RowSurface href={row.href} external={row.external}>
                 <div className="flex min-w-0 items-center gap-2">
                   <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${KIND_CLASS[row.kind]}`}>
@@ -315,8 +274,6 @@ export function DataSearchPanel({ onReveal }: { onReveal: (path: string) => void
           {total > rows.length ? (
             <p className="text-xs text-ink-500">
               Showing {rows.length} of {total}.{" "}
-              {/* The filters travel with the link, so the full page opens on the same search rather
-                  than a wider one the researcher then has to narrow all over again. */}
               <Link
                 href={`/search${buildQuery({ q: query.trim() || undefined, ...filtersToLinkParams(filters) })}`}
                 className="font-semibold text-purple-700 dark:text-purple-300"
