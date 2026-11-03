@@ -3333,6 +3333,44 @@
         "fr-android": "r006"
       },
       "today": {}
+    },
+    {
+      "id": "H1",
+      "name": "Transcript summary edit and regenerate on every client: edit summary lines, key quotes and the English; regenerate asks before replacing edits",
+      "source": "coordinator, 4 Nov 2026 (0.0.10: every AI feature on every client)",
+      "api": {
+        "designer-portal": [
+          "PATCH /media/{media_id}/insights",
+          "POST /media/{media_id}/insights/regenerate"
+        ],
+        "documentation-portal": [
+          "PATCH /media/{media_id}/insights",
+          "POST /media/{media_id}/insights/regenerate"
+        ]
+      },
+      "server": {
+        "designer-portal": "built",
+        "documentation-portal": "built"
+      },
+      "clients": {
+        "dr-web": "required",
+        "dr-android": "required",
+        "fr-web": "required",
+        "fr-android": "required"
+      },
+      "status": {
+        "dr-web": "tagged",
+        "dr-android": "tagged",
+        "fr-web": "tagged",
+        "fr-android": "tagged"
+      },
+      "stream": {
+        "dr-web": "r010",
+        "dr-android": "r010",
+        "fr-web": "r010",
+        "fr-android": "r010"
+      },
+      "today": {}
     }
   ]
 }

@@ -11144,7 +11144,8 @@ private fun MediaWithTranscript(context: Context, media: MediaFileDto, repositor
                     mediaId = media.id,
                     load = { id -> repository.transcriptInsightBatched(id) },
                     loadFull = { id -> repository.transcriptInsight(id) },
-                    formatDate = ::formatIsoDate
+                    formatDate = ::formatIsoDate,
+                    actions = repository.transcriptInsightActions
                 )
             }
             // AI refinement controls under the transcript (only where a repository is available, i.e.
